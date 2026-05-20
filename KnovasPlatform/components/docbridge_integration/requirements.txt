@@ -1,0 +1,43 @@
+# DocBridge-Knovas Integration Dependencies
+
+# Database connectivity
+pyodbc==5.1.0
+
+# File system watching
+watchdog==4.0.0
+
+# HTTP requests
+requests==2.32.0
+
+# Configuration
+pyyaml==6.0.2
+
+# Web framework
+flask==3.0.0
+flask-cors==4.0.0
+gunicorn==22.0.0
+
+# Hashing and security
+cryptography==42.0.0
+
+# Logging
+python-json-logger==2.0.7
+
+# Date/time handling
+python-dateutil==2.8.2
+
+# Retry logic
+tenacity==8.2.3
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Development
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0

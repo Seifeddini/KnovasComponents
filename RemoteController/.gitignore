@@ -1,0 +1,17 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+remote_controller.egg-info/
+.rc-sync-state.json
+.rc-sync-last-request.json
+config/remote_controller_sync.json
+remote_controller_implementation_*.plan.md
+docs/internal/

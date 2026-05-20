@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Knovas Document Search</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-page">
+    <main class="login-shell">
+        <section class="login-card" aria-labelledby="loginTitle">
+            <div class="login-brand">Knovas Document Search</div>
+            <h1 id="loginTitle">Company Login</h1>
+            <p class="login-subtitle">{{ company_name }}</p>
+
+            {% if error %}
+            <div class="login-error" role="alert">{{ error }}</div>
+            {% endif %}
+
+            <form method="post" action="{{ url_for('login') }}" class="login-form">
+                <input type="hidden" name="next" value="{{ next_url }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <label for="loginName">Login-Name</label>
+                <input
+                    type="text"
+                    id="loginName"
+                    name="login_name"
+                    autocomplete="username"
+                    required
+                    autofocus
+                >
+
+                <label for="password">Passwort</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    autocomplete="current-password"
+                    required
+                >
+
+                <button type="submit" class="btn btn-primary login-submit">Einloggen</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

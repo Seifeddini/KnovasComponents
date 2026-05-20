@@ -1,0 +1,244 @@
+# DocBridge-Knovas Integration Configuration
+
+# Database Configuration
+database:
+  driver: "Microsoft Access Driver (*.mdb, *.accdb)"
+  dbq: "\\\\fileserver\\DocBridge\\Database\\docbridge.accdb"
+  # Alternative: Use DSN if configured
+  # dsn: "DocBridge"
+  
+  # Document table name (adjust based on actual schema)
+  doc_table: "Documents"
+  
+  # Query configuration
+  query_timeout: 30  # seconds
+  batch_size: 100    # documents per batch
+
+# AutoDoc Configuration
+autodoc:
+  # Mount path for AutoDoc directory
+  path: "/mnt/autodoc"
+  
+  # File naming pattern: {GUID}_{AkteID}_{Typ}.{ext}
+  # Supported file extensions
+  supported_extensions:
+    - ".docx"
+    - ".doc"
+    - ".pdf"
+    - ".txt"
+    - ".xlsx"
+    - ".xls"
+
+# Knovas API Configuration
+api:
+  # Base URL for Knovas API
+  base_url: "${SEMANTIX_API_URL}"
+  
+  # API endpoints used by this integration webapp client.
+  # Secured Knovas endpoints are the production default.
+  endpoints:
+    init_transmission: "${SEMANTIX_INIT_TRANSMISSION_ENDPOINT:-/secured/init_document_transmission}"
+    transmit_part: "${SEMANTIX_TRANSMIT_PART_ENDPOINT:-/secured/transmit_document_part}"
+    query: "${SEMANTIX_QUERY_ENDPOINT:-/secured/query}"
+    health: "${SEMANTIX_HEALTH_ENDPOINT:-/secured/health}"
+    generate_certificate: "${SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT:-/secured/generate_certificate}"
+    # Legacy/mock endpoints (used only when explicitly enabled)
+    full_sync: "${SEMANTIX_FULL_SYNC_ENDPOINT:-/api/docs/full-sync}"
+    new_doc: "${SEMANTIX_NEW_DOC_ENDPOINT:-/api/docs/new}"
+    search: "${SEMANTIX_SEARCH_ENDPOINT:-/api/search}"
+  
+  # mTLS certificates (optional — enables real Knovas secured API)
+  cert_path: "${SEMANTIX_CLIENT_CERT:-}"
+  key_path: "${SEMANTIX_CLIENT_KEY:-}"
+  ca_cert_path: "${SEMANTIX_CA_CERT:-}"
+  customer_id: "${SEMANTIX_CUSTOMER_ID:-}"
+  cert_auto_renew_enabled: "${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}"
+  cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
+  cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
+
+  # API mode
+  use_secured_api: "${SEMANTIX_USE_SECURED_API:-true}"
+  # Keep false in production. Set true only for explicit mock/dev usage.
+  allow_legacy_api_fallback: "${SEMANTIX_ALLOW_LEGACY_API_FALLBACK:-false}"
+
+  # When the tenant uses encrypted embeddings, POST /secured/query requires
+  # "encryption_matrix" (orthogonal matrix JSON). Path to a JSON file, or empty.
+  encryption_matrix_path: "${SEMANTIX_ENCRYPTION_MATRIX_PATH:-}"
+
+  # Legacy authentication (only relevant in legacy/mock mode)
+  auth_type: "bearer"  # or "api_key"
+  api_key: "${SEMANTIX_API_KEY}"
+
+  # Seconds to wait for each Knovas HTTP response (read timeout). Search can exceed 30s.
+  http_read_timeout: "${SEMANTIX_HTTP_READ_TIMEOUT:-120}"
+  
+  # Rate limiting
+  rate_limit:
+    requests_per_second: 5
+    batch_size: 100
+    retry_attempts: 3
+    retry_backoff: 2  # exponential backoff multiplier
+
+# Synchronization Configuration
+sync:
+  # File to track last synchronization timestamp
+  last_sync_file: "/app/data/last_sync.txt"
+  
+  # Full sync settings
+  full_sync:
+    enabled: true
+    # SQL query template for full sync (adjust based on schema)
+    query: |
+      SELECT DISTINCT 
+        DocID, 
+        AktenID, 
+        DocTyp, 
+        Pfad, 
+        Timestamp, 
+        Size, 
+        HashMD5 
+      FROM Documents d 
+      LEFT JOIN Files f ON d.DocID = f.DocID 
+      WHERE Pfad LIKE '%AutoDoc%'
+      ORDER BY Timestamp DESC
+  
+  # Incremental sync settings
+  incremental_sync:
+    enabled: true
+    # Check interval in seconds
+    check_interval: 60
+    # SQL query template for incremental sync
+    query: |
+      SELECT * 
+      FROM Documents 
+      WHERE Timestamp > ? 
+      ORDER BY Timestamp DESC
+
+# File Watcher Configuration
+watcher:
+  # Watch autodoc directory for changes
+  enabled: true
+  
+  # Events to watch for
+  events:
+    - "created"
+    - "modified"
+  
+  # Debounce time in seconds (wait before processing)
+  debounce_time: 5
+  
+  # Recursive watching
+  recursive: true
+
+# Web Interface Configuration
+web:
+  # Flask server configuration
+  host: "0.0.0.0"
+  port: 8080
+  debug: false
+  
+  # Session configuration
+  secret_key: "${WEB_SECRET_KEY}"
+  session_lifetime: 3600  # seconds (1 hour)
+
+  # Company login gate
+  login:
+    enabled: "${COMPANY_LOGIN_ENABLED:-true}"
+    company_name: "${COMPANY_DISPLAY_NAME:-Knovas}"
+    username: "${COMPANY_LOGIN_NAME}"
+    password: "${COMPANY_LOGIN_PASSWORD}"
+  
+  # Search settings
+  # Semantic / vector search can return loosely related documents (e.g. unrelated PDFs).
+  # For literal words (e.g. "Baum"), use the UI checkbox "Exakte Übereinstimmung" or raise
+  # min_similarity_score when Knovas returns cosine_similarity / cosine_distance.
+  search:
+    results_per_page: 20
+    max_results: 100
+    # Reject queries shorter than this (stops single-letter semantic noise). 1 = disabled.
+    min_query_length: 2
+    # When UI "exact match" is on: each token with at least this many characters
+    # must appear somewhere in title/snippet/description/path (substring match).
+    strict_match_min_term_length: 2
+    # Minimum *similarity* (higher = better): same as cosine_similarity, or (1 - distance).
+    # Example: distance 0.35 => internal score ~0.65, which still passes min_similarity_score 0.25.
+    min_similarity_score: 0.0
+    # Maximum cosine *distance* (0 = identical; higher = worse). Negative = off.
+    # To hide hits with distance 0.35, set e.g. 0.25 here (not min_similarity_score).
+    max_cosine_distance: -1.0
+    # If min_similarity_score > 0 but the API returns no scores, return no hits (true)
+    # or log and show unfiltered results (false).
+    enforce_similarity_threshold_when_set: true
+    # Log each search: min/max score and per-result (doc_id, score) at INFO.
+    log_similarity_scores: true
+    # If true, /api/search JSON includes similarity_debug for browser DevTools.
+    expose_similarity_scores_in_json: false
+    # Off by default: result IDs must come only from Knovas /secured/query.
+    supplement_filename_matches: false
+    supplement_min_query_length: 3
+    
+  # Document opening
+  document_handler:
+    # How to handle document opening
+    # Options: "link", "download", "external"
+    mode: "external"
+    
+    # External application to open documents (Windows)
+    # e.g., "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+    external_app: null
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  
+  # Log file settings
+  file:
+    enabled: true
+    path: "/app/logs/docbridge_integration.log"
+    max_size: 10485760  # 10 MB
+    backup_count: 5
+  
+  # Console logging
+  console:
+    enabled: true
+    
+  # Format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+
+# Performance Configuration
+performance:
+  # Threading
+  max_workers: 4
+  
+  # File processing
+  chunk_size: 8192  # bytes for file reading
+  
+  # Memory limits
+  max_file_size: 104857600  # 100 MB
+
+# Companion UNC open (no temp-file copy; requires user SMB access to same paths)
+open:
+  companion_enabled: "${OPEN_COMPANION_ENABLED:-true}"
+  token_ttl_seconds: "${OPEN_TOKEN_TTL_SECONDS:-120}"
+  public_base_url: "${OPEN_PUBLIC_BASE_URL:-}"
+  companion_uri_scheme: "${OPEN_COMPANION_URI_SCHEME:-semantix-doc}"
+  unc_root: "${OPEN_UNC_ROOT:-}"
+  local_root: "${OPEN_LOCAL_ROOT:-}"
+  pdf_inline_in_browser: "${OPEN_PDF_INLINE_IN_BROWSER:-true}"
+  allow_server_side_startfile: "${OPEN_ALLOW_SERVER_SIDE_STARTFILE:-false}"
+  allow_degraded_download_open: "${OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN:-false}"
+
+# Security Configuration
+security:
+  # Validate file hashes
+  validate_hashes: true
+  
+  # Allowed MIME types
+  allowed_mime_types:
+    - "application/pdf"
+    - "application/msword"
+    - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    - "application/vnd.ms-excel"
+    - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    - "text/plain"

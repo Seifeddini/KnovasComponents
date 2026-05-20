@@ -1,0 +1,45 @@
+# Environment and secret files
+.env
+.env.*
+!.env.example
+*.env
+*.local
+*.secret
+*.secrets
+secrets.*
+credentials.*
+
+# Private keys and cert bundles
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# Token and cache artifacts
+.firebase/
+firebase-debug*.log
+token_store.json
+tokens.json
+auth.json
+onedrive_token.json
+*.token
+
+# Logs and local runtime files
+*.log
+logs/
+tmp/
+temp/
+
+# Local certificate mounts (keep README for operators)
+certs/*
+!certs/README.md
+
+# Local editor/AI tooling
+.claude
+.claude/
+.cursor
+.cursor/

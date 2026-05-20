@@ -1,0 +1,15 @@
+Windows Registry Editor Version 5.00
+;
+; Replace C:\\Program Files\\Semantix\\SemantixOpenCompanion.exe with your install path.
+; Import per-user (HKCU) or deploy machine-wide (HKLM) per IT policy.
+;
+
+[HKEY_CURRENT_USER\Software\Classes\semantix-doc]
+@="URL:Semantix document open"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\semantix-doc\DefaultIcon]
+@="C:\\Program Files\\Semantix\\SemantixOpenCompanion.exe,1"
+
+[HKEY_CURRENT_USER\Software\Classes\semantix-doc\shell\open\command]
+@="\"C:\\Program Files\\Semantix\\SemantixOpenCompanion.exe\" \"%1\""

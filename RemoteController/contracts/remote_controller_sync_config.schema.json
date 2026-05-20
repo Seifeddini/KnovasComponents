@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "enabled",
+    "mode",
+    "window",
+    "rate_limit",
+    "pause_policy"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "enabled": { "type": "boolean" },
+    "mode": { "type": "string", "enum": ["one_time", "continuous"] },
+    "window": {
+      "type": "object",
+      "required": ["start_local", "end_local"],
+      "additionalProperties": false,
+      "properties": {
+        "start_local": { "type": "string", "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" },
+        "end_local": { "type": "string", "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "required": ["max_ingestion_requests_per_minute", "burst"],
+      "additionalProperties": false,
+      "properties": {
+        "max_ingestion_requests_per_minute": { "type": "integer", "minimum": 1 },
+        "burst": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "scan_interval_seconds": { "type": "integer", "minimum": 5 },
+    "max_sync_duration_minutes": { "type": "integer", "minimum": 1 },
+    "pause_policy": {
+      "type": "string",
+      "const": "finish_current_unit_then_pause"
+    }
+  }
+}

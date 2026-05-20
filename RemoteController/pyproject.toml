@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "remote-controller"
+version = "0.1.1"
+description = "Customer-hosted Knovas Remote Controller — discover and sync local files to Semantix"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0,<4",
+    "requests>=2.31,<3",
+    "cryptography>=42,<45",
+    "jsonschema>=4.21,<5",
+    "prometheus-client>=0.20,<1",
+    "gunicorn>=22.0,<24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-cov>=5.0,<6",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "knovas_api: tests requiring real Knovas API connectivity (skipped by default)",
+]

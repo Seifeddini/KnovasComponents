@@ -1,0 +1,62 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.env
+*.local
+*.secret
+*.secrets
+secrets.*
+credentials.*
+
+# Keys and certs
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# Token and cache
+.firebase/
+firebase-debug*.log
+token_store.json
+tokens.json
+auth.json
+onedrive_token.json
+*.token
+
+# Logs and temp
+*.log
+logs/
+tmp/
+temp/
+
+# Certs (keep README)
+**/certs/*
+!**/certs/README.md
+
+# Editor / AI
+.claude
+.claude/
+.cursor
+.cursor/
+
+# Python / test
+**/.pytest_cache/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+
+# .NET build output
+**/bin/
+**/obj/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store

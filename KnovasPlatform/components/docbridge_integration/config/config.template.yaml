@@ -1,0 +1,133 @@
+# DocBridge Integration Configuration Template
+# Copy this file to config.yaml and fill in your values
+
+# DocBridge Database Configuration
+docbridge:
+  # Database connection settings
+  database:
+    # Driver name for pyodbc
+    driver: "Microsoft Access Driver (*.mdb, *.accdb)"
+    # Path to DocBridge database file (UNC or local path)
+    # Example: "\\\\fileserver\\DocBridge\\Database\\docbridge.accdb"
+    dbq: ""
+    # Optional: DSN name if using ODBC Data Source Name
+    dsn: ""
+    # Database table name containing document metadata
+    doc_table: "Documents"
+    # Database table name containing file metadata
+    files_table: "Files"
+  
+  # AutoDoc folder settings
+  autodoc:
+    # Path to AutoDoc folder containing PDF and DOCX files
+    # Example: "/mnt/autodoc" or "\\\\fileserver\\DocBridge\\AutoDoc"
+    path: ""
+    # File extensions to synchronize (case-insensitive)
+    allowed_extensions:
+      - "pdf"
+      - "docx"
+
+# Knovas API Configuration
+semantix:
+  # API base URLs
+  api:
+    base_url: "https://your-knovas-host.com"
+    secured_port: 8443
+    # Full URL will be constructed as: {base_url}:{secured_port}/secured/{endpoint}
+  
+  # mTLS Certificate paths (relative to config directory or absolute)
+  certificates:
+    client_cert: "certificates/client_cert.pem"
+    client_key: "certificates/client_key.pem"
+    ca_root_cert: "certificates/ca_root_cert.pem"
+  # Optional explicit tenant UUID for certificate renewal.
+  customer_id: "${SEMANTIX_CUSTOMER_ID:-}"
+  # Automatic certificate renewal controls.
+  cert_auto_renew_enabled: "${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}"
+  cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
+  cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
+  
+  # Rate limiting to respect Knovas API limits
+  rate_limits:
+    # Requests per second (Knovas limit: 5/sec with burst to 50)
+    requests_per_second: 4.5
+    # Maximum burst size
+    burst_size: 45
+    # Maximum concurrent transmissions
+    max_concurrent_transmissions: 5
+    # Timeout for API requests (seconds)
+    request_timeout: 300
+    # Retry configuration
+    max_retries: 4
+    retry_backoff_factor: 2  # Exponential backoff: 2s, 4s, 8s, 16s
+  
+  # Document chunking configuration
+  chunking:
+    # Maximum characters per document part (under 20MB limit)
+    max_chars_per_part: 500000  # ~500KB of text
+    # Overlap between parts to preserve context
+    overlap_chars: 1000
+
+# Synchronization Settings
+sync:
+  # Batch size for database queries
+  db_batch_size: 100
+  # Maximum documents to process in a single run (0 = unlimited)
+  max_documents: 0
+  # Skip documents that fail to parse
+  skip_failed_documents: true
+  # Continue sync even if some documents fail
+  continue_on_error: true
+  
+  # Sync state tracking
+  state:
+    # Path to store sync state (tracks last sync time, failed documents)
+    state_file: "sync_state.json"
+  
+  # Filtering options
+  filters:
+    # Only sync documents modified after this date (ISO format)
+    # Leave empty to sync all documents
+    modified_after: ""
+    # Specific document types to sync (leave empty for all)
+    # Example: ["Brief", "Vertrag", "Urteil"]
+    document_types: []
+
+# Notification Configuration
+notifications:
+  # Enable email notifications
+  email:
+    enabled: false
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    smtp_user: ""
+    smtp_password: ""
+    from_address: "docbridge-sync@example.com"
+    to_addresses:
+      - "admin@example.com"
+    # Send email on completion
+    notify_on_completion: true
+    # Send email only if there are failures
+    notify_on_failure_only: false
+  
+  # Log file location
+  logging:
+    log_file: "logs/docbridge_sync.log"
+    log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    log_format: "json"  # json or text
+
+# Advanced Settings
+advanced:
+  # Document content extraction
+  extraction:
+    # Use OCR for scanned PDFs (requires additional dependencies)
+    use_ocr: false
+    # Maximum file size to process (bytes, 0 = unlimited)
+    max_file_size: 104857600  # 100 MB
+  
+  # Performance tuning
+  performance:
+    # Number of worker threads for file processing
+    worker_threads: 4
+    # Memory limit per document processing (bytes)
+    memory_limit_per_doc: 52428800  # 50 MB

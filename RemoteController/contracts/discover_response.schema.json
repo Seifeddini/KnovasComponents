@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["status", "scanned_at", "root", "truncated", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "status": { "type": "string", "const": "success" },
+    "scanned_at": { "type": "string", "format": "date-time" },
+    "root": { "type": "string" },
+    "truncated": { "type": "boolean" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["file", "directory"] },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "modified_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

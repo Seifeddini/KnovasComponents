@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  knovas-platform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: KnovasPlatform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r components/docbridge_integration/requirements.txt
+
+      - name: Pytest
+        working-directory: KnovasPlatform/components/docbridge_integration
+        run: pytest
+
+      - name: Create minimal .env for compose
+        run: |
+          cp .env.example .env
+          sed -i 's/^WEB_SECRET_KEY=.*/WEB_SECRET_KEY=ci-test-secret-key-not-for-production/' .env
+          sed -i 's/^COMPANY_LOGIN_PASSWORD=.*/COMPANY_LOGIN_PASSWORD=ci-test-password-not-for-production/' .env
+
+      - name: Docker compose build
+        run: docker compose build docbridge-web docbridge-web-nginx
+
+  remote-controller:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RemoteController
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run pytest
+        env:
+          RC_SKIP_CONFIG_VALIDATION: "true"
+          TESTING: "true"
+          RC_RATE_LIMIT_ENABLED: "true"
+          RC_MTLS_DEV_BYPASS: "true"
+          RC_MTLS_DEV_EMPLOYEE_ID: "11111111-1111-1111-1111-111111111111"
+          KNOVAS_INTERNAL_API_URL: http://internal-api:5000
+          RC_INSTANCE_TOKEN: test-token
+          RC_CLIENT_ID: "22222222-2222-2222-2222-222222222222"
+          RC_WATCH_ROOTS: /tmp
+          SEMANTIX_SECURE_BASE_URL: https://knovas:8443
+          SEMANTIX_CLIENT_CERT_PATH: /certs/client.pem
+          SEMANTIX_CLIENT_KEY_PATH: /certs/client.key
+          SEMANTIX_CA_CERT_PATH: /certs/ca.pem
+        run: pytest
+
+      - name: Validate contract schemas
+        run: |
+          pip install jsonschema
+          python -c "import json, pathlib; from jsonschema import Draft202012Validator; [Draft202012Validator.check_schema(json.loads(p.read_text())) for p in pathlib.Path('contracts').glob('*.json')]"
+
+      - name: Build image
+        run: docker build -t remote-controller:ci .
+
+      - name: Boot with valid env and probe health
+        run: |
+          mkdir -p /tmp/rc-watch
+          touch /tmp/rc-watch/.keep
+          cat > ci.env <<'EOF'
+          KNOVAS_INTERNAL_API_URL=http://internal-api:5000
+          RC_INSTANCE_TOKEN=test-token
+          RC_CLIENT_ID=22222222-2222-2222-2222-222222222222
+          RC_WATCH_ROOTS=/data
+          SEMANTIX_SECURE_BASE_URL=https://knovas:8443
+          SEMANTIX_CLIENT_CERT_PATH=/certs/client.pem
+          SEMANTIX_CLIENT_KEY_PATH=/certs/client.key
+          SEMANTIX_CA_CERT_PATH=/certs/ca.pem
+          EOF
+          docker run -d --name rc-ci --env-file ci.env \
+            -v /tmp/rc-watch:/data:ro \
+            remote-controller:ci
+          sleep 3
+          docker exec rc-ci python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:5001/health'); assert r.status==200, r.status"
+          docker stop rc-ci

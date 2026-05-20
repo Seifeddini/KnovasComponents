@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knovas Document Search</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Knovas Document Search</h1>
+            <p class="subtitle">Powered by Knovas{% if company_name %} · {{ company_name }}{% endif %}</p>
+            <p class="header-feedback">
+                <a class="feedback-link" href="mailto:support@knovas.ch" title="Feedback per E-Mail senden">Feedback geben</a>
+            </p>
+            <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn-text logout-button">Abmelden</button>
+            </form>
+        </header>
+
+        <main>
+            <section class="search-section">
+                <div class="search-box">
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        placeholder="Dokumente durchsuchen..." 
+                        autofocus
+                    >
+                    <button id="searchButton" class="btn btn-primary">
+                        <span class="icon">🔍</span> Suchen
+                    </button>
+                </div>
+                
+                <div class="search-options">
+                    <label>
+                        <input type="checkbox" id="exactMatch"> Exakte Übereinstimmung
+                    </label>
+                    <label>
+                        Ergebnisse pro Seite:
+                        <select id="resultsPerPage">
+                            <option value="10">10</option>
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </label>
+                </div>
+            </section>
+
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <div class="results-header">
+                    <h2>Suchergebnisse</h2>
+                    <span id="resultsCount" class="results-count"></span>
+                </div>
+                <div id="semantixResponseBanner" class="semantix-response-banner" style="display: none;" aria-live="polite"></div>
+                
+                <div id="resultsContainer" class="results-container">
+                    <!-- Results will be dynamically inserted here -->
+                </div>
+                
+                <div id="loadingIndicator" class="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Suche läuft...</p>
+                </div>
+                
+                <div id="errorMessage" class="error-message" style="display: none;"></div>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2026 Knovas</p>
+            <p class="footer-links">
+                <a href="#" id="healthCheck">System Status</a>
+                <span class="footer-sep" aria-hidden="true">·</span>
+                <a class="feedback-link feedback-link--footer" href="mailto:support@knovas.ch" title="Feedback per E-Mail senden">Feedback geben</a>
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        window.__DOCBRIDGE__ = {
+            csrfToken: {{ csrf_token|tojson }},
+            companionEnabled: {{ companion_enabled|tojson }},
+            allowDegradedDownloadOpen: {{ allow_degraded_download_open|tojson }},
+            pdfInlineInBrowser: {{ pdf_inline_in_browser|tojson }},
+        };
+    </script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

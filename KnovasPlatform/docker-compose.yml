@@ -1,0 +1,111 @@
+services:
+  semantix-mock:
+    build:
+      context: ./mock_semantix_api
+      dockerfile: Dockerfile
+    container_name: semantix-mock
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      timeout: 10s
+      interval: 20s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    profiles:
+      - mock
+
+  docbridge-web:
+    image: ${DOCBRIDGE_WEB_IMAGE:-docbridge-web-clientbundle:latest}
+    build:
+      context: ./components/docbridge_integration
+      dockerfile: Dockerfile
+    container_name: docbridge-web
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "5000"
+    environment:
+      SEMANTIX_API_KEY: ${SEMANTIX_API_KEY:-}
+      SEMANTIX_API_URL: ${SEMANTIX_API_URL:-https://host.docker.internal:8443}
+      SEMANTIX_USE_SECURED_API: ${SEMANTIX_USE_SECURED_API:-true}
+      SEMANTIX_ALLOW_LEGACY_API_FALLBACK: ${SEMANTIX_ALLOW_LEGACY_API_FALLBACK:-false}
+      SEMANTIX_CLIENT_CERT: ${SEMANTIX_CLIENT_CERT:-}
+      SEMANTIX_CLIENT_KEY: ${SEMANTIX_CLIENT_KEY:-}
+      SEMANTIX_CA_CERT: ${SEMANTIX_CA_CERT:-}
+      SEMANTIX_CUSTOMER_ID: ${SEMANTIX_CUSTOMER_ID:-}
+      SEMANTIX_CERT_AUTO_RENEW_ENABLED: ${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}
+      SEMANTIX_CERT_RENEW_THRESHOLD_DAYS: ${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}
+      SEMANTIX_CERT_CHECK_INTERVAL_SECONDS: ${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}
+      SEMANTIX_ENCRYPTION_MATRIX_PATH: ${SEMANTIX_ENCRYPTION_MATRIX_PATH:-}
+      SEMANTIX_HTTP_READ_TIMEOUT: ${SEMANTIX_HTTP_READ_TIMEOUT:-120}
+      SEMANTIX_QUERY_ENDPOINT: ${SEMANTIX_QUERY_ENDPOINT:-/secured/query}
+      SEMANTIX_HEALTH_ENDPOINT: ${SEMANTIX_HEALTH_ENDPOINT:-/secured/health}
+      SEMANTIX_SEARCH_ENDPOINT: ${SEMANTIX_SEARCH_ENDPOINT:-/api/search}
+      SEMANTIX_INIT_TRANSMISSION_ENDPOINT: ${SEMANTIX_INIT_TRANSMISSION_ENDPOINT:-/secured/init_document_transmission}
+      SEMANTIX_TRANSMIT_PART_ENDPOINT: ${SEMANTIX_TRANSMIT_PART_ENDPOINT:-/secured/transmit_document_part}
+      SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT: ${SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT:-/secured/generate_certificate}
+      WEB_SECRET_KEY: ${WEB_SECRET_KEY:?WEB_SECRET_KEY must be set in .env}
+      COMPANY_LOGIN_ENABLED: ${COMPANY_LOGIN_ENABLED:-true}
+      COMPANY_DISPLAY_NAME: ${COMPANY_DISPLAY_NAME:-Knovas}
+      COMPANY_LOGIN_NAME: ${COMPANY_LOGIN_NAME:?COMPANY_LOGIN_NAME must be set in .env}
+      COMPANY_LOGIN_PASSWORD: ${COMPANY_LOGIN_PASSWORD:?COMPANY_LOGIN_PASSWORD must be set in .env}
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DOCBRIDGE_WEB_WORKERS: ${DOCBRIDGE_WEB_WORKERS:-2}
+      DOCBRIDGE_WEB_THREADS: ${DOCBRIDGE_WEB_THREADS:-4}
+      DOCBRIDGE_WEB_TIMEOUT: ${DOCBRIDGE_WEB_TIMEOUT:-120}
+      OPEN_COMPANION_ENABLED: ${OPEN_COMPANION_ENABLED:-true}
+      OPEN_COMPANION_URI_SCHEME: ${OPEN_COMPANION_URI_SCHEME:-semantix-doc}
+      OPEN_TOKEN_TTL_SECONDS: ${OPEN_TOKEN_TTL_SECONDS:-120}
+      OPEN_PUBLIC_BASE_URL: ${OPEN_PUBLIC_BASE_URL:-}
+      OPEN_UNC_ROOT: ${OPEN_UNC_ROOT:-}
+      OPEN_LOCAL_ROOT: ${OPEN_LOCAL_ROOT:-}
+      OPEN_PDF_INLINE_IN_BROWSER: ${OPEN_PDF_INLINE_IN_BROWSER:-true}
+      OPEN_ALLOW_SERVER_SIDE_STARTFILE: ${OPEN_ALLOW_SERVER_SIDE_STARTFILE:-false}
+      OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN: ${OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN:-false}
+    volumes:
+      - ./components/docbridge_integration/config:/app/config:ro
+      - docbridge_integration_logs:/app/logs
+      - docbridge_integration_data:/app/data
+      - ${AUTODOC_MOUNT_PATH:-./docbridge_test_data/AutoDoc}:/mnt/autodoc:ro
+      - ${SEMANTIX_CERTS_DIR:-./certs}:/app/certs:ro
+    command: >
+      sh -c "gunicorn
+      --workers=$${DOCBRIDGE_WEB_WORKERS}
+      --threads=$${DOCBRIDGE_WEB_THREADS}
+      --timeout=$${DOCBRIDGE_WEB_TIMEOUT}
+      --bind=0.0.0.0:5000
+      web_interface.wsgi:app"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/stats', timeout=5)"]
+      timeout: 10s
+      interval: 30s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  docbridge-web-nginx:
+    image: nginx:alpine
+    container_name: docbridge-web-nginx
+    depends_on:
+      docbridge-web:
+        condition: service_healthy
+    ports:
+      - "${DOCBRIDGE_WEB_PORT:-8081}:80"
+    volumes:
+      - ./components/docbridge_integration/nginx/docbridge-web-local.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/health"]
+      timeout: 10s
+      interval: 30s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  docbridge_integration_data:
+  docbridge_integration_logs:
