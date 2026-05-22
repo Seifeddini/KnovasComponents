@@ -14,7 +14,9 @@ docker compose up -d --build
 curl -sS http://127.0.0.1:5001/health
 ```
 
-Full path: [docs/hosting/GETTING_STARTED.md](docs/hosting/GETTING_STARTED.md)
+**Full setup:** [docs/SETUP.md](docs/SETUP.md)
+
+**Local curl, sync, and tests:** [docs/local-commands.md](docs/local-commands.md)
 
 ## Docs
 
@@ -22,4 +24,4 @@ Full path: [docs/hosting/GETTING_STARTED.md](docs/hosting/GETTING_STARTED.md)
 
 ## Security
 
-Employee RC cert for RC routes; tenant cert for Knovas ingestion only. Do not expose port 5001 publicly — use the edge proxy in `docs/hosting/`.
+Employee RC cert for RC routes; tenant cert for Knovas ingestion only. Do not expose port 5001 publicly — use the edge proxy in [docs/nginx-edge.example.conf](docs/nginx-edge.example.conf).

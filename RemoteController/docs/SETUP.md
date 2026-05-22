@@ -1,10 +1,22 @@
-# Getting started — clone, configure, run
+# Setup — clone to fully functional Remote Controller
 
-This guide is the single ordered path from a fresh clone to a working Remote Controller (RC). Use it with the reference docs linked at each step.
+Single ordered path from a fresh folder to a working Remote Controller (RC). Use reference docs linked at each step.
+
+## Milestones
+
+| Milestone | How you know |
+|-----------|----------------|
+| Service healthy | `GET /health` returns HTTP 200, `"status":"ok"` |
+| Production-ready edge | HTTPS public URL; employee mTLS at NGINX/Envoy |
+| End-to-end sync | `GET /discover` and `POST /sync` succeed; documents appear in Knovas |
+
+For curl, logs, and local dev shortcuts, see [local-commands.md](local-commands.md).
+
+---
 
 ## Before you begin
 
-You need from **Knovas** (before or during onboarding):
+**From Knovas** (before or during onboarding):
 
 | Item | Used as |
 |------|---------|
@@ -15,7 +27,7 @@ You need from **Knovas** (before or during onboarding):
 | Employee RC certificates | Issued per operator; used by employees at the edge |
 | Public RC base URL | Registered in Knovas admin (e.g. `https://rc.yourcompany.com`) |
 
-You provide:
+**You provide:**
 
 | Item | Notes |
 |------|--------|
@@ -23,24 +35,28 @@ You provide:
 | Watch-root directories | Local paths containing documents to sync |
 | Edge reverse proxy | NGINX or Envoy — see step 6 |
 
-External prerequisites are described in [network-and-firewall.md](network-and-firewall.md).
+Network prerequisites: [network-and-firewall.md](network-and-firewall.md).
 
 ---
 
-## Step 1 — Clone and install dependencies (optional local dev)
+## Step 1 — Clone
+
+**Monorepo:**
+
+```bash
+git clone https://github.com/Seifeddini/KnovasComponents.git
+cd KnovasComponents/RemoteController
+```
+
+**Standalone Remote Controller repo:**
 
 ```bash
 git clone <your-remote-controller-repo-url>
-cd remote-controller
-cp .env.example .env
+cd RemoteController
 ```
 
-For local development and tests only:
-
 ```bash
-pip install -e ".[dev]"
-export RC_SKIP_CONFIG_VALIDATION=true   # never set in production
-pytest
+cp .env.example .env
 ```
 
 Production containers **must not** set `RC_SKIP_CONFIG_VALIDATION`. Missing required variables must fail at boot.
@@ -49,13 +65,13 @@ Production containers **must not** set `RC_SKIP_CONFIG_VALIDATION`. Missing requ
 
 ## Step 2 — Configure environment
 
-Edit `.env` using [.env.example](../../.env.example) as reference. Required variables:
+Edit `.env` using [.env.example](../.env.example). Required variables:
 
 - `KNOVAS_INTERNAL_API_URL`, `RC_INSTANCE_TOKEN`, `RC_CLIENT_ID`
 - `RC_WATCH_ROOTS` — comma-separated **absolute** paths inside the container (e.g. `/data/docs`)
 - Knovas Secure API URL and tenant mTLS paths (see `.env.example`)
 
-Set file permissions to `0600` on cert and key files. Details: [configuration.md](configuration.md).
+Set file permissions to `0600` on cert and key files. Full reference: [configuration.md](configuration.md).
 
 ---
 
@@ -82,7 +98,9 @@ Scheduler config `config/remote_controller_sync.json` is created on first start 
 docker compose up -d --build
 ```
 
-**Docker only:**
+Uses [docker-compose.yml](../docker-compose.yml) with RC + NGINX edge.
+
+**Docker only (RC container):**
 
 ```bash
 docker build -t remote-controller:0.1.1 .
@@ -94,7 +112,11 @@ docker run -d --name remote-controller \
   remote-controller:0.1.1
 ```
 
-See [installation.md](installation.md) for bare-metal Python and worker notes (**use a single Gunicorn worker** for continuous sync).
+Place NGINX or Envoy in front for employee mTLS — do not publish port 5001 to the public internet.
+
+**Gunicorn workers:** The image runs **one** worker (`-w 1`). Continuous sync uses in-process locks; multiple workers cause duplicate schedulers and conflicting state files. If you run Gunicorn manually, keep `-w 1`.
+
+**Python from source (dev/staging):** See [local-commands.md](local-commands.md).
 
 ---
 
@@ -106,15 +128,18 @@ From the RC host (or through the edge if configured):
 curl -sS http://127.0.0.1:5001/health
 ```
 
-Expect HTTP **200** and `"status":"ok"` when config and watch roots are valid. HTTP **503** with `"status":"degraded"` means fix `.env` or volume mounts before going live. See [operations.md](operations.md).
+- HTTP **200** — `"status":"ok"`; config, watch roots, and scheduler checks are healthy.
+- HTTP **503** — `"status":"degraded"`; fix `.env` or volume mounts before going live.
 
-If the container exits immediately, check logs — required env vars are validated at startup in production.
+If the container exits immediately, check logs — required env vars are validated at startup in production. Details: [operations.md](operations.md).
 
 ---
 
 ## Step 6 — Configure the edge proxy
 
-Do **not** expose port 5001 directly to the internet. Terminate employee RC mTLS at NGINX/Envoy and forward headers to RC:
+**Required for production employee access.** Do not expose port 5001 directly to the internet.
+
+Terminate employee RC mTLS at NGINX/Envoy and forward headers to RC:
 
 - `X-SSL-Client-Cert`
 - `X-SSL-Client-DN` (CN = operator UUID)
@@ -133,33 +158,32 @@ Copy and customize [nginx-edge.example.conf](nginx-edge.example.conf). With Comp
 
 ## Step 8 — First discover and sync
 
-Employee workflow (during the configured sync window):
+Employee workflow (during the configured sync window). Obtain an employee JWT from the Knovas Internal API (`generate_emp_jwt`).
+
+Adjust `sources[].path` in [examples/sync-request.json](../examples/sync-request.json) to match your `RC_WATCH_ROOTS` mounts.
 
 ```bash
-# Obtain employee JWT from Knovas Internal API (generate_emp_jwt)
+export RC_BASE=https://rc.yourcompany.com
+export EMPLOYEE_JWT="<employee_jwt>"
 
-curl -sS "https://rc.yourcompany.com/discover" \
+curl -sS "$RC_BASE/discover" \
   --cert employee-rc.pem --key employee-rc.key \
-  -H "Authorization: Bearer <employee_jwt>"
+  -H "Authorization: Bearer $EMPLOYEE_JWT"
 
-curl -sS -X POST "https://rc.yourcompany.com/sync" \
+curl -sS -X POST "$RC_BASE/sync" \
   --cert employee-rc.pem --key employee-rc.key \
-  -H "Authorization: Bearer <employee_jwt>" \
+  -H "Authorization: Bearer $EMPLOYEE_JWT" \
   -H "Content-Type: application/json" \
-  -d @sync-request.json
+  -d @examples/sync-request.json
+
+curl -sS "$RC_BASE/sync/status" \
+  --cert employee-rc.pem --key employee-rc.key \
+  -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
 
-Check `GET /sync/status` and confirm documents in Knovas. Checklist: [onboarding-checklist.md](onboarding-checklist.md).
+Confirm documents in Knovas. Go-live checklist: [onboarding-checklist.md](onboarding-checklist.md).
 
----
-
-## Optional — live API smoke tests
-
-After `.env` points at real staging APIs:
-
-```bash
-pytest --knovas-api
-```
+For local testing without employee certs, see [local-commands.md](local-commands.md).
 
 ---
 
@@ -167,7 +191,7 @@ pytest --knovas-api
 
 | Doc | Purpose |
 |-----|---------|
-| [installation.md](installation.md) | Docker details, single-worker requirement |
+| [local-commands.md](local-commands.md) | Run locally, curl sync/discover, pytest |
 | [configuration.md](configuration.md) | Env vars, sync JSON, permissions |
 | [network-and-firewall.md](network-and-firewall.md) | Ingress/egress checklist |
 | [operations.md](operations.md) | Health, metrics, upgrades |

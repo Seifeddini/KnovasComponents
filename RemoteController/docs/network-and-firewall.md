@@ -28,6 +28,8 @@ curl -sS "https://rc.customer.example.com/discover" \
   -H "Authorization: Bearer <employee_jwt>"
 ```
 
+Local testing without edge certs: [local-commands.md](local-commands.md).
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

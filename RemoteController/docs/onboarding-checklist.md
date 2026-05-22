@@ -1,6 +1,6 @@
 # Onboarding checklist
 
-Follow [GETTING_STARTED.md](GETTING_STARTED.md) for the full ordered path.
+Follow [SETUP.md](SETUP.md) for the full ordered path.
 
 1. Install RC; mount tenant cert, employee CA trust (at edge), and watch root volumes.
 2. Fill `.env` and `config/remote_controller_sync.json`.

@@ -13,5 +13,5 @@ COPY contracts ./contracts
 USER rcuser
 ENV PYTHONPATH=/app/src
 EXPOSE 5001
-# Single worker: continuous sync scheduler uses in-process locks (see docs/hosting/installation.md).
+# Single worker: continuous sync scheduler uses in-process locks (see docs/SETUP.md).
 CMD ["gunicorn", "-b", "0.0.0.0:5001", "-w", "1", "app:app"]

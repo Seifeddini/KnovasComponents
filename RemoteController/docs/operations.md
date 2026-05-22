@@ -1,5 +1,7 @@
 # Operations
 
+Day-to-day curl examples: [local-commands.md](local-commands.md). First-time setup: [SETUP.md](SETUP.md).
+
 ## Health
 
 `GET /health` is unauthenticated. Use for load balancers and Knovas admin probes.
@@ -16,6 +18,12 @@
 - Structured logs use file **basenames** only (not full paths).
 - JWT, instance tokens, PEMs, and file contents are never logged.
 
+Docker logs:
+
+```bash
+docker compose logs -f remote-controller
+```
+
 ## Continuous sync
 
 - Check `GET /sync/status` for `scheduler_state`, `last_run_at`, `files_processed`.
@@ -27,3 +35,5 @@
 1. Stop continuous worker (`POST /sync/stop`).
 2. Replace image or package; preserve `.env`, certs, state, and config volumes.
 3. Verify `/health`, then run a test `GET /discover`.
+
+Use a **single** Gunicorn worker (`-w 1`) when running from source; multiple workers conflict on scheduler state.

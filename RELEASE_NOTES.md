@@ -6,14 +6,14 @@ Customer deploy bundle for Knovas.
 
 Docker search UI for an indexed Knovas tenant. Requires mTLS client certificates and company login configuration.
 
-- Deploy: [KnovasPlatform/docs/first-deploy-checklist.md](KnovasPlatform/docs/first-deploy-checklist.md)
+- Deploy: [KnovasPlatform/docs/setup.md](KnovasPlatform/docs/setup.md)
 - API reference: [KnovasPlatform/knovas-docs/Knovas_Developer_Implementation_Kit/README.md](KnovasPlatform/knovas-docs/Knovas_Developer_Implementation_Kit/README.md)
 
 ## RemoteController
 
 Discover and sync local text files to Knovas (employee JWT + RC mTLS at the edge; tenant mTLS for ingestion).
 
-- Deploy: [RemoteController/docs/hosting/GETTING_STARTED.md](RemoteController/docs/hosting/GETTING_STARTED.md)
+- Deploy: [RemoteController/docs/SETUP.md](RemoteController/docs/SETUP.md)
 
 ## Prerequisites (from Knovas)
 
