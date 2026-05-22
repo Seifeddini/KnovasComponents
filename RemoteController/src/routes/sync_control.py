@@ -4,6 +4,7 @@ from auth.knovas_verify_client import require_knovas_verify
 from auth.mtls import require_rc_mtls
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from sync.sync_config import load_sync_config
+from sync.sync_executor import scan_document_inventory
 from sync.sync_scheduler import (
     SyncRunContext,
     get_scheduler_status,
@@ -59,4 +60,9 @@ def sync_stop():
 @sync_control_bp.route("/sync/status", methods=["GET"])
 @_apply_decorators
 def sync_status():
-    return jsonify(get_scheduler_status()), 200
+    status = get_scheduler_status()
+    if request.args.get("live") == "1":
+        body = load_last_sync_body()
+        if body:
+            status["document_sync"] = scan_document_inventory(body).as_dict()
+    return jsonify(status), 200

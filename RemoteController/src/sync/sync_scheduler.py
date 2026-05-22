@@ -31,6 +31,7 @@ _worker_thread: Optional[threading.Thread] = None
 _current_status = "awaiting_initial_sync_body"
 _last_run_at: Optional[str] = None
 _files_processed = 0
+_last_document_sync: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -85,6 +86,7 @@ def get_scheduler_status() -> dict[str, Any]:
         "last_run_at": _last_run_at,
         "current_status": _current_status,
         "files_processed": _files_processed,
+        "document_sync": _last_document_sync,
         "config_snapshot_hash": config_snapshot_hash(cfg),
         "worker_alive": _worker_thread is not None and _worker_thread.is_alive(),
     }
@@ -96,7 +98,7 @@ def _set_status(status: str) -> None:
 
 
 def _run_once(ctx: SyncRunContext) -> SyncRunResult:
-    global _last_run_at, _files_processed
+    global _last_run_at, _files_processed, _last_document_sync
     cfg_doc = ctx.sync_config
     if not cfg_doc.get("enabled", True):
         _set_status("disabled")
@@ -152,6 +154,8 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     )
     _last_run_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     _files_processed += result.files_uploaded
+    if result.document_sync is not None:
+        _last_document_sync = result.document_sync.as_dict()
 
     if result.paused_reason:
         _set_status(result.paused_reason if result.paused_reason != "outside_window" else "paused_outside_window")
