@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Knovas Document Search</title>
+    <title>{{ app_title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Knovas Document Search</h1>
+            <h1>{{ app_title }}</h1>
             <p class="subtitle">Powered by Knovas{% if company_name %} · {{ company_name }}{% endif %}</p>
             <p class="header-feedback">
                 <a class="feedback-link" href="mailto:support@knovas.ch" title="Feedback per E-Mail senden">Feedback geben</a>

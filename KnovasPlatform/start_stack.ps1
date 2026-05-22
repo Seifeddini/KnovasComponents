@@ -12,5 +12,10 @@ if (-not (Test-Path "components/docbridge_integration")) {
     exit 1
 }
 
-docker compose up -d docbridge-web docbridge-web-nginx
+# Full rebuild so the running UI matches this repo (avoids stale labels from cached layers).
+Write-Host "Building docbridge-web (no cache)..."
+docker compose build --no-cache docbridge-web
+
+Write-Host "Starting docbridge-web and docbridge-web-nginx..."
+docker compose up -d --force-recreate docbridge-web docbridge-web-nginx
 docker compose ps

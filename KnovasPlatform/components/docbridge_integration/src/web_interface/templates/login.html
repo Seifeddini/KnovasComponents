@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Knovas Document Search</title>
+    <title>Login - {{ app_title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="login-page">
     <main class="login-shell">
         <section class="login-card" aria-labelledby="loginTitle">
-            <div class="login-brand">Knovas Document Search</div>
+            <div class="login-brand">{{ app_title }}</div>
             <h1 id="loginTitle">Company Login</h1>
             <p class="login-subtitle">{{ company_name }}</p>
 

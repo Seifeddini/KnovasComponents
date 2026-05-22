@@ -32,6 +32,14 @@ docker compose --profile mock down
 
 The helper scripts run `docker compose --profile mock down` so both the search UI and an active mock API are stopped.
 
+**Full rebuild before start** (from `KnovasPlatform/`):
+
+```bash
+./start_stack.sh
+```
+
+Runs `docker compose build --no-cache docbridge-web` then `up --force-recreate` (see [setup.md](../KnovasPlatform/docs/setup.md)).
+
 Confirm nothing is listening on your web port (default `8081` from `DOCBRIDGE_WEB_PORT`):
 
 ```bash

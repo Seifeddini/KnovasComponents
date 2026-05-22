@@ -23,7 +23,7 @@ import re
 from urllib.parse import quote
 
 from config_loader import get_config
-from semantix_client import KnovasAPIClient
+from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
 from unc_path import (
@@ -53,7 +53,7 @@ def _configure_logging_for_wsgi(config) -> None:
             logging.Formatter('%(asctime)s %(levelname)s [%(name)s] %(message)s')
         )
         root.addHandler(h)
-    for name in ('web_interface', 'web_interface.app', 'semantix_client'):
+    for name in ('web_interface', 'web_interface.app', 'knovas_client'):
         logging.getLogger(name).setLevel(level)
 
 
@@ -144,6 +144,7 @@ def create_app(config_path: Optional[str] = None):
     api_client = KnovasAPIClient(config)
     file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
+    web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
     login_company_name = config.get('web.login.company_name', 'Knovas')
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
@@ -359,6 +360,7 @@ def create_app(config_path: Optional[str] = None):
 
         return render_template(
             'login.html',
+            app_title=web_app_title,
             company_name=login_company_name,
             error=error,
             next_url=next_url,
@@ -379,6 +381,7 @@ def create_app(config_path: Optional[str] = None):
         """Main search page."""
         return render_template(
             'index.html',
+            app_title=web_app_title,
             company_name=login_company_name,
             csrf_token=_ensure_csrf_token(),
             companion_enabled=companion_enabled,

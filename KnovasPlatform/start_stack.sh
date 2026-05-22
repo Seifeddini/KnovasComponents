@@ -16,5 +16,10 @@ if [[ ! -d "components/docbridge_integration" ]]; then
   exit 1
 fi
 
-docker compose up -d docbridge-web docbridge-web-nginx
+# Full rebuild so the running UI matches this repo (avoids stale "Semantix" labels from cached layers).
+echo "Building docbridge-web (no cache)..."
+docker compose build --no-cache docbridge-web
+
+echo "Starting docbridge-web and docbridge-web-nginx..."
+docker compose up -d --force-recreate docbridge-web docbridge-web-nginx
 docker compose ps

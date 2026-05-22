@@ -43,6 +43,24 @@ Place in `./certs/` (see [certs/README.md](../certs/README.md)): `client.crt`, `
 ./scripts/verify_deploy.sh
 ```
 
+`start_stack` performs a **full Docker rebuild** (`build --no-cache` + `up --force-recreate`) so the UI matches this repo. First start after a pull can take several minutes.
+
+**Manual full rebuild** (same as the scripts):
+
+```bash
+cd KnovasPlatform
+docker compose build --no-cache docbridge-web
+docker compose up -d --force-recreate docbridge-web docbridge-web-nginx
+```
+
+Windows (PowerShell): `.\start_stack.ps1`
+
+**Faster restart** (reuse existing image; no rebuild):
+
+```bash
+docker compose up -d docbridge-web docbridge-web-nginx
+```
+
 Windows (host shell):
 
 ```powershell

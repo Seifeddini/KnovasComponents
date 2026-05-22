@@ -141,6 +141,9 @@ web:
   secret_key: "${WEB_SECRET_KEY}"
   session_lifetime: 3600  # seconds (1 hour)
 
+  # Browser tab and page heading (rebuild docbridge-web image after changing)
+  app_title: "${WEB_APP_TITLE:-Knovas Document Search}"
+
   # Company login gate
   login:
     enabled: "${COMPANY_LOGIN_ENABLED:-true}"
