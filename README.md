@@ -14,4 +14,6 @@ git clone https://github.com/Seifeddini/KnovasComponents.git
 cd KnovasComponents
 ```
 
-See each folder’s README. Release: [Releases](https://github.com/Seifeddini/KnovasComponents/releases).
+See each folder’s README. To stop Docker or dev web servers: [docs/stopping-web-servers.md](docs/stopping-web-servers.md).
+
+Release: [Releases](https://github.com/Seifeddini/KnovasComponents/releases).

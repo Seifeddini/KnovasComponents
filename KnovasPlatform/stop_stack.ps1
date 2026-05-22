@@ -1,4 +1,4 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-docker compose --profile sync down
+docker compose --profile mock down

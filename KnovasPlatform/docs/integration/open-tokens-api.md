@@ -22,7 +22,7 @@ Only if `OPEN_COMPANION_ENABLED=true`. Spec: `GET /api/open-tokens/spec`
 
 ### Mint — `POST /api/open-tokens/mint`
 
-Session + `X-CSRF-Token`. Returns `companion_href` (`semantix-doc:open?...`).
+Session + `X-CSRF-Token`. Returns `companion_href` (e.g. `knovas-doc:open?...`; scheme from `OPEN_COMPANION_URI_SCHEME` in `.env`).
 
 ### Redeem — `POST /api/open-tokens/redeem`
 

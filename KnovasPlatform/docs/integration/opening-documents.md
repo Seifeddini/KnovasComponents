@@ -71,7 +71,7 @@ Nothing is installed from Knovas on the client — only standard browser + share
 
 ## Optional: Open Companion
 
-If browser launch is blocked by policy, set `OPEN_COMPANION_ENABLED=true` and deploy the Windows or Linux helper from `components/semantix_open_companion/` / `components/knovas_open_companion/linux/`. That is a fallback, not the default.
+If browser launch is blocked by policy, set `OPEN_COMPANION_ENABLED=true` and deploy the Knovas Open Companion (Windows: `components/semantix_open_companion/`, Linux: `components/knovas_open_companion/linux/`). That is a fallback, not the default.
 
 ---
 

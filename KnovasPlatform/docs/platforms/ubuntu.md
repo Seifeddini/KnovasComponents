@@ -18,3 +18,5 @@ chmod +x start_stack.sh scripts/verify_deploy.sh
 **LAN access:** Open `DOCBRIDGE_WEB_PORT` (default 8081) in ufw if needed. Use an external TLS proxy for internet exposure.
 
 **Reboot:** Run `docker compose up -d` from this directory via systemd.
+
+**Stop:** `./stop_stack.sh` — [stopping web servers](../../../docs/stopping-web-servers.md).

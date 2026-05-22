@@ -11,6 +11,7 @@
 | Doc | Use |
 |-----|-----|
 | [local-commands.md](local-commands.md) | Docker/Python, curl discover/sync, pytest |
+| [stopping web servers](../../docs/stopping-web-servers.md) | Stop platform + RC Docker and dev processes |
 
 ## Reference
 

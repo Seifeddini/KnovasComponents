@@ -7,6 +7,7 @@
 | Goal | Doc |
 |------|-----|
 | Deploy the platform | [setup.md](setup.md) |
+| Stop web servers | [../../docs/stopping-web-servers.md](../../docs/stopping-web-servers.md) |
 | Try without a Knovas tenant | [demo.md](demo.md) |
 | Ubuntu host notes | [platforms/ubuntu.md](platforms/ubuntu.md) |
 | Windows host notes | [platforms/windows.md](platforms/windows.md) |

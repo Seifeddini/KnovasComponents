@@ -55,6 +55,8 @@ Windows (host shell):
 
 No tenant yet? Use [demo.md](demo.md) instead of steps 3–5 against a real API.
 
+To stop the stack: `./stop_stack.sh` or `.\stop_stack.ps1` — see [stopping web servers](../../docs/stopping-web-servers.md).
+
 ## 6. Optional: open files from AutoDoc (client-side)
 
 Skip for search-only deployments.

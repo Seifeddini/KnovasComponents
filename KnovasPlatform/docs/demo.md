@@ -4,7 +4,7 @@ Use this only when you do not have a Knovas tenant yet. Do not expose mock servi
 
 In `.env`, set mock URL and legacy mode per comments in [.env.example](../.env.example):
 
-- `SEMANTIX_API_URL=http://semantix-mock:5000`
+- `SEMANTIX_API_URL=http://semantix-mock:5000` (Docker service name for the Knovas mock API)
 - `SEMANTIX_USE_SECURED_API=false`
 - `SEMANTIX_ALLOW_LEGACY_API_FALLBACK=true`
 
@@ -15,5 +15,7 @@ docker compose --profile mock up -d --build
 ```
 
 Verify with `./scripts/verify_deploy.sh` (or `.\scripts\verify_deploy.ps1` on Windows).
+
+Stop with `./stop_stack.sh` / `.\stop_stack.ps1` or see [stopping web servers](../../docs/stopping-web-servers.md).
 
 For production deployment, follow [setup.md](setup.md) instead.

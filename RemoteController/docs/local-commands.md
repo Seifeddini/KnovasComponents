@@ -25,6 +25,8 @@ Stop:
 docker compose down
 ```
 
+See also [stopping web servers](../../docs/stopping-web-servers.md) (platform + RC + dev processes).
+
 ### Python from source (dev/staging)
 
 ```bash
@@ -60,7 +62,7 @@ You still need:
 
 - A real **employee JWT** from Knovas (`generate_emp_jwt`)
 - Reachable `KNOVAS_INTERNAL_API_URL` for `POST /remote_controller/verify_operator`
-- Valid tenant mTLS paths for Semantix ingestion (`SEMANTIX_*` in `.env`)
+- Valid tenant mTLS paths for Knovas ingestion (`SEMANTIX_*` in `.env`)
 
 Never enable dev bypass in production.
 
