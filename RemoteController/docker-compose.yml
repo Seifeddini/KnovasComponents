@@ -1,7 +1,7 @@
 # Remote Controller + NGINX edge (employee mTLS termination).
 # 1. Copy .env.example to .env and fill required values.
-# 2. Place tenant certs under ./certs and documents under ./data (see GETTING_STARTED.md).
-# 3. Configure edge TLS paths in docs/hosting/nginx-edge.example.conf (mount as ./nginx/default.conf).
+# 2. Place tenant certs under ./certs and documents under ./data (see docs/SETUP.md).
+# 3. Configure edge TLS paths in docs/nginx-edge.example.conf.
 # 4. docker compose up -d --build
 
 services:
@@ -25,7 +25,7 @@ services:
     ports:
       - "443:443"
     volumes:
-      - ./docs/hosting/nginx-edge.example.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docs/nginx-edge.example.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs/edge:/etc/nginx/certs:ro
     depends_on:
       - remote-controller

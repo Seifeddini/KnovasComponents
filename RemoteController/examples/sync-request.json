@@ -1,0 +1,12 @@
+{
+  "mode": "incremental",
+  "sources": [{ "path": "/data/docs", "recursive": true }],
+  "filters": {
+    "include_globs": ["**/*.md", "**/*.txt"],
+    "exclude_globs": ["**/.git/**"]
+  },
+  "ingestion": {
+    "identifier_prefix": "rc-sync",
+    "part_max_chars": 50000
+  }
+}

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Knovas Open Companion
+Comment=Open documents from Knovas search via signed token
+Exec=/opt/knovas/bin/knovas-open-companion.sh %u
+NoDisplay=true
+MimeType=x-scheme-handler/semantix-doc;
+Terminal=false

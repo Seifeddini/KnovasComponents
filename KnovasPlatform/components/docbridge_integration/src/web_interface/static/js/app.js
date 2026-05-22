@@ -430,7 +430,10 @@ class DocumentSearchApp {
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
         const localAvailable = doc.file_exists === true && path && !externalUrl;
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        const useCompanion = !!cfg.companionEnabled && doc.open_via_companion === true;
+        const useBrowserClientOpen =
+            !!cfg.browserClientOpenEnabled && doc.open_via_browser === true;
+        const useCompanion =
+            !useBrowserClientOpen && !!cfg.companionEnabled && doc.open_via_companion === true;
         const isPdf = path.toLowerCase().endsWith('.pdf');
         const canPreviewPdf = !!cfg.pdfInlineInBrowser && isPdf;
         const showDegradedDownload = !!cfg.allowDegradedDownloadOpen;
@@ -452,7 +455,7 @@ class DocumentSearchApp {
                 </button>`
                 : '';
             actionsHtml = `
-                <button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}', ${useCompanion ? 'true' : 'false'})">
+                <button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}', ${useBrowserClientOpen ? 'true' : 'false'}, ${useCompanion ? 'true' : 'false'})">
                     📂 Öffnen
                 </button>
                 ${previewBtn}
@@ -561,7 +564,10 @@ class DocumentSearchApp {
         return card;
     }
     
-    async openDocument(docId, path, useCompanion) {
+    async openDocument(docId, path, useBrowserClientOpen, useCompanion) {
+        if (useBrowserClientOpen === true) {
+            return this.openDocumentOnClient(docId, path);
+        }
         if (useCompanion === true) {
             return this.openDocumentCompanion(docId, path);
         }
@@ -587,6 +593,66 @@ class DocumentSearchApp {
             console.error('Error opening document:', error);
             this.showError(`Dokument konnte nicht geöffnet werden: ${error.message}`);
         }
+    }
+
+    /**
+     * Open a file on the user's PC using a UNC or local path (no companion install).
+     * Requires the client machine to have the same share mounted / accessible.
+     */
+    async openDocumentOnClient(docId, path) {
+        try {
+            const url =
+                `/api/document/${encodeURIComponent(docId)}/client-path?path=${encodeURIComponent(path)}`;
+            const response = await fetch(url, { credentials: 'same-origin' });
+            if (this._redirectIfLoginRequired(response)) return;
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            const launched = this._launchClientFile(data.unc, data.path);
+            if (launched) {
+                this.showSuccess('Dokument wird auf Ihrem Rechner geöffnet…');
+            } else {
+                throw new Error('Browser konnte den lokalen Pfad nicht starten');
+            }
+        } catch (error) {
+            console.error('Client-path open:', error);
+            this.showError(
+                `Öffnen fehlgeschlagen: ${error.message}. ` +
+                    'Prüfen Sie Zugriff auf die Freigabe auf diesem PC und ggf. Browser-Richtlinien (siehe docs/integration/opening-documents.md).',
+            );
+        }
+    }
+
+    _launchClientFile(unc, clientPath) {
+        const hrefs = [];
+        if (unc && String(unc).startsWith('\\\\')) {
+            const fileUri =
+                'file:///' + String(unc).slice(2).replace(/\\/g, '/');
+            hrefs.push(fileUri, String(unc));
+        }
+        if (clientPath) {
+            const p = String(clientPath);
+            if (p.startsWith('/')) {
+                hrefs.push('file://' + p);
+            }
+            hrefs.push(p);
+        }
+        for (const href of hrefs) {
+            try {
+                const a = document.createElement('a');
+                a.href = href;
+                a.rel = 'noopener';
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                return true;
+            } catch (e) {
+                console.warn('Launch attempt failed:', href, e);
+            }
+        }
+        return false;
     }
 
     async openDocumentCompanion(docId, path) {
@@ -616,7 +682,7 @@ class DocumentSearchApp {
             console.error('Companion open:', error);
             this.showError(
                 `Öffnen über Companion fehlgeschlagen: ${error.message}. ` +
-                    'Ist der Semantix Open Companion installiert? Siehe Dokumentation unter docs/client-integration/.',
+                    'Ist der Knovas Open Companion auf diesem Rechner installiert? Öffnen erfolgt lokal auf dem Client, nicht auf dem Server. Siehe docs/integration/opening-documents.md.',
             );
         }
     }

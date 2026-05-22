@@ -217,14 +217,17 @@ performance:
   # Memory limits
   max_file_size: 104857600  # 100 MB
 
-# Companion UNC open (no temp-file copy; requires user SMB access to same paths)
+# Client file open: browser launches UNC/local path on the user's PC (no install).
+# Optional companion (semantix-doc:) if browser launch is blocked by policy.
 open:
-  companion_enabled: "${OPEN_COMPANION_ENABLED:-true}"
+  browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
+  companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"
   token_ttl_seconds: "${OPEN_TOKEN_TTL_SECONDS:-120}"
   public_base_url: "${OPEN_PUBLIC_BASE_URL:-}"
   companion_uri_scheme: "${OPEN_COMPANION_URI_SCHEME:-semantix-doc}"
   unc_root: "${OPEN_UNC_ROOT:-}"
   local_root: "${OPEN_LOCAL_ROOT:-}"
+  client_local_root: "${OPEN_CLIENT_LOCAL_ROOT:-}"
   pdf_inline_in_browser: "${OPEN_PDF_INLINE_IN_BROWSER:-true}"
   allow_server_side_startfile: "${OPEN_ALLOW_SERVER_SIDE_STARTFILE:-false}"
   allow_degraded_download_open: "${OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN:-false}"

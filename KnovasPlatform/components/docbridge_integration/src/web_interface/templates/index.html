@@ -83,6 +83,7 @@
     <script>
         window.__DOCBRIDGE__ = {
             csrfToken: {{ csrf_token|tojson }},
+            browserClientOpenEnabled: {{ browser_client_open_enabled|tojson }},
             companionEnabled: {{ companion_enabled|tojson }},
             allowDegradedDownloadOpen: {{ allow_degraded_download_open|tojson }},
             pdfInlineInBrowser: {{ pdf_inline_in_browser|tojson }},

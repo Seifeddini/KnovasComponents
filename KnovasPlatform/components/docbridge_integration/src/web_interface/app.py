@@ -26,7 +26,14 @@ from config_loader import get_config
 from semantix_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
-from unc_path import map_path_with_roots, normalize_unc_root, parse_unc_roots_list
+from unc_path import (
+    filesystem_path_to_client_local,
+    map_path_with_roots,
+    normalize_client_local_root,
+    normalize_local_root,
+    normalize_unc_root,
+    parse_unc_roots_list,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +171,8 @@ def create_app(config_path: Optional[str] = None):
         raise RuntimeError('COMPANY_LOGIN_PASSWORD must be changed before login can be enabled.')
 
     open_section = config.get_dict('open', {}) or {}
-    companion_enabled = config.get_bool('open.companion_enabled', True)
+    browser_client_open_enabled = config.get_bool('open.browser_client_path', True)
+    companion_enabled = config.get_bool('open.companion_enabled', False)
     open_token_ttl = max(30, config.get_int('open.token_ttl_seconds', 120))
     open_token_manager = OpenTokenManager(
         str(app.config['SECRET_KEY']),
@@ -175,6 +183,8 @@ def create_app(config_path: Optional[str] = None):
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
     companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
     public_base_url_config = str(open_section.get('public_base_url') or '').strip().rstrip('/')
+
+    client_local_root = normalize_client_local_root(str(open_section.get('client_local_root') or ''))
 
     def _open_unc_root_pairs() -> List[Tuple[str, str]]:
         roots = parse_unc_roots_list(open_section.get('unc_roots'))
@@ -189,11 +199,56 @@ def create_app(config_path: Optional[str] = None):
                 roots = [(os.path.abspath(file_handler.autodoc_path), unc_only)]
         return roots
 
+    def _open_server_local_roots() -> List[str]:
+        """Server/container paths used as the left side of UNC or client-local mapping."""
+        seen: set[str] = set()
+        out: List[str] = []
+        for loc, _unc in _open_unc_root_pairs():
+            norm = normalize_local_root(loc)
+            if norm and norm not in seen:
+                seen.add(norm)
+                out.append(norm)
+        explicit = normalize_local_root(str(open_section.get('local_root') or ''))
+        if explicit and explicit not in seen:
+            out.append(explicit)
+        autodoc = normalize_local_root(str(file_handler.autodoc_path))
+        if autodoc and autodoc not in seen:
+            out.append(autodoc)
+        return out
+
+    def _open_mapping_configured() -> bool:
+        if _open_unc_root_pairs():
+            return True
+        return bool(client_local_root and _open_server_local_roots())
+
     def _unc_for_resolved_path(full_path: str) -> Optional[str]:
         roots = _open_unc_root_pairs()
         if not roots:
             return None
         return map_path_with_roots(full_path, roots)
+
+    def _client_path_for_resolved_path(full_path: str) -> Optional[str]:
+        if not client_local_root:
+            return None
+        for loc in _open_server_local_roots():
+            p = filesystem_path_to_client_local(full_path, loc, client_local_root)
+            if p:
+                return p
+        return None
+
+    def _can_open_via_companion(full_path: str) -> bool:
+        return bool(_unc_for_resolved_path(full_path) or _client_path_for_resolved_path(full_path))
+
+    def _client_open_targets(full_path: str) -> Dict[str, str]:
+        """Client-visible paths the user's OS can open (UNC on Windows, mount path on Linux)."""
+        out: Dict[str, str] = {}
+        unc = _unc_for_resolved_path(full_path)
+        if unc:
+            out['unc'] = unc
+        client_path = _client_path_for_resolved_path(full_path)
+        if client_path:
+            out['path'] = client_path
+        return out
 
     def _is_safe_next(target: Optional[str]) -> bool:
         """Allow only local redirects after login."""
@@ -327,6 +382,7 @@ def create_app(config_path: Optional[str] = None):
             company_name=login_company_name,
             csrf_token=_ensure_csrf_token(),
             companion_enabled=companion_enabled,
+            browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
         )
@@ -369,15 +425,21 @@ def create_app(config_path: Optional[str] = None):
             results = api_client.search_documents(query=query, limit=limit, filters=filters)
 
             enhanced_results = _enhance_search_results(results, file_handler)
-            if companion_enabled:
-                for result in enhanced_results.get('results') or []:
-                    fp = (result.get('path') or '').strip()
-                    if fp and result.get('file_exists') and not result.get('external_url'):
-                        full = _resolve_autodoc_path(fp)
-                        if full:
-                            u = _unc_for_resolved_path(full)
-                            result['open_via_companion'] = bool(u)
-                            result['companion_scheme'] = companion_uri_scheme if u else None
+            for result in enhanced_results.get('results') or []:
+                fp = (result.get('path') or '').strip()
+                if fp and result.get('file_exists') and not result.get('external_url'):
+                    full = _resolve_autodoc_path(fp)
+                    if full:
+                        targets = _client_open_targets(full)
+                        if browser_client_open_enabled and targets:
+                            result['open_via_browser'] = True
+                            if targets.get('unc'):
+                                result['client_open_unc'] = targets['unc']
+                            if targets.get('path'):
+                                result['client_open_path'] = targets['path']
+                        if companion_enabled and _can_open_via_companion(full):
+                            result['open_via_companion'] = True
+                            result['companion_scheme'] = companion_uri_scheme
             refined = _apply_search_refinement(enhanced_results, query, filters, config)
 
             final_results = refined.get('results', [])
@@ -443,16 +505,6 @@ def create_app(config_path: Optional[str] = None):
         Prefer POST /api/open-tokens/mint + Semantix Open Companion (UNC, no temp copy).
         """
         try:
-            if companion_enabled and not allow_server_side_startfile:
-                return jsonify({
-                    'success': False,
-                    'error': (
-                        'Server-seitiges Öffnen ist deaktiviert. Bitte Companion-Open verwenden '
-                        '(POST /api/open-tokens/mint).'
-                    ),
-                    'use_companion': True,
-                }), 410
-
             data = request.get_json() or {}
             file_path = data.get('path')
 
@@ -468,6 +520,21 @@ def create_app(config_path: Optional[str] = None):
                     'success': False,
                     'error': 'Document path not allowed'
                 }), 400
+
+            if not allow_server_side_startfile:
+                hint = (
+                    'Server-seitiges Öffnen ist deaktiviert. Dateien werden auf dem Client-PC geöffnet.'
+                )
+                if browser_client_open_enabled:
+                    hint += ' Bitte „Öffnen“ in der Suchoberfläche verwenden (Browser-Client-Pfad).'
+                elif companion_enabled:
+                    hint += ' Bitte Companion-Open (POST /api/open-tokens/mint).'
+                return jsonify({
+                    'success': False,
+                    'error': hint,
+                    'use_browser_client_path': browser_client_open_enabled,
+                    'use_companion': companion_enabled,
+                }), 410
 
             if not os.path.exists(full_path):
                 return jsonify({
@@ -559,15 +626,44 @@ def create_app(config_path: Optional[str] = None):
             logger.error(f"Error previewing document: {e}")
             return jsonify({'error': str(e)}), 500
 
+    @app.route('/api/document/<doc_id>/client-path', methods=['GET'])
+    def document_client_path(doc_id: str):
+        """
+        Return UNC and/or POSIX path for opening on the user's machine (session required).
+        The browser uses this to launch the OS default app — no companion install.
+        """
+        if not browser_client_open_enabled:
+            return jsonify({'success': False, 'error': 'Browser client-path open disabled'}), 503
+        if not _open_mapping_configured():
+            return jsonify({
+                'success': False,
+                'error': 'Open mapping not configured (OPEN_UNC_ROOT / OPEN_CLIENT_LOCAL_ROOT)',
+            }), 503
+        file_path = str(request.args.get('path') or '').strip()
+        if not file_path:
+            return jsonify({'success': False, 'error': 'path query parameter required'}), 400
+        full_path = _resolve_autodoc_path(file_path)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': 'Document path not allowed or missing'}), 404
+        targets = _client_open_targets(full_path)
+        if not targets:
+            return jsonify({'success': False, 'error': 'No client path mapping for this file'}), 503
+        body: Dict[str, Any] = {'success': True, 'doc_id': doc_id}
+        body.update(targets)
+        return jsonify(body)
+
     @app.route('/api/open-tokens/mint', methods=['POST'])
     def open_token_mint():
         """Mint a short-lived signed token for companion redeem (browser must send CSRF)."""
         if not companion_enabled:
             return jsonify({'success': False, 'error': 'Companion open disabled'}), 503
-        if not _open_unc_root_pairs():
+        if not _open_mapping_configured():
             return jsonify({
                 'success': False,
-                'error': 'UNC mapping not configured (open.unc_root / open.unc_roots)',
+                'error': (
+                    'Open mapping not configured (open.unc_root / open.unc_roots '
+                    'and/or open.client_local_root + open.local_root)'
+                ),
             }), 503
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
@@ -581,9 +677,8 @@ def create_app(config_path: Optional[str] = None):
             full_path = _resolve_autodoc_path(str(file_path).strip())
             if not full_path or not os.path.exists(full_path):
                 return jsonify({'success': False, 'error': 'Document path not allowed or missing'}), 400
-            unc = _unc_for_resolved_path(full_path)
-            if not unc:
-                return jsonify({'success': False, 'error': 'No UNC mapping for this file'}), 503
+            if not _can_open_via_companion(full_path):
+                return jsonify({'success': False, 'error': 'No open mapping for this file'}), 503
             rel = str(file_path).strip()
             token = open_token_manager.mint(rel, doc_id)
             api_base = public_base_url_config or request.url_root.rstrip('/')
@@ -606,7 +701,7 @@ def create_app(config_path: Optional[str] = None):
     @app.route('/api/open-tokens/redeem', methods=['POST'])
     def open_token_redeem():
         """
-        Redeem token → canonical UNC. No login (companion calls with Bearer).
+        Redeem token → UNC and/or client-local path. No login (companion calls with Bearer).
         """
         if not companion_enabled:
             return jsonify({'success': False, 'error': 'Companion open disabled'}), 503
@@ -627,9 +722,15 @@ def create_app(config_path: Optional[str] = None):
             if not full_path or not os.path.exists(full_path):
                 return jsonify({'success': False, 'error': 'File no longer available'}), 410
             unc = _unc_for_resolved_path(full_path)
-            if not unc:
-                return jsonify({'success': False, 'error': 'No UNC mapping'}), 503
-            return jsonify({'success': True, 'unc': unc})
+            client_path = _client_path_for_resolved_path(full_path)
+            if not unc and not client_path:
+                return jsonify({'success': False, 'error': 'No open mapping'}), 503
+            body: Dict[str, Any] = {'success': True}
+            if unc:
+                body['unc'] = unc
+            if client_path:
+                body['path'] = client_path
+            return jsonify(body)
         except Exception as e:
             logger.error(f"open_token_redeem: {e}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500

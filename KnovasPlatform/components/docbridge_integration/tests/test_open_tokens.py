@@ -139,6 +139,117 @@ def test_mint_requires_csrf_and_login(app_with_open):
     assert "companion_href" in body
 
 
+def test_client_path_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("WEB_SECRET_KEY", "test-secret-open-tokens")
+    monkeypatch.setenv("COMPANY_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("COMPANY_DISPLAY_NAME", "Test Company")
+    monkeypatch.setenv("COMPANY_LOGIN_NAME", "office")
+    monkeypatch.setenv("COMPANY_LOGIN_PASSWORD", "s3cret")
+
+    ad = tmp_path / "autodoc"
+    (ad / "sub").mkdir(parents=True)
+    (ad / "sub" / "hello.pdf").write_bytes(b"%PDF-1.4 minimal")
+
+    config_path = tmp_path / "config.yaml"
+    ad_str = str(ad).replace("\\", "/")
+    config_path.write_text(
+        f"""
+web:
+  secret_key: "${{WEB_SECRET_KEY}}"
+  session_lifetime: 3600
+  login:
+    enabled: "${{COMPANY_LOGIN_ENABLED:-true}}"
+    company_name: "${{COMPANY_DISPLAY_NAME:-Knovas}}"
+    username: "${{COMPANY_LOGIN_NAME}}"
+    password: "${{COMPANY_LOGIN_PASSWORD}}"
+  search:
+    results_per_page: 20
+api:
+  base_url: "http://example.test"
+open:
+  browser_client_path: true
+  companion_enabled: false
+  local_root: "{ad_str}"
+  unc_root: "\\\\\\\\fileserver\\\\AutoDocShare"
+""",
+        encoding="utf-8",
+    )
+
+    from web_interface import app as web_app
+
+    monkeypatch.setattr(web_app, "KnovasAPIClient", DummyKnovasClient)
+    monkeypatch.setattr(web_app, "AutoDocFileHandler", lambda: TmpAutodocHandler(ad))
+
+    flask_app = web_app.create_app(str(config_path))
+    client = flask_app.test_client()
+    _login(client)
+
+    resp = client.get("/api/document/doc-1/client-path?path=sub/hello.pdf")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert "hello.pdf" in data["unc"]
+
+
+def test_redeem_includes_client_path_when_configured(tmp_path, monkeypatch):
+    monkeypatch.setenv("WEB_SECRET_KEY", "test-secret-open-tokens")
+    monkeypatch.setenv("COMPANY_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("COMPANY_DISPLAY_NAME", "Test Company")
+    monkeypatch.setenv("COMPANY_LOGIN_NAME", "office")
+    monkeypatch.setenv("COMPANY_LOGIN_PASSWORD", "s3cret")
+
+    ad = tmp_path / "autodoc"
+    (ad / "sub").mkdir(parents=True)
+    (ad / "sub" / "hello.pdf").write_bytes(b"%PDF-1.4 minimal")
+
+    config_path = tmp_path / "config.yaml"
+    ad_str = str(ad).replace("\\", "/")
+    client_root = "/mnt/user-autodoc"
+    config_path.write_text(
+        f"""
+web:
+  secret_key: "${{WEB_SECRET_KEY}}"
+  session_lifetime: 3600
+  login:
+    enabled: "${{COMPANY_LOGIN_ENABLED:-true}}"
+    company_name: "${{COMPANY_DISPLAY_NAME:-Knovas}}"
+    username: "${{COMPANY_LOGIN_NAME}}"
+    password: "${{COMPANY_LOGIN_PASSWORD}}"
+  search:
+    results_per_page: 20
+api:
+  base_url: "http://example.test"
+open:
+  companion_enabled: true
+  token_ttl_seconds: 120
+  local_root: "{ad_str}"
+  client_local_root: "{client_root}"
+""",
+        encoding="utf-8",
+    )
+
+    from web_interface import app as web_app
+
+    monkeypatch.setattr(web_app, "KnovasAPIClient", DummyKnovasClient)
+    monkeypatch.setattr(web_app, "AutoDocFileHandler", lambda: TmpAutodocHandler(ad))
+
+    flask_app = web_app.create_app(str(config_path))
+    client = flask_app.test_client()
+    from open_tokens import OpenTokenManager
+
+    mgr = OpenTokenManager("test-secret-open-tokens", max_age_seconds=120)
+    tok = mgr.mint("sub/hello.pdf", "doc-1")
+
+    resp = client.post(
+        "/api/open-tokens/redeem",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["path"] == f"{client_root}/sub/hello.pdf"
+
+
 def test_token_single_use_replay_blocked_same_process(app_with_open):
     app, ad = app_with_open
     client = app.test_client()

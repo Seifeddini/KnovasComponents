@@ -41,6 +41,62 @@ def normalize_local_root(local_root: str) -> str:
     return s
 
 
+def normalize_client_local_root(client_root: str) -> str:
+    """
+    Desktop mount path returned to Linux companions (POSIX).
+
+    Paths starting with ``/`` are kept as POSIX (not passed through abspath on Windows dev hosts).
+    """
+    s = (client_root or "").strip()
+    if not s:
+        return ""
+    if s.startswith("/"):
+        s = re.sub(r"/+", "/", s)
+        while len(s) > 1 and s.endswith("/"):
+            s = s[:-1]
+        return s
+    return normalize_local_root(s)
+
+
+def filesystem_path_to_client_local(
+    filesystem_abs: str,
+    local_root: str,
+    client_root: str,
+) -> Optional[str]:
+    """
+    If filesystem_abs is under local_root, return client_root + relative remainder (POSIX).
+
+    Used when the web app runs on Linux but end users open files from a desktop mount
+    of the same share (e.g. /mnt/autodoc).
+    """
+    loc_r = normalize_local_root(local_root)
+    cli_r = normalize_client_local_root(client_root)
+    if not loc_r or not cli_r:
+        return None
+
+    try:
+        fs_abs = os.path.abspath(os.path.normpath(filesystem_abs))
+    except (OSError, ValueError):
+        return None
+
+    try:
+        common = os.path.commonpath([loc_r, fs_abs])
+    except ValueError:
+        return None
+
+    if common != loc_r:
+        return None
+
+    rel = os.path.relpath(fs_abs, loc_r)
+    if rel.startswith(".."):
+        return None
+
+    if rel in (".", ""):
+        return cli_r
+    rel_posix = rel.replace("\\", "/")
+    return cli_r + "/" + rel_posix if cli_r != "/" else cli_r + rel_posix
+
+
 def filesystem_path_to_unc(
     filesystem_abs: str,
     local_root: str,
