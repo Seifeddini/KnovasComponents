@@ -1,0 +1,24 @@
+# Optional: start Knovas Platform after reboot (host-nginx compose files).
+#
+# 1. Edit WorkingDirectory to your clone path.
+# 2. sudo cp knovas-platform.service.example /etc/systemd/system/knovas-platform.service
+# 3. sudo systemctl daemon-reload
+# 4. sudo systemctl enable --now knovas-platform.service
+#
+# Requires Docker; stack must already be built once via start_stack_host_nginx.sh.
+
+[Unit]
+Description=Knovas Platform (Docker Compose, host nginx mode)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/knovas/KnovasComponents/KnovasPlatform
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.host-nginx.yml up -d docbridge-web docbridge-web-nginx
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.host-nginx.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

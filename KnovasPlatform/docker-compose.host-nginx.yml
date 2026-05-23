@@ -1,0 +1,7 @@
+# Optional merge file: bind the web UI to localhost only (host nginx terminates TLS).
+# Use: docker compose -f docker-compose.yml -f docker-compose.host-nginx.yml up -d
+# Or:  ./scripts/start_stack_host_nginx.sh
+services:
+  docbridge-web-nginx:
+    ports:
+      - "127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}:80"

@@ -8,6 +8,7 @@ Ready-to-run **search web app** for your Knovas tenant (Docker), usually on a Li
 
 1. Open [docs/README.md](docs/README.md)
 2. Follow [docs/setup.md](docs/setup.md)
+3. **HTTPS + internal DNS (host nginx):** [docs/deployment/host-nginx-internal.md](docs/deployment/host-nginx-internal.md) — `./scripts/start_stack_host_nginx.sh`
 
 Requirements: mTLS client certs, Docker Compose, configured `.env`.
 

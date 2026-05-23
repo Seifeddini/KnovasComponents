@@ -1,0 +1,38 @@
+# Host nginx: TLS termination for Knovas Platform (Docker on 127.0.0.1:8081).
+#
+# 1. Copy to /etc/nginx/sites-available/knovas (or include from conf.d).
+# 2. Replace server_name and ssl_certificate* paths with your internal PKI files.
+# 3. If DOCBRIDGE_WEB_PORT in .env is not 8081, change proxy_pass below to match.
+# 4. sudo ln -s /etc/nginx/sites-available/knovas /etc/nginx/sites-enabled/
+# 5. sudo nginx -t && sudo systemctl reload nginx
+#
+# Start the stack: ./scripts/start_stack_host_nginx.sh
+# Guide: docs/deployment/host-nginx-internal.md
+
+server {
+    listen 80;
+    server_name knovas.example.internal;
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name knovas.example.internal;
+
+    ssl_certificate     /etc/ssl/certs/knovas.example.internal-fullchain.pem;
+    ssl_certificate_key /etc/ssl/private/knovas.example.internal.key;
+
+    client_max_body_size 32m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
+    }
+}

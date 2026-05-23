@@ -15,8 +15,10 @@ chmod +x start_stack.sh scripts/verify_deploy.sh
 
 **Clients:** Same share access as today; no Knovas package. Optional companion only if browser open is blocked.
 
-**LAN access:** Open `DOCBRIDGE_WEB_PORT` (default 8081) in ufw if needed. Use an external TLS proxy for internet exposure.
+**LAN access (HTTP):** Open `DOCBRIDGE_WEB_PORT` (default 8081) in ufw if needed — `./start_stack.sh` only.
 
-**Reboot:** Run `docker compose up -d` from this directory via systemd.
+**Production HTTPS (internal DNS + host nginx):** `./scripts/start_stack_host_nginx.sh` and [deployment/host-nginx-internal.md](../deployment/host-nginx-internal.md). Users use `https://<fqdn>`; do not expose 8081 to the vnet.
+
+**Reboot:** Optional systemd — [deploy/systemd/knovas-platform.service.example](../../deploy/systemd/knovas-platform.service.example) (host-nginx mode).
 
 **Stop:** `./stop_stack.sh` — [stopping web servers](../../../docs/stopping-web-servers.md).

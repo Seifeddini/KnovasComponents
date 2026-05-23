@@ -14,7 +14,9 @@ Ingest and sync documents first with [RemoteController](../../RemoteController/)
 - Documents already indexed in Knovas
 - Docker Engine and Compose; outbound HTTPS to your Knovas API (port 8443 is typical)
 
-Platform-specific notes: [platforms/ubuntu.md](platforms/ubuntu.md), [platforms/windows.md](platforms/windows.md).
+Platform-specific notes: [platforms/ubuntu.md](platforms/ubuntu.md), [platforms/debian.md](platforms/debian.md), [platforms/windows.md](platforms/windows.md).
+
+**HTTPS with internal DNS (host nginx):** use [deployment/host-nginx-internal.md](deployment/host-nginx-internal.md) and `./scripts/start_stack_host_nginx.sh` instead of step 5 below for production.
 
 ## 3. Configure
 
@@ -92,7 +94,9 @@ Clients only need share access + a normal browser. Details: [integration/opening
 
 ## 7. Optional: production hardening
 
-- Firewall `DOCBRIDGE_WEB_PORT`; terminate TLS at a reverse proxy if not LAN-only
+- **Internal DNS + TLS on host nginx:** follow [deployment/host-nginx-internal.md](deployment/host-nginx-internal.md) — `./scripts/start_stack_host_nginx.sh`, nginx template in `deploy/host-nginx/`, checklist in [deployment/checklist-host-nginx.md](deployment/checklist-host-nginx.md)
+- **Direct HTTP on `:8081`** (dev, demo, or trusted LAN only): `./start_stack.sh` — do not expose to the internet without a reverse proxy
+- Firewall: allow **443** at nginx; bind the app to localhost in host-nginx mode (port 8081 not reachable from other hosts)
 - Use a strong `WEB_SECRET_KEY`; restrict `/api/open-tokens/redeem` to client subnets when possible
 - Multiple Gunicorn workers weaken one-time token replay protection — prefer one worker or sticky sessions
 
