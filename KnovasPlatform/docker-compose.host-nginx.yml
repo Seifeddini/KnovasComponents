@@ -3,5 +3,6 @@
 # Or:  ./scripts/start_stack_host_nginx.sh
 services:
   docbridge-web-nginx:
-    ports:
+    # Override base compose (0.0.0.0:PORT) — merged ports would bind twice and fail.
+    ports: !override
       - "127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}:80"
