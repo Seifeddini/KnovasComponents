@@ -78,7 +78,7 @@ sudo nano /etc/nginx/sites-available/knovas
 
 Replace:
 
-- `knovas.example.internal` → your FQDN (e.g. `knovas.rudincantieni.ch`)
+- `knovas.example.internal` → your internal FQDN from DNS
 - `ssl_certificate` / `ssl_certificate_key` → paths to your internal PKI files
 - `proxy_pass` port if `DOCBRIDGE_WEB_PORT` in `.env` is not `8081`
 
