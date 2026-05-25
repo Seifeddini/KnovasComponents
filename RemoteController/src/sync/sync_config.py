@@ -107,3 +107,13 @@ def save_sync_config(doc: dict[str, Any], path: Optional[str] = None) -> None:
 def config_snapshot_hash(doc: dict[str, Any]) -> str:
     payload = json.dumps(doc, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def effective_filters(sync_body: dict[str, Any], sync_config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Merge scheduler defaults into sync-body filters (body wins when set)."""
+    filters = dict(sync_body.get("filters") or {})
+    if sync_config:
+        global_age = sync_config.get("max_document_age_seconds")
+        if global_age is not None and filters.get("max_document_age_seconds") is None:
+            filters["max_document_age_seconds"] = global_age
+    return filters

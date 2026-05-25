@@ -126,6 +126,10 @@ curl -sS -X POST "$RC_BASE/sync/start" \
 curl -sS "$RC_BASE/sync/status" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 
+# Live inventory (includes excluded_max_age when max_document_age_seconds is set)
+curl -sS "$RC_BASE/sync/status?live=1" \
+  -H "Authorization: Bearer $EMPLOYEE_JWT"
+
 curl -sS -X POST "$RC_BASE/sync/stop" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
@@ -166,5 +170,6 @@ Unit tests set `RC_SKIP_CONFIG_VALIDATION` and `RC_MTLS_DEV_BYPASS` automaticall
 | 503 on discover/sync | RC cannot reach `KNOVAS_INTERNAL_API_URL` |
 | Sync paused | Outside configured sync window in `config/remote_controller_sync.json` |
 | No files uploaded | `sources[].path` not under `RC_WATCH_ROOTS` or filters exclude files |
+| `excluded_max_age` in status | File `mtime` older than effective `max_document_age_seconds` (scheduler default or sync-body filter) |
 
 See also [network-and-firewall.md](network-and-firewall.md) and [operations.md](operations.md).

@@ -24,7 +24,8 @@
       "properties": {
         "include_globs": { "type": "array", "items": { "type": "string" } },
         "exclude_globs": { "type": "array", "items": { "type": "string" } },
-        "max_file_bytes": { "type": "integer", "minimum": 1 }
+        "max_file_bytes": { "type": "integer", "minimum": 1 },
+        "max_document_age_seconds": { "type": "integer", "minimum": 1 }
       }
     },
     "ingestion": {

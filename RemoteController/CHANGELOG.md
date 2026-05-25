@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Optional `max_document_age_seconds` in scheduler config and sync-request filters; files older than the limit are not uploaded and appear as `excluded_max_age` in `document_sync` tracking.
+
 ## 0.1.1 — 2026-05-19
 
 - Production boot validates required environment variables (no `RC_SKIP_CONFIG_VALIDATION` in prod).

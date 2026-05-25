@@ -18,7 +18,7 @@ from sync.ingest_rate_limit import acquire as acquire_ingest
 from sync.ingest_rate_limit import configure as configure_ingest
 from sync.sync_config import load_sync_config
 from sync.sync_executor import SyncRunResult, run_sync_work
-from sync.semantix_uploader import SemantixUploader
+from sync.knovas_uploader import SemantixUploader
 from sync.window import is_in_window
 
 logger = logging.getLogger(__name__)
@@ -151,6 +151,7 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         should_stop=should_stop,
         is_in_sync_window=in_window,
         acquire_ingest_token=ingest_token,
+        sync_config=ctx.sync_config,
     )
     _last_run_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     _files_processed += result.files_uploaded

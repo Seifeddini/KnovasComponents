@@ -34,6 +34,7 @@
     },
     "scan_interval_seconds": { "type": "integer", "minimum": 5 },
     "max_sync_duration_minutes": { "type": "integer", "minimum": 1 },
+    "max_document_age_seconds": { "type": "integer", "minimum": 1 },
     "pause_policy": {
       "type": "string",
       "const": "finish_current_unit_then_pause"

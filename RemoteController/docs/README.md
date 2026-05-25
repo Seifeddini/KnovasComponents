@@ -21,6 +21,7 @@
 | [network-and-firewall.md](network-and-firewall.md) | Firewall, public URL, outbound rules |
 | [operations.md](operations.md) | Health, metrics, upgrades |
 | [onboarding-checklist.md](onboarding-checklist.md) | Go-live checklist |
+| [hosting/server_01_home-corpus-setup.md](hosting/server_01_home-corpus-setup.md) | server_01_home corpus ingest setup (detailed) |
 | [nginx-edge.example.conf](nginx-edge.example.conf) | Employee mTLS at NGINX |
 
 Example sync body: [examples/sync-request.json](../examples/sync-request.json)

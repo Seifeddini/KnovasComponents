@@ -64,5 +64,7 @@ def sync_status():
     if request.args.get("live") == "1":
         body = load_last_sync_body()
         if body:
-            status["document_sync"] = scan_document_inventory(body).as_dict()
+            status["document_sync"] = scan_document_inventory(
+                body, sync_config=load_sync_config()
+            ).as_dict()
     return jsonify(status), 200

@@ -31,7 +31,7 @@ def _apply_decorators(func):
 
 def _build_sync_response(scheduler_status: str, result) -> dict:
     status = "completed" if scheduler_status == "completed" else scheduler_status
-    return {
+    response: dict = {
         "status": status,
         "scheduler_status": scheduler_status,
         "files_scanned": result.files_scanned,
@@ -42,6 +42,9 @@ def _build_sync_response(scheduler_status: str, result) -> dict:
         "transmissions": result.transmissions,
         "errors": result.errors,
     }
+    if result.document_sync is not None:
+        response["document_sync"] = result.document_sync.as_dict()
+    return response
 
 
 @sync_bp.route("/sync", methods=["POST"])

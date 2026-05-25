@@ -14,7 +14,7 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
-DocumentSyncStatus = Literal["synced", "pending", "modified"]
+DocumentSyncStatus = Literal["synced", "pending", "modified", "excluded_max_age"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,7 @@ class DocumentSyncSummary:
     synced: int = 0
     pending: int = 0
     modified: int = 0
+    excluded_max_age: int = 0
     documents: list[DocumentSyncRecord] = field(default_factory=list)
 
     def as_dict(self, *, include_documents: bool = False) -> dict[str, Any]:
@@ -39,6 +40,7 @@ class DocumentSyncSummary:
             "synced": self.synced,
             "pending": self.pending,
             "modified": self.modified,
+            "excluded_max_age": self.excluded_max_age,
         }
         if include_documents:
             out["documents"] = [

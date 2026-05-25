@@ -1,0 +1,12 @@
+{
+  "mode": "incremental",
+  "sources": [{ "path": "/data/corpus", "recursive": true }],
+  "filters": {
+    "include_globs": ["**/*.txt"],
+    "exclude_globs": ["**/.git/**"]
+  },
+  "ingestion": {
+    "identifier_prefix": "corpus",
+    "part_max_chars": 50000
+  }
+}

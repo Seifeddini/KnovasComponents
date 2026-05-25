@@ -3,7 +3,8 @@
   "sources": [{ "path": "/data/docs", "recursive": true }],
   "filters": {
     "include_globs": ["**/*.md", "**/*.txt"],
-    "exclude_globs": ["**/.git/**"]
+    "exclude_globs": ["**/.git/**"],
+    "max_document_age_seconds": 2592000
   },
   "ingestion": {
     "identifier_prefix": "rc-sync",

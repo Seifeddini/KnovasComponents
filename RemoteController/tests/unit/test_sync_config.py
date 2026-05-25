@@ -17,6 +17,12 @@ def test_invalid_schema_rejected():
     assert errors
 
 
+def test_max_document_age_seconds_accepted():
+    doc = seed_from_env()
+    doc["max_document_age_seconds"] = 2592000
+    assert validate_sync_config(doc) == []
+
+
 def test_atomic_save(tmp_path, monkeypatch):
     path = tmp_path / "sync.json"
     monkeypatch.setenv("RC_SYNC_CONFIG_PATH", str(path))
