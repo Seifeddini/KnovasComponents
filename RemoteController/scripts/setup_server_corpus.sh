@@ -6,7 +6,7 @@ set -euo pipefail
 RC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MONOREPO_ROOT="$(cd "$RC_DIR/.." && pwd)"
 CORPUS_DIR="$MONOREPO_ROOT/corpus"
-CERTS_SRC="$MONOREPO_ROOT/semantix-certs"
+CERTS_SRC="$MONOREPO_ROOT/certs"
 ORG_ID_FILE="$CERTS_SRC/organisation_id.txt"
 
 cd "$RC_DIR"
@@ -19,23 +19,17 @@ echo "    Corpus: $CORPUS_DIR ($FILE_COUNT files)"
 echo "==> Step 2: Prepare data directory (corpus mounted via docker-compose.internal.yml)"
 mkdir -p data
 
-echo "==> Step 3: Install tenant mTLS certs for Docker (/certs mount)"
-mkdir -p certs
-install -m 644 "$CERTS_SRC/client.crt" certs/tenant-client.pem
-install -m 600 "$CERTS_SRC/client.key" certs/tenant-client.key
-install -m 644 "$CERTS_SRC/ca.crt" certs/ca.pem
-# Container runs as rcuser (uid 10001); key mode 600 must be owned by 10001 to be readable
-if command -v sudo >/dev/null 2>&1; then
-  sudo chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem 2>/dev/null \
-    || chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem
-else
-  chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem
-fi
-ls -la certs/
+echo "==> Step 3: Prepare tenant mTLS certs (monorepo ../certs -> /certs in container)"
+bash "$RC_DIR/scripts/install_tenant_certs.sh"
 
-echo "==> Step 4: Read organisation UUID for RC_CLIENT_ID"
-RC_CLIENT_ID="$(tr -d '[:space:]' < "$ORG_ID_FILE")"
-echo "    RC_CLIENT_ID=$RC_CLIENT_ID"
+echo "==> Step 4: Organisation UUID for RC_CLIENT_ID"
+if [[ -f "$ORG_ID_FILE" ]]; then
+  RC_CLIENT_ID="$(tr -d '[:space:]' < "$ORG_ID_FILE")"
+  echo "    RC_CLIENT_ID=$RC_CLIENT_ID (from organisation_id.txt)"
+else
+  RC_CLIENT_ID=""
+  echo "    (no $ORG_ID_FILE — set RC_CLIENT_ID in .env manually)"
+fi
 
 echo "==> Step 5: Write .env with container paths"
 if [[ ! -f .env ]]; then
@@ -49,20 +43,23 @@ import re
 
 env_path = Path(".env")
 lines = env_path.read_text().splitlines()
+key_path = "/certs/client-key.plain.pem" if Path("$CERTS_SRC/client-key.plain.pem").exists() else "/certs/client-key.pem"
 updates = {
     "KNOVAS_INTERNAL_API_URL": "http://api.knovas.ch:8080",
-    "RC_CLIENT_ID": "$RC_CLIENT_ID",
     "RC_WATCH_ROOTS": "/data/corpus",
     "SEMANTIX_SECURE_BASE_URL": "https://api.knovas.ch:8443",
-    "SEMANTIX_CLIENT_CERT_PATH": "/certs/tenant-client.pem",
-    "SEMANTIX_CLIENT_KEY_PATH": "/certs/tenant-client.key",
-    "SEMANTIX_CA_CERT_PATH": "/certs/ca.pem",
-    "RC_MTLS_DEV_BYPASS": "true",
+    "SEMANTIX_CLIENT_CERT_PATH": "/certs/client-cert.pem",
+    "SEMANTIX_CLIENT_KEY_PATH": key_path,
+    "SEMANTIX_CA_CERT_PATH": "/certs/ca-root.pem",
+    "RC_INTERNAL_LOCAL_BYPASS": "true",
     "RC_SYNC_DEFAULT_WINDOW_START": "00:00",
     "RC_SYNC_DEFAULT_WINDOW_END": "23:59",
     "RC_SYNC_DEFAULT_MAX_INGESTION_REQUESTS_PER_MINUTE": "4",
     "RC_SYNC_STATE_PATH": "/var/rc-state/.rc-sync-state.json",
 }
+rc_client_id = """$RC_CLIENT_ID""".strip()
+if rc_client_id:
+    updates["RC_CLIENT_ID"] = rc_client_id
 out = []
 seen = set()
 for line in lines:

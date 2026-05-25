@@ -17,11 +17,11 @@ Before this setup, the following existed:
 |------|----------|-------|
 | Knovas monorepo | `/home/master/KnovasInternal` | Cloned from GitHub |
 | Corpus | `/home/master/KnovasInternal/corpus` | 8 subfolders: `court_decisions_ch`, `court_decisions_de`, `emails_synthetisch`, `eu_recht`, `gesetze_ch`, `gesetze_de`, `synthetisch`, `wikipedia_de` |
-| Tenant mTLS certs | `/home/master/KnovasInternal/semantix-certs/` | `client.crt`, `client.key`, `ca.crt`, `organisation_id.txt` |
+| Tenant mTLS certs | `/home/master/KnovasInternal/certs/` | `client-cert.pem`, `client-key.pem`, `ca-root.pem` (optional `client-key.password.txt`) |
 | KnovasPlatform | `/home/master/KnovasInternal/KnovasPlatform` | Search UI running on `:8081` |
 | RemoteController | `/home/master/KnovasInternal/RemoteController` | Present but **not running**; `.env` had placeholder values |
 
-**Organisation / tenant UUID** (from `semantix-certs/organisation_id.txt`):
+**Organisation / tenant UUID** (set `RC_CLIENT_ID` in `.env`; optional `certs/organisation_id.txt`):
 
 ```
 8f8e65bf-6fcd-4a75-9814-d859b6a64591
@@ -110,27 +110,23 @@ docker compose ps
 
 ---
 
-## Step 4 — Copy tenant mTLS certs into RemoteController
+## Step 4 — Tenant mTLS certs (`~/KnovasInternal/certs`)
 
-Docker Compose mounts `./certs` → `/certs` (read-only). Paths in `.env` must use **container paths**.
+Docker Compose mounts **`../certs`** (monorepo root) → **`/certs`** in the container. Paths in `.env` must use **container paths** (`/certs/client-cert.pem`, etc.).
 
 ```bash
 cd /home/master/KnovasInternal/RemoteController
-mkdir -p certs
-install -m 644 ../semantix-certs/client.crt certs/tenant-client.pem
-install -m 600 ../semantix-certs/client.key certs/tenant-client.key
-install -m 644 ../semantix-certs/ca.crt certs/ca.pem
-# rcuser in the container is uid 10001 — must own the mode-600 key file
-sudo chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem
-ls -la certs/
+chmod +x scripts/install_tenant_certs.sh
+./scripts/install_tenant_certs.sh
 ```
 
-Verify mTLS from the host:
+If the key is encrypted, the script creates `client-key.plain.pem` — set `SEMANTIX_CLIENT_KEY_PATH=/certs/client-key.plain.pem` in `.env`.
+
+Verify mTLS from the container:
 
 ```bash
-curl -sk --cert ../semantix-certs/client.crt \
-  --key ../semantix-certs/client.key \
-  https://api.knovas.ch:8443/secured/health
+docker compose -f docker-compose.yml -f docker-compose.internal.yml exec remote-controller \
+  python3 -c "import requests; from config import get_config; c=get_config(); r=requests.get(c.semantix_secure_base_url+'/secured/health', cert=(c.semantix_client_cert_path,c.semantix_client_key_path), verify=c.semantix_ca_cert_path, timeout=30); print(r.status_code, r.text[:200])"
 ```
 
 Expected: JSON with `"healthy": true`.
@@ -149,9 +145,9 @@ RC_CLIENT_ID=8f8e65bf-6fcd-4a75-9814-d859b6a64591
 RC_WATCH_ROOTS=/data/corpus
 
 SEMANTIX_SECURE_BASE_URL=https://api.knovas.ch:8443
-SEMANTIX_CLIENT_CERT_PATH=/certs/tenant-client.pem
-SEMANTIX_CLIENT_KEY_PATH=/certs/tenant-client.key
-SEMANTIX_CA_CERT_PATH=/certs/ca.pem
+SEMANTIX_CLIENT_CERT_PATH=/certs/client-cert.pem
+SEMANTIX_CLIENT_KEY_PATH=/certs/client-key.pem
+SEMANTIX_CA_CERT_PATH=/certs/ca-root.pem
 
 # Internal LAN: skip employee client cert on localhost (never use in production edge)
 RC_MTLS_DEV_BYPASS=true
@@ -397,7 +393,8 @@ If the server's git checkout of RemoteController is older than your dev tree, up
 | `watch_roots: degraded`, path not found | Symlink `data/corpus → ../corpus` invalid in container | Bind mount `../corpus:/data/corpus:ro` in internal compose |
 | `scheduler: error` | `rcuser` cannot write `config/` volume | `docker exec -u root ... chown rcuser:rcuser /app/config /var/rc-state` |
 | `POST /sync` 500, `Permission denied: '/app/tmp…'` | Last sync body written under read-only `/app` | Use current RC (`save` → `/var/rc-state/`); set `RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json`; rebuild; `chown rcuser:rcuser /var/rc-state` |
-| Sync worker crash, `Permission denied: '/certs/tenant-client.key'` | Host key is `600` owned by `master`; container is uid **10001** | `sudo chown 10001:10001 certs/tenant-client.key` (and `.pem`, `ca.pem`); restart container |
+| Sync worker crash, `Permission denied: '/certs/...key'` | Key not readable by uid **10001** | `./scripts/install_tenant_certs.sh` on `~/KnovasInternal/certs` |
+| `401 Client certificate not authorized` | RC still using old copied certs under `RemoteController/certs/` | Mount `../certs`; update `.env` to `/certs/client-cert.pem` etc. |
 | Sync returns 401/403 | Missing JWT, instance token, or dev employee ID | Set `RC_INSTANCE_TOKEN`, `RC_MTLS_DEV_EMPLOYEE_ID`, use valid JWT |
 
 ---
