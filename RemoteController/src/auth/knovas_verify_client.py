@@ -130,6 +130,37 @@ def get_verify_client() -> KnovasVerifyClient:
     return _verify_client
 
 
+def discover_local_bypass_enabled() -> bool:
+    return get_config().rc_discover_local_bypass
+
+
+def _apply_local_discover_context() -> None:
+    """Local /discover only: skip Knovas verify_operator (no RC_INSTANCE_TOKEN)."""
+    cfg = get_config()
+    g.rc_client_id = cfg.rc_client_id
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        jwt_token = auth[7:].strip()
+        if jwt_token:
+            employee_id = employee_id_from_jwt_token(jwt_token)
+            if employee_id:
+                g.rc_employee_id = employee_id
+
+
+def require_discover_access(func):
+    """Production: full Knovas verify. Local bypass: no instance token or JWT required."""
+    verified = require_knovas_verify(func)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if discover_local_bypass_enabled():
+            _apply_local_discover_context()
+            return func(*args, **kwargs)
+        return verified(*args, **kwargs)
+
+    return wrapper
+
+
 def require_knovas_verify(func):
     @wraps(func)
     def wrapper(*args, **kwargs):

@@ -84,12 +84,25 @@ export RC_BASE=https://rc.yourcompany.com
 
 ### Discover
 
+**Production** (Knovas operator verify + `RC_INSTANCE_TOKEN`):
+
 ```bash
 export EMPLOYEE_JWT="<from Knovas generate_emp_jwt>"
 
 curl -sS "$RC_BASE/discover" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
+
+**Internal LAN** (`RC_DISCOVER_LOCAL_BYPASS=true`, e.g. `docker-compose.internal.yml` — no JWT or instance token):
+
+```bash
+curl -sS "$RC_BASE/discover" | python3 -m json.tool
+
+# Corpus on server01 (container path + depth)
+curl -sS "$RC_BASE/discover?root=/data/corpus&max_depth=10&include_globs=**/*.txt"
+```
+
+`/sync` still requires a real `RC_INSTANCE_TOKEN` and employee JWT even when discover bypass is enabled.
 
 ### Sync (one-shot or continuous per scheduler config)
 
