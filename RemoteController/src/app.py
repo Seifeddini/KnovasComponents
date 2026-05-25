@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 def create_app(*, skip_validation: bool = False) -> Flask:
     load_config(validate=not skip_validation)
 
+    if os.environ.get("TESTING", "").strip().lower() not in ("1", "true", "yes", "on"):
+        logging.basicConfig(
+            level=logging.INFO,
+            format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+        )
+
     app = Flask(__name__)
     app.config["TESTING"] = False
 

@@ -124,6 +124,7 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         return SyncRunResult(paused_reason="outside_window")
 
     _set_status("running")
+    logger.info("Sync cycle starting (mode=%s)", ctx.sync_body.get("mode", "incremental"))
     max_duration = cfg_doc.get("max_sync_duration_minutes")
     deadline = (
         time.monotonic() + float(max_duration) * 60 if max_duration else None
@@ -151,6 +152,7 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         return True
 
     uploader = SemantixUploader()
+    logger.info("Sync cycle scanning corpus and uploading (rate_limit=%s/min)", rl.get("max_ingestion_requests_per_minute", 30))
     result = run_sync_work(
         ctx.sync_body,
         uploader,
@@ -161,6 +163,13 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     )
     _last_run_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     _files_processed += result.files_uploaded
+    logger.info(
+        "Sync cycle finished uploaded=%d scanned=%d errors=%d paused=%s",
+        result.files_uploaded,
+        result.files_scanned,
+        len(result.errors),
+        result.paused_reason,
+    )
     if result.document_sync is not None:
         _last_document_sync = result.document_sync.as_dict()
 
