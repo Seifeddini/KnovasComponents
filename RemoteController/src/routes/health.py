@@ -30,10 +30,9 @@ def health():
         scheduler_ok = False
         scheduler_state = "error"
 
-    config_ok = bool(
-        cfg.knovas_internal_api_url
-        and cfg.rc_instance_token
-        and cfg.semantix_secure_base_url
+    config_ok = bool(cfg.semantix_secure_base_url) and (
+        cfg.rc_internal_local_bypass
+        or (cfg.knovas_internal_api_url and cfg.rc_instance_token)
     )
 
     checks = {

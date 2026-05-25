@@ -49,7 +49,7 @@ class AppConfig:
     rc_sync_default_max_ingestion_requests_per_minute: int
     rc_sync_default_burst: int
     rc_sync_default_scan_interval_seconds: int
-    rc_discover_local_bypass: bool
+    rc_internal_local_bypass: bool
     testing: bool
 
 
@@ -137,14 +137,20 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         rc_sync_default_scan_interval_seconds=_env_int(
             "RC_SYNC_DEFAULT_SCAN_INTERVAL_SECONDS", 60
         ),
-        rc_discover_local_bypass=_env_bool("RC_DISCOVER_LOCAL_BYPASS", False),
+        rc_internal_local_bypass=_internal_local_bypass_enabled(),
         testing=_env_bool("TESTING", False),
     )
     return _config
 
 
+def _internal_local_bypass_enabled() -> bool:
+    return _env_bool("RC_INTERNAL_LOCAL_BYPASS", False) or _env_bool(
+        "RC_DISCOVER_LOCAL_BYPASS", False
+    )
+
+
 def _required_env_keys() -> tuple[str, ...]:
-    if _env_bool("RC_DISCOVER_LOCAL_BYPASS", False):
+    if _internal_local_bypass_enabled():
         return tuple(k for k in _REQUIRED_VARS if k != "RC_INSTANCE_TOKEN")
     return _REQUIRED_VARS
 

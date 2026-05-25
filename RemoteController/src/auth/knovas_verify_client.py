@@ -130,12 +130,12 @@ def get_verify_client() -> KnovasVerifyClient:
     return _verify_client
 
 
-def discover_local_bypass_enabled() -> bool:
-    return get_config().rc_discover_local_bypass
+def internal_local_bypass_enabled() -> bool:
+    return get_config().rc_internal_local_bypass
 
 
-def _apply_local_discover_context() -> None:
-    """Local /discover only: skip Knovas verify_operator (no RC_INSTANCE_TOKEN)."""
+def _apply_internal_local_context() -> None:
+    """Internal LAN: skip Knovas verify_operator (no RC_INSTANCE_TOKEN or JWT)."""
     cfg = get_config()
     g.rc_client_id = cfg.rc_client_id
     auth = request.headers.get("Authorization", "")
@@ -147,18 +147,22 @@ def _apply_local_discover_context() -> None:
                 g.rc_employee_id = employee_id
 
 
-def require_discover_access(func):
-    """Production: full Knovas verify. Local bypass: no instance token or JWT required."""
+def require_internal_access(func):
+    """Production: full Knovas verify. Internal bypass: no instance token or JWT required."""
     verified = require_knovas_verify(func)
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        if discover_local_bypass_enabled():
-            _apply_local_discover_context()
+        if internal_local_bypass_enabled():
+            _apply_internal_local_context()
             return func(*args, **kwargs)
         return verified(*args, **kwargs)
 
     return wrapper
+
+
+# Backward-compatible alias
+require_discover_access = require_internal_access
 
 
 def require_knovas_verify(func):

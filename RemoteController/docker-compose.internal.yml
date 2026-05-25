@@ -10,8 +10,8 @@ services:
       - ../corpus:/data/corpus:ro
     environment:
       RC_SYNC_STATE_PATH: /var/rc-state/.rc-sync-state.json
-      # Local corpus listing on 127.0.0.1 — no RC_INSTANCE_TOKEN or employee JWT for GET /discover
-      RC_DISCOVER_LOCAL_BYPASS: "true"
+      # Internal LAN on 127.0.0.1 — discover/sync without RC_INSTANCE_TOKEN or employee JWT
+      RC_INTERNAL_LOCAL_BYPASS: "true"
 
   nginx:
     profiles:

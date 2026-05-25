@@ -93,7 +93,7 @@ curl -sS "$RC_BASE/discover" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
 
-**Internal LAN** (`RC_DISCOVER_LOCAL_BYPASS=true`, e.g. `docker-compose.internal.yml` — no JWT or instance token):
+**Internal LAN** (`RC_INTERNAL_LOCAL_BYPASS=true`, e.g. `docker-compose.internal.yml` — no JWT or instance token):
 
 ```bash
 curl -sS "$RC_BASE/discover" | python3 -m json.tool
@@ -102,7 +102,34 @@ curl -sS "$RC_BASE/discover" | python3 -m json.tool
 curl -sS "$RC_BASE/discover?root=/data/corpus&max_depth=10&include_globs=**/*.txt"
 ```
 
-`/sync` still requires a real `RC_INSTANCE_TOKEN` and employee JWT even when discover bypass is enabled.
+### Sync (internal LAN, no JWT / instance token)
+
+Requires tenant mTLS certs in `.env` (`SEMANTIX_*`) — uploads use those, not `RC_INSTANCE_TOKEN`.
+
+**One-shot incremental sync** (uses scheduler mode from saved config; corpus example):
+
+```bash
+curl -sS -X POST "$RC_BASE/sync" \
+  -H "Content-Type: application/json" \
+  -d @examples/sync-request-corpus.json
+
+curl -sS "$RC_BASE/sync/status"
+```
+
+**Continuous background sync:**
+
+```bash
+curl -sS -X POST "$RC_BASE/sync/start" \
+  -H "Content-Type: application/json" \
+  -d @examples/sync-request-corpus.json
+
+curl -sS "$RC_BASE/sync/status"
+curl -sS "$RC_BASE/sync/status?live=1"
+
+curl -sS -X POST "$RC_BASE/sync/stop"
+```
+
+Production (edge URL) still requires `RC_INSTANCE_TOKEN` and employee JWT on all discover/sync endpoints.
 
 ### Sync (one-shot or continuous per scheduler config)
 

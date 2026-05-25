@@ -8,8 +8,8 @@ def test_discover_auth_required(rc_client):
     assert resp.status_code in (401, 403, 429)
 
 
-def test_discover_local_bypass_no_auth(rc_client, monkeypatch):
-    monkeypatch.setenv("RC_DISCOVER_LOCAL_BYPASS", "true")
+def test_discover_internal_bypass_no_auth(rc_client, monkeypatch):
+    monkeypatch.setenv("RC_INTERNAL_LOCAL_BYPASS", "true")
     from config import load_config, reset_config
 
     reset_config()

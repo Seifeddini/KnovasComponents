@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from auth.knovas_verify_client import require_knovas_verify
+from auth.knovas_verify_client import require_internal_access
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from config import get_config
 from sync.sync_config import load_sync_config, save_sync_config, validate_sync_config
@@ -9,7 +9,7 @@ sync_config_bp = Blueprint("sync_config", __name__)
 
 _RC_DECORATORS = (
     require_rc_ip_rate_limit,
-    require_knovas_verify,
+    require_internal_access,
     require_rc_handled_rate_limit,
 )
 
