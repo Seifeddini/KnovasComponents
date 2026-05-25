@@ -24,6 +24,13 @@ mkdir -p certs
 install -m 644 "$CERTS_SRC/client.crt" certs/tenant-client.pem
 install -m 600 "$CERTS_SRC/client.key" certs/tenant-client.key
 install -m 644 "$CERTS_SRC/ca.crt" certs/ca.pem
+# Container runs as rcuser (uid 10001); key mode 600 must be owned by 10001 to be readable
+if command -v sudo >/dev/null 2>&1; then
+  sudo chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem 2>/dev/null \
+    || chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem
+else
+  chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem
+fi
 ls -la certs/
 
 echo "==> Step 4: Read organisation UUID for RC_CLIENT_ID"

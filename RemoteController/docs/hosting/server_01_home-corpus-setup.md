@@ -120,6 +120,8 @@ mkdir -p certs
 install -m 644 ../semantix-certs/client.crt certs/tenant-client.pem
 install -m 600 ../semantix-certs/client.key certs/tenant-client.key
 install -m 644 ../semantix-certs/ca.crt certs/ca.pem
+# rcuser in the container is uid 10001 — must own the mode-600 key file
+sudo chown 10001:10001 certs/tenant-client.key certs/tenant-client.pem certs/ca.pem
 ls -la certs/
 ```
 
@@ -395,6 +397,7 @@ If the server's git checkout of RemoteController is older than your dev tree, up
 | `watch_roots: degraded`, path not found | Symlink `data/corpus → ../corpus` invalid in container | Bind mount `../corpus:/data/corpus:ro` in internal compose |
 | `scheduler: error` | `rcuser` cannot write `config/` volume | `docker exec -u root ... chown rcuser:rcuser /app/config /var/rc-state` |
 | `POST /sync` 500, `Permission denied: '/app/tmp…'` | Last sync body written under read-only `/app` | Use current RC (`save` → `/var/rc-state/`); set `RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json`; rebuild; `chown rcuser:rcuser /var/rc-state` |
+| Sync worker crash, `Permission denied: '/certs/tenant-client.key'` | Host key is `600` owned by `master`; container is uid **10001** | `sudo chown 10001:10001 certs/tenant-client.key` (and `.pem`, `ca.pem`); restart container |
 | Sync returns 401/403 | Missing JWT, instance token, or dev employee ID | Set `RC_INSTANCE_TOKEN`, `RC_MTLS_DEV_EMPLOYEE_ID`, use valid JWT |
 
 ---

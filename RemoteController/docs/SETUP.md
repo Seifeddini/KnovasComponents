@@ -70,7 +70,7 @@ Edit `.env` using [.env.example](../.env.example). Required variables:
 - `RC_WATCH_ROOTS` — comma-separated **absolute** paths inside the container (e.g. `/data/docs`)
 - Knovas Secure API URL and tenant mTLS paths (see `.env.example`)
 
-Set file permissions to `0600` on cert and key files. Full reference: [configuration.md](configuration.md).
+Set file permissions to `0600` on the tenant key file. For Docker (user `rcuser`, uid **10001**), also run `chown 10001:10001` on mounted cert files so the container can read the key. Full reference: [configuration.md](configuration.md).
 
 ---
 
