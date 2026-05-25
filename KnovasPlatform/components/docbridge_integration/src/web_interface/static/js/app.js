@@ -411,6 +411,21 @@ class DocumentSearchApp {
         return out;
     }
 
+    /**
+     * Human-readable title: corpus pointers often ship a run-on "title" from ingestion;
+     * prefer the filename stem (e.g. corpus/foo/Infocuria.txt → Infocuria).
+     */
+    displayTitle(doc) {
+        const path = String(doc.path || doc.doc_id || '').replace(/\\/g, '/').trim();
+        const base = path ? path.split('/').pop() : '';
+        const stem = base.replace(/\.[^./]+$/, '') || base;
+        const raw = String(doc.title || '').trim();
+        if (stem && (!raw || raw.length > 100 || raw === path || raw.toLowerCase().startsWith(stem.toLowerCase() + ' '))) {
+            return stem || raw || path || 'Unbenanntes Dokument';
+        }
+        return raw || stem || path || 'Unbenanntes Dokument';
+    }
+
     /** Knovas /secured/query: string or { present, text }. */
     ingestedSummaryText(doc) {
         const v = doc.ingested_summary ?? doc.ingestedSummary;
@@ -427,7 +442,7 @@ class DocumentSearchApp {
         card.className = 'document-card';
         card.setAttribute('data-index', index);
         
-        const title = doc.title || doc.doc_id || 'Unbenanntes Dokument';
+        const title = this.displayTitle(doc);
         const docId = doc.doc_id || 'N/A';
         const aktenId = doc.akten_id || 'N/A';
         const docType = doc.type || doc.doc_type || 'Unbekannt';
@@ -487,7 +502,7 @@ class DocumentSearchApp {
             snippetHtml = this.escapeHtml(defaultNoPreview);
         }
         const summaryStr = showSummaryBlock
-            ? this.firstSentencesExcerpt(ingestedSummary, 10, 5000)
+            ? this.firstSentencesExcerpt(ingestedSummary, 4, 1200)
             : '';
         const summaryHtml = summaryStr ? this.escapeHtml(summaryStr) : '';
         
@@ -583,7 +598,7 @@ class DocumentSearchApp {
             return this.openDocumentCompanion(docId, path);
         }
         try {
-            const response = await fetch(`/api/document/${docId}/open`, {
+            const response = await fetch(`/api/document/${encodeURIComponent(docId)}/open`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {
@@ -700,7 +715,8 @@ class DocumentSearchApp {
     
     async downloadDocument(docId, path) {
         try {
-            window.location.href = `/api/document/${docId}/download?path=${encodeURIComponent(path)}`;
+            const idSeg = encodeURIComponent(docId);
+            window.location.href = `/api/document/${idSeg}/download?path=${encodeURIComponent(path)}`;
             this.showSuccess('Download wird gestartet...');
         } catch (error) {
             console.error('Error downloading document:', error);

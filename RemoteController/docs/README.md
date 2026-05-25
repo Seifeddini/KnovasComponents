@@ -4,13 +4,14 @@
 
 | Doc | Use |
 |-----|-----|
-| [SETUP.md](SETUP.md) | Clone → configure → run → edge → first sync |
+| [local-setup.md](local-setup.md) | **Local dev** — localhost only, step-by-step setup and sync |
+| [SETUP.md](SETUP.md) | **Production** — clone → configure → HTTPS edge → go-live |
 
 ## Run and test on your machine
 
 | Doc | Use |
 |-----|-----|
-| [local-commands.md](local-commands.md) | Docker/Python, curl discover/sync, pytest |
+| [local-commands.md](local-commands.md) | API cheat sheet, pytest (after [local-setup.md](local-setup.md)) |
 | [stopping web servers](../../docs/stopping-web-servers.md) | Stop platform + RC Docker and dev processes |
 
 ## Reference

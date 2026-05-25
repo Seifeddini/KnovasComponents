@@ -488,7 +488,7 @@ def create_app(config_path: Optional[str] = None):
                 'error': str(e)
             }), 500
     
-    @app.route('/api/document/<doc_id>', methods=['GET'])
+    @app.route('/api/document/<path:doc_id>', methods=['GET'])
     def get_document(doc_id: str):
         """
         Get document metadata.
@@ -515,7 +515,7 @@ def create_app(config_path: Optional[str] = None):
                 'error': str(e)
             }), 500
     
-    @app.route('/api/document/<doc_id>/open', methods=['POST'])
+    @app.route('/api/document/<path:doc_id>/open', methods=['POST'])
     def open_document(doc_id: str):
         """
         Legacy: open on server host (os.startfile). Disabled when companion open is mandatory.
@@ -582,7 +582,7 @@ def create_app(config_path: Optional[str] = None):
                 'error': str(e)
             }), 500
     
-    @app.route('/api/document/<doc_id>/download', methods=['GET'])
+    @app.route('/api/document/<path:doc_id>/download', methods=['GET'])
     def download_document(doc_id: str):
         """
         Download document file.
@@ -618,7 +618,7 @@ def create_app(config_path: Optional[str] = None):
             logger.error(f"Error downloading document: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/document/<doc_id>/preview', methods=['GET'])
+    @app.route('/api/document/<path:doc_id>/preview', methods=['GET'])
     def preview_document(doc_id: str):
         """Inline PDF preview in browser (Option A — no persisted duplicate on disk)."""
         if not pdf_inline_in_browser:
@@ -644,7 +644,7 @@ def create_app(config_path: Optional[str] = None):
             logger.error(f"Error previewing document: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/document/<doc_id>/client-path', methods=['GET'])
+    @app.route('/api/document/<path:doc_id>/client-path', methods=['GET'])
     def document_client_path(doc_id: str):
         """
         Return UNC and/or POSIX path for opening on the user's machine (session required).

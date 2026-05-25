@@ -147,6 +147,27 @@ def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+_INGESTED_SUMMARY_MAX_LEN = 2500
+
+
+def _display_title_for_hit(pointer: str, raw_title: Optional[Any]) -> str:
+    """
+    Prefer filename stem for RC/corpus pointers; Knovas title fields are often run-on text.
+    """
+    p = (pointer or "").strip().replace("\\", "/")
+    base = p.rsplit("/", 1)[-1] if p else ""
+    stem = Path(base).stem if base else ""
+    title = str(raw_title or "").strip()
+    if stem and (
+        not title
+        or len(title) > 100
+        or title == p
+        or title.lower().startswith(stem.lower() + " ")
+    ):
+        return stem[:500]
+    return (title or stem or p or "Unbenanntes Dokument")[:500]
+
+
 def _ingested_summary_text(value: Any) -> Optional[str]:
     """
     Normalize ingested_summary from Knovas /secured/query.
@@ -161,7 +182,10 @@ def _ingested_summary_text(value: Any) -> Optional[str]:
         for key in ("text", "summary", "content"):
             text = value.get(key)
             if isinstance(text, str) and text.strip():
-                return text.strip()
+                text = text.strip()
+                if len(text) > _INGESTED_SUMMARY_MAX_LEN:
+                    return None
+                return text
     return None
 
 
@@ -915,7 +939,7 @@ class KnovasAPIClient:
                 'doc_id': pointer,
                 'path': pointer,
                 'score': _extract_semantix_query_similarity(item),
-                'title': item.get('title') or pointer,
+                'title': _display_title_for_hit(pointer, item.get('title')),
                 'source': 'semantix',
                 'page_number': page_number,
                 'page': page_number,

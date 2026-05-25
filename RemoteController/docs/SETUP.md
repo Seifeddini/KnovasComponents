@@ -1,6 +1,8 @@
 # Setup — clone to fully functional Remote Controller
 
-Single ordered path from a fresh folder to a working Remote Controller (RC). Use reference docs linked at each step.
+Single ordered path from a fresh folder to a working Remote Controller (RC) in **production**. Use reference docs linked at each step.
+
+**For local-only development on your machine** (localhost `127.0.0.1:5001`, no HTTPS edge, no employee JWT), use [local-setup.md](local-setup.md) instead.
 
 ## Milestones
 
@@ -10,7 +12,7 @@ Single ordered path from a fresh folder to a working Remote Controller (RC). Use
 | Production-ready edge | HTTPS public URL at NGINX/Envoy |
 | End-to-end sync | `GET /discover` and `POST /sync` succeed; documents appear in Knovas |
 
-For curl, logs, and local dev shortcuts, see [local-commands.md](local-commands.md).
+For local-only setup, see [local-setup.md](local-setup.md). For curl and pytest after setup, see [local-commands.md](local-commands.md).
 
 ---
 
@@ -184,7 +186,8 @@ For local testing without employee certs, see [local-commands.md](local-commands
 
 | Doc | Purpose |
 |-----|---------|
-| [local-commands.md](local-commands.md) | Run locally, curl sync/discover, pytest |
+| [local-setup.md](local-setup.md) | Local-only setup on your machine (localhost) |
+| [local-commands.md](local-commands.md) | API cheat sheet, curl sync/discover, pytest |
 | [configuration.md](configuration.md) | Env vars, sync JSON, permissions |
 | [network-and-firewall.md](network-and-firewall.md) | Ingress/egress checklist |
 | [operations.md](operations.md) | Health, metrics, upgrades |

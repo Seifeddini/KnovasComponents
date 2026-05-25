@@ -166,29 +166,13 @@ RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json
 
 ## Step 6 — Mount the corpus into the container
 
-A relative symlink under `./data/corpus` does **not** work reliably in Docker. Use a direct bind mount in `docker-compose.internal.yml`:
+A relative symlink under `./data/corpus` does **not** work reliably in Docker. Use the corpus overlay [docker-compose.corpus.yml](../../docker-compose.corpus.yml) (binds `../corpus` → `/data/corpus`).
 
-```yaml
-# docker-compose.internal.yml
-services:
-  remote-controller:
-    ports:
-      - "127.0.0.1:5001:5001"
-    volumes:
-      - ../corpus:/data/corpus:ro
-    environment:
-      RC_SYNC_STATE_PATH: /var/rc-state/.rc-sync-state.json
-
-  nginx:
-    profiles:
-      - edge   # NGINX edge disabled until employee mTLS certs exist
-```
-
-Start with internal compose (RC only, no public `:443` edge):
+Start with internal + corpus compose (RC only, no public `:443` edge):
 
 ```bash
 cd /home/master/KnovasInternal/RemoteController
-docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build
 ```
 
 ---
@@ -208,8 +192,8 @@ volumes:
 After changing this, remove old volumes and recreate:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.internal.yml down -v
-docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml down -v
+docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build
 ```
 
 ---
@@ -306,7 +290,7 @@ On the server:
 cd /home/master/KnovasInternal/RemoteController
 
 # After setting RC_INSTANCE_TOKEN and RC_MTLS_DEV_EMPLOYEE_ID in .env:
-docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d
 
 export RC_BASE=http://127.0.0.1:5001
 export EMPLOYEE_JWT="<from Knovas generate_emp_jwt>"
@@ -375,12 +359,12 @@ If the server's git checkout of RemoteController is older than your dev tree, up
 
 | Action | Command |
 |--------|---------|
-| Start RC | `docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d` |
-| Stop RC | `docker compose -f docker-compose.yml -f docker-compose.internal.yml down` |
-| Logs | `docker compose -f docker-compose.yml -f docker-compose.internal.yml logs -f remote-controller` |
+| Start RC | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d` |
+| Stop RC | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml down` |
+| Logs | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml logs -f remote-controller` |
 | Health | `curl -sS http://127.0.0.1:5001/health` |
 | Metrics | `curl -sS http://127.0.0.1:5001/metrics` |
-| Rebuild | `docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build` |
+| Rebuild | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build` |
 
 ---
 

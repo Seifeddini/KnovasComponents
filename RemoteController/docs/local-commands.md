@@ -1,16 +1,18 @@
 # Local commands — run, sync, test
 
-Run the Remote Controller on your machine and call discover/sync APIs. For first-time production setup, start with [SETUP.md](SETUP.md).
+API reference and pytest for Remote Controller. **First-time local setup:** follow [local-setup.md](local-setup.md) step by step. **Production setup:** [SETUP.md](SETUP.md).
 
 ## Run the service
 
-### Docker Compose (same as production)
+### Docker Compose (localhost only)
+
+Use the internal overlay so port `5001` is reachable on your machine and local auth bypass is enabled. Full steps: [local-setup.md](local-setup.md).
 
 ```bash
 cd RemoteController   # or KnovasComponents/RemoteController
 cp .env.example .env  # if not done yet
-docker compose up -d --build
-docker compose logs -f remote-controller
+docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.internal.yml logs -f remote-controller
 ```
 
 Health (no auth):
@@ -22,10 +24,18 @@ curl -sS http://127.0.0.1:5001/health
 Stop:
 
 ```bash
-docker compose down
+docker compose -f docker-compose.yml -f docker-compose.internal.yml down
 ```
 
 See also [stopping web servers](../../docs/stopping-web-servers.md) (platform + RC + dev processes).
+
+### Docker Compose (production edge)
+
+```bash
+docker compose up -d --build
+```
+
+RC listens on the Docker network only; employees reach RC via HTTPS on port 443 (NGINX). See [SETUP.md](SETUP.md).
 
 ### Python from source (dev/staging)
 

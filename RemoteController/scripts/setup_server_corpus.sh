@@ -16,7 +16,7 @@ test -d "$CORPUS_DIR"
 FILE_COUNT="$(find "$CORPUS_DIR" -type f | wc -l)"
 echo "    Corpus: $CORPUS_DIR ($FILE_COUNT files)"
 
-echo "==> Step 2: Prepare data directory (corpus mounted via docker-compose.internal.yml)"
+echo "==> Step 2: Prepare data directory (corpus mounted via docker-compose.corpus.yml)"
 mkdir -p data
 
 echo "==> Step 3: Prepare tenant mTLS certs (monorepo ../certs -> /certs in container)"
@@ -79,7 +79,7 @@ echo "==> Step 6: Ensure latest sync source (if monorepo checkout is behind loca
 # Optional: copy from a dev machine when server git tree lacks recent RC changes.
 
 echo "==> Step 7: Build and start (internal mode, localhost:5001 only)"
-docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build
 
 echo "==> Step 8: Fix Docker volume ownership (rcuser must write config + state)"
 docker exec -u root remotecontroller-remote-controller-1 \

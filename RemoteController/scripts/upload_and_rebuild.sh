@@ -17,4 +17,4 @@ files=(
 for f in "${files[@]}"; do
   "$PY" "$H" upload "$SRC/$f" "$DST/$f"
 done
-"$PY" "$H" run 'cd /home/master/KnovasInternal/RemoteController && docker compose -f docker-compose.yml -f docker-compose.internal.yml build --no-cache remote-controller && docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d && sleep 15 && curl -sS http://127.0.0.1:5001/health'
+"$PY" "$H" run 'cd /home/master/KnovasInternal/RemoteController && docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml build --no-cache remote-controller && docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d && sleep 15 && curl -sS http://127.0.0.1:5001/health'

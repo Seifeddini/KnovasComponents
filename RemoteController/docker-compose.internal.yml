@@ -6,8 +6,6 @@ services:
   remote-controller:
     ports:
       - "127.0.0.1:5001:5001"
-    volumes:
-      - ../corpus:/data/corpus:ro
     environment:
       RC_SYNC_STATE_PATH: /var/rc-state/.rc-sync-state.json
       # Internal LAN on 127.0.0.1 — discover/sync without RC_INSTANCE_TOKEN or employee JWT

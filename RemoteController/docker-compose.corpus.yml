@@ -1,0 +1,8 @@
+# Optional: mount monorepo corpus at /data/corpus (use with internal compose).
+# Usage: docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build
+# Requires KnovasComponents/corpus/ on the host. Set RC_WATCH_ROOTS=/data/corpus in .env.
+
+services:
+  remote-controller:
+    volumes:
+      - ../corpus:/data/corpus:ro
