@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any, Optional
 
-_EMPLOYEE_ID_CLAIMS = ("employee_id", "operator_id", "sub", "oid", "user_id")
+_EMPLOYEE_ID_CLAIMS = ("employee_id", "operator_id", "sub", "oid", "user_id", "id")
 _UUID = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )

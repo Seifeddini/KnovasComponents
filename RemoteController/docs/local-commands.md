@@ -52,7 +52,7 @@ Use **one** Gunicorn worker for continuous sync (`-w 1`).
 Discover and sync require:
 
 - `Authorization: Bearer <employee JWT>` from Knovas (`generate_emp_jwt`)
-- A valid operator UUID in the JWT (`sub`, `employee_id`, or `operator_id` claim)
+- A valid operator UUID in the JWT (`sub`, `employee_id`, `operator_id`, or `id` claim)
 - Reachable `KNOVAS_INTERNAL_API_URL` for `POST /remote_controller/verify_operator`
 - Valid tenant mTLS paths for Knovas ingestion (`SEMANTIX_*` in `.env`)
 

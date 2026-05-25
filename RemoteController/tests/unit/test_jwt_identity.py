@@ -20,6 +20,11 @@ def test_employee_id_from_operator_id_claim():
     assert employee_id_from_jwt_payload({"operator_id": emp}) == emp
 
 
+def test_employee_id_from_id_claim():
+    emp = "b4ab2b41-2604-4766-8289-fcdfe78a8c2d"
+    assert employee_id_from_jwt_payload({"id": emp, "email": "user@example.com"}) == emp
+
+
 def test_rejects_non_uuid_claims():
     assert employee_id_from_jwt_token(_jwt({"sub": "not-a-uuid"})) is None
 
