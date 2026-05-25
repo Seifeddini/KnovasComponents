@@ -38,8 +38,8 @@ Terminate HTTPS at NGINX/Envoy and proxy to RC. Employee requests use `Authoriza
 Set mode `0600` for:
 
 - Tenant cert/key files
-- `.rc-sync-state.json`
-- `.rc-sync-last-request.json`
+- `.rc-sync-state.json` (path from `RC_SYNC_STATE_PATH`, e.g. `/var/rc-state/.rc-sync-state.json`)
+- `.rc-sync-last-request.json` (same directory as the sync state file)
 - `config/remote_controller_sync.json`
 
 ## Two configuration layers

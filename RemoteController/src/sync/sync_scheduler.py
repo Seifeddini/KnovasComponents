@@ -23,8 +23,6 @@ from sync.window import is_in_window
 
 logger = logging.getLogger(__name__)
 
-LAST_BODY_PATH = ".rc-sync-last-request.json"
-
 _scheduler_lock = threading.Lock()
 _stop_event = threading.Event()
 _worker_thread: Optional[threading.Thread] = None
@@ -47,9 +45,17 @@ def _timezone() -> ZoneInfo:
     return datetime.now().astimezone().tzinfo or ZoneInfo("UTC")
 
 
+def _last_sync_body_path() -> Path:
+    """Writable path next to RC_SYNC_STATE_PATH (e.g. /var/rc-state/)."""
+    state_path = Path(get_config().rc_sync_state_path)
+    parent = state_path.parent if state_path.name else Path(".")
+    return parent / ".rc-sync-last-request.json"
+
+
 def save_last_sync_body(body: dict[str, Any]) -> None:
-    p = Path(LAST_BODY_PATH)
-    fd, tmp = tempfile.mkstemp(dir=p.parent or Path("."), suffix=".tmp")
+    p = _last_sync_body_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(body, f)
@@ -67,7 +73,7 @@ def save_last_sync_body(body: dict[str, Any]) -> None:
 
 
 def load_last_sync_body() -> Optional[dict[str, Any]]:
-    p = Path(LAST_BODY_PATH)
+    p = _last_sync_body_path()
     if not p.exists():
         return None
     try:
