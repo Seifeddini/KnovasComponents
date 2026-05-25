@@ -1,5 +1,5 @@
 # Internal LAN setup: RC only on localhost:5001 (no NGINX edge).
-# Use when employee mTLS termination is not configured yet.
+# RC only (no NGINX edge service). Use when HTTPS edge is not configured yet.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
 
 services:

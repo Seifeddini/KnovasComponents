@@ -1,4 +1,4 @@
-# Remote Controller + NGINX edge (employee mTLS termination).
+# Remote Controller + NGINX edge (HTTPS termination).
 # 1. Copy .env.example to .env and fill required values.
 # 2. Place tenant certs under ./certs and documents under ./data (see docs/SETUP.md).
 # 3. Configure edge TLS paths in docs/nginx-edge.example.conf.

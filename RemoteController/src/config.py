@@ -37,8 +37,6 @@ class AppConfig:
     rc_rate_limit_handled_refill_per_sec: float
     knovas_verify_cache_ttl_seconds: int
     knovas_verify_timeout_seconds: int
-    rc_mtls_dev_bypass: bool
-    rc_mtls_dev_employee_id: str
     rc_sync_config_path: str
     rc_sync_config_api_enabled: bool
     rc_sync_auto_start_continuous: bool
@@ -117,8 +115,6 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         ),
         knovas_verify_cache_ttl_seconds=ttl,
         knovas_verify_timeout_seconds=_env_int("RC_VERIFY_TIMEOUT_SECONDS", 10),
-        rc_mtls_dev_bypass=_env_bool("RC_MTLS_DEV_BYPASS", False),
-        rc_mtls_dev_employee_id=(os.environ.get("RC_MTLS_DEV_EMPLOYEE_ID") or "").strip(),
         rc_sync_config_path=os.environ.get(
             "RC_SYNC_CONFIG_PATH", "config/remote_controller_sync.json"
         ),

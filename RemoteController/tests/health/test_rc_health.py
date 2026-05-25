@@ -157,7 +157,7 @@ class TestRcKnovasApiConnectivity:
             "X-RC-Instance-Token": token,
             "Content-Type": "application/json",
         }
-        payload = {"employee_id": "probe", "certificate_serial": "probe"}
+        payload = {"employee_id": "00000000-0000-0000-0000-000000000000"}
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=10)
         except requests.ConnectionError as exc:

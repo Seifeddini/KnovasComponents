@@ -7,7 +7,7 @@ Single ordered path from a fresh folder to a working Remote Controller (RC). Use
 | Milestone | How you know |
 |-----------|----------------|
 | Service healthy | `GET /health` returns HTTP 200, `"status":"ok"` |
-| Production-ready edge | HTTPS public URL; employee mTLS at NGINX/Envoy |
+| Production-ready edge | HTTPS public URL at NGINX/Envoy |
 | End-to-end sync | `GET /discover` and `POST /sync` succeed; documents appear in Knovas |
 
 For curl, logs, and local dev shortcuts, see [local-commands.md](local-commands.md).
@@ -24,7 +24,6 @@ For curl, logs, and local dev shortcuts, see [local-commands.md](local-commands.
 | `RC_CLIENT_ID` | `.env` — your tenant UUID |
 | `KNOVAS_INTERNAL_API_URL` | `.env` — base URL for `POST /remote_controller/verify_operator` |
 | Knovas Secure API URL + tenant mTLS | `.env` — secured API (typically `:8443`) and cert paths |
-| Employee RC certificates | Issued per operator; used by employees at the edge |
 | Public RC base URL | Registered in Knovas admin (e.g. `https://rc.yourcompany.com`) |
 
 **You provide:**
@@ -112,7 +111,7 @@ docker run -d --name remote-controller \
   remote-controller:0.1.1
 ```
 
-Place NGINX or Envoy in front for employee mTLS — do not publish port 5001 to the public internet.
+Place NGINX or Envoy in front for HTTPS — do not publish port 5001 to the public internet.
 
 **Gunicorn workers:** The image runs **one** worker (`-w 1`). Continuous sync uses in-process locks; multiple workers cause duplicate schedulers and conflicting state files. If you run Gunicorn manually, keep `-w 1`.
 
@@ -139,10 +138,7 @@ If the container exits immediately, check logs — required env vars are validat
 
 **Required for production employee access.** Do not expose port 5001 directly to the internet.
 
-Terminate employee RC mTLS at NGINX/Envoy and forward headers to RC:
-
-- `X-SSL-Client-Cert`
-- `X-SSL-Client-DN` (CN = operator UUID)
+Terminate HTTPS at NGINX/Envoy and proxy to RC. Employees authenticate with `Authorization: Bearer <JWT>` only.
 
 Copy and customize [nginx-edge.example.conf](nginx-edge.example.conf). With Compose, it is mounted automatically; adjust `server_name` and certificate paths under `certs/edge/`.
 
@@ -167,17 +163,14 @@ export RC_BASE=https://rc.yourcompany.com
 export EMPLOYEE_JWT="<employee_jwt>"
 
 curl -sS "$RC_BASE/discover" \
-  --cert employee-rc.pem --key employee-rc.key \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 
 curl -sS -X POST "$RC_BASE/sync" \
-  --cert employee-rc.pem --key employee-rc.key \
   -H "Authorization: Bearer $EMPLOYEE_JWT" \
   -H "Content-Type: application/json" \
   -d @examples/sync-request.json
 
 curl -sS "$RC_BASE/sync/status" \
-  --cert employee-rc.pem --key employee-rc.key \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
 

@@ -1,8 +1,9 @@
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
+
+from tests.helpers import TEST_EMPLOYEE_ID, make_test_jwt
 
 
 def pytest_addoption(parser):
@@ -21,11 +22,10 @@ def pytest_collection_modifyitems(config, items):
             if "knovas_api" in item.keywords:
                 item.add_marker(skip)
 
+
 os.environ.setdefault("RC_SKIP_CONFIG_VALIDATION", "true")
 os.environ.setdefault("TESTING", "true")
 os.environ.setdefault("RC_RATE_LIMIT_ENABLED", "true")
-os.environ.setdefault("RC_MTLS_DEV_BYPASS", "true")
-os.environ.setdefault("RC_MTLS_DEV_EMPLOYEE_ID", "11111111-1111-1111-1111-111111111111")
 os.environ.setdefault("KNOVAS_INTERNAL_API_URL", "http://internal-api:5000")
 os.environ.setdefault("RC_INSTANCE_TOKEN", "test-instance-token")
 os.environ.setdefault("RC_CLIENT_ID", "22222222-2222-2222-2222-222222222222")
@@ -40,6 +40,16 @@ load_config(validate=False)
 
 
 @pytest.fixture
+def test_jwt():
+    return make_test_jwt()
+
+
+@pytest.fixture
+def auth_headers(test_jwt):
+    return {"Authorization": f"Bearer {test_jwt}"}
+
+
+@pytest.fixture
 def tmp_watch_root(tmp_path):
     root = tmp_path / "data"
     root.mkdir()
@@ -50,6 +60,17 @@ def tmp_watch_root(tmp_path):
     reset_config()
     load_config(validate=False, force_reload=True)
     yield root
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    import auth.rc_rate_limit as rl
+
+    rl._ip_limiter = None
+    rl._handled_limiter = None
+    yield
+    rl._ip_limiter = None
+    rl._handled_limiter = None
 
 
 @pytest.fixture

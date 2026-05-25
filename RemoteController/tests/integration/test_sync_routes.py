@@ -15,15 +15,15 @@ def test_sync_auth_required(rc_client):
     assert resp.status_code in (401, 403, 429)
 
 
-def test_sync_config_api_disabled(rc_client):
+def test_sync_config_api_disabled(rc_client, auth_headers):
     with patch("auth.knovas_verify_client.get_verify_client") as mock_client:
         mock_client.return_value.verify_operator.return_value = (True, "c", None)
-        resp = rc_client.get("/sync/config", headers={"Authorization": "Bearer jwt"})
+        resp = rc_client.get("/sync/config", headers=auth_headers)
         assert resp.status_code == 404
 
 
-def test_sync_status(rc_client):
+def test_sync_status(rc_client, auth_headers):
     with patch("auth.knovas_verify_client.get_verify_client") as mock_client:
         mock_client.return_value.verify_operator.return_value = (True, "c", None)
-        resp = rc_client.get("/sync/status", headers={"Authorization": "Bearer jwt"})
+        resp = rc_client.get("/sync/status", headers=auth_headers)
         assert resp.status_code == 200

@@ -47,24 +47,14 @@ Use **one** Gunicorn worker for continuous sync (`-w 1`).
 
 ---
 
-## Local auth shortcut (non-production)
+## Employee auth
 
-Skip employee client certificates when testing against `127.0.0.1` — set in `.env`:
+Discover and sync require:
 
-```env
-RC_MTLS_DEV_BYPASS=true
-RC_MTLS_DEV_EMPLOYEE_ID=<operator-uuid-matching-jwt>
-```
-
-`RC_MTLS_DEV_EMPLOYEE_ID` must match the operator UUID in the JWT you pass to `Authorization: Bearer`.
-
-You still need:
-
-- A real **employee JWT** from Knovas (`generate_emp_jwt`)
+- `Authorization: Bearer <employee JWT>` from Knovas (`generate_emp_jwt`)
+- A valid operator UUID in the JWT (`sub`, `employee_id`, or `operator_id` claim)
 - Reachable `KNOVAS_INTERNAL_API_URL` for `POST /remote_controller/verify_operator`
 - Valid tenant mTLS paths for Knovas ingestion (`SEMANTIX_*` in `.env`)
-
-Never enable dev bypass in production.
 
 ---
 
@@ -74,8 +64,8 @@ Never enable dev bypass in production.
 |----------|--------|------|
 | `/health` | GET | none |
 | `/metrics` | GET | none |
-| `/discover` | GET | Bearer + mTLS (or dev bypass) |
-| `/sync` | POST | Bearer + mTLS; JSON body |
+| `/discover` | GET | Bearer JWT |
+| `/sync` | POST | Bearer JWT; JSON body |
 | `/sync/start` | POST | same; uses last saved body if request has no JSON |
 | `/sync/stop` | POST | same |
 | `/sync/status` | GET | same |
@@ -86,7 +76,7 @@ Never enable dev bypass in production.
 export RC_BASE=http://127.0.0.1:5001
 ```
 
-**Production** (via edge — employee cert required unless using a staging tunnel):
+**Production** (via HTTPS edge):
 
 ```bash
 export RC_BASE=https://rc.yourcompany.com
@@ -100,8 +90,6 @@ export EMPLOYEE_JWT="<from Knovas generate_emp_jwt>"
 curl -sS "$RC_BASE/discover" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
-
-With production edge mTLS, add `--cert employee-rc.pem --key employee-rc.key`.
 
 ### Sync (one-shot or continuous per scheduler config)
 
@@ -157,7 +145,7 @@ Live Knovas API reachability (requires real `.env` values, no `RC_SKIP_CONFIG_VA
 pytest --knovas-api
 ```
 
-Unit tests set `RC_SKIP_CONFIG_VALIDATION` and `RC_MTLS_DEV_BYPASS` automatically via [tests/conftest.py](../tests/conftest.py).
+Unit tests set `RC_SKIP_CONFIG_VALIDATION` automatically via [tests/conftest.py](../tests/conftest.py).
 
 ---
 
@@ -165,8 +153,8 @@ Unit tests set `RC_SKIP_CONFIG_VALIDATION` and `RC_MTLS_DEV_BYPASS` automaticall
 
 | Symptom | Likely cause |
 |---------|----------------|
-| 401 on discover/sync | Missing `Authorization: Bearer` or dev bypass / employee cert |
-| 403 | JWT/cert mismatch or operator not allowlisted |
+| 401 on discover/sync | Missing or malformed Bearer JWT, or no operator UUID claim |
+| 403 | Operator not allowlisted or JWT rejected by Knovas verify |
 | 503 on discover/sync | RC cannot reach `KNOVAS_INTERNAL_API_URL` |
 | Sync paused | Outside configured sync window in `config/remote_controller_sync.json` |
 | No files uploaded | `sources[].path` not under `RC_WATCH_ROOTS` or filters exclude files |

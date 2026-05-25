@@ -1,6 +1,6 @@
 # Remote Controller
 
-Customer-hosted service: discover local files and sync text to **Knovas** (employee JWT + RC mTLS at the edge; tenant mTLS for ingestion).
+Customer-hosted service: discover local files and sync text to **Knovas** (employee JWT; tenant mTLS for ingestion).
 
 **After sync**, deploy [KnovasPlatform](../KnovasPlatform/) for search.
 

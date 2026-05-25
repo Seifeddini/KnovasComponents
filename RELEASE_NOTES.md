@@ -11,7 +11,7 @@ Docker search UI for an indexed Knovas tenant. Requires mTLS client certificates
 
 ## RemoteController
 
-Discover and sync local text files to Knovas (employee JWT + RC mTLS at the edge; tenant mTLS for ingestion).
+Discover and sync local text files to Knovas (employee JWT; tenant mTLS for ingestion).
 
 - Deploy: [RemoteController/docs/SETUP.md](RemoteController/docs/SETUP.md)
 

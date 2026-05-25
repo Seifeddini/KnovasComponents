@@ -5,16 +5,16 @@ import base64
 import json
 import threading
 import time
+from functools import wraps
 from typing import Any, Optional
 
 import requests
-from functools import wraps
-
 from flask import g, jsonify, request
 
+from auth.jwt_identity import employee_id_from_jwt_token
 from config import get_config
 
-_cache: dict[tuple[str, str, str], tuple[float, str]] = {}
+_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -31,7 +31,7 @@ def _extract_jti(jwt_token: str) -> str:
         return ""
 
 
-def _cache_get(key: tuple[str, str, str], ttl: float) -> Optional[str]:
+def _cache_get(key: tuple[str, str], ttl: float) -> Optional[str]:
     now = time.monotonic()
     with _cache_lock:
         entry = _cache.get(key)
@@ -44,7 +44,7 @@ def _cache_get(key: tuple[str, str, str], ttl: float) -> Optional[str]:
         return client_id
 
 
-def _cache_set(key: tuple[str, str, str], client_id: str, ttl: float) -> None:
+def _cache_set(key: tuple[str, str], client_id: str, ttl: float) -> None:
     with _cache_lock:
         _cache[key] = (time.monotonic() + ttl, client_id)
 
@@ -57,9 +57,7 @@ class KnovasVerifyClient:
         self._timeout = cfg.knovas_verify_timeout_seconds
         self._ttl = float(cfg.knovas_verify_cache_ttl_seconds)
 
-    def verify_operator(
-        self, jwt_token: str, employee_id: str, certificate_serial: str
-    ) -> tuple[bool, Optional[str], Optional[tuple]]:
+    def verify_operator(self, jwt_token: str, employee_id: str) -> tuple[bool, Optional[str], Optional[tuple]]:
         if not self._instance_token:
             return (
                 False,
@@ -68,7 +66,7 @@ class KnovasVerifyClient:
             )
 
         jti = _extract_jti(jwt_token)
-        cache_key = (employee_id, certificate_serial, jti)
+        cache_key = (employee_id, jti)
         cached = _cache_get(cache_key, self._ttl)
         if cached:
             return True, cached, None
@@ -79,7 +77,7 @@ class KnovasVerifyClient:
             "X-RC-Instance-Token": self._instance_token,
             "Content-Type": "application/json",
         }
-        payload = {"employee_id": employee_id, "certificate_serial": certificate_serial}
+        payload = {"employee_id": employee_id}
 
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=self._timeout)
@@ -142,15 +140,23 @@ def require_knovas_verify(func):
         if not jwt_token:
             return jsonify({"error": "Authorization Bearer token required", "status": "error"}), 401
 
-        employee_id = getattr(g, "rc_employee_id", None)
-        serial = getattr(g, "rc_certificate_serial", None)
-        if not employee_id or not serial:
-            return jsonify({"error": "mTLS identity required", "status": "error"}), 401
+        employee_id = employee_id_from_jwt_token(jwt_token)
+        if not employee_id:
+            return (
+                jsonify(
+                    {
+                        "error": "Bearer token must contain a valid operator UUID claim",
+                        "status": "error",
+                    }
+                ),
+                401,
+            )
 
-        ok, client_id, err = get_verify_client().verify_operator(jwt_token, employee_id, serial)
+        ok, client_id, err = get_verify_client().verify_operator(jwt_token, employee_id)
         if not ok:
             body, status = err or ({"error": "Not authorized", "status": "error"}, 403)
             return jsonify(body), status
+        g.rc_employee_id = employee_id
         g.rc_client_id = client_id
         return func(*args, **kwargs)
 

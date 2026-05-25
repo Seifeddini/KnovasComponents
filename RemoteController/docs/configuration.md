@@ -29,20 +29,15 @@ Example:
 
 Optional `max_document_age_seconds` sets the default maximum file age (by `mtime`) for sync. Per-request `filters.max_document_age_seconds` in the sync body overrides this value when set.
 
-## Edge proxy headers
+## Edge proxy
 
-Terminate employee RC mTLS at NGINX/Envoy and forward:
-
-- `X-SSL-Client-Cert` — PEM (URL-encoded tabs as newlines)
-- `X-SSL-Client-DN` — subject DN with CN = operator UUID
-
-Only trust these headers from your local reverse proxy (bind RC to `127.0.0.1` behind the proxy). Example: [nginx-edge.example.conf](nginx-edge.example.conf).
+Terminate HTTPS at NGINX/Envoy and proxy to RC. Employee requests use `Authorization: Bearer <JWT>` only. Example: [nginx-edge.example.conf](nginx-edge.example.conf).
 
 ## File permissions
 
 Set mode `0600` for:
 
-- Tenant and employee cert/key files
+- Tenant cert/key files
 - `.rc-sync-state.json`
 - `.rc-sync-last-request.json`
 - `config/remote_controller_sync.json`
