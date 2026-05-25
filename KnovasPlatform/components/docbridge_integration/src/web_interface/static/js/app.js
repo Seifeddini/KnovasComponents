@@ -411,6 +411,17 @@ class DocumentSearchApp {
         return out;
     }
 
+    /** Knovas /secured/query: string or { present, text }. */
+    ingestedSummaryText(doc) {
+        const v = doc.ingested_summary ?? doc.ingestedSummary;
+        if (typeof v === 'string') return v.trim();
+        if (v && typeof v === 'object' && v.present !== false) {
+            const t = v.text ?? v.summary ?? v.content;
+            if (typeof t === 'string') return t.trim();
+        }
+        return '';
+    }
+
     createDocumentCard(doc, index) {
         const card = document.createElement('div');
         card.className = 'document-card';
@@ -421,7 +432,7 @@ class DocumentSearchApp {
         const aktenId = doc.akten_id || 'N/A';
         const docType = doc.type || doc.doc_type || 'Unbekannt';
         const desc = doc.description ? String(doc.description).trim() : '';
-        const ingestedSummary = (doc.ingested_summary || doc.ingestedSummary || '').trim();
+        const ingestedSummary = this.ingestedSummaryText(doc);
         const fromKnovas = (doc.snippet || doc.content || '').trim();
         const snippetSource = fromKnovas || desc;
         const showSummaryBlock = Boolean(ingestedSummary);

@@ -85,6 +85,20 @@ def _build_similarity_debug(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _rel_path_for_autodoc(pointer: str) -> str:
+    """
+    Map Knovas pointer to a path under the autodoc mount.
+
+    RemoteController sync uses identifier_prefix (e.g. ``corpus/rel/path.txt``).
+    Set AUTODOC_IDENTIFIER_PREFIX=corpus when the mount root is the corpus folder itself.
+    """
+    rel = (pointer or "").strip().replace("\\", "/")
+    prefix = (os.getenv("AUTODOC_IDENTIFIER_PREFIX") or "").strip().strip("/")
+    if prefix and rel.startswith(prefix + "/"):
+        rel = rel[len(prefix) + 1 :]
+    return rel
+
+
 def _log_search_similarity_debug(query: str, results: List[Dict[str, Any]]) -> None:
     """Docker logs: see whether Knovas scores survived into each hit."""
     if not results:
@@ -288,10 +302,11 @@ def create_app(config_path: Optional[str] = None):
         return name_ok and password_ok
 
     def _resolve_autodoc_path(file_path: str) -> Optional[str]:
-        if os.path.isabs(file_path):
+        rel = _rel_path_for_autodoc(file_path)
+        if os.path.isabs(rel):
             return None
         base_path = os.path.abspath(file_handler.autodoc_path)
-        candidate = os.path.abspath(os.path.join(base_path, file_path))
+        candidate = os.path.abspath(os.path.join(base_path, rel))
         try:
             if os.path.commonpath([base_path, candidate]) != base_path:
                 return None
@@ -1209,8 +1224,10 @@ def _enhance_search_results(
 
         file_path = result.get("path")
         if file_path:
-            full_path = os.path.join(file_handler.autodoc_path, file_path)
+            rel = _rel_path_for_autodoc(str(file_path))
+            full_path = os.path.join(file_handler.autodoc_path, rel)
             result["file_exists"] = os.path.exists(full_path)
+            result["autodoc_rel_path"] = rel
             result["can_open"] = result["file_exists"]
             if result["file_exists"]:
                 try:

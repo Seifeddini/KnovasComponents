@@ -147,20 +147,39 @@ def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _ingested_summary_text(value: Any) -> Optional[str]:
+    """
+    Normalize ingested_summary from Knovas /secured/query.
+
+    API shape: {"present": bool, "text": str} (see Secure_API.md); older payloads may be plain strings.
+    """
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        if value.get("present") is False:
+            return None
+        for key in ("text", "summary", "content"):
+            text = value.get(key)
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+    return None
+
+
 def _ingested_summary_from_hit(item: Dict[str, Any]) -> Optional[str]:
     """Document-level summary from Knovas query hit (top-level, metadata, or top_chunks[0])."""
     meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
     for src in (item, meta):
         for k in ("ingested_summary", "ingestedSummary"):
             v = src.get(k) if isinstance(src, dict) else None
-            if isinstance(v, str) and v.strip():
-                return v.strip()
+            text = _ingested_summary_text(v)
+            if text:
+                return text
     tc = _first_top_chunk(item)
     if isinstance(tc, dict):
         for k in ("ingested_summary", "ingestedSummary"):
-            v = tc.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
+            text = _ingested_summary_text(tc.get(k))
+            if text:
+                return text
     return None
 
 

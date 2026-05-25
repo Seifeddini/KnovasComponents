@@ -120,7 +120,7 @@ chmod +x scripts/install_tenant_certs.sh
 ./scripts/install_tenant_certs.sh
 ```
 
-If the key is encrypted, the script creates `client-key.plain.pem` — set `SEMANTIX_CLIENT_KEY_PATH=/certs/client-key.plain.pem` in `.env`.
+If Knovas shipped `client-key.password.txt`, the key is encrypted with that password (not one you set at install). The install script writes `client-key.plain.pem` for Docker. The certs directory must be traversable by uid **10001** (`chmod 711 ~/KnovasInternal/certs` after `chown` on the key files).
 
 Verify mTLS from the container:
 

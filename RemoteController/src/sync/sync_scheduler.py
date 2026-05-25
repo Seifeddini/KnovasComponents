@@ -83,15 +83,27 @@ def load_last_sync_body() -> Optional[dict[str, Any]]:
         return None
 
 
+def _synced_paths_in_state() -> int:
+    """Paths recorded after successful upload (persists across restarts)."""
+    from sync.sync_state import SyncStateStore
+
+    store = SyncStateStore()
+    return len(store._documents(store._load_raw()))
+
+
 def get_scheduler_status() -> dict[str, Any]:
     from sync.sync_config import config_snapshot_hash
 
     cfg = load_sync_config()
+    synced_local = _synced_paths_in_state()
     return {
         "scheduler_state": _current_status,
         "last_run_at": _last_run_at,
         "current_status": _current_status,
+        # Incremented only when a full scheduler cycle (_run_once) finishes.
         "files_processed": _files_processed,
+        # Live count from .rc-sync-state.json — use this while a long cycle is running.
+        "files_synced_local": synced_local,
         "document_sync": _last_document_sync,
         "config_snapshot_hash": config_snapshot_hash(cfg),
         "worker_alive": _worker_thread is not None and _worker_thread.is_alive(),

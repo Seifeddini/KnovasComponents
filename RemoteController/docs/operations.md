@@ -26,7 +26,8 @@ docker compose logs -f remote-controller
 
 ## Continuous sync
 
-- Check `GET /sync/status` for `scheduler_state`, `last_run_at`, `files_processed`, and `document_sync` (`synced`, `pending`, `modified`, `excluded_max_age`).
+- Check `GET /sync/status` for `scheduler_state`, `last_run_at`, `files_synced_local`, and `document_sync` (`synced`, `pending`, `modified`, `excluded_max_age`).
+- `files_processed` only increases when a full scheduler cycle completes (continuous mode may run one very long cycle over thousands of files). Prefer `files_synced_local` or `GET /sync/status?live=1` for progress while syncing.
 - Use `GET /sync/status?live=1` for a fresh inventory scan without waiting for the next scheduler tick.
 - Stop with `POST /sync/stop`; worker finishes the current file unit then exits.
 - State file `.rc-sync-state.json` tracks incremental uploads — back up before upgrades.
