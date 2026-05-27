@@ -74,7 +74,7 @@ On your machine the folder is:
 RemoteController/data/docs/
 ```
 
-A sample file `hello.txt` is already there. Add more `.txt` or `.md` files if you like.
+A sample file `hello.txt` is already there. You can also add `.md`, `.docx`, `.pdf`, `.eml`, or `.msg` files; RC converts them to Markdown for ingest while keeping the original path as the Knovas document identifier (so open/download in KnovasPlatform still targets the original file on the mount).
 
 In `.env` you will set `RC_WATCH_ROOTS=/data/docs` — that is the **container** path, not `data/docs` on your disk.
 

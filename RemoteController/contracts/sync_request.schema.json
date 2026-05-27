@@ -22,7 +22,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "include_globs": { "type": "array", "items": { "type": "string" } },
+        "include_globs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Glob patterns for files to sync. Default (when omitted) includes .md, .txt, .docx, .pdf, .eml, .msg. Binary types are converted to Markdown for ingest; identifiers keep the original path/extension for open/download in KnovasPlatform."
+        },
         "exclude_globs": { "type": "array", "items": { "type": "string" } },
         "max_file_bytes": { "type": "integer", "minimum": 1 },
         "max_document_age_seconds": { "type": "integer", "minimum": 1 }

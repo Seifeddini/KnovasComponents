@@ -262,7 +262,7 @@ Use `examples/sync-request-corpus.json`:
   "mode": "incremental",
   "sources": [{ "path": "/data/corpus", "recursive": true }],
   "filters": {
-    "include_globs": ["**/*.txt"],
+    "include_globs": ["**/*.txt", "**/*.docx", "**/*.pdf", "**/*.eml", "**/*.msg"],
     "exclude_globs": ["**/.git/**"]
   },
   "ingestion": {
@@ -272,7 +272,7 @@ Use `examples/sync-request-corpus.json`:
 }
 ```
 
-This syncs all `.txt` files under all corpus subfolders recursively. No `max_document_age_seconds` filter — historical legal content is included.
+This syncs text and convertible documents under all corpus subfolders recursively (`.txt` files are read as-is; `.docx`, `.pdf`, `.eml`, `.msg` are converted to Markdown for ingest). Identifiers use the **original** path (e.g. `corpus/foo.pdf`) so KnovasPlatform open/download still resolves the binary on the AutoDoc mount. No `max_document_age_seconds` filter — historical legal content is included.
 
 ---
 

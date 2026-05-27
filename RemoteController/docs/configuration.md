@@ -52,3 +52,24 @@ Set mode `0600` for:
 **Max document age:** Files whose `mtime` is older than the effective limit are not uploaded. They appear in `document_sync` with status `excluded_max_age` (unless already synced at the same fingerprint). Effective limit = `filters.max_document_age_seconds` in the sync body if set, else `max_document_age_seconds` in the scheduler config, else no limit.
 
 Sync request shape: [examples/sync-request.json](../examples/sync-request.json) and [contracts/sync_request.schema.json](../contracts/sync_request.schema.json).
+
+## Supported document formats
+
+RemoteController converts the following extensions to Markdown (or plain text) before chunking and upload:
+
+| Extension | Handling |
+|-----------|----------|
+| `.md`, `.txt` | Read as UTF-8 text |
+| `.docx` | Structure-aware Markdown (`python-docx`) |
+| `.pdf` | Per-page text with `## Page N` headings (`pymupdf`) |
+| `.eml` | Headers + body (`email` stdlib) |
+| `.msg` | Headers + body (`extract-msg`) |
+
+**Open/download:** Ingest uses the **original** relative path in `identifier` (e.g. `corpus/akten/Brief.pdf`). KnovasPlatform resolves search pointers to that path on the AutoDoc mount, so clients open the original file—not the converted text.
+
+Align deployment with KnovasPlatform:
+
+- Mount the same tree of originals on RC watch roots and `AUTODOC_MOUNT_PATH`.
+- Set `ingestion.identifier_prefix` equal to `AUTODOC_IDENTIFIER_PREFIX` (e.g. both `corpus`).
+
+Scanned PDFs without a text layer fail sync with a conversion error. Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).

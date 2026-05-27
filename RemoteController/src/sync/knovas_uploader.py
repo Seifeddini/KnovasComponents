@@ -12,6 +12,7 @@ import requests
 
 from config import get_config
 from sync.chunking import chunk_text
+from sync.document_text import ConversionError, file_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +84,8 @@ class SemantixUploader:
         identifier = f"{prefix}/{relative_path.replace(chr(92), '/')}"
 
         try:
-            text = file_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
+            text = file_to_markdown(file_path)
+        except (OSError, ConversionError) as exc:
             return UploadResult(
                 relative_path=relative_path,
                 transmission_key_id=None,
@@ -96,15 +97,18 @@ class SemantixUploader:
 
         parts = chunk_text(text, part_max)
         title = file_path.name
+        path_posix = relative_path.replace("\\", "/")
 
+        init_body: dict[str, Any] = {
+            "identifier": identifier,
+            "part_count": len(parts),
+            "title": title,
+            "path": path_posix,
+        }
         init_resp = self._request(
             "POST",
             "/secured/init_document_transmission",
-            json_body={
-                "identifier": identifier,
-                "part_count": len(parts),
-                "title": title,
-            },
+            json_body=init_body,
         )
         ingestion_count = 1
         if init_resp.status_code not in (200, 201):

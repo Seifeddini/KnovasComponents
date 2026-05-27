@@ -2,7 +2,14 @@
   "mode": "incremental",
   "sources": [{ "path": "/data/docs", "recursive": true }],
   "filters": {
-    "include_globs": ["**/*.md", "**/*.txt"],
+    "include_globs": [
+      "**/*.md",
+      "**/*.txt",
+      "**/*.docx",
+      "**/*.pdf",
+      "**/*.eml",
+      "**/*.msg"
+    ],
     "exclude_globs": ["**/.git/**"],
     "max_document_age_seconds": 2592000
   },

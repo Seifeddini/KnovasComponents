@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import get_config
+from sync.document_text import DEFAULT_INCLUDE_GLOBS, is_syncable_extension
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def discover_filesystem(
         raise PermissionError(err or "Invalid root")
 
     max_depth = min(max(1, max_depth), ABSOLUTE_MAX_DEPTH)
-    include = include_globs or ["**/*", "*"]
+    include = include_globs or list(DEFAULT_INCLUDE_GLOBS)
     exclude = exclude_globs or []
 
     entries: list[dict[str, Any]] = []
@@ -118,17 +119,20 @@ def discover_filesystem(
                 except OSError:
                     pass
 
-            if _matches_globs(rel_posix, include, exclude) or entry_type == "directory":
-                if entry_type == "file" and _matches_globs(rel_posix, include, exclude):
-                    entries.append(meta)
-                    if len(entries) >= ENTRY_CAP:
-                        truncated = True
-                        return
-                elif entry_type == "directory" and depth_rel <= max_depth:
-                    entries.append(meta)
-                    if len(entries) >= ENTRY_CAP:
-                        truncated = True
-                        return
+            if entry_type == "file":
+                if not is_syncable_extension(resolved.suffix):
+                    continue
+                if not _matches_globs(rel_posix, include, exclude):
+                    continue
+                entries.append(meta)
+                if len(entries) >= ENTRY_CAP:
+                    truncated = True
+                    return
+            elif entry_type == "directory" and depth_rel <= max_depth:
+                entries.append(meta)
+                if len(entries) >= ENTRY_CAP:
+                    truncated = True
+                    return
 
             if resolved.is_dir() and depth_rel < max_depth:
                 walk_dir(resolved, depth + 1)

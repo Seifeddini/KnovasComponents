@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from discover.filesystem import resolve_root
+from sync.document_text import DEFAULT_INCLUDE_GLOBS, is_syncable_extension
 from sync.knovas_uploader import SemantixUploader, UploadResult
 from sync.sync_config import effective_filters
 from sync.sync_state import (
@@ -19,9 +20,6 @@ from sync.sync_state import (
 )
 
 logger = logging.getLogger(__name__)
-
-TEXT_EXTENSIONS = {".md", ".txt"}
-
 
 def _matches_globs(rel_posix: str, patterns: list[str]) -> bool:
     path = Path(rel_posix)
@@ -85,12 +83,7 @@ def _iter_candidate_files(
     """Return all in-scope text files: (absolute_path, relative_path, mtime_iso, size_bytes)."""
     sources = sync_body.get("sources") or []
     filters = filters if filters is not None else (sync_body.get("filters") or {})
-    include = filters.get("include_globs") or [
-        "**/*.md",
-        "**/*.txt",
-        "*.md",
-        "*.txt",
-    ]
+    include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
     max_bytes = int(filters.get("max_file_bytes", 10_485_760))
 
@@ -109,7 +102,7 @@ def _iter_candidate_files(
                 break
             if not path.is_file():
                 continue
-            if path.suffix.lower() not in TEXT_EXTENSIONS:
+            if not is_syncable_extension(path.suffix):
                 continue
             resolved = path.resolve()
             try:

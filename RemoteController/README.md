@@ -1,6 +1,6 @@
 # Remote Controller
 
-Customer-hosted service: discover local files and sync text to **Knovas** (employee JWT; tenant mTLS for ingestion).
+Customer-hosted service: discover local files and sync them to **Knovas** (employee JWT; tenant mTLS for ingestion). Supports `.md`, `.txt`, `.docx`, `.pdf`, `.eml`, and `.msg` — binary formats are converted to Markdown for search while document identifiers keep the original path for open/download in KnovasPlatform.
 
 **After sync**, deploy [KnovasPlatform](../KnovasPlatform/) for search.
 

@@ -2,7 +2,13 @@
   "mode": "incremental",
   "sources": [{ "path": "/data/corpus", "recursive": true }],
   "filters": {
-    "include_globs": ["**/*.txt"],
+    "include_globs": [
+      "**/*.txt",
+      "**/*.docx",
+      "**/*.pdf",
+      "**/*.eml",
+      "**/*.msg"
+    ],
     "exclude_globs": ["**/.git/**"]
   },
   "ingestion": {
