@@ -178,42 +178,78 @@ class AutoDocFileHandler:
         return extension in self.supported_extensions
     
     def find_autodoc_files(
-        self, 
+        self,
         pattern: Optional[str] = None,
-        recursive: bool = True
+        recursive: bool = True,
+        max_entries: Optional[int] = None,
     ) -> list:
         """
-        Find all AutoDoc files matching pattern.
-        
+        Find AutoDoc files matching pattern (bounded scan for large mounts).
+
         Args:
-            pattern: Glob pattern (e.g., '*.docx'). If None, finds all supported files.
+            pattern: Glob pattern (e.g., '*.docx'). If None, all supported extensions.
             recursive: Search recursively in subdirectories
-            
+            max_entries: Cap on files returned (default: autodoc.max_discovery_entries)
+
         Returns:
-            List of file paths
+            List of file paths (truncated when cap is reached)
         """
         if not os.path.exists(self.autodoc_path):
             logger.error(f"AutoDoc path does not exist: {self.autodoc_path}")
             return []
-        
-        autodoc_path = Path(self.autodoc_path)
-        files = []
-        
+
+        from config_loader import get_config
+
+        cfg = get_config()
+        cap = max_entries if max_entries is not None else cfg.get_int(
+            "autodoc.max_discovery_entries", 10000
+        )
+        root = Path(self.autodoc_path)
         if pattern:
-            if recursive:
-                files = list(autodoc_path.rglob(pattern))
-            else:
-                files = list(autodoc_path.glob(pattern))
+            suffix = pattern.lower()[1:] if pattern.startswith("*") else None
+            allowed_suffixes = {suffix} if suffix else None
         else:
-            for ext in self.supported_extensions:
-                pattern_str = f"*{ext}"
-                if recursive:
-                    files.extend(autodoc_path.rglob(pattern_str))
-                else:
-                    files.extend(autodoc_path.glob(pattern_str))
-        
-        file_paths = [str(f) for f in files if f.is_file()]
-        logger.info(f"Found {len(file_paths)} AutoDoc files")
+            allowed_suffixes = {ext.lower() for ext in self.supported_extensions}
+
+        file_paths: list[str] = []
+        truncated = False
+        stack = [root]
+
+        while stack and len(file_paths) < cap:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as it:
+                    entries = list(it)
+            except OSError:
+                continue
+            for entry in entries:
+                if len(file_paths) >= cap:
+                    truncated = True
+                    break
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if recursive:
+                            stack.append(Path(entry.path))
+                        continue
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                if allowed_suffixes is not None:
+                    name_lower = entry.name.lower()
+                    if not any(name_lower.endswith(s) for s in allowed_suffixes):
+                        continue
+                file_paths.append(entry.path)
+            if truncated:
+                break
+
+        if truncated:
+            logger.warning(
+                "AutoDoc discovery truncated at %d entries under %s",
+                cap,
+                self.autodoc_path,
+            )
+        logger.info("Found %d AutoDoc files (cap=%d)", len(file_paths), cap)
         return file_paths
     
     def validate_file(self, file_path: str) -> Tuple[bool, Optional[str]]:

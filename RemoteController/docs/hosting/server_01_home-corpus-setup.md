@@ -160,6 +160,11 @@ RC_SYNC_DEFAULT_MAX_INGESTION_REQUESTS_PER_MINUTE=4
 RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json
 ```
 
+State is stored as SQLite (`.rc-sync-state.db` next to that path). For **much larger** corpora than this ~91 MB example, add to `config/remote_controller_sync.json`:
+
+- `max_files_per_cycle` (e.g. `1000`) — bound uploads per scheduler tick
+- `scan_interval_idle_max_seconds` (e.g. `3600`) — back off rescans when fully synced
+
 **Important:** `RC_INSTANCE_TOKEN` must be issued by Knovas admin. Without it, `/discover` and `/sync` will fail at operator verification even though `/health` returns ok.
 
 ---

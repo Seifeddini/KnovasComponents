@@ -6,13 +6,13 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import requests
 
 from config import get_config
-from sync.chunking import chunk_text
-from sync.document_text import ConversionError, file_to_markdown
+from sync.chunking import count_file_text_parts, iter_file_text_chunks, iter_text_chunks
+from sync.document_text import PLAIN_TEXT_EXTENSIONS, ConversionError, file_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +84,15 @@ class SemantixUploader:
         identifier = f"{prefix}/{relative_path.replace(chr(92), '/')}"
 
         try:
-            text = file_to_markdown(file_path)
-        except (OSError, ConversionError) as exc:
+            if file_path.suffix.lower() in PLAIN_TEXT_EXTENSIONS:
+                part_count = count_file_text_parts(file_path, part_max)
+                parts_iter: Iterator[str] = iter_file_text_chunks(file_path, part_max)
+            else:
+                markdown = file_to_markdown(file_path)
+                parts_iter = iter_text_chunks(markdown, part_max)
+                part_count = sum(1 for _ in parts_iter)
+                parts_iter = iter_text_chunks(markdown, part_max)
+        except (OSError, UnicodeDecodeError, ConversionError) as exc:
             return UploadResult(
                 relative_path=relative_path,
                 transmission_key_id=None,
@@ -95,27 +102,24 @@ class SemantixUploader:
                 error=str(exc),
             )
 
-        parts = chunk_text(text, part_max)
         title = file_path.name
-        path_posix = relative_path.replace("\\", "/")
 
-        init_body: dict[str, Any] = {
-            "identifier": identifier,
-            "part_count": len(parts),
-            "title": title,
-            "path": path_posix,
-        }
         init_resp = self._request(
             "POST",
             "/secured/init_document_transmission",
-            json_body=init_body,
+            json_body={
+                "identifier": identifier,
+                "part_count": part_count,
+                "title": title,
+                "path": relative_path,
+            },
         )
         ingestion_count = 1
         if init_resp.status_code not in (200, 201):
             return UploadResult(
                 relative_path=relative_path,
                 transmission_key_id=None,
-                parts=len(parts),
+                parts=part_count,
                 status="error",
                 ingestion_requests=ingestion_count,
                 error=f"init failed: {init_resp.status_code}",
@@ -124,32 +128,42 @@ class SemantixUploader:
         init_data = init_resp.json() if init_resp.content else {}
         key = init_data.get("key") or init_data.get("transmission_key_id") or ""
 
-        for idx, snippet in enumerate(parts):
-            part_resp = self._request(
-                "POST",
-                "/secured/transmit_document_part",
-                json_body={
-                    "key": key,
-                    "part_number": idx,
-                    "snippet": snippet,
-                },
-            )
-            ingestion_count += 1
-            if part_resp.status_code != 200:
-                return UploadResult(
-                    relative_path=relative_path,
-                    transmission_key_id=key,
-                    parts=len(parts),
-                    status="error",
-                    ingestion_requests=ingestion_count,
-                    error=f"part {idx} failed: {part_resp.status_code}",
+        try:
+            for idx, snippet in enumerate(parts_iter):
+                part_resp = self._request(
+                    "POST",
+                    "/secured/transmit_document_part",
+                    json_body={
+                        "key": key,
+                        "part_number": idx,
+                        "snippet": snippet,
+                    },
                 )
+                ingestion_count += 1
+                if part_resp.status_code != 200:
+                    return UploadResult(
+                        relative_path=relative_path,
+                        transmission_key_id=key,
+                        parts=part_count,
+                        status="error",
+                        ingestion_requests=ingestion_count,
+                        error=f"part {idx} failed: {part_resp.status_code}",
+                    )
+        except (OSError, UnicodeDecodeError, ConversionError) as exc:
+            return UploadResult(
+                relative_path=relative_path,
+                transmission_key_id=key,
+                parts=part_count,
+                status="error",
+                ingestion_requests=ingestion_count,
+                error=str(exc),
+            )
 
-        logger.info("Uploaded file basename=%s parts=%d status=ok", file_path.name, len(parts))
+        logger.info("Uploaded file basename=%s parts=%d status=ok", file_path.name, part_count)
         return UploadResult(
             relative_path=relative_path,
             transmission_key_id=key,
-            parts=len(parts),
+            parts=part_count,
             status="ok",
             ingestion_requests=ingestion_count,
         )

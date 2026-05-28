@@ -27,6 +27,9 @@ def _apply_decorators(func):
     return func
 
 
+DEFAULT_MAX_TRANSMISSIONS_IN_RESPONSE = 100
+
+
 def _build_sync_response(scheduler_status: str, result) -> dict:
     status = "completed" if scheduler_status == "completed" else scheduler_status
     response: dict = {
@@ -40,6 +43,8 @@ def _build_sync_response(scheduler_status: str, result) -> dict:
         "transmissions": result.transmissions,
         "errors": result.errors,
     }
+    if getattr(result, "transmissions_truncated", False):
+        response["transmissions_truncated"] = True
     if result.document_sync is not None:
         response["document_sync"] = result.document_sync.as_dict()
     return response

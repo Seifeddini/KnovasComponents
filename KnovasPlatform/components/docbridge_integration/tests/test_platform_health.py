@@ -11,7 +11,7 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from conftest import DummyKnovasClient  # noqa: E402
+from conftest import DummyFileHandler, DummyKnovasClient  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +192,64 @@ class TestPlatformSearchFlow:
             resp = client.post("/api/search", json={"query": "invoice"})
 
         assert resp.get_json()["query"] == "invoice"
+
+    def test_search_skips_disk_stat_when_verify_disabled(self, tmp_path, monkeypatch):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            """
+web:
+  secret_key: "${WEB_SECRET_KEY}"
+  session_lifetime: 3600
+  login:
+    enabled: "${COMPANY_LOGIN_ENABLED:-true}"
+    company_name: "${COMPANY_DISPLAY_NAME:-Knovas}"
+    username: "${COMPANY_LOGIN_NAME}"
+    password: "${COMPANY_LOGIN_PASSWORD}"
+  search:
+    results_per_page: 20
+    verify_files_on_disk: false
+api:
+  base_url: "http://example.test"
+open:
+  companion_enabled: false
+""",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("WEB_SECRET_KEY", "test-secret-key-for-health-checks")
+        monkeypatch.setenv("COMPANY_LOGIN_ENABLED", "true")
+        monkeypatch.setenv("COMPANY_DISPLAY_NAME", "TestCo")
+        monkeypatch.setenv("COMPANY_LOGIN_NAME", "healthuser")
+        monkeypatch.setenv("COMPANY_LOGIN_PASSWORD", "healthpass123")
+
+        from web_interface import app as web_app
+
+        monkeypatch.setattr(web_app, "KnovasAPIClient", DummyKnovasClient)
+        monkeypatch.setattr(web_app, "AutoDocFileHandler", DummyFileHandler)
+        flask_app = web_app.create_app(str(config_path))
+        flask_app.config.update(TESTING=True)
+        client = flask_app.test_client()
+        _login(client)
+
+        hits = {
+            "results": [
+                {"doc_id": "brief.docx", "path": "Akte/brief.docx", "score": 0.9},
+            ],
+            "total": 1,
+        }
+
+        def _no_disk(*_args, **_kwargs):
+            raise AssertionError("disk access should be skipped when verify_files_on_disk=false")
+
+        with patch.object(DummyKnovasClient, "search_documents", return_value=hits):
+            with patch("web_interface.app.os.path.exists", side_effect=_no_disk):
+                with patch("web_interface.app.os.stat", side_effect=_no_disk):
+                    resp = client.post("/api/search", json={"query": "brief"})
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["success"] is True
+        assert body["results"][0].get("can_open") is True
+        assert body["results"][0].get("file_exists") is None
 
 
 # ---------------------------------------------------------------------------

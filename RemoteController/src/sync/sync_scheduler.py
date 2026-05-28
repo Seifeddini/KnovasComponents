@@ -30,6 +30,7 @@ _current_status = "awaiting_initial_sync_body"
 _last_run_at: Optional[str] = None
 _files_processed = 0
 _last_document_sync: Optional[dict[str, Any]] = None
+_idle_scan_multiplier: int = 1
 
 
 @dataclass
@@ -88,7 +89,10 @@ def _synced_paths_in_state() -> int:
     from sync.sync_state import SyncStateStore
 
     store = SyncStateStore()
-    return len(store._documents(store._load_raw()))
+    try:
+        return store.count_tracked_paths()
+    finally:
+        store.close()
 
 
 def get_scheduler_status() -> dict[str, Any]:
@@ -203,11 +207,27 @@ def run_one_time(ctx: SyncRunContext) -> tuple[str, SyncRunResult]:
         _scheduler_lock.release()
 
 
+def _effective_scan_interval_seconds(cfg_doc: dict[str, Any], result: SyncRunResult) -> int:
+    global _idle_scan_multiplier
+    base = max(5, int(cfg_doc.get("scan_interval_seconds", 60)))
+    idle_max = int(cfg_doc.get("scan_interval_idle_max_seconds", 3600))
+    idle_max = max(base, idle_max)
+    pending_work = 0
+    if result.document_sync is not None:
+        pending_work = result.document_sync.pending + result.document_sync.modified
+    if result.files_uploaded == 0 and pending_work == 0 and result.files_scanned > 0:
+        cap = max(1, idle_max // base)
+        _idle_scan_multiplier = min(_idle_scan_multiplier * 2, cap)
+    else:
+        _idle_scan_multiplier = 1
+    return min(base * _idle_scan_multiplier, idle_max)
+
+
 def _continuous_worker(ctx: SyncRunContext) -> None:
     cfg_doc = ctx.sync_config
-    interval = int(cfg_doc.get("scan_interval_seconds", 60))
     while not _stop_event.is_set():
-        _run_once(ctx)
+        result = _run_once(ctx)
+        interval = _effective_scan_interval_seconds(cfg_doc, result)
         for _ in range(interval):
             if _stop_event.is_set():
                 break

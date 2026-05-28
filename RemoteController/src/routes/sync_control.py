@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify, request
 from auth.knovas_verify_client import require_internal_access
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from sync.sync_config import load_sync_config
-from sync.sync_executor import scan_document_inventory
+from sync.sync_state import SyncStateStore
 from sync.sync_scheduler import (
     SyncRunContext,
     get_scheduler_status,
@@ -62,7 +62,26 @@ def sync_status():
     if request.args.get("live") == "1":
         body = load_last_sync_body()
         if body:
-            status["document_sync"] = scan_document_inventory(
-                body, sync_config=load_sync_config()
-            ).as_dict()
+            if request.args.get("deep_scan") == "1":
+                from sync.sync_executor import scan_document_inventory
+
+                status["document_sync"] = scan_document_inventory(
+                    body, sync_config=load_sync_config()
+                ).as_dict()
+            else:
+                store = SyncStateStore()
+                try:
+                    tracked = store.count_tracked_paths()
+                finally:
+                    store.close()
+                last = status.get("document_sync") or {}
+                status["document_sync"] = {
+                    "total": last.get("total"),
+                    "synced": tracked,
+                    "pending": last.get("pending"),
+                    "modified": last.get("modified"),
+                    "excluded_max_age": last.get("excluded_max_age"),
+                    "live_tracked_paths": tracked,
+                    "deep_scan_required_for_full_inventory": True,
+                }
     return jsonify(status), 200

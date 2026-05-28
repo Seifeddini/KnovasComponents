@@ -18,6 +18,8 @@ database:
 autodoc:
   # Mount path for AutoDoc directory
   path: "/mnt/autodoc"
+  # Cap for find_autodoc_files() directory walks (0 = unlimited)
+  max_discovery_entries: 10000
   
   # File naming pattern: {GUID}_{AkteID}_{Typ}.{ext}
   # Supported file extensions
@@ -179,6 +181,12 @@ web:
     # Off by default: result IDs must come only from Knovas /secured/query.
     supplement_filename_matches: false
     supplement_min_query_length: 3
+    # When false, skip per-hit os.path.exists/stat on the AutoDoc mount (large SMB corpora).
+    verify_files_on_disk: true
+    # Skip loading enrichment JSONL larger than this (bytes). 0 = unlimited.
+    enrichment_max_bytes: 52428800
+    # Max enrichment rows scanned when supplementing filename matches.
+    supplement_max_enrichment_scan: 5000
     
   # Document opening
   document_handler:

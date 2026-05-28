@@ -34,6 +34,8 @@
     },
     "scan_interval_seconds": { "type": "integer", "minimum": 5 },
     "max_sync_duration_minutes": { "type": "integer", "minimum": 1 },
+    "max_files_per_cycle": { "type": "integer", "minimum": 0 },
+    "scan_interval_idle_max_seconds": { "type": "integer", "minimum": 5 },
     "max_document_age_seconds": { "type": "integer", "minimum": 1 },
     "pause_policy": {
       "type": "string",

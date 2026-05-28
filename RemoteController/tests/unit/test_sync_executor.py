@@ -6,7 +6,9 @@ import pytest
 from sync.sync_config import effective_filters
 from sync.sync_executor import (
     _collect_files,
+    _iter_candidate_files,
     is_within_max_document_age,
+    plan_sync_cycle,
     scan_document_inventory,
 )
 from sync.sync_state import SyncStateStore
@@ -112,6 +114,38 @@ def test_collect_files_skips_excluded_max_age(tmp_watch_root):
     }
     files = _collect_files(body, should_stop=lambda: False, now=NOW)
     assert files == []
+
+
+def test_plan_sync_cycle_single_walk(tmp_watch_root, tmp_path, monkeypatch):
+    root = tmp_watch_root
+    (root / "a.md").write_text("a", encoding="utf-8")
+    body = {
+        "mode": "incremental",
+        "sources": [{"path": str(root), "recursive": True}],
+        "ingestion": {"identifier_prefix": "rc"},
+    }
+    walk_calls = {"n": 0}
+    original = _iter_candidate_files
+
+    def counting_iter(*args, **kwargs):
+        walk_calls["n"] += 1
+        yield from original(*args, **kwargs)
+
+    monkeypatch.setattr("sync.sync_executor._iter_candidate_files", counting_iter)
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("RC_SYNC_STATE_PATH", str(state_path))
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    from sync.sync_state import SyncStateStore
+
+    store = SyncStateStore(str(state_path))
+    try:
+        plan_sync_cycle(body, store, now=NOW)
+    finally:
+        store.close()
+    assert walk_calls["n"] == 1
 
 
 def test_scan_uses_scheduler_default_when_body_omits_age(tmp_watch_root):

@@ -75,6 +75,22 @@ If browser launch is blocked by policy, set `OPEN_COMPANION_ENABLED=true` and de
 
 ---
 
+## Large corpora (slow SMB / millions of files)
+
+For tenants with very large AutoDoc shares, reduce per-search SMB load:
+
+```yaml
+web:
+  search:
+    verify_files_on_disk: false   # skip os.stat on every hit; open still checks on demand
+    enrichment_max_bytes: 52428800
+    supplement_max_enrichment_scan: 5000
+autodoc:
+  max_discovery_entries: 10000
+```
+
+When `verify_files_on_disk` is false, search results set `can_open` from path mapping only; **Öffnen** and companion mint still verify the file exists once at open time.
+
 ## Search-only
 
 `OPEN_BROWSER_CLIENT_PATH=false` and `OPEN_COMPANION_ENABLED=false` — no **Öffnen** button for local files; PDF preview may still work on Server A.

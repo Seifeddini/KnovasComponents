@@ -442,10 +442,10 @@ def create_app(config_path: Optional[str] = None):
 
             results = api_client.search_documents(query=query, limit=limit, filters=filters)
 
-            enhanced_results = _enhance_search_results(results, file_handler)
+            enhanced_results = _enhance_search_results(results, file_handler, config)
             for result in enhanced_results.get('results') or []:
                 fp = (result.get('path') or '').strip()
-                if fp and result.get('file_exists') and not result.get('external_url'):
+                if fp and result.get('can_open') and not result.get('external_url'):
                     full = _resolve_autodoc_path(fp)
                     if full:
                         targets = _client_open_targets(full)
@@ -462,7 +462,7 @@ def create_app(config_path: Optional[str] = None):
 
             final_results = refined.get('results', [])
             final_results = _supplement_results_from_enrichment_filenames(
-                query, final_results, filters, config
+                query, final_results, filters, config, limit=limit
             )
             if config.get_bool('web.search.log_similarity_scores', True):
                 _log_search_similarity_debug(query, final_results)
@@ -1059,6 +1059,8 @@ def _supplement_results_from_enrichment_filenames(
     results: List[Dict[str, Any]],
     filters: Dict[str, Any],
     config,
+    *,
+    limit: int = 20,
 ) -> List[Dict[str, Any]]:
     """
     Add OneDrive (JSONL) rows whose *title* matches the query even when Knovas
@@ -1071,16 +1073,22 @@ def _supplement_results_from_enrichment_filenames(
     if len(qstrip) < min_sq:
         return results
 
-    enrichment = _load_search_enrichment()
+    enrichment = _load_search_enrichment(config)
     if not enrichment:
         return results
 
     existing = {str(r.get("doc_id")) for r in results if r.get("doc_id") is not None}
     min_term = config.get_int("web.search.strict_match_min_term_length", 2)
     exact = bool(filters.get("exact_match"))
+    max_scan = config.get_int("web.search.supplement_max_enrichment_scan", 5000)
+    max_extra = max(0, limit)
 
     extra: List[Dict[str, Any]] = []
+    scanned = 0
     for did, meta in enrichment.items():
+        scanned += 1
+        if scanned > max_scan:
+            break
         if did in existing:
             continue
         title = meta.get("title") or ""
@@ -1111,6 +1119,8 @@ def _supplement_results_from_enrichment_filenames(
             row.setdefault("file_exists", False)
             row.setdefault("can_open", False)
         extra.append(row)
+        if len(extra) >= max_extra:
+            break
 
     if not extra:
         return results
@@ -1129,7 +1139,7 @@ def _is_safe_http_url(url: Optional[str]) -> bool:
     return u.startswith("https://") or u.startswith("http://")
 
 
-def _load_search_enrichment() -> Dict[str, dict]:
+def _load_search_enrichment(config=None) -> Dict[str, dict]:
     """
     Load JSONL written by docbridge-sync (OneDrive webUrl, title, etc.).
     Last line per doc_id wins. Cached by file mtime.
@@ -1138,9 +1148,22 @@ def _load_search_enrichment() -> Dict[str, dict]:
     path = os.getenv("SEARCH_ENRICHMENT_PATH", "").strip()
     if not path:
         return {}
+    max_bytes = 0
+    if config is not None:
+        max_bytes = config.get_int("web.search.enrichment_max_bytes", 52_428_800)
     try:
         if not os.path.isfile(path):
             return {}
+        if max_bytes > 0:
+            file_size = os.path.getsize(path)
+            if file_size > max_bytes:
+                logger.warning(
+                    "Search enrichment skipped: %s is %d bytes (max %d)",
+                    path,
+                    file_size,
+                    max_bytes,
+                )
+                return {}
         mtime = os.path.getmtime(path)
         if mtime == _search_enrichment_mtime and _search_enrichment_cache:
             return _search_enrichment_cache
@@ -1166,9 +1189,23 @@ def _load_search_enrichment() -> Dict[str, dict]:
     return _search_enrichment_cache
 
 
+def _apply_autodoc_disk_metadata(result: Dict[str, Any], full_path: str) -> None:
+    """Populate file_exists / size / mtime from disk (open path or explicit verify)."""
+    result["file_exists"] = os.path.exists(full_path)
+    result["can_open"] = result["file_exists"]
+    if result["file_exists"]:
+        try:
+            stat = os.stat(full_path)
+            result["file_size"] = stat.st_size
+            result["modified_at"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+        except OSError:
+            pass
+
+
 def _enhance_search_results(
     results: Dict[str, Any],
-    file_handler: AutoDocFileHandler
+    file_handler: AutoDocFileHandler,
+    config=None,
 ) -> Dict[str, Any]:
     """
     Enhance search results with additional metadata.
@@ -1176,11 +1213,15 @@ def _enhance_search_results(
     Args:
         results: Raw search results from API
         file_handler: AutoDocFileHandler instance
+        config: App config (optional); controls verify_files_on_disk
         
     Returns:
         Enhanced results
     """
-    enrichment = _load_search_enrichment()
+    verify_disk = True
+    if config is not None:
+        verify_disk = config.get_bool("web.search.verify_files_on_disk", True)
+    enrichment = _load_search_enrichment(config)
     enhanced_results = results.copy()
     
     if 'results' not in enhanced_results:
@@ -1225,19 +1266,13 @@ def _enhance_search_results(
         file_path = result.get("path")
         if file_path:
             rel = _rel_path_for_autodoc(str(file_path))
-            full_path = os.path.join(file_handler.autodoc_path, rel)
-            result["file_exists"] = os.path.exists(full_path)
             result["autodoc_rel_path"] = rel
-            result["can_open"] = result["file_exists"]
-            if result["file_exists"]:
-                try:
-                    stat = os.stat(full_path)
-                    result["file_size"] = stat.st_size
-                    result["modified_at"] = datetime.fromtimestamp(
-                        stat.st_mtime
-                    ).isoformat()
-                except Exception:
-                    pass
+            full_path = os.path.join(file_handler.autodoc_path, rel)
+            if verify_disk:
+                _apply_autodoc_disk_metadata(result, full_path)
+            else:
+                result["can_open"] = bool(rel)
+                result["file_exists"] = None
         else:
             result.setdefault("file_exists", False)
             result.setdefault("can_open", False)

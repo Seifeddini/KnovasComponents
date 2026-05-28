@@ -45,6 +45,7 @@
         }
       }
     },
+    "transmissions_truncated": { "type": "boolean" },
     "document_sync": {
       "type": "object",
       "additionalProperties": false,

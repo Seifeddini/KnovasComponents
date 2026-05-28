@@ -473,8 +473,11 @@ class KnovasAPIClient:
             logger.warning('Could not load encryption matrix from %s: %s', path, exc)
             return None
 
-    def _secured_query_request_body(self, query: str) -> Dict[str, Any]:
+    def _secured_query_request_body(self, query: str, limit: Optional[int] = None) -> Dict[str, Any]:
         body: Dict[str, Any] = {'Input': query}
+        if limit is not None and limit > 0:
+            body['limit'] = int(limit)
+            body['top_k'] = int(limit)
         matrix = self._load_encryption_matrix()
         if matrix is not None:
             body['encryption_matrix'] = matrix
@@ -916,7 +919,7 @@ class KnovasAPIClient:
         response = self._make_request(
             method='POST',
             endpoint=endpoint,
-            data=self._secured_query_request_body(query),
+            data=self._secured_query_request_body(query, limit=limit),
         )
         result = _unwrap_secured_query_response(response.json())
 
