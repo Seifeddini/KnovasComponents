@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "mode": "continuous",
+  "window": {
+    "start_local": "08:00",
+    "end_local": "20:00"
+  },
+  "rate_limit": {
+    "max_ingestion_requests_per_minute": 30,
+    "burst": 5
+  },
+  "pause_policy": "finish_current_unit_then_pause",
+  "scan_interval_seconds": 60
+}
