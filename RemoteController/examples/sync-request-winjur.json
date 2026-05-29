@@ -1,0 +1,19 @@
+{
+  "mode": "incremental",
+  "sources": [{ "path": "/data/winjur", "recursive": true }],
+  "filters": {
+    "include_globs": [
+      "**/*.txt",
+      "**/*.md",
+      "**/*.docx",
+      "**/*.pdf",
+      "**/*.eml",
+      "**/*.msg"
+    ],
+    "exclude_globs": ["**/.git/**", "**/~$*"]
+  },
+  "ingestion": {
+    "identifier_prefix": "winjur",
+    "part_max_chars": 50000
+  }
+}

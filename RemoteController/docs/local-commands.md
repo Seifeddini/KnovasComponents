@@ -167,10 +167,42 @@ curl -sS "$RC_BASE/sync/status" \
 # Live inventory (includes excluded_max_age when max_document_age_seconds is set)
 curl -sS "$RC_BASE/sync/status?live=1" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
+```
 
+### Stop sync
+
+Use **`POST /sync/stop`** to stop the **background continuous sync worker**. This does **not** stop the RC container or API — `/health` and `/discover` keep working.
+
+The worker finishes the **current file** (per `pause_policy` in `remote_controller_sync.json`), then exits. Status becomes `"scheduler_state": "not_running"`.
+
+**Internal LAN** (`RC_INTERNAL_LOCAL_BYPASS=true` — no JWT):
+
+```bash
+export RC_BASE=http://127.0.0.1:5001
+
+curl -sS -X POST "$RC_BASE/sync/stop"
+
+curl -sS "$RC_BASE/sync/status"
+# expect: "scheduler_state": "not_running", "worker_alive": false
+```
+
+**Production** (employee JWT required):
+
+```bash
 curl -sS -X POST "$RC_BASE/sync/stop" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
+
+| Goal | Command |
+|------|---------|
+| Stop background sync only | `POST /sync/stop` |
+| Pause uploads until you start again | `POST /sync/stop` (sync state on disk is preserved) |
+| Disable scheduler on boot | Set `"enabled": false` in `config/remote_controller_sync.json` and restart RC |
+| Stop the RC service entirely | `docker compose ... down` (see [Run the service](#run-the-service) above) |
+
+**Before upgrades or `docker compose down`:** call `POST /sync/stop` and wait until `worker_alive` is `false`, so the current upload can finish cleanly.
+
+**Note:** If scheduler config has `"mode": "continuous"`, a one-shot `POST /sync` **starts** the worker (same as `/sync/start`) — use `/sync/stop` to stop it. A one-shot sync with `"mode": "one_time"` in the scheduler config runs in the request and does not need `/sync/stop`.
 
 ### Metrics
 

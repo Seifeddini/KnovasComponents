@@ -278,11 +278,18 @@ curl -sS "$RC_BASE/sync/status"
 curl -sS "$RC_BASE/sync/status?live=1"
 ```
 
-Stop:
+**Stop continuous sync** (background worker only — RC keeps running):
 
 ```bash
 curl -sS -X POST "$RC_BASE/sync/stop"
+
+curl -sS "$RC_BASE/sync/status"
+# "scheduler_state": "not_running", "worker_alive": false
 ```
+
+The worker finishes uploading the **current file**, then stops. Sync progress on disk is kept. To start again, use `POST /sync/start` with the same JSON body (or rely on the last saved body from `POST /sync`).
+
+See [local-commands.md — Stop sync](local-commands.md#stop-sync) for production auth and the difference between stopping sync vs stopping Docker.
 
 ### 7.4 — Metrics
 
@@ -300,7 +307,7 @@ More endpoints and production auth: [local-commands.md](local-commands.md).
 | Discover | GET | `/discover` |
 | Sync once | POST | `/sync` |
 | Start continuous | POST | `/sync/start` |
-| Stop | POST | `/sync/stop` |
+| Stop continuous sync | POST | `/sync/stop` |
 | Status | GET | `/sync/status` |
 | Metrics | GET | `/metrics` |
 

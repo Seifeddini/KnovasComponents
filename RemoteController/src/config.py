@@ -128,8 +128,8 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         rc_timezone=(os.environ.get("RC_TIMEZONE") or "").strip(),
         rc_sync_state_path=os.environ.get("RC_SYNC_STATE_PATH", ".rc-sync-state.json"),
         rc_sync_default_mode=os.environ.get("RC_SYNC_DEFAULT_MODE", "continuous"),
-        rc_sync_default_window_start=os.environ.get("RC_SYNC_DEFAULT_WINDOW_START", "08:00"),
-        rc_sync_default_window_end=os.environ.get("RC_SYNC_DEFAULT_WINDOW_END", "20:00"),
+        rc_sync_default_window_start=os.environ.get("RC_SYNC_DEFAULT_WINDOW_START", "00:00"),
+        rc_sync_default_window_end=os.environ.get("RC_SYNC_DEFAULT_WINDOW_END", "23:59"),
         rc_sync_default_max_ingestion_requests_per_minute=_env_int(
             "RC_SYNC_DEFAULT_MAX_INGESTION_REQUESTS_PER_MINUTE", 30
         ),

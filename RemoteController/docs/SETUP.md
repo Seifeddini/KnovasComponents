@@ -176,6 +176,15 @@ curl -sS "$RC_BASE/sync/status" \
   -H "Authorization: Bearer $EMPLOYEE_JWT"
 ```
 
+Stop continuous background sync (worker only — RC API stays up):
+
+```bash
+curl -sS -X POST "$RC_BASE/sync/stop" \
+  -H "Authorization: Bearer $EMPLOYEE_JWT"
+```
+
+Details: [operations.md](operations.md#stop-sync) and [local-commands.md](local-commands.md#stop-sync).
+
 Confirm documents in Knovas. Go-live checklist: [onboarding-checklist.md](onboarding-checklist.md).
 
 For local testing without employee certs, see [local-commands.md](local-commands.md).

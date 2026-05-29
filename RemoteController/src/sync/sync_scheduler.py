@@ -140,7 +140,15 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         return SyncRunResult(paused_reason="outside_window")
 
     _set_status("running")
-    logger.info("Sync cycle starting (mode=%s)", ctx.sync_body.get("mode", "incremental"))
+    subfolder = (ctx.sync_body.get("sources") or [{}])[0].get("path", "")
+    if cfg_doc.get("sequential_subfolders"):
+        logger.info(
+            "Sync cycle starting (mode=%s, sequential_subfolders=true, root=%s)",
+            ctx.sync_body.get("mode", "incremental"),
+            subfolder,
+        )
+    else:
+        logger.info("Sync cycle starting (mode=%s)", ctx.sync_body.get("mode", "incremental"))
     max_duration = cfg_doc.get("max_sync_duration_minutes")
     deadline = (
         time.monotonic() + float(max_duration) * 60 if max_duration else None
@@ -188,6 +196,10 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     )
     if result.document_sync is not None:
         _last_document_sync = result.document_sync.as_dict()
+    if result.subfolder_progress is not None:
+        if _last_document_sync is None:
+            _last_document_sync = {}
+        _last_document_sync = {**_last_document_sync, "subfolder_progress": result.subfolder_progress}
 
     if result.paused_reason:
         _set_status(result.paused_reason if result.paused_reason != "outside_window" else "paused_outside_window")

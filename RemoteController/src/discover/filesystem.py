@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -18,7 +19,14 @@ ABSOLUTE_MAX_DEPTH = 10
 
 
 def _allowed_roots() -> list[Path]:
-    return [Path(r).resolve() for r in get_config().rc_watch_roots]
+    roots: list[Path] = []
+    for r in get_config().rc_watch_roots:
+        p = Path(r)
+        try:
+            roots.append(p.resolve())
+        except OSError:
+            roots.append(p)
+    return roots
 
 
 def resolve_root(root_param: Optional[str]) -> tuple[Optional[Path], Optional[str]]:
@@ -31,7 +39,10 @@ def resolve_root(root_param: Optional[str]) -> tuple[Optional[Path], Optional[st
         candidate = Path(root_param)
         if not candidate.is_absolute():
             candidate = roots[0] / candidate
-        resolved = candidate.resolve()
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
     else:
         resolved = roots[0]
 
@@ -46,7 +57,7 @@ def resolve_root(root_param: Optional[str]) -> tuple[Optional[Path], Optional[st
 
 def _is_under_root(path: Path, root: Path) -> bool:
     try:
-        return path.resolve().is_relative_to(root.resolve())
+        return path.is_relative_to(root)
     except ValueError:
         return False
 
@@ -85,31 +96,41 @@ def discover_filesystem(
         if truncated:
             return
         try:
-            children = sorted(directory.iterdir(), key=lambda p: p.name)
+            with os.scandir(directory) as it:
+                children = sorted(it, key=lambda e: e.name)
         except OSError:
             return
 
-        for child in children:
+        for entry in children:
             if truncated:
                 return
-            resolved = child.resolve()
-            if not _is_under_root(resolved, root):
-                logger.warning("Skipping path outside watch root: %s", child.name)
+            path = Path(entry.path)
+            if not _is_under_root(path, root):
+                logger.warning("Skipping path outside watch root: %s", entry.name)
                 continue
 
-            rel = resolved.relative_to(root)
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                continue
             rel_posix = rel.as_posix()
             depth_rel = len(rel.parts)
 
-            entry_type = "directory" if resolved.is_dir() else "file"
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+                is_file = entry.is_file(follow_symlinks=False)
+            except OSError:
+                continue
+
+            entry_type = "directory" if is_dir else "file"
             meta: dict[str, Any] = {
                 "path": rel_posix,
-                "name": resolved.name,
+                "name": path.name,
                 "type": entry_type,
             }
-            if resolved.is_file():
+            if is_file:
                 try:
-                    stat = resolved.stat()
+                    stat = entry.stat(follow_symlinks=False)
                     meta["size_bytes"] = stat.st_size
                     meta["modified_at"] = (
                         datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
@@ -120,7 +141,7 @@ def discover_filesystem(
                     pass
 
             if entry_type == "file":
-                if not is_syncable_extension(resolved.suffix):
+                if not is_syncable_extension(path.suffix):
                     continue
                 if not _matches_globs(rel_posix, include, exclude):
                     continue
@@ -134,8 +155,8 @@ def discover_filesystem(
                     truncated = True
                     return
 
-            if resolved.is_dir() and depth_rel < max_depth:
-                walk_dir(resolved, depth + 1)
+            if is_dir and depth_rel < max_depth:
+                walk_dir(path, depth + 1)
 
     walk_dir(root, 0)
 

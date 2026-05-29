@@ -1,0 +1,12 @@
+# WinJur Autodoc SMB share (read-only on host at /mnt/smb/10.126.88.31/WinJur).
+# Host must mount CIFS first, e.g.:
+#   mount -t cifs //10.126.88.31/WinJur /mnt/smb/10.126.88.31/WinJur \
+#     -o credentials=/etc/smb/winjur.creds,vers=3.0,sec=ntlmssp,ro
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.winjur.yml up -d
+# Set RC_WATCH_ROOTS=/data/winjur in .env
+
+services:
+  remote-controller:
+    volumes:
+      - /mnt/smb/10.126.88.31/WinJur/Autodoc:/data/winjur:ro

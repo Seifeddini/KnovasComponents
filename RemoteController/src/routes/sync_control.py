@@ -63,11 +63,15 @@ def sync_status():
         body = load_last_sync_body()
         if body:
             if request.args.get("deep_scan") == "1":
-                from sync.sync_executor import scan_document_inventory
+                from sync.sync_executor import scan_document_inventory, _max_scan_entries_per_cycle
 
+                sync_cfg = load_sync_config()
+                max_scan = _max_scan_entries_per_cycle(sync_cfg) or 5000
                 status["document_sync"] = scan_document_inventory(
-                    body, sync_config=load_sync_config()
+                    body, sync_config=sync_cfg, max_scan_entries=max_scan
                 ).as_dict()
+                if max_scan > 0:
+                    status["document_sync"]["scan_capped_at"] = max_scan
             else:
                 store = SyncStateStore()
                 try:

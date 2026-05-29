@@ -7,12 +7,14 @@
     "end_local": "23:59"
   },
   "rate_limit": {
-    "max_ingestion_requests_per_minute": 30,
-    "burst": 5
+    "max_ingestion_requests_per_minute": 4,
+    "burst": 1
   },
   "pause_policy": "finish_current_unit_then_pause",
-  "scan_interval_seconds": 60,
-  "max_files_per_cycle": 500,
+  "scan_interval_seconds": 120,
+  "scan_interval_idle_max_seconds": 3600,
+  "max_files_per_cycle": 200,
   "max_scan_entries_per_cycle": 10000,
-  "sequential_subfolders": false
+  "max_sync_duration_minutes": 120,
+  "sequential_subfolders": true
 }

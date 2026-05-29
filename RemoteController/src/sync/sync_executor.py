@@ -12,6 +12,7 @@ from typing import Any, Callable, Iterator, Optional
 from discover.filesystem import resolve_root
 from sync.document_text import DEFAULT_INCLUDE_GLOBS, is_syncable_extension
 from sync.knovas_uploader import SemantixUploader, UploadResult
+from sync.subfolder_queue import SubfolderProgress, SubfolderQueue
 from sync.sync_config import effective_filters
 from sync.sync_state import (
     DocumentSyncRecord,
@@ -22,6 +23,7 @@ from sync.sync_state import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 def _matches_globs(rel_posix: str, patterns: list[str]) -> bool:
     path = Path(rel_posix)
@@ -39,6 +41,15 @@ class SyncRunResult:
     errors: list[dict[str, str]] = field(default_factory=list)
     paused_reason: Optional[str] = None
     document_sync: Optional[DocumentSyncSummary] = None
+    scan_truncated: bool = False
+    subfolder_progress: Optional[dict[str, Any]] = None
+
+
+@dataclass(frozen=True)
+class _WalkTarget:
+    walk_root: Path
+    rel_root: Path
+    recursive: bool
 
 
 def is_within_max_document_age(
@@ -76,8 +87,16 @@ def _classify_status(
     return status
 
 
+def _relative_posix(path: Path, rel_root: Path) -> Optional[str]:
+    try:
+        return path.relative_to(rel_root).as_posix()
+    except ValueError:
+        return None
+
+
 def _walk_text_files(
-    root: Path,
+    walk_root: Path,
+    rel_root: Path,
     *,
     recursive: bool,
     include: list[str],
@@ -86,7 +105,7 @@ def _walk_text_files(
     should_stop: Callable[[], bool],
 ) -> Iterator[tuple[Path, str, str, int]]:
     """Yield (absolute_path, relative_path, mtime_iso, size_bytes) using os.scandir."""
-    stack: list[Path] = [root]
+    stack: list[Path] = [walk_root]
     while stack:
         if should_stop():
             return
@@ -111,10 +130,8 @@ def _walk_text_files(
             path = Path(entry.path)
             if not is_syncable_extension(path.suffix):
                 continue
-            try:
-                resolved = path.resolve()
-                rel = resolved.relative_to(root).as_posix()
-            except (ValueError, OSError):
+            rel = _relative_posix(path, rel_root)
+            if rel is None:
                 continue
             if not _matches_globs(rel, include):
                 continue
@@ -131,42 +148,41 @@ def _walk_text_files(
                 .isoformat()
                 .replace("+00:00", "Z")
             )
-            yield resolved, rel, mtime_iso, stat.st_size
+            yield path, rel, mtime_iso, stat.st_size
 
 
 def _iter_candidate_files(
-    sync_body: dict[str, Any],
+    walk_targets: list[_WalkTarget],
     *,
     should_stop: Callable[[], bool],
-    filters: dict[str, Any] | None = None,
+    filters: dict[str, Any],
+    max_scan_entries: int = 0,
 ) -> Iterator[tuple[Path, str, str, int]]:
-    """Yield in-scope text files: (absolute_path, relative_path, mtime_iso, size_bytes)."""
-    sources = sync_body.get("sources") or []
-    filters = filters if filters is not None else (sync_body.get("filters") or {})
+    """Yield in-scope files; stop after max_scan_entries when set (>0)."""
     include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
     max_bytes = int(filters.get("max_file_bytes", 10_485_760))
+    scanned = 0
 
-    for source in sources:
+    for target in walk_targets:
         if should_stop():
             break
-        root, err = resolve_root(source.get("path"))
-        if err or root is None:
-            continue
-        recursive = source.get("recursive", True)
-        yield from _walk_text_files(
-            root,
-            recursive=recursive,
+        for item in _walk_text_files(
+            target.walk_root,
+            target.rel_root,
+            recursive=target.recursive,
             include=include,
             exclude=exclude,
             max_bytes=max_bytes,
             should_stop=should_stop,
-        )
+        ):
+            yield item
+            scanned += 1
+            if max_scan_entries > 0 and scanned >= max_scan_entries:
+                return
 
 
-def _needs_upload(
-    status: DocumentSyncStatus, mode: str
-) -> bool:
+def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
     if mode != "incremental":
         return status != "excluded_max_age"
     return status in ("pending", "modified")
@@ -176,6 +192,56 @@ def _needs_upload(
 class _ScanPlan:
     summary: DocumentSyncSummary
     upload_queue: list[tuple[Path, str, str, int]]
+    scan_truncated: bool = False
+
+
+def _sequential_subfolders_enabled(sync_config: dict[str, Any] | None) -> bool:
+    return bool(sync_config and sync_config.get("sequential_subfolders"))
+
+
+def build_walk_targets(
+    sync_body: dict[str, Any],
+    sync_config: dict[str, Any] | None,
+    queue: SubfolderQueue | None,
+) -> tuple[list[_WalkTarget], Optional[SubfolderProgress]]:
+    """Resolve filesystem walk targets for one scheduler cycle."""
+    sources = sync_body.get("sources") or []
+    if not sources:
+        return [], None
+
+    if not _sequential_subfolders_enabled(sync_config):
+        targets: list[_WalkTarget] = []
+        for source in sources:
+            root, err = resolve_root(source.get("path"))
+            if err or root is None:
+                continue
+            targets.append(
+                _WalkTarget(
+                    walk_root=root,
+                    rel_root=root,
+                    recursive=bool(source.get("recursive", True)),
+                )
+            )
+        return targets, None
+
+    if len(sources) != 1:
+        logger.warning("sequential_subfolders requires exactly one source; using first only")
+    source = sources[0]
+    root, err = resolve_root(source.get("path"))
+    if err or root is None or queue is None:
+        return [], None
+
+    progress = queue.progress(root)
+    if progress.completed:
+        return [], progress
+
+    sub_path = queue.current_path(root)
+    if sub_path is None:
+        return [], progress
+
+    return [
+        _WalkTarget(walk_root=sub_path, rel_root=root, recursive=True),
+    ], progress
 
 
 def plan_sync_cycle(
@@ -187,6 +253,8 @@ def plan_sync_cycle(
     sync_config: dict[str, Any] | None = None,
     now: datetime | None = None,
     max_upload_files: int = 0,
+    max_scan_entries: int = 0,
+    queue: SubfolderQueue | None = None,
 ) -> _ScanPlan:
     """Single filesystem pass: inventory counts + upload queue."""
     filters = effective_filters(sync_body, sync_config)
@@ -196,10 +264,16 @@ def plan_sync_cycle(
     fingerprints = state.load_fingerprints()
     summary = DocumentSyncSummary()
     upload_queue: list[tuple[Path, str, str, int]] = []
+    walk_targets, _ = build_walk_targets(sync_body, sync_config, queue)
 
+    scanned = 0
     for abs_path, rel, mtime_iso, size_bytes in _iter_candidate_files(
-        sync_body, should_stop=should_stop, filters=filters
+        walk_targets,
+        should_stop=should_stop,
+        filters=filters,
+        max_scan_entries=max_scan_entries,
     ):
+        scanned += 1
         stored = state.lookup_stored(rel, fingerprints)
         status = _classify_status(
             stored, mtime_iso, size_bytes, max_age_seconds=max_age_seconds, now=now
@@ -226,7 +300,9 @@ def plan_sync_cycle(
             if max_upload_files <= 0 or len(upload_queue) < max_upload_files:
                 upload_queue.append((abs_path, rel, mtime_iso, size_bytes))
 
-    return _ScanPlan(summary=summary, upload_queue=upload_queue)
+    scan_truncated = max_scan_entries > 0 and scanned >= max_scan_entries
+
+    return _ScanPlan(summary=summary, upload_queue=upload_queue, scan_truncated=scan_truncated)
 
 
 def scan_document_inventory(
@@ -236,10 +312,14 @@ def scan_document_inventory(
     include_documents: bool = False,
     sync_config: dict[str, Any] | None = None,
     now: datetime | None = None,
+    max_scan_entries: int = 0,
 ) -> DocumentSyncSummary:
-    """Scan all in-scope documents and classify sync status against local state."""
+    """Scan in-scope documents and classify sync status against local state."""
     state = SyncStateStore()
+    queue: SubfolderQueue | None = None
     try:
+        if _sequential_subfolders_enabled(sync_config):
+            queue = SubfolderQueue.from_config()
         return plan_sync_cycle(
             sync_body,
             state,
@@ -247,8 +327,12 @@ def scan_document_inventory(
             include_documents=include_documents,
             sync_config=sync_config,
             now=now,
+            max_scan_entries=max_scan_entries,
+            queue=queue,
         ).summary
     finally:
+        if queue is not None:
+            queue.close()
         state.close()
 
 
@@ -287,6 +371,18 @@ def _max_files_per_cycle(sync_config: dict[str, Any] | None) -> int:
         return 0
 
 
+def _max_scan_entries_per_cycle(sync_config: dict[str, Any] | None) -> int:
+    if not sync_config:
+        return 0
+    raw = sync_config.get("max_scan_entries_per_cycle")
+    if raw is None:
+        return 0
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
 def run_sync_work(
     sync_body: dict[str, Any],
     uploader: SemantixUploader,
@@ -300,7 +396,18 @@ def run_sync_work(
 ) -> SyncRunResult:
     result = SyncRunResult()
     state = SyncStateStore()
+    queue: SubfolderQueue | None = None
+    sequential = _sequential_subfolders_enabled(sync_config)
+    source_root: Path | None = None
+
     try:
+        if sequential:
+            queue = SubfolderQueue.from_config()
+            sources = sync_body.get("sources") or []
+            if sources:
+                source_root, _ = resolve_root(sources[0].get("path"))
+
+        max_scan = _max_scan_entries_per_cycle(sync_config)
         plan = plan_sync_cycle(
             sync_body,
             state,
@@ -309,10 +416,19 @@ def run_sync_work(
             sync_config=sync_config,
             now=now,
             max_upload_files=_max_files_per_cycle(sync_config),
+            max_scan_entries=max_scan,
+            queue=queue,
         )
+        _, progress = build_walk_targets(sync_body, sync_config, queue)
+        if progress is not None:
+            result.subfolder_progress = progress.as_dict()
+
         result.document_sync = plan.summary
         result.files_scanned = plan.summary.total
         result.files_skipped = plan.summary.synced
+        result.scan_truncated = plan.scan_truncated
+        if plan.scan_truncated:
+            result.paused_reason = "scan_limit_reached"
 
         for abs_path, rel, mtime_iso, size_bytes in plan.upload_queue:
             if should_stop():
@@ -347,7 +463,20 @@ def run_sync_work(
                 result.transmissions_truncated = True
             else:
                 result.transmissions.append(tx_entry)
+
+        if sequential and queue is not None and source_root is not None and result.document_sync is not None:
+            queue.maybe_advance(
+                source_root,
+                pending=result.document_sync.pending,
+                modified=result.document_sync.modified,
+                scan_truncated=result.scan_truncated,
+                paused_reason=result.paused_reason,
+            )
+            updated = queue.progress(source_root)
+            result.subfolder_progress = updated.as_dict()
     finally:
+        if queue is not None:
+            queue.close()
         state.close()
 
     return result

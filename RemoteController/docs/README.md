@@ -20,7 +20,7 @@
 |-----|-----|
 | [configuration.md](configuration.md) | `.env` and sync scheduler JSON |
 | [network-and-firewall.md](network-and-firewall.md) | Firewall, public URL, outbound rules |
-| [operations.md](operations.md) | Health, metrics, upgrades |
+| [operations.md](operations.md) | Health, metrics, **stop sync**, upgrades |
 | [onboarding-checklist.md](onboarding-checklist.md) | Go-live checklist |
 | [hosting/server_01_home-corpus-setup.md](hosting/server_01_home-corpus-setup.md) | server_01_home corpus ingest setup (detailed) |
 | [nginx-edge.example.conf](nginx-edge.example.conf) | HTTPS edge at NGINX |

@@ -41,6 +41,8 @@ def seed_from_env() -> dict[str, Any]:
     }
     if cfg.rc_sync_default_mode == "continuous":
         doc["scan_interval_seconds"] = cfg.rc_sync_default_scan_interval_seconds
+        doc["max_files_per_cycle"] = 500
+        doc["max_scan_entries_per_cycle"] = 10000
     return doc
 
 
