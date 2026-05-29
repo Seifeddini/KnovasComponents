@@ -60,7 +60,7 @@ To prevent sync from auto-starting after a container restart, set `"enabled": fa
 
 - Set **`sequential_subfolders`: true** in `remote_controller_sync.json` when the sync source root contains many top-level folders (e.g. WinJur bucket dirs). RC processes **one subfolder per cycle**, then advances automatically when that folder has no pending uploads.
 - Set `max_files_per_cycle` (e.g. 200–500) to cap uploads per cycle.
-- Set `max_scan_entries_per_cycle` (e.g. 10000) to cap filesystem work per cycle on slow SMB mounts.
+- Set `max_scan_entries_per_cycle` (e.g. 10000) to cap **directory visits** per cycle on slow SMB mounts (important when most files are unsupported types such as legacy `.doc`).
 - Use a **24h sync window** (`00:00`–`23:59`) for initial backfill; the default is no longer limited to business hours.
 - Use `scan_interval_idle_max_seconds` so steady-state rescans back off when nothing is pending.
 - `POST /sync` responses cap `transmissions` (default 100 entries); counts in `document_sync` remain full.

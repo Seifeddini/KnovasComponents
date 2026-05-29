@@ -94,6 +94,23 @@ def _relative_posix(path: Path, rel_root: Path) -> Optional[str]:
         return None
 
 
+@dataclass
+class _WalkBudget:
+    """Caps directory visits so archives with few/no syncable files cannot walk forever."""
+
+    max_dir_visits: int = 0
+    dir_visits: int = 0
+    truncated: bool = False
+
+    def consume_dir(self) -> bool:
+        """Record one directory visit. Returns False when the budget is exhausted."""
+        self.dir_visits += 1
+        if self.max_dir_visits > 0 and self.dir_visits > self.max_dir_visits:
+            self.truncated = True
+            return False
+        return True
+
+
 def _walk_text_files(
     walk_root: Path,
     rel_root: Path,
@@ -103,6 +120,7 @@ def _walk_text_files(
     exclude: list[str],
     max_bytes: int,
     should_stop: Callable[[], bool],
+    budget: Optional[_WalkBudget] = None,
 ) -> Iterator[tuple[Path, str, str, int]]:
     """Yield (absolute_path, relative_path, mtime_iso, size_bytes) using os.scandir."""
     stack: list[Path] = [walk_root]
@@ -110,6 +128,10 @@ def _walk_text_files(
         if should_stop():
             return
         current = stack.pop()
+        if budget is not None and not budget.consume_dir():
+            return
+        if budget is not None and budget.dir_visits % 5000 == 0:
+            logger.info("Scan progress: %d directories visited under %s", budget.dir_visits, walk_root.name)
         try:
             with os.scandir(current) as it:
                 entries = list(it)
@@ -117,6 +139,8 @@ def _walk_text_files(
             continue
         for entry in entries:
             if should_stop():
+                return
+            if budget is not None and budget.truncated:
                 return
             try:
                 if entry.is_dir(follow_symlinks=False):
@@ -157,15 +181,16 @@ def _iter_candidate_files(
     should_stop: Callable[[], bool],
     filters: dict[str, Any],
     max_scan_entries: int = 0,
+    budget: Optional[_WalkBudget] = None,
 ) -> Iterator[tuple[Path, str, str, int]]:
-    """Yield in-scope files; stop after max_scan_entries when set (>0)."""
+    """Yield in-scope files; honour directory visit budget and optional file cap."""
     include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
     max_bytes = int(filters.get("max_file_bytes", 10_485_760))
-    scanned = 0
+    files_yielded = 0
 
     for target in walk_targets:
-        if should_stop():
+        if should_stop() or (budget is not None and budget.truncated):
             break
         for item in _walk_text_files(
             target.walk_root,
@@ -175,11 +200,16 @@ def _iter_candidate_files(
             exclude=exclude,
             max_bytes=max_bytes,
             should_stop=should_stop,
+            budget=budget,
         ):
             yield item
-            scanned += 1
-            if max_scan_entries > 0 and scanned >= max_scan_entries:
+            files_yielded += 1
+            if max_scan_entries > 0 and files_yielded >= max_scan_entries:
+                if budget is not None:
+                    budget.truncated = True
                 return
+        if budget is not None and budget.truncated:
+            break
 
 
 def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
@@ -265,6 +295,8 @@ def plan_sync_cycle(
     summary = DocumentSyncSummary()
     upload_queue: list[tuple[Path, str, str, int]] = []
     walk_targets, _ = build_walk_targets(sync_body, sync_config, queue)
+    visit_cap = max_scan_entries if max_scan_entries > 0 else 0
+    budget = _WalkBudget(max_dir_visits=visit_cap) if visit_cap else _WalkBudget()
 
     scanned = 0
     for abs_path, rel, mtime_iso, size_bytes in _iter_candidate_files(
@@ -272,6 +304,7 @@ def plan_sync_cycle(
         should_stop=should_stop,
         filters=filters,
         max_scan_entries=max_scan_entries,
+        budget=budget,
     ):
         scanned += 1
         stored = state.lookup_stored(rel, fingerprints)
@@ -300,7 +333,7 @@ def plan_sync_cycle(
             if max_upload_files <= 0 or len(upload_queue) < max_upload_files:
                 upload_queue.append((abs_path, rel, mtime_iso, size_bytes))
 
-    scan_truncated = max_scan_entries > 0 and scanned >= max_scan_entries
+    scan_truncated = budget.truncated
 
     return _ScanPlan(summary=summary, upload_queue=upload_queue, scan_truncated=scan_truncated)
 
@@ -373,14 +406,28 @@ def _max_files_per_cycle(sync_config: dict[str, Any] | None) -> int:
 
 def _max_scan_entries_per_cycle(sync_config: dict[str, Any] | None) -> int:
     if not sync_config:
-        return 0
+        return 10000
     raw = sync_config.get("max_scan_entries_per_cycle")
     if raw is None:
-        return 0
+        return 10000 if sync_config.get("sequential_subfolders") else 0
     try:
         return max(0, int(raw))
     except (TypeError, ValueError):
         return 0
+
+
+def _default_max_sync_duration_minutes(sync_config: dict[str, Any] | None) -> Optional[int]:
+    if not sync_config:
+        return None
+    raw = sync_config.get("max_sync_duration_minutes")
+    if raw is not None:
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            pass
+    if sync_config.get("sequential_subfolders"):
+        return 120
+    return None
 
 
 def run_sync_work(
@@ -465,13 +512,41 @@ def run_sync_work(
                 result.transmissions.append(tx_entry)
 
         if sequential and queue is not None and source_root is not None and result.document_sync is not None:
-            queue.maybe_advance(
-                source_root,
-                pending=result.document_sync.pending,
-                modified=result.document_sync.modified,
-                scan_truncated=result.scan_truncated,
-                paused_reason=result.paused_reason,
-            )
+            ds = result.document_sync
+            if result.scan_truncated and ds.total == 0:
+                # No syncable files in this slice (typical for .doc-only WinJur buckets) — move on.
+                logger.info(
+                    "Subfolder scan cap hit with no syncable files; advancing to next folder"
+                )
+                queue.maybe_advance(
+                    source_root,
+                    pending=0,
+                    modified=0,
+                    scan_truncated=False,
+                    paused_reason=None,
+                )
+            else:
+                queue.maybe_advance(
+                    source_root,
+                    pending=ds.pending,
+                    modified=ds.modified,
+                    scan_truncated=result.scan_truncated,
+                    paused_reason=result.paused_reason,
+                )
+            if (
+                not result.scan_truncated
+                and ds.total == 0
+                and ds.pending == 0
+                and ds.modified == 0
+                and result.paused_reason not in ("stop_requested", "outside_window", "rate_limited")
+            ):
+                queue.maybe_advance(
+                    source_root,
+                    pending=0,
+                    modified=0,
+                    scan_truncated=False,
+                    paused_reason=None,
+                )
             updated = queue.progress(source_root)
             result.subfolder_progress = updated.as_dict()
     finally:

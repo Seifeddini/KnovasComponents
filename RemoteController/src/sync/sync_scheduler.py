@@ -30,6 +30,7 @@ _current_status = "awaiting_initial_sync_body"
 _last_run_at: Optional[str] = None
 _files_processed = 0
 _last_document_sync: Optional[dict[str, Any]] = None
+_last_worker_error: Optional[str] = None
 _idle_scan_multiplier: int = 1
 
 
@@ -100,18 +101,25 @@ def get_scheduler_status() -> dict[str, Any]:
 
     cfg = load_sync_config()
     synced_local = _synced_paths_in_state()
-    return {
-        "scheduler_state": _current_status,
+    worker_alive = _worker_thread is not None and _worker_thread.is_alive()
+    state = _current_status
+    if state == "running" and not worker_alive:
+        state = "worker_stopped"
+    status: dict[str, Any] = {
+        "scheduler_state": state,
         "last_run_at": _last_run_at,
-        "current_status": _current_status,
+        "current_status": state,
         # Incremented only when a full scheduler cycle (_run_once) finishes.
         "files_processed": _files_processed,
         # Live count from .rc-sync-state.json — use this while a long cycle is running.
         "files_synced_local": synced_local,
         "document_sync": _last_document_sync,
         "config_snapshot_hash": config_snapshot_hash(cfg),
-        "worker_alive": _worker_thread is not None and _worker_thread.is_alive(),
+        "worker_alive": worker_alive,
     }
+    if _last_worker_error:
+        status["last_worker_error"] = _last_worker_error
+    return status
 
 
 def _set_status(status: str) -> None:
@@ -120,7 +128,7 @@ def _set_status(status: str) -> None:
 
 
 def _run_once(ctx: SyncRunContext) -> SyncRunResult:
-    global _last_run_at, _files_processed, _last_document_sync
+    global _last_run_at, _files_processed, _last_document_sync, _last_worker_error
     cfg_doc = ctx.sync_config
     if not cfg_doc.get("enabled", True):
         _set_status("disabled")
@@ -149,15 +157,21 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         )
     else:
         logger.info("Sync cycle starting (mode=%s)", ctx.sync_body.get("mode", "incremental"))
-    max_duration = cfg_doc.get("max_sync_duration_minutes")
+
+    from sync.sync_executor import _default_max_sync_duration_minutes
+
+    max_duration = _default_max_sync_duration_minutes(cfg_doc)
     deadline = (
         time.monotonic() + float(max_duration) * 60 if max_duration else None
     )
+    cycle_timed_out = False
 
     def should_stop() -> bool:
+        nonlocal cycle_timed_out
         if _stop_event.is_set():
             return True
         if deadline and time.monotonic() >= deadline:
+            cycle_timed_out = True
             return True
         return False
 
@@ -176,16 +190,32 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         return True
 
     uploader = SemantixUploader()
-    logger.info("Sync cycle scanning corpus and uploading (rate_limit=%s/min)", rl.get("max_ingestion_requests_per_minute", 30))
-    result = run_sync_work(
-        ctx.sync_body,
-        uploader,
-        should_stop=should_stop,
-        is_in_sync_window=in_window,
-        acquire_ingest_token=ingest_token,
-        sync_config=ctx.sync_config,
+    logger.info(
+        "Sync cycle scanning corpus and uploading (rate_limit=%s/min, max_duration_min=%s)",
+        rl.get("max_ingestion_requests_per_minute", 30),
+        max_duration,
     )
+    try:
+        result = run_sync_work(
+            ctx.sync_body,
+            uploader,
+            should_stop=should_stop,
+            is_in_sync_window=in_window,
+            acquire_ingest_token=ingest_token,
+            sync_config=ctx.sync_config,
+        )
+    except Exception as exc:
+        _last_worker_error = str(exc)
+        logger.exception("Sync cycle failed")
+        _last_run_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        _set_status("error")
+        return SyncRunResult(errors=[{"path": "", "error": str(exc)}])
+
+    if cycle_timed_out and not result.paused_reason:
+        result.paused_reason = "cycle_time_limit"
+
     _last_run_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _last_worker_error = None
     _files_processed += result.files_uploaded
     logger.info(
         "Sync cycle finished uploaded=%d scanned=%d errors=%d paused=%s",
@@ -253,13 +283,20 @@ def start_continuous(ctx: SyncRunContext) -> str:
         return "already_running"
 
     def _worker_wrapper() -> None:
+        global _last_worker_error
         try:
             _continuous_worker(ctx)
+        except Exception as exc:
+            _last_worker_error = str(exc)
+            logger.exception("Continuous sync worker crashed")
+            _set_status("worker_crashed")
         finally:
             try:
                 _scheduler_lock.release()
             except RuntimeError:
                 pass
+            if _current_status == "running":
+                _set_status("not_running")
 
     _stop_event.clear()
     _worker_thread = threading.Thread(target=_worker_wrapper, daemon=True)

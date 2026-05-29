@@ -34,10 +34,12 @@ def test_build_walk_targets_sequential(tmp_path, monkeypatch):
         queue.close()
 
 
-def test_plan_sync_cycle_respects_scan_limit(tmp_watch_root, tmp_path, monkeypatch):
-    root = tmp_watch_root
-    for i in range(5):
-        (root / f"f{i}.md").write_text("x", encoding="utf-8")
+def test_plan_sync_cycle_respects_dir_visit_limit(tmp_path, monkeypatch):
+    root = tmp_path / "data"
+    root.mkdir()
+    monkeypatch.setenv("RC_WATCH_ROOTS", str(root))
+    (root / "nested").mkdir()
+    (root / "nested" / "inside.md").write_text("x", encoding="utf-8")
 
     state_path = tmp_path / "state.json"
     monkeypatch.setenv("RC_SYNC_STATE_PATH", str(state_path))
@@ -53,8 +55,8 @@ def test_plan_sync_cycle_respects_scan_limit(tmp_watch_root, tmp_path, monkeypat
     }
     store = SyncStateStore(str(state_path))
     try:
-        plan = plan_sync_cycle(body, store, max_scan_entries=2)
-        assert plan.summary.total == 2
+        plan = plan_sync_cycle(body, store, max_scan_entries=1)
+        assert plan.summary.total == 0
         assert plan.scan_truncated is True
     finally:
         store.close()
