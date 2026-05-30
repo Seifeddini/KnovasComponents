@@ -233,6 +233,18 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
 
     if result.paused_reason:
         _set_status(result.paused_reason if result.paused_reason != "outside_window" else "paused_outside_window")
+    elif cfg_doc.get("mode") == "continuous":
+        sp = result.subfolder_progress or {}
+        pending_work = 0
+        if result.document_sync is not None:
+            pending_work = result.document_sync.pending + result.document_sync.modified
+        if sp.get("completed"):
+            _set_status("subfolders_complete")
+        elif pending_work > 0:
+            _set_status("backlog_pending")
+        else:
+            # Continuous mode: a finished cycle is not "done" — worker sleeps then rescans.
+            _set_status("idle_between_cycles")
     else:
         _set_status("completed")
     return result

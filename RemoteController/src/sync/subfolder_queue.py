@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS folder_queue (
     source_root TEXT PRIMARY KEY NOT NULL,
     subfolder_names TEXT NOT NULL,
     current_index INTEGER NOT NULL DEFAULT 0,
+    scan_stack TEXT,
     updated_at TEXT
 );
 """
@@ -62,6 +64,11 @@ class SubfolderQueue:
         self._db = db
         conn = db._connect()
         conn.executescript(_FOLDER_QUEUE_SCHEMA)
+        try:
+            conn.execute("ALTER TABLE folder_queue ADD COLUMN scan_stack TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     @classmethod
     def from_config(cls) -> SubfolderQueue:
@@ -72,10 +79,10 @@ class SubfolderQueue:
     def close(self) -> None:
         self._db.close()
 
-    def _load_row(self, source_root: str) -> Optional[tuple[list[str], int]]:
+    def _load_row(self, source_root: str) -> Optional[tuple[list[str], int, list[str]]]:
         conn = self._db._connect()
         row = conn.execute(
-            "SELECT subfolder_names, current_index FROM folder_queue WHERE source_root = ?",
+            "SELECT subfolder_names, current_index, scan_stack FROM folder_queue WHERE source_root = ?",
             (source_root,),
         ).fetchone()
         if not row:
@@ -86,19 +93,48 @@ class SubfolderQueue:
             names = []
         if not isinstance(names, list):
             names = []
-        return [str(n) for n in names], int(row[1])
+        stack: list[str] = []
+        if len(row) > 2 and row[2]:
+            try:
+                raw = json.loads(row[2])
+                if isinstance(raw, list):
+                    stack = [str(p) for p in raw]
+            except (json.JSONDecodeError, TypeError):
+                stack = []
+        return [str(n) for n in names], int(row[1]), stack
 
-    def _save_row(self, source_root: str, names: list[str], index: int) -> None:
+    def _save_row(
+        self,
+        source_root: str,
+        names: list[str],
+        index: int,
+        *,
+        scan_stack: list[str] | None = None,
+        clear_scan_stack: bool = False,
+    ) -> None:
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         conn = self._db._connect()
+        existing = conn.execute(
+            "SELECT scan_stack FROM folder_queue WHERE source_root = ?",
+            (source_root,),
+        ).fetchone()
+        stack_json: str | None
+        if clear_scan_stack:
+            stack_json = None
+        elif scan_stack is not None:
+            stack_json = json.dumps(scan_stack)
+        elif existing:
+            stack_json = existing[0]
+        else:
+            stack_json = None
         conn.execute(
             """
-            INSERT OR REPLACE INTO folder_queue (source_root, subfolder_names, current_index, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT OR REPLACE INTO folder_queue (source_root, subfolder_names, current_index, scan_stack, updated_at)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (source_root, json.dumps(names), index, now),
+            (source_root, json.dumps(names), index, stack_json, now),
         )
         conn.commit()
 
@@ -107,18 +143,46 @@ class SubfolderQueue:
         names = _list_immediate_subdirs(source_root)
         row = self._load_row(key)
         index = row[1] if row else 0
+        stack = row[2] if row else []
         if index >= len(names):
             index = max(0, len(names) - 1) if names else 0
-        self._save_row(key, names, index)
+        self._save_row(key, names, index, scan_stack=stack)
         return names
+
+    def load_scan_stack(self, source_root: Path) -> list[Path]:
+        row = self._load_row(str(source_root))
+        if not row:
+            return []
+        return [Path(p) for p in row[2]]
+
+    def save_scan_stack(self, source_root: Path, stack: list[Path]) -> None:
+        key = str(source_root)
+        row = self._load_row(key)
+        if row is None:
+            return
+        names, index, _ = row
+        self._save_row(
+            key,
+            names,
+            index,
+            scan_stack=[str(p) for p in stack],
+        )
+
+    def clear_scan_stack(self, source_root: Path) -> None:
+        key = str(source_root)
+        row = self._load_row(key)
+        if row is None:
+            return
+        names, index, _ = row
+        self._save_row(key, names, index, clear_scan_stack=True)
 
     def progress(self, source_root: Path) -> SubfolderProgress:
         key = str(source_root)
         row = self._load_row(key)
         if row is None:
             names = self.refresh(source_root)
-            row = (names, 0)
-        names, index = row
+            row = (names, 0, [])
+        names, index, _ = row
         if not names:
             return SubfolderProgress(key, None, 0, 0, True)
         if index >= len(names):
@@ -152,13 +216,13 @@ class SubfolderQueue:
         row = self._load_row(key)
         if row is None:
             return False
-        names, index = row
+        names, index, _ = row
         if index >= len(names) - 1:
-            self._save_row(key, names, len(names))
+            self._save_row(key, names, len(names), clear_scan_stack=True)
             logger.info("Sequential subfolder sync complete for %s (%d folders)", key, len(names))
             return True
         new_index = index + 1
-        self._save_row(key, names, new_index)
+        self._save_row(key, names, new_index, clear_scan_stack=True)
         logger.info(
             "Advanced sequential subfolder sync for %s -> %s (%d/%d)",
             key,

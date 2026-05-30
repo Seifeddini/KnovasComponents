@@ -101,6 +101,7 @@ class _WalkBudget:
     max_dir_visits: int = 0
     dir_visits: int = 0
     truncated: bool = False
+    resume_stack: list[Path] = field(default_factory=list)
 
     def consume_dir(self) -> bool:
         """Record one directory visit. Returns False when the budget is exhausted."""
@@ -121,14 +122,19 @@ def _walk_text_files(
     max_bytes: int,
     should_stop: Callable[[], bool],
     budget: Optional[_WalkBudget] = None,
+    initial_stack: list[Path] | None = None,
 ) -> Iterator[tuple[Path, str, str, int]]:
     """Yield (absolute_path, relative_path, mtime_iso, size_bytes) using os.scandir."""
-    stack: list[Path] = [walk_root]
+    stack: list[Path] = list(initial_stack) if initial_stack else [walk_root]
     while stack:
         if should_stop():
+            if budget is not None:
+                budget.resume_stack = list(stack)
             return
         current = stack.pop()
         if budget is not None and not budget.consume_dir():
+            stack.append(current)
+            budget.resume_stack = list(stack)
             return
         if budget is not None and budget.dir_visits % 5000 == 0:
             logger.info("Scan progress: %d directories visited under %s", budget.dir_visits, walk_root.name)
@@ -137,15 +143,19 @@ def _walk_text_files(
                 entries = list(it)
         except OSError:
             continue
+        dir_paths: list[Path] = []
         for entry in entries:
             if should_stop():
+                if budget is not None:
+                    budget.resume_stack = list(stack)
                 return
             if budget is not None and budget.truncated:
+                budget.resume_stack = list(stack)
                 return
             try:
                 if entry.is_dir(follow_symlinks=False):
                     if recursive:
-                        stack.append(Path(entry.path))
+                        dir_paths.append(Path(entry.path))
                     continue
                 if not entry.is_file(follow_symlinks=False):
                     continue
@@ -173,6 +183,10 @@ def _walk_text_files(
                 .replace("+00:00", "Z")
             )
             yield path, rel, mtime_iso, stat.st_size
+        for path in sorted(dir_paths, key=lambda p: p.as_posix()):
+            stack.append(path)
+    if budget is not None:
+        budget.resume_stack = []
 
 
 def _iter_candidate_files(
@@ -182,12 +196,14 @@ def _iter_candidate_files(
     filters: dict[str, Any],
     max_scan_entries: int = 0,
     budget: Optional[_WalkBudget] = None,
+    initial_stacks: dict[Path, list[Path]] | None = None,
 ) -> Iterator[tuple[Path, str, str, int]]:
     """Yield in-scope files; honour directory visit budget and optional file cap."""
     include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
     max_bytes = int(filters.get("max_file_bytes", 10_485_760))
     files_yielded = 0
+    stacks = initial_stacks or {}
 
     for target in walk_targets:
         if should_stop() or (budget is not None and budget.truncated):
@@ -201,6 +217,7 @@ def _iter_candidate_files(
             max_bytes=max_bytes,
             should_stop=should_stop,
             budget=budget,
+            initial_stack=stacks.get(target.walk_root),
         ):
             yield item
             files_yielded += 1
@@ -298,6 +315,21 @@ def plan_sync_cycle(
     visit_cap = max_scan_entries if max_scan_entries > 0 else 0
     budget = _WalkBudget(max_dir_visits=visit_cap) if visit_cap else _WalkBudget()
 
+    initial_stacks: dict[Path, list[Path]] = {}
+    if queue is not None and walk_targets:
+        sources = sync_body.get("sources") or []
+        if sources:
+            source_root, _ = resolve_root(sources[0].get("path"))
+            if source_root is not None:
+                saved = queue.load_scan_stack(source_root)
+                if saved:
+                    initial_stacks[walk_targets[0].walk_root] = saved
+                    logger.info(
+                        "Resuming subfolder scan for %s (%d dirs queued)",
+                        walk_targets[0].walk_root.name,
+                        len(saved),
+                    )
+
     scanned = 0
     for abs_path, rel, mtime_iso, size_bytes in _iter_candidate_files(
         walk_targets,
@@ -305,6 +337,7 @@ def plan_sync_cycle(
         filters=filters,
         max_scan_entries=max_scan_entries,
         budget=budget,
+        initial_stacks=initial_stacks,
     ):
         scanned += 1
         stored = state.lookup_stored(rel, fingerprints)
@@ -334,6 +367,16 @@ def plan_sync_cycle(
                 upload_queue.append((abs_path, rel, mtime_iso, size_bytes))
 
     scan_truncated = budget.truncated
+
+    if queue is not None and walk_targets:
+        sources = sync_body.get("sources") or []
+        if sources:
+            source_root, _ = resolve_root(sources[0].get("path"))
+            if source_root is not None:
+                if scan_truncated:
+                    queue.save_scan_stack(source_root, budget.resume_stack or [walk_targets[0].walk_root])
+                elif not scan_truncated:
+                    queue.clear_scan_stack(source_root)
 
     return _ScanPlan(summary=summary, upload_queue=upload_queue, scan_truncated=scan_truncated)
 
@@ -513,26 +556,13 @@ def run_sync_work(
 
         if sequential and queue is not None and source_root is not None and result.document_sync is not None:
             ds = result.document_sync
-            if result.scan_truncated and ds.total == 0:
-                # No syncable files in this slice (typical for .doc-only WinJur buckets) — move on.
-                logger.info(
-                    "Subfolder scan cap hit with no syncable files; advancing to next folder"
-                )
-                queue.maybe_advance(
-                    source_root,
-                    pending=0,
-                    modified=0,
-                    scan_truncated=False,
-                    paused_reason=None,
-                )
-            else:
-                queue.maybe_advance(
-                    source_root,
-                    pending=ds.pending,
-                    modified=ds.modified,
-                    scan_truncated=result.scan_truncated,
-                    paused_reason=result.paused_reason,
-                )
+            queue.maybe_advance(
+                source_root,
+                pending=ds.pending,
+                modified=ds.modified,
+                scan_truncated=result.scan_truncated,
+                paused_reason=result.paused_reason,
+            )
             if (
                 not result.scan_truncated
                 and ds.total == 0
