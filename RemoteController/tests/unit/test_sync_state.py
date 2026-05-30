@@ -24,6 +24,13 @@ def test_skip_unchanged(tmp_path, monkeypatch):
     assert not store.should_skip("a.md", "2026-01-02T00:00:00Z", 10)
 
 
+def test_record_skip_marks_synced(tmp_path, monkeypatch):
+    store, _ = _store_at(tmp_path, monkeypatch)
+    store.record_skip("scan.pdf", "2026-01-01T00:00:00Z", 100, reason="unconvertible")
+    assert store.document_status("scan.pdf", "2026-01-01T00:00:00Z", 100) == "synced"
+    assert store.should_skip("scan.pdf", "2026-01-01T00:00:00Z", 100)
+
+
 def test_pending_never_uploaded(tmp_path, monkeypatch):
     store, _ = _store_at(tmp_path, monkeypatch)
     assert store.document_status("new.md", "2026-01-01T00:00:00Z", 5) == "pending"

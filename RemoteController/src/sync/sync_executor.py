@@ -235,6 +235,17 @@ def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
     return status in ("pending", "modified")
 
 
+def _is_unconvertible_upload_error(error: Optional[str]) -> bool:
+    if not error:
+        return False
+    lowered = error.lower()
+    return (
+        "no extractable text" in lowered
+        or "not valid utf-8" in lowered
+        or lowered.startswith("unsupported extension")
+    )
+
+
 @dataclass
 class _ScanPlan:
     summary: DocumentSyncSummary
@@ -546,7 +557,12 @@ def run_sync_work(
                     "status": "ok",
                 }
             else:
-                result.errors.append({"path": rel, "error": upload.error or "upload failed"})
+                err = upload.error or "upload failed"
+                logger.warning("Upload failed path=%s error=%s", rel, err)
+                if sync_body.get("mode") == "incremental" and _is_unconvertible_upload_error(err):
+                    state.record_skip(rel, mtime_iso, size_bytes, reason="unconvertible")
+                    logger.info("Marked unconvertible path as skipped: %s", rel)
+                result.errors.append({"path": rel, "error": err})
                 tx_entry = {"path": rel, "status": "error", "parts": upload.parts}
 
             if max_transmissions_in_response > 0 and len(result.transmissions) >= max_transmissions_in_response:

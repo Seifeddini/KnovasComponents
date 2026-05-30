@@ -118,6 +118,17 @@ class SyncStateStore:
             fingerprints=fp_map,
         )
 
+    def record_skip(
+        self,
+        relative_path: str,
+        mtime_iso: str,
+        size_bytes: int,
+        *,
+        reason: str,
+    ) -> None:
+        """Mark a path handled so incremental sync does not retry it forever."""
+        self.record_upload(relative_path, mtime_iso, size_bytes, f"skip:{reason}")
+
     def summarize(
         self,
         scanned: list[tuple[str, str, int]],
