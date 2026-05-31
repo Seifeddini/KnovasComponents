@@ -9,8 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
+import requests
+
 from discover.filesystem import resolve_root
-from sync.document_text import DEFAULT_INCLUDE_GLOBS, is_syncable_extension
+from sync.document_text import (
+    DEFAULT_INCLUDE_GLOBS,
+    is_syncable_extension,
+    is_unconvertible_error,
+)
 from sync.knovas_uploader import SemantixUploader, UploadResult
 from sync.subfolder_queue import SubfolderProgress, SubfolderQueue
 from sync.sync_config import effective_filters
@@ -235,15 +241,15 @@ def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
     return status in ("pending", "modified")
 
 
-def _is_unconvertible_upload_error(error: Optional[str]) -> bool:
-    if not error:
+def _should_skip_failed_upload(upload: UploadResult, mode: str) -> bool:
+    """Skip bad local files in incremental mode; retry Semantix API failures."""
+    if mode != "incremental" or upload.status != "error":
         return False
-    lowered = error.lower()
-    return (
-        "no extractable text" in lowered
-        or "not valid utf-8" in lowered
-        or lowered.startswith("unsupported extension")
-    )
+    err = upload.error or ""
+    if is_unconvertible_error(err):
+        return True
+    # Pre-ingest conversion/read failures report parts=0; ingest errors do not.
+    return upload.parts == 0 and not err.lower().startswith("init failed:")
 
 
 @dataclass
@@ -542,7 +548,25 @@ def run_sync_work(
                 result.paused_reason = "rate_limited"
                 break
 
-            upload: UploadResult = uploader.upload_file(abs_path, rel, sync_body)
+            try:
+                upload = uploader.upload_file(abs_path, rel, sync_body)
+            except requests.RequestException:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Upload raised path=%s error=%s",
+                    rel,
+                    exc,
+                    exc_info=True,
+                )
+                upload = UploadResult(
+                    relative_path=rel,
+                    transmission_key_id=None,
+                    parts=0,
+                    status="error",
+                    ingestion_requests=0,
+                    error=str(exc),
+                )
             result.ingestion_requests_sent += upload.ingestion_requests
 
             tx_entry: dict[str, Any]
@@ -559,7 +583,7 @@ def run_sync_work(
             else:
                 err = upload.error or "upload failed"
                 logger.warning("Upload failed path=%s error=%s", rel, err)
-                if sync_body.get("mode") == "incremental" and _is_unconvertible_upload_error(err):
+                if _should_skip_failed_upload(upload, sync_body.get("mode", "incremental")):
                     state.record_skip(rel, mtime_iso, size_bytes, reason="unconvertible")
                     logger.info("Marked unconvertible path as skipped: %s", rel)
                 result.errors.append({"path": rel, "error": err})

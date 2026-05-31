@@ -40,6 +40,23 @@ class ConversionError(Exception):
         self.extension = extension
 
 
+def is_unconvertible_error(error: str | None) -> bool:
+    """True when a file cannot be converted and should not block incremental sync."""
+    if not error:
+        return False
+    lowered = error.lower()
+    if lowered.startswith("init failed:") or (lowered.startswith("part ") and " failed:" in lowered):
+        return False
+    return (
+        "no extractable text" in lowered
+        or "not valid utf-8" in lowered
+        or lowered.startswith("unsupported extension")
+        or "not a zip file" in lowered
+        or "bad zipfile" in lowered
+        or "bad magic number" in lowered
+    )
+
+
 def is_syncable_extension(suffix: str) -> bool:
     return suffix.lower() in SYNCABLE_EXTENSIONS
 
@@ -66,16 +83,21 @@ def bytes_to_markdown(raw_bytes: bytes, suffix: str) -> str:
                 continue
         raise ConversionError(f"not valid UTF-8 for {ext}", extension=ext)
 
-    if ext == ".docx":
-        text = docx_bytes_to_markdown(raw_bytes)
-    elif ext == ".pdf":
-        text = pdf_bytes_to_markdown(raw_bytes)
-    elif ext == ".eml":
-        text = eml_bytes_to_markdown(raw_bytes)
-    elif ext == ".msg":
-        text = msg_bytes_to_markdown(raw_bytes)
-    else:
-        raise ConversionError(f"unsupported extension: {ext}", extension=ext)
+    try:
+        if ext == ".docx":
+            text = docx_bytes_to_markdown(raw_bytes)
+        elif ext == ".pdf":
+            text = pdf_bytes_to_markdown(raw_bytes)
+        elif ext == ".eml":
+            text = eml_bytes_to_markdown(raw_bytes)
+        elif ext == ".msg":
+            text = msg_bytes_to_markdown(raw_bytes)
+        else:
+            raise ConversionError(f"unsupported extension: {ext}", extension=ext)
+    except ConversionError:
+        raise
+    except Exception as exc:
+        raise ConversionError(str(exc), extension=ext) from exc
 
     if not text.strip():
         raise ConversionError(f"no extractable text from {ext} file", extension=ext)
@@ -101,5 +123,7 @@ def file_to_markdown(file_path: Path) -> str:
 
     try:
         return bytes_to_markdown(raw, ext)
-    except ImportError as exc:
+    except ConversionError:
+        raise
+    except Exception as exc:
         raise ConversionError(str(exc), extension=ext) from exc

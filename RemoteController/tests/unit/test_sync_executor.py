@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -7,10 +7,13 @@ from sync.sync_config import effective_filters
 from sync.sync_executor import (
     _collect_files,
     _iter_candidate_files,
+    _should_skip_failed_upload,
     is_within_max_document_age,
     plan_sync_cycle,
+    run_sync_work,
     scan_document_inventory,
 )
+from sync.knovas_uploader import UploadResult
 from sync.sync_state import SyncStateStore
 
 
@@ -166,3 +169,62 @@ def test_scan_uses_scheduler_default_when_body_omits_age(tmp_watch_root):
     sync_cfg = {"max_document_age_seconds": 86400 * 30}
     summary = scan_document_inventory(body, sync_config=sync_cfg, now=NOW)
     assert summary.excluded_max_age == 1
+
+
+def test_should_skip_failed_upload():
+    assert _should_skip_failed_upload(
+        UploadResult("a.docx", None, 0, "error", 0, error="File is not a zip file"),
+        "incremental",
+    )
+    assert not _should_skip_failed_upload(
+        UploadResult("a.pdf", "key", 2, "error", 3, error="part 1 failed: 503"),
+        "incremental",
+    )
+
+
+def test_run_sync_work_skips_bad_docx_without_crashing(tmp_watch_root, tmp_path, monkeypatch):
+    root = tmp_watch_root
+    (root / "good.md").write_text("ok", encoding="utf-8")
+    (root / "bad.docx").write_bytes(b"not-a-docx")
+
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("RC_SYNC_STATE_PATH", str(state_path))
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
+
+    body = {
+        "mode": "incremental",
+        "sources": [{"path": str(root), "recursive": True}],
+        "filters": {"include_globs": ["good.md", "bad.docx"]},
+        "ingestion": {"identifier_prefix": "rc"},
+    }
+
+    from sync.knovas_uploader import SemantixUploader
+
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req:
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.content = b'{"key": "tx-1"}'
+        ok.json.return_value = {"key": "tx-1"}
+        req.return_value = ok
+        result = run_sync_work(body, uploader)
+
+    assert result.files_uploaded == 1
+    assert len(result.errors) == 1
+    assert result.errors[0]["path"] == "bad.docx"
+
+    store = SyncStateStore(str(state_path))
+    try:
+        bad = root / "bad.docx"
+        stat = bad.stat()
+        mtime_iso = (
+            datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        assert store.should_skip("bad.docx", mtime_iso, stat.st_size)
+    finally:
+        store.close()

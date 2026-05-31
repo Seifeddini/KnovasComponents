@@ -8,6 +8,7 @@ from sync.document_text import (
     bytes_to_markdown,
     file_to_markdown,
     is_syncable_extension,
+    is_unconvertible_error,
 )
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -77,6 +78,19 @@ def test_unsupported_extension(tmp_path):
     p.write_bytes(b"data")
     with pytest.raises(ConversionError):
         file_to_markdown(p)
+
+
+def test_fake_docx_raises_conversion_error():
+    with pytest.raises(ConversionError, match="not a zip file"):
+        bytes_to_markdown(b"not a real docx", ".docx")
+
+
+def test_is_unconvertible_error():
+    assert is_unconvertible_error("File is not a zip file")
+    assert is_unconvertible_error("no extractable text from .pdf file")
+    assert not is_unconvertible_error("init failed: 503")
+    assert not is_unconvertible_error("part 2 failed: 500")
+    assert not is_unconvertible_error(None)
 
 
 def test_scan_pdf_in_executor(tmp_watch_root):

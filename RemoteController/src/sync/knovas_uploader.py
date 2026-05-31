@@ -92,7 +92,7 @@ class SemantixUploader:
                 parts_iter = iter_text_chunks(markdown, part_max)
                 part_count = sum(1 for _ in parts_iter)
                 parts_iter = iter_text_chunks(markdown, part_max)
-        except (OSError, UnicodeDecodeError, ConversionError) as exc:
+        except Exception as exc:
             return UploadResult(
                 relative_path=relative_path,
                 transmission_key_id=None,
