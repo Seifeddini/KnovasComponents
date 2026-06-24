@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
-from onedrive_mirror.graph import GraphClient, GraphRequestError
+from onedrive_mirror.graph import DeltaTokenInvalid, GraphClient, GraphRequestError
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,11 @@ class MirrorStats:
     skipped_extension: int = 0
     deleted_locally: int = 0
     enrichment_entries: int = 0
+    mode: str = "walk"  # "delta", "walk", or "delta-then-walk"
     errors: list[str] = field(default_factory=list)
+
+
+DELTA_TOKEN_FILENAME = ".onedrive_delta.json"
 
 
 def _parse_iso(value: str) -> Optional[datetime]:
@@ -83,6 +87,7 @@ class OneDriveMirror:
         max_file_size_bytes: Optional[int] = None,
         identifier_prefix: str = "",
         enrichment_path: Optional[Path] = None,
+        use_delta: bool = True,
     ) -> None:
         if not drive_id:
             raise ValueError("drive_id is required")
@@ -94,6 +99,11 @@ class OneDriveMirror:
         self._allowed_extensions = self._normalise_extensions(allowed_extensions)
         self._identifier_prefix = (identifier_prefix or "").strip().strip("/")
         self._enrichment_path = Path(enrichment_path).resolve() if enrichment_path else None
+        self._use_delta = bool(use_delta)
+        # Path enrichment rows are aggregated across passes when running in
+        # delta mode, since each delta only describes the diff. The full
+        # writer reconstructs the snapshot from this dict on every pass.
+        self._enrichment_state: dict[str, dict] = {}
 
     @staticmethod
     def _normalise_extensions(raw: Optional[Iterable[str]]) -> frozenset[str]:
@@ -122,7 +132,31 @@ class OneDriveMirror:
             logger.error("OneDrive mirror: %s", stats.errors[-1])
             return stats
 
-        # Collect remote tree first so we can prune local-only files at the end.
+        if self._use_delta:
+            try:
+                self._run_delta(stats)
+                # Always rewrite the snapshot when enrichment is enabled — even
+                # when the state ends up empty after deletions, the file must
+                # be overwritten so docbridge-web does not keep serving stale
+                # open-links.
+                if self._enrichment_path is not None:
+                    self._write_enrichment(list(self._enrichment_state.values()), stats)
+                return stats
+            except DeltaTokenInvalid as exc:
+                logger.warning(
+                    "OneDrive mirror: delta token rejected, falling back to full walk (%s)",
+                    exc,
+                )
+                self._discard_delta_token()
+                stats.mode = "delta-then-walk"
+            except GraphRequestError as exc:
+                logger.warning(
+                    "OneDrive mirror: delta path failed, falling back to full walk (%s)",
+                    exc,
+                )
+                stats.mode = "delta-then-walk"
+
+        # Full-walk fallback (also used when ONEDRIVE_MIRROR_USE_DELTA=false).
         remote_rel_paths: set[str] = set()
         enrichment_rows: list[dict] = []
         try:
@@ -139,10 +173,209 @@ class OneDriveMirror:
 
         self._prune_local_only(remote_rel_paths, stats)
 
+        # Rebuild full enrichment snapshot from this pass.
         if self._enrichment_path is not None and enrichment_rows:
+            self._enrichment_state = {row["doc_id"]: row for row in enrichment_rows}
             self._write_enrichment(enrichment_rows, stats)
 
         return stats
+
+    # ------------------------------------------------------------------ delta
+    def _delta_token_path(self) -> Path:
+        return self._local_root / DELTA_TOKEN_FILENAME
+
+    def _load_delta_token(self) -> Optional[str]:
+        path = self._delta_token_path()
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("OneDrive mirror: cannot read delta token (%s) — restarting", exc)
+            return None
+        link = data.get("delta_link")
+        if isinstance(link, str) and link:
+            # Also rehydrate the enrichment snapshot so files unchanged since
+            # last pass retain their open-link mapping.
+            snap = data.get("enrichment") or {}
+            if isinstance(snap, dict):
+                self._enrichment_state = {str(k): v for k, v in snap.items() if isinstance(v, dict)}
+            return link
+        return None
+
+    def _save_delta_token(self, link: str) -> None:
+        path = self._delta_token_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "delta_link": link,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "enrichment": self._enrichment_state,
+        }
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False)
+            os.replace(tmp, path)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+        except OSError:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    def _discard_delta_token(self) -> None:
+        try:
+            self._delta_token_path().unlink()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            logger.warning("OneDrive mirror: could not delete stale delta token (%s)", exc)
+
+    def _rel_path_for_delta_item(self, item: dict) -> Optional[str]:
+        """Reconstruct the path within the mirrored subtree, or None if outside."""
+        name = (item.get("name") or "").strip()
+        if not name or "/" in name or "\\" in name:
+            return None
+        parent = item.get("parentReference") or {}
+        parent_path = parent.get("path") or ""
+        # Strip the "/drive/root:" prefix.
+        if ":" in parent_path:
+            after = parent_path.split(":", 1)[1].strip("/")
+        else:
+            after = ""
+        if self._root_path:
+            if after == self._root_path:
+                return name
+            prefix = self._root_path + "/"
+            if after.startswith(prefix):
+                sub = after[len(prefix):]
+                return f"{sub}/{name}" if sub else name
+            # Item lives outside the mirrored subtree (or IS the subtree root itself).
+            if name == self._root_path and after == "":
+                # The root folder of our subtree — not a file we mirror, but valid.
+                return ""
+            return None
+        return f"{after}/{name}" if after else name
+
+    def _run_delta(self, stats: MirrorStats) -> None:
+        """Process Graph delta pages. Raises DeltaTokenInvalid/GraphRequestError on failure."""
+        saved_link = self._load_delta_token()
+        is_initial = saved_link is None
+        stats.mode = "delta-initial" if is_initial else "delta"
+
+        new_delta_link: Optional[str] = None
+        for items, delta_link in self._client.delta_pages(self._drive_id, saved_link):
+            for item in items:
+                self._process_delta_item(item, stats)
+            if delta_link:
+                new_delta_link = delta_link
+
+        if new_delta_link:
+            try:
+                self._save_delta_token(new_delta_link)
+            except OSError as exc:
+                # Persist failure is non-fatal — next pass just redoes a full delta.
+                stats.errors.append(f"save delta token: {exc}")
+                logger.error("OneDrive mirror: %s", stats.errors[-1])
+
+    def _process_delta_item(self, item: dict, stats: MirrorStats) -> None:
+        stats.items_seen += 1
+        rel = self._rel_path_for_delta_item(item)
+        if rel is None:
+            return  # outside mirrored subtree
+
+        is_deleted = "deleted" in item
+        is_folder = "folder" in item
+        is_file = "file" in item
+
+        if is_deleted:
+            self._apply_delta_delete(rel, stats)
+            return
+
+        if is_folder:
+            stats.folders_seen += 1
+            if rel == "":
+                # The mirrored subtree's own root — nothing to do.
+                return
+            dest = self._local_root / rel
+            if not _within(self._local_root, dest):
+                logger.warning("OneDrive mirror: refusing path escape via %r", rel)
+                return
+            dest.mkdir(parents=True, exist_ok=True)
+            return
+
+        if not is_file:
+            return  # shortcut / package / unknown
+
+        if rel == "":
+            return  # not a file we expected — be defensive
+
+        name = item.get("name") or ""
+        ext = Path(name).suffix.lower()
+        if ext not in self._allowed_extensions:
+            stats.skipped_extension += 1
+            return
+        size = int(item.get("size") or 0)
+        if self._max_size is not None and size > self._max_size:
+            stats.skipped_oversize += 1
+            return
+
+        dest = self._local_root / rel
+        if not _within(self._local_root, dest):
+            logger.warning("OneDrive mirror: refusing path escape via %r", rel)
+            return
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        # Maintain enrichment snapshot for this file (added / modified).
+        web_url = (item.get("webUrl") or "").strip()
+        if self._enrichment_path is not None and web_url:
+            doc_id = self._doc_id_for(rel)
+            self._enrichment_state[doc_id] = {
+                "doc_id": doc_id,
+                "web_url": web_url,
+                "title": name,
+                "modified_at": (item.get("lastModifiedDateTime") or "").strip() or None,
+            }
+
+        remote_mtime = _parse_iso(item.get("lastModifiedDateTime") or "")
+        if self._is_local_current(dest, remote_mtime, size):
+            stats.skipped_unchanged += 1
+            return
+
+        try:
+            bytes_written = self._client.download_to(self._drive_id, item["id"], dest)
+            if remote_mtime is not None:
+                ts = remote_mtime.timestamp()
+                os.utime(dest, (ts, ts))
+            stats.downloaded += 1
+            logger.info("OneDrive mirror: wrote %s (%d bytes)", rel, bytes_written)
+        except (GraphRequestError, OSError) as exc:
+            stats.errors.append(f"download {rel}: {exc}")
+            logger.error("OneDrive mirror: %s", stats.errors[-1])
+
+    def _apply_delta_delete(self, rel: str, stats: MirrorStats) -> None:
+        if not rel:
+            return
+        dest = self._local_root / rel
+        if not _within(self._local_root, dest):
+            return
+        try:
+            if dest.is_file() or dest.is_symlink():
+                dest.unlink()
+                stats.deleted_locally += 1
+            elif dest.is_dir():
+                shutil.rmtree(dest, ignore_errors=True)
+        except OSError as exc:
+            stats.errors.append(f"delete {rel}: {exc}")
+            logger.error("OneDrive mirror: %s", stats.errors[-1])
+
+        # Drop any enrichment entry that points at this path.
+        doc_id = self._doc_id_for(rel)
+        self._enrichment_state.pop(doc_id, None)
 
     # -------------------------------------------------------------- enrichment
     def _doc_id_for(self, rel_path: str) -> str:

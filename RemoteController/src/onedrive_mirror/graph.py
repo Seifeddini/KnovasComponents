@@ -32,6 +32,14 @@ class GraphRequestError(RuntimeError):
     """Raised when a Graph API call ultimately fails after retries."""
 
 
+class DeltaTokenInvalid(RuntimeError):
+    """Raised when a saved delta link is no longer accepted by Graph (HTTP 410).
+
+    Callers should discard the saved token and restart with a fresh
+    ``/root/delta`` enumeration.
+    """
+
+
 class GraphClient:
     """Application-only Graph client (client_credentials grant)."""
 
@@ -218,3 +226,41 @@ class GraphClient:
                 fh.write(chunk)
                 written += len(chunk)
         return written
+
+    def delta_pages(
+        self, drive_id: str, delta_url: Optional[str] = None
+    ) -> Iterator[tuple[list[dict], Optional[str]]]:
+        """Iterate Graph ``/root/delta`` pages.
+
+        Each yielded tuple is ``(items_in_page, delta_link_if_final)``. The
+        second element is ``None`` for every page except the last; on the
+        final page it carries the new ``@odata.deltaLink`` token to persist
+        for the next sync.
+
+        Raises:
+            DeltaTokenInvalid: when Graph returns HTTP 410 for the supplied
+                ``delta_url``. The caller should drop the saved token and
+                call again with ``delta_url=None`` to restart enumeration.
+            GraphRequestError: for any other non-200 Graph response.
+        """
+        url: Optional[str] = (
+            delta_url
+            if delta_url
+            else f"{GRAPH_BASE_URL}/drives/{drive_id}/root/delta"
+        )
+        while url:
+            resp = self._request("GET", url)
+            if resp.status_code == 410:
+                raise DeltaTokenInvalid(
+                    f"delta token rejected by Graph: {resp.text[:300]}"
+                )
+            if resp.status_code != 200:
+                raise GraphRequestError(
+                    f"Graph delta failed: {resp.status_code} {resp.text[:300]}"
+                )
+            data = resp.json()
+            items = data.get("value", []) or []
+            next_url = data.get("@odata.nextLink")
+            delta_link = data.get("@odata.deltaLink") if not next_url else None
+            yield items, delta_link
+            url = next_url

@@ -2,7 +2,8 @@
 
 Network-free: GraphClient calls are stubbed via a fake passed into
 OneDriveMirror. Covers: download-on-new, skip-on-unchanged, prune-deleted,
-extension filter, oversize filter, mtime preservation, and path-escape guard.
+extension filter, oversize filter, mtime preservation, path-escape guard,
+enrichment JSONL writer, and the delta fast path with fallback.
 """
 from __future__ import annotations
 
@@ -13,16 +14,33 @@ from typing import Iterator
 
 import pytest
 
+from onedrive_mirror.graph import DeltaTokenInvalid, GraphRequestError
 from onedrive_mirror.mirror import OneDriveMirror
 
 
 class FakeGraph:
-    """Minimal in-memory Graph stand-in for OneDriveMirror."""
+    """Minimal in-memory Graph stand-in for OneDriveMirror.
 
-    def __init__(self, root_children, children_by_id, file_bytes):
+    Default behaviour matches the original (no delta) — delta_pages() raises
+    GraphRequestError so the mirror falls back to the full walk. Tests that
+    exercise the delta path pass an explicit ``delta_responses`` parameter.
+    """
+
+    def __init__(
+        self,
+        root_children,
+        children_by_id,
+        file_bytes,
+        *,
+        delta_responses=None,
+        delta_invalid_on=None,
+    ):
         self._root_children = root_children
         self._children_by_id = children_by_id
         self._file_bytes = file_bytes
+        self._delta_responses = delta_responses
+        self._delta_invalid_on = delta_invalid_on  # raise on N-th call (1-indexed) if matched URL
+        self._delta_calls_made = []  # records (url,) for each delta_pages call
         self.download_calls = 0
 
     def test_drive(self, drive_id):
@@ -40,6 +58,17 @@ class FakeGraph:
         with open(dest_path, "wb") as fh:
             fh.write(data)
         return len(data)
+
+    def delta_pages(self, drive_id, delta_url=None):
+        self._delta_calls_made.append(delta_url)
+        if self._delta_invalid_on and delta_url in self._delta_invalid_on:
+            raise DeltaTokenInvalid(f"simulated 410 for {delta_url}")
+        if self._delta_responses is None:
+            raise GraphRequestError("delta not configured")
+        key = delta_url or "__initial__"
+        pages = self._delta_responses.get(key, [])
+        for items, delta_link in pages:
+            yield items, delta_link
 
 
 def _file(name, item_id, size, last_modified_iso, mime="text/plain", web_url=None):
@@ -270,6 +299,222 @@ def test_enrichment_skipped_when_no_path_configured(tmp_path: Path):
     stats = mirror.run_once()
     assert stats.enrichment_entries == 0
     assert not any(p.suffix == ".jsonl" for p in (tmp_path / "mirror").iterdir())
+
+
+def _delta_file(name, item_id, rel_dir, size, iso, web_url="https://example.com/f"):
+    parent_path = f"/drive/root:/{rel_dir}".rstrip("/")
+    return {
+        "name": name,
+        "id": item_id,
+        "size": size,
+        "lastModifiedDateTime": iso,
+        "file": {"mimeType": "application/pdf"},
+        "webUrl": web_url,
+        "parentReference": {"path": parent_path},
+    }
+
+
+def _delta_folder(name, item_id, rel_dir):
+    parent_path = f"/drive/root:/{rel_dir}".rstrip("/")
+    return {
+        "name": name,
+        "id": item_id,
+        "folder": {"childCount": 0},
+        "parentReference": {"path": parent_path},
+    }
+
+
+def _delta_deletion(name, item_id, rel_dir):
+    parent_path = f"/drive/root:/{rel_dir}".rstrip("/")
+    return {
+        "name": name,
+        "id": item_id,
+        "deleted": {"state": "deleted"},
+        "parentReference": {"path": parent_path},
+    }
+
+
+def test_delta_initial_pass_downloads_and_saves_token(tmp_path: Path):
+    import json as _json
+    iso = "2026-06-24T10:00:00Z"
+    delta_responses = {
+        "__initial__": [
+            (
+                [
+                    _delta_folder("Adiuvat", "rootfolder", ""),
+                    _delta_file("a.pdf", "id-a", "Adiuvat", 4, iso, web_url="https://o/a"),
+                ],
+                "https://graph/delta?token=v1",
+            ),
+        ]
+    }
+    fake = FakeGraph(
+        root_children=[],
+        children_by_id={},
+        file_bytes={"id-a": b"alpha"},
+        delta_responses=delta_responses,
+    )
+    enrichment = tmp_path / ".search_enrichment.jsonl"
+    mirror = OneDriveMirror(
+        client=fake,
+        drive_id="drive",
+        root_path="/Adiuvat",
+        local_root=tmp_path / "mirror",
+        identifier_prefix="adiuvat",
+        enrichment_path=enrichment,
+        use_delta=True,
+    )
+    stats = mirror.run_once()
+
+    assert stats.mode == "delta-initial"
+    assert stats.downloaded == 1
+    assert (tmp_path / "mirror" / "a.pdf").read_bytes() == b"alpha"
+    token_path = tmp_path / "mirror" / ".onedrive_delta.json"
+    assert token_path.exists()
+    saved = _json.loads(token_path.read_text())
+    assert saved["delta_link"] == "https://graph/delta?token=v1"
+    rows = [_json.loads(l) for l in enrichment.read_text().splitlines() if l.strip()]
+    assert rows[0]["doc_id"] == "adiuvat/a.pdf"
+
+
+def test_delta_incremental_uses_saved_token(tmp_path: Path):
+    import json as _json
+    iso_a = "2026-06-24T10:00:00Z"
+    iso_b = "2026-06-25T10:00:00Z"
+    delta_responses = {
+        "__initial__": [
+            (
+                [_delta_file("a.pdf", "id-a", "Adiuvat", 4, iso_a, web_url="https://o/a")],
+                "https://graph/delta?token=v1",
+            )
+        ],
+        "https://graph/delta?token=v1": [
+            (
+                [_delta_file("b.pdf", "id-b", "Adiuvat", 4, iso_b, web_url="https://o/b")],
+                "https://graph/delta?token=v2",
+            )
+        ],
+    }
+    fake = FakeGraph(
+        root_children=[],
+        children_by_id={},
+        file_bytes={"id-a": b"alpha", "id-b": b"bravo"},
+        delta_responses=delta_responses,
+    )
+    enrichment = tmp_path / ".search_enrichment.jsonl"
+    mirror = OneDriveMirror(
+        client=fake,
+        drive_id="drive",
+        root_path="/Adiuvat",
+        local_root=tmp_path / "mirror",
+        identifier_prefix="adiuvat",
+        enrichment_path=enrichment,
+        use_delta=True,
+    )
+    # First pass — uses __initial__
+    mirror.run_once()
+    assert fake._delta_calls_made[-1] is None
+
+    # Second pass — must use the saved token, NOT walk again
+    stats = mirror.run_once()
+    assert fake._delta_calls_made[-1] == "https://graph/delta?token=v1"
+    assert stats.mode == "delta"
+    assert stats.downloaded == 1
+    # Saved token rotated to v2
+    saved = _json.loads((tmp_path / "mirror" / ".onedrive_delta.json").read_text())
+    assert saved["delta_link"] == "https://graph/delta?token=v2"
+    # Enrichment carries BOTH files (state persisted across passes)
+    rows = [_json.loads(l) for l in enrichment.read_text().splitlines() if l.strip()]
+    by_id = {r["doc_id"]: r for r in rows}
+    assert "adiuvat/a.pdf" in by_id
+    assert "adiuvat/b.pdf" in by_id
+
+
+def test_delta_deletion_removes_local_file_and_enrichment(tmp_path: Path):
+    import json as _json
+    iso = "2026-06-24T10:00:00Z"
+    delta_responses = {
+        "__initial__": [
+            (
+                [_delta_file("a.pdf", "id-a", "Adiuvat", 4, iso)],
+                "https://graph/delta?token=v1",
+            )
+        ],
+        "https://graph/delta?token=v1": [
+            (
+                [_delta_deletion("a.pdf", "id-a", "Adiuvat")],
+                "https://graph/delta?token=v2",
+            )
+        ],
+    }
+    fake = FakeGraph(
+        root_children=[],
+        children_by_id={},
+        file_bytes={"id-a": b"alpha"},
+        delta_responses=delta_responses,
+    )
+    enrichment = tmp_path / ".search_enrichment.jsonl"
+    mirror = OneDriveMirror(
+        client=fake,
+        drive_id="drive",
+        root_path="/Adiuvat",
+        local_root=tmp_path / "mirror",
+        identifier_prefix="adiuvat",
+        enrichment_path=enrichment,
+        use_delta=True,
+    )
+    mirror.run_once()
+    assert (tmp_path / "mirror" / "a.pdf").exists()
+
+    stats = mirror.run_once()
+    assert stats.deleted_locally == 1
+    assert not (tmp_path / "mirror" / "a.pdf").exists()
+    rows = [_json.loads(l) for l in enrichment.read_text().splitlines() if l.strip()]
+    assert all("adiuvat/a.pdf" != r["doc_id"] for r in rows)
+
+
+def test_delta_token_invalid_triggers_full_walk_fallback(tmp_path: Path):
+    iso = "2026-06-24T10:00:00Z"
+    fake = FakeGraph(
+        # Full-walk path: list_root_children returns a single file
+        root_children=[_file("fallback.pdf", "fb1", 5, iso, web_url="https://o/fb")],
+        children_by_id={},
+        file_bytes={"fb1": b"fallb"},
+        delta_invalid_on={None},  # initial delta call raises DeltaTokenInvalid
+    )
+    mirror = OneDriveMirror(
+        client=fake,
+        drive_id="drive",
+        root_path="",
+        local_root=tmp_path / "mirror",
+        identifier_prefix="adiuvat",
+        use_delta=True,
+    )
+    stats = mirror.run_once()
+    assert stats.mode == "delta-then-walk"
+    assert stats.downloaded == 1
+    assert (tmp_path / "mirror" / "fallback.pdf").exists()
+
+
+def test_delta_disabled_uses_full_walk(tmp_path: Path):
+    iso = "2026-06-24T10:00:00Z"
+    fake = FakeGraph(
+        root_children=[_file("x.pdf", "x1", 5, iso, web_url="https://o/x")],
+        children_by_id={},
+        file_bytes={"x1": b"xdata"},
+    )
+    mirror = OneDriveMirror(
+        client=fake,
+        drive_id="drive",
+        root_path="",
+        local_root=tmp_path / "mirror",
+        use_delta=False,
+    )
+    stats = mirror.run_once()
+    assert stats.mode == "walk"
+    assert stats.downloaded == 1
+    # delta_pages must NOT have been called when delta is disabled
+    assert fake._delta_calls_made == []
 
 
 def test_rejects_path_escape_names(tmp_path: Path):

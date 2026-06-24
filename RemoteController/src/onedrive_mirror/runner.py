@@ -78,6 +78,7 @@ def start_mirror_thread_if_configured() -> Optional[threading.Thread]:
     identifier_prefix = (os.environ.get("ONEDRIVE_IDENTIFIER_PREFIX") or "").strip()
     enrichment_path_raw = (os.environ.get("ONEDRIVE_SEARCH_ENRICHMENT_PATH") or "").strip()
     enrichment_path = Path(enrichment_path_raw).resolve() if enrichment_path_raw else None
+    use_delta = _safe_bool(os.environ.get("ONEDRIVE_MIRROR_USE_DELTA"), default=True)
 
     client = GraphClient(
         tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
@@ -91,6 +92,7 @@ def start_mirror_thread_if_configured() -> Optional[threading.Thread]:
         max_file_size_bytes=max_bytes,
         identifier_prefix=identifier_prefix,
         enrichment_path=enrichment_path,
+        use_delta=use_delta,
     )
 
     _stop_event.clear()
@@ -128,9 +130,10 @@ def _loop(mirror: OneDriveMirror, interval_seconds: int) -> None:
         try:
             stats = mirror.run_once()
             logger.info(
-                "OneDrive mirror pass: items=%d folders=%d downloaded=%d "
+                "OneDrive mirror pass: mode=%s items=%d folders=%d downloaded=%d "
                 "unchanged=%d skipped_size=%d skipped_ext=%d deleted=%d "
                 "enrichment=%d errors=%d duration=%.1fs",
+                stats.mode,
                 stats.items_seen,
                 stats.folders_seen,
                 stats.downloaded,
@@ -162,6 +165,12 @@ def _safe_int(value: Optional[str], default: int) -> int:
         return int(str(value).strip())
     except ValueError:
         return default
+
+
+def _safe_bool(value: Optional[str], *, default: bool) -> bool:
+    if value is None or not str(value).strip():
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _is_within(parent: Path, child: Path) -> bool:
