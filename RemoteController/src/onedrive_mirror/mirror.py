@@ -8,9 +8,11 @@ RC's filesystem fingerprinting sees stable times across mirror runs.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +37,7 @@ class MirrorStats:
     skipped_oversize: int = 0
     skipped_extension: int = 0
     deleted_locally: int = 0
+    enrichment_entries: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -78,6 +81,8 @@ class OneDriveMirror:
         local_root: Path,
         allowed_extensions: Optional[Iterable[str]] = None,
         max_file_size_bytes: Optional[int] = None,
+        identifier_prefix: str = "",
+        enrichment_path: Optional[Path] = None,
     ) -> None:
         if not drive_id:
             raise ValueError("drive_id is required")
@@ -87,6 +92,8 @@ class OneDriveMirror:
         self._local_root = Path(local_root).resolve()
         self._max_size = max_file_size_bytes if max_file_size_bytes and max_file_size_bytes > 0 else None
         self._allowed_extensions = self._normalise_extensions(allowed_extensions)
+        self._identifier_prefix = (identifier_prefix or "").strip().strip("/")
+        self._enrichment_path = Path(enrichment_path).resolve() if enrichment_path else None
 
     @staticmethod
     def _normalise_extensions(raw: Optional[Iterable[str]]) -> frozenset[str]:
@@ -117,19 +124,62 @@ class OneDriveMirror:
 
         # Collect remote tree first so we can prune local-only files at the end.
         remote_rel_paths: set[str] = set()
+        enrichment_rows: list[dict] = []
         try:
             self._walk_root(
                 rel_dir=Path("."),
                 children_iter=self._client.list_root_children(self._drive_id, self._root_path),
                 stats=stats,
                 remote_rel_paths=remote_rel_paths,
+                enrichment_rows=enrichment_rows,
             )
         except GraphRequestError as exc:
             stats.errors.append(f"listing failed: {exc}")
             logger.error("OneDrive mirror: %s", stats.errors[-1])
 
         self._prune_local_only(remote_rel_paths, stats)
+
+        if self._enrichment_path is not None and enrichment_rows:
+            self._write_enrichment(enrichment_rows, stats)
+
         return stats
+
+    # -------------------------------------------------------------- enrichment
+    def _doc_id_for(self, rel_path: str) -> str:
+        rel = rel_path.replace("\\", "/").strip("/")
+        if self._identifier_prefix:
+            return f"{self._identifier_prefix}/{rel}"
+        return rel
+
+    def _write_enrichment(self, rows: list[dict], stats: MirrorStats) -> None:
+        """Atomically write JSONL — KnovasPlatform's docbridge-web reads this."""
+        path = self._enrichment_path
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            os.replace(tmp, path)
+            try:
+                os.chmod(path, 0o644)
+            except OSError:
+                pass
+            stats.enrichment_entries = len(rows)
+            logger.info(
+                "OneDrive mirror: wrote %d enrichment entries to %s",
+                len(rows),
+                path,
+            )
+        except OSError as exc:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            stats.errors.append(f"enrichment write: {exc}")
+            logger.error("OneDrive mirror: %s", stats.errors[-1])
 
     # ---------------------------------------------------------------- walk
     def _walk_root(
@@ -139,6 +189,7 @@ class OneDriveMirror:
         children_iter,
         stats: MirrorStats,
         remote_rel_paths: set[str],
+        enrichment_rows: list[dict],
     ) -> None:
         for item in children_iter:
             stats.items_seen += 1
@@ -166,6 +217,7 @@ class OneDriveMirror:
                     children_iter=next_iter,
                     stats=stats,
                     remote_rel_paths=remote_rel_paths,
+                    enrichment_rows=enrichment_rows,
                 )
                 continue
 
@@ -188,6 +240,20 @@ class OneDriveMirror:
                 continue
             remote_rel_paths.add(str(rel))
             dest.parent.mkdir(parents=True, exist_ok=True)
+
+            # Capture enrichment metadata regardless of whether we (re)downloaded
+            web_url = (item.get("webUrl") or "").strip()
+            if self._enrichment_path is not None and web_url:
+                last_modified = (item.get("lastModifiedDateTime") or "").strip()
+                rel_posix = str(rel).replace("\\", "/")
+                enrichment_rows.append(
+                    {
+                        "doc_id": self._doc_id_for(rel_posix),
+                        "web_url": web_url,
+                        "title": name,
+                        "modified_at": last_modified or None,
+                    }
+                )
 
             remote_mtime = _parse_iso(item.get("lastModifiedDateTime") or "")
             if self._is_local_current(dest, remote_mtime, size):

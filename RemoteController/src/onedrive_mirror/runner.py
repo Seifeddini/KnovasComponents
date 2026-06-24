@@ -75,6 +75,9 @@ def start_mirror_thread_if_configured() -> Optional[threading.Thread]:
     max_bytes = max_mb * 1024 * 1024 if max_mb > 0 else None
     allowed_ext = _split_csv(os.environ.get("ONEDRIVE_ALLOWED_EXTENSIONS", "")) or None
     root_path = os.environ.get("ONEDRIVE_ROOT_PATH", "")
+    identifier_prefix = (os.environ.get("ONEDRIVE_IDENTIFIER_PREFIX") or "").strip()
+    enrichment_path_raw = (os.environ.get("ONEDRIVE_SEARCH_ENRICHMENT_PATH") or "").strip()
+    enrichment_path = Path(enrichment_path_raw).resolve() if enrichment_path_raw else None
 
     client = GraphClient(
         tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
@@ -86,6 +89,8 @@ def start_mirror_thread_if_configured() -> Optional[threading.Thread]:
         local_root=mirror_path,
         allowed_extensions=allowed_ext,
         max_file_size_bytes=max_bytes,
+        identifier_prefix=identifier_prefix,
+        enrichment_path=enrichment_path,
     )
 
     _stop_event.clear()
@@ -125,7 +130,7 @@ def _loop(mirror: OneDriveMirror, interval_seconds: int) -> None:
             logger.info(
                 "OneDrive mirror pass: items=%d folders=%d downloaded=%d "
                 "unchanged=%d skipped_size=%d skipped_ext=%d deleted=%d "
-                "errors=%d duration=%.1fs",
+                "enrichment=%d errors=%d duration=%.1fs",
                 stats.items_seen,
                 stats.folders_seen,
                 stats.downloaded,
@@ -133,6 +138,7 @@ def _loop(mirror: OneDriveMirror, interval_seconds: int) -> None:
                 stats.skipped_oversize,
                 stats.skipped_extension,
                 stats.deleted_locally,
+                stats.enrichment_entries,
                 len(stats.errors),
                 time.monotonic() - started,
             )

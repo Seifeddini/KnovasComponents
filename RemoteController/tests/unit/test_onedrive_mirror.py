@@ -42,14 +42,17 @@ class FakeGraph:
         return len(data)
 
 
-def _file(name, item_id, size, last_modified_iso, mime="text/plain"):
-    return {
+def _file(name, item_id, size, last_modified_iso, mime="text/plain", web_url=None):
+    item = {
         "name": name,
         "id": item_id,
         "size": size,
         "lastModifiedDateTime": last_modified_iso,
         "file": {"mimeType": mime},
     }
+    if web_url is not None:
+        item["webUrl"] = web_url
+    return item
 
 
 def _folder(name, item_id):
@@ -217,6 +220,56 @@ def test_recurses_into_folders(tmp_path: Path):
     assert stats.folders_seen == 1
     assert (tmp_path / "mirror" / "top.txt").read_bytes() == b"top"
     assert (tmp_path / "mirror" / "sub" / "inner.txt").read_bytes() == b"inner"
+
+
+def test_enrichment_file_written_with_identifier_prefix(tmp_path: Path):
+    import json as _json
+    iso = "2026-06-24T10:00:00Z"
+    fake = FakeGraph(
+        root_children=[
+            _folder("sub", "f1"),
+            _file("top.pdf", "t1", 4, iso, web_url="https://example/onedrive/top"),
+        ],
+        children_by_id={
+            "f1": [_file("inner.pdf", "i1", 5, iso, web_url="https://example/onedrive/inner")],
+        },
+        file_bytes={"t1": b"topd", "i1": b"inner"},
+    )
+    enrichment = tmp_path / ".search_enrichment.jsonl"
+    mirror = OneDriveMirror(
+        client=fake,
+        drive_id="drive",
+        root_path="",
+        local_root=tmp_path / "mirror",
+        allowed_extensions=["pdf"],
+        identifier_prefix="adiuvat",
+        enrichment_path=enrichment,
+    )
+    stats = mirror.run_once()
+    assert stats.enrichment_entries == 2
+    rows = [_json.loads(line) for line in enrichment.read_text().splitlines() if line.strip()]
+    by_id = {r["doc_id"]: r for r in rows}
+    assert by_id["adiuvat/top.pdf"]["web_url"] == "https://example/onedrive/top"
+    assert by_id["adiuvat/sub/inner.pdf"]["web_url"] == "https://example/onedrive/inner"
+    assert by_id["adiuvat/top.pdf"]["title"] == "top.pdf"
+
+
+def test_enrichment_skipped_when_no_path_configured(tmp_path: Path):
+    iso = "2026-06-24T10:00:00Z"
+    fake = FakeGraph(
+        root_children=[_file("doc.txt", "d1", 4, iso, web_url="https://x/y")],
+        children_by_id={},
+        file_bytes={"d1": b"data"},
+    )
+    mirror = OneDriveMirror(
+        client=fake,
+        drive_id="drive",
+        root_path="",
+        local_root=tmp_path / "mirror",
+    )
+    stats = mirror.run_once()
+    assert stats.enrichment_entries == 0
+    assert not any(p.suffix == ".jsonl" for p in (tmp_path / "mirror").iterdir())
 
 
 def test_rejects_path_escape_names(tmp_path: Path):
