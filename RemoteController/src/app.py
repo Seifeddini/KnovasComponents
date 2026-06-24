@@ -7,6 +7,7 @@ import os
 from flask import Flask
 
 from config import load_config
+from onedrive_mirror import start_mirror_thread_if_configured
 from routes.discover import discover_bp
 from routes.health import health_bp
 from routes.metrics import metrics_bp
@@ -46,6 +47,11 @@ def create_app(*, skip_validation: bool = False) -> Flask:
             maybe_auto_start()
         except Exception as exc:
             logger.warning("Auto-start continuous sync skipped: %s", exc)
+
+        try:
+            start_mirror_thread_if_configured()
+        except Exception as exc:
+            logger.warning("OneDrive mirror not started: %s", exc)
 
     return app
 
