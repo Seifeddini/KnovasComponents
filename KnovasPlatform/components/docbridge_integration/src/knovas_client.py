@@ -23,6 +23,7 @@ from tenacity import (
 )
 
 from config_loader import get_config
+from part_metadata import enrich_transmit_parts_with_location
 
 
 logger = logging.getLogger(__name__)
@@ -440,7 +441,7 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
             try:
                 parts = extract_transmission_chunks(str(b64), ext)
                 if parts:
-                    return parts, init_fields
+                    return enrich_transmit_parts_with_location(parts), init_fields
             except Exception as exc:
                 logger.warning("Secured single-doc extract failed for %s: %s", identifier, exc)
 
@@ -451,7 +452,31 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
     if document.get("doc_type"):
         lines.append(f"Typ: {document.get('doc_type')}")
     snippet = "\n".join(lines)
-    return [{"snippet": snippet}], init_fields
+    parts = enrich_transmit_parts_with_location([{"snippet": snippet}], full_text=snippet)
+    return parts, init_fields
+
+
+def _secured_transmit_part_payload(
+    transmission_key_id: str,
+    part_number: int,
+    part: Dict[str, Any],
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "key": transmission_key_id,
+        "snippet": part["snippet"],
+        "part_number": part_number,
+    }
+    for field in ("page_number", "sentence_number"):
+        val = part.get(field)
+        if val is None:
+            continue
+        try:
+            num = int(val)
+            if num >= 1:
+                payload[field] = num
+        except (TypeError, ValueError):
+            pass
+    return payload
 
 
 def _coerce_location_int(val: Any) -> Optional[int]:
@@ -1287,19 +1312,14 @@ class KnovasAPIClient:
 
         part_endpoint = self.endpoints.get('transmit_part', '/secured/transmit_document_part')
         for idx, part in enumerate(parts):
-            payload: Dict[str, Any] = {
-                'key': transmission_key_id,
-                'snippet': part['snippet'],
-                'part_number': idx,
-            }
-            pn = part.get('page_number')
-            if pn is not None:
-                try:
-                    pni = int(pn)
-                    if pni >= 1:
-                        payload['page_number'] = pni
-                except (TypeError, ValueError):
-                    pass
+            payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
+            if idx == 0 and ('page_number' in payload or 'sentence_number' in payload):
+                logger.info(
+                    "Secured transmit part 0 location page=%s sentence=%s doc=%s",
+                    payload.get('page_number'),
+                    payload.get('sentence_number'),
+                    identifier,
+                )
             self._make_request(method='POST', endpoint=part_endpoint, data=payload)
 
         logger.info(f"Secured single document sync successful: {identifier}")

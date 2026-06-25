@@ -6,12 +6,12 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional, Tuple
 
 import requests
 
 from config import get_config
-from sync.chunking import count_file_text_parts, iter_file_text_chunks, iter_text_chunks
+from sync.chunking import iter_text_chunks_with_location
 from sync.document_text import PLAIN_TEXT_EXTENSIONS, ConversionError, file_to_markdown
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,26 @@ class UploadResult:
     status: str
     ingestion_requests: int
     error: Optional[str] = None
+
+
+def _transmit_part_body(
+    key: str,
+    part_number: int,
+    snippet: str,
+    *,
+    page_number: Optional[int] = None,
+    sentence_number: Optional[int] = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "key": key,
+        "part_number": part_number,
+        "snippet": snippet,
+    }
+    if page_number is not None and page_number >= 1:
+        body["page_number"] = int(page_number)
+    if sentence_number is not None and sentence_number >= 1:
+        body["sentence_number"] = int(sentence_number)
+    return body
 
 
 class SemantixUploader:
@@ -85,13 +105,13 @@ class SemantixUploader:
 
         try:
             if file_path.suffix.lower() in PLAIN_TEXT_EXTENSIONS:
-                part_count = count_file_text_parts(file_path, part_max)
-                parts_iter: Iterator[str] = iter_file_text_chunks(file_path, part_max)
+                text = file_path.read_text(encoding="utf-8")
+                parts_iter = iter_text_chunks_with_location(text, part_max)
+                part_count = sum(1 for _ in iter_text_chunks_with_location(text, part_max))
             else:
                 markdown = file_to_markdown(file_path)
-                parts_iter = iter_text_chunks(markdown, part_max)
-                part_count = sum(1 for _ in parts_iter)
-                parts_iter = iter_text_chunks(markdown, part_max)
+                parts_iter = iter_text_chunks_with_location(markdown, part_max)
+                part_count = sum(1 for _ in iter_text_chunks_with_location(markdown, part_max))
         except Exception as exc:
             return UploadResult(
                 relative_path=relative_path,
@@ -129,15 +149,24 @@ class SemantixUploader:
         key = init_data.get("key") or init_data.get("transmission_key_id") or ""
 
         try:
-            for idx, snippet in enumerate(parts_iter):
+            for idx, (snippet, page_number, sentence_number) in enumerate(parts_iter):
+                if idx == 0 and (page_number is not None or sentence_number is not None):
+                    logger.info(
+                        "Transmit part 0 location page=%s sentence=%s file=%s",
+                        page_number,
+                        sentence_number,
+                        file_path.name,
+                    )
                 part_resp = self._request(
                     "POST",
                     "/secured/transmit_document_part",
-                    json_body={
-                        "key": key,
-                        "part_number": idx,
-                        "snippet": snippet,
-                    },
+                    json_body=_transmit_part_body(
+                        key,
+                        idx,
+                        snippet,
+                        page_number=page_number,
+                        sentence_number=sentence_number,
+                    ),
                 )
                 ingestion_count += 1
                 if part_resp.status_code != 200:

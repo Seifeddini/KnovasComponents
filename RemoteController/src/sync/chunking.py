@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional, Tuple
+
+from sync.part_metadata import location_for_snippet
 
 
 def iter_text_chunks(text: str, part_max_chars: int) -> Iterator[str]:
@@ -22,6 +24,29 @@ def iter_text_chunks(text: str, part_max_chars: int) -> Iterator[str]:
             if end == start:
                 end = min(start + part_max_chars, length)
         yield text[start:end]
+        start = end
+
+
+def iter_text_chunks_with_location(
+    text: str, part_max_chars: int
+) -> Iterator[Tuple[str, Optional[int], Optional[int]]]:
+    """Yield (snippet, page_number, sentence_number) for each transmission part."""
+    if part_max_chars < 1:
+        raise ValueError("part_max_chars must be >= 1")
+    if not text:
+        yield "", None, None
+        return
+    start = 0
+    length = len(text)
+    while start < length:
+        end = min(start + part_max_chars, length)
+        if end < length:
+            while end > start and not _is_char_boundary(text, end):
+                end -= 1
+            if end == start:
+                end = min(start + part_max_chars, length)
+        page_number, sentence_number = location_for_snippet(text, start)
+        yield text[start:end], page_number, sentence_number
         start = end
 
 
