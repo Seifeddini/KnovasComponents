@@ -13,6 +13,8 @@ class DocumentSearchApp {
         
         this.currentQuery = '';
         this.currentResults = [];
+        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+        this.onedriveEnrichmentLoaded = !!cfg.onedriveEnrichmentLoaded;
         /** @type {string|null} Knovas query_session_id from last /secured/query (for relevance feedback). */
         this.querySessionId = null;
         
@@ -319,6 +321,9 @@ class DocumentSearchApp {
             }
             
             if (data.success) {
+                if (data.onedrive_enrichment_loaded != null) {
+                    this.onedriveEnrichmentLoaded = !!data.onedrive_enrichment_loaded;
+                }
                 this.currentResults = data.results || [];
                 const sx = data.semantix;
                 this.querySessionId =
@@ -494,7 +499,10 @@ class DocumentSearchApp {
         const path = doc.path || '';
         const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
-        const hasOneDrive = Boolean(externalUrl) || doc.open_mode === 'external';
+        const hasOneDrive =
+            Boolean(externalUrl) ||
+            doc.open_mode === 'external' ||
+            (this.onedriveEnrichmentLoaded && path);
         const localAvailable =
             path &&
             !hasOneDrive &&

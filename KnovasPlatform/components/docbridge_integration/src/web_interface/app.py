@@ -59,6 +59,8 @@ def _configure_logging_for_wsgi(config) -> None:
 
 _search_enrichment_cache: Dict[str, dict] = {}
 _search_enrichment_unique: List[dict] = []
+_search_enrichment_by_basename: Dict[str, List[dict]] = {}
+_search_enrichment_inferred_prefixes: List[str] = []
 _search_enrichment_mtime: float = 0.0
 
 
@@ -95,6 +97,18 @@ def _autodoc_identifier_prefixes() -> List[str]:
     return [p.strip().strip("/") for p in parts if p.strip().strip("/")]
 
 
+def _effective_identifier_prefixes() -> List[str]:
+    """Env prefixes plus prefixes inferred from enrichment JSONL (e.g. adiuvat)."""
+    seen: set[str] = set()
+    out: List[str] = []
+    for raw in _autodoc_identifier_prefixes() + _search_enrichment_inferred_prefixes:
+        key = raw.strip().strip("/").lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(raw.strip().strip("/"))
+    return out
+
+
 def _rel_path_for_autodoc(pointer: str) -> str:
     """
     Map Knovas pointer to a path under the autodoc mount.
@@ -104,7 +118,7 @@ def _rel_path_for_autodoc(pointer: str) -> str:
     Multiple prefixes (corpus,winjur) support mixed tenants during RC prefix migrations.
     """
     rel = (pointer or "").strip().replace("\\", "/")
-    for prefix in _autodoc_identifier_prefixes():
+    for prefix in _effective_identifier_prefixes():
         needle = prefix + "/"
         if rel.lower().startswith(needle.lower()):
             rel = rel[len(needle) :]
@@ -123,6 +137,8 @@ def _log_search_similarity_debug(query: str, results: List[Dict[str, Any]]) -> N
             'doc_id': r.get('doc_id'),
             'score': float(r.get('score') or 0),
             'page': r.get('page_number'),
+            'sentence': r.get('sentence_number'),
+            'top_chunks': len(r.get('top_chunks') or []),
             'cos_sim': r.get('cosine_similarity'),
             'cos_dist': r.get('cosine_distance'),
         }
@@ -631,6 +647,7 @@ def create_app(config_path: Optional[str] = None):
     @app.route('/')
     def index():
         """Main search page."""
+        _load_search_enrichment(config)
         return render_template(
             'index.html',
             app_title=web_app_title,
@@ -640,6 +657,7 @@ def create_app(config_path: Optional[str] = None):
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
+            onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
             draft_theme=_resolve_ui_theme(),
         )
     
@@ -691,9 +709,15 @@ def create_app(config_path: Optional[str] = None):
             )
 
             enhanced_results = _enhance_search_results(results, file_handler, config)
+            enrichment_loaded = bool(_unique_enrichment_records())
             for result in enhanced_results.get('results') or []:
                 fp = (result.get('path') or '').strip()
-                if fp and result.get('can_open') and not result.get('external_url'):
+                if (
+                    fp
+                    and result.get('can_open')
+                    and not result.get('external_url')
+                    and not enrichment_loaded
+                ):
                     full = _resolve_autodoc_path(fp)
                     if full:
                         targets = _client_open_targets(full)
@@ -728,6 +752,7 @@ def create_app(config_path: Optional[str] = None):
                 'results': final_results,
                 'total': len(final_results),
                 'timestamp': datetime.now().isoformat(),
+                'onedrive_enrichment_loaded': enrichment_loaded,
             }
             if 'semantix' in refined and isinstance(refined.get('semantix'), dict):
                 payload['semantix'] = refined['semantix']
@@ -1421,13 +1446,38 @@ def _normalize_doc_key(raw: Optional[str]) -> str:
     return str(raw or "").strip().replace("\\", "/")
 
 
+def _canonical_lookup_key(raw: Optional[str]) -> str:
+    return _normalize_doc_key(raw).strip("/").lower()
+
+
+def _infer_identifier_prefixes_from_enrichment(unique: List[dict]) -> List[str]:
+    """Detect shared first path segment (e.g. adiuvat) from OneDrive JSONL doc_ids."""
+    if not unique:
+        return []
+    counts: Dict[str, int] = {}
+    sample = unique[: min(1000, len(unique))]
+    for rec in sample:
+        did = _normalize_doc_key(rec.get("doc_id")).strip("/")
+        if "/" not in did:
+            continue
+        first = did.split("/", 1)[0].lower()
+        if first:
+            counts[first] = counts.get(first, 0) + 1
+    if not counts:
+        return []
+    top_seg, top_n = max(counts.items(), key=lambda kv: kv[1])
+    if top_n >= max(5, int(len(sample) * 0.6)):
+        return [top_seg]
+    return []
+
+
 def _enrichment_lookup_keys(result: Dict[str, Any]) -> List[str]:
     """Candidate doc_id keys for OneDrive enrichment JSONL (pointer prefix variants)."""
     seen: set[str] = set()
     keys: List[str] = []
 
     def add(key: str) -> None:
-        normalized = _normalize_doc_key(key).strip("/")
+        normalized = _canonical_lookup_key(key)
         if not normalized or normalized in seen:
             return
         seen.add(normalized)
@@ -1440,7 +1490,7 @@ def _enrichment_lookup_keys(result: Dict[str, Any]) -> List[str]:
         add(s)
         rel = _rel_path_for_autodoc(s)
         add(rel)
-        for prefix in _autodoc_identifier_prefixes():
+        for prefix in _effective_identifier_prefixes():
             if rel:
                 add(f"{prefix}/{rel}")
     return keys
@@ -1459,6 +1509,16 @@ def _lookup_enrichment_meta(enrichment: Dict[str, dict], result: Dict[str, Any])
         meta = enrichment.get(key)
         if meta:
             return meta
+    for field in ("path", "doc_id", "pointer"):
+        raw = result.get(field)
+        if not raw:
+            continue
+        base = _canonical_lookup_key(str(raw)).rsplit("/", 1)[-1]
+        if not base:
+            continue
+        candidates = _search_enrichment_by_basename.get(base, [])
+        if len(candidates) == 1:
+            return candidates[0]
     return None
 
 
@@ -1518,9 +1578,12 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
     Indexed by doc_id and pointer-prefix aliases for reliable lookup.
     """
     global _search_enrichment_cache, _search_enrichment_mtime, _search_enrichment_unique
+    global _search_enrichment_by_basename, _search_enrichment_inferred_prefixes
     path = _enrichment_path_from_config(config)
     if not path:
         _search_enrichment_unique = []
+        _search_enrichment_by_basename = {}
+        _search_enrichment_inferred_prefixes = []
         return {}
     max_bytes = 0
     if config is not None:
@@ -1528,6 +1591,8 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
     try:
         if not os.path.isfile(path):
             _search_enrichment_unique = []
+            _search_enrichment_by_basename = {}
+            _search_enrichment_inferred_prefixes = []
             return {}
         if max_bytes > 0:
             file_size = os.path.getsize(path)
@@ -1539,16 +1604,21 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
                     max_bytes,
                 )
                 _search_enrichment_unique = []
+                _search_enrichment_by_basename = {}
+                _search_enrichment_inferred_prefixes = []
                 return {}
         mtime = os.path.getmtime(path)
         if mtime == _search_enrichment_mtime and _search_enrichment_cache:
             return _search_enrichment_cache
     except OSError:
         _search_enrichment_unique = []
+        _search_enrichment_by_basename = {}
+        _search_enrichment_inferred_prefixes = []
         return {}
 
     by_id: Dict[str, dict] = {}
     unique: List[dict] = []
+    basename_index: Dict[str, List[dict]] = {}
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -1561,20 +1631,30 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
                     continue
                 did_s = str(did)
                 unique.append(rec)
-                for key in _enrichment_index_keys(did_s):
-                    by_id[key] = rec
+                base = _canonical_lookup_key(did_s).rsplit("/", 1)[-1]
+                if base:
+                    basename_index.setdefault(base, []).append(rec)
+        _search_enrichment_inferred_prefixes = _infer_identifier_prefixes_from_enrichment(unique)
+        for rec in unique:
+            did_s = str(rec.get("doc_id"))
+            for key in _enrichment_index_keys(did_s):
+                by_id[_canonical_lookup_key(key)] = rec
         _search_enrichment_cache = by_id
         _search_enrichment_unique = unique
+        _search_enrichment_by_basename = basename_index
         _search_enrichment_mtime = mtime
         logger.info(
-            "Loaded search enrichment: %d records, %d lookup keys from %s",
+            "Loaded search enrichment: %d records, %d lookup keys, prefixes=%s from %s",
             len(unique),
             len(by_id),
+            _search_enrichment_inferred_prefixes or _autodoc_identifier_prefixes(),
             path,
         )
     except Exception as e:
         logger.warning("Could not load search enrichment from %s: %s", path, e)
         _search_enrichment_unique = []
+        _search_enrichment_by_basename = {}
+        _search_enrichment_inferred_prefixes = []
 
     return _search_enrichment_cache
 

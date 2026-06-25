@@ -20,12 +20,13 @@ from web_interface.app import (  # noqa: E402
 
 @pytest.fixture()
 def enrichment():
+    rec = {
+        "doc_id": "corpus/Adiuvat/vertrag.pdf",
+        "web_url": "https://contoso.sharepoint.com/vertrag.pdf",
+        "title": "Vertrag",
+    }
     return {
-        "corpus/Adiuvat/vertrag.pdf": {
-            "doc_id": "corpus/Adiuvat/vertrag.pdf",
-            "web_url": "https://contoso.sharepoint.com/vertrag.pdf",
-            "title": "Vertrag",
-        },
+        "corpus/adiuvat/vertrag.pdf": rec,
     }
 
 
@@ -41,7 +42,7 @@ def test_lookup_matches_stripped_relative_path(monkeypatch, enrichment):
     monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "corpus")
     result = {"doc_id": "corpus/Adiuvat/vertrag.pdf", "path": "corpus/Adiuvat/vertrag.pdf"}
     keys = _enrichment_lookup_keys(result)
-    assert "Adiuvat/vertrag.pdf" in keys
+    assert "adiuvat/vertrag.pdf" in keys
     assert _lookup_enrichment_meta(enrichment, {"doc_id": "Adiuvat/vertrag.pdf"}) is not None
     assert _lookup_enrichment_meta(enrichment, {"doc_id": "corpus/Adiuvat/vertrag.pdf"}) is not None
 
@@ -64,6 +65,8 @@ def test_load_enrichment_registers_alias_keys(monkeypatch, tmp_path):
 
     wa._search_enrichment_cache = {}
     wa._search_enrichment_unique = []
+    wa._search_enrichment_by_basename = {}
+    wa._search_enrichment_inferred_prefixes = []
     wa._search_enrichment_mtime = 0.0
     monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "corpus")
     enrichment_file = tmp_path / ".search_enrichment.jsonl"
@@ -73,11 +76,39 @@ def test_load_enrichment_registers_alias_keys(monkeypatch, tmp_path):
     )
     monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(enrichment_file))
     loaded = _load_search_enrichment()
-    assert "corpus/Adiuvat/vertrag.pdf" in loaded
-    assert "Adiuvat/vertrag.pdf" in loaded
+    assert "corpus/adiuvat/vertrag.pdf" in loaded
+    assert "adiuvat/vertrag.pdf" in loaded
     assert _resolve_onedrive_url("Adiuvat/vertrag.pdf", "Adiuvat/vertrag.pdf") == (
         "https://contoso.sharepoint.com/vertrag.pdf"
     )
+
+
+def test_adiuvat_prefix_inferred_and_case_insensitive(monkeypatch, tmp_path):
+    import web_interface.app as wa
+
+    wa._search_enrichment_cache = {}
+    wa._search_enrichment_unique = []
+    wa._search_enrichment_by_basename = {}
+    wa._search_enrichment_inferred_prefixes = []
+    wa._search_enrichment_mtime = 0.0
+    enrichment_file = tmp_path / ".search_enrichment.jsonl"
+    enrichment_file.write_text(
+        '{"doc_id": "adiuvat/1338 - Mandate/Bilanz 2016 - Blattner AG.pdf", '
+        '"web_url": "https://lboag-my.sharepoint.com/bilanz.pdf"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(enrichment_file))
+    _load_search_enrichment()
+    url = _resolve_onedrive_url(
+        "adiuvat/1338 - Mandate/Bilanz 2016 - Blattner AG.pdf",
+        "adiuvat/1338 - Mandate/Bilanz 2016 - Blattner AG.pdf",
+    )
+    assert url == "https://lboag-my.sharepoint.com/bilanz.pdf"
+    url2 = _resolve_onedrive_url(
+        "Bilanz 2016 - Blattner AG.pdf",
+        "Bilanz 2016 - Blattner AG.pdf",
+    )
+    assert url2 == "https://lboag-my.sharepoint.com/bilanz.pdf"
 
 
 def test_external_open_redirect(tmp_path, monkeypatch):
@@ -85,6 +116,8 @@ def test_external_open_redirect(tmp_path, monkeypatch):
 
     wa._search_enrichment_cache = {}
     wa._search_enrichment_unique = []
+    wa._search_enrichment_by_basename = {}
+    wa._search_enrichment_inferred_prefixes = []
     wa._search_enrichment_mtime = 0.0
     monkeypatch.setenv("WEB_SECRET_KEY", "test-secret-enrichment-open")
     monkeypatch.setenv("COMPANY_LOGIN_ENABLED", "true")
