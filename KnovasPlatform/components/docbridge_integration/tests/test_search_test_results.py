@@ -14,9 +14,15 @@ from web_interface.app import (  # noqa: E402
 )
 
 
-def test_search_use_test_results_local_env(monkeypatch):
+def test_search_use_test_results_off_by_default(monkeypatch):
     monkeypatch.delenv("SEARCH_USE_TEST_RESULTS", raising=False)
     monkeypatch.setenv("ENVIRONMENT", "local")
+    assert _search_use_test_results() is False
+
+
+def test_search_use_test_results_explicit_on(monkeypatch):
+    monkeypatch.setenv("SEARCH_USE_TEST_RESULTS", "true")
+    monkeypatch.setenv("ENVIRONMENT", "production")
     assert _search_use_test_results() is True
 
 

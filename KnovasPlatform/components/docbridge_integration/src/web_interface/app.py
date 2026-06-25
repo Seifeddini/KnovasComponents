@@ -254,14 +254,9 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
 
 
 def _search_use_test_results() -> bool:
-    """Return sample hits for local UI work when Knovas is unavailable."""
+    """Sample hits only when SEARCH_USE_TEST_RESULTS is explicitly enabled (local UI dev)."""
     flag = (os.getenv('SEARCH_USE_TEST_RESULTS') or '').strip().lower()
-    if flag in ('1', 'true', 'yes', 'on'):
-        return True
-    if flag in ('0', 'false', 'no', 'off'):
-        return False
-    env = (os.getenv('ENVIRONMENT') or '').strip().lower()
-    return env in ('local', 'dev')
+    return flag in ('1', 'true', 'yes', 'on')
 
 
 def _test_result_haystack(row: Dict[str, Any]) -> str:
@@ -684,20 +679,10 @@ def create_app(config_path: Optional[str] = None):
 
             use_test_results = _search_use_test_results()
             if use_test_results:
-                logger.info("Search using local test fixtures (SEARCH_USE_TEST_RESULTS / ENVIRONMENT=local)")
+                logger.info("Search using local test fixtures (SEARCH_USE_TEST_RESULTS=true)")
                 results = _build_test_search_results(query=query, limit=limit)
             else:
-                try:
-                    results = api_client.search_documents(query=query, limit=limit, filters=filters)
-                except Exception as api_err:
-                    if (os.getenv('ENVIRONMENT') or '').strip().lower() in ('local', 'dev'):
-                        logger.warning(
-                            "Knovas search failed in local mode; using test fixtures: %s",
-                            api_err,
-                        )
-                        results = _build_test_search_results(query=query, limit=limit)
-                    else:
-                        raise
+                results = api_client.search_documents(query=query, limit=limit, filters=filters)
 
             is_test_data = use_test_results or (
                 isinstance(results.get('semantix'), dict)
