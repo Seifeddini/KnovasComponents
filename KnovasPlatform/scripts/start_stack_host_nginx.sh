@@ -20,10 +20,8 @@ if [[ ! -d "components/docbridge_integration" ]]; then
 fi
 
 # shellcheck disable=SC1091
-set -a
-source .env
-set +a
-PORT="${DOCBRIDGE_WEB_PORT:-8081}"
+source "$SCRIPT_DIR/lib/read_env.sh"
+PORT="$(read_env_var DOCBRIDGE_WEB_PORT 8081)"
 
 echo "Building docbridge-web (no cache)..."
 "${COMPOSE[@]}" build --no-cache docbridge-web

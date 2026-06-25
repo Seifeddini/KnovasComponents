@@ -6,14 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-PORT="${DOCBRIDGE_WEB_PORT:-8081}"
-if [[ -f .env ]]; then
-  # shellcheck disable=SC1091
-  set -a
-  source .env
-  set +a
-  PORT="${DOCBRIDGE_WEB_PORT:-$PORT}"
-fi
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/read_env.sh"
+
+PORT="$(read_env_var DOCBRIDGE_WEB_PORT 8081)"
 
 BASE_URL="${VERIFY_BASE_URL:-http://localhost:${PORT}}"
 PROBE_MTLS="${VERIFY_MTLS:-false}"
@@ -45,13 +41,13 @@ echo "Build version JSON:"
 VERSION_JSON=""
 if VERSION_JSON="$(curl -fsS --max-time 15 "${BASE_URL}/api/version")"; then
   echo "$VERSION_JSON"
-    if echo "$VERSION_JSON" | grep -q '"build_id": "onedrive-locations-v4"'; then
+  if echo "$VERSION_JSON" | grep -qE '"build_id"[[:space:]]*:[[:space:]]*"onedrive-locations-v4"'; then
     echo "  OK  expected build_id onedrive-locations-v4"
   else
     echo "  FAIL build_id is not onedrive-locations-v4 (stale image or wrong backend)"
     failures=$((failures + 1))
   fi
-  if echo "$VERSION_JSON" | grep -q '"onedrive_external_open": true'; then
+  if echo "$VERSION_JSON" | grep -qE '"onedrive_external_open"[[:space:]]*:[[:space:]]*true'; then
     echo "  OK  app.js contains OneDrive external-open helper"
   else
     echo "  FAIL app.js missing externalOpenHref in container"
@@ -91,7 +87,7 @@ if [[ "$PROBE_MTLS" == "true" || "$PROBE_MTLS" == "1" ]]; then
   if ! docker compose ps --status running docbridge-web 2>/dev/null | grep -q docbridge-web; then
     echo "  SKIP docbridge-web is not running"
   else
-  SEMANTIX_URL="${SEMANTIX_API_URL:-}"
+  SEMANTIX_URL="$(read_env_var SEMANTIX_API_URL "")"
   if [[ -z "$SEMANTIX_URL" ]]; then
     echo "  SKIP SEMANTIX_API_URL not set in .env"
   else
