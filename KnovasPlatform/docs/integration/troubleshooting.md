@@ -11,6 +11,7 @@
 | `127.0.0.1:8081` / port 8081 already in use | Stack may already be up: `curl http://127.0.0.1:8081/health`. Else `./stop_stack.sh`, check `ss -tlnp` for 8081, remove stale `docbridge-*` containers. See [host-nginx-internal.md](../deployment/host-nginx-internal.md#troubleshooting-port-8081-already-in-use) |
 | nginx 502 / bad gateway | Docker not on 127.0.0.1:8081: run `./scripts/start_stack_host_nginx.sh`; match `proxy_pass` port to `DOCBRIDGE_WEB_PORT` in `.env` |
 | Öffnen / open-token wrong host | Set `OPEN_PUBLIC_BASE_URL=https://<fqdn>` in `.env`; recreate `docbridge-web` |
+| UI unchanged after `docker compose build` | Run `./scripts/verify_deploy.sh` on **`DOCBRIDGE_WEB_PORT`** from `.env` (not 8081). Expect `enrichment.loaded: true` and `build_id` **onedrive-locations-v3**. Fix `.env`: `SEARCH_ENRICHMENT_PATH=/mnt/autodoc/.search_enrichment.jsonl` (not `/app/sync_meta/...`). Host nginx `proxy_pass` must match `DOCBRIDGE_WEB_PORT`. |
 | Öffnen does nothing | Client must reach the share; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT`; browser may block `file:`/UNC from HTTPS — intranet zone or Edge policy; try optional companion |
 | client-path 503 | Set `OPEN_UNC_ROOT` and/or `OPEN_CLIENT_LOCAL_ROOT` + `OPEN_LOCAL_ROOT`; check `OPEN_BROWSER_CLIENT_PATH` and AutoDoc mount |
 | Mint 503 (companion) | Set `OPEN_COMPANION_ENABLED=true` and path mapping; only needed for companion fallback |

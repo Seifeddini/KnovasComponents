@@ -111,6 +111,20 @@ def test_prefix_inferred_and_case_insensitive(monkeypatch, tmp_path):
     assert url2 == "https://contoso.sharepoint.com/report.pdf"
 
 
+def test_enrichment_path_falls_back_to_autodoc_mount(monkeypatch, tmp_path):
+    import web_interface.app as wa
+
+    missing = tmp_path / "missing.jsonl"
+    good = tmp_path / "autodoc.jsonl"
+    good.write_text(
+        '{"doc_id": "tenant/a.pdf", "web_url": "https://example.com/a.pdf"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(missing))
+    monkeypatch.setattr(wa, "_DEFAULT_ENRICHMENT_PATH", str(good))
+    assert wa._enrichment_path_from_config() == str(good)
+
+
 def test_external_open_redirect(tmp_path, monkeypatch):
     import web_interface.app as wa
 

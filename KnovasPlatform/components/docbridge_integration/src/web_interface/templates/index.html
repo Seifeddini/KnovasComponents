@@ -69,7 +69,7 @@
         </main>
 
         <footer class="site-footer">
-            <p>&copy; 2026 Knovas</p>
+            <p>&copy; 2026 Knovas · Build {{ build_id }}</p>
             <p class="footer-links">
                 <a href="#" id="healthCheck">System Status</a>
                 <span class="footer-sep" aria-hidden="true">·</span>
@@ -86,6 +86,7 @@
             allowDegradedDownloadOpen: {{ allow_degraded_download_open|tojson }},
             pdfInlineInBrowser: {{ pdf_inline_in_browser|tojson }},
             onedriveEnrichmentLoaded: {{ onedrive_enrichment_loaded|tojson }},
+            buildId: {{ build_id|tojson }},
         };
     </script>
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ asset_version }}"></script>

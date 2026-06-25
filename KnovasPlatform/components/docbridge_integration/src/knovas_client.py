@@ -118,6 +118,104 @@ def _extract_semantix_query_similarity(item: Dict[str, Any]) -> float:
     return 0.0
 
 
+def _secured_query_field_empty(val: Any) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, str) and not val.strip():
+        return True
+    if isinstance(val, list) and len(val) == 0:
+        return True
+    return False
+
+
+def _merge_secured_query_result_rows(
+    primary: List[Any],
+    secondary: List[Any],
+) -> List[Dict[str, Any]]:
+    """
+    Merge top-level secured/query rows with nested data.results rows.
+
+    Some API builds return pointers/scores at the top level and page_number,
+    sentence_number, top_chunks only under data.results for the same index.
+    """
+    if not secondary:
+        return [r for r in primary if isinstance(r, dict)]
+    if not primary:
+        return [r for r in secondary if isinstance(r, dict)]
+
+    fill_keys = (
+        "pointer",
+        "Pointer",
+        "identifier",
+        "Identifier",
+        "document_uuid",
+        "documentUuid",
+        "DocumentUuid",
+        "page_number",
+        "pageNumber",
+        "PageNumber",
+        "page",
+        "Page",
+        "sentence_number",
+        "sentenceNumber",
+        "SentenceNumber",
+        "sentence",
+        "Sentence",
+        "top_chunks",
+        "topChunks",
+        "TopChunks",
+        "ingested_summary",
+        "ingestedSummary",
+        "IngestedSummary",
+        "cosine_similarity",
+        "cosineSimilarity",
+        "CosineSimilarity",
+        "cosine_distance",
+        "cosineDistance",
+        "CosineDistance",
+        "final_score",
+        "FinalScore",
+    )
+
+    def _pointer(row: Dict[str, Any]) -> str:
+        return str(row.get("pointer") or row.get("Pointer") or row.get("identifier") or "")
+
+    secondary_by_ptr = {
+        _pointer(s): s for s in secondary if isinstance(s, dict) and _pointer(s)
+    }
+
+    merged: List[Dict[str, Any]] = []
+    for i, row in enumerate(primary):
+        if not isinstance(row, dict):
+            continue
+        fill: Dict[str, Any] = {}
+        if i < len(secondary) and isinstance(secondary[i], dict):
+            fill = secondary[i]
+        else:
+            ptr = _pointer(row)
+            if ptr and ptr in secondary_by_ptr:
+                fill = secondary_by_ptr[ptr]
+
+        combined = dict(fill)
+        combined.update(row)
+        for key in fill_keys:
+            if _secured_query_field_empty(combined.get(key)) and not _secured_query_field_empty(
+                fill.get(key)
+            ):
+                combined[key] = fill.get(key)
+        merged.append(combined)
+
+    seen = {_pointer(m) for m in merged if _pointer(m)}
+    for s in secondary:
+        if not isinstance(s, dict):
+            continue
+        ptr = _pointer(s)
+        if ptr and ptr not in seen:
+            merged.append(dict(s))
+            seen.add(ptr)
+    return merged
+
+
 def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize /secured/query JSON whether the API returns a flat body or nests
@@ -129,11 +227,18 @@ def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
 
     out = dict(result)
     inner_results = data.get("results")
+    if inner_results is None:
+        inner_results = data.get("hits")
     top_results = out.get("results")
     if top_results is None:
-        out["results"] = inner_results or []
-    elif isinstance(top_results, list) and not top_results and inner_results:
-        out["results"] = inner_results
+        top_results = out.get("hits")
+
+    if isinstance(inner_results, list):
+        if isinstance(top_results, list) and top_results:
+            out["results"] = _merge_secured_query_result_rows(top_results, inner_results)
+        elif not top_results:
+            out["results"] = inner_results
+
     if out.get("pointers") is None:
         out["pointers"] = data.get("pointers")
     if out.get("result_count") is None:
@@ -360,6 +465,12 @@ def _coerce_location_int(val: Any) -> Optional[int]:
         s = val.strip()
         if s.isdigit():
             return int(s)
+        try:
+            as_float = float(s)
+            if as_float == int(as_float):
+                return int(as_float)
+        except ValueError:
+            pass
     try:
         return int(val)
     except (TypeError, ValueError):
@@ -477,8 +588,9 @@ def _normalize_top_chunks(chunks: Any) -> List[Dict[str, Any]]:
     for chunk in chunks:
         if not isinstance(chunk, dict):
             continue
-        row = _location_from_mapping(chunk)
-        row.update(_score_fields_from_mapping(chunk))
+        normalized = _coalesce_secured_query_keys(chunk)
+        row = _location_from_mapping(normalized)
+        row.update(_score_fields_from_mapping(normalized))
         if row:
             out.append(row)
     return out
@@ -1114,12 +1226,29 @@ class KnovasAPIClient:
             data=self._secured_query_request_body(query, limit=limit),
         )
         result = _unwrap_secured_query_response(response.json())
+        raw_hits = result.get("results", [])[:limit]
 
         normalized_results = []
-        for raw in result.get('results', [])[:limit]:
+        for raw in raw_hits:
             if not isinstance(raw, dict):
                 continue
             normalized_results.append(_secured_query_hit_to_row(raw))
+
+        if normalized_results and all(
+            r.get("page_number") is None
+            and r.get("sentence_number") is None
+            and not (r.get("top_chunks") or [])
+            for r in normalized_results[:3]
+        ):
+            raw0 = raw_hits[0] if raw_hits and isinstance(raw_hits[0], dict) else {}
+            logger.info(
+                "Secured query: no page/sentence in first hits; raw[0] keys=%s "
+                "page_number=%r sentence_number=%r top_chunks=%r",
+                sorted(raw0.keys()) if raw0 else [],
+                raw0.get("page_number"),
+                raw0.get("sentence_number"),
+                raw0.get("top_chunks") if isinstance(raw0.get("top_chunks"), list) else raw0.get("top_chunks"),
+            )
 
         semantix_meta = {
             'status': result.get('status'),

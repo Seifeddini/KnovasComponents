@@ -64,6 +64,19 @@ _search_enrichment_inferred_prefixes: List[str] = []
 _search_enrichment_mtime: float = 0.0
 
 
+def _build_location_summary(results: List[Dict[str, Any]], *, limit: int = 8) -> List[Dict[str, Any]]:
+    """Lightweight per-hit location fields for browser DevTools / support."""
+    rows: List[Dict[str, Any]] = []
+    for r in results[:limit]:
+        rows.append({
+            'doc_id': r.get('doc_id'),
+            'page_number': r.get('page_number'),
+            'sentence_number': r.get('sentence_number'),
+            'top_chunks': len(r.get('top_chunks') or []),
+        })
+    return rows
+
+
 def _build_similarity_debug(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Structured payload for API / browser DevTools (after enrichment + refinement)."""
     rows = []
@@ -343,6 +356,12 @@ def _apply_test_open_hints(
 
 DRAFT_THEME_SLUGS = frozenset({'atelier', 'ledger', 'horizon', 'helvetia'})
 
+# Bump when search UI / open behaviour changes — visible in footer and GET /api/version
+DOCBRIDGE_BUILD_ID = 'onedrive-locations-v4'
+
+# Default OneDrive enrichment JSONL location (OneDrive mirror / RC sync on AutoDoc mount)
+_DEFAULT_ENRICHMENT_PATH = "/mnt/autodoc/.search_enrichment.jsonl"
+
 
 def _normalize_ui_theme_slug(raw: Optional[str]) -> Optional[str]:
     slug = (raw or '').strip().lower()
@@ -392,6 +411,20 @@ def create_app(config_path: Optional[str] = None):
     )
     
     CORS(app)
+
+    @app.after_request
+    def _prevent_stale_ui_assets(response):
+        """Avoid browsers serving cached HTML/JS after docker rebuild."""
+        path = request.path or ''
+        if (
+            path in ('/', '/login')
+            or path.endswith('.js')
+            or path.endswith('.css')
+            or path.startswith('/static/')
+        ):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+        return response
 
     api_client = KnovasAPIClient(config)
     file_handler = AutoDocFileHandler()
@@ -583,6 +616,7 @@ def create_app(config_path: Optional[str] = None):
             'login',
             'logout',
             'stats',
+            'api_version',
             'health',
             'open_token_redeem',
             'open_tokens_spec',
@@ -671,6 +705,7 @@ def create_app(config_path: Optional[str] = None):
             pdf_inline_in_browser=pdf_inline_in_browser,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
             asset_version=_static_asset_version(),
+            build_id=DOCBRIDGE_BUILD_ID,
             draft_theme=_resolve_ui_theme(),
         )
     
@@ -778,6 +813,7 @@ def create_app(config_path: Optional[str] = None):
                 'total': len(final_results),
                 'timestamp': datetime.now().isoformat(),
                 'onedrive_enrichment_loaded': enrichment_loaded,
+                'location_summary': _build_location_summary(final_results),
             }
             if 'semantix' in refined and isinstance(refined.get('semantix'), dict):
                 payload['semantix'] = refined['semantix']
@@ -1231,6 +1267,34 @@ def create_app(config_path: Optional[str] = None):
             logger.warning('Document rating API failed: %s', e, exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 502
     
+    @app.route('/api/version', methods=['GET'])
+    def api_version():
+        """Public build marker — use after deploy to confirm the running image."""
+        _load_search_enrichment(config)
+        unique = _unique_enrichment_records()
+        js_path = os.path.join(os.path.dirname(__file__), 'static', 'js', 'app.js')
+        js_flags = {}
+        try:
+            with open(js_path, encoding='utf-8') as fh:
+                js_text = fh.read()
+            js_flags = {
+                'onedrive_external_open': 'externalOpenHref' in js_text,
+                'match_locations': '_buildMatchLocationsHtml' in js_text,
+                'open_document_legacy_shim': 'pathOrBrowserFlag' in js_text,
+            }
+        except OSError:
+            js_flags = {'readable': False}
+        return jsonify({
+            'build_id': DOCBRIDGE_BUILD_ID,
+            'asset_version': _static_asset_version(),
+            'enrichment': {
+                'loaded': bool(unique),
+                'records': len(unique),
+                'path': _enrichment_path_from_config(config),
+            },
+            'js': js_flags,
+        })
+
     @app.route('/api/stats', methods=['GET'])
     def stats():
         """Get usage statistics."""
@@ -1246,6 +1310,7 @@ def create_app(config_path: Optional[str] = None):
                 'lookup_keys': len(_search_enrichment_cache),
             },
             'asset_version': _static_asset_version(),
+            'build_id': DOCBRIDGE_BUILD_ID,
         })
     
     return app
@@ -1610,10 +1675,15 @@ def _enrichment_path_from_config(config=None) -> str:
     path = os.getenv("SEARCH_ENRICHMENT_PATH", "").strip()
     if not path and config is not None:
         path = str(config.get("web.search.enrichment_path", "") or "").strip()
-    if not path:
-        default = "/mnt/autodoc/.search_enrichment.jsonl"
-        if os.path.isfile(default):
-            path = default
+    if path and not os.path.isfile(path) and os.path.isfile(_DEFAULT_ENRICHMENT_PATH):
+        logger.warning(
+            "Search enrichment not found at %s; using %s",
+            path,
+            _DEFAULT_ENRICHMENT_PATH,
+        )
+        return _DEFAULT_ENRICHMENT_PATH
+    if not path and os.path.isfile(_DEFAULT_ENRICHMENT_PATH):
+        path = _DEFAULT_ENRICHMENT_PATH
     return path
 
 

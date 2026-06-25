@@ -38,6 +38,42 @@ check_http() {
 
 check_http "/health" "nginx liveness"
 check_http "/api/stats" "app stats (compose healthcheck)"
+check_http "/api/version" "app build version"
+
+echo ""
+echo "Build version JSON:"
+VERSION_JSON=""
+if VERSION_JSON="$(curl -fsS --max-time 15 "${BASE_URL}/api/version")"; then
+  echo "$VERSION_JSON"
+    if echo "$VERSION_JSON" | grep -q '"build_id": "onedrive-locations-v4"'; then
+    echo "  OK  expected build_id onedrive-locations-v4"
+  else
+    echo "  FAIL build_id is not onedrive-locations-v4 (stale image or wrong backend)"
+    failures=$((failures + 1))
+  fi
+  if echo "$VERSION_JSON" | grep -q '"onedrive_external_open": true'; then
+    echo "  OK  app.js contains OneDrive external-open helper"
+  else
+    echo "  FAIL app.js missing externalOpenHref in container"
+    failures=$((failures + 1))
+  fi
+else
+  echo "  FAIL /api/version"
+  failures=$((failures + 1))
+fi
+
+echo ""
+echo "Container app.js (inside docbridge-web):"
+if docker compose ps --status running docbridge-web 2>/dev/null | grep -q docbridge-web; then
+  if docker compose exec -T docbridge-web grep -q 'externalOpenHref' /app/src/web_interface/static/js/app.js; then
+    echo "  OK  container has externalOpenHref in app.js"
+  else
+    echo "  FAIL container app.js missing externalOpenHref"
+    failures=$((failures + 1))
+  fi
+else
+  echo "  SKIP docbridge-web is not running"
+fi
 
 echo ""
 echo "API health JSON:"

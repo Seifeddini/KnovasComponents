@@ -5,9 +5,11 @@ from knovas_client import (
     _ingested_summary_from_hit,
     _ingested_summary_text,
     _merge_secured_query_hit,
+    _merge_secured_query_result_rows,
     _normalize_top_chunks,
     _prepare_secured_query_hit,
     _secured_query_hit_to_row,
+    _unwrap_secured_query_response,
 )
 
 
@@ -132,3 +134,49 @@ def test_secured_query_hit_to_row_location_from_top_chunks_when_top_level_null()
     assert row["page_number"] == 7
     assert row["sentence_number"] == 2
     assert row["top_chunks"][0]["page_number"] == 7
+
+
+def test_unwrap_secured_query_merges_nested_location_fields():
+    body = {
+        "status": "success",
+        "query_session_id": "sess-1",
+        "results": [
+            {"pointer": "tenant/a.pdf", "cosine_similarity": 0.9},
+        ],
+        "data": {
+            "results": [
+                {
+                    "pointer": "tenant/a.pdf",
+                    "page_number": 4,
+                    "sentence_number": 11,
+                    "top_chunks": [
+                        {"page_number": 4, "sentence_number": 11, "cosine_similarity": 0.9},
+                    ],
+                },
+            ],
+        },
+    }
+    unwrapped = _unwrap_secured_query_response(body)
+    merged = unwrapped["results"][0]
+    assert merged["cosine_similarity"] == 0.9
+    assert merged["page_number"] == 4
+    assert merged["sentence_number"] == 11
+    assert len(merged["top_chunks"]) == 1
+    row = _secured_query_hit_to_row(merged)
+    assert row["page_number"] == 4
+    assert row["sentence_number"] == 11
+
+
+def test_merge_secured_query_result_rows_by_pointer_when_lengths_differ():
+    top = [{"pointer": "x", "cosine_similarity": 0.5}]
+    inner = [
+        {
+            "pointer": "x",
+            "page_number": 2,
+            "sentence_number": 3,
+            "top_chunks": [{"page_number": 2, "sentence_number": 3}],
+        },
+    ]
+    merged = _merge_secured_query_result_rows(top, inner)
+    assert merged[0]["page_number"] == 2
+    assert merged[0]["cosine_similarity"] == 0.5
