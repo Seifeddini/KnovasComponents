@@ -6,6 +6,7 @@ from knovas_client import (
     _ingested_summary_text,
     _merge_secured_query_hit,
     _normalize_top_chunks,
+    _prepare_secured_query_hit,
 )
 
 
@@ -62,3 +63,21 @@ def test_merge_secured_query_hit_does_not_invent_snippet():
     assert merged["sentence_number"] == 4
     assert "snippet" not in merged
     assert "text" not in merged
+
+
+def test_location_from_camel_case_and_top_chunks_alias():
+    hit = _prepare_secured_query_hit({
+        "pointer": "doc/b.pdf",
+        "topChunks": [
+            {"pageNumber": 5, "sentenceNumber": 9, "cosineSimilarity": 0.88},
+            {"page": 2, "sentence": 3, "cosine_distance": 0.2},
+        ],
+    })
+    merged = _merge_secured_query_hit(hit)
+    assert merged["page_number"] == 5
+    assert merged["sentence_number"] == 9
+    chunks = _normalize_top_chunks(hit["top_chunks"])
+    assert len(chunks) == 2
+    assert chunks[0]["page_number"] == 5
+    assert chunks[1]["page_number"] == 2
+    assert chunks[1]["sentence_number"] == 3

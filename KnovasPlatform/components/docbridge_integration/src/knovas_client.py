@@ -150,6 +150,13 @@ def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
 _INGESTED_SUMMARY_MAX_LEN = 2500
 
 
+def _is_http_url(url: Any) -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    u = url.strip().lower()
+    return u.startswith("https://") or u.startswith("http://")
+
+
 def _display_title_for_hit(pointer: str, raw_title: Optional[Any]) -> str:
     """
     Prefer filename stem for RC/corpus pointers; Knovas title fields are often run-on text.
@@ -342,9 +349,97 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
     return [{"snippet": snippet}], init_fields
 
 
+def _coerce_location_int(val: Any) -> Optional[int]:
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        return int(val)
+    if isinstance(val, str):
+        s = val.strip()
+        if s.isdigit():
+            return int(s)
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _location_from_mapping(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract page_number / sentence_number from assorted Knovas API field names."""
+    if not isinstance(data, dict):
+        return {}
+    sources: List[Dict[str, Any]] = [data]
+    nested = data.get("location")
+    if isinstance(nested, dict):
+        sources.append(nested)
+    page_keys = (
+        "page_number",
+        "pageNumber",
+        "PageNumber",
+        "page",
+        "Page",
+        "page_num",
+        "pageNum",
+    )
+    sent_keys = (
+        "sentence_number",
+        "sentenceNumber",
+        "SentenceNumber",
+        "sentence",
+        "Sentence",
+        "sent_num",
+        "sentenceNum",
+        "line_number",
+        "lineNumber",
+    )
+    out: Dict[str, Any] = {}
+    for src in sources:
+        if out.get("page_number") is None:
+            for key in page_keys:
+                page = _coerce_location_int(src.get(key))
+                if page is not None:
+                    out["page_number"] = page
+                    break
+        if out.get("sentence_number") is None:
+            for key in sent_keys:
+                sent = _coerce_location_int(src.get(key))
+                if sent is not None:
+                    out["sentence_number"] = sent
+                    break
+    return out
+
+
+def _score_fields_from_mapping(data: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for key in ("cosine_similarity", "cosine_distance"):
+        val = data.get(key)
+        if val is None and key.startswith("cosine"):
+            camel = "cosineSimilarity" if key == "cosine_similarity" else "cosineDistance"
+            val = data.get(camel)
+        if val is not None:
+            out[key] = val
+    return out
+
+
+def _prepare_secured_query_hit(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize secured-query hit keys before merge (camelCase, nested location)."""
+    merged = dict(item)
+    if not isinstance(merged.get("top_chunks"), list) and isinstance(merged.get("topChunks"), list):
+        merged["top_chunks"] = merged["topChunks"]
+    loc = _location_from_mapping(merged)
+    for key, val in loc.items():
+        if merged.get(key) is None:
+            merged[key] = val
+    return merged
+
+
 def _first_top_chunk(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Secured query hits often nest match location and scores under top_chunks[0]."""
     chunks = item.get("top_chunks")
+    if not isinstance(chunks, list):
+        chunks = item.get("topChunks")
     if not isinstance(chunks, list) or not chunks:
         return None
     first = chunks[0]
@@ -359,14 +454,8 @@ def _normalize_top_chunks(chunks: Any) -> List[Dict[str, Any]]:
     for chunk in chunks:
         if not isinstance(chunk, dict):
             continue
-        row: Dict[str, Any] = {}
-        for key in ("page_number", "sentence_number", "cosine_similarity", "cosine_distance"):
-            val = chunk.get(key)
-            if val is None and key.startswith("cosine"):
-                camel = "cosineSimilarity" if key == "cosine_similarity" else "cosineDistance"
-                val = chunk.get(camel)
-            if val is not None:
-                row[key] = val
+        row = _location_from_mapping(chunk)
+        row.update(_score_fields_from_mapping(chunk))
         if row:
             out.append(row)
     return out
@@ -378,7 +467,7 @@ def _merge_secured_query_hit(item: Dict[str, Any]) -> Dict[str, Any]:
     fields when top-level values are missing. Chunk text is never in the API payload.
     """
     merged = dict(item)
-    tc = _first_top_chunk(item)
+    tc = _first_top_chunk(merged)
     if not tc:
         return merged
 
@@ -389,11 +478,11 @@ def _merge_secured_query_hit(item: Dict[str, Any]) -> Dict[str, Any]:
             return True
         return False
 
+    for key, val in _location_from_mapping(tc).items():
+        if _is_empty(merged.get(key)):
+            merged[key] = val
+
     for key in (
-        "page_number",
-        "page",
-        "sentence_number",
-        "cosine_similarity",
         "cosine_distance",
         "cosineSimilarity",
         "cosineDistance",
@@ -937,12 +1026,15 @@ class KnovasAPIClient:
 
         normalized_results = []
         for raw in result.get('results', [])[:limit]:
-            item = _merge_secured_query_hit(raw)
+            if not isinstance(raw, dict):
+                continue
+            item = _merge_secured_query_hit(_prepare_secured_query_hit(raw))
             pointer = item.get('pointer') or item.get('identifier') or ''
-            page_number = item.get('page_number')
+            loc = _location_from_mapping(item)
+            page_number = loc.get('page_number')
             if page_number is None:
                 page_number = item.get('page')
-            sentence_number = item.get('sentence_number')
+            sentence_number = loc.get('sentence_number')
             document_date = _document_date_from_hit(item)
             cos_sim = item.get('cosine_similarity')
             if cos_sim is None:
@@ -975,7 +1067,20 @@ class KnovasAPIClient:
             doc_uuid = item.get('document_uuid')
             if doc_uuid:
                 row['document_uuid'] = str(doc_uuid)
-            top_chunks = _normalize_top_chunks(item.get('top_chunks'))
+            for url_key in ('web_url', 'webUrl', 'external_url'):
+                url_val = item.get(url_key)
+                if url_val and _is_http_url(str(url_val)):
+                    row['external_url'] = str(url_val).strip()
+                    break
+            top_chunks = _normalize_top_chunks(
+                item.get('top_chunks') if isinstance(item.get('top_chunks'), list) else item.get('topChunks')
+            )
+            if top_chunks and (page_number is None or sentence_number is None):
+                primary = top_chunks[0]
+                if page_number is None:
+                    page_number = primary.get('page_number')
+                if sentence_number is None:
+                    sentence_number = primary.get('sentence_number')
             if top_chunks:
                 row['top_chunks'] = top_chunks
             normalized_results.append(row)

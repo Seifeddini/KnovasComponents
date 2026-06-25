@@ -190,6 +190,8 @@ web:
     enrichment_max_bytes: 52428800
     # Max enrichment rows scanned when supplementing filename matches.
     supplement_max_enrichment_scan: 5000
+    # OneDrive / SharePoint webUrl JSONL from OneDrive mirror (see RemoteController)
+    enrichment_path: "${SEARCH_ENRICHMENT_PATH:-/mnt/autodoc/.search_enrichment.jsonl}"
     
   # Document opening
   document_handler:

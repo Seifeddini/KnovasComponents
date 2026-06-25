@@ -696,13 +696,13 @@ def create_app(config_path: Optional[str] = None):
                     full = _resolve_autodoc_path(fp)
                     if full:
                         targets = _client_open_targets(full)
-                        if browser_client_open_enabled and targets:
+                        if browser_client_open_enabled and _open_mapping_configured():
                             result['open_via_browser'] = True
                             if targets.get('unc'):
                                 result['client_open_unc'] = targets['unc']
                             if targets.get('path'):
                                 result['client_open_path'] = targets['path']
-                        if companion_enabled and _can_open_via_companion(full):
+                        if companion_enabled and _open_mapping_configured():
                             result['open_via_companion'] = True
                             result['companion_scheme'] = companion_uri_scheme
             if is_test_data:
@@ -1363,12 +1363,9 @@ def _supplement_results_from_enrichment_filenames(
             row["description"] = meta["description"]
         if meta.get("akten_id"):
             row["akten_id"] = meta["akten_id"]
-        wu = meta.get("web_url")
+        wu = meta.get("web_url") or meta.get("webUrl")
         if wu and _is_safe_http_url(wu):
-            row["external_url"] = wu.strip()
-            row["file_exists"] = True
-            row["can_open"] = True
-            row["open_mode"] = "external"
+            _apply_external_open_mode(row, str(wu).strip())
         else:
             row.setdefault("file_exists", False)
             row.setdefault("can_open", False)
@@ -1393,13 +1390,81 @@ def _is_safe_http_url(url: Optional[str]) -> bool:
     return u.startswith("https://") or u.startswith("http://")
 
 
+def _normalize_doc_key(raw: Optional[str]) -> str:
+    return str(raw or "").strip().replace("\\", "/")
+
+
+def _enrichment_lookup_keys(result: Dict[str, Any]) -> List[str]:
+    """Candidate doc_id keys for OneDrive enrichment JSONL (pointer prefix variants)."""
+    seen: set[str] = set()
+    keys: List[str] = []
+
+    def add(key: str) -> None:
+        normalized = _normalize_doc_key(key).strip("/")
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        keys.append(normalized)
+
+    for raw in (result.get("doc_id"), result.get("path"), result.get("pointer")):
+        if not raw:
+            continue
+        s = _normalize_doc_key(raw)
+        add(s)
+        rel = _rel_path_for_autodoc(s)
+        add(rel)
+        for prefix in _autodoc_identifier_prefixes():
+            if rel:
+                add(f"{prefix}/{rel}")
+    return keys
+
+
+def _web_url_from_enrichment(meta: dict) -> Optional[str]:
+    for key in ("web_url", "webUrl", "onedrive_url", "sharepoint_url", "external_url"):
+        val = meta.get(key)
+        if val and _is_safe_http_url(str(val)):
+            return str(val).strip()
+    return None
+
+
+def _lookup_enrichment_meta(enrichment: Dict[str, dict], result: Dict[str, Any]) -> Optional[dict]:
+    for key in _enrichment_lookup_keys(result):
+        meta = enrichment.get(key)
+        if meta:
+            return meta
+    return None
+
+
+def _apply_external_open_mode(result: Dict[str, Any], url: str) -> None:
+    """OneDrive / SharePoint link — preferred over local UNC open."""
+    result["external_url"] = url.strip()
+    result["file_exists"] = True
+    result["can_open"] = True
+    result["open_mode"] = "external"
+    result.pop("open_via_browser", None)
+    result.pop("open_via_companion", None)
+    result.pop("client_open_unc", None)
+    result.pop("client_open_path", None)
+
+
+def _enrichment_path_from_config(config=None) -> str:
+    path = os.getenv("SEARCH_ENRICHMENT_PATH", "").strip()
+    if not path and config is not None:
+        path = str(config.get("web.search.enrichment_path", "") or "").strip()
+    if not path:
+        default = "/mnt/autodoc/.search_enrichment.jsonl"
+        if os.path.isfile(default):
+            path = default
+    return path
+
+
 def _load_search_enrichment(config=None) -> Dict[str, dict]:
     """
     Load JSONL written by docbridge-sync (OneDrive webUrl, title, etc.).
     Last line per doc_id wins. Cached by file mtime.
     """
     global _search_enrichment_cache, _search_enrichment_mtime
-    path = os.getenv("SEARCH_ENRICHMENT_PATH", "").strip()
+    path = _enrichment_path_from_config(config)
     if not path:
         return {}
     max_bytes = 0
@@ -1483,7 +1548,7 @@ def _enhance_search_results(
 
     for result in enhanced_results['results']:
         doc_id = str(result.get("doc_id") or result.get("pointer") or "")
-        meta = enrichment.get(doc_id) if doc_id else None
+        meta = _lookup_enrichment_meta(enrichment, result) if enrichment else None
         if meta:
             if meta.get("title"):
                 result["title"] = meta["title"]
@@ -1503,18 +1568,21 @@ def _enhance_search_results(
             if meta_date and not result.get("document_date") and not result.get("date"):
                 result["document_date"] = meta_date
                 result["date"] = meta_date
-            wu = meta.get("web_url")
-            if wu and _is_safe_http_url(wu):
-                result["external_url"] = wu.strip()
+            wu = _web_url_from_enrichment(meta)
+            if wu:
+                _apply_external_open_mode(result, wu)
+
+        for key in ("web_url", "webUrl", "external_url"):
+            direct = result.get(key)
+            if direct and _is_safe_http_url(str(direct)):
+                _apply_external_open_mode(result, str(direct))
+                break
 
         fp = (result.get("path") or "").strip()
         if _is_safe_http_url(fp):
-            result["external_url"] = (result.get("external_url") or fp).strip()
+            _apply_external_open_mode(result, (result.get("external_url") or fp).strip())
 
         if result.get("external_url") and _is_safe_http_url(result["external_url"]):
-            result["file_exists"] = True
-            result["can_open"] = True
-            result["open_mode"] = "external"
             continue
 
         file_path = result.get("path")

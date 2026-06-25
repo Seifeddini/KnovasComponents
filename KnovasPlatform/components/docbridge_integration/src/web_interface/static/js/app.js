@@ -415,8 +415,15 @@ class DocumentSearchApp {
     }
 
     _collectMatchLocations(doc) {
-        const primaryPage = doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page;
-        const primarySent = doc.sentence_number;
+        const chunks = Array.isArray(doc.top_chunks) ? doc.top_chunks : [];
+        let primaryPage = doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page;
+        let primarySent = doc.sentence_number;
+        if ((primaryPage == null || primaryPage === '') && chunks.length) {
+            primaryPage = chunks[0].page_number ?? chunks[0].page;
+            if (primarySent == null || primarySent === '') {
+                primarySent = chunks[0].sentence_number;
+            }
+        }
         const primaryKey = `${primaryPage ?? ''}|${primarySent ?? ''}`;
         const locations = [];
         const primaryLabel = this._formatLocation(primaryPage, primarySent);
@@ -428,7 +435,6 @@ class DocumentSearchApp {
             });
         }
         const extras = [];
-        const chunks = Array.isArray(doc.top_chunks) ? doc.top_chunks : [];
         for (const chunk of chunks) {
             const key = `${chunk.page_number ?? ''}|${chunk.sentence_number ?? ''}`;
             if (key === primaryKey) continue;
@@ -494,12 +500,8 @@ class DocumentSearchApp {
             (doc.file_exists === true ||
                 (doc.file_exists == null && doc.can_open === true));
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        const useBrowserClientOpen =
-            !!cfg.browserClientOpenEnabled && doc.open_via_browser === true;
-        const useCompanion =
-            !!cfg.companionEnabled && doc.open_via_companion === true;
-        const canOpenLocal =
-            localAvailable && (useBrowserClientOpen || useCompanion);
+        const useBrowserClientOpen = !!cfg.browserClientOpenEnabled;
+        const useCompanion = !!cfg.companionEnabled;
         const isPdf = path.toLowerCase().endsWith('.pdf');
         const canPreviewPdf = !!cfg.pdfInlineInBrowser && isPdf;
         const showDegradedDownload = !!cfg.allowDegradedDownloadOpen;
@@ -514,7 +516,7 @@ class DocumentSearchApp {
                     🔗 In OneDrive öffnen
                 </a>
             `;
-        } else if (canOpenLocal) {
+        } else if (localAvailable) {
             const previewBtn = canPreviewPdf
                 ? `<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}">PDF Vorschau</a>`
                 : '';
@@ -530,12 +532,6 @@ class DocumentSearchApp {
                 ${previewBtn}
                 ${downloadBtn}
             `;
-        } else if (localAvailable) {
-            actionsHtml = `
-                <span class="badge badge-error" title="Datei auf dem Server gefunden, aber UNC/Companion-Open ist nicht konfiguriert. Prüfen Sie OPEN_UNC_ROOT und OPEN_LOCAL_ROOT in .env.">
-                    Öffnen nicht konfiguriert
-                </span>
-            `;
         } else {
             actionsHtml = `<span class="badge badge-error">Datei nicht verfügbar</span>`;
         }
@@ -545,6 +541,10 @@ class DocumentSearchApp {
             : '';
         const summaryHtml = summaryStr ? this.escapeHtml(summaryStr) : '';
         const matchHtml = this._buildMatchLocationsHtml(doc);
+        const primaryLocation = this._formatLocation(
+            doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page,
+            doc.sentence_number,
+        );
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
         const fileModified = doc.modified_at || null;
 
@@ -552,6 +552,7 @@ class DocumentSearchApp {
             <div class="document-header">
                 <div class="document-header-text">
                     <div class="document-title">${this.escapeHtml(title)}</div>
+                    ${primaryLocation ? `<div class="document-location">${this.escapeHtml(primaryLocation)}</div>` : ''}
                 </div>
                 <div class="document-actions">
                     ${actionsHtml}
@@ -583,17 +584,44 @@ class DocumentSearchApp {
     }
     
     async openDocument(docId, path, useBrowserClientOpen, useCompanion) {
-        // Companion first when both are available — HTTPS browsers often block UNC/file: launches.
-        if (useCompanion === true) {
+        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+        const browserOpen = useBrowserClientOpen === true || !!cfg.browserClientOpenEnabled;
+        const companionOpen = useCompanion === true || !!cfg.companionEnabled;
+        const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+
+        // Companion first on HTTPS — browsers block UNC/file: launches.
+        if (onHttps && companionOpen) {
             return this.openDocumentCompanion(docId, path);
         }
-        if (useBrowserClientOpen === true) {
+        if (browserOpen) {
             return this.openDocumentOnClient(docId, path);
         }
-        this.showError(
-            'Öffnen ist nicht konfiguriert. Setzen Sie OPEN_UNC_ROOT + OPEN_LOCAL_ROOT ' +
-                'oder installieren Sie den Open Companion.',
-        );
+        if (companionOpen) {
+            return this.openDocumentCompanion(docId, path);
+        }
+
+        try {
+            const response = await fetch(`/api/document/${encodeURIComponent(docId)}/open`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ path: path }),
+            });
+            if (this._redirectIfLoginRequired(response)) return;
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.showSuccess('Dokument wird geöffnet...');
+            } else {
+                throw new Error(data.error || 'Fehler beim Öffnen');
+            }
+        } catch (error) {
+            console.error('Error opening document:', error);
+            this.showError(`Fehler beim Öffnen: ${error.message}`);
+        }
     }
 
     /**
