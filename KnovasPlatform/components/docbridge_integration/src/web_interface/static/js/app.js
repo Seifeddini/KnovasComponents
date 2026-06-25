@@ -9,7 +9,6 @@ class DocumentSearchApp {
         this.resultsCount = document.getElementById('resultsCount');
         this.loadingIndicator = document.getElementById('loadingIndicator');
         this.errorMessage = document.getElementById('errorMessage');
-        this.exactMatch = document.getElementById('exactMatch');
         this.resultsPerPage = document.getElementById('resultsPerPage');
         
         this.currentQuery = '';
@@ -33,8 +32,6 @@ class DocumentSearchApp {
             e.preventDefault();
             this.checkHealth();
         });
-
-        this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
     }
 
     _redirectIfLoginRequired(response) {
@@ -309,9 +306,7 @@ class DocumentSearchApp {
                 body: JSON.stringify({
                     query: query,
                     limit: parseInt(this.resultsPerPage.value),
-                    filters: {
-                        exact_match: this.exactMatch.checked
-                    }
+                    filters: {}
                 })
             });
             if (this._redirectIfLoginRequired(response)) return;
@@ -346,7 +341,6 @@ class DocumentSearchApp {
     displayResults(results, total, semantix) {
         this.resultsSection.style.display = 'block';
         this.resultsContainer.innerHTML = '';
-        this._renderKnovasBanner(semantix);
         
         if (!results || results.length === 0) {
             this.showEmptyState(semantix);
@@ -359,42 +353,6 @@ class DocumentSearchApp {
             const card = this.createDocumentCard(doc, index);
             this.resultsContainer.appendChild(card);
         });
-    }
-    
-    _renderKnovasBanner(semantix) {
-        const el = document.getElementById('semantixResponseBanner');
-        if (!el) return;
-        if (!semantix || typeof semantix !== 'object') {
-            el.style.display = 'none';
-            el.innerHTML = '';
-            return;
-        }
-        const status = semantix.status != null ? String(semantix.status) : '';
-        const message = semantix.message != null ? String(semantix.message) : '';
-        const rc = semantix.result_count;
-        const pointers = Array.isArray(semantix.pointers) ? semantix.pointers : [];
-        const lines = [];
-        if (status || message) {
-            lines.push(`<strong>Knovas</strong>: ${this.escapeHtml(status)}${status && message ? ' — ' : ''}${this.escapeHtml(message)}`);
-        }
-        if (rc != null && rc !== '') {
-            lines.push(`<span class="semantix-rc">Treffer laut API: ${this.escapeHtml(String(rc))}</span>`);
-        }
-        if (pointers.length) {
-            const plist = pointers.map((p) => this.escapeHtml(String(p))).join(', ');
-            lines.push(`<span class="semantix-pointers">Zeiger: ${plist}</span>`);
-        }
-        const qsid = semantix.query_session_id;
-        if (qsid != null && qsid !== '') {
-            lines.push(`<span class="semantix-session">Session: ${this.escapeHtml(String(qsid))}</span>`);
-        }
-        if (!lines.length) {
-            el.style.display = 'none';
-            el.innerHTML = '';
-            return;
-        }
-        el.style.display = 'block';
-        el.innerHTML = `<div class="semantix-response-inner">${lines.join('<br>')}</div>`;
     }
     
     /** Up to maxSentences sentences from plain text (falls back to char limit). */
@@ -437,6 +395,88 @@ class DocumentSearchApp {
         return '';
     }
 
+    /** Knovas /secured/query returns page/sentence only — no matching chunk text. */
+    _formatLocation(pageNum, sentNum) {
+        const parts = [];
+        if (pageNum != null && pageNum !== '') {
+            parts.push(`Seite ${String(pageNum)}`);
+        }
+        if (sentNum != null && sentNum !== '') {
+            parts.push(`Satz ${String(sentNum)}`);
+        }
+        return parts.join(' · ');
+    }
+
+    _formatSimilarity(value) {
+        if (value == null || value === '') return '';
+        const n = Number(value);
+        if (Number.isNaN(n)) return '';
+        return n.toFixed(2);
+    }
+
+    _collectMatchLocations(doc) {
+        const primaryPage = doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page;
+        const primarySent = doc.sentence_number;
+        const primaryKey = `${primaryPage ?? ''}|${primarySent ?? ''}`;
+        const locations = [];
+        const primaryLabel = this._formatLocation(primaryPage, primarySent);
+        if (primaryLabel) {
+            locations.push({
+                label: primaryLabel,
+                sim: doc.cosine_similarity,
+                primary: true,
+            });
+        }
+        const extras = [];
+        const chunks = Array.isArray(doc.top_chunks) ? doc.top_chunks : [];
+        for (const chunk of chunks) {
+            const key = `${chunk.page_number ?? ''}|${chunk.sentence_number ?? ''}`;
+            if (key === primaryKey) continue;
+            const label = this._formatLocation(chunk.page_number, chunk.sentence_number);
+            if (!label) continue;
+            extras.push({
+                label,
+                sim: chunk.cosine_similarity,
+                primary: false,
+            });
+        }
+        extras.sort((a, b) => (Number(b.sim) || 0) - (Number(a.sim) || 0));
+        return locations.concat(extras);
+    }
+
+    _buildMatchLocationsHtml(doc) {
+        const locations = this._collectMatchLocations(doc);
+        if (!locations.length) return '';
+
+        const count = locations.length;
+        const maxDisplayed = 4;
+        const displayed = locations.slice(0, maxDisplayed);
+        const hiddenCount = count - displayed.length;
+        const chips = displayed.map((loc) => {
+            const sim = this._formatSimilarity(loc.sim);
+            const chipClass = loc.primary
+                ? 'match-location-chip match-location-chip--primary'
+                : 'match-location-chip';
+            const scoreHtml = sim
+                ? `<span class="match-location-chip-score">${this.escapeHtml(sim)}</span>`
+                : '';
+            return `<span class="${chipClass}">${this.escapeHtml(loc.label)}${scoreHtml}</span>`;
+        }).join('');
+        const moreHint = hiddenCount > 0
+            ? ` <span class="document-match-more">+${hiddenCount} weitere</span>`
+            : '';
+
+        return `
+            <div class="document-match" role="region" aria-label="Trefferstellen">
+                <div class="document-match-header">
+                    <span class="document-match-label">Trefferstellen</span>
+                    <span class="document-match-count">${count} im Dokument${moreHint}</span>
+                </div>
+                <div class="match-location-list">${chips}</div>
+                <p class="document-match-hint">Öffnen Sie das Dokument an der gewünschten Stelle — Knovas liefert keine Treffertexte mit.</p>
+            </div>`;
+    }
+
     createDocumentCard(doc, index) {
         const card = document.createElement('div');
         card.className = 'document-card';
@@ -444,25 +484,28 @@ class DocumentSearchApp {
         
         const title = this.displayTitle(doc);
         const docId = doc.doc_id || 'N/A';
-        const aktenId = doc.akten_id || 'N/A';
-        const docType = doc.type || doc.doc_type || 'Unbekannt';
-        const desc = doc.description ? String(doc.description).trim() : '';
         const ingestedSummary = this.ingestedSummaryText(doc);
-        const fromKnovas = (doc.snippet || doc.content || '').trim();
-        const snippetSource = fromKnovas || desc;
-        const showSummaryBlock = Boolean(ingestedSummary);
         const path = doc.path || '';
         const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
-        const localAvailable = doc.file_exists === true && path && !externalUrl;
+        const localAvailable =
+            path &&
+            !externalUrl &&
+            (doc.file_exists === true ||
+                (doc.file_exists == null && doc.can_open === true));
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         const useBrowserClientOpen =
             !!cfg.browserClientOpenEnabled && doc.open_via_browser === true;
         const useCompanion =
-            !useBrowserClientOpen && !!cfg.companionEnabled && doc.open_via_companion === true;
+            !!cfg.companionEnabled && doc.open_via_companion === true;
+        const canOpenLocal =
+            localAvailable && (useBrowserClientOpen || useCompanion);
         const isPdf = path.toLowerCase().endsWith('.pdf');
         const canPreviewPdf = !!cfg.pdfInlineInBrowser && isPdf;
         const showDegradedDownload = !!cfg.allowDegradedDownloadOpen;
+        const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+        const openBtnLabel =
+            onHttps && !useCompanion ? '📋 Pfad kopieren (Win+R)' : '📂 Öffnen';
 
         let actionsHtml;
         if (externalUrl) {
@@ -471,7 +514,7 @@ class DocumentSearchApp {
                     🔗 In OneDrive öffnen
                 </a>
             `;
-        } else if (localAvailable) {
+        } else if (canOpenLocal) {
             const previewBtn = canPreviewPdf
                 ? `<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}">PDF Vorschau</a>`
                 : '';
@@ -482,148 +525,81 @@ class DocumentSearchApp {
                 : '';
             actionsHtml = `
                 <button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}', ${useBrowserClientOpen ? 'true' : 'false'}, ${useCompanion ? 'true' : 'false'})">
-                    📂 Öffnen
+                    ${openBtnLabel}
                 </button>
                 ${previewBtn}
                 ${downloadBtn}
+            `;
+        } else if (localAvailable) {
+            actionsHtml = `
+                <span class="badge badge-error" title="Datei auf dem Server gefunden, aber UNC/Companion-Open ist nicht konfiguriert. Prüfen Sie OPEN_UNC_ROOT und OPEN_LOCAL_ROOT in .env.">
+                    Öffnen nicht konfiguriert
+                </span>
             `;
         } else {
             actionsHtml = `<span class="badge badge-error">Datei nicht verfügbar</span>`;
         }
         
-        const defaultNoPreview = 'Keine Vorschau verfügbar';
-        let snippetHtml = '';
-        let showSnippetSection = true;
-        if (snippetSource) {
-            snippetHtml = this.escapeHtml(this.firstSentencesExcerpt(snippetSource, 4));
-        } else if (showSummaryBlock) {
-            showSnippetSection = false;
-        } else {
-            snippetHtml = this.escapeHtml(defaultNoPreview);
-        }
-        const summaryStr = showSummaryBlock
+        const summaryStr = ingestedSummary
             ? this.firstSentencesExcerpt(ingestedSummary, 4, 1200)
             : '';
         const summaryHtml = summaryStr ? this.escapeHtml(summaryStr) : '';
-        
-        const pageNum = doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page;
-        const sentNum = doc.sentence_number;
-        const hasLocation = (pageNum != null && pageNum !== '') || (sentNum != null && sentNum !== '');
-        let locationLine = '';
-        if (hasLocation) {
-            const parts = [];
-            if (pageNum != null && pageNum !== '') parts.push(`Seite ${this.escapeHtml(String(pageNum))}`);
-            if (sentNum != null && sentNum !== '') parts.push(`Satz ${this.escapeHtml(String(sentNum))}`);
-            locationLine = `<div class="document-location">${parts.join(' · ')}</div>`;
-        }
-        const cosSim = doc.cosine_similarity;
-        const cosDist = doc.cosine_distance;
-        let metricsLine = '';
-        if ((cosSim != null && cosSim !== '') || (cosDist != null && cosDist !== '')) {
-            const bits = [];
-            if (cosSim != null && cosSim !== '') bits.push(`cos θ ${this.escapeHtml(String(cosSim))}`);
-            if (cosDist != null && cosDist !== '') bits.push(`Distanz ${this.escapeHtml(String(cosDist))}`);
-            metricsLine = `<div class="document-metrics">${bits.join(' · ')}</div>`;
-        }
-        
+        const matchHtml = this._buildMatchLocationsHtml(doc);
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
         const fileModified = doc.modified_at || null;
-        const pointer =
-            doc.doc_id != null && String(doc.doc_id).trim() ? String(doc.doc_id).trim() : '';
 
         card.innerHTML = `
             <div class="document-header">
-                <div>
+                <div class="document-header-text">
                     <div class="document-title">${this.escapeHtml(title)}</div>
-                    <div class="document-id">ID: ${this.escapeHtml(docId)}</div>
-                    ${locationLine}
-                    ${metricsLine}
                 </div>
                 <div class="document-actions">
                     ${actionsHtml}
                 </div>
             </div>
             
+            ${matchHtml}
+            
+            ${documentDate || fileModified ? `
             <div class="document-meta">
-                <div class="meta-item">
-                    <span>📁</span>
-                    <strong>Akten-ID:</strong> ${this.escapeHtml(aktenId)}
-                </div>
-                <div class="meta-item">
-                    <span>📄</span>
-                    <strong>Typ:</strong> ${this.escapeHtml(docType)}
-                </div>
                 ${documentDate ? `
-                    <div class="meta-item">
-                        <span>📅</span>
-                        <strong>Dokumentdatum:</strong> ${this.formatDate(documentDate)}
-                    </div>
+                    <span class="meta-item">${this.formatDate(documentDate)}</span>
                 ` : ''}
                 ${fileModified ? `
-                    <div class="meta-item">
-                        <span>🕐</span>
-                        <strong>Datei geändert:</strong> ${this.formatDate(fileModified)}
-                    </div>
-                ` : ''}
-                ${doc.file_size ? `
-                    <div class="meta-item">
-                        <span>📊</span>
-                        <strong>Größe:</strong> ${this.formatFileSize(doc.file_size)}
-                    </div>
+                    <span class="meta-item meta-item-muted">Geändert ${this.formatDate(fileModified)}</span>
                 ` : ''}
             </div>
+            ` : ''}
             
             ${summaryHtml ? `
             <div class="document-ingested-summary" role="region" aria-label="Dokumentzusammenfassung">
-                <div class="document-ingested-summary-label">Zusammenfassung</div>
+                <div class="document-ingested-summary-label">Dokumentzusammenfassung (Knovas)</div>
                 <div class="document-ingested-summary-text">${summaryHtml}</div>
             </div>
             ` : ''}
-            ${showSnippetSection ? `
-            <div class="document-snippet"${fromKnovas ? ` aria-label="Trefferausschnitt"` : ''}>
-                ${snippetHtml}
-            </div>
-            ` : ''}
-            ${pointer ? this._buildRatingsSection(pointer) : ''}
         `;
         
         return card;
     }
     
     async openDocument(docId, path, useBrowserClientOpen, useCompanion) {
-        if (useBrowserClientOpen === true) {
-            return this.openDocumentOnClient(docId, path);
-        }
+        // Companion first when both are available — HTTPS browsers often block UNC/file: launches.
         if (useCompanion === true) {
             return this.openDocumentCompanion(docId, path);
         }
-        try {
-            const response = await fetch(`/api/document/${encodeURIComponent(docId)}/open`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ path: path }),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.showSuccess('Dokument wird geöffnet...');
-            } else {
-                throw new Error(data.error || 'Fehler beim Öffnen');
-            }
-        } catch (error) {
-            console.error('Error opening document:', error);
-            this.showError(`Dokument konnte nicht geöffnet werden: ${error.message}`);
+        if (useBrowserClientOpen === true) {
+            return this.openDocumentOnClient(docId, path);
         }
+        this.showError(
+            'Öffnen ist nicht konfiguriert. Setzen Sie OPEN_UNC_ROOT + OPEN_LOCAL_ROOT ' +
+                'oder installieren Sie den Open Companion.',
+        );
     }
 
     /**
      * Open a file on the user's PC using a UNC or local path (no companion install).
-     * Requires the client machine to have the same share mounted / accessible.
+     * Works only on HTTP/intranet where the browser allows file/UNC navigation.
+     * On HTTPS, UNC/file launches are blocked — use Companion or copy the path manually.
      */
     async openDocumentOnClient(docId, path) {
         try {
@@ -635,9 +611,29 @@ class DocumentSearchApp {
             if (!response.ok || !data.success) {
                 throw new Error(data.error || `HTTP ${response.status}`);
             }
+            const pathHint = data.unc ? String(data.unc) : data.path ? String(data.path) : '';
+            const onHttps = window.location.protocol === 'https:';
+
+            if (pathHint) {
+                await this._copyTextOptional(pathHint);
+            }
+
+            if (onHttps) {
+                this.showSuccess(
+                    pathHint
+                        ? `HTTPS blockiert direktes Öffnen. UNC-Pfad kopiert — Win+R, Einfügen, Enter: ${pathHint}`
+                        : 'HTTPS blockiert direktes Öffnen. Installieren Sie den Open Companion.',
+                );
+                return;
+            }
+
             const launched = this._launchClientFile(data.unc, data.path);
             if (launched) {
-                this.showSuccess('Dokument wird auf Ihrem Rechner geöffnet…');
+                this.showSuccess(
+                    pathHint
+                        ? `Dokument wird geöffnet… (${pathHint})`
+                        : 'Dokument wird auf Ihrem Rechner geöffnet…',
+                );
             } else {
                 throw new Error('Browser konnte den lokalen Pfad nicht starten');
             }
@@ -651,11 +647,13 @@ class DocumentSearchApp {
     }
 
     _launchClientFile(unc, clientPath) {
+        // Browsers block file:// to UNC/network paths from HTTPS origins.
+        if (window.location.protocol === 'https:') {
+            return false;
+        }
         const hrefs = [];
         if (unc && String(unc).startsWith('\\\\')) {
-            const fileUri =
-                'file:///' + String(unc).slice(2).replace(/\\/g, '/');
-            hrefs.push(fileUri, String(unc));
+            hrefs.push(String(unc));
         }
         if (clientPath) {
             const p = String(clientPath);
@@ -679,6 +677,19 @@ class DocumentSearchApp {
             }
         }
         return false;
+    }
+
+    async _copyTextOptional(text) {
+        if (!text || !navigator.clipboard || !navigator.clipboard.writeText) {
+            return false;
+        }
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) {
+            console.warn('Clipboard copy failed:', e);
+            return false;
+        }
     }
 
     async openDocumentCompanion(docId, path) {
@@ -744,11 +755,6 @@ class DocumentSearchApp {
         this.resultsSection.setAttribute('aria-busy', 'true');
         this.loadingIndicator.style.display = 'block';
         this.resultsContainer.style.display = 'none';
-        const banner = document.getElementById('semantixResponseBanner');
-        if (banner) {
-            banner.style.display = 'none';
-            banner.innerHTML = '';
-        }
         if (this.resultsCount) {
             this.resultsCount.textContent = '';
         }
@@ -784,11 +790,10 @@ class DocumentSearchApp {
         
         setTimeout(() => {
             successDiv.remove();
-        }, 3000);
+        }, 8000);
     }
     
     showEmptyState(semantix) {
-        this._renderKnovasBanner(semantix || null);
         this.resultsContainer.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">🔍</div>

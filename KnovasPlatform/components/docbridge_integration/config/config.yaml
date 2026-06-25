@@ -146,6 +146,9 @@ web:
   # Browser tab and page heading (rebuild docbridge-web image after changing)
   app_title: "${WEB_APP_TITLE:-Knovas Document Search}"
 
+  # Optional UI theme: atelier | ledger | horizon | helvetia (empty = built-in default)
+  theme: "${WEB_UI_THEME:-}"
+
   # Company login gate
   login:
     enabled: "${COMPANY_LOGIN_ENABLED:-true}"

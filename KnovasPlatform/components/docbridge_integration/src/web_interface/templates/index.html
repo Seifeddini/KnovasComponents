@@ -5,10 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ app_title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% if draft_theme %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/drafts/' ~ draft_theme ~ '.css') }}">
+    {% endif %}
 </head>
-<body>
+<body{% if draft_theme %} class="theme-draft-{{ draft_theme }}"{% endif %}>
     <div class="container">
-        <header>
+        <header class="site-header">
             <h1>{{ app_title }}</h1>
             <p class="subtitle">Powered by Knovas{% if company_name %} · {{ company_name }}{% endif %}</p>
             <p class="header-feedback">
@@ -35,11 +38,8 @@
                 </div>
                 
                 <div class="search-options">
-                    <label>
-                        <input type="checkbox" id="exactMatch"> Exakte Übereinstimmung
-                    </label>
-                    <label>
-                        Ergebnisse pro Seite:
+                    <label class="search-options-label">
+                        Ergebnisse:
                         <select id="resultsPerPage">
                             <option value="10">10</option>
                             <option value="20" selected>20</option>
@@ -55,8 +55,6 @@
                     <h2>Suchergebnisse</h2>
                     <span id="resultsCount" class="results-count"></span>
                 </div>
-                <div id="semantixResponseBanner" class="semantix-response-banner" style="display: none;" aria-live="polite"></div>
-                
                 <div id="resultsContainer" class="results-container">
                     <!-- Results will be dynamically inserted here -->
                 </div>
@@ -70,7 +68,7 @@
             </section>
         </main>
 
-        <footer>
+        <footer class="site-footer">
             <p>&copy; 2026 Knovas</p>
             <p class="footer-links">
                 <a href="#" id="healthCheck">System Status</a>

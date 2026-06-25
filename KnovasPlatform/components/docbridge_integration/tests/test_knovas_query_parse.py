@@ -4,6 +4,8 @@ from knovas_client import (
     _display_title_for_hit,
     _ingested_summary_from_hit,
     _ingested_summary_text,
+    _merge_secured_query_hit,
+    _normalize_top_chunks,
 )
 
 
@@ -36,3 +38,27 @@ def test_ingested_summary_from_hit_nested():
         "ingested_summary": {"present": True, "text": "Document about bankruptcy."},
     }
     assert _ingested_summary_from_hit(hit) == "Document about bankruptcy."
+
+
+def test_normalize_top_chunks_location_only():
+  chunks = [
+      {"page_number": 3, "sentence_number": 12, "cosine_similarity": 0.91},
+      {"page_number": 2, "sentence_number": 8, "cosine_similarity": 0.78},
+  ]
+  assert _normalize_top_chunks(chunks) == chunks
+
+
+def test_merge_secured_query_hit_does_not_invent_snippet():
+    hit = {
+        "pointer": "doc/a.pdf",
+        "page_number": None,
+        "sentence_number": None,
+        "top_chunks": [
+            {"page_number": 1, "sentence_number": 4, "cosine_similarity": 0.8},
+        ],
+    }
+    merged = _merge_secured_query_hit(hit)
+    assert merged["page_number"] == 1
+    assert merged["sentence_number"] == 4
+    assert "snippet" not in merged
+    assert "text" not in merged

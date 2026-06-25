@@ -351,10 +351,31 @@ def _first_top_chunk(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return first if isinstance(first, dict) else None
 
 
+def _normalize_top_chunks(chunks: Any) -> List[Dict[str, Any]]:
+    """Knovas /secured/query: top_chunks holds extra match locations (no chunk text)."""
+    if not isinstance(chunks, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        row: Dict[str, Any] = {}
+        for key in ("page_number", "sentence_number", "cosine_similarity", "cosine_distance"):
+            val = chunk.get(key)
+            if val is None and key.startswith("cosine"):
+                camel = "cosineSimilarity" if key == "cosine_similarity" else "cosineDistance"
+                val = chunk.get(camel)
+            if val is not None:
+                row[key] = val
+        if row:
+            out.append(row)
+    return out
+
+
 def _merge_secured_query_hit(item: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Flatten Knovas /secured/query result rows: copy top_chunks[0] fields when
-    top-level values are missing (page_number, cosine metrics, final_score, snippet).
+    Flatten Knovas /secured/query result rows: copy top_chunks[0] score/location
+    fields when top-level values are missing. Chunk text is never in the API payload.
     """
     merged = dict(item)
     tc = _first_top_chunk(item)
@@ -378,15 +399,6 @@ def _merge_secured_query_hit(item: Dict[str, Any]) -> Dict[str, Any]:
         "cosineDistance",
         "final_score",
         "FinalScore",
-        "snippet",
-        "text",
-        "chunk",
-        "content",
-        "body",
-        "preview",
-        "matched_text",
-        "excerpt",
-        "highlight",
         "ingested_summary",
         "ingestedSummary",
     ):
@@ -960,10 +972,12 @@ class KnovasAPIClient:
             summary = _ingested_summary_from_hit(item)
             if summary:
                 row['ingested_summary'] = summary
-            chunk = _chunk_text_from_hit(item)
-            if chunk:
-                row['snippet'] = chunk
-                row['content'] = chunk
+            doc_uuid = item.get('document_uuid')
+            if doc_uuid:
+                row['document_uuid'] = str(doc_uuid)
+            top_chunks = _normalize_top_chunks(item.get('top_chunks'))
+            if top_chunks:
+                row['top_chunks'] = top_chunks
             normalized_results.append(row)
 
         semantix_meta = {

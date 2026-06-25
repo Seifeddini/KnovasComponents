@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - {{ app_title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% if draft_theme %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/drafts/' ~ draft_theme ~ '.css') }}">
+    {% endif %}
 </head>
-<body class="login-page">
+<body class="login-page{% if draft_theme %} theme-draft-{{ draft_theme }}{% endif %}">
     <main class="login-shell">
         <section class="login-card" aria-labelledby="loginTitle">
             <div class="login-brand">{{ app_title }}</div>

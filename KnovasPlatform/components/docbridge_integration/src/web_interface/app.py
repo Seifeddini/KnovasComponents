@@ -85,17 +85,29 @@ def _build_similarity_debug(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _autodoc_identifier_prefixes() -> List[str]:
+    """RC/Knovas pointer prefixes to strip (comma- or semicolon-separated)."""
+    raw = (os.getenv("AUTODOC_IDENTIFIER_PREFIX") or "").strip()
+    if not raw:
+        return []
+    parts = raw.replace(";", ",").split(",")
+    return [p.strip().strip("/") for p in parts if p.strip().strip("/")]
+
+
 def _rel_path_for_autodoc(pointer: str) -> str:
     """
     Map Knovas pointer to a path under the autodoc mount.
 
     RemoteController sync uses identifier_prefix (e.g. ``corpus/rel/path.txt``).
     Set AUTODOC_IDENTIFIER_PREFIX=corpus when the mount root is the corpus folder itself.
+    Multiple prefixes (corpus,winjur) support mixed tenants during RC prefix migrations.
     """
     rel = (pointer or "").strip().replace("\\", "/")
-    prefix = (os.getenv("AUTODOC_IDENTIFIER_PREFIX") or "").strip().strip("/")
-    if prefix and rel.startswith(prefix + "/"):
-        rel = rel[len(prefix) + 1 :]
+    for prefix in _autodoc_identifier_prefixes():
+        needle = prefix + "/"
+        if rel.lower().startswith(needle.lower()):
+            rel = rel[len(needle) :]
+            break
     return rel
 
 
@@ -123,6 +135,208 @@ def _log_search_similarity_debug(query: str, results: List[Dict[str, Any]]) -> N
         min(scores),
         brief,
     )
+
+
+def _demo_hit_locations(count: int = 15) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Build primary + top_chunks for local multihit UI demo (distinct page/sentence pairs)."""
+    locations: List[Dict[str, Any]] = []
+    for i in range(count):
+        locations.append({
+            'page_number': (i // 5) + 1,
+            'sentence_number': (i % 5) + 1,
+            'cosine_similarity': round(max(0.55, 0.93 - i * 0.025), 2),
+        })
+    return locations[0], locations
+
+
+_demo_primary, _demo_top_chunks = _demo_hit_locations(15)
+
+_TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
+    {
+        'doc_id': 'corpus/demo/Mietrecht_Kommentar.pdf',
+        'path': 'corpus/demo/Mietrecht_Kommentar.pdf',
+        'title': 'Mietrecht Kommentar (Demo: 15 Trefferstellen)',
+        'akten_id': '2024-050',
+        'type': 'Kommentar',
+        'score': _demo_primary['cosine_similarity'],
+        'cosine_similarity': _demo_primary['cosine_similarity'],
+        'cosine_distance': round(1.0 - float(_demo_primary['cosine_similarity']), 2),
+        'page_number': _demo_primary['page_number'],
+        'sentence_number': _demo_primary['sentence_number'],
+        'document_date': '2024-08-10T09:00:00',
+        'top_chunks': _demo_top_chunks,
+        'ingested_summary': (
+            'Demo-Dokument mit 15 Trefferstellen in einem Suchergebnis. '
+            'Suche lokal mit „Mietrecht“ oder „Multitreffer“.'
+        ),
+        'file_size': 1048576,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\demo\Mietrecht_Kommentar.pdf',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Mustervertrag.pdf',
+        'path': 'corpus/2024-001/Mustervertrag.pdf',
+        'title': 'Mustervertrag Kaufvertrag Immobilie',
+        'akten_id': '2024-001',
+        'type': 'Vertrag',
+        'score': 0.91,
+        'cosine_similarity': 0.91,
+        'cosine_distance': 0.09,
+        'page_number': 3,
+        'sentence_number': 12,
+        'document_date': '2024-03-15T10:00:00',
+        'top_chunks': [
+            {'page_number': 3, 'sentence_number': 12, 'cosine_similarity': 0.91},
+            {'page_number': 2, 'sentence_number': 8, 'cosine_similarity': 0.78},
+        ],
+        'ingested_summary': (
+            'Kaufvertrag über eine Wohnimmobilie mit Standardklauseln zu '
+            'Kaufpreis, Übergabe und Gewährleistung.'
+        ),
+        'file_size': 245760,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Mustervertrag.pdf',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Schriftsatz_Klage.docx',
+        'path': 'corpus/2024-001/Schriftsatz_Klage.docx',
+        'title': 'Schriftsatz Klage',
+        'akten_id': '2024-001',
+        'type': 'Schriftsatz',
+        'score': 0.84,
+        'cosine_similarity': 0.84,
+        'cosine_distance': 0.16,
+        'page_number': 1,
+        'sentence_number': 4,
+        'document_date': '2024-05-02T14:30:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 4, 'cosine_similarity': 0.84},
+        ],
+        'file_size': 98304,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Schriftsatz_Klage.docx',
+    },
+    {
+        'doc_id': 'corpus/2023-088/Gutachten_Baumfaellung.pdf',
+        'path': 'corpus/2023-088/Gutachten_Baumfaellung.pdf',
+        'title': 'Gutachten Baumfällung Nachbargrundstück',
+        'akten_id': '2023-088',
+        'type': 'Gutachten',
+        'score': 0.77,
+        'cosine_similarity': 0.77,
+        'cosine_distance': 0.23,
+        'page_number': 7,
+        'sentence_number': 2,
+        'document_date': '2023-11-20T09:15:00',
+        'top_chunks': [
+            {'page_number': 7, 'sentence_number': 2, 'cosine_similarity': 0.77},
+        ],
+        'ingested_summary': 'Sachverständigengutachten zur Verkehrssicherungspflicht bei einem Grenzbaum.',
+        'file_size': 512000,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2023-088\Gutachten_Baumfaellung.pdf',
+    },
+    {
+        'doc_id': 'corpus/2024-010/Protokoll_Besprechung.docx',
+        'path': 'corpus/2024-010/Protokoll_Besprechung.docx',
+        'title': 'Besprechungsprotokoll Mandant',
+        'akten_id': '2024-010',
+        'type': 'Protokoll',
+        'score': 0.72,
+        'cosine_similarity': 0.72,
+        'cosine_distance': 0.28,
+        'page_number': 2,
+        'sentence_number': 8,
+        'document_date': '2024-06-01T16:45:00',
+        'top_chunks': [
+            {'page_number': 2, 'sentence_number': 8, 'cosine_similarity': 0.72},
+        ],
+        'external_url': 'https://contoso.sharepoint.com/sites/legal/Shared%20Documents/Protokoll.docx',
+        'file_size': 45056,
+    },
+]
+
+
+def _search_use_test_results() -> bool:
+    """Return sample hits for local UI work when Knovas is unavailable."""
+    flag = (os.getenv('SEARCH_USE_TEST_RESULTS') or '').strip().lower()
+    if flag in ('1', 'true', 'yes', 'on'):
+        return True
+    if flag in ('0', 'false', 'no', 'off'):
+        return False
+    env = (os.getenv('ENVIRONMENT') or '').strip().lower()
+    return env in ('local', 'dev')
+
+
+def _test_result_haystack(row: Dict[str, Any]) -> str:
+    parts = [
+        row.get('title'),
+        row.get('ingested_summary'),
+        row.get('path'),
+        row.get('doc_id'),
+        row.get('akten_id'),
+        row.get('type'),
+    ]
+    return ' '.join(str(p) for p in parts if p).lower()
+
+
+def _build_test_search_results(query: str, limit: int) -> Dict[str, Any]:
+    """Deterministic sample search payload for local development."""
+    q = (query or '').strip().lower()
+    terms = [t for t in re.split(r'\s+', q) if len(t) >= 2]
+    rows: List[Dict[str, Any]] = []
+    for fixture in _TEST_SEARCH_FIXTURES:
+        hay = _test_result_haystack(fixture)
+        if not q or not terms or all(term in hay for term in terms):
+            rows.append({k: v for k, v in fixture.items() if k != 'client_open_unc'})
+    if not rows and q:
+        rows = [{k: v for k, v in fixture.items() if k != 'client_open_unc'}
+                for fixture in _TEST_SEARCH_FIXTURES[:2]]
+    rows = rows[: max(1, limit)]
+    pointers = [str(r.get('doc_id') or '') for r in rows if r.get('doc_id')]
+    return {
+        'results': rows,
+        'total': len(rows),
+        'semantix': {
+            'status': 'test_data',
+            'message': 'Beispieltreffer für lokale Entwicklung (Knovas API nicht verwendet)',
+            'result_count': len(rows),
+            'pointers': pointers,
+            'query_session_id': 'local-test-session-0001',
+        },
+    }
+
+
+def _apply_test_open_hints(
+    results: List[Dict[str, Any]],
+    browser_client_open_enabled: bool,
+    companion_enabled: bool,
+    companion_uri_scheme: str,
+) -> None:
+    """Mark sample hits as openable for UI development without a real AutoDoc mount."""
+    by_id = {str(f.get('doc_id') or ''): f for f in _TEST_SEARCH_FIXTURES}
+    for result in results:
+        if result.get('external_url'):
+            result['file_exists'] = True
+            result['can_open'] = True
+            result['open_mode'] = 'external'
+            continue
+        fixture = by_id.get(str(result.get('doc_id') or ''))
+        result['can_open'] = True
+        result['file_exists'] = None
+        unc = fixture.get('client_open_unc') if fixture else None
+        if browser_client_open_enabled and unc:
+            result['open_via_browser'] = True
+            result['client_open_unc'] = unc
+        if companion_enabled and unc:
+            result['open_via_companion'] = True
+            result['companion_scheme'] = companion_uri_scheme
+
+
+DRAFT_THEME_SLUGS = frozenset({'atelier', 'ledger', 'horizon', 'helvetia'})
+
+
+def _normalize_ui_theme_slug(raw: Optional[str]) -> Optional[str]:
+    slug = (raw or '').strip().lower()
+    if slug in DRAFT_THEME_SLUGS:
+        return slug
+    return None
 
 
 def create_app(config_path: Optional[str] = None):
@@ -159,6 +373,27 @@ def create_app(config_path: Optional[str] = None):
     file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
     web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
+    configured_ui_theme_raw = str(config.get('web.theme', '') or '').strip()
+    web_ui_theme = _normalize_ui_theme_slug(configured_ui_theme_raw)
+    if configured_ui_theme_raw and not web_ui_theme:
+        logger.warning(
+            'Invalid web.theme / WEB_UI_THEME=%r; must be one of: %s',
+            configured_ui_theme_raw,
+            ', '.join(sorted(DRAFT_THEME_SLUGS)),
+        )
+    elif web_ui_theme:
+        logger.info('Web UI theme: %s', web_ui_theme)
+
+    def _resolve_ui_theme() -> Optional[str]:
+        """?theme= overrides web.theme / WEB_UI_THEME when set."""
+        query_theme = _normalize_ui_theme_slug(request.args.get('theme'))
+        if query_theme:
+            return query_theme
+        return web_ui_theme
+
+    def _theme_from_query_only() -> Optional[str]:
+        """Explicit ?theme= only (e.g. preserve preview override after login)."""
+        return _normalize_ui_theme_slug(request.args.get('theme'))
     login_company_name = config.get('web.login.company_name', 'Knovas')
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
@@ -369,7 +604,12 @@ def create_app(config_path: Optional[str] = None):
                 session['company_login_ok'] = True
                 session['company_login_name'] = submitted_name
                 session['csrf_token'] = secrets.token_urlsafe(32)
-                return redirect(next_url)
+                dest = next_url
+                theme = _theme_from_query_only()
+                if theme:
+                    sep = '&' if '?' in dest else '?'
+                    dest = f'{dest}{sep}theme={theme}'
+                return redirect(dest)
             else:
                 error = 'Login-Name oder Passwort ist falsch.'
 
@@ -380,6 +620,7 @@ def create_app(config_path: Optional[str] = None):
             error=error,
             next_url=next_url,
             csrf_token=csrf_token,
+            draft_theme=_resolve_ui_theme(),
         )
 
     @app.route('/logout', methods=['POST'])
@@ -403,6 +644,7 @@ def create_app(config_path: Optional[str] = None):
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
+            draft_theme=_resolve_ui_theme(),
         )
     
     @app.route('/api/search', methods=['POST'])
@@ -440,7 +682,27 @@ def create_app(config_path: Optional[str] = None):
                     'error': f'Suchbegriff muss mindestens {min_qlen} Zeichen haben.',
                 }), 400
 
-            results = api_client.search_documents(query=query, limit=limit, filters=filters)
+            use_test_results = _search_use_test_results()
+            if use_test_results:
+                logger.info("Search using local test fixtures (SEARCH_USE_TEST_RESULTS / ENVIRONMENT=local)")
+                results = _build_test_search_results(query=query, limit=limit)
+            else:
+                try:
+                    results = api_client.search_documents(query=query, limit=limit, filters=filters)
+                except Exception as api_err:
+                    if (os.getenv('ENVIRONMENT') or '').strip().lower() in ('local', 'dev'):
+                        logger.warning(
+                            "Knovas search failed in local mode; using test fixtures: %s",
+                            api_err,
+                        )
+                        results = _build_test_search_results(query=query, limit=limit)
+                    else:
+                        raise
+
+            is_test_data = use_test_results or (
+                isinstance(results.get('semantix'), dict)
+                and results['semantix'].get('status') == 'test_data'
+            )
 
             enhanced_results = _enhance_search_results(results, file_handler, config)
             for result in enhanced_results.get('results') or []:
@@ -458,6 +720,13 @@ def create_app(config_path: Optional[str] = None):
                         if companion_enabled and _can_open_via_companion(full):
                             result['open_via_companion'] = True
                             result['companion_scheme'] = companion_uri_scheme
+            if is_test_data:
+                _apply_test_open_hints(
+                    enhanced_results.get('results') or [],
+                    browser_client_open_enabled,
+                    companion_enabled,
+                    companion_uri_scheme,
+                )
             refined = _apply_search_refinement(enhanced_results, query, filters, config)
 
             final_results = refined.get('results', [])

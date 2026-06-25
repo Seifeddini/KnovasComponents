@@ -1,0 +1,251 @@
+/**
+ * Draft theme: Horizon — airy, soft gradient, modern product UI.
+ * Preview: /?theme=horizon
+ */
+
+body.theme-draft-horizon {
+    --primary-color: #6d28d9;
+    --primary-hover: #5b21b6;
+    --success-color: #059669;
+    --error-color: #e11d48;
+    --bg-color: #f5f3ff;
+    --card-bg: #ffffff;
+    --text-primary: #1e1b4b;
+    --text-secondary: #5b5676;
+    --text-muted: #8b85a8;
+    --border-color: #e4e0f5;
+    --shadow: 0 4px 20px rgba(109, 40, 217, 0.06);
+    --shadow-lg: 0 20px 50px rgba(109, 40, 217, 0.12);
+    --radius: 16px;
+    --radius-lg: 24px;
+
+    font-family: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(167, 139, 250, 0.35), transparent),
+        radial-gradient(ellipse 60% 40% at 100% 50%, rgba(196, 181, 253, 0.2), transparent),
+        linear-gradient(180deg, #faf8ff 0%, #f5f3ff 40%, #ede9fe 100%);
+    min-height: 100vh;
+}
+
+body.theme-draft-horizon .container {
+    max-width: 720px;
+    padding-top: 32px;
+}
+
+body.theme-draft-horizon .site-header {
+    text-align: center;
+    padding: 16px 24px 28px;
+    margin-bottom: 20px;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+}
+
+body.theme-draft-horizon .site-header h1 {
+    font-size: 1.85rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, #4c1d95 0%, #7c3aed 55%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+body.theme-draft-horizon .subtitle {
+    font-size: 0.95rem;
+    margin-top: 6px;
+}
+
+body.theme-draft-horizon .feedback-link {
+    border: none;
+    background: linear-gradient(135deg, #ede9fe, #f5f3ff);
+    box-shadow: inset 0 0 0 1px #ddd6fe;
+    border-radius: 999px;
+}
+
+body.theme-draft-horizon .feedback-link:hover {
+    background: linear-gradient(135deg, #ddd6fe, #ede9fe);
+    box-shadow: inset 0 0 0 1px #c4b5fd;
+}
+
+body.theme-draft-horizon .logout-button {
+    color: var(--text-muted);
+}
+
+body.theme-draft-horizon .search-section {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+body.theme-draft-horizon #searchInput {
+    border: none;
+    background: #f5f3ff;
+    border-radius: 999px;
+    padding: 15px 20px;
+    box-shadow: inset 0 0 0 1px #e9e3ff;
+}
+
+body.theme-draft-horizon #searchInput:focus {
+    box-shadow: inset 0 0 0 2px #a78bfa, 0 0 0 4px rgba(167, 139, 250, 0.25);
+}
+
+body.theme-draft-horizon .btn {
+    border-radius: 999px;
+}
+
+body.theme-draft-horizon .btn-primary {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    box-shadow: 0 8px 20px rgba(109, 40, 217, 0.28);
+}
+
+body.theme-draft-horizon .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #6d28d9, #5b21b6);
+    transform: translateY(-1px);
+}
+
+body.theme-draft-horizon .search-options select {
+    border-radius: 999px;
+    border-color: #e9e3ff;
+    background: #faf8ff;
+}
+
+body.theme-draft-horizon .results-section {
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 24px;
+}
+
+body.theme-draft-horizon .results-header {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+body.theme-draft-horizon .results-header h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+body.theme-draft-horizon .results-count {
+    background: #ede9fe;
+    color: #5b21b6;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+body.theme-draft-horizon .document-card {
+    background: #fff;
+    border: 1px solid #ede9fe;
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: 0 2px 12px rgba(109, 40, 217, 0.05);
+}
+
+body.theme-draft-horizon .document-card:hover {
+    border-color: #c4b5fd;
+    box-shadow: var(--shadow);
+    transform: translateY(-2px);
+}
+
+body.theme-draft-horizon .document-title {
+    font-size: 1.08rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+body.theme-draft-horizon .btn-success {
+    border-radius: 999px;
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
+body.theme-draft-horizon .btn-outline {
+    border-radius: 999px;
+    border-color: #ddd6fe;
+}
+
+body.theme-draft-horizon .document-match {
+    background: linear-gradient(135deg, #faf8ff, #f5f3ff);
+    border: 1px solid #e9e3ff;
+    border-radius: 14px;
+}
+
+body.theme-draft-horizon .match-location-chip {
+    border-radius: 999px;
+    background: #fff;
+    border-color: #e9e3ff;
+    box-shadow: 0 1px 4px rgba(109, 40, 217, 0.06);
+}
+
+body.theme-draft-horizon .match-location-chip--primary {
+    background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+    border-color: #c4b5fd;
+    color: #5b21b6;
+}
+
+body.theme-draft-horizon .document-ingested-summary {
+    background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+    border-radius: 14px;
+    border: 1px solid #e9e3ff;
+}
+
+body.theme-draft-horizon .document-ingested-summary-label {
+    color: #7c3aed;
+}
+
+body.theme-draft-horizon .spinner {
+    border-color: #e9e3ff;
+    border-top-color: #7c3aed;
+}
+
+body.theme-draft-horizon .site-footer {
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-top: 24px;
+}
+
+body.theme-draft-horizon.login-page {
+    background:
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(167, 139, 250, 0.4), transparent),
+        linear-gradient(180deg, #faf8ff, #ede9fe);
+}
+
+body.theme-draft-horizon .login-card {
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(12px);
+    background: rgba(255, 255, 255, 0.9);
+}
+
+body.theme-draft-horizon .login-brand {
+    background: linear-gradient(135deg, #4c1d95, #7c3aed);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+body.theme-draft-horizon .login-form input {
+    border-radius: 12px;
+    border-color: #e9e3ff;
+    background: #faf8ff;
+}
+
+body.theme-draft-horizon .login-form input:focus {
+    border-color: #a78bfa;
+    box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.2);
+}
