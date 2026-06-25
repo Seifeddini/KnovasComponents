@@ -494,9 +494,10 @@ class DocumentSearchApp {
         const path = doc.path || '';
         const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
+        const hasOneDrive = Boolean(externalUrl) || doc.open_mode === 'external';
         const localAvailable =
             path &&
-            !externalUrl &&
+            !hasOneDrive &&
             (doc.file_exists === true ||
                 (doc.file_exists == null && doc.can_open === true));
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
@@ -510,9 +511,10 @@ class DocumentSearchApp {
             onHttps && !useCompanion ? '📋 Pfad kopieren (Win+R)' : '📂 Öffnen';
 
         let actionsHtml;
-        if (externalUrl) {
+        if (hasOneDrive) {
+            const openHref = this.externalOpenHref(docId, path || docId);
             actionsHtml = `
-                <a class="btn btn-success" href="${this.escapeAttr(externalUrl)}" target="_blank" rel="noopener noreferrer">
+                <a class="btn btn-success" href="${this.escapeAttr(openHref)}" target="_blank" rel="noopener noreferrer">
                     🔗 In OneDrive öffnen
                 </a>
             `;
@@ -837,6 +839,13 @@ class DocumentSearchApp {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /** Same-origin redirect; server resolves OneDrive webUrl from enrichment JSONL. */
+    externalOpenHref(docId, path) {
+        const idSeg = encodeURIComponent(docId || '');
+        const pathSeg = encodeURIComponent(path || docId || '');
+        return `/api/document/${idSeg}/external-open?path=${pathSeg}`;
     }
     
     /** Escape for use inside double-quoted HTML attributes (e.g. href). */

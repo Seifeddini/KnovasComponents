@@ -161,6 +161,11 @@ main {
     align-items: center;
     gap: 6px;
     white-space: nowrap;
+    text-decoration: none;
+}
+
+a.btn-success {
+    color: white;
 }
 
 .btn-primary {

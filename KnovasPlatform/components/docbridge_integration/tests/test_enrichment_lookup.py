@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 
@@ -10,7 +11,9 @@ if str(SRC) not in sys.path:
 from web_interface.app import (  # noqa: E402
     _apply_external_open_mode,
     _enrichment_lookup_keys,
+    _load_search_enrichment,
     _lookup_enrichment_meta,
+    _resolve_onedrive_url,
     _web_url_from_enrichment,
 )
 
@@ -54,3 +57,98 @@ def test_external_open_mode_clears_local_open_flags():
     assert row["open_mode"] == "external"
     assert "open_via_browser" not in row
     assert "client_open_unc" not in row
+
+
+def test_load_enrichment_registers_alias_keys(monkeypatch, tmp_path):
+    import web_interface.app as wa
+
+    wa._search_enrichment_cache = {}
+    wa._search_enrichment_unique = []
+    wa._search_enrichment_mtime = 0.0
+    monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "corpus")
+    enrichment_file = tmp_path / ".search_enrichment.jsonl"
+    enrichment_file.write_text(
+        '{"doc_id": "corpus/Adiuvat/vertrag.pdf", "web_url": "https://contoso.sharepoint.com/vertrag.pdf"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(enrichment_file))
+    loaded = _load_search_enrichment()
+    assert "corpus/Adiuvat/vertrag.pdf" in loaded
+    assert "Adiuvat/vertrag.pdf" in loaded
+    assert _resolve_onedrive_url("Adiuvat/vertrag.pdf", "Adiuvat/vertrag.pdf") == (
+        "https://contoso.sharepoint.com/vertrag.pdf"
+    )
+
+
+def test_external_open_redirect(tmp_path, monkeypatch):
+    import web_interface.app as wa
+
+    wa._search_enrichment_cache = {}
+    wa._search_enrichment_unique = []
+    wa._search_enrichment_mtime = 0.0
+    monkeypatch.setenv("WEB_SECRET_KEY", "test-secret-enrichment-open")
+    monkeypatch.setenv("COMPANY_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("COMPANY_DISPLAY_NAME", "Test Company")
+    monkeypatch.setenv("COMPANY_LOGIN_NAME", "office")
+    monkeypatch.setenv("COMPANY_LOGIN_PASSWORD", "s3cret")
+    monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "corpus")
+
+    enrichment_file = tmp_path / ".search_enrichment.jsonl"
+    enrichment_file.write_text(
+        '{"doc_id": "corpus/sub/hello.pdf", "web_url": "https://contoso.sharepoint.com/hello.pdf"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(enrichment_file))
+
+    ad = tmp_path / "autodoc"
+    ad.mkdir()
+    config_path = tmp_path / "config.yaml"
+    ad_str = str(ad).replace("\\", "/")
+    config_path.write_text(
+        f"""
+web:
+  secret_key: "${{WEB_SECRET_KEY}}"
+  session_lifetime: 3600
+  login:
+    enabled: "${{COMPANY_LOGIN_ENABLED:-true}}"
+    company_name: "${{COMPANY_DISPLAY_NAME:-Knovas}}"
+    username: "${{COMPANY_LOGIN_NAME}}"
+    password: "${{COMPANY_LOGIN_PASSWORD}}"
+  search:
+    results_per_page: 20
+api:
+  base_url: "http://example.test"
+open:
+  browser_client_path: false
+  companion_enabled: false
+  local_root: "{ad_str}"
+""",
+        encoding="utf-8",
+    )
+
+    from web_interface import app as web_app
+
+    flask_app = web_app.create_app(str(config_path))
+    client = flask_app.test_client()
+    login_page = client.get("/login")
+    csrf = re.search(
+        r'name="csrf_token"\s+value="([^"]+)"',
+        login_page.get_data(as_text=True),
+    )
+    assert csrf
+    resp_login = client.post(
+        "/login",
+        data={
+            "login_name": "office",
+            "password": "s3cret",
+            "csrf_token": csrf.group(1),
+        },
+        follow_redirects=True,
+    )
+    assert resp_login.status_code == 200
+
+    resp = client.get(
+        "/api/document/corpus%2Fsub%2Fhello.pdf/external-open?path=corpus%2Fsub%2Fhello.pdf"
+    )
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "https://contoso.sharepoint.com/hello.pdf"

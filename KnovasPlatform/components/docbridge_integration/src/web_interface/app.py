@@ -58,6 +58,7 @@ def _configure_logging_for_wsgi(config) -> None:
 
 
 _search_enrichment_cache: Dict[str, dict] = {}
+_search_enrichment_unique: List[dict] = []
 _search_enrichment_mtime: float = 0.0
 
 
@@ -924,6 +925,27 @@ def create_app(config_path: Optional[str] = None):
         body.update(targets)
         return jsonify(body)
 
+    @app.route('/api/document/<path:doc_id>/external-open', methods=['GET'])
+    def document_external_open(doc_id: str):
+        """
+        Redirect to OneDrive / SharePoint webUrl for this document (session required).
+        Resolves enrichment at click time so links stay fresh and hrefs stay same-origin.
+        """
+        file_path = str(request.args.get('path') or doc_id).strip()
+        url = _resolve_onedrive_url(doc_id, file_path, config)
+        if not url:
+            logger.info(
+                "OneDrive open miss doc_id=%r path=%r enrichment_path=%r",
+                doc_id,
+                file_path,
+                _enrichment_path_from_config(config),
+            )
+            return jsonify({
+                'success': False,
+                'error': 'Kein OneDrive-Link für dieses Dokument.',
+            }), 404
+        return redirect(url, code=302)
+
     @app.route('/api/open-tokens/mint', methods=['POST'])
     def open_token_mint():
         """Mint a short-lived signed token for companion redeem (browser must send CSRF)."""
@@ -1328,7 +1350,8 @@ def _supplement_results_from_enrichment_filenames(
         return results
 
     enrichment = _load_search_enrichment(config)
-    if not enrichment:
+    unique_records = _unique_enrichment_records()
+    if not enrichment or not unique_records:
         return results
 
     existing = {str(r.get("doc_id")) for r in results if r.get("doc_id") is not None}
@@ -1339,7 +1362,11 @@ def _supplement_results_from_enrichment_filenames(
 
     extra: List[Dict[str, Any]] = []
     scanned = 0
-    for did, meta in enrichment.items():
+    for meta in unique_records:
+        did = meta.get("doc_id")
+        if did is None:
+            continue
+        did = str(did)
         scanned += 1
         if scanned > max_scan:
             break
@@ -1435,6 +1462,32 @@ def _lookup_enrichment_meta(enrichment: Dict[str, dict], result: Dict[str, Any])
     return None
 
 
+def _enrichment_index_keys(doc_id: str) -> List[str]:
+    """All lookup keys to register for one enrichment JSONL row."""
+    return _enrichment_lookup_keys({
+        "doc_id": doc_id,
+        "path": doc_id,
+        "pointer": doc_id,
+    })
+
+
+def _resolve_onedrive_url(doc_id: str, path: str, config=None) -> Optional[str]:
+    enrichment = _load_search_enrichment(config)
+    if not enrichment:
+        return None
+    meta = _lookup_enrichment_meta(enrichment, {
+        "doc_id": doc_id,
+        "path": path,
+        "pointer": path or doc_id,
+    })
+    return _web_url_from_enrichment(meta) if meta else None
+
+
+def _unique_enrichment_records() -> List[dict]:
+    """One dict per JSONL line (not per alias key)."""
+    return list(_search_enrichment_unique)
+
+
 def _apply_external_open_mode(result: Dict[str, Any], url: str) -> None:
     """OneDrive / SharePoint link — preferred over local UNC open."""
     result["external_url"] = url.strip()
@@ -1462,16 +1515,19 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
     """
     Load JSONL written by docbridge-sync (OneDrive webUrl, title, etc.).
     Last line per doc_id wins. Cached by file mtime.
+    Indexed by doc_id and pointer-prefix aliases for reliable lookup.
     """
-    global _search_enrichment_cache, _search_enrichment_mtime
+    global _search_enrichment_cache, _search_enrichment_mtime, _search_enrichment_unique
     path = _enrichment_path_from_config(config)
     if not path:
+        _search_enrichment_unique = []
         return {}
     max_bytes = 0
     if config is not None:
         max_bytes = config.get_int("web.search.enrichment_max_bytes", 52_428_800)
     try:
         if not os.path.isfile(path):
+            _search_enrichment_unique = []
             return {}
         if max_bytes > 0:
             file_size = os.path.getsize(path)
@@ -1482,14 +1538,17 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
                     file_size,
                     max_bytes,
                 )
+                _search_enrichment_unique = []
                 return {}
         mtime = os.path.getmtime(path)
         if mtime == _search_enrichment_mtime and _search_enrichment_cache:
             return _search_enrichment_cache
     except OSError:
+        _search_enrichment_unique = []
         return {}
 
     by_id: Dict[str, dict] = {}
+    unique: List[dict] = []
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -1498,12 +1557,24 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
                     continue
                 rec = json.loads(line)
                 did = rec.get("doc_id")
-                if did is not None:
-                    by_id[str(did)] = rec
+                if did is None:
+                    continue
+                did_s = str(did)
+                unique.append(rec)
+                for key in _enrichment_index_keys(did_s):
+                    by_id[key] = rec
         _search_enrichment_cache = by_id
+        _search_enrichment_unique = unique
         _search_enrichment_mtime = mtime
+        logger.info(
+            "Loaded search enrichment: %d records, %d lookup keys from %s",
+            len(unique),
+            len(by_id),
+            path,
+        )
     except Exception as e:
         logger.warning("Could not load search enrichment from %s: %s", path, e)
+        _search_enrichment_unique = []
 
     return _search_enrichment_cache
 

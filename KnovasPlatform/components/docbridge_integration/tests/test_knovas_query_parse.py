@@ -7,6 +7,7 @@ from knovas_client import (
     _merge_secured_query_hit,
     _normalize_top_chunks,
     _prepare_secured_query_hit,
+    _secured_query_hit_to_row,
 )
 
 
@@ -81,3 +82,38 @@ def test_location_from_camel_case_and_top_chunks_alias():
     assert chunks[0]["page_number"] == 5
     assert chunks[1]["page_number"] == 2
     assert chunks[1]["sentence_number"] == 3
+
+
+def test_secured_query_hit_to_row_api_shape():
+    raw = {
+        "pointer": "corpus/foo.pdf",
+        "document_uuid": "uuid-1",
+        "page_number": 3,
+        "sentence_number": 12,
+        "top_chunks": [
+            {"cosine_similarity": 0.9, "page_number": 3, "sentence_number": 12},
+            {"cosine_similarity": 0.8, "page_number": 2, "sentence_number": 8},
+        ],
+        "cosine_similarity": 0.9,
+        "ingested_summary": {"present": True, "text": "summary"},
+    }
+    row = _secured_query_hit_to_row(raw)
+    assert row["page_number"] == 3
+    assert row["sentence_number"] == 12
+    assert len(row["top_chunks"]) == 2
+
+
+def test_secured_query_hit_to_row_location_from_top_chunks_when_top_level_null():
+    raw = {
+        "pointer": "doc/a.pdf",
+        "page_number": None,
+        "sentence_number": None,
+        "top_chunks": [
+            {"page_number": 7, "sentence_number": 2, "cosine_similarity": 0.77},
+        ],
+        "cosine_similarity": 0.77,
+    }
+    row = _secured_query_hit_to_row(raw)
+    assert row["page_number"] == 7
+    assert row["sentence_number"] == 2
+    assert row["top_chunks"][0]["page_number"] == 7

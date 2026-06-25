@@ -371,9 +371,10 @@ def _location_from_mapping(data: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     sources: List[Dict[str, Any]] = [data]
-    nested = data.get("location")
-    if isinstance(nested, dict):
-        sources.append(nested)
+    for nest_key in ("location", "metadata", "meta", "properties", "best_chunk", "chunk"):
+        nested = data.get(nest_key)
+        if isinstance(nested, dict):
+            sources.append(nested)
     page_keys = (
         "page_number",
         "pageNumber",
@@ -497,6 +498,74 @@ def _merge_secured_query_hit(item: Dict[str, Any]) -> Dict[str, Any]:
         if not _is_empty(val):
             merged[key] = val
     return merged
+
+
+def _primary_location_from_hit(
+    item: Dict[str, Any],
+    top_chunks: List[Dict[str, Any]],
+) -> Tuple[Optional[int], Optional[int]]:
+    loc = _location_from_mapping(item)
+    page_number = loc.get("page_number")
+    if page_number is None:
+        page_number = _coerce_location_int(item.get("page"))
+    sentence_number = loc.get("sentence_number")
+    if top_chunks:
+        primary = top_chunks[0]
+        if page_number is None:
+            page_number = primary.get("page_number")
+        if sentence_number is None:
+            sentence_number = primary.get("sentence_number")
+    return page_number, sentence_number
+
+
+def _secured_query_hit_to_row(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Map one /secured/query results[] entry to a docbridge search result row."""
+    item = _merge_secured_query_hit(_prepare_secured_query_hit(item))
+    pointer = item.get("pointer") or item.get("identifier") or ""
+    top_chunks = _normalize_top_chunks(
+        item.get("top_chunks") if isinstance(item.get("top_chunks"), list) else item.get("topChunks")
+    )
+    page_number, sentence_number = _primary_location_from_hit(item, top_chunks)
+    document_date = _document_date_from_hit(item)
+    cos_sim = item.get("cosine_similarity")
+    if cos_sim is None:
+        cos_sim = item.get("cosineSimilarity")
+    cos_dist = item.get("cosine_distance")
+    if cos_dist is None:
+        cos_dist = item.get("cosineDistance")
+    row: Dict[str, Any] = {
+        "doc_id": pointer,
+        "path": pointer,
+        "score": _extract_semantix_query_similarity(item),
+        "title": _display_title_for_hit(pointer, item.get("title")),
+        "source": "semantix",
+        "page_number": page_number,
+        "page": page_number,
+        "sentence_number": sentence_number,
+        "cosine_similarity": cos_sim,
+        "cosine_distance": cos_dist,
+        "document_date": document_date,
+        "date": document_date,
+    }
+    fs = item.get("final_score")
+    if fs is None:
+        fs = item.get("FinalScore")
+    if fs is not None:
+        row["final_score"] = fs
+    summary = _ingested_summary_from_hit(item)
+    if summary:
+        row["ingested_summary"] = summary
+    doc_uuid = item.get("document_uuid")
+    if doc_uuid:
+        row["document_uuid"] = str(doc_uuid)
+    for url_key in ("web_url", "webUrl", "external_url"):
+        url_val = item.get(url_key)
+        if url_val and _is_http_url(str(url_val)):
+            row["external_url"] = str(url_val).strip()
+            break
+    if top_chunks:
+        row["top_chunks"] = top_chunks
+    return row
 
 
 class KnovasAPIClient:
@@ -1028,62 +1097,7 @@ class KnovasAPIClient:
         for raw in result.get('results', [])[:limit]:
             if not isinstance(raw, dict):
                 continue
-            item = _merge_secured_query_hit(_prepare_secured_query_hit(raw))
-            pointer = item.get('pointer') or item.get('identifier') or ''
-            loc = _location_from_mapping(item)
-            page_number = loc.get('page_number')
-            if page_number is None:
-                page_number = item.get('page')
-            sentence_number = loc.get('sentence_number')
-            document_date = _document_date_from_hit(item)
-            cos_sim = item.get('cosine_similarity')
-            if cos_sim is None:
-                cos_sim = item.get('cosineSimilarity')
-            cos_dist = item.get('cosine_distance')
-            if cos_dist is None:
-                cos_dist = item.get('cosineDistance')
-            row: Dict[str, Any] = {
-                'doc_id': pointer,
-                'path': pointer,
-                'score': _extract_semantix_query_similarity(item),
-                'title': _display_title_for_hit(pointer, item.get('title')),
-                'source': 'semantix',
-                'page_number': page_number,
-                'page': page_number,
-                'sentence_number': sentence_number,
-                'cosine_similarity': cos_sim,
-                'cosine_distance': cos_dist,
-                'document_date': document_date,
-                'date': document_date,
-            }
-            fs = item.get('final_score')
-            if fs is None:
-                fs = item.get('FinalScore')
-            if fs is not None:
-                row['final_score'] = fs
-            summary = _ingested_summary_from_hit(item)
-            if summary:
-                row['ingested_summary'] = summary
-            doc_uuid = item.get('document_uuid')
-            if doc_uuid:
-                row['document_uuid'] = str(doc_uuid)
-            for url_key in ('web_url', 'webUrl', 'external_url'):
-                url_val = item.get(url_key)
-                if url_val and _is_http_url(str(url_val)):
-                    row['external_url'] = str(url_val).strip()
-                    break
-            top_chunks = _normalize_top_chunks(
-                item.get('top_chunks') if isinstance(item.get('top_chunks'), list) else item.get('topChunks')
-            )
-            if top_chunks and (page_number is None or sentence_number is None):
-                primary = top_chunks[0]
-                if page_number is None:
-                    page_number = primary.get('page_number')
-                if sentence_number is None:
-                    sentence_number = primary.get('sentence_number')
-            if top_chunks:
-                row['top_chunks'] = top_chunks
-            normalized_results.append(row)
+            normalized_results.append(_secured_query_hit_to_row(raw))
 
         semantix_meta = {
             'status': result.get('status'),
