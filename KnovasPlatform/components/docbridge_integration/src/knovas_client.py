@@ -424,9 +424,31 @@ def _score_fields_from_mapping(data: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _coalesce_secured_query_keys(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Map PascalCase / camelCase Knovas API keys to snake_case fields we parse."""
+    merged = dict(item)
+    for canonical, aliases in (
+        ("pointer", ("pointer", "Pointer", "identifier", "Identifier")),
+        ("top_chunks", ("top_chunks", "topChunks", "TopChunks")),
+        ("page_number", ("page_number", "pageNumber", "PageNumber", "page", "Page")),
+        ("sentence_number", ("sentence_number", "sentenceNumber", "SentenceNumber", "sentence", "Sentence")),
+        ("cosine_similarity", ("cosine_similarity", "cosineSimilarity", "CosineSimilarity")),
+        ("cosine_distance", ("cosine_distance", "cosineDistance", "CosineDistance")),
+        ("document_uuid", ("document_uuid", "documentUuid", "DocumentUuid")),
+        ("ingested_summary", ("ingested_summary", "ingestedSummary", "IngestedSummary")),
+    ):
+        if merged.get(canonical) is not None:
+            continue
+        for alias in aliases:
+            if alias in merged and merged[alias] is not None:
+                merged[canonical] = merged[alias]
+                break
+    return merged
+
+
 def _prepare_secured_query_hit(item: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize secured-query hit keys before merge (camelCase, nested location)."""
-    merged = dict(item)
+    merged = _coalesce_secured_query_keys(item)
     if not isinstance(merged.get("top_chunks"), list) and isinstance(merged.get("topChunks"), list):
         merged["top_chunks"] = merged["topChunks"]
     loc = _location_from_mapping(merged)

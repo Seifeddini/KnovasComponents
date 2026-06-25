@@ -84,6 +84,21 @@ def test_location_from_camel_case_and_top_chunks_alias():
     assert chunks[1]["sentence_number"] == 3
 
 
+def test_coalesce_secured_query_pascal_case_keys():
+    hit = _prepare_secured_query_hit({
+        "Pointer": "tenant/doc.pdf",
+        "PageNumber": 4,
+        "SentenceNumber": 9,
+        "TopChunks": [{"PageNumber": 4, "SentenceNumber": 9, "CosineSimilarity": 0.9}],
+    })
+    assert hit["pointer"] == "tenant/doc.pdf"
+    assert hit["page_number"] == 4
+    assert hit["sentence_number"] == 9
+    row = _secured_query_hit_to_row(hit)
+    assert row["page_number"] == 4
+    assert row["sentence_number"] == 9
+
+
 def test_secured_query_hit_to_row_api_shape():
     raw = {
         "pointer": "corpus/foo.pdf",

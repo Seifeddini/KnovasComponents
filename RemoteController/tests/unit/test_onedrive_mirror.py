@@ -98,7 +98,7 @@ def test_downloads_new_file_and_sets_mtime(tmp_path: Path):
     mirror = OneDriveMirror(
         client=fake,
         drive_id="drive",
-        root_path="/Adiuvat",
+        root_path="/SharePointRoot",
         local_root=tmp_path / "mirror",
     )
     stats = mirror.run_once()
@@ -271,16 +271,16 @@ def test_enrichment_file_written_with_identifier_prefix(tmp_path: Path):
         root_path="",
         local_root=tmp_path / "mirror",
         allowed_extensions=["pdf"],
-        identifier_prefix="adiuvat",
+        identifier_prefix="tenant",
         enrichment_path=enrichment,
     )
     stats = mirror.run_once()
     assert stats.enrichment_entries == 2
     rows = [_json.loads(line) for line in enrichment.read_text().splitlines() if line.strip()]
     by_id = {r["doc_id"]: r for r in rows}
-    assert by_id["adiuvat/top.pdf"]["web_url"] == "https://example/onedrive/top"
-    assert by_id["adiuvat/sub/inner.pdf"]["web_url"] == "https://example/onedrive/inner"
-    assert by_id["adiuvat/top.pdf"]["title"] == "top.pdf"
+    assert by_id["tenant/top.pdf"]["web_url"] == "https://example/onedrive/top"
+    assert by_id["tenant/sub/inner.pdf"]["web_url"] == "https://example/onedrive/inner"
+    assert by_id["tenant/top.pdf"]["title"] == "top.pdf"
 
 
 def test_enrichment_skipped_when_no_path_configured(tmp_path: Path):
@@ -341,8 +341,8 @@ def test_delta_initial_pass_downloads_and_saves_token(tmp_path: Path):
         "__initial__": [
             (
                 [
-                    _delta_folder("Adiuvat", "rootfolder", ""),
-                    _delta_file("a.pdf", "id-a", "Adiuvat", 4, iso, web_url="https://o/a"),
+                    _delta_folder("SharePointRoot", "rootfolder", ""),
+                    _delta_file("a.pdf", "id-a", "SharePointRoot", 4, iso, web_url="https://o/a"),
                 ],
                 "https://graph/delta?token=v1",
             ),
@@ -358,9 +358,9 @@ def test_delta_initial_pass_downloads_and_saves_token(tmp_path: Path):
     mirror = OneDriveMirror(
         client=fake,
         drive_id="drive",
-        root_path="/Adiuvat",
+        root_path="/SharePointRoot",
         local_root=tmp_path / "mirror",
-        identifier_prefix="adiuvat",
+        identifier_prefix="tenant",
         enrichment_path=enrichment,
         use_delta=True,
     )
@@ -374,7 +374,7 @@ def test_delta_initial_pass_downloads_and_saves_token(tmp_path: Path):
     saved = _json.loads(token_path.read_text())
     assert saved["delta_link"] == "https://graph/delta?token=v1"
     rows = [_json.loads(l) for l in enrichment.read_text().splitlines() if l.strip()]
-    assert rows[0]["doc_id"] == "adiuvat/a.pdf"
+    assert rows[0]["doc_id"] == "tenant/a.pdf"
 
 
 def test_delta_incremental_uses_saved_token(tmp_path: Path):
@@ -384,13 +384,13 @@ def test_delta_incremental_uses_saved_token(tmp_path: Path):
     delta_responses = {
         "__initial__": [
             (
-                [_delta_file("a.pdf", "id-a", "Adiuvat", 4, iso_a, web_url="https://o/a")],
+                [_delta_file("a.pdf", "id-a", "SharePointRoot", 4, iso_a, web_url="https://o/a")],
                 "https://graph/delta?token=v1",
             )
         ],
         "https://graph/delta?token=v1": [
             (
-                [_delta_file("b.pdf", "id-b", "Adiuvat", 4, iso_b, web_url="https://o/b")],
+                [_delta_file("b.pdf", "id-b", "SharePointRoot", 4, iso_b, web_url="https://o/b")],
                 "https://graph/delta?token=v2",
             )
         ],
@@ -405,9 +405,9 @@ def test_delta_incremental_uses_saved_token(tmp_path: Path):
     mirror = OneDriveMirror(
         client=fake,
         drive_id="drive",
-        root_path="/Adiuvat",
+        root_path="/SharePointRoot",
         local_root=tmp_path / "mirror",
-        identifier_prefix="adiuvat",
+        identifier_prefix="tenant",
         enrichment_path=enrichment,
         use_delta=True,
     )
@@ -426,8 +426,8 @@ def test_delta_incremental_uses_saved_token(tmp_path: Path):
     # Enrichment carries BOTH files (state persisted across passes)
     rows = [_json.loads(l) for l in enrichment.read_text().splitlines() if l.strip()]
     by_id = {r["doc_id"]: r for r in rows}
-    assert "adiuvat/a.pdf" in by_id
-    assert "adiuvat/b.pdf" in by_id
+    assert "tenant/a.pdf" in by_id
+    assert "tenant/b.pdf" in by_id
 
 
 def test_delta_deletion_removes_local_file_and_enrichment(tmp_path: Path):
@@ -436,13 +436,13 @@ def test_delta_deletion_removes_local_file_and_enrichment(tmp_path: Path):
     delta_responses = {
         "__initial__": [
             (
-                [_delta_file("a.pdf", "id-a", "Adiuvat", 4, iso)],
+                [_delta_file("a.pdf", "id-a", "SharePointRoot", 4, iso)],
                 "https://graph/delta?token=v1",
             )
         ],
         "https://graph/delta?token=v1": [
             (
-                [_delta_deletion("a.pdf", "id-a", "Adiuvat")],
+                [_delta_deletion("a.pdf", "id-a", "SharePointRoot")],
                 "https://graph/delta?token=v2",
             )
         ],
@@ -457,9 +457,9 @@ def test_delta_deletion_removes_local_file_and_enrichment(tmp_path: Path):
     mirror = OneDriveMirror(
         client=fake,
         drive_id="drive",
-        root_path="/Adiuvat",
+        root_path="/SharePointRoot",
         local_root=tmp_path / "mirror",
-        identifier_prefix="adiuvat",
+        identifier_prefix="tenant",
         enrichment_path=enrichment,
         use_delta=True,
     )
@@ -470,7 +470,7 @@ def test_delta_deletion_removes_local_file_and_enrichment(tmp_path: Path):
     assert stats.deleted_locally == 1
     assert not (tmp_path / "mirror" / "a.pdf").exists()
     rows = [_json.loads(l) for l in enrichment.read_text().splitlines() if l.strip()]
-    assert all("adiuvat/a.pdf" != r["doc_id"] for r in rows)
+    assert all("tenant/a.pdf" != r["doc_id"] for r in rows)
 
 
 def test_delta_token_invalid_triggers_full_walk_fallback(tmp_path: Path):
@@ -487,7 +487,7 @@ def test_delta_token_invalid_triggers_full_walk_fallback(tmp_path: Path):
         drive_id="drive",
         root_path="",
         local_root=tmp_path / "mirror",
-        identifier_prefix="adiuvat",
+        identifier_prefix="tenant",
         use_delta=True,
     )
     stats = mirror.run_once()

@@ -21,18 +21,18 @@ from web_interface.app import (  # noqa: E402
 @pytest.fixture()
 def enrichment():
     rec = {
-        "doc_id": "corpus/Adiuvat/vertrag.pdf",
+        "doc_id": "corpus/acme/vertrag.pdf",
         "web_url": "https://contoso.sharepoint.com/vertrag.pdf",
         "title": "Vertrag",
     }
     return {
-        "corpus/adiuvat/vertrag.pdf": rec,
+        "corpus/acme/vertrag.pdf": rec,
     }
 
 
 def test_lookup_matches_pointer_with_prefix(monkeypatch, enrichment):
     monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "corpus")
-    result = {"doc_id": "corpus/Adiuvat/vertrag.pdf", "path": "corpus/Adiuvat/vertrag.pdf"}
+    result = {"doc_id": "corpus/acme/vertrag.pdf", "path": "corpus/acme/vertrag.pdf"}
     meta = _lookup_enrichment_meta(enrichment, result)
     assert meta is not None
     assert _web_url_from_enrichment(meta).startswith("https://")
@@ -40,11 +40,11 @@ def test_lookup_matches_pointer_with_prefix(monkeypatch, enrichment):
 
 def test_lookup_matches_stripped_relative_path(monkeypatch, enrichment):
     monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "corpus")
-    result = {"doc_id": "corpus/Adiuvat/vertrag.pdf", "path": "corpus/Adiuvat/vertrag.pdf"}
+    result = {"doc_id": "corpus/acme/vertrag.pdf", "path": "corpus/acme/vertrag.pdf"}
     keys = _enrichment_lookup_keys(result)
-    assert "adiuvat/vertrag.pdf" in keys
-    assert _lookup_enrichment_meta(enrichment, {"doc_id": "Adiuvat/vertrag.pdf"}) is not None
-    assert _lookup_enrichment_meta(enrichment, {"doc_id": "corpus/Adiuvat/vertrag.pdf"}) is not None
+    assert "acme/vertrag.pdf" in keys
+    assert _lookup_enrichment_meta(enrichment, {"doc_id": "acme/vertrag.pdf"}) is not None
+    assert _lookup_enrichment_meta(enrichment, {"doc_id": "corpus/acme/vertrag.pdf"}) is not None
 
 
 def test_web_url_accepts_weburl_camelcase():
@@ -71,19 +71,19 @@ def test_load_enrichment_registers_alias_keys(monkeypatch, tmp_path):
     monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "corpus")
     enrichment_file = tmp_path / ".search_enrichment.jsonl"
     enrichment_file.write_text(
-        '{"doc_id": "corpus/Adiuvat/vertrag.pdf", "web_url": "https://contoso.sharepoint.com/vertrag.pdf"}\n',
+        '{"doc_id": "corpus/acme/vertrag.pdf", "web_url": "https://contoso.sharepoint.com/vertrag.pdf"}\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(enrichment_file))
     loaded = _load_search_enrichment()
-    assert "corpus/adiuvat/vertrag.pdf" in loaded
-    assert "adiuvat/vertrag.pdf" in loaded
-    assert _resolve_onedrive_url("Adiuvat/vertrag.pdf", "Adiuvat/vertrag.pdf") == (
+    assert "corpus/acme/vertrag.pdf" in loaded
+    assert "acme/vertrag.pdf" in loaded
+    assert _resolve_onedrive_url("acme/vertrag.pdf", "acme/vertrag.pdf") == (
         "https://contoso.sharepoint.com/vertrag.pdf"
     )
 
 
-def test_adiuvat_prefix_inferred_and_case_insensitive(monkeypatch, tmp_path):
+def test_prefix_inferred_and_case_insensitive(monkeypatch, tmp_path):
     import web_interface.app as wa
 
     wa._search_enrichment_cache = {}
@@ -93,22 +93,22 @@ def test_adiuvat_prefix_inferred_and_case_insensitive(monkeypatch, tmp_path):
     wa._search_enrichment_mtime = 0.0
     enrichment_file = tmp_path / ".search_enrichment.jsonl"
     enrichment_file.write_text(
-        '{"doc_id": "adiuvat/1338 - Mandate/Bilanz 2016 - Blattner AG.pdf", '
-        '"web_url": "https://lboag-my.sharepoint.com/bilanz.pdf"}\n',
+        '{"doc_id": "tenant/1338 - Cases/Annual report 2016 - Example AG.pdf", '
+        '"web_url": "https://contoso.sharepoint.com/report.pdf"}\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(enrichment_file))
     _load_search_enrichment()
     url = _resolve_onedrive_url(
-        "adiuvat/1338 - Mandate/Bilanz 2016 - Blattner AG.pdf",
-        "adiuvat/1338 - Mandate/Bilanz 2016 - Blattner AG.pdf",
+        "tenant/1338 - Cases/Annual report 2016 - Example AG.pdf",
+        "tenant/1338 - Cases/Annual report 2016 - Example AG.pdf",
     )
-    assert url == "https://lboag-my.sharepoint.com/bilanz.pdf"
+    assert url == "https://contoso.sharepoint.com/report.pdf"
     url2 = _resolve_onedrive_url(
-        "Bilanz 2016 - Blattner AG.pdf",
-        "Bilanz 2016 - Blattner AG.pdf",
+        "Annual report 2016 - Example AG.pdf",
+        "Annual report 2016 - Example AG.pdf",
     )
-    assert url2 == "https://lboag-my.sharepoint.com/bilanz.pdf"
+    assert url2 == "https://contoso.sharepoint.com/report.pdf"
 
 
 def test_external_open_redirect(tmp_path, monkeypatch):

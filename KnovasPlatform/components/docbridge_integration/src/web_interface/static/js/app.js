@@ -502,6 +502,7 @@ class DocumentSearchApp {
         const hasOneDrive =
             Boolean(externalUrl) ||
             doc.open_mode === 'external' ||
+            !!doc.onedrive_open_available ||
             (this.onedriveEnrichmentLoaded && path);
         const localAvailable =
             path &&
@@ -593,7 +594,16 @@ class DocumentSearchApp {
         return card;
     }
     
-    async openDocument(docId, path, useBrowserClientOpen, useCompanion) {
+    async openDocument(docId, pathOrBrowserFlag, browserOrCompanionFlag, companionFlag) {
+        let path = pathOrBrowserFlag;
+        let useBrowserClientOpen = browserOrCompanionFlag;
+        let useCompanion = companionFlag;
+        // Legacy signature: openDocument(docId, useBrowser, useCompanion) — path === docId
+        if (typeof pathOrBrowserFlag === 'boolean') {
+            path = docId;
+            useBrowserClientOpen = pathOrBrowserFlag;
+            useCompanion = browserOrCompanionFlag;
+        }
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         const browserOpen = useBrowserClientOpen === true || !!cfg.browserClientOpenEnabled;
         const companionOpen = useCompanion === true || !!cfg.companionEnabled;

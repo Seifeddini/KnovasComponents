@@ -98,7 +98,7 @@ def _autodoc_identifier_prefixes() -> List[str]:
 
 
 def _effective_identifier_prefixes() -> List[str]:
-    """Env prefixes plus prefixes inferred from enrichment JSONL (e.g. adiuvat)."""
+    """Env prefixes plus prefixes inferred from enrichment JSONL (e.g. corpus)."""
     seen: set[str] = set()
     out: List[str] = []
     for raw in _autodoc_identifier_prefixes() + _search_enrichment_inferred_prefixes:
@@ -349,6 +349,18 @@ def _normalize_ui_theme_slug(raw: Optional[str]) -> Optional[str]:
     if slug in DRAFT_THEME_SLUGS:
         return slug
     return None
+
+
+def _static_asset_version() -> str:
+    """Cache-bust static JS/CSS after deploy (mtime of app.js)."""
+    try:
+        static_root = os.path.join(os.path.dirname(__file__), 'static')
+        app_js = os.path.join(static_root, 'js', 'app.js')
+        if os.path.isfile(app_js):
+            return str(int(os.path.getmtime(app_js)))
+    except OSError:
+        pass
+    return '1'
 
 
 def create_app(config_path: Optional[str] = None):
@@ -658,6 +670,7 @@ def create_app(config_path: Optional[str] = None):
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
+            asset_version=_static_asset_version(),
             draft_theme=_resolve_ui_theme(),
         )
     
@@ -745,6 +758,18 @@ def create_app(config_path: Optional[str] = None):
             )
             if config.get_bool('web.search.log_similarity_scores', True):
                 _log_search_similarity_debug(query, final_results)
+
+            if enrichment_loaded:
+                for result in final_results:
+                    result['onedrive_open_available'] = True
+                    if not result.get('external_url'):
+                        url = _resolve_onedrive_url(
+                            str(result.get('doc_id') or ''),
+                            str(result.get('path') or result.get('doc_id') or ''),
+                            config,
+                        )
+                        if url:
+                            _apply_external_open_mode(result, url)
 
             payload: Dict[str, Any] = {
                 'success': True,
@@ -1209,9 +1234,18 @@ def create_app(config_path: Optional[str] = None):
     @app.route('/api/stats', methods=['GET'])
     def stats():
         """Get usage statistics."""
+        _load_search_enrichment(config)
+        unique = _unique_enrichment_records()
         return jsonify({
             'status': 'operational',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'enrichment': {
+                'loaded': bool(unique),
+                'records': len(unique),
+                'path': _enrichment_path_from_config(config),
+                'lookup_keys': len(_search_enrichment_cache),
+            },
+            'asset_version': _static_asset_version(),
         })
     
     return app
@@ -1451,7 +1485,7 @@ def _canonical_lookup_key(raw: Optional[str]) -> str:
 
 
 def _infer_identifier_prefixes_from_enrichment(unique: List[dict]) -> List[str]:
-    """Detect shared first path segment (e.g. adiuvat) from OneDrive JSONL doc_ids."""
+    """Detect shared first path segment (e.g. corpus) from OneDrive JSONL doc_ids."""
     if not unique:
         return []
     counts: Dict[str, int] = {}
@@ -1519,6 +1553,18 @@ def _lookup_enrichment_meta(enrichment: Dict[str, dict], result: Dict[str, Any])
         candidates = _search_enrichment_by_basename.get(base, [])
         if len(candidates) == 1:
             return candidates[0]
+    for field in ("path", "doc_id", "pointer"):
+        raw = result.get(field)
+        if not raw:
+            continue
+        candidate = _canonical_lookup_key(str(raw))
+        suffix_hits = [
+            meta
+            for key, meta in enrichment.items()
+            if key == candidate or key.endswith("/" + candidate)
+        ]
+        if len(suffix_hits) == 1:
+            return suffix_hits[0]
     return None
 
 
