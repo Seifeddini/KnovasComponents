@@ -21,7 +21,8 @@ def test_sync_internal_bypass_no_auth(rc_client, monkeypatch):
 
     reset_config()
     load_config(validate=False, force_reload=True)
-    with patch("sync.sync_scheduler.run_one_time", return_value=("completed", object())):
+    with patch("routes.sync.run_one_time", return_value=("completed", object())), \
+         patch("routes.sync.start_continuous", return_value="running"):
         resp = rc_client.post("/sync", json=SYNC_BODY)
     assert resp.status_code != 401
 

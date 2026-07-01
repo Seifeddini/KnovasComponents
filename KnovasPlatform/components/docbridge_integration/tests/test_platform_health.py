@@ -241,9 +241,8 @@ open:
             raise AssertionError("disk access should be skipped when verify_files_on_disk=false")
 
         with patch.object(DummyKnovasClient, "search_documents", return_value=hits):
-            with patch("web_interface.app.os.path.exists", side_effect=_no_disk):
-                with patch("web_interface.app.os.stat", side_effect=_no_disk):
-                    resp = client.post("/api/search", json={"query": "brief"})
+            with patch("web_interface.app._apply_autodoc_disk_metadata", side_effect=_no_disk):
+                resp = client.post("/api/search", json={"query": "brief"})
 
         assert resp.status_code == 200
         body = resp.get_json()
