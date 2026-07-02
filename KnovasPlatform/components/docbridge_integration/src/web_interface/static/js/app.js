@@ -375,6 +375,19 @@ class DocumentSearchApp {
     }
 
     /**
+     * Soft-truncate an LLM summary at a char cap. Preserves the abstractive
+     * summary the server produced instead of slicing it to the first N sentences
+     * (which reads exactly like the document's opening for extractive-style LLM
+     * output). Keep the char cap ≤ the server-side LLM_SUMMARIZE_MAX_OUTPUT_CHARS.
+     */
+    capSummaryLength(text, maxChars = 2000) {
+        const raw = String(text || '').trim();
+        if (!raw) return '';
+        if (raw.length <= maxChars) return raw;
+        return raw.substring(0, maxChars - 1).trimEnd() + '…';
+    }
+
+    /**
      * Human-readable title: corpus pointers often ship a run-on "title" from ingestion;
      * prefer the filename stem (e.g. corpus/foo/Infocuria.txt → Infocuria).
      */
@@ -548,7 +561,7 @@ class DocumentSearchApp {
         }
         
         const summaryStr = ingestedSummary
-            ? this.firstSentencesExcerpt(ingestedSummary, 4, 1200)
+            ? this.capSummaryLength(ingestedSummary, 2000)
             : '';
         const summaryHtml = summaryStr ? this.escapeHtml(summaryStr) : '';
         const matchHtml = this._buildMatchLocationsHtml(doc);
