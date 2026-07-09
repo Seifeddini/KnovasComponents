@@ -57,15 +57,47 @@ def test_transmit_part_body_includes_location_fields():
 
 
 def test_upload_pdf_markdown_sends_page_and_sentence(mock_config, tmp_path):
+    from knovas_extract.result import Sentence
+
+    from sync.document_text import ExtractedDocument
+
     md_file = tmp_path / "brief.pdf"
     md_file.write_bytes(b"%PDF-1.4 not a real pdf")
 
     uploader = SemantixUploader()
     sync_body = {"ingestion": {"identifier_prefix": "corpus", "part_max_chars": 50000}}
-    markdown = "## Page 5\n\nFirst sentence. Second sentence."
+
+    text = "First sentence. Second sentence."
+    fake_doc = ExtractedDocument(
+        text=text,
+        sentences=[
+            Sentence(
+                index=0,
+                text="First sentence.",
+                char_start=0,
+                char_end=15,
+                line_start=1,
+                line_end=1,
+                page_index=4,
+                page_number=5,
+                section_index=None,
+            ),
+            Sentence(
+                index=1,
+                text="Second sentence.",
+                char_start=16,
+                char_end=32,
+                line_start=1,
+                line_end=1,
+                page_index=4,
+                page_number=5,
+                section_index=None,
+            ),
+        ],
+    )
 
     with patch.object(uploader, "_request") as req, patch(
-        "sync.knovas_uploader.file_to_markdown", return_value=markdown
+        "sync.knovas_uploader.extract_document", return_value=fake_doc
     ):
         req.side_effect = [_ok_response(), _ok_response()]
         result = uploader.upload_file(md_file, "akten/brief.pdf", sync_body)

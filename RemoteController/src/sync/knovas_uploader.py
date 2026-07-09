@@ -12,7 +12,7 @@ import requests
 
 from config import get_config
 from sync.chunking import iter_text_chunks_with_location
-from sync.document_text import PLAIN_TEXT_EXTENSIONS, ConversionError, file_to_markdown
+from sync.document_text import ConversionError, extract_document
 
 logger = logging.getLogger(__name__)
 
@@ -104,14 +104,13 @@ class SemantixUploader:
         identifier = f"{prefix}/{relative_path.replace(chr(92), '/')}"
 
         try:
-            if file_path.suffix.lower() in PLAIN_TEXT_EXTENSIONS:
-                text = file_path.read_text(encoding="utf-8")
-                parts_iter = iter_text_chunks_with_location(text, part_max)
-                part_count = sum(1 for _ in iter_text_chunks_with_location(text, part_max))
-            else:
-                markdown = file_to_markdown(file_path)
-                parts_iter = iter_text_chunks_with_location(markdown, part_max)
-                part_count = sum(1 for _ in iter_text_chunks_with_location(markdown, part_max))
+            doc = extract_document(file_path)
+            text, sentences = doc.text, doc.sentences
+            extracted_title = doc.title
+            parts_iter = iter_text_chunks_with_location(text, part_max, sentences=sentences)
+            part_count = sum(
+                1 for _ in iter_text_chunks_with_location(text, part_max, sentences=sentences)
+            )
         except Exception as exc:
             return UploadResult(
                 relative_path=relative_path,
@@ -122,7 +121,11 @@ class SemantixUploader:
                 error=str(exc),
             )
 
-        title = file_path.name
+        # Prefer the extractor-supplied title (email subject, PDF /Title, DOCX
+        # core.xml title) so email search on the subject line still works after
+        # migrating off the legacy '# Subject' body-prefix shape. Falls back to
+        # filename when no title was extracted.
+        title = extracted_title or file_path.name
 
         init_resp = self._request(
             "POST",

@@ -1,12 +1,30 @@
-"""Read local files and convert to Markdown for Semantix ingest."""
+"""Adapter over `knovas-extract` for the RemoteController sync pipeline.
+
+Wraps `knovas_extract.extract(..., emit_sentences=True)` and returns text +
+per-sentence citations (with page back-pointers on PDFs). The uploader
+threads the sentence list into the chunker so every transmission part
+carries an accurate `page_number` / `sentence_number`.
+
+Errors from `knovas-extract` are re-raised as `ConversionError` with
+message substrings that `is_unconvertible_error()` recognizes, so
+incremental-sync retry classification is unchanged.
+"""
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
-from sync.converters.docx import docx_bytes_to_markdown
-from sync.converters.email import eml_bytes_to_markdown, msg_bytes_to_markdown
-from sync.converters.pdf import pdf_bytes_to_markdown
+from knovas_extract import (
+    CorruptDocumentError,
+    EncryptedDocumentError,
+    ExtractError,
+    ResourceExhaustedError,
+    UnsupportedFormatError,
+    extract,
+)
+from knovas_extract.result import Sentence
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +49,17 @@ DEFAULT_INCLUDE_GLOBS = [
     "*.msg",
 ]
 
+_EXT_TO_MIME = {
+    ".txt": "text/plain",
+    # Route .md through the text extractor: preserves the file bytes verbatim
+    # (no YAML-frontmatter stripping) and avoids pulling in the [md] extra.
+    ".md": "text/plain",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".eml": "message/rfc822",
+    ".msg": "application/vnd.ms-outlook",
+}
+
 
 class ConversionError(Exception):
     """Failed to extract text from a document."""
@@ -38,6 +67,29 @@ class ConversionError(Exception):
     def __init__(self, message: str, *, extension: str = "") -> None:
         super().__init__(message)
         self.extension = extension
+
+
+@dataclass(frozen=True)
+class ExtractedDocument:
+    """Text + sentence citations + title for a single document.
+
+    `sentences` is None when `content.sentences` was not populated (e.g. an
+    older `knovas-extract` without `[sentences]`). Callers must tolerate
+    `None` and skip per-chunk citation lookup.
+
+    `title` is the extractor-supplied document title when present (email
+    subject for EML/MSG, `/Title` metadata for PDF, core.xml title for
+    DOCX). None when no title was extracted; callers should fall back to
+    the filename.
+    """
+
+    text: str
+    sentences: Optional[list[Sentence]]
+    title: Optional[str] = None
+
+
+def is_syncable_extension(suffix: str) -> bool:
+    return suffix.lower() in SYNCABLE_EXTENSIONS
 
 
 def is_unconvertible_error(error: str | None) -> bool:
@@ -51,79 +103,73 @@ def is_unconvertible_error(error: str | None) -> bool:
         "no extractable text" in lowered
         or "not valid utf-8" in lowered
         or lowered.startswith("unsupported extension")
+        or lowered.startswith("corrupt ")
+        or lowered.startswith("encrypted ")
+        or lowered.startswith("resource limit exceeded")
         or "not a zip file" in lowered
+        or "not a valid zip container" in lowered
         or "bad zipfile" in lowered
         or "bad magic number" in lowered
     )
 
 
-def is_syncable_extension(suffix: str) -> bool:
-    return suffix.lower() in SYNCABLE_EXTENSIONS
+def _extract_bytes(raw: bytes, ext: str) -> ExtractedDocument:
+    mime = _EXT_TO_MIME.get(ext)
+    if mime is None:
+        raise ConversionError(f"unsupported extension: {ext}", extension=ext)
 
+    try:
+        result = extract(raw, mime=mime, emit_sentences=True)
+    except UnsupportedFormatError as exc:
+        raise ConversionError(f"unsupported extension: {ext}", extension=ext) from exc
+    except CorruptDocumentError as exc:
+        raise ConversionError(f"corrupt {ext}: {exc}", extension=ext) from exc
+    except EncryptedDocumentError as exc:
+        raise ConversionError(f"encrypted {ext}: {exc}", extension=ext) from exc
+    except ResourceExhaustedError as exc:
+        raise ConversionError(
+            f"resource limit exceeded: {getattr(exc, 'what', 'unknown')}",
+            extension=ext,
+        ) from exc
+    except ExtractError as exc:
+        raise ConversionError(str(exc), extension=ext) from exc
 
-def _read_plain_text(file_path: Path) -> str:
-    for encoding in ("utf-8-sig", "utf-8"):
-        try:
-            return file_path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    raise ConversionError(
-        f"not valid UTF-8: {file_path.name}",
-        extension=file_path.suffix.lower(),
+    text = result.content.text
+    if not text.strip():
+        raise ConversionError(f"no extractable text from {ext} file", extension=ext)
+
+    return ExtractedDocument(
+        text=text,
+        sentences=result.content.sentences,
+        title=result.metadata.title,
     )
 
 
-def bytes_to_markdown(raw_bytes: bytes, suffix: str) -> str:
-    ext = suffix.lower()
-    if ext in PLAIN_TEXT_EXTENSIONS:
-        for encoding in ("utf-8-sig", "utf-8"):
-            try:
-                return raw_bytes.decode(encoding)
-            except UnicodeDecodeError:
-                continue
-        raise ConversionError(f"not valid UTF-8 for {ext}", extension=ext)
+def extract_document(file_path: Path) -> ExtractedDocument:
+    """Extract text + sentence citations from a local file.
 
-    try:
-        if ext == ".docx":
-            text = docx_bytes_to_markdown(raw_bytes)
-        elif ext == ".pdf":
-            text = pdf_bytes_to_markdown(raw_bytes)
-        elif ext == ".eml":
-            text = eml_bytes_to_markdown(raw_bytes)
-        elif ext == ".msg":
-            text = msg_bytes_to_markdown(raw_bytes)
-        else:
-            raise ConversionError(f"unsupported extension: {ext}", extension=ext)
-    except ConversionError:
-        raise
-    except Exception as exc:
-        raise ConversionError(str(exc), extension=ext) from exc
-
-    if not text.strip():
-        raise ConversionError(f"no extractable text from {ext} file", extension=ext)
-    return text
-
-
-def file_to_markdown(file_path: Path) -> str:
-    """Read file and return Markdown/plain text suitable for chunking."""
+    Returns an `ExtractedDocument`. Raises `ConversionError` on any recoverable
+    per-file failure (unsupported format, corrupt bytes, encrypted, resource
+    cap exceeded, empty output). Lets `DependencyMissingError` bubble — that
+    is a deploy misconfiguration, not a per-file issue.
+    """
     ext = file_path.suffix.lower()
     if ext not in SYNCABLE_EXTENSIONS:
-        raise ConversionError(
-            f"unsupported extension: {ext}",
-            extension=ext,
-        )
-
-    if ext in PLAIN_TEXT_EXTENSIONS:
-        return _read_plain_text(file_path)
+        raise ConversionError(f"unsupported extension: {ext}", extension=ext)
 
     try:
         raw = file_path.read_bytes()
     except OSError as exc:
         raise ConversionError(str(exc), extension=ext) from exc
 
-    try:
-        return bytes_to_markdown(raw, ext)
-    except ConversionError:
-        raise
-    except Exception as exc:
-        raise ConversionError(str(exc), extension=ext) from exc
+    return _extract_bytes(raw, ext)
+
+
+def bytes_to_markdown(raw_bytes: bytes, suffix: str) -> str:
+    """Backwards-compat: return text only. Prefer `extract_document` for new code."""
+    return _extract_bytes(raw_bytes, suffix.lower()).text
+
+
+def file_to_markdown(file_path: Path) -> str:
+    """Backwards-compat: return text only. Prefer `extract_document` for new code."""
+    return extract_document(file_path).text

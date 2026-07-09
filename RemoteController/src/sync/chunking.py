@@ -1,10 +1,11 @@
 """Split text into chunks without breaking UTF-8 codepoints."""
 from __future__ import annotations
 
+import bisect
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
+from typing import Iterator, Optional, Sequence, Tuple
 
-from sync.part_metadata import location_for_snippet
+from knovas_extract.result import Sentence
 
 
 def iter_text_chunks(text: str, part_max_chars: int) -> Iterator[str]:
@@ -27,15 +28,50 @@ def iter_text_chunks(text: str, part_max_chars: int) -> Iterator[str]:
         start = end
 
 
+def _location_for_offset(
+    starts: Sequence[int],
+    sentences: Sequence[Sentence],
+    offset: int,
+) -> Tuple[Optional[int], Optional[int]]:
+    """Return (page_number, sentence_number) for a chunk-start offset.
+
+    Uses binary search over the ascending `char_start` array. The sentence
+    containing `offset` is `sentences[i-1]` where `i = bisect_right(starts, offset)`;
+    clamps to first/last sentence for out-of-range offsets.
+    """
+    if not sentences:
+        return None, None
+    idx = bisect.bisect_right(starts, offset) - 1
+    if idx < 0:
+        idx = 0
+    elif idx >= len(sentences):
+        idx = len(sentences) - 1
+    s = sentences[idx]
+    return s.page_number, s.index + 1
+
+
 def iter_text_chunks_with_location(
-    text: str, part_max_chars: int
+    text: str,
+    part_max_chars: int,
+    *,
+    sentences: Optional[Sequence[Sentence]] = None,
 ) -> Iterator[Tuple[str, Optional[int], Optional[int]]]:
-    """Yield (snippet, page_number, sentence_number) for each transmission part."""
+    """Yield (snippet, page_number, sentence_number) for each transmission part.
+
+    `sentences` — the `content.sentences` list from `knovas-extract`. When
+    provided, each chunk's location is looked up via binary search on
+    `Sentence.char_start`, using `Sentence.page_number` (populated for PDFs)
+    and `Sentence.index + 1` for the sentence number. When None, yields
+    `(chunk, None, None)`.
+    """
     if part_max_chars < 1:
         raise ValueError("part_max_chars must be >= 1")
     if not text:
         yield "", None, None
         return
+
+    starts = [s.char_start for s in sentences] if sentences else []
+
     start = 0
     length = len(text)
     while start < length:
@@ -45,7 +81,10 @@ def iter_text_chunks_with_location(
                 end -= 1
             if end == start:
                 end = min(start + part_max_chars, length)
-        page_number, sentence_number = location_for_snippet(text, start)
+        if sentences:
+            page_number, sentence_number = _location_for_offset(starts, sentences, start)
+        else:
+            page_number, sentence_number = None, None
         yield text[start:end], page_number, sentence_number
         start = end
 

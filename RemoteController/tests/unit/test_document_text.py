@@ -6,6 +6,7 @@ import pytest
 from sync.document_text import (
     ConversionError,
     bytes_to_markdown,
+    extract_document,
     file_to_markdown,
     is_syncable_extension,
     is_unconvertible_error,
@@ -32,11 +33,29 @@ def test_plain_text_utf8_sig(tmp_path):
     assert "UTF-8 BOM" in file_to_markdown(p)
 
 
-def test_eml_fixture():
+def test_extract_document_returns_sentences_for_plain_text(tmp_path):
+    p = tmp_path / "note.txt"
+    p.write_text("First sentence. Second sentence. Third one!", encoding="utf-8")
+    doc = extract_document(p)
+    assert doc.sentences is not None
+    assert len(doc.sentences) == 3
+    # Contract: text[char_start:char_end] == text.
+    s = doc.sentences[0]
+    assert doc.text[s.char_start : s.char_end] == s.text
+
+
+def test_eml_fixture(tmp_path):
     raw = (FIXTURES / "sample.eml").read_bytes()
+    # Body ends up in .text; subject moved to .title (uploader threads it into
+    # the transmission `title` field, so subject-line search still works).
     md = bytes_to_markdown(raw, ".eml")
-    assert "Sample Email" in md
     assert "Hello from the sample email" in md
+
+    p = tmp_path / "sample.eml"
+    p.write_bytes(raw)
+    doc = extract_document(p)
+    assert doc.title == "Sample Email"
+    assert "Hello from the sample email" in doc.text
 
 
 def test_docx_conversion():
@@ -47,20 +66,30 @@ def test_docx_conversion():
     document.add_paragraph("Paragraph text.")
     document.save(buf)
     md = bytes_to_markdown(buf.getvalue(), ".docx")
-    assert "# Section One" in md
+    assert "Section One" in md
     assert "Paragraph text." in md
 
 
-def test_pdf_conversion():
+def test_pdf_conversion_and_page_backpointers(tmp_path):
     fitz = pytest.importorskip("fitz")
     doc = fitz.open()
-    page = doc.new_page()
-    page.insert_text((72, 72), "Hello PDF content")
-    raw = doc.tobytes()
+    page1 = doc.new_page()
+    page1.insert_text((72, 72), "Hello PDF content.")
+    page2 = doc.new_page()
+    page2.insert_text((72, 72), "Second page here.")
+    p = tmp_path / "twopage.pdf"
+    p.write_bytes(doc.tobytes())
     doc.close()
-    md = bytes_to_markdown(raw, ".pdf")
-    assert "Hello PDF content" in md
-    assert "## Page 1" in md
+
+    result = extract_document(p)
+    assert "Hello PDF content" in result.text
+    assert "Second page here" in result.text
+    # Every sentence must have a populated page_number for PDFs.
+    assert result.sentences is not None
+    assert all(s.page_number is not None for s in result.sentences)
+    # First sentence lives on page 1, and at least one sentence claims page 2.
+    assert result.sentences[0].page_number == 1
+    assert any(s.page_number == 2 for s in result.sentences)
 
 
 def test_empty_pdf_raises():
@@ -76,18 +105,22 @@ def test_empty_pdf_raises():
 def test_unsupported_extension(tmp_path):
     p = tmp_path / "file.bin"
     p.write_bytes(b"data")
-    with pytest.raises(ConversionError):
+    with pytest.raises(ConversionError, match="unsupported extension"):
         file_to_markdown(p)
 
 
 def test_fake_docx_raises_conversion_error():
-    with pytest.raises(ConversionError, match="not a zip file"):
+    with pytest.raises(ConversionError, match="corrupt .docx"):
         bytes_to_markdown(b"not a real docx", ".docx")
 
 
 def test_is_unconvertible_error():
     assert is_unconvertible_error("File is not a zip file")
     assert is_unconvertible_error("no extractable text from .pdf file")
+    assert is_unconvertible_error("corrupt .docx: something broke")
+    assert is_unconvertible_error("encrypted .pdf: password required")
+    assert is_unconvertible_error("resource limit exceeded: page_count")
+    assert is_unconvertible_error("unsupported extension: .bin")
     assert not is_unconvertible_error("init failed: 503")
     assert not is_unconvertible_error("part 2 failed: 500")
     assert not is_unconvertible_error(None)

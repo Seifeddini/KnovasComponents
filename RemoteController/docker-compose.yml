@@ -6,7 +6,12 @@
 
 services:
   remote-controller:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        # knovas-extract source tree, installed by the Dockerfile builder stage.
+        # Override with KNOVAS_EXTRACT_SRC env var if the sibling path differs.
+        extract-src: ${KNOVAS_EXTRACT_SRC:-../../../knovas-extract-python}
     image: remote-controller:0.1.1
     env_file: .env
     volumes:
