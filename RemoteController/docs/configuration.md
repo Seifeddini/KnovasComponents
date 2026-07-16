@@ -55,15 +55,17 @@ Sync request shape: [examples/sync-request.json](../examples/sync-request.json) 
 
 ## Supported document formats
 
-RemoteController converts the following extensions to Markdown (or plain text) before chunking and upload:
+RemoteController converts the following extensions to text (with per-sentence citations) before chunking and upload. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
 
-| Extension | Handling |
-|-----------|----------|
-| `.md`, `.txt` | Read as UTF-8 text |
-| `.docx` | Structure-aware Markdown (`python-docx`) |
-| `.pdf` | Per-page text with `## Page N` headings (`pymupdf`) |
-| `.eml` | Headers + body (`email` stdlib) |
-| `.msg` | Headers + body (`extract-msg`) |
+| Extension | Backend |
+|-----------|---------|
+| `.md`, `.txt` | Plain text (chardet encoding detection) |
+| `.docx` | `python-docx` + `mammoth` |
+| `.pdf` | `pymupdf` (per-page text; sentence page back-pointers) |
+| `.eml` | Standard library `email` (subject → transmission title) |
+| `.msg` | `extract-msg` (subject → transmission title) |
+
+Each chunk carries a `page_number` (PDFs only) and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition.
 
 **Open/download:** Ingest uses the **original** relative path in `identifier` (e.g. `corpus/akten/Brief.pdf`). KnovasPlatform resolves search pointers to that path on the AutoDoc mount, so clients open the original file—not the converted text.
 
