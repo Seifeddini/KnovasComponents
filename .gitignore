@@ -60,3 +60,6 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+# Local git worktrees (Claude Code)
+.worktrees/

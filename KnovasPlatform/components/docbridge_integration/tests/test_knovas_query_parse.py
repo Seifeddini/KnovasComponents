@@ -31,9 +31,32 @@ def test_display_title_prefers_filename_stem():
     assert _display_title_for_hit(pointer, garbage) == "Infocuria"
 
 
-def test_ingested_summary_skips_huge_blob():
-    blob = "a" * 3000
-    assert _ingested_summary_text({"present": True, "text": blob}) is None
+def test_ingested_summary_preserves_long_llm_output():
+    """LLM summaries up to server cap must reach the UI. The server caps at
+    LLM_SUMMARIZE_MAX_OUTPUT_CHARS=4000; the client must not silently drop
+    anything below that."""
+    blob = "a" * 3500
+    result = _ingested_summary_text({"present": True, "text": blob})
+    assert result == blob
+
+
+def test_ingested_summary_soft_truncates_beyond_cap():
+    """Anything longer than the client cap is soft-truncated with an ellipsis,
+    never dropped. Dropping produced an empty UI gap for real LLM summaries."""
+    blob = "a" * 5000
+    result = _ingested_summary_text({"present": True, "text": blob})
+    assert result is not None
+    assert len(result) == 4000
+    assert result.endswith("…")
+
+
+def test_ingested_summary_plain_string_soft_truncates():
+    """Legacy plain-string payloads share the same cap + ellipsis path."""
+    blob = "b" * 5000
+    result = _ingested_summary_text(blob)
+    assert result is not None
+    assert len(result) == 4000
+    assert result.endswith("…")
 
 
 def test_ingested_summary_from_hit_nested():

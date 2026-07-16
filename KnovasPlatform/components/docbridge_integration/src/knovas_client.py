@@ -253,7 +253,13 @@ def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-_INGESTED_SUMMARY_MAX_LEN = 2500
+_INGESTED_SUMMARY_MAX_LEN = 4000
+
+
+def _soft_truncate_summary(text: str) -> str:
+    if len(text) <= _INGESTED_SUMMARY_MAX_LEN:
+        return text
+    return text[: _INGESTED_SUMMARY_MAX_LEN - 1].rstrip() + "…"
 
 
 def _is_http_url(url: Any) -> bool:
@@ -288,17 +294,14 @@ def _ingested_summary_text(value: Any) -> Optional[str]:
     API shape: {"present": bool, "text": str} (see Secure_API.md); older payloads may be plain strings.
     """
     if isinstance(value, str) and value.strip():
-        return value.strip()
+        return _soft_truncate_summary(value.strip())
     if isinstance(value, dict):
         if value.get("present") is False:
             return None
         for key in ("text", "summary", "content"):
             text = value.get(key)
             if isinstance(text, str) and text.strip():
-                text = text.strip()
-                if len(text) > _INGESTED_SUMMARY_MAX_LEN:
-                    return None
-                return text
+                return _soft_truncate_summary(text.strip())
     return None
 
 
