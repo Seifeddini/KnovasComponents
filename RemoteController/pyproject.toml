@@ -16,6 +16,7 @@ dependencies = [
     "prometheus-client>=0.20,<1",
     "gunicorn>=22.0,<24",
     "knovas-extract[pdf,docx,msg,markdown,sentences]>=0.2",
+    "cryptography>=42,<45",
 ]
 
 [project.optional-dependencies]

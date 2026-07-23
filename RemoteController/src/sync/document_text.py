@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from knovas_extract import (
     CorruptDocumentError,
@@ -24,7 +24,9 @@ from knovas_extract import (
     UnsupportedFormatError,
     extract,
 )
-from knovas_extract.result import Sentence
+from knovas_extract.result import Page, Section, Sentence
+
+from sync.extract_content import description_from_metadata, payload_from_extraction_result
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +83,22 @@ class ExtractedDocument:
     subject for EML/MSG, `/Title` metadata for PDF, core.xml title for
     DOCX). None when no title was extracted; callers should fall back to
     the filename.
+
+    `description` is optional abstract text when the extractor provides it.
+
+    `tables` holds API-ready structured tables from `content.tables`.
+
+    `sections` / `pages` mirror knovas-extract structure for section headings and
+    page-aware chunk boundaries during upload.
     """
 
     text: str
     sentences: Optional[list[Sentence]]
     title: Optional[str] = None
+    description: Optional[str] = None
+    tables: Optional[list[dict[str, Any]]] = None
+    sections: Optional[list[Section]] = None
+    pages: Optional[list[Page]] = None
 
 
 def is_syncable_extension(suffix: str) -> bool:
@@ -119,7 +132,7 @@ def _extract_bytes(raw: bytes, ext: str) -> ExtractedDocument:
         raise ConversionError(f"unsupported extension: {ext}", extension=ext)
 
     try:
-        result = extract(raw, mime=mime, emit_sentences=True)
+        result = extract(raw, mime=mime, emit_sentences=True, emit_markdown=True)
     except UnsupportedFormatError as exc:
         raise ConversionError(f"unsupported extension: {ext}", extension=ext) from exc
     except CorruptDocumentError as exc:
@@ -138,10 +151,17 @@ def _extract_bytes(raw: bytes, ext: str) -> ExtractedDocument:
     if not text.strip():
         raise ConversionError(f"no extractable text from {ext} file", extension=ext)
 
+    payload = payload_from_extraction_result(result)
+    description = payload.description or description_from_metadata(result.metadata)
+
     return ExtractedDocument(
-        text=text,
-        sentences=result.content.sentences,
-        title=result.metadata.title,
+        text=payload.text,
+        sentences=payload.sentences,
+        title=payload.title,
+        description=description,
+        tables=payload.tables,
+        sections=payload.sections,
+        pages=payload.pages,
     )
 
 

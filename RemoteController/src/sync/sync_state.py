@@ -166,5 +166,9 @@ class SyncStateStore:
     def list_tracked_paths(self) -> list[str]:
         return self._db.list_tracked_paths()
 
+    def remove_tracked(self, relative_path: str) -> None:
+        fp_map = self.load_fingerprints()
+        self._db.remove_tracked(relative_path, fingerprints=fp_map)
+
     def close(self) -> None:
         self._db.close()

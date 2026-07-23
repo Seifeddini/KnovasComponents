@@ -93,5 +93,182 @@ def new_doc() -> Any:
     )
 
 
+_STORED_POINTERS: set[str] = set()
+_ENGAGEMENT_COUNT = 0
+
+
+@app.get("/secured/health")
+def secured_health() -> Any:
+    return jsonify({"status": "success", "message": "healthy", "mock": True})
+
+
+@app.post("/secured/query")
+def secured_query() -> Any:
+    payload = request.get_json(silent=True) or {}
+    query_input = payload.get("Input")
+    queries: List[str] = []
+    if isinstance(query_input, list):
+        queries = [str(q) for q in query_input if str(q).strip()]
+    elif query_input:
+        queries = [str(query_input)]
+
+    results = []
+    for doc in DOCUMENTS:
+        hay = (doc.get("title", "") + " " + doc.get("snippet", "")).lower()
+        if not queries or any(q.lower() in hay for q in queries):
+            results.append(
+                {
+                    "pointer": doc["doc_id"],
+                    "document_uuid": str(uuid4()),
+                    "final_score": 0.9,
+                    "cosine_similarity": 0.88,
+                    "cosine_distance": 0.12,
+                    "ingested_summary": {"present": True, "text": doc.get("snippet", "")},
+                    "page_number": 1,
+                    "sentence_number": 1,
+                    "top_chunks": [],
+                }
+            )
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Query executed successfully",
+            "query_session_id": str(uuid4()),
+            "pointers": [r["pointer"] for r in results],
+            "result_count": len(results),
+            "results": results,
+            "meta": {"embed_latency_ms": 1, "stage1_latency_ms": 1, "stage2_latency_ms": 1},
+            "mock": True,
+        }
+    )
+
+
+@app.post("/secured/init_document_transmission")
+def secured_init() -> Any:
+    payload = request.get_json(silent=True) or {}
+    key = str(uuid4())
+    pointer = payload.get("identifier")
+    if pointer:
+        _STORED_POINTERS.add(str(pointer))
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Transmission initialized",
+            "transmission_key_id": key,
+            "mock": True,
+        }
+    ), 201
+
+
+@app.post("/secured/transmit_document_part")
+def secured_transmit() -> Any:
+    payload = request.get_json(silent=True) or {}
+    part_count = int(payload.get("part_number", 0))
+    complete = part_count >= 0
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Success",
+            "transmission_complete": complete,
+            "mock": True,
+        }
+    )
+
+
+@app.delete("/secured/delete_information_object")
+def secured_delete() -> Any:
+    payload = request.get_json(silent=True) or {}
+    pointer = str(payload.get("pointer") or "")
+    if pointer not in _STORED_POINTERS:
+        return jsonify({"status": "error", "message": "not found"}), 404
+    _STORED_POINTERS.discard(pointer)
+    return jsonify(
+        {
+            "status": "success",
+            "message": "deleted",
+            "document_uuid": str(uuid4()),
+            "deleted_sentences": 1,
+            "deleted_versions": 1,
+            "mock": True,
+        }
+    )
+
+
+@app.post("/secured/analytics/engagement")
+def secured_engagement() -> Any:
+    global _ENGAGEMENT_COUNT
+    payload = request.get_json(silent=True) or {}
+    events = payload.get("events") or []
+    if not payload.get("query_session_id") or not events:
+        return jsonify({"status": "error", "message": "bad request"}), 400
+    accepted = len(events)
+    _ENGAGEMENT_COUNT += accepted
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Engagement events accepted",
+            "accepted": accepted,
+            "mock": True,
+        }
+    ), 202
+
+
+@app.post("/secured/analytics/relevance-feedback")
+def secured_relevance() -> Any:
+    return jsonify({"status": "success", "message": "Relevance feedback recorded", "recorded": True}), 202
+
+
+@app.get("/secured/document/rating")
+def secured_get_rating() -> Any:
+    pointer = request.args.get("pointer", "")
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Document rating retrieved",
+            "rating": None,
+            "relevance_feedback": {"total_ratings": 0},
+            "pointer": pointer,
+            "mock": True,
+        }
+    )
+
+
+@app.post("/secured/document/rating")
+def secured_post_rating() -> Any:
+    payload = request.get_json(silent=True) or {}
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Document rating updated",
+            "pointer": payload.get("pointer"),
+            "importance_score": payload.get("importance_score"),
+            "quality_score": payload.get("quality_score"),
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "mock": True,
+        }
+    )
+
+
+@app.post("/secured/sign_certificate")
+def secured_sign_certificate() -> Any:
+    payload = request.get_json(silent=True) or {}
+    csr = payload.get("csr") or ""
+    if "BEGIN CERTIFICATE REQUEST" not in str(csr):
+        return jsonify({"status": "error", "message": "invalid csr"}), 400
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Certificate created successfully",
+            "certificate": "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n",
+            "certificate_chain": "-----BEGIN CERTIFICATE-----\nMOCK-CA\n-----END CERTIFICATE-----\n",
+            "serial_number": "123",
+            "expires_at": datetime.now(timezone.utc).isoformat(),
+            "validity_days": payload.get("validity_days", 365),
+            "mock": True,
+        }
+    )
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

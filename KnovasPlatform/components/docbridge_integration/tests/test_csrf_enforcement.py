@@ -7,6 +7,7 @@ valid ``X-CSRF-Token`` header (mirrors static/js/app.js). Endpoints enforced her
   POST /api/search
   POST /api/document/rating
   POST /api/analytics/relevance-feedback
+  POST /api/analytics/engagement
   POST /api/document/<id>/open
 
 Exempt / unchanged: login + logout (form ``csrf_token``, validated in-handler),
@@ -41,6 +42,9 @@ class DummyKnovasClient:
 
     def post_relevance_feedback(self, pointer, relevance_score, query_session_id=None):
         return {"status": "recorded"}
+
+    def post_engagement_events(self, query_session_id, events):
+        return {"status": "success", "accepted": len(events)}
 
     def post_document_rating(self, pointer, importance_score=None, quality_score=None):
         return {
@@ -151,6 +155,19 @@ def test_relevance_feedback_post_without_csrf_is_forbidden(csrf_app):
     assert resp.status_code == 403
 
 
+def test_engagement_post_without_csrf_is_forbidden(csrf_app):
+    client = csrf_app.test_client()
+    _login_and_token(client)
+    resp = client.post(
+        "/api/analytics/engagement",
+        json={
+            "query_session_id": "s1",
+            "events": [{"action": "view", "pointer": "corpus/x.pdf"}],
+        },
+    )
+    assert resp.status_code == 403
+
+
 def test_open_document_post_without_csrf_is_forbidden(csrf_app):
     client = csrf_app.test_client()
     _login_and_token(client)
@@ -205,6 +222,21 @@ def test_relevance_feedback_post_with_valid_csrf_allowed(csrf_app):
     resp = client.post(
         "/api/analytics/relevance-feedback",
         json={"pointer": "corpus/x.pdf", "relevance_score": 5, "query_session_id": "s1"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 202
+    assert resp.get_json()["success"] is True
+
+
+def test_engagement_post_with_valid_csrf_allowed(csrf_app):
+    client = csrf_app.test_client()
+    token = _login_and_token(client)
+    resp = client.post(
+        "/api/analytics/engagement",
+        json={
+            "query_session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+            "events": [{"action": "view", "pointer": "corpus/x.pdf", "position": 1}],
+        },
         headers={"X-CSRF-Token": token},
     )
     assert resp.status_code == 202

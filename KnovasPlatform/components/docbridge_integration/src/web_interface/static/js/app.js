@@ -19,6 +19,9 @@ class DocumentSearchApp {
         this.csrfToken = cfg.csrfToken || '';
         /** @type {string|null} Knovas query_session_id from last /secured/query (for relevance feedback). */
         this.querySessionId = null;
+        /** @type {Array<{action: string, pointer: string, position?: number}>} */
+        this._engagementQueue = [];
+        this._engagementFlushTimer = null;
 
         this.initializeEventListeners();
     }
@@ -48,6 +51,62 @@ class DocumentSearchApp {
             e.preventDefault();
             this.checkHealth();
         });
+
+        this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
+    }
+
+    _pointerForDoc(doc) {
+        const p = doc && (doc.doc_id || doc.pointer || doc.path);
+        return p != null ? String(p).trim() : '';
+    }
+
+    _queueEngagement(action, pointer, position) {
+        if (!this.querySessionId || !pointer) return;
+        const ev = { action, pointer: String(pointer).trim() };
+        if (position != null && position >= 1) {
+            ev.position = position;
+        }
+        this._engagementQueue.push(ev);
+        if (this._engagementQueue.length >= 50) {
+            this._flushEngagement();
+        } else {
+            this._flushEngagementSoon();
+        }
+    }
+
+    _flushEngagementSoon() {
+        if (this._engagementFlushTimer) return;
+        this._engagementFlushTimer = window.setTimeout(() => this._flushEngagement(), 300);
+    }
+
+    async _flushEngagement() {
+        if (this._engagementFlushTimer) {
+            window.clearTimeout(this._engagementFlushTimer);
+            this._engagementFlushTimer = null;
+        }
+        if (!this.querySessionId || !this._engagementQueue.length) return;
+        const events = this._engagementQueue.splice(0, 50);
+        try {
+            const response = await fetch('/api/analytics/engagement', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: this._jsonHeadersWithCsrf(),
+                body: JSON.stringify({
+                    query_session_id: this.querySessionId,
+                    events,
+                }),
+            });
+            if (this._redirectIfLoginRequired(response)) return;
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                console.debug('Engagement not accepted:', data.error || response.status);
+            }
+        } catch (err) {
+            console.debug('Engagement send failed:', err);
+        }
+        if (this._engagementQueue.length) {
+            this._flushEngagementSoon();
+        }
     }
 
     _redirectIfLoginRequired(response) {
@@ -71,6 +130,49 @@ class DocumentSearchApp {
     }
 
     _onResultsClick(e) {
+        const previewLink = e.target.closest('a[href*="/preview?"]');
+        if (previewLink) {
+            const card = previewLink.closest('.document-card');
+            if (card) {
+                const pointer = card.getAttribute('data-pointer');
+                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
+                this._queueEngagement('view', pointer, pos > 0 ? pos : undefined);
+            }
+            return;
+        }
+
+        const externalLink = e.target.closest('a[href*="/external-open?"]');
+        if (externalLink) {
+            const card = externalLink.closest('.document-card');
+            if (card) {
+                const pointer = card.getAttribute('data-pointer');
+                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
+                this._queueEngagement('view', pointer, pos > 0 ? pos : undefined);
+            }
+            return;
+        }
+
+        const dismissBtn = e.target.closest('.js-dismiss-result');
+        if (dismissBtn) {
+            const card = dismissBtn.closest('.document-card');
+            if (!card) return;
+            const pointer = card.getAttribute('data-pointer');
+            const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
+            this._queueEngagement('dismiss', pointer, pos > 0 ? pos : undefined);
+            card.style.display = 'none';
+            return;
+        }
+
+        const titleEl = e.target.closest('.document-title');
+        if (titleEl) {
+            const card = titleEl.closest('.document-card');
+            if (card) {
+                const pointer = card.getAttribute('data-pointer');
+                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
+                this._queueEngagement('click', pointer, pos > 0 ? pos : undefined);
+            }
+        }
+
         const scoreBtn = e.target.closest('.js-rating-score');
         if (scoreBtn) {
             const wrap = scoreBtn.closest('.document-ratings');
@@ -517,6 +619,11 @@ class DocumentSearchApp {
         const card = document.createElement('div');
         card.className = 'document-card';
         card.setAttribute('data-index', index);
+        const pointer = this._pointerForDoc(doc);
+        if (pointer) {
+            card.setAttribute('data-pointer', pointer);
+        }
+        card.setAttribute('data-display-position', String(index + 1));
         
         const title = this.displayTitle(doc);
         const docId = doc.doc_id || 'N/A';
@@ -614,6 +721,10 @@ class DocumentSearchApp {
                 <div class="document-ingested-summary-text">${summaryHtml}</div>
             </div>
             ` : ''}
+            <div class="document-feedback-row">
+                <button type="button" class="btn-text js-dismiss-result" title="Als nicht relevant markieren">Nicht relevant</button>
+            </div>
+            ${pointer ? this._buildRatingsSection(pointer) : ''}
         `;
         
         return card;
@@ -629,6 +740,7 @@ class DocumentSearchApp {
             useBrowserClientOpen = pathOrBrowserFlag;
             useCompanion = browserOrCompanionFlag;
         }
+        this._reportEngagementForDocId(docId, 'view');
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         const browserOpen = useBrowserClientOpen === true || !!cfg.browserClientOpenEnabled;
         const companionOpen = useCompanion === true || !!cfg.companionEnabled;
@@ -790,8 +902,22 @@ class DocumentSearchApp {
         }
     }
     
+    _reportEngagementForDocId(docId, action) {
+        const cards = this.resultsContainer.querySelectorAll('.document-card');
+        for (const card of cards) {
+            const pointer = card.getAttribute('data-pointer');
+            if (pointer && pointer === String(docId)) {
+                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
+                this._queueEngagement(action, pointer, pos > 0 ? pos : undefined);
+                return;
+            }
+        }
+        this._queueEngagement(action, docId);
+    }
+
     async downloadDocument(docId, path) {
         try {
+            this._reportEngagementForDocId(docId, 'download');
             const idSeg = encodeURIComponent(docId);
             window.location.href = `/api/document/${idSeg}/download?path=${encodeURIComponent(path)}`;
             this.showSuccess('Download wird gestartet...');

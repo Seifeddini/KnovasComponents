@@ -1343,6 +1343,31 @@ def create_app(config_path: Optional[str] = None):
             logger.warning('Relevance feedback failed: %s', e, exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 502
 
+    @app.route('/api/analytics/engagement', methods=['POST'])
+    def analytics_engagement():
+        """
+        Proxy: POST /secured/analytics/engagement (implicit engagement events).
+        """
+        try:
+            data = request.get_json() or {}
+            qsid = (data.get('query_session_id') or '').strip()
+            if not qsid:
+                return jsonify({'success': False, 'error': 'query_session_id ist erforderlich'}), 400
+            events = data.get('events')
+            if not isinstance(events, list) or not events:
+                return jsonify({'success': False, 'error': 'events ist erforderlich'}), 400
+            if len(events) > 50:
+                return jsonify({'success': False, 'error': 'maximal 50 events pro Anfrage'}), 400
+
+            raw = api_client.post_engagement_events(query_session_id=qsid, events=events)
+            return jsonify({'success': True, 'semantix': raw}), 202
+        except ValueError as e:
+            logger.info('Engagement rejected: %s', e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Ungültige Anfrage.'}), 400
+        except Exception as e:
+            logger.warning('Engagement failed: %s', e, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 502
+
     @app.route('/api/document/rating', methods=['GET', 'POST'])
     def document_rating():
         """

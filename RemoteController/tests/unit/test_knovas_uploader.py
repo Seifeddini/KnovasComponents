@@ -51,9 +51,26 @@ def test_upload_uses_original_identifier_and_converted_text(mock_config, tmp_pat
 
 
 def test_transmit_part_body_includes_location_fields():
-    body = _transmit_part_body("k", 0, "text", page_number=3, sentence_number=9)
+    body = _transmit_part_body(
+        "k",
+        0,
+        {"snippet": "text", "page_number": 3, "sentence_number": 9},
+    )
     assert body["page_number"] == 3
     assert body["sentence_number"] == 9
+
+
+def test_delete_by_pointer_success(mock_config):
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req:
+        resp = MagicMock()
+        resp.status_code = 200
+        req.return_value = resp
+        ok, err = uploader.delete_by_pointer("corpus/x.pdf")
+    assert ok is True
+    assert err is None
+    req.assert_called_once()
+    assert req.call_args[0][0] == "DELETE"
 
 
 def test_upload_pdf_markdown_sends_page_and_sentence(mock_config, tmp_path):

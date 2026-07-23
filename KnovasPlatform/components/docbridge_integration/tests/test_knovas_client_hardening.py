@@ -100,6 +100,7 @@ def make_client(
     ca_cert_path="",
     customer_id="",
     cert_auto_renew_enabled=False,
+    cert_renew_method="csr",
 ):
     values = {
         "api.base_url": base_url,
@@ -114,6 +115,7 @@ def make_client(
         "api.cert_auto_renew_enabled": cert_auto_renew_enabled,
         "api.cert_renew_threshold_days": 30,
         "api.cert_check_interval_seconds": 3600,
+        "api.cert_renew_method": cert_renew_method,
         "api.encryption_matrix_path": "",
         "api.rate_limit.requests_per_second": 0,  # disable rate-limit sleeps
         "api.rate_limit.retry_attempts": 3,
@@ -215,6 +217,7 @@ class TestC4CertRenewalSafety:
             key_path=str(key),
             ca_cert_path=str(ca),
             customer_id="cust-1",
+            cert_renew_method="legacy",
         )
 
         def responder(method, url, **kw):
@@ -251,6 +254,7 @@ class TestC4CertRenewalSafety:
             key_path=str(key),
             ca_cert_path=str(ca),
             customer_id="cust-1",
+            cert_renew_method="legacy",
         )
 
         def responder(method, url, **kw):

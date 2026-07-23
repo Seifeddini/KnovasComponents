@@ -6,7 +6,7 @@ Handles communication with Knovas knowledge base API.
 import requests
 import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Union
 from datetime import datetime, timezone
 import time
 import os
@@ -14,6 +14,8 @@ import threading
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from tempfile import NamedTemporaryFile
 from tenacity import (
@@ -447,14 +449,14 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
 
     if b64 and ext:
         try:
-            from src.utils.text_extractor import extract_transmission_chunks
+            from knovas_extract_upload import parts_from_base64
         except ImportError:
-            extract_transmission_chunks = None  # type: ignore[misc,assignment]
+            parts_from_base64 = None  # type: ignore[misc,assignment]
         else:
             try:
-                parts = extract_transmission_chunks(str(b64), ext)
+                parts = parts_from_base64(str(b64), ext)
                 if parts:
-                    return enrich_transmit_parts_with_location(parts), init_fields
+                    return parts, init_fields
             except Exception as exc:
                 logger.warning("Secured single-doc extract failed for %s: %s", identifier, exc)
 
@@ -467,6 +469,103 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
     snippet = "\n".join(lines)
     parts = enrich_transmit_parts_with_location([{"snippet": snippet}], full_text=snippet)
     return parts, init_fields
+
+
+_ENGAGEMENT_ACTIONS = frozenset({"view", "click", "download", "dismiss"})
+_MAX_TABLES_PER_PART = 50
+_MAX_TABLE_COLUMNS = 64
+_MAX_TABLE_ROWS = 5000
+_MAX_CELL_CHARS = 1024
+_MAX_HEADER_CHARS = 512
+_MAX_TABLE_HINT_CHARS = 128
+_MAX_TABLE_TITLE_CHARS = 512
+
+
+def _validate_and_normalize_tables(tables: Any) -> List[Dict[str, Any]]:
+    """Normalize structured tables for POST /secured/transmit_document_part."""
+    if not tables:
+        return []
+    if not isinstance(tables, list):
+        raise ValueError("tables must be a list")
+    if len(tables) > _MAX_TABLES_PER_PART:
+        raise ValueError(f"tables exceeds max {_MAX_TABLES_PER_PART} per part")
+
+    normalized: List[Dict[str, Any]] = []
+    allowed_keys = frozenset(
+        {"client_table_hint", "headers", "rows", "title", "page", "bbox"}
+    )
+    for idx, raw in enumerate(tables):
+        if not isinstance(raw, dict):
+            raise ValueError(f"tables[{idx}] must be an object")
+        unknown = set(raw.keys()) - allowed_keys
+        if unknown:
+            raise ValueError(f"tables[{idx}] has unknown keys: {sorted(unknown)}")
+
+        hint = str(raw.get("client_table_hint") or "").strip()
+        if not hint or len(hint) > _MAX_TABLE_HINT_CHARS:
+            raise ValueError(f"tables[{idx}].client_table_hint must be 1–{_MAX_TABLE_HINT_CHARS} chars")
+
+        headers_raw = raw.get("headers")
+        if not isinstance(headers_raw, list) or not headers_raw:
+            raise ValueError(f"tables[{idx}].headers must be a non-empty array")
+        if len(headers_raw) > _MAX_TABLE_COLUMNS:
+            raise ValueError(f"tables[{idx}].headers exceeds {_MAX_TABLE_COLUMNS} columns")
+        headers = []
+        for col_i, h in enumerate(headers_raw):
+            hs = str(h)
+            if len(hs) > _MAX_HEADER_CHARS:
+                raise ValueError(f"tables[{idx}].headers[{col_i}] exceeds {_MAX_HEADER_CHARS} chars")
+            headers.append(hs)
+
+        rows_raw = raw.get("rows")
+        if not isinstance(rows_raw, list):
+            raise ValueError(f"tables[{idx}].rows must be an array")
+        if len(rows_raw) > _MAX_TABLE_ROWS:
+            raise ValueError(f"tables[{idx}].rows exceeds {_MAX_TABLE_ROWS} rows")
+        rows: List[List[str]] = []
+        col_count = len(headers)
+        for row_i, row in enumerate(rows_raw):
+            if not isinstance(row, list):
+                raise ValueError(f"tables[{idx}].rows[{row_i}] must be an array")
+            if len(row) != col_count:
+                raise ValueError(
+                    f"tables[{idx}].rows[{row_i}] must have {col_count} cells (got {len(row)})"
+                )
+            cells = []
+            for cell_i, cell in enumerate(row):
+                cs = str(cell)
+                if len(cs) > _MAX_CELL_CHARS:
+                    raise ValueError(
+                        f"tables[{idx}].rows[{row_i}][{cell_i}] exceeds {_MAX_CELL_CHARS} chars"
+                    )
+                cells.append(cs)
+            rows.append(cells)
+
+        table: Dict[str, Any] = {
+            "client_table_hint": hint,
+            "headers": headers,
+            "rows": rows,
+        }
+        title = raw.get("title")
+        if title is not None:
+            ts = str(title).strip()
+            if ts:
+                if len(ts) > _MAX_TABLE_TITLE_CHARS:
+                    raise ValueError(f"tables[{idx}].title exceeds {_MAX_TABLE_TITLE_CHARS} chars")
+                table["title"] = ts
+        page = raw.get("page")
+        if page is not None:
+            page_i = int(page)
+            if page_i < 1 or page_i > 100000:
+                raise ValueError(f"tables[{idx}].page must be 1–100000")
+            table["page"] = page_i
+        bbox = raw.get("bbox")
+        if bbox is not None:
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                raise ValueError(f"tables[{idx}].bbox must be [x0, y0, x1, y1]")
+            table["bbox"] = [float(bbox[i]) for i in range(4)]
+        normalized.append(table)
+    return normalized
 
 
 def _secured_transmit_part_payload(
@@ -489,6 +588,8 @@ def _secured_transmit_part_payload(
                 payload[field] = num
         except (TypeError, ValueError):
             pass
+    if part.get("tables"):
+        payload["tables"] = _validate_and_normalize_tables(part["tables"])
     return payload
 
 
@@ -774,6 +875,12 @@ class KnovasAPIClient:
         self.cert_auto_renew_enabled = self.config.get_bool('api.cert_auto_renew_enabled', True)
         self.cert_renew_threshold_days = self.config.get_int('api.cert_renew_threshold_days', 30)
         self.cert_check_interval_seconds = self.config.get_int('api.cert_check_interval_seconds', 3600)
+        self.cert_renew_method = (
+            (self.config.get('api.cert_renew_method', '') or '').strip().lower()
+            or (os.getenv('SEMANTIX_CERT_RENEW_METHOD') or 'csr').strip().lower()
+        )
+        if self.cert_renew_method not in ('csr', 'legacy'):
+            self.cert_renew_method = 'csr'
         self._last_cert_check_at = 0.0
         # Serialize the certificate freshness check / renewal / session swap so
         # concurrent request threads can't race on _last_cert_check_at or _session.
@@ -793,6 +900,15 @@ class KnovasAPIClient:
             'transmit_part': self.config.get('api.endpoints.transmit_part', '/secured/transmit_document_part'),
             'query': self.config.get('api.endpoints.query', '/secured/query'),
             'generate_certificate': self.config.get('api.endpoints.generate_certificate', '/secured/generate_certificate'),
+            'sign_certificate': self.config.get(
+                'api.endpoints.sign_certificate', '/secured/sign_certificate'
+            ),
+            'engagement': self.config.get(
+                'api.endpoints.engagement', '/secured/analytics/engagement'
+            ),
+            'delete_information_object': self.config.get(
+                'api.endpoints.delete_information_object', '/secured/delete_information_object'
+            ),
             'relevance_feedback': self.config.get(
                 'api.endpoints.relevance_feedback', '/secured/analytics/relevance-feedback'
             ),
@@ -829,11 +945,21 @@ class KnovasAPIClient:
 
     def _secured_query_request_body(
         self,
-        query: str,
+        query: Union[str, List[str]],
         limit: Optional[int] = None,
         filters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        body: Dict[str, Any] = {'Input': query}
+        if isinstance(query, list):
+            inputs = [str(q).strip() for q in query if str(q).strip()]
+            if not inputs:
+                raise ValueError('Input must be a non-empty string or non-empty list of strings')
+            body_input: Union[str, List[str]] = inputs if len(inputs) > 1 else inputs[0]
+        else:
+            q = str(query).strip()
+            if not q:
+                raise ValueError('Input must be a non-empty string or non-empty list of strings')
+            body_input = q
+        body: Dict[str, Any] = {'Input': body_input}
         if limit is not None and limit > 0:
             body['limit'] = int(limit)
             body['top_k'] = int(limit)
@@ -932,6 +1058,56 @@ class KnovasAPIClient:
             session.close()
 
     def _attempt_certificate_renewal(self) -> bool:
+        if self.cert_renew_method == 'legacy':
+            return self._attempt_certificate_renewal_legacy()
+        return self._attempt_certificate_renewal_csr()
+
+    def _csr_subject_from_current_cert(self) -> x509.Name:
+        with open(self.cert_path, "rb") as f:
+            cert = x509.load_pem_x509_certificate(f.read(), default_backend())
+        return cert.subject
+
+    def _generate_csr_key_pair(self) -> Tuple[str, str]:
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend(),
+        )
+        subject = self._csr_subject_from_current_cert()
+        csr = (
+            x509.CertificateSigningRequestBuilder()
+            .subject_name(subject)
+            .sign(private_key, hashes.SHA256(), default_backend())
+        )
+        csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+        key_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode("utf-8")
+        return csr_pem, key_pem
+
+    def _attempt_certificate_renewal_csr(self) -> bool:
+        try:
+            csr_pem, private_key_pem = self._generate_csr_key_pair()
+            payload = self.sign_certificate(csr_pem, validity_days=365)
+        except Exception as exc:
+            logger.error("CSR auto-renew request failed: %s", exc)
+            return False
+
+        certificate_pem = payload.get("certificate")
+        if not certificate_pem:
+            logger.error("CSR auto-renew response missing certificate")
+            return False
+        chain = payload.get("certificate_chain")
+        if chain:
+            certificate_pem = f"{str(certificate_pem).strip()}\n{str(chain).strip()}\n"
+        return self._install_renewed_certificate_pair(
+            str(certificate_pem).strip() + "\n",
+            str(private_key_pem).strip() + "\n",
+        )
+
+    def _attempt_certificate_renewal_legacy(self) -> bool:
         endpoint = self.endpoints.get('generate_certificate', '/secured/generate_certificate')
         customer_id = self.customer_id or self._extract_customer_id_from_cert()
         if not customer_id:
@@ -961,17 +1137,18 @@ class KnovasAPIClient:
         if "ENCRYPTED PRIVATE KEY" in str(private_key):
             logger.error("Auto-renew returned encrypted private key; cannot install automatically")
             return False
+        return self._install_renewed_certificate_pair(
+            str(certificate_pem).strip() + "\n",
+            str(private_key).strip() + "\n",
+        )
 
+    def _install_renewed_certificate_pair(self, certificate_pem: str, private_key_pem: str) -> bool:
         cert_tmp: Optional[str] = None
         key_tmp: Optional[str] = None
         try:
-            # 1) Stage the candidate pair to temp files. Do NOT touch the live
-            #    cert/key on disk yet.
-            cert_tmp = self._write_temp_pem(self.cert_path, str(certificate_pem).strip() + "\n")
-            key_tmp = self._write_temp_pem(self.key_path, str(private_key).strip() + "\n")
+            cert_tmp = self._write_temp_pem(self.cert_path, certificate_pem)
+            key_tmp = self._write_temp_pem(self.key_path, private_key_pem)
 
-            # 2) Validate the candidate pair BEFORE installing it. On failure the
-            #    original working key/cert are untouched and the session unchanged.
             if not self._validate_renewed_certificate(cert_tmp, key_tmp):
                 logger.error(
                     "Auto-renew: candidate certificate failed validation; "
@@ -979,8 +1156,6 @@ class KnovasAPIClient:
                 )
                 return False
 
-            # 3) Back up originals in memory, then install atomically. Roll back
-            #    if the second replace fails (avoid a mismatched cert/key pair).
             orig_cert = self._read_text_or_none(self.cert_path)
             orig_key = self._read_text_or_none(self.key_path)
             try:
@@ -996,13 +1171,11 @@ class KnovasAPIClient:
                     self._atomic_write(self.key_path, orig_key)
                 return False
 
-            # 4) Only now swap the live session onto the validated pair.
             self._session.close()
             self._session = self._build_session()
             logger.info("Certificate auto-renewed and rotated successfully")
             return True
         finally:
-            # Never leave a private-key temp file behind on any error path.
             for tmp in (cert_tmp, key_tmp):
                 if tmp and os.path.exists(tmp):
                     try:
@@ -1204,6 +1377,94 @@ class KnovasAPIClient:
             params={'pointer': str(pointer).strip()},
         )
         return response.json() if response.content else {}
+
+    def post_engagement_events(
+        self,
+        query_session_id: str,
+        events: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        POST /secured/analytics/engagement — implicit engagement (fire-and-forget).
+        """
+        session_id = str(query_session_id or '').strip()
+        if not session_id:
+            raise ValueError('query_session_id is required')
+        if not events or not isinstance(events, list):
+            raise ValueError('events must be a non-empty array')
+        if len(events) > 50:
+            raise ValueError('events exceeds max 50 per request')
+
+        normalized_events: List[Dict[str, Any]] = []
+        for idx, ev in enumerate(events):
+            if not isinstance(ev, dict):
+                raise ValueError(f'events[{idx}] must be an object')
+            action = str(ev.get('action') or '').strip().lower()
+            if action not in _ENGAGEMENT_ACTIONS:
+                raise ValueError(
+                    f'events[{idx}].action must be one of: {", ".join(sorted(_ENGAGEMENT_ACTIONS))}'
+                )
+            pointer = str(ev.get('pointer') or '').strip()
+            if not pointer:
+                raise ValueError(f'events[{idx}].pointer is required')
+            item: Dict[str, Any] = {'action': action, 'pointer': pointer}
+            position = ev.get('position')
+            if position is not None:
+                pos_i = int(position)
+                if pos_i < 1:
+                    raise ValueError(f'events[{idx}].position must be >= 1')
+                item['position'] = pos_i
+            normalized_events.append(item)
+
+        endpoint = self.endpoints.get('engagement', '/secured/analytics/engagement')
+        response = self._request_no_retry(
+            'POST',
+            endpoint,
+            data={
+                'query_session_id': session_id,
+                'events': normalized_events,
+            },
+        )
+        if response.status_code not in (200, 202):
+            response.raise_for_status()
+        return response.json() if response.content else {}
+
+    def delete_information_object(self, pointer: str) -> Dict[str, Any]:
+        """DELETE /secured/delete_information_object — remove document by pointer."""
+        if not pointer or not str(pointer).strip():
+            raise ValueError('pointer is required')
+        endpoint = self.endpoints.get(
+            'delete_information_object', '/secured/delete_information_object'
+        )
+        response = self._request_no_retry(
+            'DELETE',
+            endpoint,
+            data={'pointer': str(pointer).strip()},
+        )
+        return response.json() if response.content else {}
+
+    def sign_certificate(
+        self,
+        csr_pem: str,
+        validity_days: Optional[int] = None,
+        organisation: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """POST /secured/sign_certificate — sign a tenant CSR (recommended renewal path)."""
+        csr = str(csr_pem or '').strip()
+        if not csr or 'BEGIN CERTIFICATE REQUEST' not in csr:
+            raise ValueError('csr must be a PEM certificate signing request')
+        body: Dict[str, Any] = {'csr': csr}
+        if validity_days is not None:
+            days = int(validity_days)
+            if days < 1 or days > 1095:
+                raise ValueError('validity_days must be 1–1095')
+            body['validity_days'] = days
+        if organisation is not None:
+            org = str(organisation).strip()
+            if org:
+                body['organisation'] = org
+        endpoint = self.endpoints.get('sign_certificate', '/secured/sign_certificate')
+        response = self._request_no_retry('POST', endpoint, data=body)
+        return response.json() if response.content else {}
     
     def sync_document_batch(
         self, 
@@ -1282,7 +1543,7 @@ class KnovasAPIClient:
     
     def search_documents(
         self,
-        query: str,
+        query: Union[str, List[str]],
         limit: int = 20,
         filters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -1384,7 +1645,7 @@ class KnovasAPIClient:
 
     def _search_documents_secured(
         self,
-        query: str,
+        query: Union[str, List[str]],
         limit: int,
         filters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:

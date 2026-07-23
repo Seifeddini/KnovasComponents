@@ -18,6 +18,7 @@ from sync.document_text import (
     is_unconvertible_error,
 )
 from sync.knovas_uploader import SemantixUploader, UploadResult
+from sync.semantix_cert import ensure_mtls_certificate_freshness
 from sync.subfolder_queue import SubfolderProgress, SubfolderQueue
 from sync.sync_config import effective_filters
 from sync.sync_state import (
@@ -285,8 +286,39 @@ def _should_skip_failed_upload(upload: UploadResult, mode: str) -> bool:
 class _ScanPlan:
     summary: DocumentSyncSummary
     upload_queue: list[tuple[Path, str, str, int]]
+    scanned_paths: set[str] = field(default_factory=set)
     scan_truncated: bool = False
     scan_stopped: bool = False
+
+
+def _pointer_for_relative(identifier_prefix: str, relative_path: str) -> str:
+    rel = relative_path.replace("\\", "/")
+    return f"{identifier_prefix}/{rel}"
+
+
+def _delete_on_remove_enabled(sync_body: dict[str, Any]) -> bool:
+    ingestion = sync_body.get("ingestion") or {}
+    return ingestion.get("delete_on_remove", True) is not False
+
+
+def _prune_removed_documents(
+    sync_body: dict[str, Any],
+    uploader: SemantixUploader,
+    state: SyncStateStore,
+    scanned_paths: set[str],
+    result: SyncRunResult,
+) -> None:
+    prefix = (sync_body.get("ingestion") or {}).get("identifier_prefix", "rc-sync")
+    for tracked in state.list_tracked_paths():
+        if tracked in scanned_paths:
+            continue
+        pointer = _pointer_for_relative(prefix, tracked)
+        ok, err = uploader.delete_by_pointer(pointer)
+        if ok:
+            state.remove_tracked(tracked)
+            logger.info("Pruned removed document from Knovas: %s", pointer)
+        elif err:
+            result.errors.append({"path": tracked, "error": err})
 
 
 def _sequential_subfolders_enabled(sync_config: dict[str, Any] | None) -> bool:
@@ -358,6 +390,7 @@ def plan_sync_cycle(
     fingerprints = state.load_fingerprints()
     summary = DocumentSyncSummary()
     upload_queue: list[tuple[Path, str, str, int]] = []
+    scanned_paths: set[str] = set()
     walk_targets, _ = build_walk_targets(sync_body, sync_config, queue)
     visit_cap = max_scan_entries if max_scan_entries > 0 else 0
     budget = (
@@ -391,6 +424,7 @@ def plan_sync_cycle(
         initial_stacks=initial_stacks,
     ):
         scanned += 1
+        scanned_paths.add(rel)
         stored = state.lookup_stored(rel, fingerprints)
         status = _classify_status(
             stored, mtime_iso, size_bytes, max_age_seconds=max_age_seconds, now=now
@@ -439,6 +473,7 @@ def plan_sync_cycle(
     return _ScanPlan(
         summary=summary,
         upload_queue=upload_queue,
+        scanned_paths=scanned_paths,
         scan_truncated=scan_truncated,
         scan_stopped=scan_stopped,
     )
@@ -554,6 +589,7 @@ def run_sync_work(
     source_root: Path | None = None
 
     try:
+        ensure_mtls_certificate_freshness()
         if sequential:
             queue = SubfolderQueue.from_config()
             sources = sync_body.get("sources") or []
@@ -643,6 +679,16 @@ def run_sync_work(
                 result.transmissions_truncated = True
             else:
                 result.transmissions.append(tx_entry)
+
+        can_prune = (
+            _delete_on_remove_enabled(sync_body)
+            and not plan.scan_truncated
+            and not plan.scan_stopped
+            and not result.paused_reason
+            and not sequential
+        )
+        if can_prune:
+            _prune_removed_documents(sync_body, uploader, state, plan.scanned_paths, result)
 
         if sequential and queue is not None and source_root is not None and result.document_sync is not None:
             ds = result.document_sync

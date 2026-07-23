@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterator, Optional, Tuple
 import requests
 
 from config import get_config
-from sync.chunking import iter_text_chunks_with_location
+from sync.chunking import build_transmission_parts
 from sync.document_text import ConversionError, extract_document
 
 logger = logging.getLogger(__name__)
@@ -33,20 +33,22 @@ class UploadResult:
 def _transmit_part_body(
     key: str,
     part_number: int,
-    snippet: str,
-    *,
-    page_number: Optional[int] = None,
-    sentence_number: Optional[int] = None,
+    part: dict[str, Any],
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "key": key,
         "part_number": part_number,
-        "snippet": snippet,
+        "snippet": part["snippet"],
     }
-    if page_number is not None and page_number >= 1:
+    page_number = part.get("page_number")
+    sentence_number = part.get("sentence_number")
+    if page_number is not None and int(page_number) >= 1:
         body["page_number"] = int(page_number)
-    if sentence_number is not None and sentence_number >= 1:
+    if sentence_number is not None and int(sentence_number) >= 1:
         body["sentence_number"] = int(sentence_number)
+    tables = part.get("tables")
+    if tables:
+        body["tables"] = tables
     return body
 
 
@@ -107,10 +109,15 @@ class SemantixUploader:
             doc = extract_document(file_path)
             text, sentences = doc.text, doc.sentences
             extracted_title = doc.title
-            parts_iter = iter_text_chunks_with_location(text, part_max, sentences=sentences)
-            part_count = sum(
-                1 for _ in iter_text_chunks_with_location(text, part_max, sentences=sentences)
+            parts = build_transmission_parts(
+                text,
+                part_max,
+                sentences=sentences,
+                sections=doc.sections,
+                pages=doc.pages,
+                tables=doc.tables,
             )
+            part_count = len(parts)
         except Exception as exc:
             return UploadResult(
                 relative_path=relative_path,
@@ -127,15 +134,20 @@ class SemantixUploader:
         # filename when no title was extracted.
         title = extracted_title or file_path.name
 
+        init_body: dict[str, Any] = {
+            "identifier": identifier,
+            "part_count": part_count,
+            "title": title,
+            "path": relative_path,
+        }
+        description = (sync_body.get("ingestion") or {}).get("description") or doc.description
+        if description:
+            init_body["description"] = str(description).strip()[:2000]
+
         init_resp = self._request(
             "POST",
             "/secured/init_document_transmission",
-            json_body={
-                "identifier": identifier,
-                "part_count": part_count,
-                "title": title,
-                "path": relative_path,
-            },
+            json_body=init_body,
         )
         ingestion_count = 1
         if init_resp.status_code not in (200, 201):
@@ -165,24 +177,20 @@ class SemantixUploader:
             )
 
         try:
-            for idx, (snippet, page_number, sentence_number) in enumerate(parts_iter):
-                if idx == 0 and (page_number is not None or sentence_number is not None):
+            for idx, part in enumerate(parts):
+                if idx == 0 and (
+                    part.get("page_number") is not None or part.get("sentence_number") is not None
+                ):
                     logger.info(
                         "Transmit part 0 location page=%s sentence=%s file=%s",
-                        page_number,
-                        sentence_number,
+                        part.get("page_number"),
+                        part.get("sentence_number"),
                         file_path.name,
                     )
                 part_resp = self._request(
                     "POST",
                     "/secured/transmit_document_part",
-                    json_body=_transmit_part_body(
-                        key,
-                        idx,
-                        snippet,
-                        page_number=page_number,
-                        sentence_number=sentence_number,
-                    ),
+                    json_body=_transmit_part_body(key, idx, part),
                 )
                 ingestion_count += 1
                 if part_resp.status_code != 200:
@@ -212,3 +220,17 @@ class SemantixUploader:
             status="ok",
             ingestion_requests=ingestion_count,
         )
+
+    def delete_by_pointer(self, pointer: str) -> tuple[bool, Optional[str]]:
+        """DELETE /secured/delete_information_object. 404 is treated as success."""
+        pointer = str(pointer or "").strip()
+        if not pointer:
+            return False, "pointer is required"
+        resp = self._request(
+            "DELETE",
+            "/secured/delete_information_object",
+            json_body={"pointer": pointer},
+        )
+        if resp.status_code in (200, 404):
+            return True, None
+        return False, f"delete failed: {resp.status_code}"

@@ -182,3 +182,10 @@ class SyncStateDatabase:
         conn = self._connect()
         cur = conn.execute("SELECT relative_path FROM documents ORDER BY relative_path")
         return [row[0] for row in cur]
+
+    def remove_tracked(self, relative_path: str, *, fingerprints: Optional[dict[str, tuple[str, int]]] = None) -> None:
+        conn = self._connect()
+        conn.execute("DELETE FROM documents WHERE relative_path = ?", (relative_path,))
+        conn.commit()
+        if fingerprints is not None:
+            fingerprints.pop(relative_path, None)

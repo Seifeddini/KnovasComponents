@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import bisect
 from pathlib import Path
-from typing import Iterator, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
-from knovas_extract.result import Sentence
+from knovas_extract.result import Page, Section, Sentence
+
+from sync.section_pages import adjust_chunk_end, section_prefix_at_offset
+from sync.table_payload import assign_tables_to_parts
 
 
 def iter_text_chunks(text: str, part_max_chars: int) -> Iterator[str]:
@@ -55,19 +58,22 @@ def iter_text_chunks_with_location(
     part_max_chars: int,
     *,
     sentences: Optional[Sequence[Sentence]] = None,
-) -> Iterator[Tuple[str, Optional[int], Optional[int]]]:
-    """Yield (snippet, page_number, sentence_number) for each transmission part.
+    sections: Optional[Sequence[Section]] = None,
+    pages: Optional[Sequence[Page]] = None,
+) -> Iterator[Tuple[str, Optional[int], Optional[int], int]]:
+    """Yield (snippet, page_number, sentence_number, start_offset) per transmission part.
 
-    `sentences` — the `content.sentences` list from `knovas-extract`. When
-    provided, each chunk's location is looked up via binary search on
-    `Sentence.char_start`, using `Sentence.page_number` (populated for PDFs)
-    and `Sentence.index + 1` for the sentence number. When None, yields
-    `(chunk, None, None)`.
+    `sentences` — `content.sentences` from knovas-extract (char offsets refer to
+    `content.text`). When provided, each chunk's location uses binary search on
+    `Sentence.char_start` for `page_number` and `index + 1` as `sentence_number`.
+
+  `sections` / `pages` — when provided, chunk boundaries prefer section and page
+    breaks; section headings are injected into snippets at section starts.
     """
     if part_max_chars < 1:
         raise ValueError("part_max_chars must be >= 1")
     if not text:
-        yield "", None, None
+        yield "", None, None, 0
         return
 
     starts = [s.char_start for s in sentences] if sentences else []
@@ -75,18 +81,59 @@ def iter_text_chunks_with_location(
     start = 0
     length = len(text)
     while start < length:
-        end = min(start + part_max_chars, length)
+        prefix = section_prefix_at_offset(sections, text, start)
+        budget = max(1, part_max_chars - len(prefix)) if prefix else part_max_chars
+        end = min(start + budget, length)
         if end < length:
+            end = adjust_chunk_end(
+                text,
+                start,
+                end,
+                sections=sections,
+                pages=pages,
+            )
             while end > start and not _is_char_boundary(text, end):
                 end -= 1
             if end == start:
-                end = min(start + part_max_chars, length)
+                end = min(start + budget, length)
         if sentences:
             page_number, sentence_number = _location_for_offset(starts, sentences, start)
         else:
             page_number, sentence_number = None, None
-        yield text[start:end], page_number, sentence_number
+        snippet = text[start:end]
+        if prefix and not snippet.startswith(prefix):
+            snippet = prefix + snippet
+        yield snippet, page_number, sentence_number, start
         start = end
+
+
+def build_transmission_parts(
+    text: str,
+    part_max_chars: int,
+    *,
+    sentences: Optional[Sequence[Sentence]] = None,
+    sections: Optional[Sequence[Section]] = None,
+    pages: Optional[Sequence[Page]] = None,
+    tables: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Build part dicts with snippet, location, and optional tables for upload."""
+    parts: List[Dict[str, Any]] = []
+    for snippet, page_number, sentence_number, _start in iter_text_chunks_with_location(
+        text,
+        part_max_chars,
+        sentences=sentences,
+        sections=sections,
+        pages=pages,
+    ):
+        part: Dict[str, Any] = {"snippet": snippet}
+        if page_number is not None and page_number >= 1:
+            part["page_number"] = int(page_number)
+        if sentence_number is not None and sentence_number >= 1:
+            part["sentence_number"] = int(sentence_number)
+        parts.append(part)
+    if tables:
+        assign_tables_to_parts(parts, tables, text=text, part_max_chars=part_max_chars)
+    return parts
 
 
 def chunk_text(text: str, part_max_chars: int) -> list[str]:
