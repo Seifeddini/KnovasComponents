@@ -143,6 +143,12 @@ web:
   secret_key: "${WEB_SECRET_KEY}"
   session_lifetime: 3600  # seconds (1 hour)
 
+  # Session cookie 'Secure' flag. true = cookie only sent over HTTPS (default,
+  # for TLS-terminated deployments). Set WEB_SESSION_COOKIE_SECURE=false for
+  # plain-HTTP LAN access — otherwise the browser drops the session cookie and
+  # login fails with "Login-Formular ist abgelaufen".
+  session_cookie_secure: "${WEB_SESSION_COOKIE_SECURE:-true}"
+
   # Browser tab and page heading (rebuild docbridge-web image after changing)
   app_title: "${WEB_APP_TITLE:-Knovas Document Search}"
 
