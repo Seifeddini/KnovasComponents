@@ -207,7 +207,13 @@ class SubfolderQueue:
         """Advance to next subfolder when current one has no remaining work."""
         if scan_truncated:
             return False
-        if paused_reason in ("stop_requested", "outside_window", "rate_limited", "scan_limit_reached"):
+        if paused_reason in (
+            "stop_requested",
+            "outside_window",
+            "rate_limited",
+            "scan_limit_reached",
+            "cycle_time_limit",
+        ):
             return False
         if pending > 0 or modified > 0:
             return False

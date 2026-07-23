@@ -89,9 +89,23 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
 
     required = _required_env_keys()
     missing = [k for k in required if not (os.environ.get(k) or "").strip()]
-    if validate and missing and not _env_bool("RC_SKIP_CONFIG_VALIDATION", False):
-        print("Missing required environment variables:", ", ".join(missing), file=sys.stderr)
-        sys.exit(1)
+    if validate and missing:
+        skip_requested = _env_bool("RC_SKIP_CONFIG_VALIDATION", False)
+        # The skip is a test-only convenience; outside TESTING it must never
+        # suppress missing-secret errors on the production boot path.
+        if skip_requested and not _env_bool("TESTING", False):
+            print(
+                "WARNING: RC_SKIP_CONFIG_VALIDATION is set but TESTING is not; "
+                "ignoring it and enforcing config validation.",
+                file=sys.stderr,
+            )
+        if not (skip_requested and _env_bool("TESTING", False)):
+            print(
+                "Missing required environment variables:",
+                ", ".join(missing),
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     roots_raw = (os.environ.get("RC_WATCH_ROOTS") or "").strip()
     roots = tuple(r.strip() for r in roots_raw.split(",") if r.strip())

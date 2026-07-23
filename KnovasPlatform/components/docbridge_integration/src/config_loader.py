@@ -53,14 +53,32 @@ class ConfigLoader:
         self._substitute_env_vars()
     
     def _substitute_env_vars(self):
-        """Replace ${VAR_NAME} patterns with environment variables."""
+        """Replace ${VAR_NAME} patterns with environment variables.
+
+        Forms supported:
+          ${VAR}            optional; unset -> '' (fail-open, legacy behavior)
+          ${VAR:-default}   optional with default
+          ${VAR:?message}   REQUIRED; unset/empty -> hard error (fail-closed).
+                            Use this for security-critical keys (certs, secrets,
+                            keys) so a missing value fails visibly instead of
+                            silently collapsing to an empty string.
+        """
         def substitute(value):
             if isinstance(value, str):
                 pattern = r'\$\{([^}]+)\}'
                 matches = re.findall(pattern, value)
                 for match in matches:
-                    # Support both ${VAR} and ${VAR:-default} forms.
-                    if ':-' in match:
+                    # Order matters: check the required marker (:?) before :-.
+                    if ':?' in match:
+                        var_name, _, message = match.partition(':?')
+                        env_value = os.getenv(var_name)
+                        if env_value is None or env_value == '':
+                            detail = f": {message}" if message.strip() else ""
+                            raise ValueError(
+                                "Required environment variable "
+                                f"'{var_name}' is not set{detail}"
+                            )
+                    elif ':-' in match:
                         var_name, default_value = match.split(':-', 1)
                         env_value = os.getenv(var_name, default_value)
                     else:
@@ -164,4 +182,17 @@ def get_config(config_path: Optional[str] = None) -> ConfigLoader:
     global _global_config
     if _global_config is None:
         _global_config = ConfigLoader(config_path)
+    return _global_config
+
+
+def set_config(config_path: Optional[str] = None) -> ConfigLoader:
+    """Force (re)initialization of the global config singleton.
+
+    Used when the app is created with an explicit config path (tests,
+    CLI ``--config``) so that global ``get_config()`` consumers — e.g.
+    ``AutoDocFileHandler`` — resolve the same configuration instead of
+    searching default locations.
+    """
+    global _global_config
+    _global_config = ConfigLoader(config_path)
     return _global_config

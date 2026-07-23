@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 import time
 import os
+import threading
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -27,6 +28,15 @@ from part_metadata import enrich_transmit_parts_with_location
 
 
 logger = logging.getLogger(__name__)
+
+
+# Only transient transport failures are safe to retry. HTTPError (raised by
+# raise_for_status on 4xx/5xx) is a RequestException subclass but MUST NOT be
+# retried: retrying a 4xx/5xx on a state-changing POST duplicates ingestion.
+_RETRYABLE_REQUEST_EXCEPTIONS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+)
 
 
 def _normalize_semantix_similarity_value(raw: Any) -> float:
@@ -751,11 +761,23 @@ class KnovasAPIClient:
         self.key_path = self.config.get('api.key_path', '')
         self.ca_cert_path = self.config.get('api.ca_cert_path', '')
         self.mtls_enabled = bool(self.cert_path and self.key_path and self.ca_cert_path)
+
+        # Refuse to present client certificates / run the secured API over a
+        # non-TLS connection. If mTLS is configured the base_url MUST be https.
+        if self.mtls_enabled and not str(self.base_url).strip().lower().startswith('https://'):
+            raise ValueError(
+                "mTLS is enabled (client cert/key/CA configured) but base_url is "
+                f"not https://: {self.base_url!r}. Refusing to use client "
+                "certificates over a non-TLS connection."
+            )
         self.customer_id = self.config.get('api.customer_id', '') or os.getenv('SEMANTIX_CUSTOMER_ID', '')
         self.cert_auto_renew_enabled = self.config.get_bool('api.cert_auto_renew_enabled', True)
         self.cert_renew_threshold_days = self.config.get_int('api.cert_renew_threshold_days', 30)
         self.cert_check_interval_seconds = self.config.get_int('api.cert_check_interval_seconds', 3600)
         self._last_cert_check_at = 0.0
+        # Serialize the certificate freshness check / renewal / session swap so
+        # concurrent request threads can't race on _last_cert_check_at or _session.
+        self._cert_lock = threading.Lock()
 
         self.encryption_matrix_path = (
             (self.config.get('api.encryption_matrix_path', '') or '').strip()
@@ -805,11 +827,27 @@ class KnovasAPIClient:
             logger.warning('Could not load encryption matrix from %s: %s', path, exc)
             return None
 
-    def _secured_query_request_body(self, query: str, limit: Optional[int] = None) -> Dict[str, Any]:
+    def _secured_query_request_body(
+        self,
+        query: str,
+        limit: Optional[int] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         body: Dict[str, Any] = {'Input': query}
         if limit is not None and limit > 0:
             body['limit'] = int(limit)
             body['top_k'] = int(limit)
+        if filters:
+            # Forward case/matter scoping to the server instead of silently
+            # dropping it. Server-side filtering depends on tenant support, so
+            # surface it loudly rather than over-returning without a trace.
+            body['filters'] = filters
+            logger.warning(
+                "Secured query: forwarding %d filter(s) to /secured/query "
+                "(server-side scoping depends on tenant support): %s",
+                len(filters),
+                sorted(filters.keys()),
+            )
         matrix = self._load_encryption_matrix()
         if matrix is not None:
             body['encryption_matrix'] = matrix
@@ -851,6 +889,48 @@ class KnovasAPIClient:
             tmp_name = tmp.name
         os.replace(tmp_name, str(target))
 
+    def _write_temp_pem(self, target_path: str, content: str) -> str:
+        """Stage PEM content to a temp file in the target's directory; return its path."""
+        target = Path(target_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=str(target.parent),
+            delete=False,
+            suffix=".pem.tmp",
+        ) as tmp:
+            tmp.write(content)
+            return tmp.name
+
+    def _validate_renewed_certificate(self, cert_path: str, key_path: str) -> bool:
+        """
+        Handshake/health check for a candidate cert/key pair BEFORE installing it.
+
+        Builds a throwaway session using the candidate pair and calls the health
+        endpoint. Injectable: tests monkeypatch this to force success/failure.
+        """
+        session = requests.Session()
+        session.cert = (cert_path, key_path)
+        if self.ca_cert_path:
+            session.verify = self.ca_cert_path
+        try:
+            endpoint = self.endpoints.get('health', '/secured/health')
+            resp = session.request(
+                method='GET',
+                url=f"{self.base_url}{endpoint}",
+                headers=self._get_headers(),
+                timeout=self.http_read_timeout,
+                allow_redirects=False,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as exc:
+            logger.error("Renewed certificate validation failed: %s", exc)
+            return False
+        finally:
+            session.close()
+
     def _attempt_certificate_renewal(self) -> bool:
         endpoint = self.endpoints.get('generate_certificate', '/secured/generate_certificate')
         customer_id = self.customer_id or self._extract_customer_id_from_cert()
@@ -865,6 +945,7 @@ class KnovasAPIClient:
                 json={'certificate_data': {'customer_id': customer_id}},
                 headers=self._get_headers(),
                 timeout=self.http_read_timeout,
+                allow_redirects=False,
             )
             response.raise_for_status()
             payload = response.json()
@@ -881,32 +962,85 @@ class KnovasAPIClient:
             logger.error("Auto-renew returned encrypted private key; cannot install automatically")
             return False
 
-        self._atomic_write(self.cert_path, str(certificate_pem).strip() + "\n")
-        self._atomic_write(self.key_path, str(private_key).strip() + "\n")
-        self._session.close()
-        self._session = self._build_session()
-        logger.info("Certificate auto-renewed and rotated successfully")
-        return True
+        cert_tmp: Optional[str] = None
+        key_tmp: Optional[str] = None
+        try:
+            # 1) Stage the candidate pair to temp files. Do NOT touch the live
+            #    cert/key on disk yet.
+            cert_tmp = self._write_temp_pem(self.cert_path, str(certificate_pem).strip() + "\n")
+            key_tmp = self._write_temp_pem(self.key_path, str(private_key).strip() + "\n")
+
+            # 2) Validate the candidate pair BEFORE installing it. On failure the
+            #    original working key/cert are untouched and the session unchanged.
+            if not self._validate_renewed_certificate(cert_tmp, key_tmp):
+                logger.error(
+                    "Auto-renew: candidate certificate failed validation; "
+                    "keeping existing cert/key and session"
+                )
+                return False
+
+            # 3) Back up originals in memory, then install atomically. Roll back
+            #    if the second replace fails (avoid a mismatched cert/key pair).
+            orig_cert = self._read_text_or_none(self.cert_path)
+            orig_key = self._read_text_or_none(self.key_path)
+            try:
+                os.replace(cert_tmp, self.cert_path)
+                cert_tmp = None
+                os.replace(key_tmp, self.key_path)
+                key_tmp = None
+            except Exception as exc:
+                logger.error("Auto-renew: install failed (%s); rolling back", exc)
+                if orig_cert is not None:
+                    self._atomic_write(self.cert_path, orig_cert)
+                if orig_key is not None:
+                    self._atomic_write(self.key_path, orig_key)
+                return False
+
+            # 4) Only now swap the live session onto the validated pair.
+            self._session.close()
+            self._session = self._build_session()
+            logger.info("Certificate auto-renewed and rotated successfully")
+            return True
+        finally:
+            # Never leave a private-key temp file behind on any error path.
+            for tmp in (cert_tmp, key_tmp):
+                if tmp and os.path.exists(tmp):
+                    try:
+                        os.unlink(tmp)
+                    except OSError:
+                        pass
+
+    @staticmethod
+    def _read_text_or_none(path: str) -> Optional[str]:
+        try:
+            if os.path.exists(path):
+                return Path(path).read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return None
 
     def _ensure_certificate_freshness(self) -> None:
         if not self.mtls_enabled or not self.cert_auto_renew_enabled:
             return
-        now_ts = time.time()
-        if now_ts - self._last_cert_check_at < self.cert_check_interval_seconds:
-            return
-        self._last_cert_check_at = now_ts
+        # Guard the check + renew + session swap so concurrent request threads
+        # don't race on _last_cert_check_at / _session.
+        with self._cert_lock:
+            now_ts = time.time()
+            if now_ts - self._last_cert_check_at < self.cert_check_interval_seconds:
+                return
+            self._last_cert_check_at = now_ts
 
-        not_after = self._parse_certificate_validity()
-        if not not_after:
-            return
-        remaining_days = (not_after - datetime.now(timezone.utc)).total_seconds() / 86400
-        if remaining_days <= self.cert_renew_threshold_days:
-            logger.info(
-                "Certificate expires in %.2f days (threshold=%s), attempting auto-renew",
-                remaining_days,
-                self.cert_renew_threshold_days
-            )
-            self._attempt_certificate_renewal()
+            not_after = self._parse_certificate_validity()
+            if not not_after:
+                return
+            remaining_days = (not_after - datetime.now(timezone.utc)).total_seconds() / 86400
+            if remaining_days <= self.cert_renew_threshold_days:
+                logger.info(
+                    "Certificate expires in %.2f days (threshold=%s), attempting auto-renew",
+                    remaining_days,
+                    self.cert_renew_threshold_days
+                )
+                self._attempt_certificate_renewal()
     
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""
@@ -936,7 +1070,7 @@ class KnovasAPIClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=1, max=30),
-        retry=retry_if_exception_type((requests.exceptions.RequestException,))
+        retry=retry_if_exception_type(_RETRYABLE_REQUEST_EXCEPTIONS)
     )
     def _make_request(
         self,
@@ -972,8 +1106,9 @@ class KnovasAPIClient:
             params=params,
             headers=headers,
             timeout=self.http_read_timeout,
+            allow_redirects=False,
         )
-        
+
         response.raise_for_status()
         return response
 
@@ -998,6 +1133,7 @@ class KnovasAPIClient:
             params=params,
             headers=self._get_headers(),
             timeout=self.http_read_timeout,
+            allow_redirects=False,
         )
         response.raise_for_status()
         return response
@@ -1162,7 +1298,7 @@ class KnovasAPIClient:
             Search results
         """
         if self.use_secured_api and self.mtls_enabled:
-            return self._search_documents_secured(query=query, limit=limit)
+            return self._search_documents_secured(query=query, limit=limit, filters=filters)
 
         if self.use_secured_api and not self.allow_legacy_api_fallback:
             raise RuntimeError(
@@ -1246,15 +1382,21 @@ class KnovasAPIClient:
         
         return payload
 
-    def _search_documents_secured(self, query: str, limit: int) -> Dict[str, Any]:
+    def _search_documents_secured(
+        self,
+        query: str,
+        limit: int,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         endpoint = self.endpoints.get('query', '/secured/query')
         response = self._make_request(
             method='POST',
             endpoint=endpoint,
-            data=self._secured_query_request_body(query, limit=limit),
+            data=self._secured_query_request_body(query, limit=limit, filters=filters),
         )
         result = _unwrap_secured_query_response(response.json())
-        raw_hits = result.get("results", [])[:limit]
+        # Coerce to [] so a null/absent "results" never crashes None[:limit].
+        raw_hits = (result.get("results") or [])[:limit]
 
         normalized_results = []
         for raw in raw_hits:
@@ -1303,7 +1445,10 @@ class KnovasAPIClient:
         }
         init_body.update(init_fields)
 
-        init_resp = self._make_request(
+        # Non-idempotent: never retry init/transmit — a retried 4xx/5xx (or a
+        # retried connection error after the server already committed) would
+        # create duplicate document parts. Use the no-retry request path.
+        init_resp = self._request_no_retry(
             method='POST',
             endpoint=init_endpoint,
             data=init_body,
@@ -1323,7 +1468,7 @@ class KnovasAPIClient:
                     payload.get('sentence_number'),
                     identifier,
                 )
-            self._make_request(method='POST', endpoint=part_endpoint, data=payload)
+            self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
 
         logger.info(f"Secured single document sync successful: {identifier}")
         return {'status': 'success', 'identifier': identifier, 'mode': 'secured'}

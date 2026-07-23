@@ -50,14 +50,9 @@ def start_mirror_thread_if_configured() -> Optional[threading.Thread]:
         )
         return None
 
-    mirror_path_raw = os.environ.get("ONEDRIVE_MIRROR_PATH", "").strip()
-    if not mirror_path_raw:
-        # Default to first watch root if it exists; otherwise /data/onedrive_mirror.
-        if cfg.rc_watch_roots:
-            mirror_path_raw = cfg.rc_watch_roots[0]
-        else:
-            mirror_path_raw = "/data/onedrive_mirror"
-    mirror_path = Path(mirror_path_raw).resolve()
+    mirror_path = _resolve_mirror_path(
+        os.environ.get("ONEDRIVE_MIRROR_PATH", ""), cfg.rc_watch_roots
+    )
 
     if cfg.rc_watch_roots:
         allowed_roots = [Path(p).resolve() for p in cfg.rc_watch_roots]
@@ -171,6 +166,23 @@ def _safe_bool(value: Optional[str], *, default: bool) -> bool:
     if value is None or not str(value).strip():
         return default
     return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _resolve_mirror_path(mirror_path_env: str, watch_roots) -> Path:
+    """Resolve the local mirror root, never defaulting to a bare watch root.
+
+    When ``ONEDRIVE_MIRROR_PATH`` is set it is honoured verbatim. Otherwise we
+    default to a *dedicated* ``onedrive_mirror`` subdirectory of the first watch
+    root — never the watch root itself, whose files would be eligible for
+    deletion by the mirror's prune step.
+    """
+    raw = (mirror_path_env or "").strip()
+    if raw:
+        return Path(raw).resolve()
+    roots = list(watch_roots or [])
+    if roots:
+        return Path(roots[0]).resolve() / "onedrive_mirror"
+    return Path("/data/onedrive_mirror").resolve()
 
 
 def _is_within(parent: Path, child: Path) -> bool:

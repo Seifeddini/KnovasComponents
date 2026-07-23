@@ -18,7 +18,10 @@ def health():
     for r in cfg.rc_watch_roots:
         exists = Path(r).exists()
         readable = exists and os.access(r, os.R_OK)
-        roots_detail.append({"path": r, "exists": exists, "readable": readable})
+        # Deliberately omit the absolute path: /health is unauthenticated and
+        # must not leak host filesystem layout. exists/readable are enough for
+        # liveness/readiness probes.
+        roots_detail.append({"exists": exists, "readable": readable})
         if not (exists and readable):
             all_roots_ok = False
 

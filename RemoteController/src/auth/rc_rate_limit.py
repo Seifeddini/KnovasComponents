@@ -14,9 +14,8 @@ _handled_limiter: RateLimiter | None = None
 
 
 def _client_ip() -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # Use the direct peer address. X-Forwarded-For is client-controlled and is
+    # trivially spoofed to escape per-IP limits, so it is deliberately ignored.
     return request.remote_addr or "unknown"
 
 

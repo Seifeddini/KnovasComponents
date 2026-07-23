@@ -150,6 +150,19 @@ class SemantixUploader:
 
         init_data = init_resp.json() if init_resp.content else {}
         key = init_data.get("key") or init_data.get("transmission_key_id") or ""
+        if not key:
+            # A 200 with no key means the server never opened a transmission.
+            # Returning "ok" here would drop the document (it is never recorded
+            # locally, so it re-uploads every cycle). Treat it as a retryable
+            # error instead - not skippable, so it is retried next cycle.
+            return UploadResult(
+                relative_path=relative_path,
+                transmission_key_id=None,
+                parts=part_count,
+                status="error",
+                ingestion_requests=ingestion_count,
+                error="init failed: missing transmission key",
+            )
 
         try:
             for idx, (snippet, page_number, sentence_number) in enumerate(parts_iter):

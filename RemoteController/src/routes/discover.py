@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from auth.knovas_verify_client import require_internal_access
+from auth.knovas_verify_client import require_internal_access, require_same_origin
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from discover.filesystem import discover_filesystem
 from util.schema import validate
@@ -9,6 +9,7 @@ discover_bp = Blueprint("discover", __name__)
 
 _RC_DECORATORS = (
     require_rc_ip_rate_limit,
+    require_same_origin,
     require_internal_access,
     require_rc_handled_rate_limit,
 )
@@ -23,7 +24,10 @@ def _apply_decorators(func):
 @discover_bp.route("/discover", methods=["GET"])
 @_apply_decorators
 def discover():
-    max_depth = int(request.args.get("max_depth", 3))
+    try:
+        max_depth = int(request.args.get("max_depth", 3))
+    except (TypeError, ValueError):
+        return jsonify({"error": "max_depth must be an integer", "status": "error"}), 400
     include_globs = request.args.getlist("include_globs") or None
     exclude_globs = request.args.getlist("exclude_globs") or None
     root = request.args.get("root")

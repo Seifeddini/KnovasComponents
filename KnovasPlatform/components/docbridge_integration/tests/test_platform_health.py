@@ -36,6 +36,13 @@ def _login(client):
     )
 
 
+def _login_and_csrf(client):
+    """Log in, then return the (rotated) session CSRF token for state-changing POSTs."""
+    _login(client)
+    with client.session_transaction() as sess:
+        return sess["csrf_token"]
+
+
 # ---------------------------------------------------------------------------
 # /api/health tests
 # ---------------------------------------------------------------------------
@@ -166,14 +173,18 @@ class TestPlatformAuthBoundaries:
 class TestPlatformSearchFlow:
     def test_search_accessible_after_login(self, docbridge_app):
         client = docbridge_app.test_client()
-        _login(client)
+        token = _login_and_csrf(client)
 
         with patch.object(
             DummyKnovasClient,
             "search_documents",
             return_value={"results": [], "total": 0},
         ):
-            resp = client.post("/api/search", json={"query": "test"})
+            resp = client.post(
+                "/api/search",
+                json={"query": "test"},
+                headers={"X-CSRF-Token": token},
+            )
 
         assert resp.status_code == 200
         body = resp.get_json()
@@ -182,14 +193,18 @@ class TestPlatformSearchFlow:
 
     def test_search_returns_query_echo(self, docbridge_app):
         client = docbridge_app.test_client()
-        _login(client)
+        token = _login_and_csrf(client)
 
         with patch.object(
             DummyKnovasClient,
             "search_documents",
             return_value={"results": [], "total": 0},
         ):
-            resp = client.post("/api/search", json={"query": "invoice"})
+            resp = client.post(
+                "/api/search",
+                json={"query": "invoice"},
+                headers={"X-CSRF-Token": token},
+            )
 
         assert resp.get_json()["query"] == "invoice"
 
@@ -228,7 +243,7 @@ open:
         flask_app = web_app.create_app(str(config_path))
         flask_app.config.update(TESTING=True)
         client = flask_app.test_client()
-        _login(client)
+        token = _login_and_csrf(client)
 
         hits = {
             "results": [
@@ -242,7 +257,11 @@ open:
 
         with patch.object(DummyKnovasClient, "search_documents", return_value=hits):
             with patch("web_interface.app._apply_autodoc_disk_metadata", side_effect=_no_disk):
-                resp = client.post("/api/search", json={"query": "brief"})
+                resp = client.post(
+                    "/api/search",
+                    json={"query": "brief"},
+                    headers={"X-CSRF-Token": token},
+                )
 
         assert resp.status_code == 200
         body = resp.get_json()

@@ -7,12 +7,14 @@ folder enumeration, and authenticated streaming downloads. Retries with
 from __future__ import annotations
 
 import logging
+import os
 import random
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Iterator, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -22,6 +24,28 @@ logger = logging.getLogger(__name__)
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
+
+# Upper bound on the number of pages a single paginated enumeration (folder
+# listing or ``/delta`` walk) may fetch. A malformed or self-referential
+# ``@odata.nextLink`` / ``@odata.deltaLink`` would otherwise loop forever; on
+# top of this cap we track visited links and abort on the first repeat. 10k
+# pages is far above any real drive's page count while still bounding a runaway.
+MAX_PAGINATION_PAGES = 10000
+
+# Hosts we are willing to attach the app's Bearer token to. This is the global
+# Graph endpoint plus the known national-cloud variants. A persisted
+# ``@odata.nextLink`` / ``@odata.deltaLink`` (or a poisoned state file) pointing
+# anywhere else must be refused BEFORE the Authorization header is sent, so a
+# stolen/forged link cannot exfiltrate the token to an attacker host.
+ALLOWED_GRAPH_HOSTS = frozenset(
+    {
+        "graph.microsoft.com",  # global / worldwide
+        "graph.microsoft.us",  # US Gov L4
+        "dod-graph.microsoft.us",  # US Gov L5 (DoD)
+        "graph.microsoft.de",  # Germany (legacy)
+        "microsoftgraph.chinacloudapi.cn",  # China (21Vianet)
+    }
+)
 
 
 class GraphAuthError(RuntimeError):
@@ -153,6 +177,14 @@ class GraphClient:
         stream: bool = False,
         timeout: Optional[float] = None,
     ) -> requests.Response:
+        # Never attach the Bearer token to a non-Graph host. Guards against a
+        # persisted/forged nextLink or deltaLink pointing off to an attacker.
+        host = (urlsplit(url).hostname or "").lower()
+        if host not in ALLOWED_GRAPH_HOSTS:
+            raise GraphRequestError(
+                f"refusing to send Graph credentials to non-Graph host: {host!r}"
+            )
+
         last: Optional[requests.Response] = None
         timeout = timeout if timeout is not None else self._request_timeout
         for attempt in range(1, self._max_attempts + 1):
@@ -167,6 +199,10 @@ class GraphClient:
                 continue
             last = resp
             if resp.status_code in (429, 502, 503, 504) and attempt < self._max_attempts:
+                # Release the previous response's connection back to the pool
+                # before re-issuing. For stream=True the body is unconsumed, so
+                # without this the pooled connection leaks until GC.
+                resp.close()
                 self._sleep_for_retry(attempt, resp)
                 continue
             return resp
@@ -199,7 +235,20 @@ class GraphClient:
 
     def _paginate(self, url: str) -> Iterator[dict[str, Any]]:
         next_url: Optional[str] = url
+        seen: set[str] = set()
+        pages = 0
         while next_url:
+            if next_url in seen:
+                raise GraphRequestError(
+                    f"pagination loop detected: @odata.nextLink repeats {next_url!r}"
+                )
+            seen.add(next_url)
+            pages += 1
+            if pages > MAX_PAGINATION_PAGES:
+                raise GraphRequestError(
+                    f"pagination exceeded {MAX_PAGINATION_PAGES} pages; "
+                    "aborting to avoid an infinite loop"
+                )
             resp = self._request("GET", next_url)
             if resp.status_code != 200:
                 raise GraphRequestError(
@@ -210,21 +259,64 @@ class GraphClient:
                 yield item
             next_url = data.get("@odata.nextLink")
 
-    def download_to(self, drive_id: str, item_id: str, dest_path) -> int:
-        """Stream item content to ``dest_path``. Returns bytes written."""
+    def download_to(
+        self,
+        drive_id: str,
+        item_id: str,
+        dest_path,
+        expected_size: Optional[int] = None,
+    ) -> int:
+        """Stream item content to ``dest_path`` atomically. Returns bytes written.
+
+        The content is streamed to a temporary file in the destination
+        directory, the number of bytes written is verified against the expected
+        size (the drive item's ``size`` when supplied, otherwise the response's
+        ``Content-Length``), and only then is it ``os.replace``\\d into place. A
+        size mismatch raises ``GraphRequestError`` and leaves any pre-existing
+        good copy untouched — so a truncated download is treated as a failure
+        rather than silently corrupting/overwriting the mirror.
+        """
         url = f"{GRAPH_BASE_URL}/drives/{drive_id}/items/{item_id}/content"
         resp = self._request("GET", url, stream=True, timeout=self._request_timeout * 3)
         if resp.status_code != 200:
             raise GraphRequestError(
                 f"Download failed: {resp.status_code} {resp.text[:300]}"
             )
+
+        expected: Optional[int] = expected_size if expected_size and expected_size > 0 else None
+        if expected is None:
+            cl = resp.headers.get("Content-Length")
+            if cl is not None:
+                try:
+                    expected = int(cl)
+                except (TypeError, ValueError):
+                    expected = None
+
+        dest_str = os.fspath(dest_path)
+        dest_dir = os.path.dirname(dest_str) or "."
+        os.makedirs(dest_dir, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=dest_dir, prefix=".onedrive-dl-", suffix=".part")
         written = 0
-        with open(dest_path, "wb") as fh:
-            for chunk in resp.iter_content(chunk_size=64 * 1024):
-                if not chunk:
-                    continue
-                fh.write(chunk)
-                written += len(chunk)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    fh.write(chunk)
+                    written += len(chunk)
+            if expected is not None and written != expected:
+                raise GraphRequestError(
+                    f"Download size mismatch for item {item_id}: "
+                    f"got {written} bytes, expected {expected}"
+                )
+            os.replace(tmp, dest_str)
+            tmp = None
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
         return written
 
     def delta_pages(
@@ -248,7 +340,20 @@ class GraphClient:
             if delta_url
             else f"{GRAPH_BASE_URL}/drives/{drive_id}/root/delta"
         )
+        seen: set[str] = set()
+        pages = 0
         while url:
+            if url in seen:
+                raise GraphRequestError(
+                    f"delta pagination loop detected: link repeats {url!r}"
+                )
+            seen.add(url)
+            pages += 1
+            if pages > MAX_PAGINATION_PAGES:
+                raise GraphRequestError(
+                    f"delta pagination exceeded {MAX_PAGINATION_PAGES} pages; "
+                    "aborting to avoid an infinite loop"
+                )
             resp = self._request("GET", url)
             if resp.status_code == 410:
                 raise DeltaTokenInvalid(

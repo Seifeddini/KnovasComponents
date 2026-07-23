@@ -106,7 +106,10 @@ class _WalkBudget:
 
     max_dir_visits: int = 0
     dir_visits: int = 0
+    max_files: int = 0
+    files_toward_cap: int = 0
     truncated: bool = False
+    stopped: bool = False
     resume_stack: list[Path] = field(default_factory=list)
 
     def consume_dir(self) -> bool:
@@ -116,6 +119,18 @@ class _WalkBudget:
             self.truncated = True
             return False
         return True
+
+    def note_file(self, counts_toward_cap: bool) -> None:
+        """Count a yielded file toward the per-cycle work cap.
+
+        Already up-to-date / skipped files must not count, otherwise a folder
+        whose first N files are all synced would never advance past them.
+        """
+        if counts_toward_cap:
+            self.files_toward_cap += 1
+
+    def file_cap_reached(self) -> bool:
+        return self.max_files > 0 and self.files_toward_cap >= self.max_files
 
 
 def _walk_text_files(
@@ -136,6 +151,15 @@ def _walk_text_files(
         if should_stop():
             if budget is not None:
                 budget.resume_stack = list(stack)
+                budget.stopped = True
+            return
+        # File-yield cap is enforced at directory boundaries so the remaining
+        # directories can be checkpointed for the next cycle (mirroring the
+        # directory-visit budget). Enforcing mid-directory would abandon the
+        # generator without a resume point and re-scan the same prefix forever.
+        if budget is not None and budget.file_cap_reached():
+            budget.resume_stack = list(stack)
+            budget.truncated = True
             return
         current = stack.pop()
         if budget is not None and not budget.consume_dir():
@@ -154,6 +178,7 @@ def _walk_text_files(
             if should_stop():
                 if budget is not None:
                     budget.resume_stack = list(stack)
+                    budget.stopped = True
                 return
             if budget is not None and budget.truncated:
                 budget.resume_stack = list(stack)
@@ -208,12 +233,19 @@ def _iter_candidate_files(
     include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
     max_bytes = int(filters.get("max_file_bytes", 10_485_760))
-    files_yielded = 0
     stacks = initial_stacks or {}
+    if budget is not None and max_scan_entries > 0 and budget.max_files <= 0:
+        budget.max_files = max_scan_entries
 
     for target in walk_targets:
-        if should_stop() or (budget is not None and budget.truncated):
+        if should_stop():
+            if budget is not None:
+                budget.stopped = True
             break
+        if budget is not None and budget.truncated:
+            break
+        # The file-yield cap now lives inside _walk_text_files (via the budget)
+        # so it can checkpoint the remaining directory stack when it trips.
         for item in _walk_text_files(
             target.walk_root,
             target.rel_root,
@@ -226,11 +258,6 @@ def _iter_candidate_files(
             initial_stack=stacks.get(target.walk_root),
         ):
             yield item
-            files_yielded += 1
-            if max_scan_entries > 0 and files_yielded >= max_scan_entries:
-                if budget is not None:
-                    budget.truncated = True
-                return
         if budget is not None and budget.truncated:
             break
 
@@ -242,14 +269,16 @@ def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
 
 
 def _should_skip_failed_upload(upload: UploadResult, mode: str) -> bool:
-    """Skip bad local files in incremental mode; retry Semantix API failures."""
+    """Skip only definitively unconvertible files in incremental mode.
+
+    Everything else - transient OS/SMB errors (locked file, "Permission
+    denied", "being used by another process") and Semantix API failures - must
+    stay retryable, so we never fingerprint a valid document as synced and drop
+    it forever. Only errors the converter itself flags as unrecoverable skip.
+    """
     if mode != "incremental" or upload.status != "error":
         return False
-    err = upload.error or ""
-    if is_unconvertible_error(err):
-        return True
-    # Pre-ingest conversion/read failures report parts=0; ingest errors do not.
-    return upload.parts == 0 and not err.lower().startswith("init failed:")
+    return is_unconvertible_error(upload.error or "")
 
 
 @dataclass
@@ -257,6 +286,7 @@ class _ScanPlan:
     summary: DocumentSyncSummary
     upload_queue: list[tuple[Path, str, str, int]]
     scan_truncated: bool = False
+    scan_stopped: bool = False
 
 
 def _sequential_subfolders_enabled(sync_config: dict[str, Any] | None) -> bool:
@@ -330,7 +360,11 @@ def plan_sync_cycle(
     upload_queue: list[tuple[Path, str, str, int]] = []
     walk_targets, _ = build_walk_targets(sync_body, sync_config, queue)
     visit_cap = max_scan_entries if max_scan_entries > 0 else 0
-    budget = _WalkBudget(max_dir_visits=visit_cap) if visit_cap else _WalkBudget()
+    budget = (
+        _WalkBudget(max_dir_visits=visit_cap, max_files=max_scan_entries)
+        if visit_cap
+        else _WalkBudget()
+    )
 
     initial_stacks: dict[Path, list[Path]] = {}
     if queue is not None and walk_targets:
@@ -370,6 +404,9 @@ def plan_sync_cycle(
             summary.modified += 1
         else:
             summary.excluded_max_age += 1
+        # Only files that still need work count toward the per-cycle file cap,
+        # so a folder whose leading files are already synced keeps advancing.
+        budget.note_file(_needs_upload(status, mode))
         if include_documents:
             summary.documents.append(
                 DocumentSyncRecord(
@@ -384,18 +421,27 @@ def plan_sync_cycle(
                 upload_queue.append((abs_path, rel, mtime_iso, size_bytes))
 
     scan_truncated = budget.truncated
+    # A stop/deadline interrupt is NOT the same as a completed scan: the tail is
+    # unscanned, so the checkpoint must be preserved (not cleared) exactly like a
+    # truncation, otherwise the cursor would advance past unscanned documents.
+    scan_stopped = budget.stopped
 
     if queue is not None and walk_targets:
         sources = sync_body.get("sources") or []
         if sources:
             source_root, _ = resolve_root(sources[0].get("path"))
             if source_root is not None:
-                if scan_truncated:
+                if scan_truncated or scan_stopped:
                     queue.save_scan_stack(source_root, budget.resume_stack or [walk_targets[0].walk_root])
-                elif not scan_truncated:
+                else:
                     queue.clear_scan_stack(source_root)
 
-    return _ScanPlan(summary=summary, upload_queue=upload_queue, scan_truncated=scan_truncated)
+    return _ScanPlan(
+        summary=summary,
+        upload_queue=upload_queue,
+        scan_truncated=scan_truncated,
+        scan_stopped=scan_stopped,
+    )
 
 
 def scan_document_inventory(
@@ -536,6 +582,10 @@ def run_sync_work(
         result.scan_truncated = plan.scan_truncated
         if plan.scan_truncated:
             result.paused_reason = "scan_limit_reached"
+        elif plan.scan_stopped:
+            # Scan interrupted by should_stop (e.g. max_sync_duration). Block the
+            # cursor from advancing over the unscanned tail of this subfolder.
+            result.paused_reason = "cycle_time_limit"
 
         for abs_path, rel, mtime_iso, size_bytes in plan.upload_queue:
             if should_stop():
@@ -596,6 +646,10 @@ def run_sync_work(
 
         if sequential and queue is not None and source_root is not None and result.document_sync is not None:
             ds = result.document_sync
+            # A single maybe_advance handles empty/fully-synced folders too:
+            # it already advances one step when pending==modified==0 and the
+            # scan was neither truncated nor paused. A second call here would
+            # advance again and skip the next subfolder entirely (data loss).
             queue.maybe_advance(
                 source_root,
                 pending=ds.pending,
@@ -603,20 +657,6 @@ def run_sync_work(
                 scan_truncated=result.scan_truncated,
                 paused_reason=result.paused_reason,
             )
-            if (
-                not result.scan_truncated
-                and ds.total == 0
-                and ds.pending == 0
-                and ds.modified == 0
-                and result.paused_reason not in ("stop_requested", "outside_window", "rate_limited")
-            ):
-                queue.maybe_advance(
-                    source_root,
-                    pending=0,
-                    modified=0,
-                    scan_truncated=False,
-                    paused_reason=None,
-                )
             updated = queue.progress(source_root)
             result.subfolder_progress = updated.as_dict()
     finally:

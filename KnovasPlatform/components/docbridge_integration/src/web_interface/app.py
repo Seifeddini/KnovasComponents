@@ -10,6 +10,7 @@ import os
 import json
 import hmac
 import secrets
+import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
@@ -362,6 +363,56 @@ DOCBRIDGE_BUILD_ID = 'onedrive-locations-v4'
 # Default OneDrive enrichment JSONL location (OneDrive mirror / RC sync on AutoDoc mount)
 _DEFAULT_ENRICHMENT_PATH = "/mnt/autodoc/.search_enrichment.jsonl"
 
+# Generic client-facing error message. Internal exception detail is logged
+# server-side (exc_info=True) and never returned to the browser (avoids leaking
+# filesystem paths / stack context to unauthenticated or malicious callers).
+_GENERIC_ERROR_MESSAGE = 'Interner Serverfehler'
+
+
+def _confine_to_autodoc(autodoc_path: str, file_path: str) -> Optional[str]:
+    """
+    Resolve a Knovas pointer to an absolute path guaranteed to live inside the
+    AutoDoc root, or return None.
+
+    Two-stage confinement:
+      1. Lexical check on abspath -> rejects ``..`` traversal and absolute paths.
+      2. realpath check -> rejects escapes via symlinks (abspath does NOT resolve
+         symlinks, so a symlink inside the root pointing outside would otherwise
+         pass step 1 and be handed to send_file, which follows symlinks).
+
+    Returns the abspath (NOT the realpath) so downstream UNC / client-local
+    mapping behaviour for legitimate files is unchanged.
+    """
+    rel = _rel_path_for_autodoc(file_path)
+    if os.path.isabs(rel):
+        return None
+    base_abs = os.path.abspath(autodoc_path)
+    candidate_abs = os.path.abspath(os.path.join(base_abs, rel))
+    try:
+        if os.path.commonpath([base_abs, candidate_abs]) != base_abs:
+            return None
+    except ValueError:
+        return None
+    base_real = os.path.realpath(base_abs)
+    candidate_real = os.path.realpath(candidate_abs)
+    try:
+        if os.path.commonpath([base_real, candidate_real]) != base_real:
+            return None
+    except ValueError:
+        return None
+    return candidate_abs
+
+
+def _open_autodoc_fileobj(full_path: str):
+    """
+    Open a confined file for send_file, refusing to follow a symlink on the final
+    path segment (closes the check-then-open TOCTOU window). O_NOFOLLOW is a no-op
+    where unavailable (e.g. Windows); O_BINARY is a no-op on POSIX.
+    """
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0)
+    fd = os.open(full_path, flags)
+    return os.fdopen(fd, 'rb')
+
 
 def _normalize_ui_theme_slug(raw: Optional[str]) -> Optional[str]:
     slug = (raw or '').strip().lower()
@@ -395,8 +446,8 @@ def create_app(config_path: Optional[str] = None):
     app = Flask(__name__)
     
     if config_path:
-        from config_loader import ConfigLoader
-        config = ConfigLoader(config_path)
+        from config_loader import set_config
+        config = set_config(config_path)
     else:
         config = get_config()
 
@@ -406,11 +457,23 @@ def create_app(config_path: Optional[str] = None):
     app.config['SECRET_KEY'] = web_secret_key or 'change-me-in-production'
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    # Secure by default (session cookie only over HTTPS). Must be paired with TLS
+    # termination in front of the app. Override to False (web.session_cookie_secure)
+    # only for plain-HTTP LAN development.
+    app.config['SESSION_COOKIE_SECURE'] = config.get_bool('web.session_cookie_secure', True)
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(
         seconds=config.get_int('web.session_lifetime', 3600)
     )
-    
-    CORS(app)
+
+    # Same-origin UI: no CORS by default. Only enable (scoped) when explicit
+    # origins are configured; never emit a wildcard Access-Control-Allow-Origin.
+    cors_origins = [
+        str(o).strip()
+        for o in (config.get_list('web.cors_origins', []) or [])
+        if str(o).strip() and str(o).strip() != '*'
+    ]
+    if cors_origins:
+        CORS(app, origins=cors_origins)
 
     @app.after_request
     def _prevent_stale_ui_assets(response):
@@ -468,12 +531,21 @@ def create_app(config_path: Optional[str] = None):
         'replace-with-strong-company-password',
     }
 
+    # Per-IP brute-force throttling for the shared company login (in-process; the
+    # shared login is a single credential so N failures -> temporary IP lockout).
+    login_max_failed = max(1, config.get_int('web.login.max_failed_attempts', 5))
+    login_lockout_seconds = max(1, config.get_int('web.login.lockout_seconds', 300))
+    login_failed_window = max(1, config.get_int('web.login.failed_window_seconds', 300))
+    login_attempts: Dict[str, Dict[str, float]] = {}
+
     if login_enabled and not login_configured:
         logger.warning(
             "Company login is enabled but COMPANY_LOGIN_NAME or COMPANY_LOGIN_PASSWORD is missing."
         )
-    if login_enabled and web_secret_key in weak_secret_values:
-        raise RuntimeError('WEB_SECRET_KEY must be set to a strong random value when login is enabled.')
+    # Unconditional: SECRET_KEY signs both the session cookie AND the single-use
+    # open tokens, so a weak/default secret is exploitable even with login disabled.
+    if web_secret_key in weak_secret_values:
+        raise RuntimeError('WEB_SECRET_KEY must be set to a strong random value.')
     if login_enabled and login_password in weak_password_values:
         raise RuntimeError('COMPANY_LOGIN_PASSWORD must be changed before login can be enabled.')
 
@@ -481,9 +553,18 @@ def create_app(config_path: Optional[str] = None):
     browser_client_open_enabled = config.get_bool('open.browser_client_path', True)
     companion_enabled = config.get_bool('open.companion_enabled', False)
     open_token_ttl = max(30, config.get_int('open.token_ttl_seconds', 120))
+    open_token_store_path = str(open_section.get('token_store_path') or '').strip()
+    if not open_token_store_path:
+        # Shared cross-worker store under the app data dir (default 2 gunicorn
+        # workers each get their own process, so an in-process cache is not enough).
+        data_dir = os.path.dirname(
+            str(config.get('sync.last_sync_file', '/app/data/last_sync.txt')) or ''
+        ) or '/app/data'
+        open_token_store_path = os.path.join(data_dir, 'open_tokens.sqlite3')
     open_token_manager = OpenTokenManager(
         str(app.config['SECRET_KEY']),
         max_age_seconds=open_token_ttl,
+        store_path=open_token_store_path,
     )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
     allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
@@ -584,6 +665,26 @@ def create_app(config_path: Optional[str] = None):
         next_url = request.full_path if request.query_string else request.path
         return redirect(url_for('login', next=next_url))
 
+    def _client_ip() -> str:
+        return request.remote_addr or 'unknown'
+
+    def _login_is_locked(ip: str) -> bool:
+        rec = login_attempts.get(ip)
+        return bool(rec and time.time() < rec.get('locked_until', 0.0))
+
+    def _record_login_failure(ip: str) -> None:
+        now = time.time()
+        rec = login_attempts.get(ip)
+        if not rec or (now - rec.get('window_start', now)) > login_failed_window:
+            rec = {'fails': 0.0, 'window_start': now, 'locked_until': 0.0}
+        rec['fails'] += 1
+        if rec['fails'] >= login_max_failed:
+            rec['locked_until'] = now + login_lockout_seconds
+        login_attempts[ip] = rec
+
+    def _reset_login_failures(ip: str) -> None:
+        login_attempts.pop(ip, None)
+
     def _credentials_match(submitted_name: str, submitted_password: str) -> bool:
         expected_name = login_username.encode('utf-8')
         expected_password = login_password.encode('utf-8')
@@ -594,17 +695,7 @@ def create_app(config_path: Optional[str] = None):
         return name_ok and password_ok
 
     def _resolve_autodoc_path(file_path: str) -> Optional[str]:
-        rel = _rel_path_for_autodoc(file_path)
-        if os.path.isabs(rel):
-            return None
-        base_path = os.path.abspath(file_handler.autodoc_path)
-        candidate = os.path.abspath(os.path.join(base_path, rel))
-        try:
-            if os.path.commonpath([base_path, candidate]) != base_path:
-                return None
-        except ValueError:
-            return None
-        return candidate
+        return _confine_to_autodoc(file_handler.autodoc_path, file_path)
 
     @app.before_request
     def require_company_login():
@@ -628,6 +719,38 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': False, 'error': 'Login erforderlich'}), 401
         return _login_redirect()
 
+    # Endpoints exempt from the uniform X-CSRF-Token gate below:
+    #   login / logout   -> form-based csrf_token, validated in the handler
+    #   open_token_mint  -> in-handler X-CSRF-Token check (returns 400), kept as-is
+    #   open_token_redeem-> companion Bearer token, no browser session/CSRF
+    #   static           -> asset serving
+    _CSRF_EXEMPT_ENDPOINTS = frozenset({
+        'static',
+        'login',
+        'logout',
+        'open_token_mint',
+        'open_token_redeem',
+    })
+
+    @app.before_request
+    def require_csrf_for_state_changing_requests():
+        """
+        Uniform CSRF gate: every state-changing (non-safe method) request must carry a
+        valid X-CSRF-Token header matching the session token. Registered after the login
+        gate so unauthenticated callers still get 401 first. Safe methods (GET/HEAD/
+        OPTIONS), unknown routes, and the exempt endpoints above are not gated — the
+        exempt endpoints perform their own token validation (login/logout/mint) or use a
+        separate auth scheme (redeem).
+        """
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return None
+        if request.endpoint is None or request.endpoint in _CSRF_EXEMPT_ENDPOINTS:
+            return None
+        csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
+        if not _csrf_token_is_valid(csrf_header):
+            return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
+        return None
+
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         """Company login page."""
@@ -642,6 +765,7 @@ def create_app(config_path: Optional[str] = None):
             return redirect(next_url)
 
         error = None
+        status_code = 200
         csrf_token = _ensure_csrf_token()
         if request.method == 'POST':
             submitted_name = str(request.form.get('login_name', '') or '')
@@ -651,12 +775,19 @@ def create_app(config_path: Optional[str] = None):
             if not _is_safe_next(next_url):
                 next_url = url_for('index')
 
-            if not _csrf_token_is_valid(submitted_csrf):
+            client_ip = _client_ip()
+            if _login_is_locked(client_ip):
+                # Reject (do not even check credentials) while the IP is locked out.
+                logger.warning('Login locked out for %s (too many failed attempts)', client_ip)
+                error = 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte später erneut versuchen.'
+                status_code = 429
+            elif not _csrf_token_is_valid(submitted_csrf):
                 error = 'Login-Formular ist abgelaufen. Bitte erneut versuchen.'
                 csrf_token = _ensure_csrf_token()
             elif not login_configured:
                 error = 'Login ist noch nicht konfiguriert. Bitte .env prüfen.'
             elif _credentials_match(submitted_name, submitted_password):
+                _reset_login_failures(client_ip)
                 session.clear()
                 session.permanent = True
                 session['company_login_ok'] = True
@@ -669,6 +800,7 @@ def create_app(config_path: Optional[str] = None):
                     dest = f'{dest}{sep}theme={theme}'
                 return redirect(dest)
             else:
+                _record_login_failure(client_ip)
                 error = 'Login-Name oder Passwort ist falsch.'
 
         return render_template(
@@ -679,7 +811,7 @@ def create_app(config_path: Optional[str] = None):
             next_url=next_url,
             csrf_token=csrf_token,
             draft_theme=_resolve_ui_theme(),
-        )
+        ), status_code
 
     @app.route('/logout', methods=['POST'])
     def logout():
@@ -826,7 +958,7 @@ def create_app(config_path: Optional[str] = None):
             logger.error(f"Search error: {e}", exc_info=True)
             return jsonify({
                 'success': False,
-                'error': str(e)
+                'error': _GENERIC_ERROR_MESSAGE
             }), 500
     
     @app.route('/api/document/<path:doc_id>', methods=['GET'])
@@ -850,10 +982,10 @@ def create_app(config_path: Optional[str] = None):
             })
             
         except Exception as e:
-            logger.error(f"Error retrieving document: {e}")
+            logger.error(f"Error retrieving document: {e}", exc_info=True)
             return jsonify({
                 'success': False,
-                'error': str(e)
+                'error': _GENERIC_ERROR_MESSAGE
             }), 500
     
     @app.route('/api/document/<path:doc_id>/open', methods=['POST'])
@@ -917,10 +1049,10 @@ def create_app(config_path: Optional[str] = None):
                 }), 500
 
         except Exception as e:
-            logger.error(f"Error opening document: {e}")
+            logger.error(f"Error opening document: {e}", exc_info=True)
             return jsonify({
                 'success': False,
-                'error': str(e)
+                'error': _GENERIC_ERROR_MESSAGE
             }), 500
     
     @app.route('/api/document/<path:doc_id>/download', methods=['GET'])
@@ -946,18 +1078,22 @@ def create_app(config_path: Optional[str] = None):
             
             if not os.path.exists(full_path):
                 return jsonify({'error': 'Document file not found'}), 404
-            
+
             logger.info(f"Downloading document: {full_path}")
-            
+
+            try:
+                file_obj = _open_autodoc_fileobj(full_path)
+            except OSError:
+                return jsonify({'error': 'Document file not found'}), 404
             return send_file(
-                full_path,
+                file_obj,
                 as_attachment=True,
                 download_name=os.path.basename(full_path)
             )
-            
+
         except Exception as e:
-            logger.error(f"Error downloading document: {e}")
-            return jsonify({'error': str(e)}), 500
+            logger.error(f"Error downloading document: {e}", exc_info=True)
+            return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/document/<path:doc_id>/preview', methods=['GET'])
     def preview_document(doc_id: str):
@@ -975,15 +1111,19 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'error': 'Document file not found'}), 404
             if not str(full_path).lower().endswith('.pdf'):
                 return jsonify({'error': 'Preview only supported for PDF'}), 415
+            try:
+                file_obj = _open_autodoc_fileobj(full_path)
+            except OSError:
+                return jsonify({'error': 'Document file not found'}), 404
             return send_file(
-                full_path,
+                file_obj,
                 mimetype='application/pdf',
                 as_attachment=False,
                 download_name=os.path.basename(full_path),
             )
         except Exception as e:
-            logger.error(f"Error previewing document: {e}")
-            return jsonify({'error': str(e)}), 500
+            logger.error(f"Error previewing document: {e}", exc_info=True)
+            return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/document/<path:doc_id>/client-path', methods=['GET'])
     def document_client_path(doc_id: str):
@@ -1076,7 +1216,7 @@ def create_app(config_path: Optional[str] = None):
             })
         except Exception as e:
             logger.error(f"open_token_mint: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 500
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/open-tokens/redeem', methods=['POST'])
     def open_token_redeem():
@@ -1113,7 +1253,7 @@ def create_app(config_path: Optional[str] = None):
             return jsonify(body)
         except Exception as e:
             logger.error(f"open_token_redeem: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 500
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/open-tokens/spec', methods=['GET'])
     def open_tokens_spec():
@@ -1197,10 +1337,11 @@ def create_app(config_path: Optional[str] = None):
             )
             return jsonify({'success': True, 'semantix': raw}), 202
         except ValueError as e:
-            return jsonify({'success': False, 'error': str(e)}), 400
+            logger.info('Relevance feedback rejected: %s', e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Ungültige Anfrage.'}), 400
         except Exception as e:
             logger.warning('Relevance feedback failed: %s', e, exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 502
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 502
 
     @app.route('/api/document/rating', methods=['GET', 'POST'])
     def document_rating():
@@ -1262,10 +1403,11 @@ def create_app(config_path: Optional[str] = None):
                 'message': raw.get('message'),
             })
         except ValueError as e:
-            return jsonify({'success': False, 'error': str(e)}), 400
+            logger.info('Document rating rejected: %s', e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Ungültige Anfrage.'}), 400
         except Exception as e:
             logger.warning('Document rating API failed: %s', e, exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 502
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 502
     
     @app.route('/api/version', methods=['GET'])
     def api_version():
@@ -1284,14 +1426,18 @@ def create_app(config_path: Optional[str] = None):
             }
         except OSError:
             js_flags = {'readable': False}
+        enrichment: Dict[str, Any] = {
+            'loaded': bool(unique),
+            'records': len(unique),
+        }
+        # Only expose the server-side filesystem path to an authenticated session;
+        # this endpoint is unauthenticated (public build marker).
+        if session.get('company_login_ok') is True:
+            enrichment['path'] = _enrichment_path_from_config(config)
         return jsonify({
             'build_id': DOCBRIDGE_BUILD_ID,
             'asset_version': _static_asset_version(),
-            'enrichment': {
-                'loaded': bool(unique),
-                'records': len(unique),
-                'path': _enrichment_path_from_config(config),
-            },
+            'enrichment': enrichment,
             'js': js_flags,
         })
 
@@ -1300,15 +1446,18 @@ def create_app(config_path: Optional[str] = None):
         """Get usage statistics."""
         _load_search_enrichment(config)
         unique = _unique_enrichment_records()
+        enrichment: Dict[str, Any] = {
+            'loaded': bool(unique),
+            'records': len(unique),
+            'lookup_keys': len(_search_enrichment_cache),
+        }
+        # Only expose the server-side filesystem path to an authenticated session.
+        if session.get('company_login_ok') is True:
+            enrichment['path'] = _enrichment_path_from_config(config)
         return jsonify({
             'status': 'operational',
             'timestamp': datetime.now().isoformat(),
-            'enrichment': {
-                'loaded': bool(unique),
-                'records': len(unique),
-                'path': _enrichment_path_from_config(config),
-                'lookup_keys': len(_search_enrichment_cache),
-            },
+            'enrichment': enrichment,
             'asset_version': _static_asset_version(),
             'build_id': DOCBRIDGE_BUILD_ID,
         })
@@ -1856,8 +2005,14 @@ def _enhance_search_results(
         if file_path:
             rel = _rel_path_for_autodoc(str(file_path))
             result["autodoc_rel_path"] = rel
-            full_path = os.path.join(file_handler.autodoc_path, rel)
-            if verify_disk:
+            # Confine to the AutoDoc root before touching disk. Without this,
+            # a ``../`` pointer leaked file existence/size/mtime of host files
+            # (path-metadata oracle) even though the download endpoint blocks it.
+            full_path = _confine_to_autodoc(file_handler.autodoc_path, str(file_path))
+            if not full_path:
+                result["file_exists"] = False
+                result["can_open"] = False
+            elif verify_disk:
                 _apply_autodoc_disk_metadata(result, full_path)
             else:
                 result["can_open"] = bool(rel)

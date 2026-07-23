@@ -36,8 +36,10 @@ class MirrorStats:
     skipped_unchanged: int = 0
     skipped_oversize: int = 0
     skipped_extension: int = 0
+    skipped_control: int = 0
     deleted_locally: int = 0
     enrichment_entries: int = 0
+    download_failures: int = 0
     mode: str = "walk"  # "delta", "walk", or "delta-then-walk"
     errors: list[str] = field(default_factory=list)
 
@@ -100,6 +102,10 @@ class OneDriveMirror:
         self._identifier_prefix = (identifier_prefix or "").strip().strip("/")
         self._enrichment_path = Path(enrichment_path).resolve() if enrichment_path else None
         self._use_delta = bool(use_delta)
+        # Set True whenever a listing fails part-way through a full walk so the
+        # prune step is skipped (a partial remote view must never drive mass
+        # local deletion).
+        self._enumeration_incomplete = False
         # Path enrichment rows are aggregated across passes when running in
         # delta mode, since each delta only describes the diff. The full
         # writer reconstructs the snapshot from this dict on every pass.
@@ -159,6 +165,7 @@ class OneDriveMirror:
         # Full-walk fallback (also used when ONEDRIVE_MIRROR_USE_DELTA=false).
         remote_rel_paths: set[str] = set()
         enrichment_rows: list[dict] = []
+        self._enumeration_incomplete = False
         try:
             self._walk_root(
                 rel_dir=Path("."),
@@ -168,10 +175,21 @@ class OneDriveMirror:
                 enrichment_rows=enrichment_rows,
             )
         except GraphRequestError as exc:
+            self._enumeration_incomplete = True
             stats.errors.append(f"listing failed: {exc}")
             logger.error("OneDrive mirror: %s", stats.errors[-1])
 
-        self._prune_local_only(remote_rel_paths, stats)
+        # Only prune when we have a COMPLETE remote view. A partial enumeration
+        # (top-level or any sub-folder listing failure) would otherwise delete
+        # every local file that simply was not seen yet — mass data loss.
+        if self._enumeration_incomplete:
+            logger.warning(
+                "OneDrive mirror: skipping prune — remote enumeration incomplete "
+                "(%d error(s)); not deleting local files this pass.",
+                len(stats.errors),
+            )
+        else:
+            self._prune_local_only(remote_rel_paths, stats)
 
         # Rebuild full enrichment snapshot from this pass.
         if self._enrichment_path is not None and enrichment_rows:
@@ -235,10 +253,29 @@ class OneDriveMirror:
         except OSError as exc:
             logger.warning("OneDrive mirror: could not delete stale delta token (%s)", exc)
 
+    def _is_control_dest(self, dest: Path) -> bool:
+        """True if ``dest`` collides with one of the module's own control files.
+
+        A mirrored remote item must never be written over the delta-token file
+        or the enrichment snapshot — otherwise a maliciously named OneDrive item
+        could corrupt/poison the mirror's own state.
+        """
+        try:
+            resolved = dest.resolve()
+        except (OSError, ValueError):
+            return False
+        control_paths = [self._delta_token_path().resolve()]
+        if self._enrichment_path is not None:
+            control_paths.append(self._enrichment_path.resolve())
+        return resolved in control_paths
+
     def _rel_path_for_delta_item(self, item: dict) -> Optional[str]:
         """Reconstruct the path within the mirrored subtree, or None if outside."""
         name = (item.get("name") or "").strip()
-        if not name or "/" in name or "\\" in name:
+        # Reject empty, separator-bearing, and "." / ".." names — a ".." name
+        # (or a component that reduces to it) would resolve back to / above the
+        # mirror root and let a delete wipe the whole tree.
+        if not name or name in (".", "..") or "/" in name or "\\" in name:
             return None
         parent = item.get("parentReference") or {}
         parent_path = parent.get("path") or ""
@@ -247,19 +284,32 @@ class OneDriveMirror:
             after = parent_path.split(":", 1)[1].strip("/")
         else:
             after = ""
+
+        rel: Optional[str]
         if self._root_path:
             if after == self._root_path:
-                return name
-            prefix = self._root_path + "/"
-            if after.startswith(prefix):
-                sub = after[len(prefix):]
-                return f"{sub}/{name}" if sub else name
-            # Item lives outside the mirrored subtree (or IS the subtree root itself).
-            if name == self._root_path and after == "":
-                # The root folder of our subtree — not a file we mirror, but valid.
-                return ""
-            return None
-        return f"{after}/{name}" if after else name
+                rel = name
+            else:
+                prefix = self._root_path + "/"
+                if after.startswith(prefix):
+                    sub = after[len(prefix):]
+                    rel = f"{sub}/{name}" if sub else name
+                elif name == self._root_path and after == "":
+                    # The root folder of our subtree — not a file we mirror, but valid.
+                    return ""
+                else:
+                    # Item lives outside the mirrored subtree.
+                    return None
+        else:
+            rel = f"{after}/{name}" if after else name
+
+        # Defence in depth: reject any path that traverses via empty / "." / ".."
+        # components (e.g. a parentReference of "<root>/foo" with name "..").
+        if rel:
+            parts = rel.replace("\\", "/").split("/")
+            if any(p in ("", ".", "..") for p in parts):
+                return None
+        return rel
 
     def _run_delta(self, stats: MirrorStats) -> None:
         """Process Graph delta pages. Raises DeltaTokenInvalid/GraphRequestError on failure."""
@@ -274,7 +324,16 @@ class OneDriveMirror:
             if delta_link:
                 new_delta_link = delta_link
 
-        if new_delta_link:
+        if new_delta_link and stats.download_failures:
+            # At least one item could not be downloaded this pass (throttled /
+            # transient error). Persisting the new cursor would skip those items
+            # forever, so keep the last good cursor and let the next pass retry.
+            logger.warning(
+                "OneDrive mirror: %d download failure(s) this pass — NOT advancing "
+                "delta cursor so failed items are reprocessed next pass.",
+                stats.download_failures,
+            )
+        elif new_delta_link:
             try:
                 self._save_delta_token(new_delta_link)
             except OSError as exc:
@@ -328,6 +387,12 @@ class OneDriveMirror:
         if not _within(self._local_root, dest):
             logger.warning("OneDrive mirror: refusing path escape via %r", rel)
             return
+        if self._is_control_dest(dest):
+            stats.skipped_control += 1
+            logger.warning(
+                "OneDrive mirror: refusing to overwrite control file via item %r", rel
+            )
+            return
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         # Maintain enrichment snapshot for this file (added / modified).
@@ -354,6 +419,7 @@ class OneDriveMirror:
             stats.downloaded += 1
             logger.info("OneDrive mirror: wrote %s (%d bytes)", rel, bytes_written)
         except (GraphRequestError, OSError) as exc:
+            stats.download_failures += 1
             stats.errors.append(f"download {rel}: {exc}")
             logger.error("OneDrive mirror: %s", stats.errors[-1])
 
@@ -362,6 +428,16 @@ class OneDriveMirror:
             return
         dest = self._local_root / rel
         if not _within(self._local_root, dest):
+            return
+        # Never delete the mirror root itself, even if a crafted rel resolves to
+        # it — that would rmtree the entire mirror.
+        try:
+            if dest.resolve() == self._local_root.resolve():
+                logger.warning(
+                    "OneDrive mirror: refusing to delete the mirror root via rel %r", rel
+                )
+                return
+        except (OSError, ValueError):
             return
         try:
             if dest.is_file() or dest.is_symlink():
@@ -442,6 +518,7 @@ class OneDriveMirror:
                 try:
                     next_iter = self._client.list_children_by_id(self._drive_id, item["id"])
                 except GraphRequestError as exc:
+                    self._enumeration_incomplete = True
                     stats.errors.append(f"list {rel}: {exc}")
                     logger.error("OneDrive mirror: %s", stats.errors[-1])
                     continue
@@ -470,6 +547,13 @@ class OneDriveMirror:
             dest = self._local_root / rel
             if not _within(self._local_root, dest):
                 logger.warning("OneDrive mirror: refusing path escape via %r", str(rel))
+                continue
+            if self._is_control_dest(dest):
+                stats.skipped_control += 1
+                logger.warning(
+                    "OneDrive mirror: refusing to overwrite control file via item %r",
+                    str(rel),
+                )
                 continue
             remote_rel_paths.add(str(rel))
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -505,6 +589,7 @@ class OneDriveMirror:
                     "OneDrive mirror: wrote %s (%d bytes)", rel, bytes_written
                 )
             except (GraphRequestError, OSError) as exc:
+                stats.download_failures += 1
                 stats.errors.append(f"download {rel}: {exc}")
                 logger.error("OneDrive mirror: %s", stats.errors[-1])
 

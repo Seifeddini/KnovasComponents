@@ -57,15 +57,24 @@ def create_app(*, skip_validation: bool = False) -> Flask:
 
 
 def _wsgi_skip_validation() -> bool:
-    """Skip required-env validation only for tests or explicit dev override."""
+    """Skip required-env validation only for tests (TESTING).
+
+    RC_SKIP_CONFIG_VALIDATION is a test-only convenience: on the production
+    WSGI path it is ignored (with a warning) so missing secrets still fail fast.
+    """
     if os.environ.get("TESTING", "").strip().lower() in ("1", "true", "yes", "on"):
         return True
-    return os.environ.get("RC_SKIP_CONFIG_VALIDATION", "").strip().lower() in (
+    if os.environ.get("RC_SKIP_CONFIG_VALIDATION", "").strip().lower() in (
         "1",
         "true",
         "yes",
         "on",
-    )
+    ):
+        logger.warning(
+            "RC_SKIP_CONFIG_VALIDATION is set but TESTING is not; ignoring it and "
+            "enforcing config validation."
+        )
+    return False
 
 
 app = create_app(skip_validation=_wsgi_skip_validation())

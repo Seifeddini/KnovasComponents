@@ -15,10 +15,24 @@ class DocumentSearchApp {
         this.currentResults = [];
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         this.onedriveEnrichmentLoaded = !!cfg.onedriveEnrichmentLoaded;
+        /** CSRF token for state-changing requests (server enforces it on every POST). */
+        this.csrfToken = cfg.csrfToken || '';
         /** @type {string|null} Knovas query_session_id from last /secured/query (for relevance feedback). */
         this.querySessionId = null;
-        
+
         this.initializeEventListeners();
+    }
+
+    /**
+     * Headers for a state-changing JSON request. Attaches the X-CSRF-Token the same
+     * way the companion-mint call does, so every POST/PUT/PATCH/DELETE the server
+     * gates uniformly is accepted. Read-only GETs do not need this.
+     */
+    _jsonHeadersWithCsrf(extra) {
+        return Object.assign(
+            { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
+            extra || {},
+        );
     }
     
     initializeEventListeners() {
@@ -118,7 +132,7 @@ class DocumentSearchApp {
             const response = await fetch('/api/analytics/relevance-feedback', {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this._jsonHeadersWithCsrf(),
                 body: JSON.stringify({
                     pointer,
                     relevance_score: relevanceScore,
@@ -170,7 +184,7 @@ class DocumentSearchApp {
             const response = await fetch('/api/document/rating', {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this._jsonHeadersWithCsrf(),
                 body: JSON.stringify(body),
             });
             if (this._redirectIfLoginRequired(response)) return;
@@ -302,9 +316,7 @@ class DocumentSearchApp {
             const response = await fetch('/api/search', {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: this._jsonHeadersWithCsrf(),
                 body: JSON.stringify({
                     query: query,
                     limit: parseInt(this.resultsPerPage.value),
@@ -637,9 +649,7 @@ class DocumentSearchApp {
             const response = await fetch(`/api/document/${encodeURIComponent(docId)}/open`, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: this._jsonHeadersWithCsrf(),
                 body: JSON.stringify({ path: path }),
             });
             if (this._redirectIfLoginRequired(response)) return;
@@ -754,16 +764,11 @@ class DocumentSearchApp {
     }
 
     async openDocumentCompanion(docId, path) {
-        const cfg = window.__DOCBRIDGE__ || {};
-        const csrf = cfg.csrfToken || '';
         try {
             const response = await fetch('/api/open-tokens/mint', {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': csrf,
-                },
+                headers: this._jsonHeadersWithCsrf(),
                 body: JSON.stringify({ doc_id: docId, path }),
             });
             if (this._redirectIfLoginRequired(response)) return;

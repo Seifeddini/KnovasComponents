@@ -164,10 +164,13 @@ def test_health_endpoints_remain_public(app):
 def test_document_paths_cannot_escape_autodoc_root(app):
     client = app.test_client()
     _login(client)
+    with client.session_transaction() as sess:
+        token = sess["csrf_token"]
 
     response = client.post(
         "/api/document/example/open",
         json={"path": "../secrets/client.key"},
+        headers={"X-CSRF-Token": token},
     )
     assert response.status_code == 400
     assert response.get_json()["error"] == "Document path not allowed"
