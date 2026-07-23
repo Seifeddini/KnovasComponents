@@ -144,6 +144,27 @@ def _is_loopback_addr(addr: Optional[str]) -> bool:
         return False
 
 
+def _is_trusted_bypass_addr(addr: Optional[str]) -> bool:
+    """True for loopback (always) or any address inside a network listed in
+    RC_LOCAL_BYPASS_TRUSTED_CIDRS.
+
+    Rationale: under Docker's `127.0.0.1:PORT` publishing the container sees the
+    bridge gateway (e.g. 172.x) as the peer, never 127.0.0.1, so a pure loopback
+    check rejects every host-local call. The internal compose overlay adds the
+    bridge range there. Access stays confined to the host because the published
+    port is bound to 127.0.0.1 — the CIDR only widens the in-container peer check.
+    """
+    if _is_loopback_addr(addr):
+        return True
+    if not addr:
+        return False
+    try:
+        ip = ipaddress.ip_address(addr.strip())
+    except ValueError:
+        return False
+    return any(ip in net for net in get_config().rc_local_bypass_trusted_networks)
+
+
 _STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
@@ -195,11 +216,11 @@ def require_internal_access(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         if internal_local_bypass_enabled():
-            if not _is_loopback_addr(request.remote_addr):
+            if not _is_trusted_bypass_addr(request.remote_addr):
                 return (
                     jsonify(
                         {
-                            "error": "Local bypass is permitted only from loopback",
+                            "error": "Local bypass is permitted only from trusted local addresses",
                             "status": "error",
                         }
                     ),

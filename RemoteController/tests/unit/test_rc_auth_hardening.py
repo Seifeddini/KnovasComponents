@@ -100,6 +100,36 @@ def test_local_bypass_rejects_non_loopback_remote_addr():
         load_config(validate=False, force_reload=True)
 
 
+def test_local_bypass_allows_configured_trusted_cidr():
+    """RC_LOCAL_BYPASS_TRUSTED_CIDRS widens the bypass (e.g. to the Docker
+    bridge gateway) while loopback stays allowed and other peers stay rejected."""
+    from config import load_config, reset_config
+
+    os.environ["RC_INTERNAL_LOCAL_BYPASS"] = "true"
+    os.environ["RC_LOCAL_BYPASS_TRUSTED_CIDRS"] = "172.16.0.0/12"
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    try:
+        client = _make_bypass_app().test_client()
+
+        # Docker bridge gateway (inside the trusted CIDR) is allowed.
+        gw = client.get("/protected", environ_base={"REMOTE_ADDR": "172.18.0.1"})
+        assert gw.status_code == 200
+
+        # Loopback is always allowed, regardless of config.
+        local = client.get("/protected", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+        assert local.status_code == 200
+
+        # Outside loopback and the trusted CIDR is still rejected.
+        far = client.get("/protected", environ_base={"REMOTE_ADDR": "10.0.0.5"})
+        assert far.status_code == 403
+    finally:
+        os.environ.pop("RC_INTERNAL_LOCAL_BYPASS", None)
+        os.environ.pop("RC_LOCAL_BYPASS_TRUSTED_CIDRS", None)
+        reset_config()
+        load_config(validate=False, force_reload=True)
+
+
 # ---------------------------------------------------------------------------
 # C6 — rate limiter must ignore spoofable XFF and bound its bucket map
 # ---------------------------------------------------------------------------

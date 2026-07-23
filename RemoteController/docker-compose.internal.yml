@@ -10,6 +10,11 @@ services:
       RC_SYNC_STATE_PATH: /var/rc-state/.rc-sync-state.json
       # Internal LAN on 127.0.0.1 — discover/sync without RC_INSTANCE_TOKEN or employee JWT
       RC_INTERNAL_LOCAL_BYPASS: "true"
+      # The port above is bound to 127.0.0.1 (host-only), but Docker source-NATs
+      # host-local requests so the container sees the bridge gateway (172.x), not
+      # 127.0.0.1. Trust the private bridge range so host-local curl passes the
+      # bypass check; external access is still blocked by the 127.0.0.1 binding.
+      RC_LOCAL_BYPASS_TRUSTED_CIDRS: "172.16.0.0/12"
 
   nginx:
     profiles:

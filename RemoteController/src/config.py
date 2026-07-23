@@ -1,6 +1,7 @@
 """Environment configuration with fail-fast validation on boot."""
 from __future__ import annotations
 
+import ipaddress
 import os
 import sys
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ class AppConfig:
     rc_sync_default_burst: int
     rc_sync_default_scan_interval_seconds: int
     rc_internal_local_bypass: bool
+    rc_local_bypass_trusted_networks: tuple
     testing: bool
 
 
@@ -75,6 +77,21 @@ def _env_float(key: str, default: float) -> float:
     if raw is None or not raw.strip():
         return default
     return float(raw)
+
+
+def _parse_cidrs(key: str) -> tuple:
+    """Parse a comma-separated CIDR list into ip_network objects; invalid
+    entries are ignored."""
+    nets = []
+    for part in (os.environ.get(key) or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            continue
+    return tuple(nets)
 
 
 def reset_config() -> None:
@@ -152,6 +169,7 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
             "RC_SYNC_DEFAULT_SCAN_INTERVAL_SECONDS", 60
         ),
         rc_internal_local_bypass=_internal_local_bypass_enabled(),
+        rc_local_bypass_trusted_networks=_parse_cidrs("RC_LOCAL_BYPASS_TRUSTED_CIDRS"),
         testing=_env_bool("TESTING", False),
     )
     return _config
