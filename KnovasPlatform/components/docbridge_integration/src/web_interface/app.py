@@ -24,6 +24,7 @@ import re
 from urllib.parse import quote
 
 from config_loader import get_config
+from context_store import enrich_result_with_context
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
@@ -362,6 +363,7 @@ DOCBRIDGE_BUILD_ID = 'onedrive-locations-v4'
 
 # Default OneDrive enrichment JSONL location (OneDrive mirror / RC sync on AutoDoc mount)
 _DEFAULT_ENRICHMENT_PATH = "/mnt/autodoc/.search_enrichment.jsonl"
+_DEFAULT_CONTEXT_STORE_PATH = "/mnt/autodoc/.search_context"
 
 # Generic client-facing error message. Internal exception detail is logged
 # server-side (exc_info=True) and never returned to the browser (avoids leaking
@@ -567,6 +569,7 @@ def create_app(config_path: Optional[str] = None):
         store_path=open_token_store_path,
     )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
+    hover_preview_enabled = config.get_bool('web.search.hover_preview', True)
     allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
     companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
@@ -835,6 +838,7 @@ def create_app(config_path: Optional[str] = None):
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
+            hover_preview_enabled=hover_preview_enabled,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
@@ -1861,6 +1865,22 @@ def _enrichment_path_from_config(config=None) -> str:
     return path
 
 
+def _context_store_path_from_config(config=None) -> str:
+    path = os.getenv("SEARCH_CONTEXT_STORE_PATH", "").strip()
+    if not path and config is not None:
+        path = str(config.get("web.search.context_store_path", "") or "").strip()
+    if path and not os.path.isdir(path) and os.path.isdir(_DEFAULT_CONTEXT_STORE_PATH):
+        logger.warning(
+            "Context store not found at %s; using %s",
+            path,
+            _DEFAULT_CONTEXT_STORE_PATH,
+        )
+        return _DEFAULT_CONTEXT_STORE_PATH
+    if not path and os.path.isdir(_DEFAULT_CONTEXT_STORE_PATH):
+        path = _DEFAULT_CONTEXT_STORE_PATH
+    return path
+
+
 def _load_search_enrichment(config=None) -> Dict[str, dict]:
     """
     Load JSONL written by docbridge-sync (OneDrive webUrl, title, etc.).
@@ -1982,6 +2002,10 @@ def _enhance_search_results(
     if config is not None:
         verify_disk = config.get_bool("web.search.verify_files_on_disk", True)
     enrichment = _load_search_enrichment(config)
+    context_store_path = _context_store_path_from_config(config)
+    context_radius = 10
+    if config is not None:
+        context_radius = config.get_int("web.search.context_sentences", 10)
     enhanced_results = results.copy()
     
     if 'results' not in enhanced_results:
@@ -2045,6 +2069,24 @@ def _enhance_search_results(
         else:
             result.setdefault("file_exists", False)
             result.setdefault("can_open", False)
+
+        pointer_keys: List[str] = []
+        seen_ptr: set[str] = set()
+        for field in ("doc_id", "path", "pointer"):
+            raw = result.get(field)
+            if not raw:
+                continue
+            s = str(raw).strip()
+            if s and s not in seen_ptr:
+                seen_ptr.add(s)
+                pointer_keys.append(s)
+        if context_store_path and pointer_keys:
+            enrich_result_with_context(
+                result,
+                context_store_path,
+                pointer_keys,
+                context_radius=context_radius,
+            )
 
     return enhanced_results
 

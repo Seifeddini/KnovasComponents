@@ -12,6 +12,7 @@ import requests
 
 from config import get_config
 from sync.chunking import build_transmission_parts
+from sync.context_sidecar import context_store_dir_from_env, write_context_sidecar
 from sync.document_text import ConversionError, extract_document
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,13 @@ class SemantixUploader:
                 sections=doc.sections,
                 pages=doc.pages,
                 tables=doc.tables,
+            )
+            write_context_sidecar(
+                context_store_dir_from_env(),
+                identifier,
+                relative_path,
+                text,
+                sentences,
             )
             part_count = len(parts)
         except Exception as exc:

@@ -204,6 +204,10 @@ web:
     supplement_max_enrichment_scan: 5000
     # OneDrive / SharePoint webUrl JSONL from OneDrive mirror (see RemoteController)
     enrichment_path: "${SEARCH_ENRICHMENT_PATH:-/mnt/autodoc/.search_enrichment.jsonl}"
+    # Per-document sentence index for first-page + match-context previews (see context_store.py)
+    context_store_path: "${SEARCH_CONTEXT_STORE_PATH:-/mnt/autodoc/.search_context}"
+    context_sentences: 10
+    hover_preview: true
     
   # Document opening
   document_handler:

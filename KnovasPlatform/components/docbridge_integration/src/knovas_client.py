@@ -454,7 +454,12 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
             parts_from_base64 = None  # type: ignore[misc,assignment]
         else:
             try:
-                parts = parts_from_base64(str(b64), ext)
+                parts = parts_from_base64(
+                    str(b64),
+                    ext,
+                    pointer=identifier,
+                    path=str(init_fields.get("path") or identifier),
+                )
                 if parts:
                     return parts, init_fields
             except Exception as exc:

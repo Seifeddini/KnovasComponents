@@ -6,6 +6,16 @@ Full environment and scheduler reference. Required variables for boot are listed
 
 See [.env.example](../.env.example) for the complete list with defaults.
 
+### Search context sidecars
+
+Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). RemoteController writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.
+
+Backfill existing corpora without re-uploading:
+
+```bash
+python scripts/build_context_sidecars.py --store-dir /mirror/.search_context --root /data/corpus --identifier-prefix corpus
+```
+
 ## Scheduler config file
 
 Path: `RC_SYNC_CONFIG_PATH` (default `config/remote_controller_sync.json`).

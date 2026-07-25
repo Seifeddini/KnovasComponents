@@ -5,6 +5,7 @@ import base64
 import logging
 from typing import Any, Dict, List
 
+from context_store import write_context_sidecar
 from knovas_transmit.chunking import build_transmission_parts
 from knovas_transmit.table_payload import map_extractor_tables
 
@@ -26,11 +27,20 @@ def _normalize_ext(ext: str) -> str:
     return (ext or "").strip().lower().lstrip(".")
 
 
+def _context_store_dir() -> str:
+    import os
+
+    return (os.environ.get("SEARCH_CONTEXT_STORE_PATH") or "").strip()
+
+
 def parts_from_base64(
     content_base64: str,
     ext: str,
     *,
     part_max_chars: int = _PART_MAX_CHARS,
+    pointer: str = "",
+    path: str = "",
+    write_sidecar: bool = True,
 ) -> List[Dict[str, Any]]:
     """
     Decode base64 document bytes and return Knovas transmit part dicts using the
@@ -70,6 +80,15 @@ def parts_from_base64(
     tables = (
         map_extractor_tables(tables_raw, default_hint_prefix=normalized) if tables_raw else None
     )
+
+    if write_sidecar and pointer:
+        write_context_sidecar(
+            _context_store_dir() or None,
+            pointer,
+            path or pointer,
+            content.text,
+            content.sentences,
+        )
 
     return build_transmission_parts(
         content.text,
