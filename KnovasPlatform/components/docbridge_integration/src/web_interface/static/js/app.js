@@ -163,6 +163,9 @@ class DocumentSearchApp {
             if (openCard) {
                 const idx = parseInt(openCard.getAttribute('data-index') || '-1', 10);
                 if (idx >= 0) {
+                    const pointer = openCard.getAttribute('data-pointer');
+                    const pos = parseInt(openCard.getAttribute('data-display-position') || '0', 10);
+                    this._queueEngagement('click', pointer, pos > 0 ? pos : undefined);
                     this.openPreview(idx);
                     return;
                 }
@@ -517,11 +520,12 @@ class DocumentSearchApp {
             });
             if (this._redirectIfLoginRequired(response)) return;
             const data = await response.json().catch(() => ({}));
+            // Zwischenzeitlicher Kartenwechsel: Antwort verwerfen, bevor sie
+            // irgendetwas ins Panel schreibt -- Erfolg wie Fehler.
+            if (this._previewIndex !== index) return;
             if (!response.ok || !data.success) {
                 throw new Error(data.error || `HTTP ${response.status}`);
             }
-            // Zwischenzeitlicher Kartenwechsel: Antwort verwerfen.
-            if (this._previewIndex !== index) return;
 
             this.previewMeta.textContent = this._previewMetaText(data.kind, data.meta);
             this.previewBody.innerHTML = window.KnovasMarkdown.render(data.markdown);
