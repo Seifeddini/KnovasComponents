@@ -23,7 +23,7 @@
             </form>
         </header>
 
-        <main>
+        <main class="main-layout">
             <section class="search-section">
                 <div class="search-box">
                     <input 
@@ -66,6 +66,18 @@
                 
                 <div id="errorMessage" class="error-message" style="display: none;"></div>
             </section>
+
+            <aside class="preview-panel" id="previewPanel" hidden aria-label="Dokumentvorschau">
+                <header class="preview-panel-header">
+                    <div class="preview-panel-heading">
+                        <h2 class="preview-title" id="previewTitle"></h2>
+                        <p class="preview-meta" id="previewMeta"></p>
+                    </div>
+                    <button type="button" class="btn-text preview-close" id="previewClose" aria-label="Vorschau schliessen">Schliessen</button>
+                </header>
+                <div class="preview-actions" id="previewActions"></div>
+                <div class="preview-body" id="previewBody" tabindex="0"></div>
+            </aside>
         </main>
 
         <footer class="site-footer">
