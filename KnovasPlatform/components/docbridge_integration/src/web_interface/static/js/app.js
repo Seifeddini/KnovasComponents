@@ -106,9 +106,9 @@ class DocumentSearchApp {
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
         if (externalUrl) {
             const href = this.externalOpenHref(docId, path || docId);
-            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">🔗 In OneDrive öffnen</a>`;
+            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">In OneDrive öffnen</a>`;
         }
-        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">📂 Öffnen</button>`;
+        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Öffnen</button>`;
     }
 
     closePreview() {
@@ -444,14 +444,14 @@ class DocumentSearchApp {
         const showDegradedDownload = !!cfg.allowDegradedDownloadOpen;
         const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
         const openBtnLabel =
-            onHttps && !useCompanion ? '📋 Pfad kopieren (Win+R)' : '📂 Öffnen';
+            onHttps && !useCompanion ? 'Pfad kopieren (Win+R)' : 'Öffnen';
 
         let actionsHtml;
         if (hasOneDrive) {
             const openHref = this.externalOpenHref(docId, path || docId);
             actionsHtml = `
                 <a class="btn btn-success" href="${this.escapeAttr(openHref)}" target="_blank" rel="noopener noreferrer">
-                    🔗 In OneDrive öffnen
+                    In OneDrive öffnen
                 </a>
             `;
         } else if (localAvailable) {
@@ -460,7 +460,7 @@ class DocumentSearchApp {
                 : '';
             const downloadBtn = showDegradedDownload
                 ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">
-                    💾 Download (degradiert)
+                    Download (degradiert)
                 </button>`
                 : '';
             actionsHtml = `
@@ -728,11 +728,11 @@ class DocumentSearchApp {
             const response = await fetch('/api/health', { credentials: 'same-origin' });
             const data = await response.json();
             
-            const status = data.semantix_api ? '✅ Online' : '❌ Offline';
-            alert(`System Status:\n\nWeb Interface: ✅ Online\nKnovas API: ${status}\n\nZeitstempel: ${data.timestamp}`);
-            
+            const status = data.semantix_api ? 'Online' : 'Offline';
+            alert(`System Status:\n\nWeb Interface: Online\nKnovas API: ${status}\n\nZeitstempel: ${data.timestamp}`);
+
         } catch (error) {
-            alert(`System Status:\n\n❌ Verbindungsfehler: ${error.message}`);
+            alert(`System Status:\n\nVerbindungsfehler: ${error.message}`);
         }
     }
     
@@ -784,7 +784,6 @@ class DocumentSearchApp {
     showEmptyState(semantix) {
         this.resultsContainer.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">🔍</div>
                 <h3>Keine Ergebnisse gefunden</h3>
                 <p>Ihre Suche nach "${this.escapeHtml(this.currentQuery)}" ergab keine Treffer.</p>
                 <p class="mt-20">Versuchen Sie es mit anderen Suchbegriffen.</p>

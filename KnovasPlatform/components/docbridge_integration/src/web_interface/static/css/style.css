@@ -44,8 +44,6 @@
     --primary-hover: #193284;     /* Marine Blue -- Hover-Zustand */
     --accent: #3B79F2;            /* Azure Blue -- nur dekorativ: Rahmen, Fokusringe, Chip-Highlights. Nie als Textfarbe, nie als Flaeche unter Text. */
     --accent-rgb: 59, 121, 242;    /* RGB-Tripel von --accent, fuer rgba()-Transparenzen */
-    --title-color: #07172D;       /* Midnight Blue */
-    --accent-soft: #6E88DC;       /* Cornflower Blue */
     --success-color: #1a6b4a;
     --error-color: #c41e1e;
     --bg-color: #F4F6FC;          /* Ice Blue */
@@ -55,10 +53,8 @@
     --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
     --text-muted: #A3B0C0;        /* abgeleitet, kein Guide-Wert; 2.17:1 auf Kartenweiss -- unter AA, nur fuer nicht-essenzielle Angaben verwenden */
     --border-color: #D1D6DF;      /* Light Ice Blue */
-    --shadow: 0 1px 2px rgba(7, 23, 45, 0.06);
-    --shadow-lg: 0 8px 24px rgba(7, 23, 45, 0.10);
-    --radius: 10px;
-    --radius-lg: 14px;
+    --radius: 6px;
+    --radius-lg: 8px;
     --font-body: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     --font-heading: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -176,7 +172,6 @@ main {
     background: var(--card-bg);
     padding: 20px;
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
     border: 1px solid var(--border-color);
     margin-bottom: 20px;
 }
@@ -194,13 +189,12 @@ main {
     border-radius: var(--radius);
     font-size: 1rem;
     background: #fafbfc;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.2s;
 }
 
 #searchInput:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
     background: #fff;
 }
 
@@ -217,10 +211,6 @@ main {
     gap: 6px;
     white-space: nowrap;
     text-decoration: none;
-}
-
-a.btn-success {
-    color: white;
 }
 
 .btn-primary {
@@ -243,10 +233,16 @@ a.btn-success {
 }
 
 .btn-success {
-    background-color: var(--success-color);
-    color: white;
+    background-color: transparent;
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
     padding: 9px 16px;
     font-size: 0.875rem;
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: var(--primary-color);
+    color: #FFFFFF;
 }
 
 .btn-outline {
@@ -284,7 +280,6 @@ a.btn-success {
     background: var(--card-bg);
     padding: 20px;
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
     border: 1px solid var(--border-color);
 }
 
@@ -320,12 +315,11 @@ a.btn-success {
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 18px 20px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.2s;
 }
 
 .document-card:hover {
-    border-color: var(--border-color);
-    box-shadow: var(--shadow);
+    border-color: var(--accent);
 }
 
 .document-header {
@@ -572,12 +566,6 @@ mark.context-snippet-match,
     color: var(--text-secondary);
 }
 
-.empty-state-icon {
-    font-size: 2.5rem;
-    margin-bottom: 12px;
-    opacity: 0.7;
-}
-
 .empty-state h3 {
     font-size: 1.15rem;
     margin-bottom: 8px;
@@ -646,7 +634,7 @@ mark.context-snippet-match,
 /* Login */
 .login-page {
     min-height: 100vh;
-    background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.08) 0%, var(--bg-color) 50%, #fff 100%);
+    background: var(--bg-color);
 }
 
 .login-shell {
@@ -662,7 +650,6 @@ mark.context-snippet-match,
     max-width: 400px;
     background: var(--card-bg);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
     border: 1px solid var(--border-color);
     padding: 32px;
 }
@@ -709,7 +696,6 @@ mark.context-snippet-match,
 .login-form input[type="password"]:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
 }
 
 .login-submit {
@@ -755,10 +741,6 @@ mark.context-snippet-match,
     margin-top: 16px;
 }
 
-.icon {
-    display: inline-block;
-}
-
 /* --- Dokumentvorschau ---------------------------------------------------- */
 
 .main-layout {
@@ -792,7 +774,6 @@ mark.context-snippet-match,
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
     overflow: hidden;
 }
 
