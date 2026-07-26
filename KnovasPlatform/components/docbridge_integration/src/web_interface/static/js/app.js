@@ -27,11 +27,6 @@ class DocumentSearchApp {
         this.onedriveEnrichmentLoaded = !!cfg.onedriveEnrichmentLoaded;
         /** CSRF token for state-changing requests (server enforces it on every POST). */
         this.csrfToken = cfg.csrfToken || '';
-        /** @type {string|null} Knovas query_session_id from last /secured/query (for relevance feedback). */
-        this.querySessionId = null;
-        /** @type {Array<{action: string, pointer: string, position?: number}>} */
-        this._engagementQueue = [];
-        this._engagementFlushTimer = null;
 
         this.initializeEventListeners();
     }
@@ -70,78 +65,12 @@ class DocumentSearchApp {
         });
     }
 
-    _pointerForDoc(doc) {
-        const p = doc && (doc.doc_id || doc.pointer || doc.path);
-        return p != null ? String(p).trim() : '';
-    }
-
-    _queueEngagement(action, pointer, position) {
-        if (!this.querySessionId || !pointer) return;
-        const ev = { action, pointer: String(pointer).trim() };
-        if (position != null && position >= 1) {
-            ev.position = position;
-        }
-        this._engagementQueue.push(ev);
-        if (this._engagementQueue.length >= 50) {
-            this._flushEngagement();
-        } else {
-            this._flushEngagementSoon();
-        }
-    }
-
-    _flushEngagementSoon() {
-        if (this._engagementFlushTimer) return;
-        this._engagementFlushTimer = window.setTimeout(() => this._flushEngagement(), 300);
-    }
-
-    async _flushEngagement() {
-        if (this._engagementFlushTimer) {
-            window.clearTimeout(this._engagementFlushTimer);
-            this._engagementFlushTimer = null;
-        }
-        if (!this.querySessionId || !this._engagementQueue.length) return;
-        const events = this._engagementQueue.splice(0, 50);
-        try {
-            const response = await fetch('/api/analytics/engagement', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify({
-                    query_session_id: this.querySessionId,
-                    events,
-                }),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
-                console.debug('Engagement not accepted:', data.error || response.status);
-            }
-        } catch (err) {
-            console.debug('Engagement send failed:', err);
-        }
-        if (this._engagementQueue.length) {
-            this._flushEngagementSoon();
-        }
-    }
-
     _redirectIfLoginRequired(response) {
         if (response.status === 401) {
             window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
             return true;
         }
         return false;
-    }
-
-    /**
-     * @param {string} pointer
-     * @param {'relevance'|'importance'|'quality'} kind
-     */
-    _setScoreSelection(wrap, kind, value) {
-        wrap.querySelectorAll(`.js-rating-score[data-kind="${kind}"]`).forEach((btn) => {
-            const on = parseInt(btn.dataset.value, 10) === value;
-            btn.classList.toggle('selected', on);
-            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-        });
     }
 
     _onResultsClick(e) {
@@ -151,285 +80,11 @@ class DocumentSearchApp {
             if (openCard) {
                 const idx = parseInt(openCard.getAttribute('data-index') || '-1', 10);
                 if (idx >= 0) {
-                    const pointer = openCard.getAttribute('data-pointer');
-                    const pos = parseInt(openCard.getAttribute('data-display-position') || '0', 10);
-                    this._queueEngagement('click', pointer, pos > 0 ? pos : undefined);
                     this.openPreview(idx);
                     return;
                 }
             }
         }
-
-        const previewLink = e.target.closest('a[href*="/preview?"]');
-        if (previewLink) {
-            const card = previewLink.closest('.document-card');
-            if (card) {
-                const pointer = card.getAttribute('data-pointer');
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement('view', pointer, pos > 0 ? pos : undefined);
-            }
-            return;
-        }
-
-        const externalLink = e.target.closest('a[href*="/external-open?"]');
-        if (externalLink) {
-            const card = externalLink.closest('.document-card');
-            if (card) {
-                const pointer = card.getAttribute('data-pointer');
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement('view', pointer, pos > 0 ? pos : undefined);
-            }
-            return;
-        }
-
-        const dismissBtn = e.target.closest('.js-dismiss-result');
-        if (dismissBtn) {
-            const card = dismissBtn.closest('.document-card');
-            if (!card) return;
-            const pointer = card.getAttribute('data-pointer');
-            const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-            this._queueEngagement('dismiss', pointer, pos > 0 ? pos : undefined);
-            card.style.display = 'none';
-            return;
-        }
-
-        const titleEl = e.target.closest('.document-title');
-        if (titleEl) {
-            const card = titleEl.closest('.document-card');
-            if (card) {
-                const pointer = card.getAttribute('data-pointer');
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement('click', pointer, pos > 0 ? pos : undefined);
-            }
-        }
-
-        const scoreBtn = e.target.closest('.js-rating-score');
-        if (scoreBtn) {
-            const wrap = scoreBtn.closest('.document-ratings');
-            if (!wrap) return;
-            const pointer = wrap.getAttribute('data-pointer');
-            if (!pointer) return;
-            const kind = scoreBtn.dataset.kind;
-            const value = parseInt(scoreBtn.dataset.value, 10);
-            if (!kind || value < 1 || value > 5) return;
-
-            wrap.querySelectorAll(`.js-rating-score[data-kind="${kind}"]`).forEach((btn) => {
-                btn.classList.remove('selected');
-            });
-            scoreBtn.classList.add('selected');
-            wrap.querySelectorAll(`.js-rating-score[data-kind="${kind}"]`).forEach((btn) => {
-                btn.setAttribute('aria-pressed', btn.classList.contains('selected') ? 'true' : 'false');
-            });
-
-            if (kind === 'relevance') {
-                const hint = wrap.querySelector('.js-relevance-hint');
-                this._postRelevanceFeedback(pointer, value, hint);
-            }
-            return;
-        }
-
-        const saveBtn = e.target.closest('.js-save-doc-rating');
-        if (saveBtn) {
-            const wrap = saveBtn.closest('.document-ratings');
-            if (!wrap) return;
-            const pointer = wrap.getAttribute('data-pointer');
-            const hint = wrap.querySelector('.js-permanent-hint');
-            this._savePermanentDocumentRating(wrap, pointer, hint);
-            return;
-        }
-
-        const loadBtn = e.target.closest('.js-load-doc-rating');
-        if (loadBtn) {
-            const wrap = loadBtn.closest('.document-ratings');
-            if (!wrap) return;
-            const pointer = wrap.getAttribute('data-pointer');
-            const hint = wrap.querySelector('.js-permanent-hint');
-            this._loadPermanentDocumentRating(wrap, pointer, hint);
-        }
-    }
-
-    async _postRelevanceFeedback(pointer, relevanceScore, hintEl) {
-        if (!this.querySessionId) {
-            if (hintEl) {
-                hintEl.textContent = 'Keine Such-Session — Relevanz kann nicht gemeldet werden.';
-                hintEl.classList.add('rating-hint-error');
-            }
-            return;
-        }
-        if (hintEl) {
-            hintEl.textContent = 'Sende…';
-            hintEl.classList.remove('rating-hint-error', 'rating-hint-ok');
-        }
-        try {
-            const response = await fetch('/api/analytics/relevance-feedback', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify({
-                    pointer,
-                    relevance_score: relevanceScore,
-                    query_session_id: this.querySessionId,
-                }),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `${response.status}`);
-            }
-            if (hintEl) {
-                hintEl.textContent = 'Relevanz für diese Suche gemeldet.';
-                hintEl.classList.add('rating-hint-ok');
-            }
-        } catch (err) {
-            console.warn('Relevance feedback:', err);
-            if (hintEl) {
-                hintEl.textContent = 'Konnte nicht senden (Knovas API).';
-                hintEl.classList.add('rating-hint-error');
-            }
-        }
-    }
-
-    _readSelectedScore(wrap, kind) {
-        const sel = wrap.querySelector(`.js-rating-score[data-kind="${kind}"].selected`);
-        return sel ? parseInt(sel.dataset.value, 10) : null;
-    }
-
-    async _savePermanentDocumentRating(wrap, pointer, hintEl) {
-        if (!pointer) return;
-        const imp = this._readSelectedScore(wrap, 'importance');
-        const qual = this._readSelectedScore(wrap, 'quality');
-        if (imp == null && qual == null) {
-            if (hintEl) {
-                hintEl.textContent = 'Bitte Wichtigkeit und/oder Qualität wählen.';
-                hintEl.classList.add('rating-hint-error');
-            }
-            return;
-        }
-        if (hintEl) {
-            hintEl.textContent = 'Speichere…';
-            hintEl.classList.remove('rating-hint-error', 'rating-hint-ok');
-        }
-        try {
-            const body = { pointer };
-            if (imp != null) body.importance_score = imp;
-            if (qual != null) body.quality_score = qual;
-            const response = await fetch('/api/document/rating', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify(body),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `${response.status}`);
-            }
-            if (hintEl) {
-                hintEl.textContent = 'Dauerhafte Bewertung gespeichert.';
-                hintEl.classList.add('rating-hint-ok');
-            }
-        } catch (err) {
-            console.warn('Document rating:', err);
-            if (hintEl) {
-                hintEl.textContent = 'Konnte nicht speichern (Knovas API).';
-                hintEl.classList.add('rating-hint-error');
-            }
-        }
-    }
-
-    async _loadPermanentDocumentRating(wrap, pointer, hintEl) {
-        if (!pointer) return;
-        if (hintEl) {
-            hintEl.textContent = 'Lade…';
-            hintEl.classList.remove('rating-hint-error', 'rating-hint-ok');
-        }
-        try {
-            const url = `/api/document/rating?pointer=${encodeURIComponent(pointer)}`;
-            const response = await fetch(url, { credentials: 'same-origin' });
-            if (this._redirectIfLoginRequired(response)) return;
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `${response.status}`);
-            }
-            const r = data.rating;
-            if (r && typeof r === 'object') {
-                if (r.importance_score != null) {
-                    this._setScoreSelection(wrap, 'importance', parseInt(r.importance_score, 10));
-                }
-                if (r.quality_score != null) {
-                    this._setScoreSelection(wrap, 'quality', parseInt(r.quality_score, 10));
-                }
-            }
-            const rf = data.relevance_feedback;
-            let extra = '';
-            if (rf && typeof rf === 'object' && rf.total_ratings > 0) {
-                extra = ` — Historie: Ø ${Number(rf.avg_relevance).toFixed(2)} (${rf.total_ratings}×)`;
-            }
-            if (hintEl) {
-                hintEl.textContent = (r ? 'Stand geladen.' : 'Keine dauerhafte Bewertung gesetzt.') + extra;
-                hintEl.classList.add('rating-hint-ok');
-            }
-        } catch (err) {
-            console.warn('Load document rating:', err);
-            if (hintEl) {
-                hintEl.textContent = 'Konnte nicht laden (Knovas API).';
-                hintEl.classList.add('rating-hint-error');
-            }
-        }
-    }
-
-    /** Five score buttons 1–5 for one dimension (relevance, importance, or quality). */
-    _scorePickerHtml(kind, disabled) {
-        const parts = [];
-        for (let v = 1; v <= 5; v++) {
-            const d = disabled ? ' disabled' : '';
-            parts.push(
-                `<button type="button" class="score-btn js-rating-score" data-kind="${kind}" data-value="${v}"${d} aria-pressed="false">${v}</button>`
-            );
-        }
-        return `<div class="score-picker" role="group"${disabled ? ' aria-disabled="true"' : ''}>${parts.join('')}</div>`;
-    }
-
-    /**
-     * @param {string} pointer Raw Knovas document pointer (doc_id)
-     */
-    _buildRatingsSection(pointer) {
-        const safePointer = this.escapeAttr(pointer);
-        const hasSession = Boolean(this.querySessionId);
-        const relevanceHint = hasSession
-            ? 'Tip: Wählen Sie 1 (nicht relevant) bis 5 (sehr relevant) für diese Suche.'
-            : 'Nur verfügbar, wenn die Suche eine Knovas-Session-ID geliefert hat (gesicherter Modus).';
-        const relevanceDisabled = !hasSession;
-
-        return `
-            <div class="document-ratings" data-pointer="${safePointer}">
-                <div class="rating-section">
-                    <div class="rating-section-title">Relevanz für diese Suche</div>
-                    <p class="rating-help">${this.escapeHtml(relevanceHint)}</p>
-                    ${this._scorePickerHtml('relevance', relevanceDisabled)}
-                    <span class="rating-hint js-relevance-hint" aria-live="polite"></span>
-                </div>
-                <div class="rating-section">
-                    <div class="rating-section-title">Dauerhafte Bewertung (Mandant)</div>
-                    <p class="rating-help">Wichtigkeit und Qualität des Dokuments — unabhängig von einzelnen Suchanfragen (Knovas speichert pro Dokument).</p>
-                    <div class="permanent-rating-grid">
-                        <div>
-                            <div class="sub-label">Wichtigkeit (1–5)</div>
-                            ${this._scorePickerHtml('importance', false)}
-                        </div>
-                        <div>
-                            <div class="sub-label">Qualität (1–5)</div>
-                            ${this._scorePickerHtml('quality', false)}
-                        </div>
-                    </div>
-                    <div class="rating-actions">
-                        <button type="button" class="btn btn-secondary btn-sm js-save-doc-rating">Speichern</button>
-                        <button type="button" class="btn-text js-load-doc-rating">Aktuellen Stand laden</button>
-                    </div>
-                    <span class="rating-hint js-permanent-hint" aria-live="polite"></span>
-                </div>
-            </div>
-        `;
     }
 
     /** Menschenlesbare Kopfzeile aus den Metadaten der Extraktion. */
@@ -564,11 +219,6 @@ class DocumentSearchApp {
                     this.onedriveEnrichmentLoaded = !!data.onedrive_enrichment_loaded;
                 }
                 this.currentResults = data.results || [];
-                const sx = data.semantix;
-                this.querySessionId =
-                    sx && sx.query_session_id != null && String(sx.query_session_id).trim()
-                        ? String(sx.query_session_id).trim()
-                        : null;
                 this.displayResults(data.results, data.total, data.semantix);
             } else {
                 throw new Error(data.error || 'Suche fehlgeschlagen');
@@ -768,11 +418,6 @@ class DocumentSearchApp {
         card.className = 'document-card';
         card.setAttribute('tabindex', '0');
         card.setAttribute('data-index', index);
-        const pointer = this._pointerForDoc(doc);
-        if (pointer) {
-            card.setAttribute('data-pointer', pointer);
-        }
-        card.setAttribute('data-display-position', String(index + 1));
         
         const title = this.displayTitle(doc);
         const docId = doc.doc_id || 'N/A';
@@ -891,10 +536,6 @@ class DocumentSearchApp {
                 <div class="document-ingested-summary-text">${summaryHtml}</div>
             </div>
             ` : ''}
-            <div class="document-feedback-row">
-                <button type="button" class="btn-text js-dismiss-result" title="Als nicht relevant markieren">Nicht relevant</button>
-            </div>
-            ${pointer ? this._buildRatingsSection(pointer) : ''}
         `;
         
         return card;
@@ -910,7 +551,6 @@ class DocumentSearchApp {
             useBrowserClientOpen = pathOrBrowserFlag;
             useCompanion = browserOrCompanionFlag;
         }
-        this._reportEngagementForDocId(docId, 'view');
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         const browserOpen = useBrowserClientOpen === true || !!cfg.browserClientOpenEnabled;
         const companionOpen = useCompanion === true || !!cfg.companionEnabled;
@@ -1072,22 +712,8 @@ class DocumentSearchApp {
         }
     }
     
-    _reportEngagementForDocId(docId, action) {
-        const cards = this.resultsContainer.querySelectorAll('.document-card');
-        for (const card of cards) {
-            const pointer = card.getAttribute('data-pointer');
-            if (pointer && pointer === String(docId)) {
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement(action, pointer, pos > 0 ? pos : undefined);
-                return;
-            }
-        }
-        this._queueEngagement(action, docId);
-    }
-
     async downloadDocument(docId, path) {
         try {
-            this._reportEngagementForDocId(docId, 'download');
             const idSeg = encodeURIComponent(docId);
             window.location.href = `/api/document/${idSeg}/download?path=${encodeURIComponent(path)}`;
             this.showSuccess('Download wird gestartet...');

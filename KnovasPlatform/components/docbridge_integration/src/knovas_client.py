@@ -476,7 +476,6 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
     return parts, init_fields
 
 
-_ENGAGEMENT_ACTIONS = frozenset({"view", "click", "download", "dismiss"})
 _MAX_TABLES_PER_PART = 50
 _MAX_TABLE_COLUMNS = 64
 _MAX_TABLE_ROWS = 5000
@@ -908,17 +907,8 @@ class KnovasAPIClient:
             'sign_certificate': self.config.get(
                 'api.endpoints.sign_certificate', '/secured/sign_certificate'
             ),
-            'engagement': self.config.get(
-                'api.endpoints.engagement', '/secured/analytics/engagement'
-            ),
             'delete_information_object': self.config.get(
                 'api.endpoints.delete_information_object', '/secured/delete_information_object'
-            ),
-            'relevance_feedback': self.config.get(
-                'api.endpoints.relevance_feedback', '/secured/analytics/relevance-feedback'
-            ),
-            'document_rating': self.config.get(
-                'api.endpoints.document_rating', '/secured/document/rating'
             ),
         }
         
@@ -1315,123 +1305,6 @@ class KnovasAPIClient:
         )
         response.raise_for_status()
         return response
-
-    def post_relevance_feedback(
-        self,
-        pointer: str,
-        relevance_score: int,
-        query_session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        POST /secured/analytics/relevance-feedback — per-query relevance (1–5).
-        """
-        if not pointer or not str(pointer).strip():
-            raise ValueError('pointer is required')
-        score = int(relevance_score)
-        if score < 1 or score > 5:
-            raise ValueError('relevance_score must be 1–5')
-        body: Dict[str, Any] = {
-            'pointer': str(pointer).strip(),
-            'relevance_score': score,
-        }
-        if query_session_id and str(query_session_id).strip():
-            body['query_session_id'] = str(query_session_id).strip()
-        endpoint = self.endpoints.get(
-            'relevance_feedback', '/secured/analytics/relevance-feedback'
-        )
-        response = self._request_no_retry('POST', endpoint, data=body)
-        return response.json() if response.content else {}
-
-    def post_document_rating(
-        self,
-        pointer: str,
-        importance_score: Optional[int] = None,
-        quality_score: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """
-        POST /secured/document/rating — permanent importance/quality (upsert).
-        At least one score must be set.
-        """
-        if not pointer or not str(pointer).strip():
-            raise ValueError('pointer is required')
-        body: Dict[str, Any] = {'pointer': str(pointer).strip()}
-        if importance_score is not None:
-            i = int(importance_score)
-            if i < 1 or i > 5:
-                raise ValueError('importance_score must be 1–5')
-            body['importance_score'] = i
-        if quality_score is not None:
-            q = int(quality_score)
-            if q < 1 or q > 5:
-                raise ValueError('quality_score must be 1–5')
-            body['quality_score'] = q
-        if 'importance_score' not in body and 'quality_score' not in body:
-            raise ValueError('At least one of importance_score or quality_score is required')
-        endpoint = self.endpoints.get('document_rating', '/secured/document/rating')
-        response = self._request_no_retry('POST', endpoint, data=body)
-        return response.json() if response.content else {}
-
-    def get_document_rating(self, pointer: str) -> Dict[str, Any]:
-        """GET /secured/document/rating?pointer=…"""
-        if not pointer or not str(pointer).strip():
-            raise ValueError('pointer is required')
-        endpoint = self.endpoints.get('document_rating', '/secured/document/rating')
-        response = self._request_no_retry(
-            'GET',
-            endpoint,
-            params={'pointer': str(pointer).strip()},
-        )
-        return response.json() if response.content else {}
-
-    def post_engagement_events(
-        self,
-        query_session_id: str,
-        events: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """
-        POST /secured/analytics/engagement — implicit engagement (fire-and-forget).
-        """
-        session_id = str(query_session_id or '').strip()
-        if not session_id:
-            raise ValueError('query_session_id is required')
-        if not events or not isinstance(events, list):
-            raise ValueError('events must be a non-empty array')
-        if len(events) > 50:
-            raise ValueError('events exceeds max 50 per request')
-
-        normalized_events: List[Dict[str, Any]] = []
-        for idx, ev in enumerate(events):
-            if not isinstance(ev, dict):
-                raise ValueError(f'events[{idx}] must be an object')
-            action = str(ev.get('action') or '').strip().lower()
-            if action not in _ENGAGEMENT_ACTIONS:
-                raise ValueError(
-                    f'events[{idx}].action must be one of: {", ".join(sorted(_ENGAGEMENT_ACTIONS))}'
-                )
-            pointer = str(ev.get('pointer') or '').strip()
-            if not pointer:
-                raise ValueError(f'events[{idx}].pointer is required')
-            item: Dict[str, Any] = {'action': action, 'pointer': pointer}
-            position = ev.get('position')
-            if position is not None:
-                pos_i = int(position)
-                if pos_i < 1:
-                    raise ValueError(f'events[{idx}].position must be >= 1')
-                item['position'] = pos_i
-            normalized_events.append(item)
-
-        endpoint = self.endpoints.get('engagement', '/secured/analytics/engagement')
-        response = self._request_no_retry(
-            'POST',
-            endpoint,
-            data={
-                'query_session_id': session_id,
-                'events': normalized_events,
-            },
-        )
-        if response.status_code not in (200, 202):
-            response.raise_for_status()
-        return response.json() if response.content else {}
 
     def delete_information_object(self, pointer: str) -> Dict[str, Any]:
         """DELETE /secured/delete_information_object — remove document by pointer."""
