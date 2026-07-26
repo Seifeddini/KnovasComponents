@@ -273,6 +273,102 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Mustervertrag.pdf',
     },
     {
+        'doc_id': 'corpus/2024-001/Aktennotiz.txt',
+        'path': 'corpus/2024-001/Aktennotiz.txt',
+        'title': 'Aktennotiz Übergabetermin',
+        'akten_id': '2024-001',
+        'type': 'Aktennotiz',
+        'score': 0.88,
+        'cosine_similarity': 0.88,
+        'cosine_distance': 0.12,
+        'page_number': 1,
+        'sentence_number': 3,
+        'document_date': '2024-03-20T11:30:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 3, 'cosine_similarity': 0.88},
+        ],
+        'first_page_preview': (
+            'Aktennotiz vom 20.03.2024. Übergabetermin für die Liegenschaft laut '
+            'Kaufvertrag 2024-001 vereinbart für den 05.04.2024, 10:00 Uhr vor Ort.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Der Käufer wurde telefonisch über den vorgeschlagenen Termin informiert.',
+            'Übergabe der Liegenschaft ist für den 05.04.2024 vorgesehen, vorbehaltlich '
+            'vollständiger Kaufpreiszahlung.',
+            'Die Schlüsselübergabe erfolgt direkt vor Ort. Ein Übergabeprotokoll wird von '
+            'beiden Seiten unterzeichnet.',
+        ),
+        'ingested_summary': (
+            'Aktennotiz zur Vereinbarung des Übergabetermins im Zusammenhang mit dem '
+            'Kaufvertrag 2024-001.'
+        ),
+        'file_size': 247,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Aktennotiz.txt',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Kaufvertrag.docx',
+        'path': 'corpus/2024-001/Kaufvertrag.docx',
+        'title': 'Kaufvertrag Immobilie (Entwurf)',
+        'akten_id': '2024-001',
+        'type': 'Vertrag',
+        'score': 0.93,
+        'cosine_similarity': 0.93,
+        'cosine_distance': 0.07,
+        'page_number': 1,
+        'sentence_number': 5,
+        'document_date': '2024-03-10T09:00:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 5, 'cosine_similarity': 0.93},
+            {'page_number': 2, 'sentence_number': 2, 'cosine_similarity': 0.81},
+        ],
+        'first_page_preview': (
+            'KAUFVERTRAG (Entwurf) über eine Wohnimmobilie. Verkäufer: Immobilien GmbH, '
+            'Käufer: Max Mustermann. Dieser Entwurf dient der Abstimmung vor Unterzeichnung.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Die Vertragsparteien haben sich auf den nachstehenden Kaufpreis geeinigt.',
+            'Der Kaufpreis beträgt EUR 485.000,00 und ist bis zum Übergabetermin zu entrichten.',
+            'Änderungen an diesem Entwurf bedürfen der Schriftform und der Zustimmung beider Parteien.',
+        ),
+        'ingested_summary': (
+            'Entwurfsfassung des Kaufvertrags über die Wohnimmobilie EZ 1234 KG Musterstadt, '
+            'zur Abstimmung vor der Unterzeichnung.'
+        ),
+        'file_size': 36822,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Kaufvertrag.docx',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Rueckfrage.msg',
+        'path': 'corpus/2024-001/Rueckfrage.msg',
+        'title': 'Rückfrage zum Kaufvertrag',
+        'akten_id': '2024-001',
+        'type': 'E-Mail',
+        'score': 0.86,
+        'cosine_similarity': 0.86,
+        'cosine_distance': 0.14,
+        'page_number': 1,
+        'sentence_number': 2,
+        'document_date': '2024-03-18T15:20:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 2, 'cosine_similarity': 0.86},
+        ],
+        'first_page_preview': (
+            'E-Mail-Rückfrage des Käufers zu einzelnen Klauseln des Kaufvertrags, '
+            'insbesondere zur Fälligkeit des Kaufpreises und zum Übergabetermin.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Der Käufer bedankt sich für die Zusendung des Entwurfs.',
+            'Er bittet um Klarstellung, ob der Übergabetermin verschoben werden kann, '
+            'falls sich die Finanzierung verzögert.',
+            'Eine Antwort wird bis Ende der Woche erbeten.',
+        ),
+        'ingested_summary': (
+            'Rückfrage des Käufers zu Fälligkeit und Übergabetermin im laufenden Kaufvertrag.'
+        ),
+        'file_size': 5120,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Rueckfrage.msg',
+    },
+    {
         'doc_id': 'corpus/2024-001/Schriftsatz_Klage.docx',
         'path': 'corpus/2024-001/Schriftsatz_Klage.docx',
         'title': 'Schriftsatz Klage',

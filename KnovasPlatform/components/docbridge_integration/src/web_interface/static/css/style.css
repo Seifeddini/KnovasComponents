@@ -65,6 +65,16 @@
     box-sizing: border-box;
 }
 
+/* Formularelemente erben font-family nicht vom Body -- ohne diese Regel
+   fallen Suchfeld, Buttons und Selects auf die UA-Schrift zurueck. */
+input,
+button,
+select,
+textarea {
+    font-family: inherit;
+    font-size: inherit;
+}
+
 body {
     font-family: var(--font-body);
     background-color: var(--bg-color);
@@ -782,6 +792,27 @@ mark.context-snippet-match,
     color: var(--text-secondary);
 }
 
+.preview-close {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    line-height: 1;
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius);
+}
+
+.preview-close:hover {
+    background: var(--bg-color);
+    color: var(--text-primary);
+}
+
 .preview-actions {
     display: flex;
     flex-wrap: wrap;
@@ -897,7 +928,17 @@ mark.context-snippet-match,
     animation: toast-in 140ms ease-out;
 }
 
-.toast--error { border-left-color: var(--error-color); }
+.toast--error {
+    background: #FDECEC;
+    border-color: #F0B4B4;
+    border-left-color: var(--error-color);
+    color: #8E1616;
+}
+
+.toast--error .toast-close {
+    color: #8E1616;
+}
+
 .toast--success { border-left-color: var(--success-color); }
 .toast--info { border-left-color: var(--primary-color); }
 
