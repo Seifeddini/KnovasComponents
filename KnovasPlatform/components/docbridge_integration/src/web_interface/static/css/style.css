@@ -791,7 +791,10 @@ mark.context-snippet-match,
 }
 
 .main-layout > .results-section {
-    flex: 1 1 auto;
+    /* Basis 0, nicht auto: mit flex-wrap wuerde eine inhaltsbasierte Basis
+       zusammen mit der festen Panel-Breite die Zeile sprengen, und das Panel
+       rutscht unter die Liste statt daneben. */
+    flex: 1 1 0;
     min-width: 0;
 }
 
