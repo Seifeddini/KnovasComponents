@@ -35,8 +35,15 @@
 
 :root {
     /* Knovas Branding, Seiten 15-16 */
-    --primary-color: #3B79F2;     /* Azure Blue -- "Knovas Blue" */
-    --primary-hover: #1A45C7;     /* Royal Blue */
+    /* Rollenverteilung nach den USE-Angaben des Guides: Royal ist dort
+       "CALLOUT TEXT", Azure ist die Identitaetsfarbe "KNOVAS BLUE".
+       Azure erreicht als Textfarbe nur 3.97:1 und als Buttonflaeche unter
+       Weiss nur 4.04:1 -- beides unter WCAG AA. Royal erreicht 7.59:1
+       bzw. 7.72:1. Azure bleibt deshalb dekorativ. */
+    --primary-color: #1A45C7;     /* Royal Blue -- Text/Links/Buttonflaechen */
+    --primary-hover: #193284;     /* Marine Blue -- Hover-Zustand */
+    --accent: #3B79F2;            /* Azure Blue -- nur dekorativ: Rahmen, Fokusringe, Chip-Highlights. Nie als Textfarbe, nie als Flaeche unter Text. */
+    --accent-rgb: 59, 121, 242;    /* RGB-Tripel von --accent, fuer rgba()-Transparenzen */
     --title-color: #07172D;       /* Midnight Blue */
     --accent-soft: #6E88DC;       /* Cornflower Blue */
     --success-color: #1a6b4a;
@@ -44,8 +51,8 @@
     --bg-color: #F4F6FC;          /* Ice Blue */
     --card-bg: #FDFDFD;           /* Off White */
     --text-primary: #283647;      /* Slate Blue */
-    --text-secondary: #73869B;    /* Slate Gray */
-    --text-muted: #A3B0C0;
+    --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
+    --text-muted: #A3B0C0;        /* abgeleitet, kein Guide-Wert; 2.17:1 auf Kartenweiss -- unter AA, nur fuer nicht-essenzielle Angaben verwenden */
     --border-color: #D1D6DF;      /* Light Ice Blue */
     --shadow: 0 1px 2px rgba(7, 23, 45, 0.06);
     --shadow-lg: 0 8px 24px rgba(7, 23, 45, 0.10);
@@ -119,19 +126,19 @@ h2 {
     text-decoration: none;
     padding: 0.4rem 0.85rem;
     border-radius: 999px;
-    border: 1px solid rgba(30, 64, 175, 0.3);
-    background: rgba(30, 64, 175, 0.06);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: rgba(var(--accent-rgb), 0.06);
     transition: border-color 0.2s, background 0.2s;
 }
 
 .feedback-link:hover {
-    border-color: var(--primary-color);
-    background: rgba(30, 64, 175, 0.1);
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.1);
     text-decoration: none;
 }
 
 .feedback-link:focus-visible {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
@@ -188,8 +195,8 @@ main {
 
 #searchInput:focus {
     outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
     background: #fff;
 }
 
@@ -420,8 +427,8 @@ a.btn-success {
 }
 
 .match-location-chip--primary {
-    background: #eff6ff;
-    border-color: rgba(30, 64, 175, 0.35);
+    background: rgba(var(--accent-rgb), 0.08);
+    border-color: rgba(var(--accent-rgb), 0.35);
     color: var(--primary-color);
     font-weight: 600;
 }
@@ -436,7 +443,7 @@ a.btn-success {
 }
 
 .match-location-chip--primary .match-location-chip-score {
-    background: rgba(30, 64, 175, 0.12);
+    background: rgba(var(--accent-rgb), 0.12);
     color: var(--primary-color);
 }
 
@@ -508,7 +515,7 @@ mark.context-snippet-match,
 }
 
 .document-card:focus-visible {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
@@ -524,7 +531,7 @@ mark.context-snippet-match,
     height: 36px;
     margin: 0 auto 16px;
     border: 3px solid var(--border-color);
-    border-top-color: var(--primary-color);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
@@ -696,8 +703,8 @@ mark.context-snippet-match,
 .login-form input[type="text"]:focus,
 .login-form input[type="password"]:focus {
     outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
 }
 
 .login-submit {
