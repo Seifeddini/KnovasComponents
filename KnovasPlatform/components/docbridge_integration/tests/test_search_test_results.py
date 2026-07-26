@@ -50,6 +50,17 @@ def test_build_test_search_results_multihit_demo():
     assert len(demo['top_chunks']) == 15
     assert demo['page_number'] is not None
     assert demo['sentence_number'] is not None
+    assert demo.get('first_page_preview')
+    assert demo.get('context_snippet', {}).get('match')
+
+
+def test_build_test_search_results_include_context_preview_fields():
+    payload = _build_test_search_results("Mustervertrag", limit=10)
+    hit = payload["results"][0]
+    assert hit.get("first_page_preview")
+    snippet = hit.get("context_snippet") or {}
+    assert snippet.get("match")
+    assert snippet.get("before") or snippet.get("after")
 
 
 def test_build_test_search_results_fallback_when_no_match():

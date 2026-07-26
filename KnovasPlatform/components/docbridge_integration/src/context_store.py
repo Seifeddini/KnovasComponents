@@ -257,6 +257,8 @@ def enrich_result_with_context(
     context_radius: int = DEFAULT_CONTEXT_RADIUS,
 ) -> bool:
     """Attach first_page_preview and context_snippet when a sidecar exists."""
+    if result.get("first_page_preview") or result.get("context_snippet"):
+        return True
     entry = load_context(store_dir, pointer_candidates)
     if not entry:
         return False

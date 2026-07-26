@@ -183,6 +183,19 @@ def _demo_hit_locations(count: int = 15) -> Tuple[Dict[str, Any], List[Dict[str,
 
 _demo_primary, _demo_top_chunks = _demo_hit_locations(15)
 
+
+def _demo_context_snippet(
+    before: str,
+    match: str,
+    after: str,
+) -> Dict[str, str]:
+    return {
+        'before': before.strip(),
+        'match': match.strip(),
+        'after': after.strip(),
+    }
+
+
 _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
     {
         'doc_id': 'corpus/demo/Mietrecht_Kommentar.pdf',
@@ -197,6 +210,20 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         'sentence_number': _demo_primary['sentence_number'],
         'document_date': '2024-08-10T09:00:00',
         'top_chunks': _demo_top_chunks,
+        'first_page_preview': (
+            'Kommentar zum österreichischen Mietrecht (MRG). Dieses Werk erläutert die '
+            'Hauptmietzinsregelung, Kündigungsgründe, Mietzinsanpassung und die '
+            'Rechte des Mieters bei Mängeln. Gegenstand sind Wohn- und Geschäftsraummieten '
+            'sowie die Abgrenzung zu Werkverträgen und Leasing.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            '',
+            'Das Mietrecht regelt das entgeltliche Überlassen von Räumen zur Nutzung durch den Mieter.',
+            'Für Wohnungen gilt das MRG mit besonderen Kündigungsschutzbestimmungen. '
+            'Der Hauptmietzins ist die periodisch zu entrichtende Gegenleistung. '
+            'Mietzinsanpassungen bedürfen einer gesetzlichen oder vertraglichen Grundlage. '
+            'Bei wesentlichen Mängeln kann der Mieter eine angemessene Minderung verlangen.',
+        ),
         'ingested_summary': (
             'Demo-Dokument mit 15 Trefferstellen in einem Suchergebnis. '
             'Suche lokal mit „Mietrecht“ oder „Multitreffer“.'
@@ -220,6 +247,18 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
             {'page_number': 3, 'sentence_number': 12, 'cosine_similarity': 0.91},
             {'page_number': 2, 'sentence_number': 8, 'cosine_similarity': 0.78},
         ],
+        'first_page_preview': (
+            'KAUFVERTRAG über eine Wohnimmobilie. Verkäufer: Immobilien GmbH, Käufer: Max Mustermann. '
+            'Gegenstand ist das Eigentumsrecht an der Liegenschaft EZ 1234 KG Musterstadt. '
+            'Der Vertrag wird im beiderseitigen Einvernehmen geschlossen.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Die Übergabe der Liegenschaft erfolgt nach vollständiger Zahlung des Kaufpreises. '
+            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen.',
+            'Der Kaufpreis in Höhe von EUR 485.000,00 ist spätestens bis zum vereinbarten Übergabetermin zu bezahlen.',
+            'Mit Übergabe gehen Nutzen und Lasten auf den Käufer über. Mängelansprüche verjähren nach den '
+            'gesetzlichen Fristen. Die Parteien vereinbaren einen Rücktrittsvorbehalt bei Finanzierungsausfall.',
+        ),
         'ingested_summary': (
             'Kaufvertrag über eine Wohnimmobilie mit Standardklauseln zu '
             'Kaufpreis, Übergabe und Gewährleistung.'
@@ -242,6 +281,18 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         'top_chunks': [
             {'page_number': 1, 'sentence_number': 4, 'cosine_similarity': 0.84},
         ],
+        'first_page_preview': (
+            'An das Landesgericht Wien. In der Rechtssache Mustermann ./. Muster GmbH '
+            'erhebe ich namens und im Auftrag des Klägers Klage. Der Beklagte schuldet '
+            'Zahlung aus einem Werkvertrag über die Lieferung und Montage von Anlagen.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Der Kläger ist Unternehmer im Sinne des UGB. Der Beklagte bestellte im Jänner 2024 '
+            'die Lieferung und Installation einer Lüftungsanlage.',
+            'Die Klage wird wegen Nichterfüllung der vertraglichen Leistungspflicht erhoben.',
+            'Der Beklagte verweigert die Restzahlung unter Berufung auf angebliche Mängel. '
+            'Diese Mängel sind nicht binnen der gesetzlichen Rügefrist angezeigt worden.',
+        ),
         'file_size': 98304,
         'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Schriftsatz_Klage.docx',
     },
@@ -260,6 +311,18 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         'top_chunks': [
             {'page_number': 7, 'sentence_number': 2, 'cosine_similarity': 0.77},
         ],
+        'first_page_preview': (
+            'Sachverständigengutachten. Auftraggeber: Hausverwaltung Musterstraße 12. '
+            'Gegenstand: Beurteilung der Verkehrssicherungspflicht hinsichtlich einer '
+            'Grenzlinde auf dem Nachbargrundstück. Ort der Besichtigung: 5020 Salzburg.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Im Rahmen der Ortsbesichtigung wurde festgestellt, dass mehrere Äste über die '
+            'Grundstücksgrenze ragen und bei Sturm Schaden verursachen könnten.',
+            'Die Verkehrssicherungspflicht des Grundeigentümers erfordert regelmäßige Kontrolle und fachgerechten Rückschnitt.',
+            'Eine sofortige Fällung wurde nicht als zwingend erachtet, wohl aber ein Rückschnitt '
+            'innerhalb von sechs Wochen. Die Kosten sind nach den Regeln der Nachbarschaftsrechte zu tragen.',
+        ),
         'ingested_summary': 'Sachverständigengutachten zur Verkehrssicherungspflicht bei einem Grenzbaum.',
         'file_size': 512000,
         'client_open_unc': r'\\fileserver\AutoDoc\corpus\2023-088\Gutachten_Baumfaellung.pdf',
@@ -279,6 +342,18 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         'top_chunks': [
             {'page_number': 2, 'sentence_number': 8, 'cosine_similarity': 0.72},
         ],
+        'first_page_preview': (
+            'Besprechungsprotokoll vom 01.06.2024. Teilnehmer: RA Dr. Huber, Mandantin Frau Berger, '
+            'Stellvertretung Kanzlei. Gegenstand: Vorbereitung der außergerichtlichen Einigung im '
+            'Schadenersatzverfahren. Nächster Termin mit der Gegenseite wird für KW 24 angestrebt.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Die Mandantin berichtet über den aktuellen Gesundheitszustand und die fortbestehenden '
+            'Einschränkungen im Alltag. Unterlagen der Krankenanstalt liegen der Kanzlei vor.',
+            'Ein Vergleichsangebot in Höhe von EUR 18.500,00 wurde von der gegnerischen Versicherung unterbreitet.',
+            'Die Mandantin wünscht eine Stellungnahme innerhalb von zwei Wochen. '
+            'RA Dr. Huber wird eine Gegendarstellung und ein Gegenangebot vorbereiten.',
+        ),
         'external_url': 'https://contoso.sharepoint.com/sites/legal/Shared%20Documents/Protokoll.docx',
         'file_size': 45056,
     },
