@@ -10,7 +10,17 @@ class DocumentSearchApp {
         this.loadingIndicator = document.getElementById('loadingIndicator');
         this.errorMessage = document.getElementById('errorMessage');
         this.resultsPerPage = document.getElementById('resultsPerPage');
-        
+        this.previewPanel = document.getElementById('previewPanel');
+        this.previewTitle = document.getElementById('previewTitle');
+        this.previewMeta = document.getElementById('previewMeta');
+        this.previewBody = document.getElementById('previewBody');
+        this.previewActions = document.getElementById('previewActions');
+        this.previewClose = document.getElementById('previewClose');
+        /** @type {AbortController|null} laufende Vorschau-Anfrage */
+        this._previewAbort = null;
+        /** @type {number|null} Index des aktuell gezeigten Treffers */
+        this._previewIndex = null;
+
         this.currentQuery = '';
         this.currentResults = [];
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
@@ -65,6 +75,11 @@ class DocumentSearchApp {
             if (e.key === 'Escape') this._hideHoverPreview();
         });
         window.addEventListener('scroll', () => this._hideHoverPreview(), true);
+
+        this.previewClose.addEventListener('click', () => this.closePreview());
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') this.closePreview();
+        });
     }
 
     _pointerForDoc(doc) {
@@ -142,6 +157,18 @@ class DocumentSearchApp {
     }
 
     _onResultsClick(e) {
+        // Buttons und Links behalten ihr eigenes Verhalten.
+        if (!e.target.closest('a, button')) {
+            const openCard = e.target.closest('.document-card');
+            if (openCard) {
+                const idx = parseInt(openCard.getAttribute('data-index') || '-1', 10);
+                if (idx >= 0) {
+                    this.openPreview(idx);
+                    return;
+                }
+            }
+        }
+
         const previewLink = e.target.closest('a[href*="/preview?"]');
         if (previewLink) {
             const card = previewLink.closest('.document-card');
@@ -413,7 +440,101 @@ class DocumentSearchApp {
             </div>
         `;
     }
-    
+
+    /** Menschenlesbare Kopfzeile aus den Metadaten der Extraktion. */
+    _previewMetaText(kind, meta) {
+        const parts = [kind.toUpperCase()];
+        if (meta) {
+            if (meta['msg:from']) parts.push(`Von ${meta['msg:from']}`);
+            if (meta['msg:to']) parts.push(`An ${meta['msg:to']}`);
+            if (meta.page_count) parts.push(`${meta.page_count} Seiten`);
+            if (meta.word_count) parts.push(`${meta.word_count} Wörter`);
+        }
+        return parts.join(' · ');
+    }
+
+    _previewActionsHtml(doc) {
+        const docId = doc.doc_id || '';
+        const path = doc.path || '';
+        const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
+        const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
+        if (externalUrl) {
+            const href = this.externalOpenHref(docId, path || docId);
+            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">🔗 In OneDrive öffnen</a>`;
+        }
+        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">📂 Öffnen</button>`;
+    }
+
+    closePreview() {
+        if (this._previewAbort) {
+            this._previewAbort.abort();
+            this._previewAbort = null;
+        }
+        this._previewIndex = null;
+        this.previewPanel.hidden = true;
+        document.body.classList.remove('preview-open');
+        this.previewBody.innerHTML = '';
+        this.previewActions.innerHTML = '';
+    }
+
+    async openPreview(index) {
+        const doc = this.currentResults[index];
+        if (!doc) return;
+
+        // Laufende Anfrage abbrechen, damit ein schneller Kartenwechsel nicht
+        // die Antwort des vorherigen Dokuments einblendet.
+        if (this._previewAbort) this._previewAbort.abort();
+        const controller = new AbortController();
+        this._previewAbort = controller;
+        this._previewIndex = index;
+
+        const docId = String(doc.doc_id || doc.pointer || '');
+        const path = String(doc.path || '');
+        const title = this.displayTitle(doc);
+
+        this.previewPanel.hidden = false;
+        document.body.classList.add('preview-open');
+        this.previewTitle.textContent = title;
+        this.previewMeta.textContent = '';
+        this.previewActions.innerHTML = this._previewActionsHtml(doc);
+        this.previewBody.innerHTML =
+            '<div class="preview-skeleton"><span></span><span></span><span></span><span></span></div>';
+
+        if (path.toLowerCase().endsWith('.pdf')) {
+            const src = `/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}`;
+            this.previewMeta.textContent = 'PDF';
+            this.previewBody.innerHTML =
+                `<iframe src="${this.escapeAttr(src)}" title="PDF-Vorschau"></iframe>`;
+            this._previewAbort = null;
+            return;
+        }
+
+        try {
+            const url = `/api/document/${encodeURIComponent(docId)}/preview-content?path=${encodeURIComponent(path)}`;
+            const response = await fetch(url, {
+                credentials: 'same-origin',
+                signal: controller.signal,
+            });
+            if (this._redirectIfLoginRequired(response)) return;
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            // Zwischenzeitlicher Kartenwechsel: Antwort verwerfen.
+            if (this._previewIndex !== index) return;
+
+            this.previewMeta.textContent = this._previewMetaText(data.kind, data.meta);
+            this.previewBody.innerHTML = window.KnovasMarkdown.render(data.markdown);
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            console.warn('Preview:', error);
+            this.previewBody.innerHTML =
+                `<p class="preview-error">Vorschau nicht verfügbar (${this.escapeHtml(error.message)}). Nutzen Sie „Öffnen“.</p>`;
+        } finally {
+            if (this._previewAbort === controller) this._previewAbort = null;
+        }
+    }
+
     async performSearch() {
         const query = this.searchInput.value.trim();
         
@@ -470,6 +591,7 @@ class DocumentSearchApp {
     }
     
     displayResults(results, total, semantix) {
+        this.closePreview();
         this.resultsSection.style.display = 'block';
         this.resultsContainer.innerHTML = '';
         

@@ -917,4 +917,8 @@ mark.context-snippet-match,
         border-radius: 0;
         z-index: 40;
     }
+
+    body.preview-open {
+        overflow: hidden;
+    }
 }
