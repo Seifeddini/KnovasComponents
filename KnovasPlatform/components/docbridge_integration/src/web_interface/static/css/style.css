@@ -51,6 +51,7 @@
     --bg-color: #F4F6FC;          /* Ice Blue */
     --card-bg: #FDFDFD;           /* Off White */
     --text-primary: #283647;      /* Slate Blue */
+    --text-primary-rgb: 40, 54, 71; /* RGB-Tripel von --text-primary, fuer rgba()-Transparenzen */
     --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
     --text-muted: #A3B0C0;        /* abgeleitet, kein Guide-Wert; 2.17:1 auf Kartenweiss -- unter AA, nur fuer nicht-essenzielle Angaben verwenden */
     --border-color: #D1D6DF;      /* Light Ice Blue */
@@ -79,6 +80,9 @@ body {
 h1,
 h2 {
     font-family: var(--font-heading);
+    /* IBM Plex Mono ships 400/600 only (no 700) -- use the heaviest
+       shipped weight so browsers never synthesize a fake bold. */
+    font-weight: 600;
 }
 
 .container {
@@ -101,7 +105,7 @@ h2 {
 .site-header h1 {
     font-family: var(--font-heading);
     font-size: 1.75rem;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--primary-color);
     margin-bottom: 6px;
@@ -234,7 +238,7 @@ a.btn-success {
 }
 
 .btn-secondary {
-    background-color: #e2e8f0;
+    background-color: var(--border-color);
     color: var(--text-primary);
 }
 
@@ -320,7 +324,7 @@ a.btn-success {
 }
 
 .document-card:hover {
-    border-color: #cbd5e1;
+    border-color: var(--border-color);
     box-shadow: var(--shadow);
 }
 
@@ -391,7 +395,7 @@ a.btn-success {
 
 .document-match-label {
     font-size: 0.72rem;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -439,7 +443,7 @@ a.btn-success {
     color: var(--text-muted);
     padding: 1px 6px;
     border-radius: 999px;
-    background: rgba(15, 23, 42, 0.06);
+    background: rgba(var(--text-primary-rgb), 0.06);
 }
 
 .match-location-chip--primary .match-location-chip-score {
@@ -457,7 +461,7 @@ a.btn-success {
 .document-ingested-summary {
     margin-top: 12px;
     padding: 12px 14px;
-    background: #eff6ff;
+    background: rgba(var(--accent-rgb), 0.08);
     border-radius: 8px;
     font-size: 0.9rem;
     line-height: 1.5;
@@ -466,7 +470,7 @@ a.btn-success {
 
 .document-ingested-summary-label {
     font-size: 0.72rem;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--primary-color);
@@ -492,7 +496,7 @@ a.btn-success {
 .document-first-page-label,
 .document-context-snippet-label {
     font-size: 0.72rem;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--primary-color);
@@ -642,7 +646,7 @@ mark.context-snippet-match,
 /* Login */
 .login-page {
     min-height: 100vh;
-    background: linear-gradient(160deg, #eff6ff 0%, var(--bg-color) 50%, #fff 100%);
+    background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.08) 0%, var(--bg-color) 50%, #fff 100%);
 }
 
 .login-shell {
@@ -665,12 +669,13 @@ mark.context-snippet-match,
 
 .login-brand {
     color: var(--primary-color);
-    font-weight: 700;
+    font-weight: 600;
     margin-bottom: 12px;
 }
 
 .login-card h1 {
     font-size: 1.75rem;
+    font-weight: 600;
     margin-bottom: 8px;
 }
 
