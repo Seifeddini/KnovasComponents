@@ -5,8 +5,6 @@ Coordinated hardening: every state-changing POST the browser issues must carry a
 valid ``X-CSRF-Token`` header (mirrors static/js/app.js). Endpoints enforced here:
 
   POST /api/search
-  POST /api/document/rating
-  POST /api/analytics/relevance-feedback
   POST /api/analytics/engagement
   POST /api/document/<id>/open
 
@@ -40,22 +38,8 @@ class DummyKnovasClient:
     def search_documents(self, query, limit=20, filters=None):
         return {"results": [], "total": 0}
 
-    def post_relevance_feedback(self, pointer, relevance_score, query_session_id=None):
-        return {"status": "recorded"}
-
     def post_engagement_events(self, query_session_id, events):
         return {"status": "success", "accepted": len(events)}
-
-    def post_document_rating(self, pointer, importance_score=None, quality_score=None):
-        return {
-            "pointer": pointer,
-            "importance_score": importance_score,
-            "quality_score": quality_score,
-            "message": "ok",
-        }
-
-    def get_document_rating(self, pointer):
-        return {"rating": None, "relevance_feedback": None, "message": "ok"}
 
 
 class TmpAutodocHandler:
@@ -135,26 +119,6 @@ def test_search_post_without_csrf_is_forbidden(csrf_app):
     assert resp.status_code == 403
 
 
-def test_document_rating_post_without_csrf_is_forbidden(csrf_app):
-    client = csrf_app.test_client()
-    _login_and_token(client)
-    resp = client.post(
-        "/api/document/rating",
-        json={"pointer": "corpus/x.pdf", "importance_score": 4},
-    )
-    assert resp.status_code == 403
-
-
-def test_relevance_feedback_post_without_csrf_is_forbidden(csrf_app):
-    client = csrf_app.test_client()
-    _login_and_token(client)
-    resp = client.post(
-        "/api/analytics/relevance-feedback",
-        json={"pointer": "corpus/x.pdf", "relevance_score": 5, "query_session_id": "s1"},
-    )
-    assert resp.status_code == 403
-
-
 def test_engagement_post_without_csrf_is_forbidden(csrf_app):
     client = csrf_app.test_client()
     _login_and_token(client)
@@ -204,30 +168,6 @@ def test_search_post_with_valid_csrf_allowed(csrf_app):
     assert resp.get_json()["success"] is True
 
 
-def test_document_rating_post_with_valid_csrf_allowed(csrf_app):
-    client = csrf_app.test_client()
-    token = _login_and_token(client)
-    resp = client.post(
-        "/api/document/rating",
-        json={"pointer": "corpus/x.pdf", "importance_score": 4},
-        headers={"X-CSRF-Token": token},
-    )
-    assert resp.status_code == 200
-    assert resp.get_json()["success"] is True
-
-
-def test_relevance_feedback_post_with_valid_csrf_allowed(csrf_app):
-    client = csrf_app.test_client()
-    token = _login_and_token(client)
-    resp = client.post(
-        "/api/analytics/relevance-feedback",
-        json={"pointer": "corpus/x.pdf", "relevance_score": 5, "query_session_id": "s1"},
-        headers={"X-CSRF-Token": token},
-    )
-    assert resp.status_code == 202
-    assert resp.get_json()["success"] is True
-
-
 def test_engagement_post_with_valid_csrf_allowed(csrf_app):
     client = csrf_app.test_client()
     token = _login_and_token(client)
@@ -260,14 +200,6 @@ def test_open_document_post_with_valid_csrf_not_csrf_blocked(csrf_app):
 # ---------------------------------------------------------------------------
 # Regression: GET, login precedence, and exempt endpoints stay unchanged
 # ---------------------------------------------------------------------------
-def test_document_rating_get_does_not_require_csrf(csrf_app):
-    client = csrf_app.test_client()
-    _login_and_token(client)
-    resp = client.get("/api/document/rating?pointer=corpus/x.pdf")
-    assert resp.status_code == 200
-    assert resp.get_json()["success"] is True
-
-
 def test_unauthenticated_search_is_401_not_403(csrf_app):
     # Login check must run before the CSRF gate: no session -> 401 (Login erforderlich).
     client = csrf_app.test_client()

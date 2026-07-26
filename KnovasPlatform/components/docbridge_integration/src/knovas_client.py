@@ -914,12 +914,6 @@ class KnovasAPIClient:
             'delete_information_object': self.config.get(
                 'api.endpoints.delete_information_object', '/secured/delete_information_object'
             ),
-            'relevance_feedback': self.config.get(
-                'api.endpoints.relevance_feedback', '/secured/analytics/relevance-feedback'
-            ),
-            'document_rating': self.config.get(
-                'api.endpoints.document_rating', '/secured/document/rating'
-            ),
         }
         
         self.retry_attempts = self.config.get_int('api.rate_limit.retry_attempts', 3)
@@ -1315,73 +1309,6 @@ class KnovasAPIClient:
         )
         response.raise_for_status()
         return response
-
-    def post_relevance_feedback(
-        self,
-        pointer: str,
-        relevance_score: int,
-        query_session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        POST /secured/analytics/relevance-feedback — per-query relevance (1–5).
-        """
-        if not pointer or not str(pointer).strip():
-            raise ValueError('pointer is required')
-        score = int(relevance_score)
-        if score < 1 or score > 5:
-            raise ValueError('relevance_score must be 1–5')
-        body: Dict[str, Any] = {
-            'pointer': str(pointer).strip(),
-            'relevance_score': score,
-        }
-        if query_session_id and str(query_session_id).strip():
-            body['query_session_id'] = str(query_session_id).strip()
-        endpoint = self.endpoints.get(
-            'relevance_feedback', '/secured/analytics/relevance-feedback'
-        )
-        response = self._request_no_retry('POST', endpoint, data=body)
-        return response.json() if response.content else {}
-
-    def post_document_rating(
-        self,
-        pointer: str,
-        importance_score: Optional[int] = None,
-        quality_score: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """
-        POST /secured/document/rating — permanent importance/quality (upsert).
-        At least one score must be set.
-        """
-        if not pointer or not str(pointer).strip():
-            raise ValueError('pointer is required')
-        body: Dict[str, Any] = {'pointer': str(pointer).strip()}
-        if importance_score is not None:
-            i = int(importance_score)
-            if i < 1 or i > 5:
-                raise ValueError('importance_score must be 1–5')
-            body['importance_score'] = i
-        if quality_score is not None:
-            q = int(quality_score)
-            if q < 1 or q > 5:
-                raise ValueError('quality_score must be 1–5')
-            body['quality_score'] = q
-        if 'importance_score' not in body and 'quality_score' not in body:
-            raise ValueError('At least one of importance_score or quality_score is required')
-        endpoint = self.endpoints.get('document_rating', '/secured/document/rating')
-        response = self._request_no_retry('POST', endpoint, data=body)
-        return response.json() if response.content else {}
-
-    def get_document_rating(self, pointer: str) -> Dict[str, Any]:
-        """GET /secured/document/rating?pointer=…"""
-        if not pointer or not str(pointer).strip():
-            raise ValueError('pointer is required')
-        endpoint = self.endpoints.get('document_rating', '/secured/document/rating')
-        response = self._request_no_retry(
-            'GET',
-            endpoint,
-            params={'pointer': str(pointer).strip()},
-        )
-        return response.json() if response.content else {}
 
     def post_engagement_events(
         self,

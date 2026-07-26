@@ -17,7 +17,7 @@ class DocumentSearchApp {
         this.onedriveEnrichmentLoaded = !!cfg.onedriveEnrichmentLoaded;
         /** CSRF token for state-changing requests (server enforces it on every POST). */
         this.csrfToken = cfg.csrfToken || '';
-        /** @type {string|null} Knovas query_session_id from last /secured/query (for relevance feedback). */
+        /** @type {string|null} Knovas query_session_id from last /secured/query (for engagement analytics). */
         this.querySessionId = null;
         /** @type {Array<{action: string, pointer: string, position?: number}>} */
         this._engagementQueue = [];
@@ -129,18 +129,6 @@ class DocumentSearchApp {
         return false;
     }
 
-    /**
-     * @param {string} pointer
-     * @param {'relevance'|'importance'|'quality'} kind
-     */
-    _setScoreSelection(wrap, kind, value) {
-        wrap.querySelectorAll(`.js-rating-score[data-kind="${kind}"]`).forEach((btn) => {
-            const on = parseInt(btn.dataset.value, 10) === value;
-            btn.classList.toggle('selected', on);
-            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-        });
-    }
-
     _onResultsClick(e) {
         const previewLink = e.target.closest('a[href*="/preview?"]');
         if (previewLink) {
@@ -185,233 +173,6 @@ class DocumentSearchApp {
             }
         }
 
-        const scoreBtn = e.target.closest('.js-rating-score');
-        if (scoreBtn) {
-            const wrap = scoreBtn.closest('.document-ratings');
-            if (!wrap) return;
-            const pointer = wrap.getAttribute('data-pointer');
-            if (!pointer) return;
-            const kind = scoreBtn.dataset.kind;
-            const value = parseInt(scoreBtn.dataset.value, 10);
-            if (!kind || value < 1 || value > 5) return;
-
-            wrap.querySelectorAll(`.js-rating-score[data-kind="${kind}"]`).forEach((btn) => {
-                btn.classList.remove('selected');
-            });
-            scoreBtn.classList.add('selected');
-            wrap.querySelectorAll(`.js-rating-score[data-kind="${kind}"]`).forEach((btn) => {
-                btn.setAttribute('aria-pressed', btn.classList.contains('selected') ? 'true' : 'false');
-            });
-
-            if (kind === 'relevance') {
-                const hint = wrap.querySelector('.js-relevance-hint');
-                this._postRelevanceFeedback(pointer, value, hint);
-            }
-            return;
-        }
-
-        const saveBtn = e.target.closest('.js-save-doc-rating');
-        if (saveBtn) {
-            const wrap = saveBtn.closest('.document-ratings');
-            if (!wrap) return;
-            const pointer = wrap.getAttribute('data-pointer');
-            const hint = wrap.querySelector('.js-permanent-hint');
-            this._savePermanentDocumentRating(wrap, pointer, hint);
-            return;
-        }
-
-        const loadBtn = e.target.closest('.js-load-doc-rating');
-        if (loadBtn) {
-            const wrap = loadBtn.closest('.document-ratings');
-            if (!wrap) return;
-            const pointer = wrap.getAttribute('data-pointer');
-            const hint = wrap.querySelector('.js-permanent-hint');
-            this._loadPermanentDocumentRating(wrap, pointer, hint);
-        }
-    }
-
-    async _postRelevanceFeedback(pointer, relevanceScore, hintEl) {
-        if (!this.querySessionId) {
-            if (hintEl) {
-                hintEl.textContent = 'Keine Such-Session — Relevanz kann nicht gemeldet werden.';
-                hintEl.classList.add('rating-hint-error');
-            }
-            return;
-        }
-        if (hintEl) {
-            hintEl.textContent = 'Sende…';
-            hintEl.classList.remove('rating-hint-error', 'rating-hint-ok');
-        }
-        try {
-            const response = await fetch('/api/analytics/relevance-feedback', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify({
-                    pointer,
-                    relevance_score: relevanceScore,
-                    query_session_id: this.querySessionId,
-                }),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `${response.status}`);
-            }
-            if (hintEl) {
-                hintEl.textContent = 'Relevanz für diese Suche gemeldet.';
-                hintEl.classList.add('rating-hint-ok');
-            }
-        } catch (err) {
-            console.warn('Relevance feedback:', err);
-            if (hintEl) {
-                hintEl.textContent = 'Konnte nicht senden (Knovas API).';
-                hintEl.classList.add('rating-hint-error');
-            }
-        }
-    }
-
-    _readSelectedScore(wrap, kind) {
-        const sel = wrap.querySelector(`.js-rating-score[data-kind="${kind}"].selected`);
-        return sel ? parseInt(sel.dataset.value, 10) : null;
-    }
-
-    async _savePermanentDocumentRating(wrap, pointer, hintEl) {
-        if (!pointer) return;
-        const imp = this._readSelectedScore(wrap, 'importance');
-        const qual = this._readSelectedScore(wrap, 'quality');
-        if (imp == null && qual == null) {
-            if (hintEl) {
-                hintEl.textContent = 'Bitte Wichtigkeit und/oder Qualität wählen.';
-                hintEl.classList.add('rating-hint-error');
-            }
-            return;
-        }
-        if (hintEl) {
-            hintEl.textContent = 'Speichere…';
-            hintEl.classList.remove('rating-hint-error', 'rating-hint-ok');
-        }
-        try {
-            const body = { pointer };
-            if (imp != null) body.importance_score = imp;
-            if (qual != null) body.quality_score = qual;
-            const response = await fetch('/api/document/rating', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify(body),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `${response.status}`);
-            }
-            if (hintEl) {
-                hintEl.textContent = 'Dauerhafte Bewertung gespeichert.';
-                hintEl.classList.add('rating-hint-ok');
-            }
-        } catch (err) {
-            console.warn('Document rating:', err);
-            if (hintEl) {
-                hintEl.textContent = 'Konnte nicht speichern (Knovas API).';
-                hintEl.classList.add('rating-hint-error');
-            }
-        }
-    }
-
-    async _loadPermanentDocumentRating(wrap, pointer, hintEl) {
-        if (!pointer) return;
-        if (hintEl) {
-            hintEl.textContent = 'Lade…';
-            hintEl.classList.remove('rating-hint-error', 'rating-hint-ok');
-        }
-        try {
-            const url = `/api/document/rating?pointer=${encodeURIComponent(pointer)}`;
-            const response = await fetch(url, { credentials: 'same-origin' });
-            if (this._redirectIfLoginRequired(response)) return;
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `${response.status}`);
-            }
-            const r = data.rating;
-            if (r && typeof r === 'object') {
-                if (r.importance_score != null) {
-                    this._setScoreSelection(wrap, 'importance', parseInt(r.importance_score, 10));
-                }
-                if (r.quality_score != null) {
-                    this._setScoreSelection(wrap, 'quality', parseInt(r.quality_score, 10));
-                }
-            }
-            const rf = data.relevance_feedback;
-            let extra = '';
-            if (rf && typeof rf === 'object' && rf.total_ratings > 0) {
-                extra = ` — Historie: Ø ${Number(rf.avg_relevance).toFixed(2)} (${rf.total_ratings}×)`;
-            }
-            if (hintEl) {
-                hintEl.textContent = (r ? 'Stand geladen.' : 'Keine dauerhafte Bewertung gesetzt.') + extra;
-                hintEl.classList.add('rating-hint-ok');
-            }
-        } catch (err) {
-            console.warn('Load document rating:', err);
-            if (hintEl) {
-                hintEl.textContent = 'Konnte nicht laden (Knovas API).';
-                hintEl.classList.add('rating-hint-error');
-            }
-        }
-    }
-
-    /** Five score buttons 1–5 for one dimension (relevance, importance, or quality). */
-    _scorePickerHtml(kind, disabled) {
-        const parts = [];
-        for (let v = 1; v <= 5; v++) {
-            const d = disabled ? ' disabled' : '';
-            parts.push(
-                `<button type="button" class="score-btn js-rating-score" data-kind="${kind}" data-value="${v}"${d} aria-pressed="false">${v}</button>`
-            );
-        }
-        return `<div class="score-picker" role="group"${disabled ? ' aria-disabled="true"' : ''}>${parts.join('')}</div>`;
-    }
-
-    /**
-     * @param {string} pointer Raw Knovas document pointer (doc_id)
-     */
-    _buildRatingsSection(pointer) {
-        const safePointer = this.escapeAttr(pointer);
-        const hasSession = Boolean(this.querySessionId);
-        const relevanceHint = hasSession
-            ? 'Tip: Wählen Sie 1 (nicht relevant) bis 5 (sehr relevant) für diese Suche.'
-            : 'Nur verfügbar, wenn die Suche eine Knovas-Session-ID geliefert hat (gesicherter Modus).';
-        const relevanceDisabled = !hasSession;
-
-        return `
-            <div class="document-ratings" data-pointer="${safePointer}">
-                <div class="rating-section">
-                    <div class="rating-section-title">Relevanz für diese Suche</div>
-                    <p class="rating-help">${this.escapeHtml(relevanceHint)}</p>
-                    ${this._scorePickerHtml('relevance', relevanceDisabled)}
-                    <span class="rating-hint js-relevance-hint" aria-live="polite"></span>
-                </div>
-                <div class="rating-section">
-                    <div class="rating-section-title">Dauerhafte Bewertung (Mandant)</div>
-                    <p class="rating-help">Wichtigkeit und Qualität des Dokuments — unabhängig von einzelnen Suchanfragen (Knovas speichert pro Dokument).</p>
-                    <div class="permanent-rating-grid">
-                        <div>
-                            <div class="sub-label">Wichtigkeit (1–5)</div>
-                            ${this._scorePickerHtml('importance', false)}
-                        </div>
-                        <div>
-                            <div class="sub-label">Qualität (1–5)</div>
-                            ${this._scorePickerHtml('quality', false)}
-                        </div>
-                    </div>
-                    <div class="rating-actions">
-                        <button type="button" class="btn btn-secondary btn-sm js-save-doc-rating">Speichern</button>
-                        <button type="button" class="btn-text js-load-doc-rating">Aktuellen Stand laden</button>
-                    </div>
-                    <span class="rating-hint js-permanent-hint" aria-live="polite"></span>
-                </div>
-            </div>
-        `;
     }
     
     async performSearch() {
@@ -907,7 +668,6 @@ class DocumentSearchApp {
             <div class="document-feedback-row">
                 <button type="button" class="btn-text js-dismiss-result" title="Als nicht relevant markieren">Nicht relevant</button>
             </div>
-            ${pointer ? this._buildRatingsSection(pointer) : ''}
         `;
         
         return card;
