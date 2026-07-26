@@ -43,6 +43,7 @@ def test_preview_kind_rejects_everything_else():
 import pytest  # noqa: E402
 
 from web_interface.preview import (  # noqa: E402
+    PreviewFailed,
     PreviewUnsupported,
     extract_markdown,
 )
@@ -93,6 +94,19 @@ def test_extract_rejects_pdf_and_unknown(tmp_path):
         extract_markdown(str(pdf))
     with pytest.raises(PreviewUnsupported):
         extract_markdown(str(tmp_path / "bild.png"))
+
+
+def test_extract_missing_file_raises_preview_failed(tmp_path):
+    """A deleted-file race or bad path must surface as PreviewFailed.
+
+    ``knovas_extract.extract`` opens the path with a bare ``open("rb")`` and
+    lets ``FileNotFoundError`` (an ``OSError``) escape uncaught. Without a
+    broad except clause here, that raw OSError would defeat the typed
+    PreviewUnsupported/PreviewFailed contract the Flask route relies on.
+    """
+    missing = tmp_path / "does-not-exist.txt"
+    with pytest.raises(PreviewFailed):
+        extract_markdown(str(missing))
 
 
 def test_extraction_does_not_escape_document_text(tmp_path):

@@ -58,7 +58,12 @@ def extract_markdown(path: str) -> Dict[str, Any]:
     limits = Limits(max_input_bytes=MAX_INPUT_BYTES, max_text_bytes=MAX_TEXT_BYTES)
     try:
         result = knovas_extract.extract(path, limits=limits, emit_markdown=True)
-    except ExtractError as exc:
+    except (ExtractError, OSError, ValueError) as exc:
+        # ExtractError covers the library's own typed hierarchy. ValueError
+        # comes from its path validation (NUL bytes, control chars, etc.);
+        # OSError covers filesystem races (missing file, permission denied)
+        # from its internal, unguarded ``open()`` call. Widening the catch
+        # keeps PreviewFailed a reliable contract for callers.
         raise PreviewFailed(str(exc)) from exc
 
     markdown = result.content.markdown or ""
@@ -79,5 +84,5 @@ def extract_markdown(path: str) -> Dict[str, Any]:
         "kind": kind,
         "markdown": markdown,
         "meta": meta,
-        "warnings": list(result.warnings or []),
+        "warnings": list(result.warnings),
     }
