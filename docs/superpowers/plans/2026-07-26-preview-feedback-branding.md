@@ -825,7 +825,10 @@ git commit -m "fix: allow same-origin framing so document previews can render"
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-            .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (match, label, href) {
+            // Die URL-Gruppe erlaubt eine Ebene balancierter Klammern. Ohne das
+            // bricht [x](https://de.wikipedia.org/wiki/Foo_(bar)) das href an der
+            // ersten Klammer ab und verlinkt still auf eine andere Adresse.
+            .replace(/\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g, function (match, label, href) {
                 // Zweite Verteidigungslinie: der Server filtert Schemata bereits.
                 if (!ALLOWED_LINK_SCHEMES.test(href)) {
                     return label;
