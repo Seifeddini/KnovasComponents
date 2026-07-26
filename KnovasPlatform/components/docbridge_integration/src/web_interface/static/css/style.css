@@ -51,7 +51,9 @@
     --text-primary: #283647;      /* Slate Blue */
     --text-primary-rgb: 40, 54, 71; /* RGB-Tripel von --text-primary, fuer rgba()-Transparenzen */
     --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
-    --text-muted: #A3B0C0;        /* abgeleitet, kein Guide-Wert; 2.17:1 auf Kartenweiss -- unter AA, nur fuer nicht-essenzielle Angaben verwenden */
+    --text-muted: #5A6B80;        /* abgedunkelt von #A3B0C0 (2.17:1, unter AA) auf 5.36:1 --
+                                     identisch zu --text-secondary, da --text-muted auch auf
+                                     essenziellem Text (Trefferzahl, Score-Chips) verwendet wird */
     --border-color: #D1D6DF;      /* Light Ice Blue */
     --radius: 6px;
     --radius-lg: 8px;

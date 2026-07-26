@@ -45,10 +45,7 @@ api:
     health: "${SEMANTIX_HEALTH_ENDPOINT:-/secured/health}"
     generate_certificate: "${SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT:-/secured/generate_certificate}"
     sign_certificate: "${SEMANTIX_SIGN_CERTIFICATE_ENDPOINT:-/secured/sign_certificate}"
-    engagement: "${SEMANTIX_ENGAGEMENT_ENDPOINT:-/secured/analytics/engagement}"
     delete_information_object: "${SEMANTIX_DELETE_ENDPOINT:-/secured/delete_information_object}"
-    relevance_feedback: "${SEMANTIX_RELEVANCE_FEEDBACK_ENDPOINT:-/secured/analytics/relevance-feedback}"
-    document_rating: "${SEMANTIX_DOCUMENT_RATING_ENDPOINT:-/secured/document/rating}"
     # Legacy/mock endpoints (used only when explicitly enabled)
     full_sync: "${SEMANTIX_FULL_SYNC_ENDPOINT:-/api/docs/full-sync}"
     new_doc: "${SEMANTIX_NEW_DOC_ENDPOINT:-/api/docs/new}"
