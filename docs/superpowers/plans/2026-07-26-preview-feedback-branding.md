@@ -41,8 +41,8 @@
 | `requirements.txt:33` | Extra `html` ergänzen |
 | `src/web_interface/app.py` | neue Route; drei Feedback-Routen entfernen; `draft_theme` entfernen |
 | `src/knovas_client.py` | drei Analytics-Methoden entfernen |
-| `src/web_interface/static/js/app.js` | Panel; Feedback-/Hover-Code entfernen |
-| `src/web_interface/templates/index.html` | Panel-Markup, Logo, `markdown.js` einbinden, `draft_theme` entfernen |
+| `src/web_interface/static/js/app.js` | Panel; Toasts; Feedback-/Hover-Code entfernen |
+| `src/web_interface/templates/index.html` | Panel-Markup, Toast-Container, Logo, `markdown.js` einbinden, `draft_theme` entfernen |
 | `src/web_interface/templates/login.html` | Logo, Schriften |
 | `src/web_interface/static/css/style.css` | Panel-Styles, Knovas-Palette, Schriften |
 | `nginx/docbridge-web-local.conf` | Framing same-origin erlauben |
@@ -1665,7 +1665,210 @@ git commit -m "feat: use Knovas logo and favicon"
 
 ---
 
-## Task 13: Abschluss
+## Task 13: Alle Meldungen als Popup
+
+**Files:**
+- Modify: `src/web_interface/static/js/app.js`
+- Modify: `src/web_interface/templates/index.html`
+- Modify: `src/web_interface/static/css/style.css`
+
+**Interfaces:**
+- Produces: `showToast(message: string, kind?: 'info'|'success'|'error') -> void` auf `DocumentSearchApp`; DOM-Knoten `#toastContainer`
+
+Heute erscheinen Meldungen an drei verschiedenen Orten: Fehler in einem `div` innerhalb der Ergebnissektion (auto-hide nach 5 s), Erfolge als eingefügtes `div` am Seitenanfang, und der Systemstatus als blockierendes `alert()`. Der Fehler-`div` steckt in `#resultsSection`, die vor der ersten Suche `display: none` trägt — eine Fehlermeldung vor der ersten Suche ist damit unsichtbar. Alles wird auf ein einziges Toast-Popup vereinheitlicht.
+
+- [ ] **Step 1: Container ins Template**
+
+In `index.html` direkt vor `</body>`:
+
+```html
+    <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="false"></div>
+```
+
+Im selben Zug den bisherigen Fehlerplatzhalter entfernen:
+
+```html
+                <div id="errorMessage" class="error-message" style="display: none;"></div>
+```
+
+`aria-live="polite"` statt `assertive`: Meldungen sollen vorgelesen werden, ohne den Nutzer beim Tippen zu unterbrechen.
+
+- [ ] **Step 2: Styles ergänzen**
+
+Ans Ende von `style.css`:
+
+```css
+/* --- Toasts -------------------------------------------------------------- */
+
+.toast-container {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(420px, calc(100vw - 32px));
+}
+
+.toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    border-left-width: 4px;
+    background: var(--card-bg);
+    box-shadow: var(--shadow-lg);
+    font-size: 0.88rem;
+    animation: toast-in 140ms ease-out;
+}
+
+.toast--error { border-left-color: var(--error-color); }
+.toast--success { border-left-color: var(--success-color); }
+.toast--info { border-left-color: var(--primary-color); }
+
+.toast-text {
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+}
+
+.toast-close {
+    flex: 0 0 auto;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 2px 4px;
+    color: var(--text-secondary);
+}
+
+.toast-close:hover { color: var(--text-primary); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+}
+```
+
+`white-space: pre-line` erhält die Zeilenumbrüche der Systemstatus-Meldung, die bisher im `alert()` standen.
+
+- [ ] **Step 3: `showToast` implementieren**
+
+In `app.js` den Konstruktor um die Container-Referenz ergänzen:
+
+```javascript
+        this.toastContainer = document.getElementById('toastContainer');
+```
+
+`showError`, `hideError` und `showSuccess` durch diese Methoden ersetzen:
+
+```javascript
+    /**
+     * Einziger Weg, dem Nutzer etwas mitzuteilen. Fehler bleiben stehen, bis
+     * sie weggeklickt werden -- eine Fehlermeldung, die sich selbst schliesst,
+     * bevor sie gelesen wurde, ist keine Meldung.
+     * @param {'info'|'success'|'error'} kind
+     */
+    showToast(message, kind = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast--${kind}`;
+
+        const text = document.createElement('div');
+        text.className = 'toast-text';
+        text.textContent = message;
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'toast-close';
+        close.setAttribute('aria-label', 'Meldung schliessen');
+        close.textContent = '×';
+        close.addEventListener('click', () => toast.remove());
+
+        toast.appendChild(text);
+        toast.appendChild(close);
+        this.toastContainer.appendChild(toast);
+
+        if (kind !== 'error') {
+            window.setTimeout(() => toast.remove(), 6000);
+        }
+    }
+
+    showError(message) {
+        this.showToast(message, 'error');
+    }
+
+    showSuccess(message) {
+        this.showToast(message, 'success');
+    }
+```
+
+`textContent` statt `innerHTML`: Meldungen tragen Serverfehler und Dateipfade, also fremden Text.
+
+- [ ] **Step 4: Verbleibende Aufrufer umstellen**
+
+`hideError()` existiert nicht mehr. Alle Aufrufe entfernen — sie stehen in `performSearch` und ggf. in `showLoading`. Prüfen mit:
+
+```bash
+grep -n "hideError\|errorMessage\|alert(" src/web_interface/static/js/app.js
+```
+
+`checkHealth` auf ein Toast umstellen:
+
+```javascript
+    async checkHealth() {
+        try {
+            const response = await fetch('/api/health', { credentials: 'same-origin' });
+            const data = await response.json();
+            const status = data.semantix_api ? '✅ Online' : '❌ Offline';
+            this.showToast(
+                `Systemstatus\nWeb-Oberfläche: ✅ Online\nKnovas API: ${status}\nZeitstempel: ${data.timestamp}`,
+                data.semantix_api ? 'success' : 'error',
+            );
+        } catch (error) {
+            this.showToast(`Systemstatus konnte nicht geladen werden: ${error.message}`, 'error');
+        }
+    }
+```
+
+Anschliessend darf `grep` weder `alert(` noch `hideError` noch `errorMessage` finden.
+
+- [ ] **Step 5: Alte Styles entfernen**
+
+Die Regeln `.error-message` und `.success-message` aus `style.css` streichen — beide haben keine Verwendung mehr. Prüfen:
+
+```bash
+grep -rn "error-message\|success-message" src/
+```
+
+Erwartet: keine Treffer.
+
+- [ ] **Step 6: Im Browser prüfen**
+
+Stack neu bauen, einloggen, und der Reihe nach:
+
+1. Leere Suche abschicken → rotes Toast unten rechts, **bleibt stehen**, verschwindet erst per Klick auf ×
+2. „System Status" im Fuss anklicken → Toast mit mehrzeiligem Status, kein blockierendes `alert()`
+3. Mehrere Meldungen kurz hintereinander auslösen → sie stapeln sich, überlagern sich nicht
+4. Fehler **vor** der ersten Suche auslösen → sichtbar (das war im alten Zustand nicht der Fall)
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/web_interface/static/js/app.js src/web_interface/templates/index.html src/web_interface/static/css/style.css
+git commit -m "feat: surface all user messages as dismissible toasts"
+```
+
+---
+
+## Task 14: Abschluss
 
 - [ ] **Step 1: Sauber neu bauen**
 
@@ -1696,6 +1899,8 @@ Einloggen, suchen, und der Reihe nach prüfen:
 5. Knovas-Logo in Kopfzeile und Login, Favicon im Tab
 6. Konsole ohne Fehler, Netzwerk-Tab ohne Aufrufe an `/api/analytics/*`
 7. Fenster unter 900 px: Panel als Vollbild-Overlay
+8. Leere Suche abschicken: Fehler erscheint als Toast unten rechts und bleibt stehen, bis er weggeklickt wird
+9. „System Status" im Fuss: Toast statt blockierendem `alert()`
 
 - [ ] **Step 4: Spec-Status nachziehen**
 
