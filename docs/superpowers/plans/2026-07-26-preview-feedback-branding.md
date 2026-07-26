@@ -1693,7 +1693,129 @@ git commit -m "feat: use Knovas logo and favicon"
 
 ---
 
-## Task 13: Alle Meldungen als Popup
+## Task 13: Emoji entfernen, flaches Design
+
+**Files:**
+- Modify: `src/web_interface/static/js/app.js`
+- Modify: `src/web_interface/templates/index.html`
+- Modify: `src/web_interface/static/css/style.css`
+
+Zwei Vorgaben des Produktverantwortlichen: **keine Emoji-Icons in Buttons**, und ein **cleanes, flaches Design**. Emoji rendern plattformabhängig — auf macOS als Apple-Glyphen, auf Windows anders, unter Linux teils gar nicht — und sie stehen quer zu einer Marke, die Typografie und Farbe als Träger nutzt.
+
+### 13.1 Alle Emoji entfernen
+
+Fundstellen, vollständig ermittelt:
+
+| Ort | heute |
+| --- | --- |
+| `index.html:33` | `<span class="icon">🔍</span> Suchen` |
+| `app.js:109` | `🔗 In OneDrive öffnen` |
+| `app.js:111` | `📂 Öffnen` |
+| `app.js:447` | `📋 Pfad kopieren (Win+R)` / `📂 Öffnen` |
+| `app.js:454` | `🔗 In OneDrive öffnen` |
+| `app.js:463` | `💾 Download (degradiert)` |
+| `app.js:731-735` | `✅ Online` / `❌ Offline` im Systemstatus |
+| `app.js:787` | `<div class="empty-state-icon">🔍</div>` |
+
+Ersatz: **reiner Text**, keine Icon-Fonts, keine SVG-Sprites. Die Beschriftungen tragen sich selbst — „Suchen", „Öffnen", „In OneDrive öffnen", „Pfad kopieren (Win+R)", „Download (degradiert)". Das ist kein Verlust: ein Emoji neben einem Wort, das dasselbe sagt, ist Redundanz, kein Informationsgewinn.
+
+Beim Systemstatus tragen `✅`/`❌` dagegen Bedeutung. Ersetze sie durch Wörter plus Farbe: „Online" bzw. „Offline", und lasse den Toast-Typ (`success`/`error`) die Farbe liefern. Ein Zustand, der sich nur über Farbe erschließt, wäre für farbfehlsichtige Nutzer verloren — das Wort trägt ihn.
+
+Die leere Trefferliste verliert ihr Lupen-Emoji ersatzlos; Überschrift und Text reichen. `.empty-state-icon` und `.icon` fliegen samt CSS raus.
+
+Prüfen:
+
+```bash
+grep -nP "[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}]" \
+  src/web_interface/static/js/app.js src/web_interface/templates/*.html
+```
+
+Muss leer sein. Der Pfeil `→` in einem Kommentar bei `app.js:282` ist kein Emoji und bleibt.
+
+### 13.2 Flaches Design
+
+Drei Eingriffe, mehr nicht — flach heißt reduziert, nicht schmucklos:
+
+**Schatten raus.** `style.css` hat neun `box-shadow`-Deklarationen. Ersetze sie durch `1px`-Ränder in `var(--border-color)`. Die Tokens `--shadow` und `--shadow-lg` werden damit unbenutzt und werden aus `:root` entfernt. Ausnahme: das Toast-Popup aus Task 14 schwebt tatsächlich über dem Inhalt und behält seinen Schatten — Tiefe ist dort Information, nicht Dekoration.
+
+**Verläufe raus.** `style.css:645` legt einen dreistufigen `linear-gradient` über die Login-Seite. Ersetze ihn durch die flache `var(--bg-color)`. Der Shimmer-Verlauf des Lade-Skeletons (`style.css:870`) bleibt — er ist Animation, kein Zierrat.
+
+**Radien vereinheitlichen.** Es sind zwei im Umlauf, `--radius: 10px` und `--radius-lg: 14px`. Setze beide auf `6px` und `8px`. Große Radien lesen sich weich; flaches Design will präzise Kanten.
+
+### 13.3 Der Öffnen-Button
+
+`--success-color: #1a6b4a` ist **keine Knovas-Farbe**. Der Guide enthält überhaupt kein Grün. Der Wert stammt nachweislich (`git log -S`) aus `helvetia.css`, einem der vier in Task 10 gelöschten Experimental-Themes, und meine Spec hat ihn beim Kopieren des `:root`-Blocks ungeprüft mitgeschleppt. Er färbt ausgerechnet den prominentesten Button der Anwendung.
+
+Kontrast ist nicht das Problem — Weiß auf `#1a6b4a` erreicht 6.47:1. Das Problem ist, dass die sichtbarste Aktion der Anwendung eine Farbe trägt, die es in der Marke nicht gibt.
+
+Lösung: `.btn-success` auf das Markenblau umstellen. Damit „Öffnen" trotzdem von „Suchen" unterscheidbar bleibt, bekommt es eine **Outline-Behandlung** statt einer Fläche:
+
+```css
+.btn-success {
+    background-color: transparent;
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+    padding: 9px 16px;
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: var(--primary-color);
+    color: #FFFFFF;
+}
+```
+
+Kontrast prüfen und die Zahl im Report nennen: `#1A45C7` auf `#FDFDFD` misst 7.59:1, im Hover-Zustand Weiß auf `#1A45C7` 7.72:1 — beide über AA.
+
+`--success-color` und `--error-color` werden aus `:root` entfernt, sofern kein anderer Konsument bleibt. Prüfen mit `grep -n "success-color\|error-color" src/web_interface/static/css/style.css` **vor** dem Löschen; wenn doch noch etwas darauf zeigt, im Report nennen statt still stehenzulassen.
+
+Ebenso `--title-color` und `--accent-soft`: beide sind laut Review unreferenziert. Entweder verdrahten oder entfernen — nicht als tote Tokens liegenlassen.
+
+- [ ] **Step 1: Emoji entfernen**
+
+Alle acht Fundstellen aus der Tabelle in 13.1 bearbeiten, dazu die CSS-Regeln `.icon` und `.empty-state-icon` löschen.
+
+- [ ] **Step 2: Emoji-Freiheit nachweisen**
+
+```bash
+grep -nP "[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}]" \
+  src/web_interface/static/js/app.js src/web_interface/templates/*.html
+```
+
+Erwartet: keine Ausgabe.
+
+- [ ] **Step 3: Schatten, Verläufe, Radien**
+
+Wie in 13.2 beschrieben. Anschließend:
+
+```bash
+grep -n "box-shadow\|linear-gradient" src/web_interface/static/css/style.css
+```
+
+Erwartet: nur noch der Skeleton-Shimmer. Der Toast-Schatten kommt erst mit Task 14.
+
+- [ ] **Step 4: Öffnen-Button und tote Tokens**
+
+Wie in 13.3. Vor dem Entfernen jedes Tokens prüfen, ob es noch einen Konsumenten hat.
+
+- [ ] **Step 5: Syntax, Suite, Build**
+
+```bash
+node --check src/web_interface/static/js/app.js
+pytest
+cd /Users/janik/Knovas/repos/KnovasComponents/KnovasPlatform
+docker compose build docbridge-web && docker compose up -d --force-recreate docbridge-web docbridge-web-nginx
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/web_interface/
+git commit -m "feat: drop emoji icons and flatten the visual design"
+```
+
+---
+
+## Task 14: Alle Meldungen als Popup
 
 **Files:**
 - Modify: `src/web_interface/static/js/app.js`
@@ -1739,6 +1861,8 @@ Ans Ende von `style.css`:
     max-width: min(420px, calc(100vw - 32px));
 }
 
+/* Der Toast schwebt bewusst ueber dem Inhalt -- hier ist Tiefe Information,
+   nicht Dekoration, deshalb behaelt er als einziges Element einen Schatten. */
 .toast {
     display: flex;
     align-items: flex-start;
@@ -1896,7 +2020,7 @@ git commit -m "feat: surface all user messages as dismissible toasts"
 
 ---
 
-## Task 14: Abschluss
+## Task 15: Abschluss
 
 - [ ] **Step 1: Sauber neu bauen**
 
