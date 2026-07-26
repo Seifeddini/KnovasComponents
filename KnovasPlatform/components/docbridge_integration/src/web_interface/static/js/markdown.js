@@ -9,6 +9,7 @@
     'use strict';
 
     var ALLOWED_LINK_SCHEMES = /^(https?:|mailto:)/i;
+    var LINK_PATTERN = /\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 
     function escapeHtml(text) {
         return String(text)
@@ -25,7 +26,7 @@
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-            .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (match, label, href) {
+            .replace(LINK_PATTERN, function (match, label, href) {
                 // Zweite Verteidigungslinie: der Server filtert Schemata bereits.
                 if (!ALLOWED_LINK_SCHEMES.test(href)) {
                     return label;
