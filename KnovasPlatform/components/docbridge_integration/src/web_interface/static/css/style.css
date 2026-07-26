@@ -927,26 +927,45 @@ mark.context-snippet-match,
     padding: 12px 14px;
     border-radius: var(--radius);
     border: 1px solid var(--border-color);
-    border-left-width: 4px;
     background: var(--card-bg);
     box-shadow: 0 8px 24px rgba(7, 23, 45, 0.10);
     font-size: 0.88rem;
     animation: toast-in 140ms ease-out;
 }
 
+/* Jede Variante ist eine durchgefaerbte Flaeche, kein weisser Kasten mit
+   farbigem Streifen. Der Zustand liegt damit auf der ganzen Box statt an
+   einer 4px-Kante, und alle drei Textfarben liegen ueber 8:1. */
 .toast--error {
     background: #FDECEC;
     border-color: #F0B4B4;
-    border-left-color: var(--error-color);
     color: #8E1616;
 }
 
-.toast--error .toast-close {
-    color: #8E1616;
+.toast--success {
+    background: #E8F3EE;
+    border-color: #A8CDBB;
+    color: #14503A;
 }
 
-.toast--success { border-left-color: var(--success-color); }
-.toast--info { border-left-color: var(--primary-color); }
+.toast--info {
+    background: #E9EDFB;
+    border-color: #B4C2EE;
+    color: #12308C;
+}
+
+.toast--error .toast-close,
+.toast--success .toast-close,
+.toast--info .toast-close {
+    color: inherit;
+    opacity: 0.7;
+}
+
+.toast--error .toast-close:hover,
+.toast--success .toast-close:hover,
+.toast--info .toast-close:hover {
+    opacity: 1;
+}
 
 .toast-text {
     flex: 1 1 auto;
