@@ -965,8 +965,11 @@ Ans Ende von `style.css`:
     flex: 1 1 100%;
 }
 
+/* Basis 0, nicht auto: mit flex-wrap wuerde eine inhaltsbasierte Basis
+   zusammen mit der festen Panel-Breite die Zeile sprengen, und das Panel
+   rutscht unter die Liste statt daneben. */
 .main-layout > .results-section {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
 }
 
