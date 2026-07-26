@@ -650,7 +650,6 @@ def create_app(config_path: Optional[str] = None):
         store_path=open_token_store_path,
     )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
-    hover_preview_enabled = config.get_bool('web.search.hover_preview', True)
     allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
     companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
@@ -919,7 +918,6 @@ def create_app(config_path: Optional[str] = None):
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
-            hover_preview_enabled=hover_preview_enabled,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,

@@ -32,10 +32,6 @@ class DocumentSearchApp {
         /** @type {Array<{action: string, pointer: string, position?: number}>} */
         this._engagementQueue = [];
         this._engagementFlushTimer = null;
-        this._hoverPreviewEl = null;
-        this._hoverPreviewTimer = null;
-        this._hoverPreviewCard = null;
-        this._hoverPdfCache = new Map();
 
         this.initializeEventListeners();
     }
@@ -67,14 +63,6 @@ class DocumentSearchApp {
         });
 
         this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
-        this.resultsContainer.addEventListener('mouseenter', (e) => this._onResultHoverEnter(e), true);
-        this.resultsContainer.addEventListener('mouseleave', (e) => this._onResultHoverLeave(e), true);
-        this.resultsContainer.addEventListener('focusin', (e) => this._onResultHoverEnter(e));
-        this.resultsContainer.addEventListener('focusout', (e) => this._onResultHoverLeave(e));
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this._hideHoverPreview();
-        });
-        window.addEventListener('scroll', () => this._hideHoverPreview(), true);
 
         this.previewClose.addEventListener('click', () => this.closePreview());
         document.addEventListener('keydown', (e) => {
@@ -686,133 +674,6 @@ class DocumentSearchApp {
         const raw = String(text || '').trim();
         if (!raw) return '';
         return `<div class="document-first-page-text">${this.escapeHtml(this.capSummaryLength(raw, 4000))}</div>`;
-    }
-
-    _ensureHoverPreview() {
-        if (this._hoverPreviewEl) return this._hoverPreviewEl;
-        const el = document.createElement('div');
-        el.className = 'document-hover-preview';
-        el.setAttribute('role', 'tooltip');
-        el.hidden = true;
-        document.body.appendChild(el);
-        this._hoverPreviewEl = el;
-        return el;
-    }
-
-    _docForCard(card) {
-        if (!card) return null;
-        const idx = parseInt(card.getAttribute('data-index') || '-1', 10);
-        if (Number.isNaN(idx) || idx < 0) return null;
-        return this.currentResults[idx] || null;
-    }
-
-    _onResultHoverEnter(e) {
-        const card = e.target.closest('.document-card');
-        if (!card || !this.resultsContainer.contains(card)) return;
-        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        if (!cfg.hoverPreviewEnabled) return;
-        if (this._hoverPreviewTimer) {
-            clearTimeout(this._hoverPreviewTimer);
-            this._hoverPreviewTimer = null;
-        }
-        this._hoverPreviewCard = card;
-        this._hoverPreviewTimer = window.setTimeout(() => {
-            this._hoverPreviewTimer = null;
-            if (this._hoverPreviewCard === card) {
-                this._showHoverPreview(card);
-            }
-        }, 150);
-    }
-
-    _onResultHoverLeave(e) {
-        const card = e.target.closest('.document-card');
-        if (!card) return;
-        const related = e.relatedTarget;
-        if (related && (card.contains(related) || this._hoverPreviewEl?.contains(related))) {
-            return;
-        }
-        if (this._hoverPreviewTimer) {
-            clearTimeout(this._hoverPreviewTimer);
-            this._hoverPreviewTimer = null;
-        }
-        if (this._hoverPreviewCard === card) {
-            this._hideHoverPreview();
-        }
-    }
-
-    _showHoverPreview(card) {
-        const doc = this._docForCard(card);
-        if (!doc) return;
-        const title = this.displayTitle(doc);
-        const firstPage = String(doc.first_page_preview || '').trim();
-        const snippet = doc.context_snippet;
-        const summary = this.ingestedSummaryText(doc);
-        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        const path = String(doc.path || '');
-        const docId = String(doc.doc_id || doc.pointer || path || '');
-        const isPdf = path.toLowerCase().endsWith('.pdf');
-        const canEmbedPdf = !!cfg.pdfInlineInBrowser && isPdf && doc.can_open === true && path;
-        const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
-        const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
-
-        let bodyHtml = '';
-        if (firstPage) {
-            bodyHtml += `<div class="document-hover-preview-section"><div class="document-hover-preview-label">Erste Seite</div>${this._buildFirstPageHtml(firstPage)}</div>`;
-        }
-        if (snippet) {
-            bodyHtml += `<div class="document-hover-preview-section"><div class="document-hover-preview-label">Trefferkontext</div>${this._buildContextSnippetHtml(snippet)}</div>`;
-        }
-        if (!bodyHtml && summary) {
-            bodyHtml = `<div class="document-hover-preview-section"><div class="document-hover-preview-label">Zusammenfassung</div><div class="document-first-page-text">${this.escapeHtml(this.capSummaryLength(summary, 1200))}</div></div>`;
-        }
-        if (!bodyHtml) return;
-
-        const pop = this._ensureHoverPreview();
-        let pdfHtml = '';
-        if (canEmbedPdf) {
-            const cacheKey = `${docId}|${path}`;
-            let pdfUrl = this._hoverPdfCache.get(cacheKey);
-            if (!pdfUrl) {
-                pdfUrl = `/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}#page=1&view=FitH`;
-                this._hoverPdfCache.set(cacheKey, pdfUrl);
-            }
-            pdfHtml = `<div class="document-hover-preview-pdf"><object type="application/pdf" data="${this.escapeAttr(pdfUrl)}" aria-label="PDF Vorschau Seite 1"></object></div>`;
-        }
-        const footerHtml = externalUrl
-            ? `<div class="document-hover-preview-footer"><a href="${this.escapeAttr(externalUrl)}" target="_blank" rel="noopener noreferrer">In OneDrive öffnen</a></div>`
-            : '';
-
-        pop.innerHTML = `
-            <div class="document-hover-preview-title">${this.escapeHtml(title)}</div>
-            ${pdfHtml}
-            <div class="document-hover-preview-body">${bodyHtml}</div>
-            ${footerHtml}
-        `;
-        pop.hidden = false;
-        const rect = card.getBoundingClientRect();
-        const popRect = pop.getBoundingClientRect();
-        let top = rect.bottom + 8;
-        let left = rect.left;
-        if (left + popRect.width > window.innerWidth - 12) {
-            left = Math.max(12, window.innerWidth - popRect.width - 12);
-        }
-        if (top + 200 > window.innerHeight - 12) {
-            top = Math.max(12, rect.top - popRect.height - 8);
-        }
-        pop.style.top = `${top + window.scrollY}px`;
-        pop.style.left = `${left + window.scrollX}px`;
-    }
-
-    _hideHoverPreview() {
-        if (this._hoverPreviewTimer) {
-            clearTimeout(this._hoverPreviewTimer);
-            this._hoverPreviewTimer = null;
-        }
-        this._hoverPreviewCard = null;
-        if (this._hoverPreviewEl) {
-            this._hoverPreviewEl.hidden = true;
-            this._hoverPreviewEl.innerHTML = '';
-        }
     }
 
     /** Knovas /secured/query returns page/sentence only — no matching chunk text. */

@@ -207,8 +207,7 @@ web:
     # Per-document sentence index for first-page + match-context previews (see context_store.py)
     context_store_path: "${SEARCH_CONTEXT_STORE_PATH:-/mnt/autodoc/.search_context}"
     context_sentences: 10
-    hover_preview: true
-    
+
   # Document opening
   document_handler:
     # How to handle document opening
