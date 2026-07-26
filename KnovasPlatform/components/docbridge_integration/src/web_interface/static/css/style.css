@@ -779,11 +779,17 @@ mark.context-snippet-match,
 
 .main-layout {
     display: flex;
+    flex-wrap: wrap;
     gap: 20px;
     align-items: flex-start;
 }
 
-.main-layout > .search-section,
+/* Die Suche gehoert ueber beide Spalten, nicht daneben: ohne die eigene
+   Zeile wird sie zwischen Ergebnisliste und Panel zerquetscht. */
+.main-layout > .search-section {
+    flex: 1 1 100%;
+}
+
 .main-layout > .results-section {
     flex: 1 1 auto;
     min-width: 0;
