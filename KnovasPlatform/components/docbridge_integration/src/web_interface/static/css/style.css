@@ -1,20 +1,58 @@
 /* Knovas Document Search */
 
+/* IBM Plex, selbst gehostet (SIL OFL). Kein CDN: die Anwendung laeuft
+   kundengehostet und teils offline. */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../fonts/IBMPlexMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
+
 :root {
-    --primary-color: #1e40af;
-    --primary-hover: #1e3a8a;
-    --success-color: #059669;
-    --error-color: #dc2626;
-    --bg-color: #f4f6f9;
-    --card-bg: #ffffff;
-    --text-primary: #0f172a;
-    --text-secondary: #64748b;
-    --text-muted: #94a3b8;
-    --border-color: #e2e8f0;
-    --shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-    --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.08);
+    /* Knovas Branding, Seiten 15-16 */
+    --primary-color: #3B79F2;     /* Azure Blue -- "Knovas Blue" */
+    --primary-hover: #1A45C7;     /* Royal Blue */
+    --title-color: #07172D;       /* Midnight Blue */
+    --accent-soft: #6E88DC;       /* Cornflower Blue */
+    --success-color: #1a6b4a;
+    --error-color: #c41e1e;
+    --bg-color: #F4F6FC;          /* Ice Blue */
+    --card-bg: #FDFDFD;           /* Off White */
+    --text-primary: #283647;      /* Slate Blue */
+    --text-secondary: #73869B;    /* Slate Gray */
+    --text-muted: #A3B0C0;
+    --border-color: #D1D6DF;      /* Light Ice Blue */
+    --shadow: 0 1px 2px rgba(7, 23, 45, 0.06);
+    --shadow-lg: 0 8px 24px rgba(7, 23, 45, 0.10);
     --radius: 10px;
     --radius-lg: 14px;
+    --font-body: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-heading: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 * {
@@ -24,11 +62,16 @@
 }
 
 body {
-    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    font-family: var(--font-body);
     background-color: var(--bg-color);
     color: var(--text-primary);
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2 {
+    font-family: var(--font-heading);
 }
 
 .container {
@@ -49,6 +92,7 @@ body {
 }
 
 .site-header h1 {
+    font-family: var(--font-heading);
     font-size: 1.75rem;
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -243,6 +287,7 @@ a.btn-success {
 }
 
 .results-header h2 {
+    font-family: var(--font-heading);
     font-size: 1.1rem;
     font-weight: 600;
 }
@@ -753,6 +798,7 @@ mark.context-snippet-match,
 }
 
 .preview-title {
+    font-family: var(--font-heading);
     font-size: 1rem;
     line-height: 1.35;
     overflow-wrap: anywhere;
