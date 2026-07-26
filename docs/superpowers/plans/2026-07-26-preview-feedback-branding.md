@@ -954,11 +954,17 @@ Ans Ende von `style.css`:
 
 .main-layout {
     display: flex;
+    flex-wrap: wrap;
     gap: 20px;
     align-items: flex-start;
 }
 
-.main-layout > .search-section,
+/* Die Suche gehoert ueber beide Spalten, nicht daneben: ohne die eigene
+   Zeile wird sie zwischen Ergebnisliste und Panel zerquetscht. */
+.main-layout > .search-section {
+    flex: 1 1 100%;
+}
+
 .main-layout > .results-section {
     flex: 1 1 auto;
     min-width: 0;
@@ -1202,6 +1208,7 @@ Als neue Methoden auf `DocumentSearchApp`:
         }
         this._previewIndex = null;
         this.previewPanel.hidden = true;
+        document.body.classList.remove('preview-open');
         this.previewBody.innerHTML = '';
         this.previewActions.innerHTML = '';
     }
@@ -1222,6 +1229,7 @@ Als neue Methoden auf `DocumentSearchApp`:
         const title = this.displayTitle(doc);
 
         this.previewPanel.hidden = false;
+        document.body.classList.add('preview-open');
         this.previewTitle.textContent = title;
         this.previewMeta.textContent = '';
         this.previewActions.innerHTML = this._previewActionsHtml(doc);
@@ -1264,7 +1272,21 @@ Als neue Methoden auf `DocumentSearchApp`:
     }
 ```
 
-- [ ] **Step 5: Panel bei neuer Suche schliessen**
+- [ ] **Step 5: Hintergrund-Scroll im Vollbild-Overlay sperren**
+
+`openPreview` und `closePreview` schalten oben bereits `body.preview-open`. Die zugehoerige Regel ans Ende von `style.css`, in denselben `@media (max-width: 900px)`-Block wie das Overlay:
+
+```css
+@media (max-width: 900px) {
+    body.preview-open {
+        overflow: hidden;
+    }
+}
+```
+
+Nur unterhalb des Breakpoints: auf dem Desktop steht das Panel neben der Liste, dort muss die Seite scrollbar bleiben. Im Vollbild-Overlay wuerde ein scrollender Hintergrund dagegen unter der Vorschau wegrutschen.
+
+- [ ] **Step 6: Panel bei neuer Suche schliessen**
 
 In `displayResults(results, total, semantix)` als erste Zeile:
 
@@ -1274,7 +1296,7 @@ In `displayResults(results, total, semantix)` als erste Zeile:
 
 Ohne das zeigt das Panel nach einer neuen Suche ein Dokument, das in der neuen Trefferliste nicht mehr vorkommt.
 
-- [ ] **Step 6: Alle vier Formate im Browser prüfen**
+- [ ] **Step 7: Alle vier Formate im Browser prüfen**
 
 Testdateien unter das AutoDoc-Mount legen, Stack neu bauen, einloggen und je eine Karte anklicken:
 
@@ -1287,10 +1309,10 @@ Testdateien unter das AutoDoc-Mount legen, Stack neu bauen, einloggen und je ein
 
 Zusätzlich: zwei Karten schnell hintereinander anklicken. Es muss das zuletzt geklickte Dokument stehenbleiben, nie das vorherige.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/web_interface/static/js/app.js
+git add src/web_interface/static/js/app.js src/web_interface/static/css/style.css
 git commit -m "feat: render document previews in the side panel"
 ```
 
