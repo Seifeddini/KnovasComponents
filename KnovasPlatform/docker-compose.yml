@@ -50,7 +50,6 @@ services:
       SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT: ${SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT:-/secured/generate_certificate}
       WEB_SECRET_KEY: ${WEB_SECRET_KEY:?WEB_SECRET_KEY must be set in .env}
       WEB_APP_TITLE: ${WEB_APP_TITLE:-Knovas Document Search}
-      WEB_UI_THEME: ${WEB_UI_THEME:-}
       # Set to false for plain-HTTP LAN access so the session cookie isn't dropped.
       WEB_SESSION_COOKIE_SECURE: ${WEB_SESSION_COOKIE_SECURE:-true}
       COMPANY_LOGIN_ENABLED: ${COMPANY_LOGIN_ENABLED:-true}

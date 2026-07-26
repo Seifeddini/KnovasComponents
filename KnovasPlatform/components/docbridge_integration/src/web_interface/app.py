@@ -437,8 +437,6 @@ def _apply_test_open_hints(
             result['companion_scheme'] = companion_uri_scheme
 
 
-DRAFT_THEME_SLUGS = frozenset({'atelier', 'ledger', 'horizon', 'helvetia'})
-
 # Bump when search UI / open behaviour changes — visible in footer and GET /api/version
 DOCBRIDGE_BUILD_ID = 'onedrive-locations-v4'
 
@@ -495,13 +493,6 @@ def _open_autodoc_fileobj(full_path: str):
     flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0)
     fd = os.open(full_path, flags)
     return os.fdopen(fd, 'rb')
-
-
-def _normalize_ui_theme_slug(raw: Optional[str]) -> Optional[str]:
-    slug = (raw or '').strip().lower()
-    if slug in DRAFT_THEME_SLUGS:
-        return slug
-    return None
 
 
 def _static_asset_version() -> str:
@@ -576,27 +567,6 @@ def create_app(config_path: Optional[str] = None):
     file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
     web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
-    configured_ui_theme_raw = str(config.get('web.theme', '') or '').strip()
-    web_ui_theme = _normalize_ui_theme_slug(configured_ui_theme_raw)
-    if configured_ui_theme_raw and not web_ui_theme:
-        logger.warning(
-            'Invalid web.theme / WEB_UI_THEME=%r; must be one of: %s',
-            configured_ui_theme_raw,
-            ', '.join(sorted(DRAFT_THEME_SLUGS)),
-        )
-    elif web_ui_theme:
-        logger.info('Web UI theme: %s', web_ui_theme)
-
-    def _resolve_ui_theme() -> Optional[str]:
-        """?theme= overrides web.theme / WEB_UI_THEME when set."""
-        query_theme = _normalize_ui_theme_slug(request.args.get('theme'))
-        if query_theme:
-            return query_theme
-        return web_ui_theme
-
-    def _theme_from_query_only() -> Optional[str]:
-        """Explicit ?theme= only (e.g. preserve preview override after login)."""
-        return _normalize_ui_theme_slug(request.args.get('theme'))
     login_company_name = config.get('web.login.company_name', 'Knovas')
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
@@ -876,12 +846,7 @@ def create_app(config_path: Optional[str] = None):
                 session['company_login_ok'] = True
                 session['company_login_name'] = submitted_name
                 session['csrf_token'] = secrets.token_urlsafe(32)
-                dest = next_url
-                theme = _theme_from_query_only()
-                if theme:
-                    sep = '&' if '?' in dest else '?'
-                    dest = f'{dest}{sep}theme={theme}'
-                return redirect(dest)
+                return redirect(next_url)
             else:
                 _record_login_failure(client_ip)
                 error = 'Login-Name oder Passwort ist falsch.'
@@ -893,7 +858,6 @@ def create_app(config_path: Optional[str] = None):
             error=error,
             next_url=next_url,
             csrf_token=csrf_token,
-            draft_theme=_resolve_ui_theme(),
         ), status_code
 
     @app.route('/logout', methods=['POST'])
@@ -921,7 +885,6 @@ def create_app(config_path: Optional[str] = None):
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
-            draft_theme=_resolve_ui_theme(),
         )
     
     @app.route('/api/search', methods=['POST'])

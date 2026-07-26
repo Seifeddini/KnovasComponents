@@ -5,11 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ app_title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
-    {% if draft_theme %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/drafts/' ~ draft_theme ~ '.css') }}?v={{ asset_version }}">
-    {% endif %}
 </head>
-<body{% if draft_theme %} class="theme-draft-{{ draft_theme }}"{% endif %}>
+<body>
     <div class="container">
         <header class="site-header">
             <h1>{{ app_title }}</h1>
