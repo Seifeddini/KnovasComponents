@@ -8,7 +8,7 @@ class DocumentSearchApp {
         this.resultsContainer = document.getElementById('resultsContainer');
         this.resultsCount = document.getElementById('resultsCount');
         this.loadingIndicator = document.getElementById('loadingIndicator');
-        this.errorMessage = document.getElementById('errorMessage');
+        this.toastContainer = document.getElementById('toastContainer');
         this.resultsPerPage = document.getElementById('resultsPerPage');
         this.previewPanel = document.getElementById('previewPanel');
         this.previewTitle = document.getElementById('previewTitle');
@@ -192,8 +192,7 @@ class DocumentSearchApp {
         
         this.currentQuery = query;
         this.showLoading();
-        this.hideError();
-        
+
         try {
             const response = await fetch('/api/search', {
                 method: 'POST',
@@ -727,12 +726,13 @@ class DocumentSearchApp {
         try {
             const response = await fetch('/api/health', { credentials: 'same-origin' });
             const data = await response.json();
-            
             const status = data.semantix_api ? 'Online' : 'Offline';
-            alert(`System Status:\n\nWeb Interface: Online\nKnovas API: ${status}\n\nZeitstempel: ${data.timestamp}`);
-
+            this.showToast(
+                `Systemstatus\nWeb-Oberfläche: Online\nKnovas API: ${status}\nZeitstempel: ${data.timestamp}`,
+                data.semantix_api ? 'success' : 'error',
+            );
         } catch (error) {
-            alert(`System Status:\n\nVerbindungsfehler: ${error.message}`);
+            this.showToast(`Systemstatus konnte nicht geladen werden: ${error.message}`, 'error');
         }
     }
     
@@ -756,31 +756,44 @@ class DocumentSearchApp {
         this.searchButton.disabled = false;
     }
     
+    /**
+     * Einziger Weg, dem Nutzer etwas mitzuteilen. Fehler bleiben stehen, bis
+     * sie weggeklickt werden -- eine Fehlermeldung, die sich selbst schliesst,
+     * bevor sie gelesen wurde, ist keine Meldung.
+     * @param {'info'|'success'|'error'} kind
+     */
+    showToast(message, kind = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast--${kind}`;
+
+        const text = document.createElement('div');
+        text.className = 'toast-text';
+        text.textContent = message;
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'toast-close';
+        close.setAttribute('aria-label', 'Meldung schliessen');
+        close.textContent = '×';
+        close.addEventListener('click', () => toast.remove());
+
+        toast.appendChild(text);
+        toast.appendChild(close);
+        this.toastContainer.appendChild(toast);
+
+        if (kind !== 'error') {
+            window.setTimeout(() => toast.remove(), 6000);
+        }
+    }
+
     showError(message) {
-        this.errorMessage.textContent = message;
-        this.errorMessage.style.display = 'block';
-        setTimeout(() => {
-            this.hideError();
-        }, 5000);
+        this.showToast(message, 'error');
     }
-    
-    hideError() {
-        this.errorMessage.style.display = 'none';
-    }
-    
+
     showSuccess(message) {
-        const successDiv = document.createElement('div');
-        successDiv.className = 'success-message';
-        successDiv.textContent = message;
-        
-        const container = this.resultsSection || document.querySelector('.container');
-        container.insertBefore(successDiv, container.firstChild);
-        
-        setTimeout(() => {
-            successDiv.remove();
-        }, 8000);
+        this.showToast(message, 'success');
     }
-    
+
     showEmptyState(semantix) {
         this.resultsContainer.innerHTML = `
             <div class="empty-state">

@@ -61,7 +61,6 @@
                     <p>Suche läuft...</p>
                 </div>
                 
-                <div id="errorMessage" class="error-message" style="display: none;"></div>
             </section>
 
             <aside class="preview-panel" id="previewPanel" hidden aria-label="Dokumentvorschau">
@@ -100,5 +99,6 @@
     </script>
     <script src="{{ url_for('static', filename='js/markdown.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ asset_version }}"></script>
+    <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="false"></div>
 </body>
 </html>

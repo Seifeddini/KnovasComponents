@@ -538,27 +538,6 @@ mark.context-snippet-match,
     to { transform: rotate(360deg); }
 }
 
-/* Messages */
-.error-message {
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #991b1b;
-    padding: 12px 16px;
-    border-radius: var(--radius);
-    margin: 16px 0 0;
-    font-size: 0.9rem;
-}
-
-.success-message {
-    background: #ecfdf5;
-    border: 1px solid #a7f3d0;
-    color: #065f46;
-    padding: 12px 16px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-    font-size: 0.9rem;
-}
-
 /* Empty state */
 .empty-state {
     text-align: center;
@@ -887,4 +866,65 @@ mark.context-snippet-match,
     body.preview-open {
         overflow: hidden;
     }
+}
+
+/* --- Toasts -------------------------------------------------------------- */
+
+.toast-container {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(420px, calc(100vw - 32px));
+}
+
+/* Der Toast schwebt bewusst ueber dem Inhalt -- hier ist Tiefe Information,
+   nicht Dekoration, deshalb behaelt er als einziges Element einen Schatten. */
+.toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    border-left-width: 4px;
+    background: var(--card-bg);
+    box-shadow: 0 8px 24px rgba(7, 23, 45, 0.10);
+    font-size: 0.88rem;
+    animation: toast-in 140ms ease-out;
+}
+
+.toast--error { border-left-color: var(--error-color); }
+.toast--success { border-left-color: var(--success-color); }
+.toast--info { border-left-color: var(--primary-color); }
+
+.toast-text {
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+}
+
+.toast-close {
+    flex: 0 0 auto;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 2px 4px;
+    color: var(--text-secondary);
+}
+
+.toast-close:hover { color: var(--text-primary); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
 }
