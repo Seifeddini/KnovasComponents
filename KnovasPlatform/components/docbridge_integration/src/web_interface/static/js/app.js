@@ -152,17 +152,6 @@ class DocumentSearchApp {
             return;
         }
 
-        const dismissBtn = e.target.closest('.js-dismiss-result');
-        if (dismissBtn) {
-            const card = dismissBtn.closest('.document-card');
-            if (!card) return;
-            const pointer = card.getAttribute('data-pointer');
-            const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-            this._queueEngagement('dismiss', pointer, pos > 0 ? pos : undefined);
-            card.style.display = 'none';
-            return;
-        }
-
         const titleEl = e.target.closest('.document-title');
         if (titleEl) {
             const card = titleEl.closest('.document-card');
@@ -665,9 +654,6 @@ class DocumentSearchApp {
                 <div class="document-ingested-summary-text">${summaryHtml}</div>
             </div>
             ` : ''}
-            <div class="document-feedback-row">
-                <button type="button" class="btn-text js-dismiss-result" title="Als nicht relevant markieren">Nicht relevant</button>
-            </div>
         `;
         
         return card;
