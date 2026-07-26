@@ -858,6 +858,10 @@ mark.context-snippet-match,
     border: 0;
 }
 
+.preview-error {
+    color: var(--error-color);
+}
+
 .preview-skeleton span {
     display: block;
     height: 12px;

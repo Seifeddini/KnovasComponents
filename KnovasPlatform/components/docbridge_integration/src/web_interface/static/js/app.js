@@ -147,11 +147,33 @@ class DocumentSearchApp {
             '<div class="preview-skeleton"><span></span><span></span><span></span><span></span></div>';
 
         if (path.toLowerCase().endsWith('.pdf')) {
+            const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+            if (!cfg.pdfInlineInBrowser) {
+                this.previewMeta.textContent = 'PDF';
+                this.previewBody.innerHTML =
+                    '<p class="preview-error">Die PDF-Vorschau ist deaktiviert. Nutzen Sie „Öffnen“.</p>';
+                this._previewAbort = null;
+                return;
+            }
             const src = `/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}`;
-            this.previewMeta.textContent = 'PDF';
-            this.previewBody.innerHTML =
-                `<iframe src="${this.escapeAttr(src)}" title="PDF-Vorschau"></iframe>`;
-            this._previewAbort = null;
+            try {
+                const probe = await fetch(src, { method: 'GET', headers: { Range: 'bytes=0-0' },
+                                                 credentials: 'same-origin', signal: controller.signal });
+                if (this._redirectIfLoginRequired(probe)) return;
+                if (this._previewIndex !== index) return;
+                if (!probe.ok && probe.status !== 206) {
+                    throw new Error(`HTTP ${probe.status}`);
+                }
+                this.previewMeta.textContent = 'PDF';
+                this.previewBody.innerHTML =
+                    `<iframe src="${this.escapeAttr(src)}" title="PDF-Vorschau"></iframe>`;
+            } catch (error) {
+                if (error.name === 'AbortError') return;
+                this.previewBody.innerHTML =
+                    `<p class="preview-error">Vorschau nicht verfügbar (${this.escapeHtml(error.message)}). Nutzen Sie „Öffnen“.</p>`;
+            } finally {
+                if (this._previewAbort === controller) this._previewAbort = null;
+            }
             return;
         }
 
