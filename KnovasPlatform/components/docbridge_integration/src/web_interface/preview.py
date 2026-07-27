@@ -86,3 +86,37 @@ def extract_markdown(path: str) -> Dict[str, Any]:
         "meta": meta,
         "warnings": list(result.warnings),
     }
+
+
+# Breite der Seitenvorschau in Pixeln. Bewusst klein: sie sitzt in einer
+# Trefferkarte, nicht im Viewer, und wird pro Treffer einmal geladen.
+THUMBNAIL_WIDTH = 480
+
+
+def render_first_page_png(path: str) -> bytes:
+    """Rendert Seite 1 eines PDFs als PNG.
+
+    Nur PDF: fuer DOCX/TXT/MSG gaebe es keine Seite, ohne sie vorher zu
+    konvertieren -- und ein Konverter im Serving-Pfad ist bewusst nicht Teil
+    dieser Anwendung.
+    """
+    if preview_kind(path) != "pdf":
+        raise PreviewUnsupported(path)
+
+    try:
+        import pymupdf
+    except ImportError as exc:  # pragma: no cover - pymupdf ist Pflichtdependency
+        raise PreviewFailed(f"pymupdf missing: {exc}") from exc
+
+    try:
+        with pymupdf.open(path) as doc:
+            if doc.page_count < 1:
+                raise PreviewFailed("PDF has no pages")
+            page = doc.load_page(0)
+            scale = THUMBNAIL_WIDTH / max(page.rect.width, 1)
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale))
+            return pix.tobytes("png")
+    except PreviewFailed:
+        raise
+    except Exception as exc:
+        raise PreviewFailed(str(exc)) from exc

@@ -6,6 +6,7 @@ through Knovas.
 """
 
 import sys
+import io
 import os
 import json
 import hmac
@@ -33,6 +34,7 @@ from web_interface.preview import (
     PreviewUnsupported,
     extract_markdown,
     preview_kind,
+    render_first_page_png,
 )
 from unc_path import (
     filesystem_path_to_client_local,
@@ -259,8 +261,11 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
             'Der Vertrag wird im beiderseitigen Einvernehmen geschlossen.'
         ),
         'context_snippet': _demo_context_snippet(
+            'Die Vertragsparteien haben die Liegenschaft gemeinsam besichtigt und den Zustand protokolliert. '
+            'Der Verkäufer sichert zu, dass keine über die im Grundbuch eingetragenen hinausgehenden Lasten bestehen. '
             'Die Übergabe der Liegenschaft erfolgt nach vollständiger Zahlung des Kaufpreises. '
-            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen.',
+            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen. '
+            'Ein Treuhandkonto wird bei der beurkundenden Notarin eingerichtet.',
             'Der Kaufpreis in Höhe von EUR 485.000,00 ist spätestens bis zum vereinbarten Übergabetermin zu bezahlen.',
             'Mit Übergabe gehen Nutzen und Lasten auf den Käufer über. Mängelansprüche verjähren nach den '
             'gesetzlichen Fristen. Die Parteien vereinbaren einen Rücktrittsvorbehalt bei Finanzierungsausfall.',
@@ -1275,6 +1280,45 @@ def create_app(config_path: Optional[str] = None):
         except Exception as e:
             logger.error(f"Error previewing document: {e}", exc_info=True)
             return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/document/<path:doc_id>/thumbnail', methods=['GET'])
+    def document_thumbnail(doc_id: str):
+        """Seite 1 als PNG fuer die Trefferkarte. Nur PDF -- siehe preview.py."""
+        file_path = str(request.args.get('path') or '').strip()
+        if not file_path:
+            return jsonify({'success': False, 'error': 'Document path required'}), 400
+
+        full_path = _resolve_autodoc_path(file_path)
+        if not full_path:
+            return jsonify({'success': False, 'error': 'Document path not allowed'}), 400
+
+        if preview_kind(file_path) != 'pdf':
+            return jsonify({'success': False, 'error': 'Thumbnail only supported for PDF'}), 415
+
+        if not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': 'Document file not found'}), 404
+
+        try:
+            png = render_first_page_png(full_path)
+        except PreviewUnsupported:
+            return jsonify({'success': False, 'error': 'Thumbnail only supported for PDF'}), 415
+        except PreviewFailed as exc:
+            logger.warning("Thumbnail failed for %s: %s", file_path, exc)
+            return jsonify({'success': False, 'error': 'Vorschaubild konnte nicht erzeugt werden'}), 422
+        except Exception:
+            logger.error("Thumbnail error for %s", file_path, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+        response = send_file(io.BytesIO(png), mimetype='image/png')
+        # Das Bild aendert sich nur, wenn die Datei sich aendert; ohne diesen
+        # Header laedt jede Suche jedes Vorschaubild neu.
+        try:
+            stat = os.stat(full_path)
+            response.set_etag(f"{stat.st_mtime_ns}-{stat.st_size}")
+        except OSError:
+            pass
+        response.headers['Cache-Control'] = 'private, max-age=300'
+        return response.make_conditional(request)
 
     @app.route('/api/document/<path:doc_id>/preview-content', methods=['GET'])
     def preview_content(doc_id: str):

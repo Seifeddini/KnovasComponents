@@ -422,93 +422,6 @@ class DocumentSearchApp {
         return `<div class="document-first-page-text">${this.escapeHtml(this.capSummaryLength(raw, 4000))}</div>`;
     }
 
-    /** Knovas /secured/query returns page/sentence only — no matching chunk text. */
-    _formatLocation(pageNum, sentNum) {
-        const parts = [];
-        if (pageNum != null && pageNum !== '') {
-            parts.push(`Seite ${String(pageNum)}`);
-        }
-        if (sentNum != null && sentNum !== '') {
-            parts.push(`Satz ${String(sentNum)}`);
-        }
-        return parts.join(' · ');
-    }
-
-    _formatSimilarity(value) {
-        if (value == null || value === '') return '';
-        const n = Number(value);
-        if (Number.isNaN(n)) return '';
-        return n.toFixed(2);
-    }
-
-    _collectMatchLocations(doc) {
-        const chunks = Array.isArray(doc.top_chunks) ? doc.top_chunks : [];
-        let primaryPage = doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page;
-        let primarySent = doc.sentence_number;
-        if ((primaryPage == null || primaryPage === '') && chunks.length) {
-            primaryPage = chunks[0].page_number ?? chunks[0].page;
-            if (primarySent == null || primarySent === '') {
-                primarySent = chunks[0].sentence_number;
-            }
-        }
-        const primaryKey = `${primaryPage ?? ''}|${primarySent ?? ''}`;
-        const locations = [];
-        const primaryLabel = this._formatLocation(primaryPage, primarySent);
-        if (primaryLabel) {
-            locations.push({
-                label: primaryLabel,
-                sim: doc.cosine_similarity,
-                primary: true,
-            });
-        }
-        const extras = [];
-        for (const chunk of chunks) {
-            const key = `${chunk.page_number ?? ''}|${chunk.sentence_number ?? ''}`;
-            if (key === primaryKey) continue;
-            const label = this._formatLocation(chunk.page_number, chunk.sentence_number);
-            if (!label) continue;
-            extras.push({
-                label,
-                sim: chunk.cosine_similarity,
-                primary: false,
-            });
-        }
-        extras.sort((a, b) => (Number(b.sim) || 0) - (Number(a.sim) || 0));
-        return locations.concat(extras);
-    }
-
-    _buildMatchLocationsHtml(doc) {
-        const locations = this._collectMatchLocations(doc);
-        if (!locations.length) return '';
-
-        const count = locations.length;
-        const maxDisplayed = 4;
-        const displayed = locations.slice(0, maxDisplayed);
-        const hiddenCount = count - displayed.length;
-        const chips = displayed.map((loc) => {
-            const sim = this._formatSimilarity(loc.sim);
-            const chipClass = loc.primary
-                ? 'match-location-chip match-location-chip--primary'
-                : 'match-location-chip';
-            const scoreHtml = sim
-                ? `<span class="match-location-chip-score">${this.escapeHtml(sim)}</span>`
-                : '';
-            return `<span class="${chipClass}">${this.escapeHtml(loc.label)}${scoreHtml}</span>`;
-        }).join('');
-        const moreHint = hiddenCount > 0
-            ? ` <span class="document-match-more">+${hiddenCount} weitere</span>`
-            : '';
-
-        return `
-            <div class="document-match" role="region" aria-label="Trefferstellen">
-                <div class="document-match-header">
-                    <span class="document-match-label">Trefferstellen</span>
-                    <span class="document-match-count">${count} im Dokument${moreHint}</span>
-                </div>
-                <div class="match-location-list">${chips}</div>
-            </div>`;
-    }
-
     createDocumentCard(doc, index) {
         const card = document.createElement('div');
         card.className = 'document-card';
@@ -574,17 +487,19 @@ class DocumentSearchApp {
             ? this.capSummaryLength(ingestedSummary, 2000)
             : '';
         const summaryHtml = summaryStr ? this.escapeHtml(summaryStr) : '';
-        const firstPageHtml = hasContext && doc.first_page_preview
-            ? this._buildFirstPageHtml(doc.first_page_preview)
-            : '';
+        // Bei PDFs zeigt die Karte die tatsaechlich gerenderte erste Seite; die
+        // uebrigen Formate haben ohne Konverter keine Seite und behalten den
+        // Textauszug.
+        const firstPageHtml = isPdf && localAvailable
+            ? `<img class="document-first-page-image" loading="lazy"`
+              + ` alt="Erste Seite von ${this.escapeAttr(title)}"`
+              + ` src="/api/document/${encodeURIComponent(docId)}/thumbnail?path=${encodeURIComponent(path)}">`
+            : (hasContext && doc.first_page_preview
+                ? this._buildFirstPageHtml(doc.first_page_preview)
+                : '');
         const contextHtml = hasContext && doc.context_snippet
             ? this._buildContextSnippetHtml(doc.context_snippet)
             : '';
-        const matchHtml = this._buildMatchLocationsHtml(doc);
-        const primaryLocation = this._formatLocation(
-            doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page,
-            doc.sentence_number,
-        );
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
         const fileModified = doc.modified_at || null;
 
@@ -592,14 +507,11 @@ class DocumentSearchApp {
             <div class="document-header">
                 <div class="document-header-text">
                     <div class="document-title">${this.escapeHtml(title)}</div>
-                    ${primaryLocation ? `<div class="document-location">${this.escapeHtml(primaryLocation)}</div>` : ''}
                 </div>
                 <div class="document-actions">
                     ${actionsHtml}
                 </div>
             </div>
-            
-            ${matchHtml}
             
             ${documentDate || fileModified ? `
             <div class="document-meta">

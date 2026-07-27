@@ -394,13 +394,6 @@ main {
     line-height: 1.35;
 }
 
-.document-location {
-    margin-top: 6px;
-    font-size: 0.82rem;
-    color: var(--primary-color);
-    font-weight: 500;
-}
-
 .document-actions {
     display: flex;
     flex-wrap: wrap;
@@ -419,89 +412,6 @@ main {
 
 .meta-item-muted {
     color: var(--text-muted);
-}
-
-.document-match {
-    margin: 0 0 14px;
-    padding: 14px 16px;
-    background: #f8fafc;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 0.9rem;
-}
-
-.document-match-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px 12px;
-    margin-bottom: 10px;
-}
-
-.document-match-label {
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-}
-
-.document-match-count {
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-}
-
-.document-match-more {
-    color: var(--text-muted);
-    font-weight: 500;
-}
-
-.match-location-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.match-location-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 11px;
-    border-radius: 999px;
-    background: #fff;
-    border: 1px solid var(--border-color);
-    font-size: 0.82rem;
-    line-height: 1.2;
-    color: var(--text-primary);
-}
-
-.match-location-chip--primary {
-    background: rgba(var(--accent-rgb), 0.08);
-    border-color: rgba(var(--accent-rgb), 0.35);
-    color: var(--primary-color);
-    font-weight: 600;
-}
-
-.match-location-chip-score {
-    font-size: 0.72rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: rgba(var(--text-primary-rgb), 0.06);
-}
-
-.match-location-chip--primary .match-location-chip-score {
-    background: rgba(var(--accent-rgb), 0.12);
-    color: var(--primary-color);
-}
-
-.document-match-hint {
-    margin-top: 12px;
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    line-height: 1.45;
 }
 
 .document-ingested-summary {
@@ -531,7 +441,7 @@ main {
 .document-context-snippet {
     margin-top: 12px;
     padding: 12px 14px;
-    background: #f8fafc;
+    background: var(--surface-sunken);
     border-radius: 8px;
     font-size: 0.9rem;
     line-height: 1.55;
@@ -547,6 +457,24 @@ main {
     text-transform: uppercase;
     color: var(--primary-color);
     margin-bottom: 8px;
+}
+
+/* Bei PDFs steht hier die gerenderte erste Seite statt eines Textauszugs.
+   Der Kasten schrumpft aufs Bild, sonst steht rechts daneben eine leere
+   Flaeche ueber die ganze Kartenbreite. */
+.document-first-page:has(.document-first-page-image) {
+    width: fit-content;
+    max-width: 100%;
+}
+
+.document-first-page-image {
+    display: block;
+    width: 340px;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
 }
 
 .document-first-page-text,
