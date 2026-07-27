@@ -125,11 +125,20 @@ h2 {
 }
 
 .site-brand {
-    font-family: var(--font-heading);
-    font-size: 0.95rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--primary-color);
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+}
+
+.site-brand img {
+    height: 18px;
+    width: auto;
+}
+
+.site-brand:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+    border-radius: var(--radius);
 }
 
 .site-greeting {

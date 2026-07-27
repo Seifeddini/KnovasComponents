@@ -4,13 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
 </head>
 <body>
     <div class="container">
         <header class="site-header">
             <div class="site-header-bar">
-                <p class="site-brand">{{ app_title }}</p>
+                <a class="site-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
+                    <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
+                         alt="Knovas" width="132" height="18">
+                </a>
                 <form method="post" action="{{ url_for('logout') }}" class="logout-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="btn btn-outline logout-button">

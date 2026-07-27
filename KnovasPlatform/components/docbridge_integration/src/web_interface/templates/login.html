@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="login-page">
     <main class="login-shell">
         <section class="login-card" aria-labelledby="loginTitle">
             <img class="login-logo"
-                 src="{{ url_for('static', filename='img/knovas-logo.png') }}"
+                 src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
                  alt="Knovas" width="180" height="30">
             <p class="login-slogan">Search Made Smarter</p>
             <h1 id="loginTitle">Company Login</h1>

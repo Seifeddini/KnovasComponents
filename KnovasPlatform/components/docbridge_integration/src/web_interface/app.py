@@ -853,6 +853,7 @@ def create_app(config_path: Optional[str] = None):
             return None
         if request.endpoint in {
             'static',
+            'favicon',
             'login',
             'logout',
             'stats',
@@ -899,6 +900,14 @@ def create_app(config_path: Optional[str] = None):
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
         return None
+
+    @app.route('/favicon.ico')
+    def favicon():
+        """Browser fragen /favicon.ico an der Wurzel an, unabhaengig vom <link>-Tag.
+
+        Ohne diese Route laeuft jeder Seitenaufruf in ein 404 im Log.
+        """
+        return redirect(url_for('static', filename='img/favicon.svg'), code=301)
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
