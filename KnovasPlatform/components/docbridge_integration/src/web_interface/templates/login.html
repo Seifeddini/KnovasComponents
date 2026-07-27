@@ -9,7 +9,10 @@
 <body class="login-page">
     <main class="login-shell">
         <section class="login-card" aria-labelledby="loginTitle">
-            <div class="login-brand">{{ app_title }}</div>
+            <img class="login-logo"
+                 src="{{ url_for('static', filename='img/knovas-logo.png') }}"
+                 alt="Knovas" width="180" height="30">
+            <p class="login-slogan">Search Made Smarter</p>
             <h1 id="loginTitle">Company Login</h1>
             <p class="login-subtitle">{{ company_name }}</p>
 

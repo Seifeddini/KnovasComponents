@@ -9,15 +9,25 @@
 <body>
     <div class="container">
         <header class="site-header">
-            <h1>{{ app_title }}</h1>
-            <p class="subtitle">Powered by Knovas{% if company_name %} · {{ company_name }}{% endif %}</p>
-            <p class="header-feedback">
-                <a class="feedback-link" href="https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9" target="_blank" rel="noopener noreferrer" title="Feedback über Jira senden">Feedback geben</a>
-            </p>
-            <form method="post" action="{{ url_for('logout') }}" class="logout-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="btn-text logout-button">Abmelden</button>
-            </form>
+            <div class="site-header-bar">
+                <p class="site-brand">{{ app_title }}</p>
+                <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-outline logout-button">
+                        <svg class="icon" viewBox="0 0 24 24" width="15" height="15" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                            <polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>
+                        </svg>
+                        Abmelden
+                    </button>
+                </form>
+            </div>
+            <h1 class="site-greeting">
+                Hallo{% if company_name %} {{ company_name }}{% endif %},<br>
+                <span class="site-greeting-question">was möchtest du suchen?</span>
+            </h1>
         </header>
 
         <main class="main-layout">
@@ -30,6 +40,11 @@
                         autofocus
                     >
                     <button id="searchButton" class="btn btn-primary">
+                        <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                        </svg>
                         Suchen
                     </button>
                 </div>
@@ -69,7 +84,31 @@
                         <h2 class="preview-title" id="previewTitle"></h2>
                         <p class="preview-meta" id="previewMeta"></p>
                     </div>
-                    <button type="button" class="preview-close" id="previewClose" aria-label="Vorschau schliessen">&times;</button>
+                    <div class="preview-panel-controls">
+                        <button type="button" class="preview-icon-button" id="previewExpand"
+                                aria-label="Vorschau auf ganzen Bildschirm vergrössern" aria-pressed="false"
+                                title="Vollbild">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                 stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <g class="icon-expand">
+                                    <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+                                    <line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>
+                                </g>
+                                <g class="icon-collapse">
+                                    <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/>
+                                    <line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/>
+                                </g>
+                            </svg>
+                        </button>
+                        <button type="button" class="preview-icon-button" id="previewClose" aria-label="Vorschau schliessen" title="Schliessen">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                 stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                            </svg>
+                        </button>
+                    </div>
                 </header>
                 <div class="preview-actions" id="previewActions"></div>
                 <div class="preview-body" id="previewBody" tabindex="0"></div>

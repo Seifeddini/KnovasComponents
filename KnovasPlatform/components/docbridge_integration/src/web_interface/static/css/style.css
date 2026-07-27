@@ -46,8 +46,14 @@
     --accent-rgb: 59, 121, 242;    /* RGB-Tripel von --accent, fuer rgba()-Transparenzen */
     --success-color: #1a6b4a;
     --error-color: #c41e1e;
-    --bg-color: #F4F6FC;          /* Ice Blue */
-    --card-bg: #FDFDFD;           /* Off White */
+    --bg-color: #FDFDFD;          /* Off White -- Seitenhintergrund */
+    --card-bg: #FDFDFD;           /* Off White -- Container liegen flach auf der Seite,
+                                     abgegrenzt allein durch --border-color */
+    --surface-sunken: #F4F6FC;    /* Ice Blue -- zurueckgesetzte Flaechen: Treffer-Karten,
+                                     Eingabefelder, Chips */
+    --callout: #6E88DC;           /* Cornflower Blue -- laut Guide "CALLOUT CONTAINER" */
+    --highlight: #D9E0F7;         /* Grayish Blue -- Fundstellen-Markierung, ersetzt das
+                                     markenfremde Gelb */
     --text-primary: #283647;      /* Slate Blue */
     --text-primary-rgb: 40, 54, 71; /* RGB-Tripel von --text-primary, fuer rgba()-Transparenzen */
     --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
@@ -104,29 +110,42 @@ h2 {
 
 /* Header */
 .site-header {
-    text-align: center;
-    padding: 12px 0 28px;
+    padding: 12px 0 24px;
     margin-bottom: 8px;
     border-bottom: 1px solid var(--border-color);
 }
 
-.site-header h1 {
+/* Markenzeile und Abmelden in einer Reihe, Begruessung darunter. */
+.site-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+}
+
+.site-brand {
     font-family: var(--font-heading);
-    font-size: 1.75rem;
+    font-size: 0.95rem;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
     color: var(--primary-color);
-    margin-bottom: 6px;
 }
 
-.subtitle {
+.site-greeting {
+    font-family: var(--font-heading);
+    font-size: 1.6rem;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+    color: var(--title-color, var(--text-primary));
+}
+
+.site-greeting-question {
     color: var(--text-secondary);
-    font-size: 1rem;
+    font-weight: 400;
 }
 
-.header-feedback {
-    margin-top: 1rem;
-}
 
 .feedback-link {
     display: inline-flex;
@@ -162,12 +181,12 @@ h2 {
 }
 
 .logout-form {
-    margin-top: 1rem;
+    flex: 0 0 auto;
 }
 
 .logout-button {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 7px 14px;
 }
 
 .logout-button:hover {
@@ -200,20 +219,22 @@ main {
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     font-size: 1rem;
-    background: #fafbfc;
+    background: var(--surface-sunken);
     transition: border-color 0.2s;
 }
 
 #searchInput:focus {
     outline: none;
     border-color: var(--accent);
-    background: #fff;
+    background: var(--card-bg);
 }
 
 .btn {
     padding: 13px 22px;
     border: none;
-    border-radius: var(--radius);
+    /* Vollrund: 999px statt 50%, damit der Radius bei jeder Breite gleich
+       bleibt -- 50% wuerde bei breiten Buttons zu Ellipsen fuehren. */
+    border-radius: 999px;
     font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
@@ -245,16 +266,16 @@ main {
 }
 
 .btn-success {
-    background-color: transparent;
-    color: var(--primary-color);
+    background-color: var(--primary-color);
+    color: #FFFFFF;
     border: 1px solid var(--primary-color);
     padding: 9px 16px;
     font-size: 0.875rem;
 }
 
 .btn-success:hover:not(:disabled) {
-    background-color: var(--primary-color);
-    color: #FFFFFF;
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 .btn-outline {
@@ -323,7 +344,7 @@ main {
 
 /* Document cards */
 .document-card {
-    background: var(--card-bg);
+    background: var(--surface-sunken);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 18px 20px;
@@ -528,7 +549,7 @@ main {
 
 mark.context-snippet-match,
 .context-snippet-match {
-    background: #fef08a;
+    background: var(--highlight);
     color: inherit;
     padding: 0 2px;
     border-radius: 2px;
@@ -653,6 +674,24 @@ mark.context-snippet-match,
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-color);
     padding: 32px;
+}
+
+.login-logo {
+    display: block;
+    height: 30px;
+    width: auto;
+    margin-bottom: 6px;
+}
+
+/* Der Slogan aus dem Brand-Guide, in der Header-Schrift. */
+.login-slogan {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
 }
 
 .login-brand {
@@ -804,8 +843,14 @@ mark.context-snippet-match,
     color: var(--text-secondary);
 }
 
-.preview-close {
+.preview-panel-controls {
     flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.preview-icon-button {
     width: 28px;
     height: 28px;
     display: flex;
@@ -820,10 +865,60 @@ mark.context-snippet-match,
     border-radius: var(--radius);
 }
 
-.preview-close:hover {
+.preview-icon-button:hover {
     background: var(--bg-color);
     color: var(--text-primary);
 }
+
+/* Ein Icon, zwei Zustaende: ausklappende Pfeile im Panel-Modus,
+   einklappende im Vollbild. */
+.icon {
+    flex: 0 0 auto;
+}
+
+.preview-icon-button .icon-collapse,
+.preview-panel.is-fullscreen .preview-icon-button .icon-expand {
+    display: none;
+}
+
+.preview-panel.is-fullscreen .preview-icon-button .icon-collapse {
+    display: inline;
+}
+
+/* Vollbild: das Panel loest sich aus der Spalte und deckt die Seite ab.
+   max-width haelt lange Textzeilen lesbar -- volle 1440px Fliesstext
+   waeren es nicht. */
+.preview-panel.is-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    flex-basis: auto;
+}
+
+.preview-panel.is-fullscreen .preview-panel-header,
+.preview-panel.is-fullscreen .preview-actions {
+    max-width: 1100px;
+    width: 100%;
+    margin-inline: auto;
+}
+
+.preview-panel.is-fullscreen .preview-body {
+    max-width: 1100px;
+    width: 100%;
+    margin-inline: auto;
+}
+
+.preview-panel.is-fullscreen .preview-body iframe {
+    height: calc(100vh - 150px);
+}
+
+body.preview-fullscreen {
+    overflow: hidden;
+}
+
 
 .preview-actions {
     display: flex;

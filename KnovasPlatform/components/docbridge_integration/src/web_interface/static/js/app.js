@@ -1,5 +1,24 @@
 // Knovas Document Search - JavaScript
 
+/**
+ * Lucide-Icons (ISC) als Inline-SVG. Bewusst keine Icon-Library als
+ * Dependency: es sind eine Handvoll Pfade, und das Frontend kommt ohne
+ * Build-Schritt aus. currentColor laesst sie die Textfarbe erben.
+ */
+const LUCIDE_ICONS = {
+    'external-link': '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/>',
+    'file-text': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+    'download': '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    'clipboard': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+};
+
+/** @param {keyof LUCIDE_ICONS} name */
+function lucide(name) {
+    return `<svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" `
+        + `stroke="currentColor" stroke-width="2" stroke-linecap="round" `
+        + `stroke-linejoin="round" aria-hidden="true" focusable="false">${LUCIDE_ICONS[name]}</svg>`;
+}
+
 class DocumentSearchApp {
     constructor() {
         this.searchInput = document.getElementById('searchInput');
@@ -16,6 +35,7 @@ class DocumentSearchApp {
         this.previewBody = document.getElementById('previewBody');
         this.previewActions = document.getElementById('previewActions');
         this.previewClose = document.getElementById('previewClose');
+        this.previewExpand = document.getElementById('previewExpand');
         /** @type {AbortController|null} laufende Vorschau-Anfrage */
         this._previewAbort = null;
         /** @type {number|null} Index des aktuell gezeigten Treffers */
@@ -60,6 +80,7 @@ class DocumentSearchApp {
         this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
 
         this.previewClose.addEventListener('click', () => this.closePreview());
+        this.previewExpand.addEventListener('click', () => this.togglePreviewFullscreen());
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.closePreview();
         });
@@ -120,9 +141,9 @@ class DocumentSearchApp {
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
         if (externalUrl) {
             const href = this.externalOpenHref(docId, path || docId);
-            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">In OneDrive öffnen</a>`;
+            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${lucide('external-link')}In OneDrive öffnen</a>`;
         }
-        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Öffnen</button>`;
+        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">${lucide('external-link')}Öffnen</button>`;
     }
 
     closePreview() {
@@ -133,9 +154,27 @@ class DocumentSearchApp {
         this._previewIndex = null;
         this.previewPanel.hidden = true;
         document.body.classList.remove('preview-open');
+        this.setPreviewFullscreen(false);
         this._markActiveCard(null);
         this.previewBody.innerHTML = '';
         this.previewActions.innerHTML = '';
+    }
+
+    /**
+     * Vollbild an oder aus. Das Panel bleibt der Normalfall -- wer ein
+     * Dokument wirklich liest, klappt auf; wer scannt, behaelt die Liste.
+     */
+    setPreviewFullscreen(on) {
+        this.previewPanel.classList.toggle('is-fullscreen', on);
+        document.body.classList.toggle('preview-fullscreen', on);
+        this.previewExpand.setAttribute('aria-pressed', on ? 'true' : 'false');
+        this.previewExpand.setAttribute('aria-label',
+            on ? 'Vorschau verkleinern' : 'Vorschau auf ganzen Bildschirm vergrössern');
+        this.previewExpand.setAttribute('title', on ? 'Verkleinern' : 'Vollbild');
+    }
+
+    togglePreviewFullscreen() {
+        this.setPreviewFullscreen(!this.previewPanel.classList.contains('is-fullscreen'));
     }
 
     /** Hebt die Karte hervor, deren Dokument gerade im Panel steht. */
