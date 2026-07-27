@@ -890,12 +890,30 @@ mark.context-snippet-match,
    waeren es nicht. */
 .preview-panel.is-fullscreen {
     position: fixed;
-    inset: 0;
+    /* Nicht randbuendig: das Panel liegt als Ebene ueber der Seite, und ein
+       Rand macht genau das sichtbar. Bei kleinen Fenstern schrumpft der
+       Abstand mit, damit auf engem Raum nichts verschenkt wird. */
+    inset: clamp(16px, 5vh, 56px) clamp(16px, 5vw, 72px);
     z-index: 50;
     max-height: none;
-    border: 0;
-    border-radius: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
     flex-basis: auto;
+    overflow: hidden;
+}
+
+/* Abgedunkelter Hintergrund, damit der Fokus auf dem Dokument liegt und der
+   Rand nicht wie ein Darstellungsfehler wirkt. */
+body.preview-fullscreen::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: rgba(var(--text-primary-rgb), 0.38);
+}
+
+.preview-panel.is-fullscreen .preview-panel-header {
+    padding-top: 22px;
 }
 
 .preview-panel.is-fullscreen .preview-panel-header,
@@ -912,7 +930,7 @@ mark.context-snippet-match,
 }
 
 .preview-panel.is-fullscreen .preview-body iframe {
-    height: calc(100vh - 150px);
+    height: calc(100vh - clamp(16px, 5vh, 56px) * 2 - 150px);
 }
 
 body.preview-fullscreen {

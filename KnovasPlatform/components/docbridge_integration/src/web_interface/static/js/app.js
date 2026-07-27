@@ -81,6 +81,14 @@ class DocumentSearchApp {
 
         this.previewClose.addEventListener('click', () => this.closePreview());
         this.previewExpand.addEventListener('click', () => this.togglePreviewFullscreen());
+
+        // Klick auf den abgedunkelten Hintergrund klappt wieder ein -- erwartetes
+        // Verhalten fuer eine Ebene, die ueber der Seite liegt.
+        document.addEventListener('click', (e) => {
+            if (!this.previewPanel.classList.contains('is-fullscreen')) return;
+            if (this.previewPanel.contains(e.target)) return;
+            this.setPreviewFullscreen(false);
+        });
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.closePreview();
         });
