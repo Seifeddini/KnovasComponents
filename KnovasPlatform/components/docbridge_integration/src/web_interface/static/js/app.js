@@ -63,6 +63,20 @@ class DocumentSearchApp {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.closePreview();
         });
+
+        // Die Karten liegen per tabindex in der Tab-Reihenfolge, reagierten aber
+        // nur auf Klicks -- damit war die Vorschau fuer Tastaturnutzer nicht
+        // erreichbar. Enter und Leertaste loesen jetzt dasselbe aus wie ein Klick.
+        this.resultsContainer.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            if (e.target.closest('a, button')) return;
+            const card = e.target.closest('.document-card');
+            if (!card) return;
+            const idx = parseInt(card.getAttribute('data-index') || '-1', 10);
+            if (idx < 0) return;
+            e.preventDefault();
+            this.openPreview(idx);
+        });
     }
 
     _redirectIfLoginRequired(response) {
@@ -119,8 +133,18 @@ class DocumentSearchApp {
         this._previewIndex = null;
         this.previewPanel.hidden = true;
         document.body.classList.remove('preview-open');
+        this._markActiveCard(null);
         this.previewBody.innerHTML = '';
         this.previewActions.innerHTML = '';
+    }
+
+    /** Hebt die Karte hervor, deren Dokument gerade im Panel steht. */
+    _markActiveCard(index) {
+        this.resultsContainer.querySelectorAll('.document-card.is-active')
+            .forEach((el) => el.classList.remove('is-active'));
+        if (index == null) return;
+        const card = this.resultsContainer.querySelector(`.document-card[data-index="${index}"]`);
+        if (card) card.classList.add('is-active');
     }
 
     async openPreview(index) {
@@ -140,6 +164,7 @@ class DocumentSearchApp {
 
         this.previewPanel.hidden = false;
         document.body.classList.add('preview-open');
+        this._markActiveCard(index);
         this.previewTitle.textContent = title;
         this.previewMeta.textContent = '';
         this.previewActions.innerHTML = this._previewActionsHtml(doc);
@@ -778,10 +803,13 @@ class DocumentSearchApp {
         this.searchButton.disabled = false;
     }
     
+    /** Wie lange ein Toast stehen bleibt, bevor er sich selbst entfernt. */
+    static TOAST_TIMEOUT_MS = { error: 10000, success: 6000, info: 6000 };
+
     /**
-     * Einziger Weg, dem Nutzer etwas mitzuteilen. Fehler bleiben stehen, bis
-     * sie weggeklickt werden -- eine Fehlermeldung, die sich selbst schliesst,
-     * bevor sie gelesen wurde, ist keine Meldung.
+     * Einziger Weg, dem Nutzer etwas mitzuteilen. Jeder Toast verschwindet von
+     * selbst; Fehler bekommen laenger Zeit, weil sie mehr Text tragen und
+     * gelesen werden wollen. Wer schneller ist, klickt das x.
      * @param {'info'|'success'|'error'} kind
      */
     showToast(message, kind = 'info') {
@@ -803,9 +831,9 @@ class DocumentSearchApp {
         toast.appendChild(close);
         this.toastContainer.appendChild(toast);
 
-        if (kind !== 'error') {
-            window.setTimeout(() => toast.remove(), 6000);
-        }
+        const timeout = DocumentSearchApp.TOAST_TIMEOUT_MS[kind]
+            || DocumentSearchApp.TOAST_TIMEOUT_MS.info;
+        window.setTimeout(() => toast.remove(), timeout);
     }
 
     showError(message) {

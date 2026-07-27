@@ -323,15 +323,25 @@ main {
 
 /* Document cards */
 .document-card {
-    background: #fafbfc;
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 18px 20px;
     transition: border-color 0.2s;
+    /* Die Karte ist der Haupt-Ausloeser der Vorschau -- ohne Zeigerwechsel
+       gibt sie keinen Hinweis darauf, dass sie klickbar ist. */
+    cursor: pointer;
 }
 
 .document-card:hover {
     border-color: var(--accent);
+}
+
+/* Welches Dokument gerade im Panel steht. Ohne das verliert man bei mehreren
+   Treffern den Bezug zwischen Liste und Vorschau. */
+.document-card.is-active {
+    border-color: var(--primary-color);
+    background: rgba(var(--accent-rgb), 0.04);
 }
 
 .document-header {
