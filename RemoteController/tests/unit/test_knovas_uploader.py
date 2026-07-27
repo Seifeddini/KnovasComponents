@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from sync.chunking import PART_MAX_CHARS
 from sync.knovas_uploader import SemantixUploader, _transmit_part_body
 
 
@@ -23,6 +24,39 @@ def _ok_response(key: str = "tx-key-1"):
     resp.content = b'{"key": "' + key.encode() + b'"}'
     resp.json.return_value = {"key": key}
     return resp
+
+
+def test_upload_defaults_to_max_part_size(mock_config, tmp_path):
+    """Omitted part_max_chars uses the Secure API snippet limit."""
+    md_file = tmp_path / "large.txt"
+    # Two parts at 50k, one part at 500k.
+    md_file.write_text("x" * 60_000, encoding="utf-8")
+
+    uploader = SemantixUploader()
+    sync_body = {"ingestion": {"identifier_prefix": "corpus"}}
+
+    with patch.object(uploader, "_request") as req:
+        req.side_effect = [_ok_response(), _ok_response()]
+        result = uploader.upload_file(md_file, "large.txt", sync_body)
+
+    assert result.status == "ok"
+    assert result.parts == 1
+    assert PART_MAX_CHARS == 500_000
+
+
+def test_upload_caps_part_max_chars_at_api_limit(mock_config, tmp_path):
+    md_file = tmp_path / "huge.txt"
+    md_file.write_text("y" * 600_000, encoding="utf-8")
+
+    uploader = SemantixUploader()
+    sync_body = {"ingestion": {"identifier_prefix": "corpus", "part_max_chars": 999_999}}
+
+    with patch.object(uploader, "_request") as req:
+        req.side_effect = [_ok_response(), _ok_response(), _ok_response()]
+        result = uploader.upload_file(md_file, "huge.txt", sync_body)
+
+    assert result.status == "ok"
+    assert result.parts == 2
 
 
 def test_upload_uses_original_identifier_and_converted_text(mock_config, tmp_path):

@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterator, Optional, Tuple
 import requests
 
 from config import get_config
-from sync.chunking import build_transmission_parts
+from sync.chunking import PART_MAX_CHARS, build_transmission_parts
 from sync.context_sidecar import context_store_dir_from_env, write_context_sidecar
 from sync.document_text import ConversionError, extract_document
 
@@ -103,7 +103,7 @@ class SemantixUploader:
     ) -> UploadResult:
         ingestion = sync_body.get("ingestion") or {}
         prefix = ingestion.get("identifier_prefix", "rc-sync")
-        part_max = min(int(ingestion.get("part_max_chars", 50000)), 50000)
+        part_max = min(int(ingestion.get("part_max_chars", PART_MAX_CHARS)), PART_MAX_CHARS)
         identifier = f"{prefix}/{relative_path.replace(chr(92), '/')}"
 
         try:

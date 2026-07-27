@@ -272,7 +272,7 @@ Use `examples/sync-request-corpus.json`:
   },
   "ingestion": {
     "identifier_prefix": "corpus",
-    "part_max_chars": 50000
+    "part_max_chars": 500000
   }
 }
 ```

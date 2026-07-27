@@ -10,6 +10,9 @@ from knovas_extract.result import Page, Section, Sentence
 from sync.section_pages import adjust_chunk_end, section_prefix_at_offset
 from sync.table_payload import assign_tables_to_parts
 
+# Secure API `snippet` max length (docs/KnovasAPI/Secure_API.md).
+PART_MAX_CHARS = 500_000
+
 
 def iter_text_chunks(text: str, part_max_chars: int) -> Iterator[str]:
     """Yield chunks from an in-memory string without building a full list."""

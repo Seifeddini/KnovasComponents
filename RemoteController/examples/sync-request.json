@@ -15,6 +15,6 @@
   },
   "ingestion": {
     "identifier_prefix": "rc-sync",
-    "part_max_chars": 50000
+    "part_max_chars": 500000
   }
 }
