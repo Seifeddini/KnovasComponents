@@ -164,6 +164,7 @@ class DocumentSearchApp {
         document.body.classList.remove('preview-open');
         this.setPreviewFullscreen(false);
         this._markActiveCard(null);
+        this.previewBody.classList.remove('is-pdf');
         this.previewBody.innerHTML = '';
         this.previewActions.innerHTML = '';
     }
@@ -215,6 +216,7 @@ class DocumentSearchApp {
         this.previewTitle.textContent = title;
         this.previewMeta.textContent = '';
         this.previewActions.innerHTML = this._previewActionsHtml(doc);
+        this.previewBody.classList.remove('is-pdf');
         this.previewBody.innerHTML =
             '<div class="preview-skeleton"><span></span><span></span><span></span><span></span></div>';
 
@@ -237,6 +239,7 @@ class DocumentSearchApp {
                     throw new Error(`HTTP ${probe.status}`);
                 }
                 this.previewMeta.textContent = 'PDF';
+                this.previewBody.classList.add('is-pdf');
                 this.previewBody.innerHTML =
                     `<iframe src="${this.escapeAttr(src)}" title="PDF-Vorschau"></iframe>`;
             } catch (error) {
