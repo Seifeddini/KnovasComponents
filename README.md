@@ -9,6 +9,11 @@ Customer-hosted components for the Knovas platform.
 
 **Typical setup:** ingest with RemoteController, then deploy KnovasPlatform for search. Both need credentials from Knovas (mTLS, tokens).
 
+Both components use the **same** mTLS bundle but expect different filenames in
+different directories. Read [docs/certificates.md](docs/certificates.md) before
+copying certs into either one — mismatched names and directory permissions are
+the most common setup failure.
+
 ```bash
 git clone https://github.com/Seifeddini/KnovasComponents.git
 cd KnovasComponents

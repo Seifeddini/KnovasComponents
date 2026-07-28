@@ -47,6 +47,10 @@ Ask your Knovas admin for these before Step 4:
 | `client-key.pem` (or `.plain.pem`) | `SEMANTIX_CLIENT_KEY_PATH=/certs/client-key.pem` | Mode `0600`; see [configuration.md](configuration.md) |
 | `ca-root.pem` | `SEMANTIX_CA_CERT_PATH=/certs/ca-root.pem` | CA for mTLS |
 
+Keep these filenames. KnovasPlatform expects the *same* three files under
+different names (`client.crt` / `client.key` / `ca.crt`) in its own `certs/`
+directory — see [certificates.md](../../docs/certificates.md).
+
 You do **not** need `RC_INSTANCE_TOKEN` or an employee JWT for this local setup — `docker-compose.internal.yml` sets `RC_INTERNAL_LOCAL_BYPASS=true`.
 
 ---
@@ -102,19 +106,26 @@ KnovasComponents/certs/
   ca-root.pem
 ```
 
-**Linux:** restrict the key file:
+**Linux:** let the install script set ownership, modes, and the directory
+traversal bit in one step:
 
 ```bash
-chmod 600 ../certs/client-key.pem
+./scripts/install_tenant_certs.sh
 ```
 
-Docker runs RC as user `rcuser` (uid **10001**). If sync fails with permission errors on the key, on Linux you may need:
+By hand, if you prefer. Docker runs RC as `rcuser` (uid **10001**), so the
+**directory** needs the execute bit as well as the files — a `chmod 600` key
+inside a `chmod 700` root-owned directory is unreadable regardless of the file
+mode, and `ls` inside the container still lists it:
 
 ```bash
-sudo chown 10001:10001 ../certs/client-key.pem
+sudo chown 10001:10001 ../certs/client-key.pem ../certs/client-cert.pem ../certs/ca-root.pem
+sudo chmod 600 ../certs/client-key.pem
+sudo chmod 711 ../certs
 ```
 
-More detail: [configuration.md](configuration.md).
+Full reference, including encrypted keys and how to verify the handshake:
+[certificates.md](../../docs/certificates.md). See also [configuration.md](configuration.md).
 
 ---
 
@@ -281,11 +292,17 @@ curl -sS "$RC_BASE/sync/status?live=1"
 **Stop continuous sync** (background worker only — RC keeps running):
 
 ```bash
-curl -sS -X POST "$RC_BASE/sync/stop"
+curl -sS -X POST "$RC_BASE/sync/stop" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 
 curl -sS "$RC_BASE/sync/status"
 # "scheduler_state": "not_running", "worker_alive": false
 ```
+
+`/sync/stop` takes no arguments, but RC rejects any POST without a JSON body as
+a CSRF defense (`{"error":"Request body must be JSON"}`) — hence the `-d '{}'`.
+`GET /sync/status` needs no header.
 
 The worker finishes uploading the **current file**, then stops. Sync progress on disk is kept. To start again, use `POST /sync/start` with the same JSON body (or rely on the last saved body from `POST /sync`).
 
@@ -353,6 +370,11 @@ For HTTPS edge, employee JWT, firewall, and Knovas registration, follow [SETUP.m
 | Sync errors / 5xx | Tenant certs in `../certs`, URLs in `.env`, outbound HTTPS to Knovas |
 | Sync does nothing | Outside sync window — set `RC_SYNC_DEFAULT_WINDOW_START/END` to `00:00` / `23:59` |
 | No files in sync | `sources[].path` in JSON must be under `RC_WATCH_ROOTS`; check `include_globs` |
+| `Request body must be JSON` on a POST | Add `-H "Content-Type: application/json" -d '{}'` — required even on `/sync/stop`, which takes no arguments |
+| `SSLError(PermissionError(13, ...))` | Container found the certs but cannot read them — run `install_tenant_certs.sh`, then `up -d` (not `restart`). See [certificates.md](../../docs/certificates.md) |
+| Cert path `invalid` / not found | `.env` names must match the files in `../certs`; compare `grep SEMANTIX .env` with `ls -la ../certs/` |
+| `missing optional dependency 'selectolax'` on `.docx` / `.msg` | Image built against a `knovas-extract` whose `[markdown]` extra omits selectolax. Rebuild with `docker compose ... build --no-cache` — RC now requests the `[html]` extra explicitly |
+| `no extractable text from .pdf file` | Image-only scan with no text layer. RC does no OCR, so these are skipped by design |
 
 **Large corpus at monorepo root** (`KnovasComponents/corpus/`): add `-f docker-compose.corpus.yml` to the compose command and set `RC_WATCH_ROOTS=/data/corpus`. See [docker-compose.corpus.yml](../docker-compose.corpus.yml).
 

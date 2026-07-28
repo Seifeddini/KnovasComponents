@@ -15,8 +15,12 @@ dependencies = [
     "jsonschema>=4.21,<5",
     "prometheus-client>=0.20,<1",
     "gunicorn>=22.0,<24",
-    "knovas-extract[pdf,docx,msg,markdown,sentences]>=0.2",
-    "cryptography>=42,<45",
+    # `html` is required even though RC never syncs .html files: sync always
+    # calls extract(..., emit_markdown=True) (sync/document_text.py), and the
+    # DOCX/EML/MSG markdown path parses through selectolax, which ships in
+    # [html]. Older knovas-extract releases omit selectolax from [markdown],
+    # so keep [html] listed explicitly rather than relying on that fix.
+    "knovas-extract[pdf,docx,msg,html,markdown,sentences]>=0.2",
 ]
 
 [project.optional-dependencies]

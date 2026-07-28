@@ -1,6 +1,5 @@
-
-
-## doc_type: api_reference
+---
+doc_type: api_reference
 product: knovas
 classification: developer_kit
 canonical: false
@@ -13,6 +12,7 @@ tags:
 audience:
   - developer
   - client
+---
 
 # Secure API
 
@@ -20,7 +20,7 @@ Who this is for: engineers integrating **Knovas** (privacy-preserving knowledge 
 
 When to use: detailed request/response rules for document upload, search, delete, and optional feedback APIs.
 
-**Prerequisites:** Complete onboarding in the [Client Integration Guide](../Audience/Client%20Integration%20Guide.md) so you have a client certificate, private key, and CA root. All paths below use **HTTPS + mTLS** on your Knovas API host (for example `https://api.example.com/secured/...`).
+**Prerequisites:** Complete onboarding in the [Client Integration Guide](Client_Integration_Guide.md) so you have a client certificate, private key, and CA root. All paths below use **HTTPS + mTLS** on your Knovas API host (for example `https://api.knovas.ch:8443/secured/...`).
 
 ## How authentication works
 
@@ -44,6 +44,7 @@ When to use: detailed request/response rules for document upload, search, delete
 | `/secured/transmit_document_part`       | POST   | Send one document text part                          |
 | `/secured/query`                        | POST   | Semantic search in your tenant                       |
 | `/secured/delete_information_object`    | DELETE | Delete a document by `pointer` (identifier)          |
+| `/secured/delete_all_documents`         | DELETE | **Irreversible** — erase every document you uploaded |
 | `/secured/analytics/engagement`         | POST   | Report implicit engagement after search              |
 | `/secured/analytics/relevance-feedback` | POST   | Per-query relevance rating (1–5), append-only        |
 | `/secured/document/rating`              | POST   | Permanent importance/quality rating (upsert)         |
@@ -157,7 +158,7 @@ Rules:
 - `sentence_number` — optional integer `>= 1` — the sentence position within the part; returned on query hits
 - `tables` — optional array of structured tables (max 50). See **Structured tables** below.
 
-**Preparing content:** Convert PDFs, Word, HTML, etc. to **Markdown-style plain text** before chunking. See the [Client Integration Guide](../Audience/Client%20Integration%20Guide.md) → *Document format*. Use `#`/`##`/`###` headings in the `snippet` to mark chapters and sections — Knovas reads that structure from the text; there is no separate "chapter" or "section" field.
+**Preparing content:** Convert PDFs, Word, HTML, etc. to **Markdown-style plain text** before chunking. See the [Client Integration Guide](Client_Integration_Guide.md) → *Document format*. Use `#`/`##`/`###` headings in the `snippet` to mark chapters and sections — Knovas reads that structure from the text; there is no separate "chapter" or "section" field.
 
 ### Structured tables (optional)
 
@@ -325,6 +326,112 @@ Request body:
 
 Success (`200`) includes `document_uuid`, `deleted_sentences`, and `deleted_versions`. **404** if the pointer does not exist.
 
+## DELETE `/secured/delete_all_documents`
+
+Erase **every document you have uploaded**, in one call. There is no undo — Knovas
+cannot restore your documents afterwards, and neither can you without re-uploading
+them. Use `/secured/delete_information_object` if you only want to remove one.
+
+To guard against an accidental call, you must echo your own tenant id in the body.
+It is the UUID in the `CN` of your client certificate, and it is the same id the
+server derives from your certificate — so this is a typo guard, not a second
+credential. There is no way to target another tenant: the tenant is always taken
+from your certificate, and a body naming anyone else is simply rejected.
+
+Your tenant id is the `CN` of your client certificate. Read it straight from the
+cert rather than typing it, so the confirmation cannot drift from the identity the
+server derives:
+
+```bash
+CLIENT_ID=$(openssl x509 -in client_cert.pem -noout -subject \
+  | sed -n 's/.*CN *= *\([^,]*\).*/\1/p')
+echo "$CLIENT_ID"
+```
+
+Request body:
+
+```json
+{
+  "confirm_client_id": "11111111-2222-3333-4444-555555555555"
+}
+```
+
+Full call:
+
+```bash
+curl -X DELETE https://api.knovas.ch:8443/secured/delete_all_documents \
+  --cert client_cert.pem \
+  --key client_key.pem \
+  --cacert ca_root_cert.pem \
+  -H "Content-Type: application/json" \
+  -d "{\"confirm_client_id\": \"$CLIENT_ID\"}"
+```
+
+Python:
+
+```python
+import requests
+
+CLIENT_ID = "11111111-2222-3333-4444-555555555555"  # CN of your client certificate
+
+response = requests.delete(
+    "https://api.knovas.ch:8443/secured/delete_all_documents",
+    cert=("client_cert.pem", "client_key.pem"),
+    verify="ca_root_cert.pem",
+    json={"confirm_client_id": CLIENT_ID},
+    timeout=120,
+)
+response.raise_for_status()
+print(response.json())
+```
+
+Success (`200`):
+
+```json
+{
+  "status": "success",
+  "message": "All documents deleted successfully",
+  "client_id": "11111111-2222-3333-4444-555555555555",
+  "weaviate_tenant_reset": true,
+  "postgres_rows_deleted": {
+    "dedup_events": 128,
+    "document_ratings": 12,
+    "document_relevance_feedback": 40,
+    "transmission_keys": 0
+  }
+}
+```
+
+### What is deleted
+
+- **All your documents** — every version, every text chunk, and their embeddings.
+- **Your stored query embeddings.**
+- **Your document ratings and relevance feedback.**
+- **Any upload session that was still in progress.** Finish or abandon uploads
+  before calling this; a transmission running concurrently may leave a partly
+  ingested document behind.
+
+### What is kept
+
+- **Your account, organisation, and certificates.** You stay onboarded and can
+  upload again immediately — you do not need to re-enrol.
+- **Usage and billing records** (request counts, daily statistics). These record
+  *that* requests happened, never document contents, and are retained for
+  invoicing. If you need these erased too, that is a separate account-closure
+  request — contact Knovas.
+
+### Errors
+
+- `400` — `confirm_client_id` missing, or not equal to your own tenant id. **Nothing
+  is deleted.**
+- `401` / `403` — no valid client certificate.
+- `500` — the purge failed. Read the message: if it says the tenant was deleted but
+  could not be recreated, your documents are gone but uploads will fail until
+  Knovas restores the tenant. Contact Knovas rather than retrying.
+
+Deleting is idempotent — calling it again on an already-empty tenant succeeds and
+reports zero rows.
+
 ## POST `/secured/analytics/engagement`
 
 Report user actions tied to a search session. See [Analytics Integration Guide](Analytics_Integration_Guide.md).
@@ -398,7 +505,7 @@ Response (`200`) returns `pointer`, scores, and `last_updated`.
 
 ## Rate limits
 
-Gateway limits are per client certificate (tenant). See the [Client Integration Guide — Operational limits](../Audience/Client%20Integration%20Guide.md#operational-limits) for the current table. In short:
+Gateway limits are per client certificate (tenant). See the [Client Integration Guide — Operational limits](Client_Integration_Guide.md#operational-limits) for the current table. In short:
 
 - **Query** — slowest path (~12/min at the gateway; application adds a matching token bucket on `/secured/query`)
 - **Ingest parts** — highest throughput (3/s sustained)
@@ -426,6 +533,6 @@ Error responses carry a machine-readable `error_code` you can branch on. On `POS
 
 ## Related docs (this kit)
 
-- [Client Integration Guide](../Audience/Client%20Integration%20Guide.md) — onboarding, curl examples, limits, private key decryption
+- [Client Integration Guide](Client_Integration_Guide.md) — onboarding, curl examples, limits, private key decryption
 - [Analytics Integration Guide](Analytics_Integration_Guide.md) — engagement and feedback in depth
 

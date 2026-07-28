@@ -7,7 +7,7 @@ Customer deploy bundle for Knovas.
 Docker search UI for an indexed Knovas tenant. Requires mTLS client certificates and company login configuration.
 
 - Deploy: [KnovasPlatform/docs/setup.md](KnovasPlatform/docs/setup.md)
-- API reference: [KnovasPlatform/knovas-docs/Knovas_Developer_Implementation_Kit/README.md](KnovasPlatform/knovas-docs/Knovas_Developer_Implementation_Kit/README.md)
+- API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)
 
 ## RemoteController
 
@@ -17,6 +17,6 @@ Discover and sync local text files to Knovas (employee JWT; tenant mTLS for inge
 
 ## Prerequisites (from Knovas)
 
-- Tenant mTLS certificates
+- Tenant mTLS certificates — each component expects different filenames in a different directory; see [docs/certificates.md](docs/certificates.md)
 - Documents indexed in Knovas (via RemoteController or your ingestion pipeline)
 - For RemoteController: instance token, employee RC certificates, registered public URL

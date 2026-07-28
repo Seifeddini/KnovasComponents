@@ -10,7 +10,7 @@ Ingest and sync documents first with [RemoteController](../../RemoteController/)
 
 ## 2. Before you start
 
-- Knovas tenant and mTLS client certificate — see the [Implementation Kit](../knovas-docs/Knovas_Developer_Implementation_Kit/README.md)
+- Knovas tenant and mTLS client certificate — see the [API integration kit](../../docs/KnovasAPI/README.md) and [certificates.md](../../docs/certificates.md)
 - Documents already indexed in Knovas
 - Docker Engine and Compose; outbound HTTPS to your Knovas API (port 8443 is typical)
 
@@ -37,6 +37,27 @@ For **search only** (no UNC file open), set `OPEN_COMPANION_ENABLED=false` in `.
 ## 4. Certificates
 
 Place in `./certs/` (see [certs/README.md](../certs/README.md)): `client.crt`, `client.key`, `ca.crt`. Paths must match `.env`.
+
+Knovas ships these as `client-cert.pem`, `client-key.pem`, and `ca-root.pem` —
+**rename them on copy.** RemoteController uses the original `.pem` names from a
+different directory (the monorepo root), so you cannot point KnovasPlatform at
+RC's `certs/`. Cross-component reference: [docs/certificates.md](../../docs/certificates.md).
+
+```bash
+cp /path/to/client-cert.pem certs/client.crt
+cp /path/to/client-key.pem  certs/client.key
+cp /path/to/ca-root.pem     certs/ca.crt
+chmod 600 certs/client.key
+```
+
+Confirm mTLS works before starting the stack — this bypasses the app, so a
+failure here is a certificate or network problem, not a config one:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  --cert certs/client.crt --key certs/client.key --cacert certs/ca.crt \
+  https://api.knovas.ch:8443/secured/health
+```
 
 ## 5. Run and verify
 

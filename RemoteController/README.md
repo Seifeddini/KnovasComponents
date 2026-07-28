@@ -34,7 +34,9 @@ Clears **local** sync progress so RC treats every file as new and re-uploads on 
 ```bash
 export RC_BASE=http://127.0.0.1:5001   # or your HTTPS edge URL
 
-curl -sS -X POST "$RC_BASE/sync/stop"
+# /sync/stop takes no arguments but still requires a JSON body (CSRF defense)
+curl -sS -X POST "$RC_BASE/sync/stop" \
+  -H "Content-Type: application/json" -d '{}'
 curl -sS "$RC_BASE/sync/status"        # expect scheduler_state: not_running
 ```
 
@@ -59,4 +61,13 @@ Re-uploading may create duplicate transmissions in Knovas. To wipe Docker state 
 
 ## Security
 
-Employee RC cert for RC routes; tenant cert for Knovas ingestion only. Do not expose port 5001 publicly in production — use the edge proxy in [docs/nginx-edge.example.conf](docs/nginx-edge.example.conf).
+RC routes are authenticated by an **employee Bearer JWT**, which RC validates by
+calling back to Knovas (`/remote_controller/verify_operator`) with its
+`RC_INSTANCE_TOKEN`. RC itself does **not** verify an employee client
+certificate — see the known gap in [docs/SETUP.md](docs/SETUP.md#step-6--configure-the-edge-proxy).
+
+The tenant mTLS certs in `.env` are used only for **outbound** ingestion to
+Knovas, never to authenticate inbound RC calls. Filenames and permissions:
+[docs/certificates.md](../docs/certificates.md).
+
+Do not expose port 5001 publicly in production — use the edge proxy in [docs/nginx-edge.example.conf](docs/nginx-edge.example.conf).

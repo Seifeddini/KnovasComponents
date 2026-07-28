@@ -17,5 +17,6 @@
 | Open Office/UNC files from the browser | [integration/opening-documents.md](integration/opening-documents.md) |
 | Open-token HTTP API | [integration/open-tokens-api.md](integration/open-tokens-api.md) |
 | Common errors | [integration/troubleshooting.md](integration/troubleshooting.md) |
-| Knovas API (mTLS, ingestion) | [knovas-docs/Knovas_Developer_Implementation_Kit](../knovas-docs/Knovas_Developer_Implementation_Kit/README.md) |
+| Knovas API (mTLS, ingestion) | [docs/KnovasAPI](../../docs/KnovasAPI/README.md) |
+| mTLS certificates (filenames, permissions) | [docs/certificates.md](../../docs/certificates.md) |
 | Index documents before search | [RemoteController](../../RemoteController/README.md) |

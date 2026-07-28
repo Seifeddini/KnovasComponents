@@ -18,6 +18,7 @@
 
 | Doc | Use |
 |-----|-----|
+| [certificates.md](../../docs/certificates.md) | **mTLS bundle** — filenames per component, permissions, uid 10001, verification |
 | [configuration.md](configuration.md) | `.env` and sync scheduler JSON |
 | [network-and-firewall.md](network-and-firewall.md) | Firewall, public URL, outbound rules |
 | [operations.md](operations.md) | Health, metrics, **stop sync**, upgrades |

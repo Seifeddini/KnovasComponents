@@ -136,7 +136,8 @@ curl -sS -X POST "$RC_BASE/sync/start" \
 curl -sS "$RC_BASE/sync/status"
 curl -sS "$RC_BASE/sync/status?live=1"
 
-curl -sS -X POST "$RC_BASE/sync/stop"
+curl -sS -X POST "$RC_BASE/sync/stop" \
+  -H "Content-Type: application/json" -d '{}'
 ```
 
 Production (edge URL) still requires `RC_INSTANCE_TOKEN` and employee JWT on all discover/sync endpoints.
@@ -177,10 +178,19 @@ The worker finishes the **current file** (per `pause_policy` in `remote_controll
 
 **Internal LAN** (`RC_INTERNAL_LOCAL_BYPASS=true` — no JWT):
 
+Every state-changing RC route (`/sync`, `/sync/start`, `/sync/stop`,
+`/sync/config`) requires `Content-Type: application/json` **and** a body, even
+when the endpoint takes no arguments. A bare POST returns
+`400 {"error":"Request body must be JSON"}` — that is the CSRF / DNS-rebind
+defense in `require_same_origin`, not an authentication failure. `GET` routes
+need no header.
+
 ```bash
 export RC_BASE=http://127.0.0.1:5001
 
-curl -sS -X POST "$RC_BASE/sync/stop"
+curl -sS -X POST "$RC_BASE/sync/stop" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 
 curl -sS "$RC_BASE/sync/status"
 # expect: "scheduler_state": "not_running", "worker_alive": false
@@ -190,7 +200,9 @@ curl -sS "$RC_BASE/sync/status"
 
 ```bash
 curl -sS -X POST "$RC_BASE/sync/stop" \
-  -H "Authorization: Bearer $EMPLOYEE_JWT"
+  -H "Authorization: Bearer $EMPLOYEE_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 | Goal | Command |
