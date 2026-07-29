@@ -14,4 +14,6 @@ Requirements: mTLS client certs, Docker Compose, configured `.env`.
 
 **Demo without a tenant:** [docs/demo.md](docs/demo.md)
 
-**Knovas HTTP API:** [knovas-docs/Knovas_Developer_Implementation_Kit/README.md](knovas-docs/Knovas_Developer_Implementation_Kit/README.md)
+**Knovas HTTP API:** [docs/KnovasAPI/README.md](../docs/KnovasAPI/README.md)
+
+**mTLS certificates:** [docs/certificates.md](../docs/certificates.md) — KnovasPlatform expects `client.crt` / `client.key` / `ca.crt` in `certs/`, which are the *same* files RemoteController uses under different names.

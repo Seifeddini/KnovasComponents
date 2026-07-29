@@ -14,8 +14,8 @@ from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from config import get_config
-from sync.ingest_rate_limit import acquire as acquire_ingest
 from sync.ingest_rate_limit import configure as configure_ingest
+from sync.rate_metrics import IngestRateMetrics
 from sync.sync_config import load_sync_config
 from sync.sync_executor import SyncRunResult, run_sync_work
 from sync.knovas_uploader import SemantixUploader
@@ -140,6 +140,8 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     configure_ingest(
         int(rl.get("max_ingestion_requests_per_minute", 30)),
         int(rl.get("burst", 5)),
+        max_chars_per_minute=rl.get("max_ingestion_chars_per_minute"),
+        burst_chars=rl.get("burst_chars"),
     )
 
     now = datetime.now(timezone.utc)
@@ -183,15 +185,10 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
             tz,
         )
 
-    def ingest_token() -> bool:
-        if not acquire_ingest():
-            _set_status("rate_limited_wait")
-            return False
-        return True
-
-    uploader = SemantixUploader()
+    uploader = SemantixUploader(rate_metrics=IngestRateMetrics())
     logger.info(
-        "Sync cycle scanning corpus and uploading (rate_limit=%s/min, max_duration_min=%s)",
+        "Sync cycle scanning corpus and uploading (chars/min=%s, requests/min=%s, max_duration_min=%s)",
+        rl.get("max_ingestion_chars_per_minute", "off"),
         rl.get("max_ingestion_requests_per_minute", 30),
         max_duration,
     )
@@ -201,7 +198,6 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
             uploader,
             should_stop=should_stop,
             is_in_sync_window=in_window,
-            acquire_ingest_token=ingest_token,
             sync_config=ctx.sync_config,
         )
     except Exception as exc:

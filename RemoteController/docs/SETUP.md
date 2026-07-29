@@ -78,12 +78,24 @@ Set file permissions to `0600` on the tenant key file. For Docker (user `rcuser`
 
 ## Step 3 — Prepare volumes
 
+Two **different** certificate directories are in play — mixing them up is the
+most common setup failure:
+
+| Directory | Holds | Mounted at |
+|-----------|-------|------------|
+| `KnovasComponents/certs/` (**monorepo root**, one level above `RemoteController/`) | Tenant mTLS bundle for talking to Knovas | `/certs` |
+| `RemoteController/certs/edge/` | Public TLS + employee CA for the NGINX edge | `/etc/nginx/certs` |
+
 ```bash
-mkdir -p certs data config certs/edge
-chmod 600 certs/*.pem certs/*.key 2>/dev/null || true
+# From RemoteController/
+mkdir -p ../certs data config certs/edge
 ```
 
-- Mount tenant certs under `/certs` (paths must match `.env`).
+- Tenant certs go in `../certs` — **not** `RemoteController/certs/`. Putting them
+  in the latter is silently ignored by Compose and surfaces later as
+  `401 Client certificate not authorized`.
+- Install them with `./scripts/install_tenant_certs.sh`, which sets ownership to
+  uid 10001 and the directory traversal bit. Full reference: [certificates.md](../../docs/certificates.md).
 - Mount document roots under `/data` (paths must match `RC_WATCH_ROOTS`).
 - For Compose + NGINX: place public TLS and employee CA under `certs/edge/` (see [nginx-edge.example.conf](nginx-edge.example.conf)).
 
@@ -107,7 +119,7 @@ Uses [docker-compose.yml](../docker-compose.yml) with RC + NGINX edge.
 docker build -t remote-controller:0.1.1 .
 docker run -d --name remote-controller \
   --env-file .env \
-  -v "$(pwd)/certs:/certs:ro" \
+  -v "$(cd .. && pwd)/certs:/certs:ro" \
   -v "$(pwd)/data:/data:ro" \
   -v rc-config:/app/config \
   remote-controller:0.1.1
@@ -140,7 +152,15 @@ If the container exits immediately, check logs — required env vars are validat
 
 **Required for production employee access.** Do not expose port 5001 directly to the internet.
 
-Terminate HTTPS at NGINX/Envoy and proxy to RC. Employees authenticate with `Authorization: Bearer <JWT>` only.
+Terminate HTTPS at NGINX/Envoy and proxy to RC. Employees authenticate with `Authorization: Bearer <JWT>`; RC validates it by calling Knovas `/remote_controller/verify_operator` with its `RC_INSTANCE_TOKEN`.
+
+> **Known gap (2026-07-28).** Knovas requires both `employee_id` and
+> `certificate_serial` in that verification call, but RC currently sends only
+> `employee_id` and never reads an employee client certificate. JWT-authenticated
+> production calls therefore fail verification with a 400 today. Deployments run
+> with `RC_INTERNAL_LOCAL_BYPASS=true` on a trusted internal network instead
+> (see [local-setup.md](local-setup.md)). Confirm the current status with Knovas
+> before exposing RC to employees over a public edge.
 
 Copy and customize [nginx-edge.example.conf](nginx-edge.example.conf). With Compose, it is mounted automatically; adjust `server_name` and certificate paths under `certs/edge/`.
 
@@ -180,8 +200,14 @@ Stop continuous background sync (worker only — RC API stays up):
 
 ```bash
 curl -sS -X POST "$RC_BASE/sync/stop" \
-  -H "Authorization: Bearer $EMPLOYEE_JWT"
+  -H "Authorization: Bearer $EMPLOYEE_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
+
+`/sync/stop` takes no arguments but still requires a JSON body — RC's CSRF
+defense rejects any POST that is not `Content-Type: application/json` with
+`{"error":"Request body must be JSON"}`. The same applies to every POST below.
 
 Details: [operations.md](operations.md#stop-sync) and [local-commands.md](local-commands.md#stop-sync).
 

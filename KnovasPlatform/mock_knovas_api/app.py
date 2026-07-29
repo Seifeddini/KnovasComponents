@@ -214,42 +214,6 @@ def secured_engagement() -> Any:
     ), 202
 
 
-@app.post("/secured/analytics/relevance-feedback")
-def secured_relevance() -> Any:
-    return jsonify({"status": "success", "message": "Relevance feedback recorded", "recorded": True}), 202
-
-
-@app.get("/secured/document/rating")
-def secured_get_rating() -> Any:
-    pointer = request.args.get("pointer", "")
-    return jsonify(
-        {
-            "status": "success",
-            "message": "Document rating retrieved",
-            "rating": None,
-            "relevance_feedback": {"total_ratings": 0},
-            "pointer": pointer,
-            "mock": True,
-        }
-    )
-
-
-@app.post("/secured/document/rating")
-def secured_post_rating() -> Any:
-    payload = request.get_json(silent=True) or {}
-    return jsonify(
-        {
-            "status": "success",
-            "message": "Document rating updated",
-            "pointer": payload.get("pointer"),
-            "importance_score": payload.get("importance_score"),
-            "quality_score": payload.get("quality_score"),
-            "last_updated": datetime.now(timezone.utc).isoformat(),
-            "mock": True,
-        }
-    )
-
-
 @app.post("/secured/sign_certificate")
 def secured_sign_certificate() -> Any:
     payload = request.get_json(silent=True) or {}

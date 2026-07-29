@@ -11,9 +11,11 @@ from typing import Any, Callable, Iterator, Optional, Tuple
 import requests
 
 from config import get_config
-from sync.chunking import build_transmission_parts
+from sync.ingest_rate_limit import acquire_chars, acquire_request
+from sync.rate_metrics import IngestRateMetrics
+from sync.chunking import PART_MAX_CHARS, build_transmission_parts
 from sync.context_sidecar import context_store_dir_from_env, write_context_sidecar
-from sync.document_text import ConversionError, extract_document
+from sync.document_text import ConversionError, extract_document_guarded
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,11 @@ def _transmit_part_body(
 
 
 class SemantixUploader:
-    def __init__(self, on_ingest_request: Optional[Callable[[], None]] = None):
+    def __init__(
+        self,
+        on_ingest_request: Optional[Callable[[], None]] = None,
+        rate_metrics: Optional[IngestRateMetrics] = None,
+    ):
         cfg = get_config()
         self._base = cfg.semantix_secure_base_url
         self._cert = (
@@ -63,6 +69,15 @@ class SemantixUploader:
         )
         self._verify = cfg.semantix_ca_cert_path
         self._on_ingest = on_ingest_request or (lambda: None)
+        self._rate_metrics = rate_metrics
+
+    def _ingest_char_cost(self, json_body: Optional[dict]) -> int:
+        if not json_body:
+            return 1
+        snippet = json_body.get("snippet")
+        if isinstance(snippet, str) and snippet:
+            return max(len(snippet), 1)
+        return 1
 
     def _request(
         self, method: str, path: str, *, json_body: Optional[dict] = None, max_retries: int = 5
@@ -71,7 +86,11 @@ class SemantixUploader:
         backoff = 1.0
         last_exc: Optional[Exception] = None
         for attempt in range(max_retries):
+            cost = self._ingest_char_cost(json_body)
+            if not acquire_chars(cost) or not acquire_request():
+                raise requests.RequestException("ingest rate limit exceeded")
             self._on_ingest()
+            started = time.monotonic()
             try:
                 resp = requests.request(
                     method,
@@ -83,11 +102,26 @@ class SemantixUploader:
                 )
             except requests.RequestException as exc:
                 last_exc = exc
+                if self._rate_metrics is not None:
+                    self._rate_metrics.record_request(
+                        chars=cost,
+                        latency_seconds=time.monotonic() - started,
+                        http_status=0,
+                        success=False,
+                    )
                 if attempt >= max_retries - 1:
                     raise
                 time.sleep(backoff + random.uniform(-0.1, 0.1) * backoff)
                 backoff = min(MAX_BACKOFF, backoff * 2)
                 continue
+
+            if self._rate_metrics is not None:
+                self._rate_metrics.record_request(
+                    chars=cost,
+                    latency_seconds=time.monotonic() - started,
+                    http_status=resp.status_code,
+                    success=200 <= resp.status_code < 300,
+                )
 
             if resp.status_code not in RETRY_STATUS:
                 return resp
@@ -103,11 +137,11 @@ class SemantixUploader:
     ) -> UploadResult:
         ingestion = sync_body.get("ingestion") or {}
         prefix = ingestion.get("identifier_prefix", "rc-sync")
-        part_max = min(int(ingestion.get("part_max_chars", 50000)), 50000)
+        part_max = min(int(ingestion.get("part_max_chars", PART_MAX_CHARS)), PART_MAX_CHARS)
         identifier = f"{prefix}/{relative_path.replace(chr(92), '/')}"
 
         try:
-            doc = extract_document(file_path)
+            doc = extract_document_guarded(file_path)
             text, sentences = doc.text, doc.sentences
             extracted_title = doc.title
             parts = build_transmission_parts(

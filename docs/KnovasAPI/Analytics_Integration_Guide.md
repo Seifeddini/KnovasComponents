@@ -279,5 +279,5 @@ Response (`200`):
 
 ## Related docs (this kit)
 
-- [Client Integration Guide](../Audience/Client%20Integration%20Guide.md) — onboarding, curl examples, limits
+- [Client Integration Guide](Client_Integration_Guide.md) — onboarding, curl examples, limits
 - [Secure API](Secure_API.md) — upload, query, delete, and feedback endpoint rules

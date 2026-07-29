@@ -38,7 +38,7 @@
       "additionalProperties": false,
       "properties": {
         "identifier_prefix": { "type": "string", "minLength": 1 },
-        "part_max_chars": { "type": "integer", "minimum": 1, "maximum": 50000 },
+        "part_max_chars": { "type": "integer", "minimum": 1, "maximum": 500000 },
         "description": { "type": "string", "maxLength": 2000 },
         "delete_on_remove": { "type": "boolean", "default": true }
       }

@@ -14,6 +14,6 @@
   },
   "ingestion": {
     "identifier_prefix": "winjur",
-    "part_max_chars": 50000
+    "part_max_chars": 500000
   }
 }

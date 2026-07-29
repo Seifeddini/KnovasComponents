@@ -120,8 +120,9 @@ notifications:
 advanced:
   # Document content extraction
   extraction:
-    # Use OCR for scanned PDFs (requires additional dependencies)
-    use_ocr: false
+    # Use OCR for scanned PDFs (requires tesseract-ocr in the container image)
+    use_ocr: true
+    ocr_language: "deu+eng"
     # Maximum file size to process (bytes, 0 = unlimited)
     max_file_size: 104857600  # 100 MB
   

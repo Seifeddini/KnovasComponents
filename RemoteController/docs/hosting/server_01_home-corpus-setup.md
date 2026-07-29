@@ -272,7 +272,7 @@ Use `examples/sync-request-corpus.json`:
   },
   "ingestion": {
     "identifier_prefix": "corpus",
-    "part_max_chars": 50000
+    "part_max_chars": 500000
   }
 }
 ```
@@ -328,8 +328,13 @@ Stop continuous sync:
 
 ```bash
 curl -sS -X POST "$RC_BASE/sync/stop" \
-  -H "Authorization: Bearer $EMPLOYEE_JWT"
+  -H "Authorization: Bearer $EMPLOYEE_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
+
+`/sync/stop` takes no arguments but still needs the JSON content type and a
+body; a bare POST returns `400 {"error":"Request body must be JSON"}`.
 
 ---
 
@@ -398,7 +403,7 @@ The NGINX edge on `:443` with employee mTLS is **not** set up on this server. Po
 4. Start full stack: `docker compose up -d` (without `docker-compose.internal.yml`)
 5. Register public RC URL with Knovas admin
 
-See [SETUP.md](SETUP.md) steps 6–8.
+See [SETUP.md](../SETUP.md) steps 6–8.
 
 ---
 

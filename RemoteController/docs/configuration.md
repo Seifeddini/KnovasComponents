@@ -77,6 +77,8 @@ RemoteController converts the following extensions to text (with per-sentence ci
 
 Each chunk carries a `page_number` (PDFs only) and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition.
 
+`ingestion.part_max_chars` defaults to `500000` (the Secure API `snippet` limit). Lower it in the sync request body if you need smaller transmission parts.
+
 **Open/download:** Ingest uses the **original** relative path in `identifier` (e.g. `corpus/akten/Brief.pdf`). KnovasPlatform resolves search pointers to that path on the AutoDoc mount, so clients open the original file—not the converted text.
 
 Align deployment with KnovasPlatform:
@@ -84,4 +86,8 @@ Align deployment with KnovasPlatform:
 - Mount the same tree of originals on RC watch roots and `AUTODOC_MOUNT_PATH`.
 - Set `ingestion.identifier_prefix` equal to `AUTODOC_IDENTIFIER_PREFIX` (e.g. both `corpus`).
 
-Scanned PDFs without a text layer fail sync with a conversion error. Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
+Scanned PDFs without a text layer are OCR'd automatically when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs.
+
+**Docker build:** `knovas-extract` 0.3.0 (OCR) may not be on PyPI yet. The Dockerfile installs it from `git+https://github.com/Seifeddini/knovas-extract-python.git@main` by default. After PyPI publish, use `docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller` to install from PyPI instead.
+
+Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).

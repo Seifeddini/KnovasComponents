@@ -18,6 +18,7 @@ from sync.document_text import (
     is_unconvertible_error,
 )
 from sync.knovas_uploader import SemantixUploader, UploadResult
+from sync.rate_metrics import IngestRateMetrics
 from sync.semantix_cert import ensure_mtls_certificate_freshness
 from sync.subfolder_queue import SubfolderProgress, SubfolderQueue
 from sync.sync_config import effective_filters
@@ -50,6 +51,7 @@ class SyncRunResult:
     document_sync: Optional[DocumentSyncSummary] = None
     scan_truncated: bool = False
     subfolder_progress: Optional[dict[str, Any]] = None
+    rate_limit: Optional[dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
@@ -577,7 +579,6 @@ def run_sync_work(
     *,
     should_stop: Callable[[], bool] = lambda: False,
     is_in_sync_window: Callable[[], bool] = lambda: True,
-    acquire_ingest_token: Callable[[], bool] = lambda: True,
     sync_config: dict[str, Any] | None = None,
     now: datetime | None = None,
     max_transmissions_in_response: int = 100,
@@ -630,13 +631,13 @@ def run_sync_work(
             if not is_in_sync_window():
                 result.paused_reason = "outside_window"
                 break
-            if not acquire_ingest_token():
-                result.paused_reason = "rate_limited"
-                break
 
             try:
                 upload = uploader.upload_file(abs_path, rel, sync_body)
-            except requests.RequestException:
+            except requests.RequestException as exc:
+                if "rate limit" in str(exc).lower():
+                    result.paused_reason = "rate_limited"
+                    break
                 raise
             except Exception as exc:
                 logger.warning(
@@ -709,5 +710,9 @@ def run_sync_work(
         if queue is not None:
             queue.close()
         state.close()
+
+    metrics = getattr(uploader, "_rate_metrics", None)
+    if isinstance(metrics, IngestRateMetrics):
+        result.rate_limit = metrics.as_dict()
 
     return result

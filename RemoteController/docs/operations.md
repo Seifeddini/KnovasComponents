@@ -39,14 +39,20 @@ Stop the **background worker** with `POST /sync/stop`. The RC API stays up; only
 export RC_BASE=http://127.0.0.1:5001   # or your HTTPS edge URL
 
 # Local bypass (no JWT) when RC_INTERNAL_LOCAL_BYPASS=true:
-curl -sS -X POST "$RC_BASE/sync/stop"
+curl -sS -X POST "$RC_BASE/sync/stop" \
+  -H "Content-Type: application/json" -d '{}'
 
 # Production:
 curl -sS -X POST "$RC_BASE/sync/stop" \
-  -H "Authorization: Bearer $EMPLOYEE_JWT"
+  -H "Authorization: Bearer $EMPLOYEE_JWT" \
+  -H "Content-Type: application/json" -d '{}'
 
 curl -sS "$RC_BASE/sync/status"
 ```
+
+`/sync/stop` takes no arguments, but every state-changing RC route requires
+`Content-Type: application/json` and a body — a bare POST returns
+`400 {"error":"Request body must be JSON"}`. `GET /sync/status` is unaffected.
 
 Confirm stop: `"scheduler_state": "not_running"` and `"worker_alive": false`.
 
@@ -66,11 +72,24 @@ To prevent sync from auto-starting after a container restart, set `"enabled": fa
 - `POST /sync` responses cap `transmissions` (default 100 entries); counts in `document_sync` remain full.
 - **Do not** use `GET /sync/status?deep_scan=1` on huge trees — it is capped by `max_scan_entries_per_cycle` but still runs in the HTTP worker. Prefer logs and `GET /sync/status?live=1`.
 - Example scheduler config for WinJur: [config/remote_controller_sync.winjur.example.json](../config/remote_controller_sync.winjur.example.json).
-- Uploads stream file parts (bounded RAM per file). Initial ingest wall-clock still depends on Semantix rate limits.
+- Uploads stream file parts (bounded RAM per file). Initial ingest wall-clock still depends on Knovas ingestion rate limits.
+
+## Scanned PDFs (OCR)
+
+Image-only PDFs are ingested via Tesseract when `knovas-extract>=0.3` and `tesseract-ocr` are present in the RC image (`RC_PDF_OCR_ENABLED=true` by default; `RC_TESSERACT_LANG=deu+eng`).
+
+PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite and will not retry until those rows are removed:
+
+```bash
+sqlite3 /var/rc-state/.rc-sync-state.db \
+  "DELETE FROM documents WHERE transmission_key_id LIKE 'skip:%';"
+```
+
+Then restart continuous sync or wait for the next cycle.
 
 ## Upgrades
 
-1. Stop continuous worker (`POST /sync/stop`).
+1. Stop continuous worker (`POST /sync/stop` — remember the `-d '{}'` body).
 2. Replace image or package; preserve `.env`, certs, state, and config volumes.
 3. Verify `/health`, then run a test `GET /discover`.
 

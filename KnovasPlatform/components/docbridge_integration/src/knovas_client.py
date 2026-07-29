@@ -454,11 +454,21 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
             parts_from_base64 = None  # type: ignore[misc,assignment]
         else:
             try:
+                use_ocr: bool | str = "auto"
+                ocr_language = "deu+eng"
+                try:
+                    cfg = get_config()
+                    use_ocr = "auto" if cfg.get_bool("advanced.extraction.use_ocr", True) else False
+                    ocr_language = str(cfg.get("advanced.extraction.ocr_language") or ocr_language)
+                except Exception:
+                    pass
                 parts = parts_from_base64(
                     str(b64),
                     ext,
                     pointer=identifier,
                     path=str(init_fields.get("path") or identifier),
+                    use_ocr=use_ocr,
+                    ocr_language=ocr_language,
                 )
                 if parts:
                     return parts, init_fields
