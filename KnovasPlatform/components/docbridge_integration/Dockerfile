@@ -8,8 +8,9 @@ LABEL description="DocBridge-Knovas Integration Services"
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (git: pip install from git+https needs it)
 RUN apt-get update && apt-get install -y \
+    git \
     unixodbc \
     unixodbc-dev \
     odbcinst \
@@ -31,8 +32,21 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements file
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies, except knovas-extract (handled below).
+RUN grep -viE '^[[:space:]]*knovas-extract' requirements.txt > /tmp/requirements-no-extract.txt \
+    && pip install --no-cache-dir -r /tmp/requirements-no-extract.txt
+
+# knovas-extract>=0.3 may lag PyPI (latest published is 0.2.0). Default: install
+# from git main. After 0.3.0 is published, rebuild with an empty ref to use PyPI:
+#   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= docbridge-web
+ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git@main
+RUN if [ -n "${KNOVAS_EXTRACT_FROM_GIT}" ]; then \
+      pip install --no-cache-dir \
+        "knovas-extract[pdf,docx,msg,markdown,sentences] @ git+https://${KNOVAS_EXTRACT_FROM_GIT}"; \
+    else \
+      pip install --no-cache-dir \
+        "knovas-extract[pdf,docx,msg,markdown,sentences]>=0.3"; \
+    fi
 
 # Copy application code
 COPY src/ ./src/
