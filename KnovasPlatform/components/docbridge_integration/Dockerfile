@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-deu \
     tesseract-ocr-eng \
     tesseract-ocr-fra \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Microsoft ODBC Driver for SQL Server (if needed for Access alternative)
@@ -31,8 +32,22 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements file
 COPY requirements.txt .
 
+# knovas-extract >=0.3 (PDF-OCR) ist noch nicht auf PyPI veroeffentlicht --
+# dort endet die Reihe bei 0.2.0. Es kommt deshalb per Default aus git,
+# analog zu dem, was RemoteController/Dockerfile in 88d0c3c bereits tut.
+# Sobald 0.3.0 auf PyPI liegt, mit leerem Build-Arg bauen:
+#   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= docbridge-web
+ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git@main
+
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN grep -v '^knovas-extract' requirements.txt > /tmp/requirements-other.txt \
+    && pip install --no-cache-dir -r /tmp/requirements-other.txt \
+    && if [ -n "${KNOVAS_EXTRACT_FROM_GIT}" ]; then \
+         pip install --no-cache-dir \
+           "knovas-extract[pdf,docx,msg,html,markdown,sentences] @ git+https://${KNOVAS_EXTRACT_FROM_GIT}"; \
+       else \
+         pip install --no-cache-dir "$(grep '^knovas-extract' requirements.txt)"; \
+       fi
 
 # Copy application code
 COPY src/ ./src/
