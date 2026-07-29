@@ -86,4 +86,8 @@ Align deployment with KnovasPlatform:
 - Mount the same tree of originals on RC watch roots and `AUTODOC_MOUNT_PATH`.
 - Set `ingestion.identifier_prefix` equal to `AUTODOC_IDENTIFIER_PREFIX` (e.g. both `corpus`).
 
-Scanned PDFs without a text layer are OCR'd automatically when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs. Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
+Scanned PDFs without a text layer are OCR'd automatically when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs.
+
+**Docker build:** `knovas-extract` 0.3.0 (OCR) may not be on PyPI yet. The Dockerfile installs it from `git+https://github.com/Seifeddini/knovas-extract-python.git@main` by default. After PyPI publish, use `docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller` to install from PyPI instead.
+
+Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
