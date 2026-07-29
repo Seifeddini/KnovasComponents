@@ -302,8 +302,17 @@ a.btn-success {
 .document-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     flex-shrink: 0;
+}
+
+/* Compact result actions: text-only labels, so they need less room than the
+   search button. Scoped here to keep .btn defaults for the rest of the UI. */
+.document-actions .btn {
+    padding: 6px 12px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    gap: 0;
 }
 
 .document-meta {

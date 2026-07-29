@@ -562,14 +562,14 @@ class DocumentSearchApp {
         const showDegradedDownload = !!cfg.allowDegradedDownloadOpen;
         const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
         const openBtnLabel =
-            onHttps && !useCompanion ? '📋 Pfad kopieren (Win+R)' : '📂 Öffnen';
+            onHttps && !useCompanion ? 'Pfad kopieren' : 'Öffnen';
 
         let actionsHtml;
         if (hasOneDrive) {
             const openHref = this.externalOpenHref(docId, path || docId);
             actionsHtml = `
                 <a class="btn btn-success" href="${this.escapeAttr(openHref)}" target="_blank" rel="noopener noreferrer">
-                    🔗 In OneDrive öffnen
+                    In OneDrive öffnen
                 </a>
             `;
         } else if (localAvailable) {
@@ -578,7 +578,7 @@ class DocumentSearchApp {
                 : '';
             const downloadBtn = showDegradedDownload
                 ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">
-                    💾 Download (degradiert)
+                    Download (degradiert)
                 </button>`
                 : '';
             actionsHtml = `
