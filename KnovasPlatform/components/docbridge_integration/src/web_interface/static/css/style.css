@@ -716,6 +716,8 @@ mark.context-snippet-match,
 /* --- Dokumentvorschau als Modal ---------------------------------------- */
 
 .preview-dialog {
+    --dialog-pad-x: 20px;
+
     /* Der globale `* { margin: 0 }`-Reset kippt das `margin: auto`, mit dem
        der Browser modale Dialoge zentriert -- ohne diese Zeile klebt das
        Modal in der linken oberen Ecke. */
@@ -747,8 +749,22 @@ mark.context-snippet-match,
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    padding: 18px 20px 12px;
+    padding: 18px var(--dialog-pad-x) 14px;
     border-bottom: 1px solid var(--border-color);
+}
+
+/* Eigene Regel, weil der `*`-Reset sonst alles auf 0 setzt: der Button
+   braucht Abstand zur Trennlinie oben und zum Inhalt darunter. */
+.preview-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px var(--dialog-pad-x);
+}
+
+.preview-actions:empty {
+    display: none;
 }
 
 .preview-dialog-heading {
@@ -830,7 +846,7 @@ mark.context-snippet-match,
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 14px 18px 20px;
+    padding: 0 var(--dialog-pad-x) var(--dialog-pad-x);
     font-size: 0.9rem;
 }
 
@@ -862,10 +878,14 @@ mark.context-snippet-match,
 /* Kein gerechnetes hoehe: das iframe fuellt den Rest des Panels. Jede feste
    Hoehe verfehlt frueher oder spaeter den verfuegbaren Platz und erzeugt eine
    zweite Scrollbar neben der des PDF-Viewers. */
+/* Der Viewer laeuft randlos bis an die Dialogkanten -- er bringt seine
+   eigene Oberflaeche mit, ein Rahmen darum waere ein Rahmen zu viel. Die
+   Oberkante trennt ihn von der Aktionszeile. */
 .preview-body.is-pdf {
     display: flex;
     overflow: hidden;
     padding: 0;
+    border-top: 1px solid var(--border-color);
 }
 
 .preview-body.is-pdf iframe {
