@@ -319,10 +319,9 @@ main {
 
 /* Results */
 .results-section {
-    background: var(--card-bg);
-    padding: 20px;
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-color);
+    /* Kein eigener Rahmen: die Karten grenzen sich selbst ab, ein Kasten um
+       Kaesten herum ist eine Ebene zu viel. */
+    padding: 0;
 }
 
 .results-header {
@@ -353,7 +352,7 @@ main {
 
 /* Document cards */
 .document-card {
-    background: var(--surface-sunken);
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 18px 20px;
@@ -415,10 +414,7 @@ main {
 }
 
 .document-ingested-summary {
-    margin-top: 12px;
-    padding: 12px 14px;
-    background: rgba(var(--accent-rgb), 0.08);
-    border-radius: 8px;
+    margin-top: 14px;
     font-size: 0.9rem;
     line-height: 1.5;
     color: var(--text-secondary);
@@ -437,16 +433,14 @@ main {
     color: var(--text-secondary);
 }
 
+/* Flach: Label plus Text, kein eigener Kasten. Die Struktur traegt die
+   Typografie, nicht ein dritter Rahmen innerhalb der Karte. */
 .document-first-page,
 .document-context-snippet {
-    margin-top: 12px;
-    padding: 12px 14px;
-    background: var(--surface-sunken);
-    border-radius: 8px;
+    margin-top: 14px;
     font-size: 0.9rem;
     line-height: 1.55;
     color: var(--text-secondary);
-    border: 1px solid var(--border-color);
 }
 
 .document-first-page-label,
@@ -718,56 +712,78 @@ mark.context-snippet-match,
     margin-top: 16px;
 }
 
-/* --- Dokumentvorschau ---------------------------------------------------- */
 
-.main-layout {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    align-items: flex-start;
-}
+/* --- Dokumentvorschau als Modal ---------------------------------------- */
 
-/* Die Suche gehoert ueber beide Spalten, nicht daneben: ohne die eigene
-   Zeile wird sie zwischen Ergebnisliste und Panel zerquetscht. */
-.main-layout > .search-section {
-    flex: 1 1 100%;
-}
-
-.main-layout > .results-section {
-    /* Basis 0, nicht auto: mit flex-wrap wuerde eine inhaltsbasierte Basis
-       zusammen mit der festen Panel-Breite die Zeile sprengen, und das Panel
-       rutscht unter die Liste statt daneben. */
-    flex: 1 1 0;
-    min-width: 0;
-}
-
-.preview-panel {
-    flex: 0 0 clamp(320px, 40%, 560px);
-    position: sticky;
-    top: 20px;
-    /* Feste Hoehe statt max-height: erst eine definite Hoehe kann an die
-       Kinder verteilt werden. Mit max-height allein faellt der Body auf die
-       Inhaltsgroesse zurueck -- und ein iframe hat da nur 150px. */
-    height: calc(100vh - 40px);
-    display: flex;
-    flex-direction: column;
-    background: var(--card-bg);
+.preview-dialog {
+    /* Der globale `* { margin: 0 }`-Reset kippt das `margin: auto`, mit dem
+       der Browser modale Dialoge zentriert -- ohne diese Zeile klebt das
+       Modal in der linken oberen Ecke. */
+    margin: auto;
+    width: min(1100px, calc(100vw - 2 * clamp(16px, 5vw, 72px)));
+    height: min(900px, calc(100vh - 2 * clamp(16px, 5vh, 56px)));
+    max-width: none;
+    max-height: none;
+    padding: 0;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
+    background: var(--card-bg);
+    color: var(--text-primary);
     overflow: hidden;
 }
 
-.preview-panel[hidden] {
-    display: none;
+.preview-dialog[open] {
+    display: flex;
+    flex-direction: column;
 }
 
-.preview-panel-header {
+.preview-dialog::backdrop {
+    background: rgba(7, 23, 45, 0.38);
+}
+
+.preview-dialog-header {
+    flex: 0 0 auto;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    padding: 16px 18px 10px;
+    padding: 18px 20px 12px;
     border-bottom: 1px solid var(--border-color);
+}
+
+.preview-dialog-heading {
+    min-width: 0;
+}
+
+.preview-dialog-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Zaehler zwischen den Pfeilen: ohne ihn weiss niemand, wie weit die Liste
+   noch reicht, sobald sie hinter dem Modal liegt. */
+.preview-position {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    padding: 0 6px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.preview-icon-button--close {
+    margin-left: 6px;
+}
+
+.preview-icon-button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.preview-icon-button:disabled:hover {
+    background: none;
+    color: var(--text-secondary);
 }
 
 .preview-title {
@@ -781,13 +797,6 @@ mark.context-snippet-match,
     margin-top: 4px;
     font-size: 0.8rem;
     color: var(--text-secondary);
-}
-
-.preview-panel-controls {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 2px;
 }
 
 .preview-icon-button {
@@ -810,75 +819,8 @@ mark.context-snippet-match,
     color: var(--text-primary);
 }
 
-/* Ein Icon, zwei Zustaende: ausklappende Pfeile im Panel-Modus,
-   einklappende im Vollbild. */
 .icon {
     flex: 0 0 auto;
-}
-
-.preview-icon-button .icon-collapse,
-.preview-panel.is-fullscreen .preview-icon-button .icon-expand {
-    display: none;
-}
-
-.preview-panel.is-fullscreen .preview-icon-button .icon-collapse {
-    display: inline;
-}
-
-/* Vollbild: das Panel loest sich aus der Spalte und deckt die Seite ab.
-   max-width haelt lange Textzeilen lesbar -- volle 1440px Fliesstext
-   waeren es nicht. */
-.preview-panel.is-fullscreen {
-    position: fixed;
-    /* Nicht randbuendig: das Panel liegt als Ebene ueber der Seite, und ein
-       Rand macht genau das sichtbar. Bei kleinen Fenstern schrumpft der
-       Abstand mit, damit auf engem Raum nichts verschenkt wird. */
-    inset: clamp(16px, 5vh, 56px) clamp(16px, 5vw, 72px);
-    z-index: 50;
-    max-height: none;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    flex-basis: auto;
-    overflow: hidden;
-}
-
-/* Abgedunkelter Hintergrund, damit der Fokus auf dem Dokument liegt und der
-   Rand nicht wie ein Darstellungsfehler wirkt. */
-body.preview-fullscreen::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: 49;
-    background: rgba(var(--text-primary-rgb), 0.38);
-}
-
-.preview-panel.is-fullscreen .preview-panel-header {
-    padding-top: 22px;
-}
-
-.preview-panel.is-fullscreen .preview-panel-header,
-.preview-panel.is-fullscreen .preview-actions {
-    max-width: 1100px;
-    width: 100%;
-    margin-inline: auto;
-}
-
-.preview-panel.is-fullscreen .preview-body {
-    max-width: 1100px;
-    width: 100%;
-    margin-inline: auto;
-}
-
-body.preview-fullscreen {
-    overflow: hidden;
-}
-
-
-.preview-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px 18px;
 }
 
 /* Basis 0 statt auto: mit inhaltsbasierter Basis faellt der Body bei einem
@@ -962,19 +904,7 @@ body.preview-fullscreen {
 }
 
 @media (max-width: 900px) {
-    .main-layout {
-        display: block;
-    }
-
-    .preview-panel {
-        position: fixed;
-        inset: 0;
-        max-height: none;
-        border-radius: 0;
-        z-index: 40;
-    }
-
-    body.preview-open {
+            body.preview-open {
         overflow: hidden;
     }
 }

@@ -29,13 +29,15 @@ class DocumentSearchApp {
         this.loadingIndicator = document.getElementById('loadingIndicator');
         this.toastContainer = document.getElementById('toastContainer');
         this.resultsPerPage = document.getElementById('resultsPerPage');
-        this.previewPanel = document.getElementById('previewPanel');
+        this.previewDialog = document.getElementById('previewDialog');
         this.previewTitle = document.getElementById('previewTitle');
         this.previewMeta = document.getElementById('previewMeta');
         this.previewBody = document.getElementById('previewBody');
         this.previewActions = document.getElementById('previewActions');
         this.previewClose = document.getElementById('previewClose');
-        this.previewExpand = document.getElementById('previewExpand');
+        this.previewPrev = document.getElementById('previewPrev');
+        this.previewNext = document.getElementById('previewNext');
+        this.previewPosition = document.getElementById('previewPosition');
         /** @type {AbortController|null} laufende Vorschau-Anfrage */
         this._previewAbort = null;
         /** @type {number|null} Index des aktuell gezeigten Treffers */
@@ -80,17 +82,32 @@ class DocumentSearchApp {
         this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
 
         this.previewClose.addEventListener('click', () => this.closePreview());
-        this.previewExpand.addEventListener('click', () => this.togglePreviewFullscreen());
+        this.previewPrev.addEventListener('click', () => this.stepPreview(-1));
+        this.previewNext.addEventListener('click', () => this.stepPreview(1));
 
-        // Klick auf den abgedunkelten Hintergrund klappt wieder ein -- erwartetes
-        // Verhalten fuer eine Ebene, die ueber der Seite liegt.
-        document.addEventListener('click', (e) => {
-            if (!this.previewPanel.classList.contains('is-fullscreen')) return;
-            if (this.previewPanel.contains(e.target)) return;
-            this.setPreviewFullscreen(false);
+        // <dialog> feuert 'close' bei Escape und bei close() gleichermassen --
+        // ein Ort fuer das Aufraeumen statt einer eigenen Escape-Behandlung.
+        this.previewDialog.addEventListener('close', () => this._afterPreviewClosed());
+
+        // Klick auf den Backdrop schliesst. Das Ereignis landet auf dem Dialog
+        // selbst, deshalb wird gegen sein Rechteck geprueft statt gegen contains().
+        this.previewDialog.addEventListener('click', (e) => {
+            if (e.target !== this.previewDialog) return;
+            const r = this.previewDialog.getBoundingClientRect();
+            const inside = e.clientX >= r.left && e.clientX <= r.right
+                && e.clientY >= r.top && e.clientY <= r.bottom;
+            if (!inside) this.closePreview();
         });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this.closePreview();
+
+        // Pfeiltasten blaettern durch die Treffer, solange das Modal offen ist.
+        this.previewDialog.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                this.stepPreview(1);
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                this.stepPreview(-1);
+            }
         });
 
         // Die Karten liegen per tabindex in der Tab-Reihenfolge, reagierten aber
@@ -155,35 +172,41 @@ class DocumentSearchApp {
     }
 
     closePreview() {
+        if (this.previewDialog.open) {
+            this.previewDialog.close();   // loest 'close' aus -> _afterPreviewClosed
+        } else {
+            this._afterPreviewClosed();
+        }
+    }
+
+    /** Aufraeumen nach dem Schliessen, egal ob per Escape, Button oder Backdrop. */
+    _afterPreviewClosed() {
         if (this._previewAbort) {
             this._previewAbort.abort();
             this._previewAbort = null;
         }
         this._previewIndex = null;
-        this.previewPanel.hidden = true;
-        document.body.classList.remove('preview-open');
-        this.setPreviewFullscreen(false);
         this._markActiveCard(null);
         this.previewBody.classList.remove('is-pdf');
         this.previewBody.innerHTML = '';
         this.previewActions.innerHTML = '';
+        this.previewPosition.textContent = '';
     }
 
-    /**
-     * Vollbild an oder aus. Das Panel bleibt der Normalfall -- wer ein
-     * Dokument wirklich liest, klappt auf; wer scannt, behaelt die Liste.
-     */
-    setPreviewFullscreen(on) {
-        this.previewPanel.classList.toggle('is-fullscreen', on);
-        document.body.classList.toggle('preview-fullscreen', on);
-        this.previewExpand.setAttribute('aria-pressed', on ? 'true' : 'false');
-        this.previewExpand.setAttribute('aria-label',
-            on ? 'Vorschau verkleinern' : 'Vorschau auf ganzen Bildschirm vergrössern');
-        this.previewExpand.setAttribute('title', on ? 'Verkleinern' : 'Vollbild');
+    /** Blaettert relativ zum aktuellen Treffer, ohne ueber die Enden zu laufen. */
+    stepPreview(delta) {
+        if (this._previewIndex == null) return;
+        const next = this._previewIndex + delta;
+        if (next < 0 || next >= this.currentResults.length) return;
+        this.openPreview(next);
     }
 
-    togglePreviewFullscreen() {
-        this.setPreviewFullscreen(!this.previewPanel.classList.contains('is-fullscreen'));
+    /** Zaehler und Pfeil-Zustaende an die Position anpassen. */
+    _updatePreviewPosition(index) {
+        const total = this.currentResults.length;
+        this.previewPosition.textContent = total ? `${index + 1} von ${total}` : '';
+        this.previewPrev.disabled = index <= 0;
+        this.previewNext.disabled = index >= total - 1;
     }
 
     /** Hebt die Karte hervor, deren Dokument gerade im Panel steht. */
@@ -210,9 +233,11 @@ class DocumentSearchApp {
         const path = String(doc.path || '');
         const title = this.displayTitle(doc);
 
-        this.previewPanel.hidden = false;
-        document.body.classList.add('preview-open');
+        if (!this.previewDialog.open) {
+            this.previewDialog.showModal();
+        }
         this._markActiveCard(index);
+        this._updatePreviewPosition(index);
         this.previewTitle.textContent = title;
         this.previewMeta.textContent = '';
         this.previewActions.innerHTML = this._previewActionsHtml(doc);
