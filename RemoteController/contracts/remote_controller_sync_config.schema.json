@@ -28,6 +28,8 @@
       "required": ["max_ingestion_requests_per_minute", "burst"],
       "additionalProperties": false,
       "properties": {
+        "max_ingestion_chars_per_minute": { "type": "integer", "minimum": 1 },
+        "burst_chars": { "type": "integer", "minimum": 1 },
         "max_ingestion_requests_per_minute": { "type": "integer", "minimum": 1 },
         "burst": { "type": "integer", "minimum": 1 }
       }

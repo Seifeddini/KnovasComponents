@@ -374,7 +374,7 @@ For HTTPS edge, employee JWT, firewall, and Knovas registration, follow [SETUP.m
 | `SSLError(PermissionError(13, ...))` | Container found the certs but cannot read them — run `install_tenant_certs.sh`, then `up -d` (not `restart`). See [certificates.md](../../docs/certificates.md) |
 | Cert path `invalid` / not found | `.env` names must match the files in `../certs`; compare `grep SEMANTIX .env` with `ls -la ../certs/` |
 | `missing optional dependency 'selectolax'` on `.docx` / `.msg` | Image built against a `knovas-extract` whose `[markdown]` extra omits selectolax. Rebuild with `docker compose ... build --no-cache` — RC now requests the `[html]` extra explicitly |
-| `no extractable text from .pdf file` | Image-only scan with no text layer. RC does no OCR, so these are skipped by design |
+| `no extractable text from .pdf file` | Image-only scan with no text layer. Ensure `tesseract-ocr` is in the RC image and `RC_PDF_OCR_ENABLED` is not `false` (default: OCR via knovas-extract). Re-queue skipped PDFs: `DELETE FROM documents WHERE transmission_key_id LIKE 'skip:%';` in `.rc-sync-state.db` |
 
 **Large corpus at monorepo root** (`KnovasComponents/corpus/`): add `-f docker-compose.corpus.yml` to the compose command and set `RC_WATCH_ROOTS=/data/corpus`. See [docker-compose.corpus.yml](../docker-compose.corpus.yml).
 

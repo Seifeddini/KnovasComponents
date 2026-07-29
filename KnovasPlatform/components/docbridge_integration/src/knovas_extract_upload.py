@@ -41,6 +41,8 @@ def parts_from_base64(
     pointer: str = "",
     path: str = "",
     write_sidecar: bool = True,
+    use_ocr: bool | str = "auto",
+    ocr_language: str = "deu+eng",
 ) -> List[Dict[str, Any]]:
     """
     Decode base64 document bytes and return Knovas transmit part dicts using the
@@ -66,7 +68,15 @@ def parts_from_base64(
         return []
 
     try:
-        result = extract(raw, mime=mime, emit_sentences=True, emit_markdown=True)
+        extract_kwargs: dict[str, object] = {
+            "mime": mime,
+            "emit_sentences": True,
+            "emit_markdown": True,
+        }
+        if dotted == ".pdf":
+            extract_kwargs["use_ocr"] = use_ocr
+            extract_kwargs["ocr_language"] = ocr_language
+        result = extract(raw, **extract_kwargs)
     except Exception as exc:
         logger.warning("knovas-extract failed for .%s: %s", normalized, exc)
         return []

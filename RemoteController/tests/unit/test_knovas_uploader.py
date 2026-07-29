@@ -148,7 +148,7 @@ def test_upload_pdf_markdown_sends_page_and_sentence(mock_config, tmp_path):
     )
 
     with patch.object(uploader, "_request") as req, patch(
-        "sync.knovas_uploader.extract_document", return_value=fake_doc
+        "sync.knovas_uploader.extract_document_guarded", return_value=fake_doc
     ):
         req.side_effect = [_ok_response(), _ok_response()]
         result = uploader.upload_file(md_file, "akten/brief.pdf", sync_body)

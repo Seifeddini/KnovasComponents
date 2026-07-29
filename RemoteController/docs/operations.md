@@ -74,6 +74,19 @@ To prevent sync from auto-starting after a container restart, set `"enabled": fa
 - Example scheduler config for WinJur: [config/remote_controller_sync.winjur.example.json](../config/remote_controller_sync.winjur.example.json).
 - Uploads stream file parts (bounded RAM per file). Initial ingest wall-clock still depends on Knovas ingestion rate limits.
 
+## Scanned PDFs (OCR)
+
+Image-only PDFs are ingested via Tesseract when `knovas-extract>=0.3` and `tesseract-ocr` are present in the RC image (`RC_PDF_OCR_ENABLED=true` by default; `RC_TESSERACT_LANG=deu+eng`).
+
+PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite and will not retry until those rows are removed:
+
+```bash
+sqlite3 /var/rc-state/.rc-sync-state.db \
+  "DELETE FROM documents WHERE transmission_key_id LIKE 'skip:%';"
+```
+
+Then restart continuous sync or wait for the next cycle.
+
 ## Upgrades
 
 1. Stop continuous worker (`POST /sync/stop` — remember the `-d '{}'` body).

@@ -92,7 +92,8 @@ def test_pdf_conversion_and_page_backpointers(tmp_path):
     assert any(s.page_number == 2 for s in result.sentences)
 
 
-def test_empty_pdf_raises():
+def test_empty_pdf_raises(monkeypatch):
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "false")
     fitz = pytest.importorskip("fitz")
     doc = fitz.open()
     doc.new_page()
@@ -146,3 +147,139 @@ def test_scan_pdf_in_executor(tmp_watch_root):
     assert summary.total >= 1
     paths = [d.relative_path for d in summary.documents]
     assert "doc.pdf" in paths
+
+
+# --- sentence emission size guard -------------------------------------------
+# split_sentences degrades badly on large weakly-punctuated text (tariff
+# tables); above the ceiling we keep the text and drop the citations.
+
+
+def test_sentence_emit_max_bytes_default(monkeypatch):
+    from sync.document_text import DEFAULT_SENTENCE_EMIT_MAX_BYTES, sentence_emit_max_bytes
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    assert sentence_emit_max_bytes() == DEFAULT_SENTENCE_EMIT_MAX_BYTES
+
+
+def test_sentence_emit_max_bytes_env_override(monkeypatch):
+    from sync.document_text import sentence_emit_max_bytes
+
+    monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", "4096")
+    assert sentence_emit_max_bytes() == 4096
+
+
+def test_sentence_emit_max_bytes_invalid_falls_back(monkeypatch):
+    from sync.document_text import DEFAULT_SENTENCE_EMIT_MAX_BYTES, sentence_emit_max_bytes
+
+    monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", "not-a-number")
+    assert sentence_emit_max_bytes() == DEFAULT_SENTENCE_EMIT_MAX_BYTES
+
+
+def test_large_text_skips_sentences_but_keeps_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", "64")
+    p = tmp_path / "tariff.txt"
+    p.write_text("Alpha beta. " * 100, encoding="utf-8")
+
+    doc = extract_document(p)
+
+    assert doc.sentences is None or doc.sentences == []
+    assert "Alpha beta." in doc.text
+
+
+def test_small_text_still_emits_sentences(tmp_path, monkeypatch):
+    monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", "1048576")
+    p = tmp_path / "note.txt"
+    p.write_text("First sentence. Second sentence.", encoding="utf-8")
+
+    doc = extract_document(p)
+
+    assert doc.sentences is not None
+    assert len(doc.sentences) == 2
+
+
+# --- per-file extraction timeout --------------------------------------------
+# One pathological document must not occupy the single sync worker forever.
+
+
+def slow_extract_child(path_str, result_queue):  # noqa: ARG001 - child target
+    """Stand-in for a runaway extractor. Module level so it is picklable."""
+    import time as _time
+
+    _time.sleep(30)
+
+
+def test_extract_timeout_seconds_default(monkeypatch):
+    from sync.document_text import DEFAULT_EXTRACT_TIMEOUT_SECONDS, extract_timeout_seconds
+
+    monkeypatch.delenv("RC_EXTRACT_TIMEOUT_SECONDS", raising=False)
+    assert extract_timeout_seconds() == DEFAULT_EXTRACT_TIMEOUT_SECONDS
+
+
+def test_extract_timeout_seconds_env_override(monkeypatch):
+    from sync.document_text import extract_timeout_seconds
+
+    monkeypatch.setenv("RC_EXTRACT_TIMEOUT_SECONDS", "30")
+    assert extract_timeout_seconds() == 30
+
+
+def test_extract_timeout_seconds_invalid_falls_back(monkeypatch):
+    from sync.document_text import DEFAULT_EXTRACT_TIMEOUT_SECONDS, extract_timeout_seconds
+
+    monkeypatch.setenv("RC_EXTRACT_TIMEOUT_SECONDS", "soon")
+    assert extract_timeout_seconds() == DEFAULT_EXTRACT_TIMEOUT_SECONDS
+
+
+def test_guarded_disabled_runs_in_process(tmp_path, monkeypatch):
+    from sync.document_text import extract_document_guarded
+
+    monkeypatch.setenv("RC_EXTRACT_TIMEOUT_SECONDS", "0")
+    p = tmp_path / "note.txt"
+    p.write_text("First sentence. Second sentence.", encoding="utf-8")
+
+    doc = extract_document_guarded(p)
+
+    assert "First sentence." in doc.text
+    assert doc.sentences is not None
+
+
+def test_guarded_matches_direct_extraction(tmp_path, monkeypatch):
+    from sync.document_text import extract_document_guarded
+
+    monkeypatch.setenv("RC_EXTRACT_TIMEOUT_SECONDS", "120")
+    p = tmp_path / "note.txt"
+    p.write_text("First sentence. Second sentence.", encoding="utf-8")
+
+    direct = extract_document(p)
+    guarded = extract_document_guarded(p)
+
+    assert guarded.text == direct.text
+    assert len(guarded.sentences or []) == len(direct.sentences or [])
+
+
+def test_guarded_propagates_conversion_error(tmp_path, monkeypatch):
+    from sync.document_text import extract_document_guarded
+
+    monkeypatch.setenv("RC_EXTRACT_TIMEOUT_SECONDS", "120")
+    p = tmp_path / "empty.txt"
+    p.write_text("   ", encoding="utf-8")
+
+    with pytest.raises(ConversionError):
+        extract_document_guarded(p)
+
+
+def test_guarded_timeout_is_classified_unconvertible(tmp_path, monkeypatch):
+    """A timed-out file must be skipped, not retried every cycle."""
+    import sync.document_text as dt
+
+    monkeypatch.setenv("RC_EXTRACT_TIMEOUT_SECONDS", "1")
+    # Module-level target so it survives pickling under the spawn start
+    # method (Windows); production runs fork on Linux.
+    monkeypatch.setattr(dt, "_extract_child", slow_extract_child)
+
+    p = tmp_path / "slow.txt"
+    p.write_text("Some text. More text.", encoding="utf-8")
+
+    with pytest.raises(ConversionError) as exc:
+        dt.extract_document_guarded(p)
+
+    assert is_unconvertible_error(str(exc.value))

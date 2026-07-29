@@ -20,7 +20,7 @@ dependencies = [
     # DOCX/EML/MSG markdown path parses through selectolax, which ships in
     # [html]. Older knovas-extract releases omit selectolax from [markdown],
     # so keep [html] listed explicitly rather than relying on that fix.
-    "knovas-extract[pdf,docx,msg,html,markdown,sentences]>=0.2",
+    "knovas-extract[pdf,docx,msg,html,markdown,sentences]>=0.3",
 ]
 
 [project.optional-dependencies]

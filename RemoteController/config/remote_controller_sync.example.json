@@ -7,6 +7,8 @@
     "end_local": "23:59"
   },
   "rate_limit": {
+    "max_ingestion_chars_per_minute": 180000,
+    "burst_chars": 50000,
     "max_ingestion_requests_per_minute": 30,
     "burst": 5
   },

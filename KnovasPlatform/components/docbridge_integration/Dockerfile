@@ -16,6 +16,10 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     g++ \
+    tesseract-ocr \
+    tesseract-ocr-deu \
+    tesseract-ocr-eng \
+    tesseract-ocr-fra \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Microsoft ODBC Driver for SQL Server (if needed for Access alternative)
