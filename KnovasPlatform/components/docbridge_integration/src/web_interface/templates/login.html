@@ -15,6 +15,10 @@
                  alt="Knovas" width="180" height="30">
             <p class="login-slogan">Search Made Smarter</p>
             <h1 id="loginTitle">Login</h1>
+            {# Der Mandantenname, nicht der Hersteller -- er sagt, in welcher
+               Instanz man sich anmeldet. Das Logo darueber sagt nur, wessen
+               Produkt es ist. #}
+            {% if company_name %}<p class="login-subtitle">{{ company_name }}</p>{% endif %}
 
             {% if error %}
             <div class="login-error" role="alert">{{ error }}</div>
