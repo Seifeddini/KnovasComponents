@@ -344,10 +344,45 @@ main {
     font-size: 0.875rem;
 }
 
+.results-query {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
 .results-container {
     display: flex;
     flex-direction: column;
     gap: 12px;
+}
+
+/* Zwischenueberschrift je Akte. Flach gehalten: eine Linie und ein Label,
+   kein Kasten -- sonst waere die Verschachtelung wieder da, die wir gerade
+   abgebaut haben. */
+.results-group {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 22px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.results-group:first-child {
+    margin-top: 4px;
+}
+
+.results-group-label {
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--primary-color);
+}
+
+.results-group-count {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
 }
 
 /* Document cards */

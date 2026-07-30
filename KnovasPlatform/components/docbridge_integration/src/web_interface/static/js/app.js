@@ -27,6 +27,7 @@ class DocumentSearchApp {
         this.resultsSection = document.getElementById('resultsSection');
         this.resultsContainer = document.getElementById('resultsContainer');
         this.resultsCount = document.getElementById('resultsCount');
+        this.resultsQuery = document.getElementById('resultsQuery');
         this.loadingIndicator = document.getElementById('loadingIndicator');
         this.toastContainer = document.getElementById('toastContainer');
         this.resultsPerPage = document.getElementById('resultsPerPage');
@@ -354,24 +355,63 @@ class DocumentSearchApp {
         }
     }
     
+    /**
+     * Treffer nach Akte gruppieren, in der Reihenfolge ihres ersten Auftretens
+     * -- die Akte mit dem bestplatzierten Treffer steht oben. Innerhalb einer
+     * Gruppe bleibt die API-Reihenfolge unveraendert: wir kennen die
+     * Ranking-Logik nicht und sortieren deshalb nicht um.
+     * Treffer ohne Akte sammeln sich am Ende.
+     */
+    _groupByAkte(results) {
+        const groups = new Map();
+        const ohne = [];
+        results.forEach((doc, index) => {
+            const akte = String(doc.akten_id || '').trim();
+            if (!akte) {
+                ohne.push({ doc, index });
+                return;
+            }
+            if (!groups.has(akte)) groups.set(akte, []);
+            groups.get(akte).push({ doc, index });
+        });
+        const out = [...groups.entries()].map(([akte, items]) => ({ akte, items }));
+        if (ohne.length) out.push({ akte: null, items: ohne });
+        return out;
+    }
+
     displayResults(results, total, semantix) {
         this.closePreview();
         this.resultsSection.style.display = 'block';
         this.resultsContainer.innerHTML = '';
-        
+
         if (!results || results.length === 0) {
             this.showEmptyState(semantix);
             return;
         }
-        
+
+        this.resultsQuery.textContent = this.currentQuery ? ` für „${this.currentQuery}“` : '';
         this.resultsCount.textContent = `${results.length} von ${total || results.length} Ergebnissen`;
-        
-        results.forEach((doc, index) => {
-            const card = this.createDocumentCard(doc, index);
-            this.resultsContainer.appendChild(card);
+
+        const groups = this._groupByAkte(results);
+        // Eine einzige Gruppe braucht keine Zwischenueberschrift -- die waere
+        // reines Rauschen und verschlechtert den haeufigsten Fall.
+        const grouped = groups.filter((g) => g.akte).length > 1;
+
+        groups.forEach((group) => {
+            if (grouped) {
+                const head = document.createElement('div');
+                head.className = 'results-group';
+                const label = group.akte ? `Akte ${group.akte}` : 'Ohne Aktenbezug';
+                head.innerHTML = `<span class="results-group-label">${this.escapeHtml(label)}</span>`
+                    + `<span class="results-group-count">${group.items.length}</span>`;
+                this.resultsContainer.appendChild(head);
+            }
+            group.items.forEach(({ doc, index }) => {
+                this.resultsContainer.appendChild(this.createDocumentCard(doc, index));
+            });
         });
     }
-    
+
     /** Up to maxSentences sentences from plain text (falls back to char limit). */
     firstSentencesExcerpt(text, maxSentences = 4, maxChars = 6000) {
         const raw = String(text || '').trim();
