@@ -102,6 +102,36 @@ Die Demo-Fixtures decken beide Fälle bereits ab: die Akten `2024-001`,
 `2024-050`, `2023-088` und `2024-010` kommen darin vor, je nach Suchbegriff
 also eine oder mehrere Gruppen.
 
+### 2.3 Woher `akten_id` kommt — und wann es fehlt
+
+**Die Knovas-API liefert kein `akten_id`.** `/secured/query` gibt Pointer, Scores
+und Seitenangaben zurück, sonst nichts. Die Aktennummer entsteht ausschliesslich
+durch lokale Anreicherung:
+
+```
+RemoteController schreibt   .search_enrichment.jsonl
+        ↓  Pfad aus SEARCH_ENRICHMENT_PATH (Standard /mnt/autodoc/…)
+_load_search_enrichment()   liest sie, gecacht nach mtime
+        ↓
+_lookup_enrichment_meta()   ordnet über doc_id / Pfad / Dateinamen zu
+        ↓
+app.py                      if meta.get("akten_id"): result["akten_id"] = …
+```
+
+Im Demo-Modus (`SEARCH_USE_TEST_RESULTS=true`) kommt der Wert stattdessen aus den
+hartkodierten Fixtures in `app.py` — die Datei existiert dort gar nicht.
+
+**Folge, die bewusst in Kauf genommen wird:** bei einer Installation ohne
+konfigurierte Anreicherung tragen die Treffer kein `akten_id`. Die Gruppierung
+erscheint dann **nie**, ohne Fehler und ohne Hinweis. Das ist insofern gutartig,
+als die Bedingung „nur ab zwei verschiedenen Akten" ohnehin greift und die Liste
+schlicht flach bleibt — wer die Gruppierung aber erwartet, bekommt keinen
+Anhaltspunkt, warum sie ausbleibt.
+
+Eine mögliche Abhilfe, nicht Teil dieses Vorhabens: der Systemstatus könnte
+ausweisen, ob die Anreicherung geladen wurde. Das Feld
+`onedrive_enrichment_loaded` steht in der Suchantwort bereits zur Verfügung.
+
 ## 3. Politur
 
 ### 3.1 Skelett statt Spinner

@@ -85,6 +85,23 @@ anfühlt.
 **Vorher erheben**, wie oft Nutzer PDFs öffnen gegenüber DOCX und MSG — bei den
 anderen drei Formaten rendern wir bereits selbst, und dort sieht es aus wie Knovas.
 
+## 3a. Aktengruppierung hängt still an der Anreicherung
+
+Die Trefferliste gruppiert nach `akten_id` (siehe
+`docs/superpowers/specs/2026-07-30-trefferliste-design.md`, Abschnitt 2). Dieses
+Feld kommt **nicht** von der Knovas-API, sondern aus der lokalen
+`.search_enrichment.jsonl`, die der RemoteController schreibt.
+
+Ist sie nicht konfiguriert oder nicht vorhanden — wie in der lokalen Demo, wo
+`/mnt/autodoc/.search_enrichment.jsonl` schlicht fehlt —, tragen die Treffer kein
+`akten_id`, und die Gruppierung erscheint nie. Es gibt dabei **keinen Fehler und
+keinen Hinweis**: die Liste bleibt einfach flach, was vom normalen Fall „alle
+Treffer aus einer Akte" nicht zu unterscheiden ist.
+
+Zu entscheiden: ob das reicht, oder ob der Systemstatus ausweisen soll, ob die
+Anreicherung geladen wurde. Das Feld `onedrive_enrichment_loaded` liegt in jeder
+Suchantwort bereits vor, es müsste nur angezeigt werden.
+
 ## 4. Kleinere Punkte aus dem Review
 
 - **Format-Badge auf der Karte.** Man sieht einem Treffer nicht an, ob er eine
