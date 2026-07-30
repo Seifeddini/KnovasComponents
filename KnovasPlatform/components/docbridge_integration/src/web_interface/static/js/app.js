@@ -529,6 +529,17 @@ class DocumentSearchApp {
         return `<div class="document-first-page-text">${this.escapeHtml(this.capSummaryLength(raw, 4000))}</div>`;
     }
 
+    /** Nur das Datum, ohne Uhrzeit -- die Minute sagt beim Auswaehlen nichts. */
+    _formatDateShort(dateString) {
+        try {
+            return new Date(dateString).toLocaleDateString('de-DE', {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+            });
+        } catch {
+            return dateString;
+        }
+    }
+
     /** Formatkürzel aus der Dateiendung, z. B. "PDF". Leer wenn unbekannt. */
     _formatLabel(path) {
         const m = /\.([a-z0-9]+)$/i.exec(String(path || ''));
@@ -635,11 +646,13 @@ class DocumentSearchApp {
         }
         
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
+        // Nur Format und Datum: die Dokumentart steht meist schon im Titel,
+        // und drei Angaben nebeneinander lesen sich als Datenzeile statt als
+        // Einordnung.
         const metaParts = [];
-        if (doc.type) metaParts.push(this.escapeHtml(String(doc.type).toUpperCase()));
         const fmt = this._formatLabel(path);
         if (fmt) metaParts.push(fmt);
-        if (documentDate) metaParts.push(this.escapeHtml(this.formatDate(documentDate)));
+        if (documentDate) metaParts.push(this.escapeHtml(this._formatDateShort(documentDate)));
 
         card.innerHTML = `
             ${this._thumbHtml(doc, docId, path, title, localAvailable)}
