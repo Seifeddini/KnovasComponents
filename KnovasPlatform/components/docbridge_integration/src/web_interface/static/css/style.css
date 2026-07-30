@@ -903,6 +903,27 @@ mark.context-snippet-match,
     font-size: 0.9rem;
 }
 
+/* Kopffelder einer E-Mail: zwei Spalten, damit Bezeichnung und Wert
+   untereinander fluchten und man sie ueberfliegen kann. */
+.mail-header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 14px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.88rem;
+}
+
+.mail-header-label {
+    color: var(--text-secondary);
+}
+
+.mail-header-value {
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
 .preview-body h3,
 .preview-body h4,
 .preview-body h5,

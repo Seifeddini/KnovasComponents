@@ -180,12 +180,30 @@ class DocumentSearchApp {
     _previewMetaText(kind, meta) {
         const parts = [kind.toUpperCase()];
         if (meta) {
-            if (meta['msg:from']) parts.push(`Von ${meta['msg:from']}`);
-            if (meta['msg:to']) parts.push(`An ${meta['msg:to']}`);
             if (meta.page_count) parts.push(`${meta.page_count} Seiten`);
             if (meta.word_count) parts.push(`${meta.word_count} Wörter`);
         }
         return parts.join(' · ');
+    }
+
+    /**
+     * Absender und Empfaenger einer E-Mail als beschrifteter Kopf ueber dem
+     * Text. In der Metazeile standen sie in einer Reihe mit Format und
+     * Wortzahl -- bei einer Mail sind das aber Kopffelder, keine Metadaten,
+     * und aneinandergereiht liest sie niemand.
+     */
+    _mailHeaderHtml(meta) {
+        if (!meta) return '';
+        const rows = [
+            ['Von', meta['msg:from']],
+            ['An', meta['msg:to']],
+        ].filter(([, v]) => v);
+        if (!rows.length) return '';
+        const body = rows.map(([label, value]) =>
+            `<div class="mail-header-label">${label}</div>`
+            + `<div class="mail-header-value">${this.escapeHtml(String(value))}</div>`
+        ).join('');
+        return `<div class="mail-header">${body}</div>`;
     }
 
     _previewActionsHtml(doc) {
@@ -322,7 +340,8 @@ class DocumentSearchApp {
             }
 
             this.previewMeta.textContent = this._previewMetaText(data.kind, data.meta);
-            this.previewBody.innerHTML = window.KnovasMarkdown.render(data.markdown);
+            this.previewBody.innerHTML = this._mailHeaderHtml(data.meta)
+                + window.KnovasMarkdown.render(data.markdown);
         } catch (error) {
             if (error.name === 'AbortError') return;
             console.warn('Preview:', error);
