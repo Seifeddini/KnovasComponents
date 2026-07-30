@@ -192,8 +192,14 @@ Keine Serveränderung. Alle benötigten Felder liefert `/api/search` bereits.
   MSG das `mail`-Icon, alle im gleich grossen Rahmen
 - **Mehr laden:** Knopf erscheint nur bei voller Trefferzahl, verdoppelt das
   Limit, verschwindet bei 100 oder wenn weniger als `limit` zurückkam
-- **Browser:** Kartenhöhe unter 150 px, mindestens vier Karten im Sichtfeld bei
-  1440×1000, keine JS-Fehler
+- **Browser:** keine JS-Fehler, Karte kompakter als die 250 px vor dem Umbau
+
+**Nachtrag 2026-07-30:** die ursprüngliche Vorgabe „unter 150 px, mindestens vier
+Karten im Sichtfeld" wurde bei der Umsetzung überstimmt. Das Vorschaubild bei
+80 px liess nichts erkennen; erst ab 200 px Breite wird die Überschrift einer
+Seite lesbar. Die Karte liegt damit bei 202 px und zwei Karten im Sichtfeld —
+etwa die Dichte vor dem Umbau, nun aber mit lesbarer Vorschau und einem statt
+zwei Textblöcken. Bewusster Tausch, kein Verfehlen der Vorgabe.
 
 ## 6. Offene Punkte
 
