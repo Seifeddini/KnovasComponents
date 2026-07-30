@@ -8,6 +8,7 @@
 const LUCIDE_ICONS = {
     'external-link': '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/>',
     'file-text': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+    'mail': '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
     'download': '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     'clipboard': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
 };
@@ -447,6 +448,52 @@ class DocumentSearchApp {
         return `<div class="document-first-page-text">${this.escapeHtml(this.capSummaryLength(raw, 4000))}</div>`;
     }
 
+    /** Formatkürzel aus der Dateiendung, z. B. "PDF". Leer wenn unbekannt. */
+    _formatLabel(path) {
+        const m = /\.([a-z0-9]+)$/i.exec(String(path || ''));
+        return m ? m[1].toUpperCase() : '';
+    }
+
+    /**
+     * Vorschaubild links auf der Karte. PDFs zeigen die gerenderte erste
+     * Seite; fuer die uebrigen Formate gibt es ohne Konverter keine Seite,
+     * deshalb steht dort ein Icon im gleich grossen Rahmen -- sonst haetten
+     * die Karten je nach Format eine andere Hoehe.
+     */
+    _thumbHtml(doc, docId, path, title, localAvailable) {
+        const ext = this._formatLabel(path);
+        if (ext === 'PDF' && localAvailable) {
+            const src = `/api/document/${encodeURIComponent(docId)}/thumbnail`
+                + `?path=${encodeURIComponent(path)}`;
+            return `<div class="document-thumb"><img loading="lazy"`
+                + ` alt="Erste Seite von ${this.escapeAttr(title)}"`
+                + ` src="${this.escapeAttr(src)}"></div>`;
+        }
+        const icon = ext === 'MSG' ? 'mail' : 'file-text';
+        return `<div class="document-thumb document-thumb--icon">${lucide(icon)}</div>`;
+    }
+
+    /**
+     * Genau eine Textquelle, in dieser Rangfolge: Trefferkontext, sonst erste
+     * Seite, sonst Zusammenfassung. Zwei Textbloecke nebeneinander helfen beim
+     * Auswaehlen nicht und kosten die halbe Karte.
+     */
+    _snippetHtml(doc) {
+        if (doc.context_snippet) {
+            const html = this._buildContextSnippetHtml(doc.context_snippet);
+            if (html) return html;
+        }
+        if (doc.first_page_preview) {
+            return this._buildFirstPageHtml(doc.first_page_preview);
+        }
+        const summary = this.ingestedSummaryText(doc);
+        if (summary) {
+            return `<div class="document-first-page-text">`
+                + `${this.escapeHtml(this.capSummaryLength(summary, 400))}</div>`;
+        }
+        return '';
+    }
+
     createDocumentCard(doc, index) {
         const card = document.createElement('div');
         card.className = 'document-card';
@@ -455,8 +502,6 @@ class DocumentSearchApp {
         
         const title = this.displayTitle(doc);
         const docId = doc.doc_id || 'N/A';
-        const ingestedSummary = this.ingestedSummaryText(doc);
-        const hasContext = this.hasContextPreview(doc);
         const path = doc.path || '';
         const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
@@ -508,69 +553,27 @@ class DocumentSearchApp {
             actionsHtml = `<span class="badge badge-error">Datei nicht verfügbar</span>`;
         }
         
-        const summaryStr = !hasContext && ingestedSummary
-            ? this.capSummaryLength(ingestedSummary, 2000)
-            : '';
-        const summaryHtml = summaryStr ? this.escapeHtml(summaryStr) : '';
-        // Bei PDFs zeigt die Karte die tatsaechlich gerenderte erste Seite; die
-        // uebrigen Formate haben ohne Konverter keine Seite und behalten den
-        // Textauszug.
-        const firstPageHtml = isPdf && localAvailable
-            ? `<img class="document-first-page-image" loading="lazy"`
-              + ` alt="Erste Seite von ${this.escapeAttr(title)}"`
-              + ` src="/api/document/${encodeURIComponent(docId)}/thumbnail?path=${encodeURIComponent(path)}">`
-            : (hasContext && doc.first_page_preview
-                ? this._buildFirstPageHtml(doc.first_page_preview)
-                : '');
-        const contextHtml = hasContext && doc.context_snippet
-            ? this._buildContextSnippetHtml(doc.context_snippet)
-            : '';
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
-        const fileModified = doc.modified_at || null;
+        const metaParts = [];
+        if (doc.type) metaParts.push(this.escapeHtml(String(doc.type).toUpperCase()));
+        const fmt = this._formatLabel(path);
+        if (fmt) metaParts.push(fmt);
+        if (documentDate) metaParts.push(this.escapeHtml(this.formatDate(documentDate)));
 
         card.innerHTML = `
-            <div class="document-header">
-                <div class="document-header-text">
-                    <div class="document-title">${this.escapeHtml(title)}</div>
+            ${this._thumbHtml(doc, docId, path, title, localAvailable)}
+            <div class="document-body">
+                <div class="document-headline">
+                    <div class="document-headline-text">
+                        ${metaParts.length ? `<div class="document-metaline">${metaParts.join(' · ')}</div>` : ''}
+                        <div class="document-title">${this.escapeHtml(title)}</div>
+                    </div>
+                    <div class="document-actions">${actionsHtml}</div>
                 </div>
-                <div class="document-actions">
-                    ${actionsHtml}
-                </div>
+                ${this._snippetHtml(doc)}
             </div>
-            
-            ${documentDate || fileModified ? `
-            <div class="document-meta">
-                ${documentDate ? `
-                    <span class="meta-item">${this.formatDate(documentDate)}</span>
-                ` : ''}
-                ${fileModified ? `
-                    <span class="meta-item meta-item-muted">Geändert ${this.formatDate(fileModified)}</span>
-                ` : ''}
-            </div>
-            ` : ''}
-            
-            ${firstPageHtml ? `
-            <div class="document-first-page" role="region" aria-label="Erste Seite">
-                <div class="document-first-page-label">Erste Seite</div>
-                ${firstPageHtml}
-            </div>
-            ` : ''}
-            
-            ${contextHtml ? `
-            <div class="document-context-snippet" role="region" aria-label="Trefferkontext">
-                <div class="document-context-snippet-label">Trefferkontext</div>
-                ${contextHtml}
-            </div>
-            ` : ''}
-            
-            ${summaryHtml ? `
-            <div class="document-ingested-summary" role="region" aria-label="Dokumentzusammenfassung">
-                <div class="document-ingested-summary-label">Dokumentzusammenfassung (Knovas)</div>
-                <div class="document-ingested-summary-text">${summaryHtml}</div>
-            </div>
-            ` : ''}
         `;
-        
+
         return card;
     }
     

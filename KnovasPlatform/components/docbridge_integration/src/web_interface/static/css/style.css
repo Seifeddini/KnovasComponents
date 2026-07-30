@@ -352,13 +352,14 @@ main {
 
 /* Document cards */
 .document-card {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
-    padding: 18px 20px;
+    padding: 14px 16px;
     transition: border-color 0.2s;
-    /* Die Karte ist der Haupt-Ausloeser der Vorschau -- ohne Zeigerwechsel
-       gibt sie keinen Hinweis darauf, dass sie klickbar ist. */
     cursor: pointer;
 }
 
@@ -373,24 +374,68 @@ main {
     background: rgba(var(--accent-rgb), 0.04);
 }
 
-.document-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 10px;
+/* Bild und Icon teilen sich Groesse und Rahmen, damit die Karten unabhaengig
+   vom Format in einer Flucht bleiben. */
+.document-thumb {
+    flex: 0 0 auto;
+    width: 80px;
+    height: 104px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--surface-sunken);
+    overflow: hidden;
 }
 
-.document-header-text {
+.document-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    display: block;
+}
+
+.document-thumb--icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.document-thumb--icon svg {
+    width: 26px;
+    height: 26px;
+}
+
+.document-body {
+    flex: 1 1 0;
     min-width: 0;
-    flex: 1;
+}
+
+.document-headline {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.document-headline-text {
+    min-width: 0;
+}
+
+.document-metaline {
+    font-family: var(--font-heading);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 3px;
 }
 
 .document-title {
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
-    line-height: 1.35;
+    overflow-wrap: anywhere;
 }
 
 .document-actions {
@@ -400,75 +445,14 @@ main {
     flex-shrink: 0;
 }
 
-.document-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 16px;
-    margin-bottom: 12px;
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-}
-
-.meta-item-muted {
-    color: var(--text-muted);
-}
-
-.document-ingested-summary {
-    margin-top: 14px;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    color: var(--text-secondary);
-}
-
-.document-ingested-summary-label {
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--primary-color);
-    margin-bottom: 8px;
-}
-
-.document-ingested-summary-text {
-    color: var(--text-secondary);
-}
-
-/* Flach: Label plus Text, kein eigener Kasten. Die Struktur traegt die
-   Typografie, nicht ein dritter Rahmen innerhalb der Karte. */
-.document-first-page,
-.document-context-snippet {
-    margin-top: 14px;
-    font-size: 0.9rem;
-    line-height: 1.55;
-    color: var(--text-secondary);
-}
-
-.document-first-page-label,
-.document-context-snippet-label {
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--primary-color);
-    margin-bottom: 8px;
-}
-
-/* Bei PDFs steht hier die gerenderte erste Seite statt eines Textauszugs.
-   Der Kasten schrumpft aufs Bild, sonst steht rechts daneben eine leere
-   Flaeche ueber die ganze Kartenbreite. */
-.document-first-page:has(.document-first-page-image) {
-    width: fit-content;
-    max-width: 100%;
-}
-
-.document-first-page-image {
-    display: block;
-    width: 340px;
-    max-width: 100%;
-    height: auto;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    background: var(--card-bg);
+.document-body .document-first-page-text,
+.document-body .document-context-snippet-text {
+    margin-top: 8px;
+    /* Drei Zeilen reichen zum Beurteilen; alles darueber gehoert ins Modal. */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .document-first-page-text,
@@ -690,7 +674,7 @@ mark.context-snippet-match,
         flex-direction: column;
     }
 
-    .document-header {
+    .document-headline {
         flex-direction: column;
     }
 
