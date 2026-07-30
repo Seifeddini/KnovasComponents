@@ -92,11 +92,20 @@ class DocumentSearchApp {
         // Bildfehler steigen nicht auf, deshalb capture. Ein Vorschaubild, dessen
         // Datei zwischen Indexierung und Suche verschwunden ist, faellt auf das
         // Icon zurueck -- sonst steht der Alt-Text als Textblock in der Karte.
+        // load steigt wie error nicht auf -- deshalb capture.
+        this.resultsContainer.addEventListener('load', (e) => {
+            const img = e.target;
+            if (!img || !img.matches || !img.matches('.document-thumb img')) return;
+            const thumb = img.closest('.document-thumb');
+            if (thumb) thumb.classList.remove('document-thumb--loading');
+        }, true);
+
         this.resultsContainer.addEventListener('error', (e) => {
             const img = e.target;
             if (!img || !img.matches || !img.matches('.document-thumb img')) return;
             const thumb = img.closest('.document-thumb');
             if (!thumb) return;
+            thumb.classList.remove('document-thumb--loading');
             thumb.classList.add('document-thumb--icon');
             thumb.innerHTML = lucide('file-text');
         }, true);
@@ -557,7 +566,7 @@ class DocumentSearchApp {
         if (ext === 'PDF' && localAvailable) {
             const src = `/api/document/${encodeURIComponent(docId)}/thumbnail`
                 + `?path=${encodeURIComponent(path)}`;
-            return `<div class="document-thumb"><img loading="lazy"`
+            return `<div class="document-thumb document-thumb--loading"><img loading="lazy"`
                 + ` alt="Erste Seite von ${this.escapeAttr(title)}"`
                 + ` src="${this.escapeAttr(src)}"></div>`;
         }

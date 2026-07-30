@@ -415,6 +415,20 @@ main {
     position: relative;
 }
 
+/* Der Kasten schimmert, solange das Bild laedt. Bei vielen Treffern feuern
+   ebenso viele Thumbnail-Anfragen, die serverseitig je eine PDF-Seite
+   rendern -- ohne das stuenden hier bis dahin nur graue Flaechen.
+   Die Klasse nimmt das Bild selbst weg, sobald es geladen ist. */
+.document-thumb--loading {
+    background: linear-gradient(90deg, var(--surface-sunken), var(--border-color), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .document-thumb--loading { animation: none; }
+}
+
 /* Weiche Unterkante: der Ausschnitt endet mitten im Satzspiegel, und ohne
    diesen Verlauf liest sich das als abgeschnitten statt als fortgesetzt. */
 .document-thumb:not(.document-thumb--icon)::after {
