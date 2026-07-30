@@ -295,28 +295,6 @@ main {
     font-size: 0.875rem;
 }
 
-.search-options {
-    display: flex;
-    justify-content: flex-end;
-}
-
-.search-options-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-}
-
-.search-options select {
-    padding: 6px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: white;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-}
-
 /* Results */
 .results-section {
     /* Kein eigener Rahmen: die Karten grenzen sich selbst ab, ein Kasten um
@@ -383,6 +361,16 @@ main {
 .results-group-count {
     font-size: 0.78rem;
     color: var(--text-secondary);
+}
+
+.results-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 18px;
+}
+
+.results-more button[hidden] {
+    display: none;
 }
 
 /* Document cards */
@@ -510,31 +498,44 @@ mark.context-snippet-match,
     outline-offset: 2px;
 }
 
-/* Loading */
-.loading {
-    text-align: center;
-    padding: 48px 20px;
-    color: var(--text-secondary);
+/* Skelett: gleiche Kartenform, damit beim Eintreffen der Ergebnisse nichts
+   springt. Nutzt dieselbe Shimmer-Animation wie die Vorschau. */
+.document-card--skeleton {
+    cursor: default;
 }
 
-.spinner {
-    width: 36px;
-    height: 36px;
-    margin: 0 auto 16px;
-    border: 3px solid var(--border-color);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+.skeleton-block,
+.skeleton-line {
+    background: linear-gradient(90deg, var(--surface-sunken), var(--border-color), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
+    border-radius: 4px;
 }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
+.skeleton-line {
+    display: block;
+    height: 11px;
+    margin-bottom: 9px;
+}
+
+.skeleton-line--meta { width: 34%; height: 8px; }
+.skeleton-line--title { width: 52%; height: 15px; margin-bottom: 12px; }
+.skeleton-line--short { width: 68%; }
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-block,
+    .skeleton-line { animation: none; }
 }
 
 /* Empty state */
 .empty-state {
     text-align: center;
     padding: 48px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state-hints {
+    margin: 10px 0 0 18px;
     color: var(--text-secondary);
 }
 

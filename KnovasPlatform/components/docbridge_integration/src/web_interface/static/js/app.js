@@ -28,9 +28,8 @@ class DocumentSearchApp {
         this.resultsContainer = document.getElementById('resultsContainer');
         this.resultsCount = document.getElementById('resultsCount');
         this.resultsQuery = document.getElementById('resultsQuery');
-        this.loadingIndicator = document.getElementById('loadingIndicator');
         this.toastContainer = document.getElementById('toastContainer');
-        this.resultsPerPage = document.getElementById('resultsPerPage');
+        this.loadMoreButton = document.getElementById('loadMoreButton');
         this.previewDialog = document.getElementById('previewDialog');
         this.previewTitle = document.getElementById('previewTitle');
         this.previewMeta = document.getElementById('previewMeta');
@@ -51,6 +50,11 @@ class DocumentSearchApp {
         this.onedriveEnrichmentLoaded = !!cfg.onedriveEnrichmentLoaded;
         /** CSRF token for state-changing requests (server enforces it on every POST). */
         this.csrfToken = cfg.csrfToken || '';
+        /** Wieviele Treffer angefragt werden. Waechst ueber "Mehr laden". */
+        this._searchLimitBase = Number(cfg.resultsPerPage) || 20;
+        this._searchLimit = this._searchLimitBase;
+        /** Fuer welche Anfrage das aktuelle Limit gilt. */
+        this._limitQuery = '';
 
         this.initializeEventListeners();
     }
@@ -80,6 +84,8 @@ class DocumentSearchApp {
             e.preventDefault();
             this.checkHealth();
         });
+
+        this.loadMoreButton.addEventListener('click', () => this.loadMore());
 
         this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
 
@@ -306,15 +312,20 @@ class DocumentSearchApp {
         }
     }
 
-    async performSearch() {
-        const query = this.searchInput.value.trim();
-        
+    /** @param {string} [queryOverride] Erweitert eine laufende Suche ("Mehr laden"). */
+    async performSearch(queryOverride) {
+        const query = String(queryOverride != null ? queryOverride : this.searchInput.value).trim();
+
         if (!query) {
             this.showError('Bitte geben Sie einen Suchbegriff ein.');
             return;
         }
-        
+
         this.currentQuery = query;
+        if (query !== this._limitQuery) {
+            this._searchLimit = this._searchLimitBase;
+            this._limitQuery = query;
+        }
         this.showLoading();
 
         try {
@@ -324,7 +335,7 @@ class DocumentSearchApp {
                 headers: this._jsonHeadersWithCsrf(),
                 body: JSON.stringify({
                     query: query,
-                    limit: parseInt(this.resultsPerPage.value),
+                    limit: this._searchLimit,
                     filters: {}
                 })
             });
@@ -354,7 +365,20 @@ class DocumentSearchApp {
             this.hideLoading();
         }
     }
-    
+
+    /**
+     * Die Knovas-API kennt kein offset (POST /secured/query nimmt nur Input),
+     * es laesst sich also nicht nachladen. Stattdessen wird dieselbe Anfrage
+     * mit hoeherem Limit gestellt und die Liste ersetzt. Fuer den Nutzer sieht
+     * das wie Nachladen aus, ist aber eine zweite vollstaendige Suche.
+     */
+    loadMore() {
+        if (this._searchLimit >= 100) return;
+        this._searchLimit = Math.min(100, this._searchLimit * 2);
+        const y = window.scrollY;
+        this.performSearch(this.currentQuery).then(() => window.scrollTo({ top: y }));
+    }
+
     /**
      * Treffer nach Akte gruppieren, in der Reihenfolge ihres ersten Auftretens
      * -- die Akte mit dem bestplatzierten Treffer steht oben. Innerhalb einer
@@ -410,6 +434,11 @@ class DocumentSearchApp {
                 this.resultsContainer.appendChild(this.createDocumentCard(doc, index));
             });
         });
+
+        // Nur anbieten, wenn die Antwort das Limit ausgeschoepft hat -- sonst
+        // gibt es plausibel nichts mehr zu holen.
+        const more = results.length >= this._searchLimit && this._searchLimit < 100;
+        this.loadMoreButton.hidden = !more;
     }
 
     /** Up to maxSentences sentences from plain text (falls back to char limit). */
@@ -814,21 +843,27 @@ class DocumentSearchApp {
     }
     
     showLoading() {
-        // Loading markup lives inside #resultsSection, which starts hidden — show it
-        // so the first search (and any search) displays the spinner immediately.
         this.resultsSection.style.display = 'block';
         this.resultsSection.setAttribute('aria-busy', 'true');
-        this.loadingIndicator.style.display = 'block';
-        this.resultsContainer.style.display = 'none';
-        if (this.resultsCount) {
-            this.resultsCount.textContent = '';
-        }
+        this.loadMoreButton.hidden = true;
+        if (this.resultsCount) this.resultsCount.textContent = '';
+        // Skelett in der Form der echten Karten: ohne das springt das Layout,
+        // sobald die Ergebnisse eintreffen.
+        this.resultsContainer.innerHTML = Array.from({ length: 3 }, () => `
+            <div class="document-card document-card--skeleton" aria-hidden="true">
+                <div class="document-thumb skeleton-block"></div>
+                <div class="document-body">
+                    <span class="skeleton-line skeleton-line--meta"></span>
+                    <span class="skeleton-line skeleton-line--title"></span>
+                    <span class="skeleton-line"></span>
+                    <span class="skeleton-line skeleton-line--short"></span>
+                </div>
+            </div>
+        `).join('');
         this.searchButton.disabled = true;
     }
-    
+
     hideLoading() {
-        this.loadingIndicator.style.display = 'none';
-        this.resultsContainer.style.display = 'flex';
         this.resultsSection.setAttribute('aria-busy', 'false');
         this.searchButton.disabled = false;
     }
@@ -875,11 +910,16 @@ class DocumentSearchApp {
     }
 
     showEmptyState(semantix) {
+        this.loadMoreButton.hidden = true;
         this.resultsContainer.innerHTML = `
             <div class="empty-state">
-                <h3>Keine Ergebnisse gefunden</h3>
-                <p>Ihre Suche nach "${this.escapeHtml(this.currentQuery)}" ergab keine Treffer.</p>
-                <p class="mt-20">Versuchen Sie es mit anderen Suchbegriffen.</p>
+                <h3>Keine Treffer für „${this.escapeHtml(this.currentQuery)}“</h3>
+                <p>Die Suche durchsucht den <strong>Inhalt</strong> der Dokumente, nicht nur die Dateinamen.</p>
+                <ul class="empty-state-hints">
+                    <li>Kürzeren oder allgemeineren Begriff versuchen</li>
+                    <li>Schreibweise prüfen</li>
+                    <li>Oberbegriff statt Fachbegriff verwenden</li>
+                </ul>
             </div>
         `;
         this.resultsCount.textContent = '0 Ergebnisse';

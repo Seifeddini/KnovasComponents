@@ -52,18 +52,6 @@
                         Suchen
                     </button>
                 </div>
-                
-                <div class="search-options">
-                    <label class="search-options-label">
-                        Ergebnisse:
-                        <select id="resultsPerPage">
-                            <option value="10">10</option>
-                            <option value="20" selected>20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                    </label>
-                </div>
             </section>
 
             <section class="results-section" id="resultsSection" style="display: none;">
@@ -74,12 +62,11 @@
                 <div id="resultsContainer" class="results-container">
                     <!-- Results will be dynamically inserted here -->
                 </div>
-                
-                <div id="loadingIndicator" class="loading" style="display: none;">
-                    <div class="spinner"></div>
-                    <p>Suche läuft...</p>
+                <div class="results-more">
+                    <button type="button" id="loadMoreButton" class="btn btn-outline" hidden>
+                        Mehr laden
+                    </button>
                 </div>
-                
             </section>
         </main>
 
@@ -141,6 +128,7 @@
             allowDegradedDownloadOpen: {{ allow_degraded_download_open|tojson }},
             pdfInlineInBrowser: {{ pdf_inline_in_browser|tojson }},
             onedriveEnrichmentLoaded: {{ onedrive_enrichment_loaded|tojson }},
+            resultsPerPage: {{ results_per_page|tojson }},
             buildId: {{ build_id|tojson }},
         };
     </script>

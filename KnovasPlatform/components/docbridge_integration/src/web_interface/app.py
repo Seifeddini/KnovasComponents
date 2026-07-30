@@ -993,6 +993,7 @@ def create_app(config_path: Optional[str] = None):
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
+            results_per_page=config.get_int('web.search.results_per_page', 20),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
         )
