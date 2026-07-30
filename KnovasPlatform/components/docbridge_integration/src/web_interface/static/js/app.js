@@ -89,6 +89,18 @@ class DocumentSearchApp {
 
         this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
 
+        // Bildfehler steigen nicht auf, deshalb capture. Ein Vorschaubild, dessen
+        // Datei zwischen Indexierung und Suche verschwunden ist, faellt auf das
+        // Icon zurueck -- sonst steht der Alt-Text als Textblock in der Karte.
+        this.resultsContainer.addEventListener('error', (e) => {
+            const img = e.target;
+            if (!img || !img.matches || !img.matches('.document-thumb img')) return;
+            const thumb = img.closest('.document-thumb');
+            if (!thumb) return;
+            thumb.classList.add('document-thumb--icon');
+            thumb.innerHTML = lucide('file-text');
+        }, true);
+
         this.previewClose.addEventListener('click', () => this.closePreview());
         this.previewPrev.addEventListener('click', () => this.stepPreview(-1));
         this.previewNext.addEventListener('click', () => this.stepPreview(1));

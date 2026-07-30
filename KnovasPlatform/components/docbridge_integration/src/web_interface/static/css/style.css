@@ -401,8 +401,12 @@ main {
    vom Format in einer Flucht bleiben. */
 .document-thumb {
     flex: 0 0 auto;
-    width: 80px;
-    height: 104px;
+    /* 80px war zu klein, um vom Seiteninhalt etwas zu erkennen -- ein
+       Vorschaubild, das man nicht lesen kann, ist schlechter als keines.
+       124px kostet rund 40px Kartenhoehe und bleibt weit unter dem alten
+       340px-Block. */
+    width: 124px;
+    height: 160px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--surface-sunken);
@@ -425,8 +429,8 @@ main {
 }
 
 .document-thumb--icon svg {
-    width: 26px;
-    height: 26px;
+    width: 34px;
+    height: 34px;
 }
 
 .document-body {
