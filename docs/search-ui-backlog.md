@@ -1,41 +1,23 @@
 # Search UI — offene Punkte
 
-Stand: 2026-07-27, nach Abschluss von `feat/preview-feedback-branding`.
+Stand: 2026-07-30, nach dem Trefferlisten-Umbau.
 
 Was hier steht, ist bewusst nicht umgesetzt worden — entweder weil es eine eigene
 Entscheidung braucht, weil es Messung an echten Daten voraussetzt, oder weil es
 nach dem aktuellen Zweig kommt. Jeder Punkt trägt die Begründung mit, damit
 niemand sie neu herleiten muss.
 
-## 1. Klick auf den Treffer öffnet direkt das ganze Dokument
+## 1. ~~Klick auf den Treffer öffnet direkt das ganze Dokument~~ — erledigt
 
-**Priorität: als Nächstes.**
+Umgesetzt am 2026-07-30. Der Klick öffnet das Dokument direkt in einem nativen
+`<dialog>`; das Seitenpanel wurde ersatzlos entfernt, samt Aufklapp-Schalter und
+`is-fullscreen`-Sonderfall. Das Modal trägt Vor/Zurück-Pfeile mit Zähler
+(„2 von 4"), Pfeiltasten tun dasselbe, an den Enden sind die Knöpfe deaktiviert.
+Backdrop, Escape, Fokusfalle und inerter Hintergrund kommen vom `<dialog>`.
 
-Heute öffnet ein Klick auf die Trefferkarte die Vorschau als Seitenpanel rechts;
-von dort kann man über den Aufklapp-Schalter auf Vollbild gehen. Künftig soll der
-Klick **direkt** das Vollbild-Popup öffnen — dieselbe Darstellung wie heute nach
-dem Aufklappen, nur ohne den Zwischenschritt über das Panel.
-
-Der Grund, warum das jetzt richtig ist und vorher nicht: die Karte zeigt seit
-`5cb39df` die **gerenderte erste Seite** des Dokuments. Damit erfüllt sie selbst
-die Rolle, für die das Seitenpanel gedacht war — einen schnellen Blick, ohne den
-Kontext der Liste zu verlieren. Ein Panel, das dieselbe Information noch einmal
-zeigt, ist ein Klick zu viel. Wer klickt, will lesen, nicht nochmal schauen.
-
-Zu klären beim Umsetzen:
-
-- **Bleibt das Seitenpanel überhaupt?** Wenn der Klick ins Vollbild geht, hat es
-  keinen Auslöser mehr. Entweder ersatzlos entfernen (dann fällt viel CSS und der
-  `is-fullscreen`-Sonderfall weg, das Panel *ist* dann der Normalzustand), oder
-  als Option behalten und über eine zweite Geste erreichbar machen. Ersteres ist
-  ehrlicher — ein Modus, den niemand aufruft, ist toter Code.
-- **Navigation im Popup.** Sobald die Liste verdeckt ist, braucht man Vor/Zurück
-  zwischen den Treffern, sonst ist jeder Wechsel Schließen-und-neu-Klicken. Das
-  war schon beim ersten Vollbild-Vorschlag der Einwand und gilt jetzt umso mehr.
-- **Semantik.** Ein Vollbild-Overlay ist faktisch ein Modal. Aktuell ist das Panel
-  ein `<aside>` ohne Fokusfalle. Der saubere Weg ist das native `<dialog>`: bringt
-  Backdrop, Escape, Fokusfalle und `inert`-Hintergrund mit, statt dass wir jedes
-  Stück selbst bauen. Realistisch ein halber Tag.
+Eine Falle daraus, festgehalten: der globale `* { margin: 0 }`-Reset kippt das
+`margin: auto`, mit dem der Browser modale Dialoge zentriert — ohne eine
+explizite Zeile klebt das Modal in der linken oberen Ecke.
 
 ## 2. Caching für die Vorschau
 
@@ -104,11 +86,12 @@ Suchantwort bereits vor, es müsste nur angezeigt werden.
 
 ## 4. Kleinere Punkte aus dem Review
 
-- **Format-Badge auf der Karte.** Man sieht einem Treffer nicht an, ob er eine
-  E-Mail, ein Vertrag oder eine Notiz ist. Billig, spart bei jeder Suche einen
-  Klick, und das PRD fordert es unter FR-6.
-- **Pfeiltasten zwischen den Treffern.** Enter öffnet inzwischen, aber von Treffer
-  zu Treffer kommt man nur per Tab durch alle Buttons.
+- ~~**Format-Badge auf der Karte.**~~ Erledigt: die Metazeile nennt Format und
+  Datum (`PDF · 15.03.2024`), und das Vorschaubild zeigt bei PDFs die gerenderte
+  erste Seite, bei den übrigen Formaten ein Icon.
+- ~~**Pfeiltasten zwischen den Treffern.**~~ Erledigt im Modal: Pfeiltasten
+  blättern über alle Treffer, auch über Aktengruppen hinweg. In der Liste selbst
+  kommt man weiterhin nur per Tab weiter.
 - **`escapeJsString` escaped keine Anführungszeichen** (`app.js`). Wird in
   `onclick="app.openDocument('…','…')"` innerhalb eines doppelt gequoteten
   Attributs verwendet. Über SMB-/Windows-Dateinamen nicht ausnutzbar, da `"` dort
@@ -133,3 +116,20 @@ Sortierung und Pagination sind deshalb **keine Frontend-Aufgaben**. Wer sie im
 Frontend plant, plant an der API vorbei.
 
 Reihenfolge bleibt: erst die API, dann die UI.
+
+
+## 6. Was der Trefferlisten-Umbau offen gelassen hat
+
+- **Icon-Kästen wirken leer.** Bei DOCX, TXT und MSG füllt ein kleines Symbol
+  einen 200×172-Kasten, der bei PDFs Seiteninhalt trägt. Denkbare Alternative
+  ohne Konverter: dort die ersten Zeilen des extrahierten Textes klein setzen —
+  eine inhaltliche Vorschau, nur typografisch statt als Bild.
+- **Kartendichte gegen Lesbarkeit.** Die Karte ist bei 202 px gelandet, nachdem
+  das Vorschaubild zweimal vergrössert wurde. Damit passen bei 1000 px
+  Fensterhöhe zwei Karten ins Sichtfeld — ungefähr so viele wie vor dem
+  Kompaktumbau, nun aber mit lesbarer Vorschau und einem statt zwei Textblöcken.
+- **„Mehr laden" ist eine zweite vollständige Suche.** Die API kennt kein
+  `offset`; der Knopf erhöht das Limit und ersetzt die Liste. Bei langsamer API
+  spürbar. Ungetestet, weil die Demo nie mehr Treffer liefert als das Limit.
+- **Leerzustand ungetestet.** Die Demo-Fixtures liefern auch bei Unsinn-Anfragen
+  Treffer, der neue Leerzustand liess sich deshalb im Browser nicht auslösen.
