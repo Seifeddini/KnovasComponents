@@ -690,11 +690,6 @@ mark.context-snippet-match,
     margin-bottom: 8px;
 }
 
-.login-subtitle {
-    color: var(--text-secondary);
-    margin-bottom: 24px;
-}
-
 .login-form {
     display: flex;
     flex-direction: column;
