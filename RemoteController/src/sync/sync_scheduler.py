@@ -17,6 +17,7 @@ from config import get_config
 from sync.ingest_rate_limit import configure as configure_ingest
 from sync.rate_metrics import IngestRateMetrics
 from sync.sync_config import load_sync_config
+from sync.default_sync_body import build_default_sync_body
 from sync.sync_executor import SyncRunResult, run_sync_work
 from sync.knovas_uploader import SemantixUploader
 from sync.window import is_in_window
@@ -329,6 +330,8 @@ def maybe_auto_start() -> None:
     if not sync_cfg.get("enabled") or sync_cfg.get("mode") != "continuous":
         return
     body = load_last_sync_body()
+    if not body and not cfg.rc_sync_auto_start_requires_saved_body:
+        body = build_default_sync_body(cfg)
     if cfg.rc_sync_auto_start_requires_saved_body and not body:
         _set_status("awaiting_initial_sync_body")
         return

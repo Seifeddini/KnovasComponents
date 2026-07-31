@@ -32,9 +32,10 @@ def test_load_config_allows_missing_instance_token_when_internal_bypass(monkeypa
     monkeypatch.delenv("TESTING", raising=False)
     monkeypatch.setenv("RC_INTERNAL_LOCAL_BYPASS", "true")
     for key in _REQUIRED:
-        if key != "RC_INSTANCE_TOKEN":
+        if key not in ("RC_INSTANCE_TOKEN", "KNOVAS_INTERNAL_API_URL"):
             monkeypatch.setenv(key, "x")
     monkeypatch.delenv("RC_INSTANCE_TOKEN", raising=False)
+    monkeypatch.delenv("KNOVAS_INTERNAL_API_URL", raising=False)
     reset_config()
     cfg = load_config(validate=True, force_reload=True)
     assert cfg.rc_instance_token == ""

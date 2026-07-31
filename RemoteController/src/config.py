@@ -104,8 +104,7 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
     if _config is not None and not force_reload:
         return _config
 
-    required = _required_env_keys()
-    missing = [k for k in required if not (os.environ.get(k) or "").strip()]
+    missing = _missing_required_env()
     if validate and missing:
         skip_requested = _env_bool("RC_SKIP_CONFIG_VALIDATION", False)
         # The skip is a test-only convenience; outside TESTING it must never
@@ -134,7 +133,7 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         rc_instance_token=(os.environ.get("RC_INSTANCE_TOKEN") or "").strip(),
         rc_client_id=(os.environ.get("RC_CLIENT_ID") or "").strip(),
         rc_watch_roots=roots,
-        semantix_secure_base_url=(os.environ.get("SEMANTIX_SECURE_BASE_URL") or "").rstrip("/"),
+        semantix_secure_base_url=_semantix_secure_base_url(),
         semantix_client_cert_path=os.environ.get("SEMANTIX_CLIENT_CERT_PATH", ""),
         semantix_client_key_path=os.environ.get("SEMANTIX_CLIENT_KEY_PATH", ""),
         semantix_ca_cert_path=os.environ.get("SEMANTIX_CA_CERT_PATH", ""),
@@ -181,10 +180,25 @@ def _internal_local_bypass_enabled() -> bool:
     )
 
 
+def _semantix_secure_base_url() -> str:
+    return (
+        (os.environ.get("SEMANTIX_SECURE_BASE_URL") or os.environ.get("KNOVAS_API_URL") or "")
+    ).rstrip("/")
+
+
 def _required_env_keys() -> tuple[str, ...]:
+    skip: set[str] = set()
     if _internal_local_bypass_enabled():
-        return tuple(k for k in _REQUIRED_VARS if k != "RC_INSTANCE_TOKEN")
-    return _REQUIRED_VARS
+        skip.update({"RC_INSTANCE_TOKEN", "KNOVAS_INTERNAL_API_URL"})
+    return tuple(k for k in _REQUIRED_VARS if k not in skip)
+
+
+def _missing_required_env() -> list[str]:
+    required = _required_env_keys()
+    missing = [k for k in required if k != "SEMANTIX_SECURE_BASE_URL" and not (os.environ.get(k) or "").strip()]
+    if "SEMANTIX_SECURE_BASE_URL" in required and not _semantix_secure_base_url():
+        missing.append("SEMANTIX_SECURE_BASE_URL")
+    return missing
 
 
 def get_config() -> AppConfig:

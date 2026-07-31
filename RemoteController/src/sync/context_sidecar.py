@@ -20,10 +20,13 @@ MAX_SIDEcar_SENTENCES = 50_000
 FIRST_PAGE_FALLBACK_SENTENCES = 15
 
 
+_DEFAULT_CONTEXT_STORE_PATH = "/var/rc-state/search_context"
+
+
 def context_store_dir_from_env() -> Optional[Path]:
     raw = (os.environ.get("SEARCH_CONTEXT_STORE_PATH") or "").strip()
     if not raw:
-        return None
+        raw = _DEFAULT_CONTEXT_STORE_PATH
     return Path(raw).resolve()
 
 

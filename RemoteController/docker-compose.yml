@@ -21,6 +21,8 @@ services:
       - rc-internal
 
   nginx:
+    profiles:
+      - edge
     image: nginx:1.27-alpine
     ports:
       - "443:443"
