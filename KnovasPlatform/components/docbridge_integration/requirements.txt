@@ -30,7 +30,7 @@ python-dateutil==2.8.2
 tenacity==8.2.3
 
 # Document extraction (sentences, sections, tables for secured upload)
-knovas-extract[pdf,docx,msg,markdown,sentences]>=0.3
+knovas-extract[pdf,docx,msg,markdown,html,sentences]>=0.3
 
 # Environment variables
 python-dotenv==1.0.0

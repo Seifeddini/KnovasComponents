@@ -6,6 +6,7 @@ through Knovas.
 """
 
 import sys
+import io
 import os
 import json
 import hmac
@@ -28,6 +29,13 @@ from context_store import enrich_result_with_context
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
+from web_interface.preview import (
+    PreviewFailed,
+    PreviewUnsupported,
+    extract_markdown,
+    preview_kind,
+    render_first_page_png,
+)
 from unc_path import (
     filesystem_path_to_client_local,
     map_path_with_roots,
@@ -253,8 +261,11 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
             'Der Vertrag wird im beiderseitigen Einvernehmen geschlossen.'
         ),
         'context_snippet': _demo_context_snippet(
+            'Die Vertragsparteien haben die Liegenschaft gemeinsam besichtigt und den Zustand protokolliert. '
+            'Der Verkäufer sichert zu, dass keine über die im Grundbuch eingetragenen hinausgehenden Lasten bestehen. '
             'Die Übergabe der Liegenschaft erfolgt nach vollständiger Zahlung des Kaufpreises. '
-            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen.',
+            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen. '
+            'Ein Treuhandkonto wird bei der beurkundenden Notarin eingerichtet.',
             'Der Kaufpreis in Höhe von EUR 485.000,00 ist spätestens bis zum vereinbarten Übergabetermin zu bezahlen.',
             'Mit Übergabe gehen Nutzen und Lasten auf den Käufer über. Mängelansprüche verjähren nach den '
             'gesetzlichen Fristen. Die Parteien vereinbaren einen Rücktrittsvorbehalt bei Finanzierungsausfall.',
@@ -265,6 +276,102 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         ),
         'file_size': 245760,
         'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Mustervertrag.pdf',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Aktennotiz.txt',
+        'path': 'corpus/2024-001/Aktennotiz.txt',
+        'title': 'Aktennotiz Übergabetermin',
+        'akten_id': '2024-001',
+        'type': 'Aktennotiz',
+        'score': 0.88,
+        'cosine_similarity': 0.88,
+        'cosine_distance': 0.12,
+        'page_number': 1,
+        'sentence_number': 3,
+        'document_date': '2024-03-20T11:30:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 3, 'cosine_similarity': 0.88},
+        ],
+        'first_page_preview': (
+            'Aktennotiz vom 20.03.2024. Übergabetermin für die Liegenschaft laut '
+            'Kaufvertrag 2024-001 vereinbart für den 05.04.2024, 10:00 Uhr vor Ort.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Der Käufer wurde telefonisch über den vorgeschlagenen Termin informiert.',
+            'Übergabe der Liegenschaft ist für den 05.04.2024 vorgesehen, vorbehaltlich '
+            'vollständiger Kaufpreiszahlung.',
+            'Die Schlüsselübergabe erfolgt direkt vor Ort. Ein Übergabeprotokoll wird von '
+            'beiden Seiten unterzeichnet.',
+        ),
+        'ingested_summary': (
+            'Aktennotiz zur Vereinbarung des Übergabetermins im Zusammenhang mit dem '
+            'Kaufvertrag 2024-001.'
+        ),
+        'file_size': 247,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Aktennotiz.txt',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Kaufvertrag.docx',
+        'path': 'corpus/2024-001/Kaufvertrag.docx',
+        'title': 'Kaufvertrag Immobilie (Entwurf)',
+        'akten_id': '2024-001',
+        'type': 'Vertrag',
+        'score': 0.93,
+        'cosine_similarity': 0.93,
+        'cosine_distance': 0.07,
+        'page_number': 1,
+        'sentence_number': 5,
+        'document_date': '2024-03-10T09:00:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 5, 'cosine_similarity': 0.93},
+            {'page_number': 2, 'sentence_number': 2, 'cosine_similarity': 0.81},
+        ],
+        'first_page_preview': (
+            'KAUFVERTRAG (Entwurf) über eine Wohnimmobilie. Verkäufer: Immobilien GmbH, '
+            'Käufer: Max Mustermann. Dieser Entwurf dient der Abstimmung vor Unterzeichnung.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Die Vertragsparteien haben sich auf den nachstehenden Kaufpreis geeinigt.',
+            'Der Kaufpreis beträgt EUR 485.000,00 und ist bis zum Übergabetermin zu entrichten.',
+            'Änderungen an diesem Entwurf bedürfen der Schriftform und der Zustimmung beider Parteien.',
+        ),
+        'ingested_summary': (
+            'Entwurfsfassung des Kaufvertrags über die Wohnimmobilie EZ 1234 KG Musterstadt, '
+            'zur Abstimmung vor der Unterzeichnung.'
+        ),
+        'file_size': 36822,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Kaufvertrag.docx',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Rueckfrage.msg',
+        'path': 'corpus/2024-001/Rueckfrage.msg',
+        'title': 'Rückfrage zum Kaufvertrag',
+        'akten_id': '2024-001',
+        'type': 'E-Mail',
+        'score': 0.86,
+        'cosine_similarity': 0.86,
+        'cosine_distance': 0.14,
+        'page_number': 1,
+        'sentence_number': 2,
+        'document_date': '2024-03-18T15:20:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 2, 'cosine_similarity': 0.86},
+        ],
+        'first_page_preview': (
+            'E-Mail-Rückfrage des Käufers zu einzelnen Klauseln des Kaufvertrags, '
+            'insbesondere zur Fälligkeit des Kaufpreises und zum Übergabetermin.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Der Käufer bedankt sich für die Zusendung des Entwurfs.',
+            'Er bittet um Klarstellung, ob der Übergabetermin verschoben werden kann, '
+            'falls sich die Finanzierung verzögert.',
+            'Eine Antwort wird bis Ende der Woche erbeten.',
+        ),
+        'ingested_summary': (
+            'Rückfrage des Käufers zu Fälligkeit und Übergabetermin im laufenden Kaufvertrag.'
+        ),
+        'file_size': 5120,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Rueckfrage.msg',
     },
     {
         'doc_id': 'corpus/2024-001/Schriftsatz_Klage.docx',
@@ -431,8 +538,6 @@ def _apply_test_open_hints(
             result['companion_scheme'] = companion_uri_scheme
 
 
-DRAFT_THEME_SLUGS = frozenset({'atelier', 'ledger', 'horizon', 'helvetia'})
-
 # Bump when search UI / open behaviour changes — visible in footer and GET /api/version
 DOCBRIDGE_BUILD_ID = 'onedrive-locations-v4'
 
@@ -489,13 +594,6 @@ def _open_autodoc_fileobj(full_path: str):
     flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0)
     fd = os.open(full_path, flags)
     return os.fdopen(fd, 'rb')
-
-
-def _normalize_ui_theme_slug(raw: Optional[str]) -> Optional[str]:
-    slug = (raw or '').strip().lower()
-    if slug in DRAFT_THEME_SLUGS:
-        return slug
-    return None
 
 
 def _static_asset_version() -> str:
@@ -570,27 +668,6 @@ def create_app(config_path: Optional[str] = None):
     file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
     web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
-    configured_ui_theme_raw = str(config.get('web.theme', '') or '').strip()
-    web_ui_theme = _normalize_ui_theme_slug(configured_ui_theme_raw)
-    if configured_ui_theme_raw and not web_ui_theme:
-        logger.warning(
-            'Invalid web.theme / WEB_UI_THEME=%r; must be one of: %s',
-            configured_ui_theme_raw,
-            ', '.join(sorted(DRAFT_THEME_SLUGS)),
-        )
-    elif web_ui_theme:
-        logger.info('Web UI theme: %s', web_ui_theme)
-
-    def _resolve_ui_theme() -> Optional[str]:
-        """?theme= overrides web.theme / WEB_UI_THEME when set."""
-        query_theme = _normalize_ui_theme_slug(request.args.get('theme'))
-        if query_theme:
-            return query_theme
-        return web_ui_theme
-
-    def _theme_from_query_only() -> Optional[str]:
-        """Explicit ?theme= only (e.g. preserve preview override after login)."""
-        return _normalize_ui_theme_slug(request.args.get('theme'))
     login_company_name = config.get('web.login.company_name', 'Knovas')
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
@@ -644,7 +721,6 @@ def create_app(config_path: Optional[str] = None):
         store_path=open_token_store_path,
     )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
-    hover_preview_enabled = config.get_bool('web.search.hover_preview', True)
     allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
     companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
@@ -784,6 +860,7 @@ def create_app(config_path: Optional[str] = None):
             return None
         if request.endpoint in {
             'static',
+            'favicon',
             'login',
             'logout',
             'stats',
@@ -831,6 +908,14 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
         return None
 
+    @app.route('/favicon.ico')
+    def favicon():
+        """Browser fragen /favicon.ico an der Wurzel an, unabhaengig vom <link>-Tag.
+
+        Ohne diese Route laeuft jeder Seitenaufruf in ein 404 im Log.
+        """
+        return redirect(url_for('static', filename='img/favicon.svg'), code=301)
+
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         """Company login page."""
@@ -873,12 +958,7 @@ def create_app(config_path: Optional[str] = None):
                 session['company_login_ok'] = True
                 session['company_login_name'] = submitted_name
                 session['csrf_token'] = secrets.token_urlsafe(32)
-                dest = next_url
-                theme = _theme_from_query_only()
-                if theme:
-                    sep = '&' if '?' in dest else '?'
-                    dest = f'{dest}{sep}theme={theme}'
-                return redirect(dest)
+                return redirect(next_url)
             else:
                 _record_login_failure(client_ip)
                 error = 'Login-Name oder Passwort ist falsch.'
@@ -890,7 +970,6 @@ def create_app(config_path: Optional[str] = None):
             error=error,
             next_url=next_url,
             csrf_token=csrf_token,
-            draft_theme=_resolve_ui_theme(),
         ), status_code
 
     @app.route('/logout', methods=['POST'])
@@ -915,11 +994,10 @@ def create_app(config_path: Optional[str] = None):
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
-            hover_preview_enabled=hover_preview_enabled,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
+            results_per_page=config.get_int('web.search.results_per_page', 20),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
-            draft_theme=_resolve_ui_theme(),
         )
     
     @app.route('/api/search', methods=['POST'])
@@ -1206,6 +1284,88 @@ def create_app(config_path: Optional[str] = None):
             logger.error(f"Error previewing document: {e}", exc_info=True)
             return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
 
+    @app.route('/api/document/<path:doc_id>/thumbnail', methods=['GET'])
+    def document_thumbnail(doc_id: str):
+        """Seite 1 als PNG fuer die Trefferkarte. Nur PDF -- siehe preview.py."""
+        file_path = str(request.args.get('path') or '').strip()
+        if not file_path:
+            return jsonify({'success': False, 'error': 'Document path required'}), 400
+
+        full_path = _resolve_autodoc_path(file_path)
+        if not full_path:
+            return jsonify({'success': False, 'error': 'Document path not allowed'}), 400
+
+        if preview_kind(file_path) != 'pdf':
+            return jsonify({'success': False, 'error': 'Thumbnail only supported for PDF'}), 415
+
+        if not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': 'Document file not found'}), 404
+
+        try:
+            png = render_first_page_png(full_path)
+        except PreviewUnsupported:
+            return jsonify({'success': False, 'error': 'Thumbnail only supported for PDF'}), 415
+        except PreviewFailed as exc:
+            logger.warning("Thumbnail failed for %s: %s", file_path, exc)
+            return jsonify({'success': False, 'error': 'Vorschaubild konnte nicht erzeugt werden'}), 422
+        except Exception:
+            logger.error("Thumbnail error for %s", file_path, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+        response = send_file(io.BytesIO(png), mimetype='image/png')
+        # Das Bild aendert sich nur, wenn die Datei sich aendert; ohne diesen
+        # Header laedt jede Suche jedes Vorschaubild neu.
+        try:
+            stat = os.stat(full_path)
+            response.set_etag(f"{stat.st_mtime_ns}-{stat.st_size}")
+        except OSError:
+            pass
+        response.headers['Cache-Control'] = 'private, max-age=300'
+        return response.make_conditional(request)
+
+    @app.route('/api/document/<path:doc_id>/preview-content', methods=['GET'])
+    def preview_content(doc_id: str):
+        """Sanitisiertes Markdown fuer DOCX, TXT und MSG.
+
+        PDF laeuft bewusst nicht hierueber: der Client bettet /preview ein und
+        laesst den Browser rendern. Antwort enthaelt niemals HTML -- der Client
+        escaped zuerst und formatiert danach (siehe static/js/markdown.js).
+        """
+        file_path = str(request.args.get('path') or '').strip()
+        if not file_path:
+            return jsonify({'success': False, 'error': 'Document path required'}), 400
+
+        full_path = _resolve_autodoc_path(file_path)
+        if not full_path:
+            return jsonify({'success': False, 'error': 'Document path not allowed'}), 400
+
+        kind = preview_kind(file_path)
+        if kind is None or kind == 'pdf':
+            return jsonify({'success': False, 'error': 'Preview not supported for this format'}), 415
+
+        if not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': 'Document file not found'}), 404
+
+        try:
+            extracted = extract_markdown(full_path)
+        except PreviewUnsupported:
+            return jsonify({'success': False, 'error': 'Preview not supported for this format'}), 415
+        except PreviewFailed as exc:
+            logger.warning("Preview extraction failed for %s: %s", file_path, exc)
+            return jsonify({'success': False, 'error': 'Vorschau konnte nicht erzeugt werden'}), 422
+        except Exception:
+            logger.error("Preview error for %s", file_path, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+        return jsonify({
+            'success': True,
+            'doc_id': doc_id,
+            'kind': extracted['kind'],
+            'markdown': extracted['markdown'],
+            'meta': extracted['meta'],
+            'warnings': extracted['warnings'],
+        })
+
     @app.route('/api/document/<path:doc_id>/client-path', methods=['GET'])
     def document_client_path(doc_id: str):
         """
@@ -1388,31 +1548,6 @@ def create_app(config_path: Optional[str] = None):
             'timestamp': datetime.now().isoformat(),
             'semantix_api': api_client.health_check()
         })
-
-    @app.route('/api/analytics/engagement', methods=['POST'])
-    def analytics_engagement():
-        """
-        Proxy: POST /secured/analytics/engagement (implicit engagement events).
-        """
-        try:
-            data = request.get_json() or {}
-            qsid = (data.get('query_session_id') or '').strip()
-            if not qsid:
-                return jsonify({'success': False, 'error': 'query_session_id ist erforderlich'}), 400
-            events = data.get('events')
-            if not isinstance(events, list) or not events:
-                return jsonify({'success': False, 'error': 'events ist erforderlich'}), 400
-            if len(events) > 50:
-                return jsonify({'success': False, 'error': 'maximal 50 events pro Anfrage'}), 400
-
-            raw = api_client.post_engagement_events(query_session_id=qsid, events=events)
-            return jsonify({'success': True, 'semantix': raw}), 202
-        except ValueError as e:
-            logger.info('Engagement rejected: %s', e, exc_info=True)
-            return jsonify({'success': False, 'error': 'Ungültige Anfrage.'}), 400
-        except Exception as e:
-            logger.warning('Engagement failed: %s', e, exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 502
 
     @app.route('/api/version', methods=['GET'])
     def api_version():

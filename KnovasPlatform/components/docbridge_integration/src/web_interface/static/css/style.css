@@ -1,20 +1,70 @@
 /* Knovas Document Search */
 
+/* IBM Plex, selbst gehostet (SIL OFL). Kein CDN: die Anwendung laeuft
+   kundengehostet und teils offline. */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../fonts/IBMPlexMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
+
 :root {
-    --primary-color: #1e40af;
-    --primary-hover: #1e3a8a;
-    --success-color: #059669;
-    --error-color: #dc2626;
-    --bg-color: #f4f6f9;
-    --card-bg: #ffffff;
-    --text-primary: #0f172a;
-    --text-secondary: #64748b;
-    --text-muted: #94a3b8;
-    --border-color: #e2e8f0;
-    --shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-    --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.08);
-    --radius: 10px;
-    --radius-lg: 14px;
+    /* Knovas Branding, Seiten 15-16 */
+    /* Rollenverteilung nach den USE-Angaben des Guides: Royal ist dort
+       "CALLOUT TEXT", Azure ist die Identitaetsfarbe "KNOVAS BLUE".
+       Azure erreicht als Textfarbe nur 3.97:1 und als Buttonflaeche unter
+       Weiss nur 4.04:1 -- beides unter WCAG AA. Royal erreicht 7.59:1
+       bzw. 7.72:1. Azure bleibt deshalb dekorativ. */
+    --primary-color: #1A45C7;     /* Royal Blue -- Text/Links/Buttonflaechen */
+    --primary-hover: #193284;     /* Marine Blue -- Hover-Zustand */
+    --accent: #3B79F2;            /* Azure Blue -- nur dekorativ: Rahmen, Fokusringe, Chip-Highlights. Nie als Textfarbe, nie als Flaeche unter Text. */
+    --accent-rgb: 59, 121, 242;    /* RGB-Tripel von --accent, fuer rgba()-Transparenzen */
+    --success-color: #1a6b4a;
+    --error-color: #c41e1e;
+    --bg-color: #FDFDFD;          /* Off White -- Seitenhintergrund */
+    --card-bg: #FDFDFD;           /* Off White -- Container liegen flach auf der Seite,
+                                     abgegrenzt allein durch --border-color */
+    --surface-sunken: #F4F6FC;    /* Ice Blue -- zurueckgesetzte Flaechen: Treffer-Karten,
+                                     Eingabefelder, Chips */
+    --callout: #6E88DC;           /* Cornflower Blue -- laut Guide "CALLOUT CONTAINER" */
+    --highlight: #D9E0F7;         /* Grayish Blue -- Fundstellen-Markierung, ersetzt das
+                                     markenfremde Gelb */
+    --text-primary: #283647;      /* Slate Blue */
+    --text-primary-rgb: 40, 54, 71; /* RGB-Tripel von --text-primary, fuer rgba()-Transparenzen */
+    --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
+    --text-muted: #5A6B80;        /* abgedunkelt von #A3B0C0 (2.17:1, unter AA) auf 5.36:1 --
+                                     identisch zu --text-secondary, da --text-muted auch auf
+                                     essenziellem Text (Trefferzahl, Score-Chips) verwendet wird */
+    --border-color: #D1D6DF;      /* Light Ice Blue */
+    --radius: 6px;
+    --radius-lg: 8px;
+    --font-body: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-heading: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 * {
@@ -23,16 +73,34 @@
     box-sizing: border-box;
 }
 
+/* Formularelemente erben font-family nicht vom Body -- ohne diese Regel
+   fallen Suchfeld, Buttons und Selects auf die UA-Schrift zurueck. */
+input,
+button,
+select,
+textarea {
+    font-family: inherit;
+    font-size: inherit;
+}
+
 body {
-    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    font-family: var(--font-body);
     background-color: var(--bg-color);
     color: var(--text-primary);
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
 }
 
+h1,
+h2 {
+    font-family: var(--font-heading);
+    /* IBM Plex Mono ships 400/600 only (no 700) -- use the heaviest
+       shipped weight so browsers never synthesize a fake bold. */
+    font-weight: 600;
+}
+
 .container {
-    max-width: 920px;
+    max-width: 1360px;
     margin: 0 auto;
     padding: 24px 20px 32px;
     min-height: 100vh;
@@ -42,28 +110,51 @@ body {
 
 /* Header */
 .site-header {
-    text-align: center;
-    padding: 12px 0 28px;
+    padding: 12px 0 24px;
     margin-bottom: 8px;
     border-bottom: 1px solid var(--border-color);
 }
 
-.site-header h1 {
-    font-size: 1.75rem;
-    font-weight: 700;
+/* Markenzeile und Abmelden in einer Reihe, Begruessung darunter. */
+.site-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+}
+
+.site-brand {
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+}
+
+.site-brand img {
+    height: 18px;
+    width: auto;
+}
+
+.site-brand:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+    border-radius: var(--radius);
+}
+
+.site-greeting {
+    font-family: var(--font-heading);
+    font-size: 1.6rem;
+    font-weight: 600;
+    line-height: 1.3;
     letter-spacing: -0.02em;
-    color: var(--primary-color);
-    margin-bottom: 6px;
+    color: var(--title-color, var(--text-primary));
 }
 
-.subtitle {
+.site-greeting-question {
     color: var(--text-secondary);
-    font-size: 1rem;
+    font-weight: 400;
 }
 
-.header-feedback {
-    margin-top: 1rem;
-}
 
 .feedback-link {
     display: inline-flex;
@@ -75,19 +166,19 @@ body {
     text-decoration: none;
     padding: 0.4rem 0.85rem;
     border-radius: 999px;
-    border: 1px solid rgba(30, 64, 175, 0.3);
-    background: rgba(30, 64, 175, 0.06);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: rgba(var(--accent-rgb), 0.06);
     transition: border-color 0.2s, background 0.2s;
 }
 
 .feedback-link:hover {
-    border-color: var(--primary-color);
-    background: rgba(30, 64, 175, 0.1);
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.1);
     text-decoration: none;
 }
 
 .feedback-link:focus-visible {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
@@ -99,12 +190,12 @@ body {
 }
 
 .logout-form {
-    margin-top: 1rem;
+    flex: 0 0 auto;
 }
 
 .logout-button {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 7px 14px;
 }
 
 .logout-button:hover {
@@ -121,7 +212,6 @@ main {
     background: var(--card-bg);
     padding: 20px;
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
     border: 1px solid var(--border-color);
     margin-bottom: 20px;
 }
@@ -138,21 +228,22 @@ main {
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     font-size: 1rem;
-    background: #fafbfc;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    background: var(--surface-sunken);
+    transition: border-color 0.2s;
 }
 
 #searchInput:focus {
     outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);
-    background: #fff;
+    border-color: var(--accent);
+    background: var(--card-bg);
 }
 
 .btn {
     padding: 13px 22px;
     border: none;
-    border-radius: var(--radius);
+    /* Vollrund: 999px statt 50%, damit der Radius bei jeder Breite gleich
+       bleibt -- 50% wuerde bei breiten Buttons zu Ellipsen fuehren. */
+    border-radius: 999px;
     font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
@@ -162,10 +253,6 @@ main {
     gap: 6px;
     white-space: nowrap;
     text-decoration: none;
-}
-
-a.btn-success {
-    color: white;
 }
 
 .btn-primary {
@@ -183,15 +270,21 @@ a.btn-success {
 }
 
 .btn-secondary {
-    background-color: #e2e8f0;
+    background-color: var(--border-color);
     color: var(--text-primary);
 }
 
 .btn-success {
-    background-color: var(--success-color);
-    color: white;
+    background-color: var(--primary-color);
+    color: #FFFFFF;
+    border: 1px solid var(--primary-color);
     padding: 9px 16px;
     font-size: 0.875rem;
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 .btn-outline {
@@ -202,35 +295,11 @@ a.btn-success {
     font-size: 0.875rem;
 }
 
-.search-options {
-    display: flex;
-    justify-content: flex-end;
-}
-
-.search-options-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-}
-
-.search-options select {
-    padding: 6px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: white;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-}
-
 /* Results */
 .results-section {
-    background: var(--card-bg);
-    padding: 20px;
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
-    border: 1px solid var(--border-color);
+    /* Kein eigener Rahmen: die Karten grenzen sich selbst ab, ein Kasten um
+       Kaesten herum ist eine Ebene zu viel. */
+    padding: 0;
 }
 
 .results-header {
@@ -243,6 +312,7 @@ a.btn-success {
 }
 
 .results-header h2 {
+    font-family: var(--font-heading);
     font-size: 1.1rem;
     font-weight: 600;
 }
@@ -252,208 +322,195 @@ a.btn-success {
     font-size: 0.875rem;
 }
 
+.results-query {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
 .results-container {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
+/* Zwischenueberschrift je Akte. Flach gehalten: eine Linie und ein Label,
+   kein Kasten -- sonst waere die Verschachtelung wieder da, die wir gerade
+   abgebaut haben. */
+.results-group {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 22px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.results-group:first-child {
+    margin-top: 4px;
+}
+
+.results-group-label {
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--primary-color);
+}
+
+.results-group-count {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.results-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 18px;
+}
+
+.results-more button[hidden] {
+    display: none;
+}
+
 /* Document cards */
 .document-card {
-    background: #fafbfc;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
-    padding: 18px 20px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    padding: 14px 16px;
+    transition: border-color 0.2s;
+    cursor: pointer;
 }
 
 .document-card:hover {
-    border-color: #cbd5e1;
-    box-shadow: var(--shadow);
+    border-color: var(--accent);
 }
 
-.document-header {
+/* Welches Dokument gerade im Panel steht. Ohne das verliert man bei mehreren
+   Treffern den Bezug zwischen Liste und Vorschau. */
+.document-card.is-active {
+    border-color: var(--primary-color);
+    background: rgba(var(--accent-rgb), 0.04);
+}
+
+/* Bild und Icon teilen sich Groesse und Rahmen, damit die Karten unabhaengig
+   vom Format in einer Flucht bleiben. */
+.document-thumb {
+    flex: 0 0 auto;
+    /* 260px Breite: wer den Dateinamen nicht kennt, erkennt das Dokument nur
+       am Briefkopf und der Ueberschrift -- bei 200px waren die grenzwertig
+       lesbar. Die Hoehe zeigt weiterhin nur den oberen Teil der Seite, im
+       gleichen Verhaeltnis wie zuvor; dort steht, was ein Dokument
+       identifiziert. Die Karte waechst dadurch auf rund 250px. Das ist
+       bewusst: die Wiedererkennung ist wichtiger als die Anzahl Treffer pro
+       Bildschirm. */
+    width: 260px;
+    height: 224px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--surface-sunken);
+    overflow: hidden;
+    position: relative;
+}
+
+/* Der Kasten schimmert, solange das Bild laedt. Bei vielen Treffern feuern
+   ebenso viele Thumbnail-Anfragen, die serverseitig je eine PDF-Seite
+   rendern -- ohne das stuenden hier bis dahin nur graue Flaechen.
+   Die Klasse nimmt das Bild selbst weg, sobald es geladen ist. */
+.document-thumb--loading {
+    background: linear-gradient(90deg, var(--surface-sunken), var(--border-color), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .document-thumb--loading { animation: none; }
+}
+
+/* Weiche Unterkante: der Ausschnitt endet mitten im Satzspiegel, und ohne
+   diesen Verlauf liest sich das als abgeschnitten statt als fortgesetzt. */
+.document-thumb:not(.document-thumb--icon)::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 34px;
+    background: linear-gradient(to bottom, rgba(253, 253, 253, 0), var(--card-bg));
+    pointer-events: none;
+}
+
+.document-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    display: block;
+}
+
+.document-thumb--icon {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 10px;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
 }
 
-.document-header-text {
+.document-thumb--icon svg {
+    width: 34px;
+    height: 34px;
+}
+
+.document-body {
+    flex: 1 1 0;
     min-width: 0;
-    flex: 1;
+}
+
+.document-headline {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.document-headline-text {
+    min-width: 0;
+}
+
+.document-metaline {
+    font-family: var(--font-heading);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 3px;
 }
 
 .document-title {
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
-    line-height: 1.35;
-}
-
-.document-location {
-    margin-top: 6px;
-    font-size: 0.82rem;
-    color: var(--primary-color);
-    font-weight: 500;
+    overflow-wrap: anywhere;
 }
 
 .document-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
     flex-shrink: 0;
 }
 
-/* Compact result actions: text-only labels, so they need less room than the
-   search button. Scoped here to keep .btn defaults for the rest of the UI. */
-.document-actions .btn {
-    padding: 6px 12px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    gap: 0;
-}
-
-.document-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 16px;
-    margin-bottom: 12px;
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-}
-
-.meta-item-muted {
-    color: var(--text-muted);
-}
-
-.document-match {
-    margin: 0 0 14px;
-    padding: 14px 16px;
-    background: #f8fafc;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 0.9rem;
-}
-
-.document-match-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px 12px;
-    margin-bottom: 10px;
-}
-
-.document-match-label {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-}
-
-.document-match-count {
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-}
-
-.document-match-more {
-    color: var(--text-muted);
-    font-weight: 500;
-}
-
-.match-location-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.match-location-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 11px;
-    border-radius: 999px;
-    background: #fff;
-    border: 1px solid var(--border-color);
-    font-size: 0.82rem;
-    line-height: 1.2;
-    color: var(--text-primary);
-}
-
-.match-location-chip--primary {
-    background: #eff6ff;
-    border-color: rgba(30, 64, 175, 0.35);
-    color: var(--primary-color);
-    font-weight: 600;
-}
-
-.match-location-chip-score {
-    font-size: 0.72rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.06);
-}
-
-.match-location-chip--primary .match-location-chip-score {
-    background: rgba(30, 64, 175, 0.12);
-    color: var(--primary-color);
-}
-
-.document-match-hint {
-    margin-top: 12px;
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    line-height: 1.45;
-}
-
-.document-ingested-summary {
-    margin-top: 12px;
-    padding: 12px 14px;
-    background: #eff6ff;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    color: var(--text-secondary);
-}
-
-.document-ingested-summary-label {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--primary-color);
-    margin-bottom: 8px;
-}
-
-.document-ingested-summary-text {
-    color: var(--text-secondary);
-}
-
-.document-first-page,
-.document-context-snippet {
-    margin-top: 12px;
-    padding: 12px 14px;
-    background: #f8fafc;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    line-height: 1.55;
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-}
-
-.document-first-page-label,
-.document-context-snippet-label {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--primary-color);
-    margin-bottom: 8px;
+.document-body .document-first-page-text,
+.document-body .document-context-snippet-text {
+    margin-top: 8px;
+    /* Drei Zeilen reichen zum Beurteilen; alles darueber gehoert ins Modal. */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .document-first-page-text,
@@ -465,130 +522,44 @@ a.btn-success {
 
 mark.context-snippet-match,
 .context-snippet-match {
-    background: #fef08a;
+    background: var(--highlight);
     color: inherit;
     padding: 0 2px;
     border-radius: 2px;
 }
 
-.document-hover-preview {
-    position: absolute;
-    z-index: 1200;
-    width: min(420px, calc(100vw - 24px));
-    max-height: min(70vh, 560px);
-    overflow: auto;
-    padding: 14px 16px;
-    background: #fff;
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
-    pointer-events: auto;
-}
-
-.document-hover-preview-title {
-    font-weight: 700;
-    font-size: 0.95rem;
-    margin-bottom: 10px;
-    color: var(--text-primary);
-}
-
-.document-hover-preview-body {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.document-hover-preview-section {
-    font-size: 0.85rem;
-    line-height: 1.5;
-}
-
-.document-hover-preview-label {
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--primary-color);
-    margin-bottom: 6px;
-}
-
-.document-hover-preview-pdf {
-    margin-bottom: 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    overflow: hidden;
-    height: 220px;
-    background: #f1f5f9;
-}
-
-.document-hover-preview-pdf object {
-    width: 100%;
-    height: 100%;
-    display: block;
-}
-
-.document-hover-preview-footer {
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-color);
-    font-size: 0.82rem;
-}
-
-.document-hover-preview-footer a {
-    color: var(--primary-color);
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.document-hover-preview-footer a:hover {
-    text-decoration: underline;
-}
-
 .document-card:focus-visible {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
-/* Loading */
-.loading {
-    text-align: center;
-    padding: 48px 20px;
-    color: var(--text-secondary);
+/* Skelett: gleiche Kartenform, damit beim Eintreffen der Ergebnisse nichts
+   springt. Nutzt dieselbe Shimmer-Animation wie die Vorschau. */
+.document-card--skeleton {
+    cursor: default;
 }
 
-.spinner {
-    width: 36px;
-    height: 36px;
-    margin: 0 auto 16px;
-    border: 3px solid var(--border-color);
-    border-top-color: var(--primary-color);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+.skeleton-block,
+.skeleton-line {
+    background: linear-gradient(90deg, var(--surface-sunken), var(--border-color), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
+    border-radius: 4px;
 }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
+.skeleton-line {
+    display: block;
+    height: 11px;
+    margin-bottom: 9px;
 }
 
-/* Messages */
-.error-message {
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #991b1b;
-    padding: 12px 16px;
-    border-radius: var(--radius);
-    margin: 16px 0 0;
-    font-size: 0.9rem;
-}
+.skeleton-line--meta { width: 34%; height: 8px; }
+.skeleton-line--title { width: 52%; height: 15px; margin-bottom: 12px; }
+.skeleton-line--short { width: 68%; }
 
-.success-message {
-    background: #ecfdf5;
-    border: 1px solid #a7f3d0;
-    color: #065f46;
-    padding: 12px 16px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-    font-size: 0.9rem;
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-block,
+    .skeleton-line { animation: none; }
 }
 
 /* Empty state */
@@ -598,10 +569,9 @@ mark.context-snippet-match,
     color: var(--text-secondary);
 }
 
-.empty-state-icon {
-    font-size: 2.5rem;
-    margin-bottom: 12px;
-    opacity: 0.7;
+.empty-state-hints {
+    margin: 10px 0 0 18px;
+    color: var(--text-secondary);
 }
 
 .empty-state h3 {
@@ -672,7 +642,7 @@ mark.context-snippet-match,
 /* Login */
 .login-page {
     min-height: 100vh;
-    background: linear-gradient(160deg, #eff6ff 0%, var(--bg-color) 50%, #fff 100%);
+    background: var(--bg-color);
 }
 
 .login-shell {
@@ -688,19 +658,37 @@ mark.context-snippet-match,
     max-width: 400px;
     background: var(--card-bg);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
     border: 1px solid var(--border-color);
     padding: 32px;
 }
 
+.login-logo {
+    display: block;
+    height: 30px;
+    width: auto;
+    margin-bottom: 6px;
+}
+
+/* Der Slogan aus dem Brand-Guide, in der Header-Schrift. */
+.login-slogan {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
 .login-brand {
     color: var(--primary-color);
-    font-weight: 700;
+    font-weight: 600;
     margin-bottom: 12px;
 }
 
 .login-card h1 {
     font-size: 1.75rem;
+    font-weight: 600;
     margin-bottom: 8px;
 }
 
@@ -733,8 +721,7 @@ mark.context-snippet-match,
 .login-form input[type="text"]:focus,
 .login-form input[type="password"]:focus {
     outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);
+    border-color: var(--accent);
 }
 
 .login-submit {
@@ -758,7 +745,7 @@ mark.context-snippet-match,
         flex-direction: column;
     }
 
-    .document-header {
+    .document-headline {
         flex-direction: column;
     }
 
@@ -780,6 +767,330 @@ mark.context-snippet-match,
     margin-top: 16px;
 }
 
+
+/* --- Dokumentvorschau als Modal ---------------------------------------- */
+
+.preview-dialog {
+    --dialog-pad-x: 20px;
+
+    /* Der globale `* { margin: 0 }`-Reset kippt das `margin: auto`, mit dem
+       der Browser modale Dialoge zentriert -- ohne diese Zeile klebt das
+       Modal in der linken oberen Ecke. */
+    margin: auto;
+    width: min(1100px, calc(100vw - 2 * clamp(16px, 5vw, 72px)));
+    height: min(900px, calc(100vh - 2 * clamp(16px, 5vh, 56px)));
+    max-width: none;
+    max-height: none;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    overflow: hidden;
+}
+
+.preview-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.preview-dialog::backdrop {
+    background: rgba(7, 23, 45, 0.38);
+}
+
+.preview-dialog-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px var(--dialog-pad-x) 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Eigene Regel, weil der `*`-Reset sonst alles auf 0 setzt: der Button
+   braucht Abstand zur Trennlinie oben und zum Inhalt darunter. */
+.preview-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px var(--dialog-pad-x);
+}
+
+.preview-actions:empty {
+    display: none;
+}
+
+.preview-dialog-heading {
+    min-width: 0;
+}
+
+.preview-dialog-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Zaehler zwischen den Pfeilen: ohne ihn weiss niemand, wie weit die Liste
+   noch reicht, sobald sie hinter dem Modal liegt. */
+.preview-position {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    padding: 0 6px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.preview-icon-button--close {
+    margin-left: 6px;
+}
+
+.preview-icon-button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.preview-icon-button:disabled:hover {
+    background: none;
+    color: var(--text-secondary);
+}
+
+.preview-title {
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.preview-meta {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.preview-icon-button {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    line-height: 1;
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius);
+}
+
+.preview-icon-button:hover {
+    background: var(--bg-color);
+    color: var(--text-primary);
+}
+
 .icon {
-    display: inline-block;
+    flex: 0 0 auto;
+}
+
+/* Basis 0 statt auto: mit inhaltsbasierter Basis faellt der Body bei einem
+   iframe auf dessen intrinsische 150px zusammen, statt den Rest des Panels
+   zu fuellen. min-height 0 erlaubt das Schrumpfen unter die Inhaltsgroesse. */
+.preview-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--dialog-pad-x) var(--dialog-pad-x);
+    font-size: 0.9rem;
+}
+
+/* Kopffelder einer E-Mail: zwei Spalten, damit Bezeichnung und Wert
+   untereinander fluchten und man sie ueberfliegen kann. */
+.mail-header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 14px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.88rem;
+}
+
+.mail-header-label {
+    color: var(--text-secondary);
+}
+
+.mail-header-value {
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.preview-body h3,
+.preview-body h4,
+.preview-body h5,
+.preview-body h6 {
+    margin: 14px 0 6px;
+    font-size: 0.95rem;
+}
+
+.preview-body p {
+    margin: 0 0 10px;
+    overflow-wrap: anywhere;
+}
+
+.preview-body ul {
+    margin: 0 0 10px 18px;
+}
+
+.preview-body code {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--bg-color);
+    padding: 1px 4px;
+    border-radius: 4px;
+}
+
+/* Kein gerechnetes hoehe: das iframe fuellt den Rest des Panels. Jede feste
+   Hoehe verfehlt frueher oder spaeter den verfuegbaren Platz und erzeugt eine
+   zweite Scrollbar neben der des PDF-Viewers. */
+/* Der Viewer laeuft randlos bis an die Dialogkanten -- er bringt seine
+   eigene Oberflaeche mit, ein Rahmen darum waere ein Rahmen zu viel. Die
+   Oberkante trennt ihn von der Aktionszeile. */
+.preview-body.is-pdf {
+    display: flex;
+    overflow: hidden;
+    padding: 0;
+    border-top: 1px solid var(--border-color);
+}
+
+.preview-body.is-pdf iframe {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    height: auto;
+    border: 0;
+}
+
+.preview-error {
+    color: var(--error-color);
+}
+
+.preview-skeleton span {
+    display: block;
+    height: 12px;
+    margin-bottom: 9px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--bg-color), var(--border-color), var(--bg-color));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
+}
+
+.preview-skeleton span:nth-child(2) { width: 92%; }
+.preview-skeleton span:nth-child(3) { width: 78%; }
+.preview-skeleton span:nth-child(4) { width: 86%; }
+
+@keyframes preview-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .preview-skeleton span { animation: none; }
+}
+
+@media (max-width: 900px) {
+            body.preview-open {
+        overflow: hidden;
+    }
+}
+
+/* --- Toasts -------------------------------------------------------------- */
+
+.toast-container {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(420px, calc(100vw - 32px));
+}
+
+/* Der Toast schwebt bewusst ueber dem Inhalt -- hier ist Tiefe Information,
+   nicht Dekoration, deshalb behaelt er als einziges Element einen Schatten. */
+.toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    box-shadow: 0 8px 24px rgba(7, 23, 45, 0.10);
+    font-size: 0.88rem;
+    animation: toast-in 140ms ease-out;
+}
+
+/* Jede Variante ist eine durchgefaerbte Flaeche, kein weisser Kasten mit
+   farbigem Streifen. Der Zustand liegt damit auf der ganzen Box statt an
+   einer 4px-Kante, und alle drei Textfarben liegen ueber 8:1. */
+.toast--error {
+    background: #FDECEC;
+    border-color: #F0B4B4;
+    color: #8E1616;
+}
+
+.toast--success {
+    background: #E8F3EE;
+    border-color: #A8CDBB;
+    color: #14503A;
+}
+
+.toast--info {
+    background: #E9EDFB;
+    border-color: #B4C2EE;
+    color: #12308C;
+}
+
+.toast--error .toast-close,
+.toast--success .toast-close,
+.toast--info .toast-close {
+    color: inherit;
+    opacity: 0.7;
+}
+
+.toast--error .toast-close:hover,
+.toast--success .toast-close:hover,
+.toast--info .toast-close:hover {
+    opacity: 1;
+}
+
+.toast-text {
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+}
+
+.toast-close {
+    flex: 0 0 auto;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 2px 4px;
+    color: var(--text-secondary);
+}
+
+.toast-close:hover { color: var(--text-primary); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
 }

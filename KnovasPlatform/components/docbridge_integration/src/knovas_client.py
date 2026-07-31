@@ -486,7 +486,6 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
     return parts, init_fields
 
 
-_ENGAGEMENT_ACTIONS = frozenset({"view", "click", "download", "dismiss"})
 _MAX_TABLES_PER_PART = 50
 _MAX_TABLE_COLUMNS = 64
 _MAX_TABLE_ROWS = 5000
@@ -918,9 +917,6 @@ class KnovasAPIClient:
             'sign_certificate': self.config.get(
                 'api.endpoints.sign_certificate', '/secured/sign_certificate'
             ),
-            'engagement': self.config.get(
-                'api.endpoints.engagement', '/secured/analytics/engagement'
-            ),
             'delete_information_object': self.config.get(
                 'api.endpoints.delete_information_object', '/secured/delete_information_object'
             ),
@@ -1319,56 +1315,6 @@ class KnovasAPIClient:
         )
         response.raise_for_status()
         return response
-
-    def post_engagement_events(
-        self,
-        query_session_id: str,
-        events: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """
-        POST /secured/analytics/engagement — implicit engagement (fire-and-forget).
-        """
-        session_id = str(query_session_id or '').strip()
-        if not session_id:
-            raise ValueError('query_session_id is required')
-        if not events or not isinstance(events, list):
-            raise ValueError('events must be a non-empty array')
-        if len(events) > 50:
-            raise ValueError('events exceeds max 50 per request')
-
-        normalized_events: List[Dict[str, Any]] = []
-        for idx, ev in enumerate(events):
-            if not isinstance(ev, dict):
-                raise ValueError(f'events[{idx}] must be an object')
-            action = str(ev.get('action') or '').strip().lower()
-            if action not in _ENGAGEMENT_ACTIONS:
-                raise ValueError(
-                    f'events[{idx}].action must be one of: {", ".join(sorted(_ENGAGEMENT_ACTIONS))}'
-                )
-            pointer = str(ev.get('pointer') or '').strip()
-            if not pointer:
-                raise ValueError(f'events[{idx}].pointer is required')
-            item: Dict[str, Any] = {'action': action, 'pointer': pointer}
-            position = ev.get('position')
-            if position is not None:
-                pos_i = int(position)
-                if pos_i < 1:
-                    raise ValueError(f'events[{idx}].position must be >= 1')
-                item['position'] = pos_i
-            normalized_events.append(item)
-
-        endpoint = self.endpoints.get('engagement', '/secured/analytics/engagement')
-        response = self._request_no_retry(
-            'POST',
-            endpoint,
-            data={
-                'query_session_id': session_id,
-                'events': normalized_events,
-            },
-        )
-        if response.status_code not in (200, 202):
-            response.raise_for_status()
-        return response.json() if response.content else {}
 
     def delete_information_object(self, pointer: str) -> Dict[str, Any]:
         """DELETE /secured/delete_information_object — remove document by pointer."""

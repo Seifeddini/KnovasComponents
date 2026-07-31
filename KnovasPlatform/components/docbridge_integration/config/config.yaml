@@ -45,7 +45,6 @@ api:
     health: "${SEMANTIX_HEALTH_ENDPOINT:-/secured/health}"
     generate_certificate: "${SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT:-/secured/generate_certificate}"
     sign_certificate: "${SEMANTIX_SIGN_CERTIFICATE_ENDPOINT:-/secured/sign_certificate}"
-    engagement: "${SEMANTIX_ENGAGEMENT_ENDPOINT:-/secured/analytics/engagement}"
     delete_information_object: "${SEMANTIX_DELETE_ENDPOINT:-/secured/delete_information_object}"
     # Legacy/mock endpoints (used only when explicitly enabled)
     full_sync: "${SEMANTIX_FULL_SYNC_ENDPOINT:-/api/docs/full-sync}"
@@ -156,9 +155,6 @@ web:
   # Browser tab and page heading (rebuild docbridge-web image after changing)
   app_title: "${WEB_APP_TITLE:-Knovas Document Search}"
 
-  # Optional UI theme: atelier | ledger | horizon | helvetia (empty = built-in default)
-  theme: "${WEB_UI_THEME:-}"
-
   # Company login gate
   login:
     enabled: "${COMPANY_LOGIN_ENABLED:-true}"
@@ -206,7 +202,7 @@ web:
     context_store_path: "${SEARCH_CONTEXT_STORE_PATH:-/mnt/autodoc/.search_context}"
     context_sentences: 10
     hover_preview: true
-    
+
   # Document opening
   document_handler:
     # How to handle document opening
@@ -253,7 +249,7 @@ open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
   companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"
   token_ttl_seconds: "${OPEN_TOKEN_TTL_SECONDS:-120}"
-    public_base_url: "${OPEN_PUBLIC_BASE_URL:-}"
+  public_base_url: "${OPEN_PUBLIC_BASE_URL:-}"
   companion_uri_scheme: "${OPEN_COMPANION_URI_SCHEME:-semantix-doc}"
   unc_root: "${OPEN_UNC_ROOT:-}"
   local_root: "${OPEN_LOCAL_ROOT:-}"

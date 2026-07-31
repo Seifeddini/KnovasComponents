@@ -1,42 +1,12 @@
-"""Tests for engagement analytics client + web proxy."""
+"""Tests for secured Knovas API client behaviour: object deletion, multi-input
+query bodies, certificate renewal, and structured tables in transmit payloads.
 
-import sys
-from pathlib import Path
+These previously lived in test_engagement.py, whose name did not match most of
+its contents; they were rescued when the engagement feature was removed.
+"""
 
-import pytest
-import requests
-
-SRC = Path(__file__).resolve().parents[1] / "src"
-WEB_SRC = SRC / "web_interface"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-if str(WEB_SRC) not in sys.path:
-    sys.path.insert(0, str(WEB_SRC))
-
-from knovas_client import KnovasAPIClient, _validate_and_normalize_tables
+from knovas_client import _validate_and_normalize_tables, _secured_transmit_part_payload
 from test_knovas_client_hardening import FakeResponse, FakeSession, make_client, make_secured_client
-
-
-def test_post_engagement_events_success():
-    client = make_secured_client()
-
-    def responder(method, url, **kw):
-        assert method == "POST"
-        assert "/secured/analytics/engagement" in url
-        return FakeResponse(202, {"status": "success", "accepted": 1})
-
-    client._session = FakeSession(responder)
-    out = client.post_engagement_events(
-        "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-        [{"action": "view", "pointer": "doc-1", "position": 2}],
-    )
-    assert out["accepted"] == 1
-
-
-def test_post_engagement_rejects_invalid_action():
-    client = make_secured_client()
-    with pytest.raises(ValueError, match="action"):
-        client.post_engagement_events("session-id", [{"action": "hover", "pointer": "x"}])
 
 
 def test_delete_information_object():
@@ -105,8 +75,6 @@ def test_csr_renewal_installs_certificate(tmp_path, monkeypatch):
 
 
 def test_transmit_payload_includes_tables():
-    from knovas_client import _secured_transmit_part_payload
-
     payload = _secured_transmit_part_payload(
         "key-1",
         0,
