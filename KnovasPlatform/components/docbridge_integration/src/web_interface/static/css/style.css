@@ -401,13 +401,15 @@ main {
    vom Format in einer Flucht bleiben. */
 .document-thumb {
     flex: 0 0 auto;
-    /* 200px Breite, damit die Ueberschrift der Seite lesbar wird -- darunter
-       erkennt man nur die Form, nicht das Dokument. Die Hoehe zeigt bewusst
-       nur das obere Drittel: eine ganze Seite waere bei dieser Breite 259px
-       hoch und die Karte damit hoeher als vor dem Umbau. Oben steht ohnehin,
-       was ein Dokument identifiziert. */
-    width: 200px;
-    height: 172px;
+    /* 260px Breite: wer den Dateinamen nicht kennt, erkennt das Dokument nur
+       am Briefkopf und der Ueberschrift -- bei 200px waren die grenzwertig
+       lesbar. Die Hoehe zeigt weiterhin nur den oberen Teil der Seite, im
+       gleichen Verhaeltnis wie zuvor; dort steht, was ein Dokument
+       identifiziert. Die Karte waechst dadurch auf rund 250px. Das ist
+       bewusst: die Wiedererkennung ist wichtiger als die Anzahl Treffer pro
+       Bildschirm. */
+    width: 260px;
+    height: 224px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--surface-sunken);

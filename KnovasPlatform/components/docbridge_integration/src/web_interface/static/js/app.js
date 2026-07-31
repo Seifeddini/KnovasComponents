@@ -215,7 +215,14 @@ class DocumentSearchApp {
             const href = this.externalOpenHref(docId, path || docId);
             return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${lucide('external-link')}In OneDrive öffnen</a>`;
         }
-        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">${lucide('external-link')}Öffnen</button>`;
+        // Der degradierte Download hing frueher als dritter Knopf an der Karte.
+        // Mit den Karten-Aktionen waere er ersatzlos entfallen und
+        // allowDegradedDownloadOpen ein Schalter ohne Wirkung geworden.
+        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+        const download = cfg.allowDegradedDownloadOpen
+            ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Download</button>`
+            : '';
+        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">${lucide('external-link')}Öffnen</button>${download}`;
     }
 
     closePreview() {
@@ -635,44 +642,16 @@ class DocumentSearchApp {
             !hasOneDrive &&
             (doc.file_exists === true ||
                 (doc.file_exists == null && doc.can_open === true));
-        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        const useBrowserClientOpen = !!cfg.browserClientOpenEnabled;
-        const useCompanion = !!cfg.companionEnabled;
-        const isPdf = path.toLowerCase().endsWith('.pdf');
-        const canPreviewPdf = !!cfg.pdfInlineInBrowser && isPdf;
-        const showDegradedDownload = !!cfg.allowDegradedDownloadOpen;
-        const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-        const openBtnLabel =
-            onHttps && !useCompanion ? 'Pfad kopieren (Win+R)' : 'Öffnen';
+        // Keine Aktionen auf der Karte. Die Karte selbst oeffnet die Vorschau
+        // (_onResultsClick), und dort steht "Oeffnen" bzw. "In OneDrive
+        // oeffnen" -- der Weg geht also nicht verloren, er liegt eine Ebene
+        // tiefer. Knoepfe hier haben ihn verdeckt: _onResultsClick ueberspringt
+        // Klicks auf a und button, sie konkurrierten also mit genau der Geste,
+        // die der Nutzer lernen soll.
+        const actionsHtml = localAvailable || hasOneDrive
+            ? ''
+            : '<span class="badge badge-error">Datei nicht verf\u00fcgbar</span>';
 
-        let actionsHtml;
-        if (hasOneDrive) {
-            const openHref = this.externalOpenHref(docId, path || docId);
-            actionsHtml = `
-                <a class="btn btn-success" href="${this.escapeAttr(openHref)}" target="_blank" rel="noopener noreferrer">
-                    In OneDrive öffnen
-                </a>
-            `;
-        } else if (localAvailable) {
-            const previewBtn = canPreviewPdf
-                ? `<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}">PDF Vorschau</a>`
-                : '';
-            const downloadBtn = showDegradedDownload
-                ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">
-                    Download (degradiert)
-                </button>`
-                : '';
-            actionsHtml = `
-                <button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}', ${useBrowserClientOpen ? 'true' : 'false'}, ${useCompanion ? 'true' : 'false'})">
-                    ${openBtnLabel}
-                </button>
-                ${previewBtn}
-                ${downloadBtn}
-            `;
-        } else {
-            actionsHtml = `<span class="badge badge-error">Datei nicht verfügbar</span>`;
-        }
-        
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
         // Nur Format und Datum: die Dokumentart steht meist schon im Titel,
         // und drei Angaben nebeneinander lesen sich als Datenzeile statt als
@@ -690,7 +669,7 @@ class DocumentSearchApp {
                         ${metaParts.length ? `<div class="document-metaline">${metaParts.join(' · ')}</div>` : ''}
                         <div class="document-title">${this.escapeHtml(title)}</div>
                     </div>
-                    <div class="document-actions">${actionsHtml}</div>
+                    ${actionsHtml ? `<div class="document-actions">${actionsHtml}</div>` : ''}
                 </div>
                 ${this._snippetHtml(doc)}
             </div>
