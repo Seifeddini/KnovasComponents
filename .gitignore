@@ -2,7 +2,11 @@
 .env
 .env.*
 !.env.example
+knovas.env
+!knovas.env.example
 *.env
+!knovas.env.example
+**/.env.generated
 *.local
 *.secret
 *.secrets

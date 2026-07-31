@@ -1,0 +1,85 @@
+# Unified Knovas stack: RemoteController (localhost) + KnovasPlatform (localhost → host nginx HTTPS).
+# Usage: ./scripts/setup.sh && ./scripts/start.sh
+
+services:
+  remote-controller:
+    build: ./RemoteController
+    image: remote-controller:0.1.1
+    env_file:
+      - ./RemoteController/.env.generated
+    volumes:
+      - ./certs:/certs:ro
+      - ${KNOVAS_DOCUMENTS_PATH}:/mnt/documents:ro
+      - rc-config:/app/config
+      - rc-state:/var/rc-state
+    ports:
+      - "127.0.0.1:5001:5001"
+    restart: unless-stopped
+    networks:
+      - knovas-internal
+
+  docbridge-web:
+    image: docbridge-web-clientbundle:latest
+    build:
+      context: ./KnovasPlatform/components/docbridge_integration
+      dockerfile: Dockerfile
+    container_name: docbridge-web
+    env_file:
+      - ./KnovasPlatform/.env.generated
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "5000"
+    volumes:
+      - ./KnovasPlatform/components/docbridge_integration/config:/app/config:ro
+      - docbridge_integration_logs:/app/logs
+      - docbridge_integration_data:/app/data
+      - ${KNOVAS_DOCUMENTS_PATH}:/mnt/autodoc:ro
+      - ./certs:/app/certs:ro
+      - rc-state:/var/rc-state:ro
+    command: >
+      sh -c "gunicorn
+      --workers=$${DOCBRIDGE_WEB_WORKERS:-2}
+      --threads=$${DOCBRIDGE_WEB_THREADS:-4}
+      --timeout=$${DOCBRIDGE_WEB_TIMEOUT:-120}
+      --bind=0.0.0.0:5000
+      web_interface.wsgi:app"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/stats', timeout=5)"]
+      timeout: 10s
+      interval: 30s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - knovas-internal
+
+  docbridge-web-nginx:
+    image: nginx:alpine
+    container_name: docbridge-web-nginx
+    depends_on:
+      docbridge-web:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}:80"
+    volumes:
+      - ./KnovasPlatform/components/docbridge_integration/nginx/docbridge-web-local.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/health"]
+      timeout: 10s
+      interval: 30s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - knovas-internal
+
+networks:
+  knovas-internal:
+    driver: bridge
+
+volumes:
+  rc-config:
+  rc-state:
+  docbridge_integration_data:
+  docbridge_integration_logs:

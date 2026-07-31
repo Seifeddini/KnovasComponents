@@ -17,8 +17,12 @@ the most common setup failure.
 ```bash
 git clone https://github.com/Seifeddini/KnovasComponents.git
 cd KnovasComponents
+cp knovas.env.example knovas.env   # fill 4 values, add certs to certs/
+./scripts/setup.sh && ./scripts/start.sh
 ```
 
-See each folder’s README. **Hosting partners:** [docs/hosting-requirements.md](docs/hosting-requirements.md). To stop Docker or dev web servers: [docs/stopping-web-servers.md](docs/stopping-web-servers.md).
+Unified stack (RC + Platform): one `knovas.env`, shared document mount, RC on `127.0.0.1:5001` only.
+
+See each folder’s README for component-only dev. **Hosting partners:** [docs/hosting-requirements.md](docs/hosting-requirements.md). To stop Docker or dev web servers: [docs/stopping-web-servers.md](docs/stopping-web-servers.md).
 
 Release: [Releases](https://github.com/Seifeddini/KnovasComponents/releases).

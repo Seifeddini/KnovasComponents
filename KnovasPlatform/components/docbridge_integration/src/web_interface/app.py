@@ -725,6 +725,8 @@ def create_app(config_path: Optional[str] = None):
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
     companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
     public_base_url_config = str(open_section.get('public_base_url') or '').strip().rstrip('/')
+    if not public_base_url_config:
+        public_base_url_config = (os.getenv('KNOVAS_PLATFORM_URL') or '').strip().rstrip('/')
 
     client_local_root = normalize_client_local_root(str(open_section.get('client_local_root') or ''))
 
