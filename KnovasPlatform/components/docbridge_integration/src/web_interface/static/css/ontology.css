@@ -1,0 +1,49 @@
+/* src/web_interface/static/css/ontology.css — Wissensnetz-Layout.
+   Ausschliesslich Design-Tokens aus style.css; keine neuen Farbwerte. */
+
+.container-wide { max-width: 1440px; }
+
+.ontology-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 5fr) minmax(280px, 4fr) minmax(320px, 6fr);
+    gap: 16px;
+    align-items: stretch;
+    min-height: 640px;
+}
+
+.ontology-pane {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.ontology-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ontology-pane-header h2 {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.graph-toolbar { display: flex; gap: 6px; }
+.graph-toolbar .btn { padding: 4px 10px; line-height: 1; }
+
+#graphContainer { flex: 1; min-height: 480px; }
+
+.ontology-empty {
+    color: var(--text-secondary);
+    padding: 24px 16px;
+    text-align: center;
+}
+
+#entityPaneBody, #docPaneBody { flex: 1; min-height: 0; overflow: auto; }

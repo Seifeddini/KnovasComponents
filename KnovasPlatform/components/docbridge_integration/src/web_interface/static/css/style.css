@@ -1094,3 +1094,19 @@ mark.context-snippet-match,
 @media (prefers-reduced-motion: reduce) {
     .toast { animation: none; }
 }
+
+/* Hauptnavigation (Suche | Wissensnetz) */
+.site-nav { display: flex; gap: 16px; margin-inline: auto; }
+.site-nav a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-family: var(--font-heading);
+    font-size: 0.9rem;
+    padding: 4px 2px;
+    border-bottom: 2px solid transparent;
+}
+.site-nav a:hover { color: var(--primary-color); }
+.site-nav a[aria-current="page"] {
+    color: var(--primary-color);
+    border-bottom-color: var(--accent);
+}

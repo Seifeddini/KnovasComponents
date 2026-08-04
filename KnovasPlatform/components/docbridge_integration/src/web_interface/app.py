@@ -1000,7 +1000,17 @@ def create_app(config_path: Optional[str] = None):
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
         )
-    
+
+    @app.route('/ontology')
+    def ontology_page():
+        """Wissensnetz: Ontologie-Explorer (Typ-Graph -> Entitaeten -> Belege -> PDF)."""
+        return render_template(
+            'ontology.html',
+            app_title=web_app_title,
+            csrf_token=_ensure_csrf_token(),
+            asset_version=_static_asset_version(),
+        )
+
     @app.route('/api/search', methods=['POST'])
     def search():
         """

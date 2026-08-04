@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wissensnetz – {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ontology.css') }}?v={{ asset_version }}">
+</head>
+<body>
+    <div class="container container-wide">
+        <header class="site-header">
+            <div class="site-header-bar">
+                <a class="site-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
+                    <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
+                         alt="Knovas" width="132" height="18">
+                </a>
+                <nav class="site-nav" aria-label="Hauptnavigation">
+                    <a href="{{ url_for('index') }}">Suche</a>
+                    <a href="{{ url_for('ontology_page') }}" aria-current="page">Wissensnetz</a>
+                </nav>
+                <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-outline logout-button">
+                        <svg class="icon" viewBox="0 0 24 24" width="15" height="15" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                            <polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>
+                        </svg>
+                        Abmelden
+                    </button>
+                </form>
+            </div>
+            <h1 class="site-greeting">Wissensnetz<br>
+                <span class="site-greeting-question">Was Knovas in Ihren Dokumenten verstanden hat</span>
+            </h1>
+        </header>
+
+        <main class="ontology-layout">
+            <section class="ontology-pane" id="graphPane" aria-label="Ontologie-Graph">
+                <div class="ontology-pane-header">
+                    <h2>Struktur</h2>
+                    <div class="graph-toolbar" role="toolbar" aria-label="Zoom-Navigation">
+                        <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
+                        <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
+                        <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
+                    </div>
+                </div>
+                <div id="graphContainer" aria-hidden="true"></div>
+                <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Ontologie-Daten vorhanden.</p>
+            </section>
+
+            <section class="ontology-pane" id="entityPane" aria-label="Entitäten und Belege">
+                <div class="ontology-pane-header"><h2 id="entityPaneTitle">Entitäten</h2></div>
+                <div id="entityPaneBody">
+                    <p class="ontology-empty">Typ im Netz wählen, um Entitäten zu sehen.</p>
+                </div>
+            </section>
+
+            <section class="ontology-pane" id="docPane" aria-label="Dokument">
+                <div class="ontology-pane-header"><h2 id="docPaneTitle">Dokument</h2></div>
+                <div id="docPaneBody">
+                    <p class="ontology-empty">Beleg wählen, um die Fundstelle zu sehen.</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/ontology.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>
