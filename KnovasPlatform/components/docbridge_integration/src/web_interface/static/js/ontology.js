@@ -220,7 +220,22 @@ class WissensnetzApp {
     }
 
     onEvidenceSelect(evidence) {
-        console.debug('Beleg gewählt:', evidence);  // Task 6 ersetzt dies
+        const body = document.getElementById('docPaneBody');
+        document.getElementById('docPaneTitle').textContent =
+            `${evidence.title} – Seite ${formatCount(evidence.page)}`;
+        // Query VOR dem Fragment: der browsernative PDF-Viewer liest #page=N.
+        const url = `/api/document/${encodeURIComponent(evidence.title)}/preview` +
+                    `?path=${encodeURIComponent(evidence.path)}#page=${evidence.page}`;
+        body.innerHTML = '';
+        const frame = document.createElement('iframe');
+        frame.className = 'doc-frame';
+        frame.title = `Vorschau: ${evidence.title}`;
+        frame.src = url;
+        frame.addEventListener('error', () => {
+            body.innerHTML =
+                '<p class="ontology-empty">Dokument konnte nicht geladen werden.</p>';
+        });
+        body.appendChild(frame);
     }
 }
 
