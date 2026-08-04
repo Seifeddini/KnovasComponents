@@ -47,3 +47,54 @@
 }
 
 #entityPaneBody, #docPaneBody { flex: 1; min-height: 0; overflow: auto; }
+
+.entity-table { width: 100%; border-collapse: collapse; }
+.entity-table th, .entity-table td {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+    color: var(--text-primary);
+}
+.entity-table th {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.entity-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.entity-detail { padding: 12px 16px; }
+.entity-detail h3 { font-family: var(--font-heading); color: var(--text-primary); margin: 8px 0; }
+.entity-detail h4 {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin: 16px 0 6px;
+}
+.entity-relations { list-style: none; padding: 0; }
+.entity-relations li { padding: 4px 0; }
+.entity-relations .predicate {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-right: 8px;
+}
+
+.evidence-list { list-style: none; padding: 0; }
+.evidence-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    font: inherit;
+    color: var(--text-primary);
+}
+.evidence-item:hover { border-color: var(--accent); }
+.evidence-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.evidence-item.selected { background: var(--highlight); border-color: var(--primary-color); }
+.evidence-quote { display: block; }
+.evidence-source { display: block; margin-top: 4px; font-size: 0.85rem; color: var(--text-secondary); }

@@ -122,8 +122,105 @@ class WissensnetzApp {
         document.getElementById('zoomFit').addEventListener('click', () => this.cy.fit(undefined, 40));
     }
 
-    onTypeSelect(typeId, label) {
-        console.debug('Typ gewählt:', typeId, label);  // Task 5 ersetzt dies
+    /** Escaping vor jeder Interpolation — Fixture-/Backend-Text ist Fremdtext. */
+    static esc(s) {
+        const d = document.createElement('span');
+        d.textContent = String(s ?? '');
+        return d.innerHTML;
+    }
+
+    async fetchJson(url) {
+        if (this.entityAbort) this.entityAbort.abort();     // Spec Regel 5
+        this.entityAbort = new AbortController();
+        const resp = await fetch(url, { signal: this.entityAbort.signal });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+
+    async onTypeSelect(typeId, label) {
+        this.selectedType = typeId;
+        const body = document.getElementById('entityPaneBody');
+        document.getElementById('entityPaneTitle').textContent = label;
+        body.innerHTML = '<p class="ontology-empty">Lädt…</p>';
+        try {
+            const data = await this.fetchJson(
+                `/api/ontology/entities?type=${encodeURIComponent(typeId)}`);
+            if (!data.entities.length) {
+                body.innerHTML = '<p class="ontology-empty">Keine Entitäten dieses Typs im Korpus.</p>';
+                return;
+            }
+            const esc = WissensnetzApp.esc;
+            body.innerHTML = `
+                <table class="entity-table">
+                  <thead><tr><th>Entität</th><th class="num">Dokumente</th></tr></thead>
+                  <tbody>${data.entities.map((e) => `
+                    <tr><td><button type="button" class="btn-text entity-link"
+                                data-id="${esc(e.id)}">${esc(e.label)}</button></td>
+                        <td class="num">${formatCount(e.doc_count)}</td></tr>`).join('')}
+                  </tbody>
+                </table>`;
+            body.querySelectorAll('.entity-link').forEach((btn) =>
+                btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            body.innerHTML = '<p class="ontology-empty">Entitäten konnten nicht geladen werden.</p>';
+        }
+    }
+
+    async onEntitySelect(entityId) {
+        this.selectedEntity = entityId;
+        const body = document.getElementById('entityPaneBody');
+        try {
+            const data = await this.fetchJson(
+                `/api/ontology/entities/${encodeURIComponent(entityId)}`);
+            const esc = WissensnetzApp.esc;
+            const relations = data.relations.length
+                ? `<ul class="entity-relations">${data.relations.map((r) => `
+                     <li><span class="predicate">${esc(r.predicate)}</span>
+                         <button type="button" class="btn-text entity-link"
+                                 data-id="${esc(r.target.id)}">${esc(r.target.label)}</button></li>`).join('')}
+                   </ul>`
+                : '<p class="ontology-empty">Keine Verbindungen erfasst.</p>';
+            const evidence = data.evidence.length
+                ? `<ol class="evidence-list">${data.evidence.map((ev, i) => `
+                     <li><button type="button" class="evidence-item" data-index="${i}"
+                                 data-path="${esc(ev.document.path)}" data-page="${ev.page}"
+                                 data-title="${esc(ev.document.title)}">
+                         <span class="evidence-quote">«${esc(ev.quote)}»</span>
+                         <span class="evidence-source">${esc(ev.document.title)}, Seite ${formatCount(ev.page)}</span>
+                     </button></li>`).join('')}
+                   </ol>`
+                : '<p class="ontology-empty">Keine Belege über dem Schwellenwert.</p>';
+            body.innerHTML = `
+                <div class="entity-detail">
+                    <button type="button" class="btn-text" id="entityBack">← Zurück zur Liste</button>
+                    <h3>${esc(data.entity.label)}</h3>
+                    <h4>Verbindungen</h4>${relations}
+                    <h4>Belege</h4>${evidence}
+                </div>`;
+            document.getElementById('entityBack').addEventListener('click', () => {
+                const node = this.cy.getElementById(this.selectedType);
+                this.onTypeSelect(this.selectedType, node.data('label'));
+            });
+            body.querySelectorAll('.entity-link').forEach((btn) =>
+                btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
+            body.querySelectorAll('.evidence-item').forEach((btn) =>
+                btn.addEventListener('click', () => {
+                    body.querySelectorAll('.evidence-item.selected')
+                        .forEach((b) => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    this.onEvidenceSelect({ path: btn.dataset.path,
+                                            page: Number(btn.dataset.page),
+                                            title: btn.dataset.title });
+                }));
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            body.innerHTML = '<p class="ontology-empty">Entität konnte nicht geladen werden.</p>';
+        }
+    }
+
+    onEvidenceSelect(evidence) {
+        console.debug('Beleg gewählt:', evidence);  // Task 6 ersetzt dies
     }
 }
 
