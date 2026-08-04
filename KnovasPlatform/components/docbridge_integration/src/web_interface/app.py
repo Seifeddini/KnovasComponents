@@ -656,7 +656,7 @@ def create_app(config_path: Optional[str] = None):
         """Avoid browsers serving cached HTML/JS after docker rebuild."""
         path = request.path or ''
         if (
-            path in ('/', '/login')
+            path in ('/', '/login', '/ontology')
             or path.endswith('.js')
             or path.endswith('.css')
             or path.startswith('/static/')
@@ -1624,26 +1624,37 @@ def create_app(config_path: Optional[str] = None):
 
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
-        store = get_ontology(path_exists=_ontology_path_exists)
-        payload = store.summary()
-        return jsonify({'success': True,
-                        'types': payload['types'],
-                        'relations': payload['relations'],
-                        'warnings_count': len(store.warnings)})
+        try:
+            store = get_ontology(path_exists=_ontology_path_exists)
+            payload = store.summary()
+            return jsonify({'success': True,
+                            'types': payload['types'],
+                            'relations': payload['relations']})
+        except Exception:
+            logger.error("Ontology summary error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities', methods=['GET'])
     def ontology_entities():
-        type_id = str(request.args.get('type') or '').strip()
-        store = get_ontology(path_exists=_ontology_path_exists)
-        return jsonify({'success': True, **store.entities_for_type(type_id)})
+        try:
+            type_id = str(request.args.get('type') or '').strip()
+            store = get_ontology(path_exists=_ontology_path_exists)
+            return jsonify({'success': True, **store.entities_for_type(type_id)})
+        except Exception:
+            logger.error("Ontology entities error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['GET'])
     def ontology_entity_detail(entity_id: str):
-        store = get_ontology(path_exists=_ontology_path_exists)
-        detail = store.entity_detail(entity_id)
-        if detail is None:
-            return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
-        return jsonify({'success': True, **detail})
+        try:
+            store = get_ontology(path_exists=_ontology_path_exists)
+            detail = store.entity_detail(entity_id)
+            if detail is None:
+                return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+            return jsonify({'success': True, **detail})
+        except Exception:
+            logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     return app
 

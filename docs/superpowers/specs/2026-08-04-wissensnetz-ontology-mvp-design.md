@@ -87,7 +87,7 @@ programmieren beide gegen diese Shapes.
 {
   "entity":    { "id": "e-001", "label": "Müller Bau AG", "type": "mandant" },
   "relations": [
-    { "predicate": "hat_Dossier",
+    { "predicate": "hat_Dossier", "direction": "out",
       "target": { "id": "e-014", "label": "Dossier 2024-001", "type": "dossier" } }
   ],
   "evidence": [
@@ -97,10 +97,24 @@ programmieren beide gegen diese Shapes.
       "quote": "…zwischen der Müller Bau AG…" }
   ]
 }
+
+// entity_detail("e-014") — dieselbe Relation aus Sicht des Ziels: target zeigt
+// zurück auf die QUELLE, direction kennzeichnet die Blickrichtung (v1.1)
+{
+  "relations": [
+    { "predicate": "hat_Dossier", "direction": "in",
+      "target": { "id": "e-001", "label": "Müller Bau AG", "type": "mandant" } }
+  ]
+}
 ```
 
 Regeln:
 
+- `relations` in `entity_detail` sind bidirektional: jede Zeile trägt
+  `direction: "out" | "in"`. Bei `"in"` ist `target` die QUELL-Entität der
+  Relation (nicht das übliche Ziel) — so bleibt z. B. "Dossier 2024-001 | ←
+  hat_Dossier | Müller Bau AG" lesbar, auch wenn die Entität nur als `dst`
+  vorkommt.
 - Fehlerformat und Auth wie bestehende `/api/*`-Routen (JSON, generische
   Fehlermeldung, kein Stacktrace nach aussen).
 - `count`/`doc_count` sind ganze Zahlen; Anzeige immer formatiert (`1'847`).
@@ -144,7 +158,7 @@ Spalten (CSS-Grid), kein Modal — der Graph bleibt immer sichtbar:
   Fundstelle zu sehen"); bei Belegklick iframe auf den bestehenden
   Preview-Endpunkt mit `#page=N` (browsernativer PDF-Viewer).
 - **Empty-States sind Befunde, keine leeren Flächen** (z. B. „Keine Belege
-  über dem Schwellenwert").
+  zu dieser Entität erfasst").
 
 ## Fehlerbehandlung
 

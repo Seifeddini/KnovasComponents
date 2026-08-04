@@ -55,9 +55,15 @@ class OntologyStore:
         if entity is None:
             return None
         relations = [
-            {"predicate": r["predicate"], "target": dict(self._entity_by_id[r["dst"]])}
+            {"predicate": r["predicate"], "direction": "out",
+             "target": dict(self._entity_by_id[r["dst"]])}
             for r in self._entity_relations
             if r["src"] == entity_id
+        ] + [
+            {"predicate": r["predicate"], "direction": "in",
+             "target": dict(self._entity_by_id[r["src"]])}
+            for r in self._entity_relations
+            if r["dst"] == entity_id
         ]
         evidence = [
             {"document": dict(ev["document"]), "page": ev["page"], "quote": ev["quote"]}

@@ -3,8 +3,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -64,9 +62,22 @@ def test_entity_detail_joins_relations_and_evidence(tmp_path):
     d = store.entity_detail("e-001")
     assert d["entity"]["label"] == "Müller Bau AG"
     assert d["relations"][0]["predicate"] == "hat_Dossier"
+    assert d["relations"][0]["direction"] == "out"
     assert d["relations"][0]["target"]["id"] == "e-014"
     assert d["evidence"][0]["page"] == 3
     assert store.entity_detail("gibt-es-nicht") is None
+
+
+def test_entity_detail_includes_incoming_relations(tmp_path):
+    """e-014 ist nur als dst in entity_relations vertreten (Vertrag v1.1)."""
+    store = load_ontology(_fixture(tmp_path, VALID))
+    d = store.entity_detail("e-014")
+    assert len(d["relations"]) == 1
+    rel = d["relations"][0]
+    assert rel["direction"] == "in"
+    assert rel["predicate"] == "hat_Dossier"
+    assert rel["target"]["id"] == "e-001"
+    assert rel["target"]["label"] == "Müller Bau AG"
 
 
 def test_broken_references_filtered_not_500(tmp_path):

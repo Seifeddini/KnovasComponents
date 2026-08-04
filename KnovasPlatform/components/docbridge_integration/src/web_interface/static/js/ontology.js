@@ -28,11 +28,13 @@ class WissensnetzApp {
     async init() {
         try {
             const resp = await fetch('/api/ontology/summary');
+            if (resp.status === 401) { window.location.assign('/login'); return; }
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             if (!data.types.length) {
                 document.getElementById('graphContainer').hidden = true;
                 document.getElementById('graphEmpty').hidden = false;
+                document.querySelector('.graph-toolbar').hidden = true;
                 return;
             }
             this.renderGraph(data);
@@ -40,8 +42,9 @@ class WissensnetzApp {
         } catch (err) {
             console.error('Wissensnetz: Summary nicht ladbar', err);
             const empty = document.getElementById('graphEmpty');
-            empty.textContent = 'Ontologie konnte nicht geladen werden. Seite neu laden.';
+            empty.textContent = 'Wissensnetz konnte nicht geladen werden. Seite neu laden.';
             empty.hidden = false;
+            document.querySelector('.graph-toolbar').hidden = true;
         }
     }
 
@@ -142,13 +145,14 @@ class WissensnetzApp {
     static esc(s) {
         const d = document.createElement('span');
         d.textContent = String(s ?? '');
-        return d.innerHTML;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     async fetchJson(url) {
         if (this.entityAbort) this.entityAbort.abort();     // Spec Regel 5
         this.entityAbort = new AbortController();
         const resp = await fetch(url, { signal: this.entityAbort.signal });
+        if (resp.status === 401) { window.location.assign('/login'); return null; }
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         return resp.json();
     }
@@ -167,6 +171,7 @@ class WissensnetzApp {
             }
             const esc = WissensnetzApp.esc;
             body.innerHTML = `
+                <p class="entity-hint">Auswahl der wichtigsten Entitäten</p>
                 <table class="entity-table">
                   <thead><tr><th>Entität</th><th class="num">Dokumente</th></tr></thead>
                   <tbody>${data.entities.map((e) => `
@@ -193,7 +198,7 @@ class WissensnetzApp {
             const esc = WissensnetzApp.esc;
             const relations = data.relations.length
                 ? `<ul class="entity-relations">${data.relations.map((r) => `
-                     <li><span class="predicate">${esc(r.predicate)}</span>
+                     <li><span class="predicate">${r.direction === 'in' ? '← ' : ''}${esc(r.predicate)}</span>
                          <button type="button" class="btn-text entity-link"
                                  data-id="${esc(r.target.id)}">${esc(r.target.label)}</button></li>`).join('')}
                    </ul>`
@@ -204,10 +209,10 @@ class WissensnetzApp {
                                  data-path="${esc(ev.document.path)}" data-page="${ev.page}"
                                  data-title="${esc(ev.document.title)}">
                          <span class="evidence-quote">«${esc(ev.quote)}»</span>
-                         <span class="evidence-source">${esc(ev.document.title)}, Seite ${formatCount(ev.page)}</span>
+                         <span class="evidence-source">${esc(ev.document.title)}, Seite ${ev.page}</span>
                      </button></li>`).join('')}
                    </ol>`
-                : '<p class="ontology-empty">Keine Belege über dem Schwellenwert.</p>';
+                : '<p class="ontology-empty">Keine Belege zu dieser Entität erfasst.</p>';
             body.innerHTML = `
                 <div class="entity-detail">
                     <button type="button" class="btn-text" id="entityBack">← Zurück zur Liste</button>
@@ -239,7 +244,7 @@ class WissensnetzApp {
     onEvidenceSelect(evidence) {
         const body = document.getElementById('docPaneBody');
         document.getElementById('docPaneTitle').textContent =
-            `${evidence.title} – Seite ${formatCount(evidence.page)}`;
+            `${evidence.title} – Seite ${evidence.page}`;
         // Query VOR dem Fragment: der browsernative PDF-Viewer liest #page=N.
         const url = `/api/document/${encodeURIComponent(evidence.title)}/preview` +
                     `?path=${encodeURIComponent(evidence.path)}#page=${evidence.page}`;

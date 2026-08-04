@@ -1110,3 +1110,5 @@ mark.context-snippet-match,
     color: var(--primary-color);
     border-bottom-color: var(--accent);
 }
+.site-nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

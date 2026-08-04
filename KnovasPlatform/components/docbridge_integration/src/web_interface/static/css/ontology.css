@@ -48,6 +48,8 @@
 
 #entityPaneBody, #docPaneBody { flex: 1; min-height: 0; overflow: auto; }
 
+.entity-hint { color: var(--text-secondary); font-size: 0.85rem; padding: 10px 16px 0; margin: 0; }
+
 .entity-table { width: 100%; border-collapse: collapse; }
 .entity-table th, .entity-table td {
     padding: 8px 16px;

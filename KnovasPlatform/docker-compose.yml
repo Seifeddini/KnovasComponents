@@ -75,12 +75,14 @@ services:
       OPEN_ALLOW_SERVER_SIDE_STARTFILE: ${OPEN_ALLOW_SERVER_SIDE_STARTFILE:-false}
       OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN: ${OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN:-false}
       AUTODOC_IDENTIFIER_PREFIX: ${AUTODOC_IDENTIFIER_PREFIX:-}
+      ONTOLOGY_FIXTURE_PATH: /mnt/ontology/ontology_fixture.json
     volumes:
       - ./components/docbridge_integration/config:/app/config:ro
       - docbridge_integration_logs:/app/logs
       - docbridge_integration_data:/app/data
       - ${AUTODOC_MOUNT_PATH:-./docbridge_test_data/AutoDoc}:/mnt/autodoc:ro
       - ${SEMANTIX_CERTS_DIR:-./certs}:/app/certs:ro
+      - ./docbridge_test_data/ontology:/mnt/ontology:ro
     command: >
       sh -c "gunicorn
       --workers=$${DOCBRIDGE_WEB_WORKERS}
