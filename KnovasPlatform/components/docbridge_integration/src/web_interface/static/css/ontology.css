@@ -101,3 +101,32 @@
 
 .doc-frame { width: 100%; height: 100%; min-height: 560px; border: 0;
              border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--card-bg); }
+
+/* Lade-Skeleton: schimmernde Platzhalterzeilen statt Spinner/Textblitzer.
+   Nur Token-Farben; die Animation nutzt Transparenz, keinen neuen Farbwert. */
+.skeleton-row {
+    height: 14px;
+    margin: 12px 16px;
+    border-radius: var(--radius);
+    background: var(--highlight);
+    animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+.skeleton-row:nth-child(2) { width: 70%; }
+.skeleton-row:nth-child(3) { width: 85%; }
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.45; }
+    50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-row { animation: none; opacity: 0.6; }
+}
+
+/* Ruhige Übergänge für interaktive Elemente. */
+.evidence-item, .site-nav a, .btn { transition: border-color .15s ease, background-color .15s ease, color .15s ease; }
+
+/* Responsive Verhalten unter ~1100px: Spalten stapeln statt quetschen. */
+@media (max-width: 1100px) {
+    .ontology-layout { grid-template-columns: 1fr; }
+    #graphContainer { min-height: 360px; }
+    .doc-frame { min-height: 480px; }
+}

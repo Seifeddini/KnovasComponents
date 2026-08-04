@@ -11,6 +11,11 @@ function cssToken(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+/** Lade-Skeleton: schimmernde Platzhalterzeilen statt Text-Blitzer. */
+function skeleton(rows = 3) {
+    return Array.from({ length: rows }, () => '<div class="skeleton-row"></div>').join('');
+}
+
 class WissensnetzApp {
     constructor() {
         this.cy = null;
@@ -78,6 +83,9 @@ class WissensnetzApp {
                     'border-color': cssToken('--primary-color'),
                     'border-width': 3,
                 } },
+                { selector: 'node.hovered', style: {
+                    'border-color': cssToken('--primary-color'),
+                } },
                 { selector: 'edge', style: {
                     'line-color': cssToken('--border-color'),
                     'target-arrow-shape': 'triangle',
@@ -107,6 +115,14 @@ class WissensnetzApp {
         });
         this.cy.on('dbltap', (evt) => {
             if (evt.target === this.cy) this.cy.fit(undefined, 40);
+        });
+        this.cy.on('mouseover', 'node', (evt) => evt.target.addClass('hovered'));
+        this.cy.on('mouseout', 'node', (evt) => evt.target.removeClass('hovered'));
+        this.cy.on('mouseover', 'node', () => {
+            document.getElementById('graphContainer').style.cursor = 'pointer';
+        });
+        this.cy.on('mouseout', 'node', () => {
+            document.getElementById('graphContainer').style.cursor = '';
         });
     }
 
@@ -141,7 +157,7 @@ class WissensnetzApp {
         this.selectedType = typeId;
         const body = document.getElementById('entityPaneBody');
         document.getElementById('entityPaneTitle').textContent = label;
-        body.innerHTML = '<p class="ontology-empty">Lädt…</p>';
+        body.innerHTML = skeleton(4);
         try {
             const data = await this.fetchJson(
                 `/api/ontology/entities?type=${encodeURIComponent(typeId)}`);
@@ -170,6 +186,7 @@ class WissensnetzApp {
     async onEntitySelect(entityId) {
         this.selectedEntity = entityId;
         const body = document.getElementById('entityPaneBody');
+        body.innerHTML = skeleton(5);
         try {
             const data = await this.fetchJson(
                 `/api/ontology/entities/${encodeURIComponent(entityId)}`);
