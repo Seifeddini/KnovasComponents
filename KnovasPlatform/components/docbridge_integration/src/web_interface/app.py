@@ -29,6 +29,7 @@ from context_store import enrich_result_with_context
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
+from ontology_store import get_ontology
 from web_interface.preview import (
     PreviewFailed,
     PreviewUnsupported,
@@ -1601,7 +1602,39 @@ def create_app(config_path: Optional[str] = None):
             'asset_version': _static_asset_version(),
             'build_id': DOCBRIDGE_BUILD_ID,
         })
-    
+
+    # --- Wissensnetz (Ontology Explorer) -----------------------------------
+    # Datenvertrag siehe docs/superpowers/specs/2026-08-04-wissensnetz-ontology-mvp-design.md
+    # Mock hinter stabilem Vertrag: get_ontology() liest die Fixture; der
+    # spaetere echte Knovas-Endpunkt ersetzt nur das Innere des Stores.
+
+    def _ontology_path_exists(rel_path: str) -> bool:
+        full = _resolve_autodoc_path(rel_path)
+        return bool(full) and os.path.exists(full)
+
+    @app.route('/api/ontology/summary', methods=['GET'])
+    def ontology_summary():
+        store = get_ontology(path_exists=_ontology_path_exists)
+        payload = store.summary()
+        return jsonify({'success': True,
+                        'types': payload['types'],
+                        'relations': payload['relations'],
+                        'warnings_count': len(store.warnings)})
+
+    @app.route('/api/ontology/entities', methods=['GET'])
+    def ontology_entities():
+        type_id = str(request.args.get('type') or '').strip()
+        store = get_ontology(path_exists=_ontology_path_exists)
+        return jsonify({'success': True, **store.entities_for_type(type_id)})
+
+    @app.route('/api/ontology/entities/<entity_id>', methods=['GET'])
+    def ontology_entity_detail(entity_id: str):
+        store = get_ontology(path_exists=_ontology_path_exists)
+        detail = store.entity_detail(entity_id)
+        if detail is None:
+            return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+        return jsonify({'success': True, **detail})
+
     return app
 
 

@@ -1,0 +1,32 @@
+{
+  "types": [
+    {"id": "mandant", "label": "Mandant", "count": 3},
+    {"id": "dossier", "label": "Dossier", "count": 4},
+    {"id": "vertrag", "label": "Vertrag", "count": 5},
+    {"id": "gegenpartei", "label": "Gegenpartei", "count": 3}
+  ],
+  "relations": [
+    {"src": "mandant", "predicate": "hat_Dossier", "dst": "dossier", "count": 4},
+    {"src": "dossier", "predicate": "enthält_Vertrag", "dst": "vertrag", "count": 5},
+    {"src": "vertrag", "predicate": "Partei", "dst": "gegenpartei", "count": 5}
+  ],
+  "entities": [
+    {"id": "e-001", "label": "Müller Bau AG", "type": "mandant", "doc_count": 2},
+    {"id": "e-014", "label": "Dossier 2024-001", "type": "dossier", "doc_count": 2},
+    {"id": "e-020", "label": "Werkvertrag Neubau Ost", "type": "vertrag", "doc_count": 1},
+    {"id": "e-030", "label": "Immo Invest GmbH", "type": "gegenpartei", "doc_count": 1}
+  ],
+  "entity_relations": [
+    {"src": "e-001", "predicate": "hat_Dossier", "dst": "e-014"},
+    {"src": "e-014", "predicate": "enthält_Vertrag", "dst": "e-020"},
+    {"src": "e-020", "predicate": "Partei", "dst": "e-030"}
+  ],
+  "evidence": [
+    {"entity_id": "e-001",
+     "document": {"path": "corpus/2024-001/Mustervertrag.pdf", "title": "Mustervertrag"},
+     "page": 1, "quote": "zwischen der Müller Bau AG als Auftraggeberin"},
+    {"entity_id": "e-020",
+     "document": {"path": "corpus/2024-001/Mustervertrag.pdf", "title": "Mustervertrag"},
+     "page": 1, "quote": "Werkvertrag betreffend Neubau Ost"}
+  ]
+}

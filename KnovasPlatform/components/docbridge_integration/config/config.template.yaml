@@ -21,7 +21,7 @@ docbridge:
   autodoc:
     # Path to AutoDoc folder containing PDF and DOCX files
     # Example: "/mnt/autodoc" or "\\\\fileserver\\DocBridge\\AutoDoc"
-    path: ""
+    path: "${AUTODOC_PATH:-/mnt/autodoc}"
     # File extensions to synchronize (case-insensitive)
     allowed_extensions:
       - "pdf"
