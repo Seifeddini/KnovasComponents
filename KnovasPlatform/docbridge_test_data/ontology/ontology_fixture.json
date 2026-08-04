@@ -1,32 +1,162 @@
 {
   "types": [
-    {"id": "mandant", "label": "Mandant", "count": 3},
-    {"id": "dossier", "label": "Dossier", "count": 4},
-    {"id": "vertrag", "label": "Vertrag", "count": 5},
-    {"id": "gegenpartei", "label": "Gegenpartei", "count": 3}
+    {"id": "mandant", "label": "Mandant", "count": 128},
+    {"id": "dossier", "label": "Dossier", "count": 342},
+    {"id": "vertrag", "label": "Vertrag", "count": 560},
+    {"id": "gegenpartei", "label": "Gegenpartei", "count": 214},
+    {"id": "gericht", "label": "Gericht", "count": 39},
+    {"id": "frist", "label": "Frist", "count": 480},
+    {"id": "honorar", "label": "Honorar", "count": 96},
+    {"id": "dokumenttyp", "label": "Dokumenttyp", "count": 1847}
   ],
   "relations": [
-    {"src": "mandant", "predicate": "hat_Dossier", "dst": "dossier", "count": 4},
-    {"src": "dossier", "predicate": "enthält_Vertrag", "dst": "vertrag", "count": 5},
-    {"src": "vertrag", "predicate": "Partei", "dst": "gegenpartei", "count": 5}
+    {"src": "mandant", "predicate": "hat_Dossier", "dst": "dossier", "count": 342},
+    {"src": "dossier", "predicate": "enthält_Vertrag", "dst": "vertrag", "count": 560},
+    {"src": "vertrag", "predicate": "Partei", "dst": "gegenpartei", "count": 214},
+    {"src": "vertrag", "predicate": "hat_Frist", "dst": "frist", "count": 305},
+    {"src": "gericht", "predicate": "setzt_Frist", "dst": "frist", "count": 175},
+    {"src": "dossier", "predicate": "zuständiges_Gericht", "dst": "gericht", "count": 39},
+    {"src": "mandant", "predicate": "zahlt_Honorar", "dst": "honorar", "count": 96},
+    {"src": "dossier", "predicate": "hat_Dokumenttyp", "dst": "dokumenttyp", "count": 1847}
   ],
   "entities": [
-    {"id": "e-001", "label": "Müller Bau AG", "type": "mandant", "doc_count": 2},
-    {"id": "e-014", "label": "Dossier 2024-001", "type": "dossier", "doc_count": 2},
-    {"id": "e-020", "label": "Werkvertrag Neubau Ost", "type": "vertrag", "doc_count": 1},
-    {"id": "e-030", "label": "Immo Invest GmbH", "type": "gegenpartei", "doc_count": 1}
+    {"id": "e-001", "label": "Müller Bau AG", "type": "mandant", "doc_count": 9},
+    {"id": "e-002", "label": "Sarah Vogel Architektur GmbH", "type": "mandant", "doc_count": 3},
+    {"id": "e-003", "label": "Bäckerei Hofer AG", "type": "mandant", "doc_count": 2},
+
+    {"id": "e-011", "label": "Dossier 2024-001", "type": "dossier", "doc_count": 8},
+    {"id": "e-012", "label": "Dossier 2024-014", "type": "dossier", "doc_count": 4},
+    {"id": "e-013", "label": "Dossier 2024-022", "type": "dossier", "doc_count": 2},
+
+    {"id": "e-021", "label": "Werkvertrag Neubau Ost", "type": "vertrag", "doc_count": 5},
+    {"id": "e-022", "label": "Nachtrag Nr. 1 zum Werkvertrag", "type": "vertrag", "doc_count": 2},
+    {"id": "e-023", "label": "Mandatsvereinbarung Müller Bau AG", "type": "vertrag", "doc_count": 3},
+
+    {"id": "e-031", "label": "Immo Invest GmbH", "type": "gegenpartei", "doc_count": 4},
+    {"id": "e-032", "label": "Bauconsult Ost AG", "type": "gegenpartei", "doc_count": 2},
+
+    {"id": "e-041", "label": "Bezirksgericht Zürich", "type": "gericht", "doc_count": 3},
+    {"id": "e-042", "label": "Obergericht des Kantons Zürich", "type": "gericht", "doc_count": 1},
+
+    {"id": "e-051", "label": "Kündigungsfrist Werkvertrag", "type": "frist", "doc_count": 1},
+    {"id": "e-052", "label": "Baubeginn Neubau Ost", "type": "frist", "doc_count": 1},
+    {"id": "e-053", "label": "Frist zur Klageantwort", "type": "frist", "doc_count": 1},
+    {"id": "e-054", "label": "Fertigstellungstermin Nachtrag", "type": "frist", "doc_count": 1},
+
+    {"id": "e-061", "label": "Stundenansatz Kanzlei", "type": "honorar", "doc_count": 1},
+    {"id": "e-062", "label": "Kostenvorschuss Mandat", "type": "honorar", "doc_count": 1},
+
+    {"id": "e-071", "label": "Werkvertrag (Dokumenttyp)", "type": "dokumenttyp", "doc_count": 1},
+    {"id": "e-072", "label": "Gerichtsschreiben (Dokumenttyp)", "type": "dokumenttyp", "doc_count": 2},
+    {"id": "e-073", "label": "Mandatsvereinbarung (Dokumenttyp)", "type": "dokumenttyp", "doc_count": 1},
+    {"id": "e-074", "label": "Nachtrag (Dokumenttyp)", "type": "dokumenttyp", "doc_count": 1}
   ],
   "entity_relations": [
-    {"src": "e-001", "predicate": "hat_Dossier", "dst": "e-014"},
-    {"src": "e-014", "predicate": "enthält_Vertrag", "dst": "e-020"},
-    {"src": "e-020", "predicate": "Partei", "dst": "e-030"}
+    {"src": "e-001", "predicate": "hat_Dossier", "dst": "e-011"},
+    {"src": "e-002", "predicate": "hat_Dossier", "dst": "e-012"},
+    {"src": "e-003", "predicate": "hat_Dossier", "dst": "e-013"},
+
+    {"src": "e-011", "predicate": "enthält_Vertrag", "dst": "e-021"},
+    {"src": "e-011", "predicate": "enthält_Vertrag", "dst": "e-022"},
+    {"src": "e-011", "predicate": "enthält_Vertrag", "dst": "e-023"},
+
+    {"src": "e-021", "predicate": "Partei", "dst": "e-031"},
+    {"src": "e-022", "predicate": "Partei", "dst": "e-031"},
+
+    {"src": "e-021", "predicate": "hat_Frist", "dst": "e-051"},
+    {"src": "e-021", "predicate": "hat_Frist", "dst": "e-052"},
+    {"src": "e-022", "predicate": "hat_Frist", "dst": "e-054"},
+
+    {"src": "e-041", "predicate": "setzt_Frist", "dst": "e-053"},
+
+    {"src": "e-011", "predicate": "zuständiges_Gericht", "dst": "e-041"},
+    {"src": "e-012", "predicate": "zuständiges_Gericht", "dst": "e-042"},
+
+    {"src": "e-001", "predicate": "zahlt_Honorar", "dst": "e-061"},
+    {"src": "e-001", "predicate": "zahlt_Honorar", "dst": "e-062"},
+
+    {"src": "e-011", "predicate": "hat_Dokumenttyp", "dst": "e-071"},
+    {"src": "e-011", "predicate": "hat_Dokumenttyp", "dst": "e-072"},
+    {"src": "e-011", "predicate": "hat_Dokumenttyp", "dst": "e-073"},
+    {"src": "e-011", "predicate": "hat_Dokumenttyp", "dst": "e-074"},
+    {"src": "e-012", "predicate": "hat_Dokumenttyp", "dst": "e-072"}
   ],
   "evidence": [
     {"entity_id": "e-001",
-     "document": {"path": "corpus/2024-001/Mustervertrag.pdf", "title": "Mustervertrag"},
-     "page": 1, "quote": "zwischen der Müller Bau AG als Auftraggeberin"},
-    {"entity_id": "e-020",
-     "document": {"path": "corpus/2024-001/Mustervertrag.pdf", "title": "Mustervertrag"},
-     "page": 1, "quote": "Werkvertrag betreffend Neubau Ost"}
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 1, "quote": "Die Müller Bau AG erteilt der Kanzlei das Mandat"},
+    {"entity_id": "e-002",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 3, "quote": "Sarah Vogel Architektur GmbH, Dossier 2024-014."},
+    {"entity_id": "e-003",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 3, "quote": "Bäckerei Hofer AG, Dossier 2024-022."},
+
+    {"entity_id": "e-011",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 1, "quote": "zur Vertretung im Dossier 2024-001."},
+    {"entity_id": "e-012",
+     "document": {"path": "wissensnetz/schreiben_gericht_2024_001.pdf", "title": "Schreiben Bezirksgericht Zürich, Dossier 2024-001"},
+     "page": 2, "quote": "betreffend Dossier 2024-014"},
+    {"entity_id": "e-013",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 3, "quote": "Bäckerei Hofer AG, Dossier 2024-022."},
+
+    {"entity_id": "e-021",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 1, "quote": "Werkvertrag betreffend Neubau Ost"},
+    {"entity_id": "e-022",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 4, "quote": "Nachtrag Nr. 1 zum Werkvertrag vom 12. März 2024."},
+    {"entity_id": "e-023",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 1, "quote": "Mandatsvereinbarung"},
+
+    {"entity_id": "e-031",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 1, "quote": "und der Immo Invest GmbH als Bestellerin."},
+    {"entity_id": "e-032",
+     "document": {"path": "wissensnetz/schreiben_gericht_2024_001.pdf", "title": "Schreiben Bezirksgericht Zürich, Dossier 2024-001"},
+     "page": 2, "quote": "In Sachen Sarah Vogel Architektur GmbH gegen Bauconsult Ost AG"},
+
+    {"entity_id": "e-041",
+     "document": {"path": "wissensnetz/schreiben_gericht_2024_001.pdf", "title": "Schreiben Bezirksgericht Zürich, Dossier 2024-001"},
+     "page": 1, "quote": "Bezirksgericht Zürich"},
+    {"entity_id": "e-042",
+     "document": {"path": "wissensnetz/schreiben_gericht_2024_001.pdf", "title": "Schreiben Bezirksgericht Zürich, Dossier 2024-001"},
+     "page": 2, "quote": "Obergericht des Kantons Zürich"},
+
+    {"entity_id": "e-051",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 3, "quote": "Die Kündigungsfrist beträgt drei Monate per Monatsende."},
+    {"entity_id": "e-052",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 3, "quote": "Baubeginn ist der 1. Mai 2024."},
+    {"entity_id": "e-053",
+     "document": {"path": "wissensnetz/schreiben_gericht_2024_001.pdf", "title": "Schreiben Bezirksgericht Zürich, Dossier 2024-001"},
+     "page": 1, "quote": "wird die Frist zur Klageantwort auf den 30. September 2024 angesetzt."},
+    {"entity_id": "e-054",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 4, "quote": "Der Fertigstellungstermin wird auf den 30. November 2024 festgelegt."},
+
+    {"entity_id": "e-061",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 2, "quote": "Es gilt ein Stundenansatz von 350 Franken."},
+    {"entity_id": "e-062",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 2, "quote": "Ein Kostenvorschuss von 5000 Franken ist bei Mandatsbeginn zu leisten."},
+
+    {"entity_id": "e-071",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 1, "quote": "Dokumenttyp: Werkvertrag"},
+    {"entity_id": "e-072",
+     "document": {"path": "wissensnetz/schreiben_gericht_2024_001.pdf", "title": "Schreiben Bezirksgericht Zürich, Dossier 2024-001"},
+     "page": 1, "quote": "Dokumenttyp: Gerichtsschreiben"},
+    {"entity_id": "e-073",
+     "document": {"path": "wissensnetz/mandatsvereinbarung_mueller.pdf", "title": "Mandatsvereinbarung Müller Bau AG"},
+     "page": 1, "quote": "Dokumenttyp: Mandatsvereinbarung"},
+    {"entity_id": "e-074",
+     "document": {"path": "wissensnetz/werkvertrag_neubau_ost.pdf", "title": "Werkvertrag Neubau Ost"},
+     "page": 4, "quote": "Dokumenttyp: Nachtrag"}
   ]
 }
