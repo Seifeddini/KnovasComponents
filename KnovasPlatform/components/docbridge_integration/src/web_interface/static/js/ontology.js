@@ -142,6 +142,8 @@ class WissensnetzApp {
                     'color': cssToken('--text-primary'),
                     'text-valign': 'bottom',
                     'text-margin-y': 8,
+                    'transition-property': 'opacity, text-opacity',
+                    'transition-duration': '0.25s',
                 } },
                 { selector: 'node[icon]', style: {
                     'background-image': 'data(icon)',
@@ -160,6 +162,7 @@ class WissensnetzApp {
                     'border-color': cssToken('--primary-color'),
                 } },
                 // Entitäten-Satelliten: kleine Instanz-Knoten am Typ-Knoten.
+                // Label-Platte in Bühnenfarbe, damit keine Kante durch den Text läuft.
                 { selector: 'node.entity', style: {
                     'background-color': cssToken('--surface-sunken'),
                     'border-width': 1.5,
@@ -170,6 +173,21 @@ class WissensnetzApp {
                     'text-margin-y': 5,
                     'text-wrap': 'wrap',
                     'text-max-width': 150,
+                    'text-background-color': cssToken('--surface-sunken'),
+                    'text-background-opacity': 0.95,
+                    'text-background-padding': 3,
+                    'text-background-shape': 'round-rectangle',
+                } },
+                // Fokus-Modus: während ein Typ aufgeklappt ist, treten die
+                // unbeteiligten Teile des Netzes zurück (Kantenlabels ganz weg —
+                // sie sind es, die mit den Satelliten-Texten kollidieren).
+                { selector: 'node.faded', style: {
+                    'opacity': 0.35,
+                    'text-opacity': 0.35,
+                } },
+                { selector: 'edge.faded', style: {
+                    'opacity': 0.18,
+                    'text-opacity': 0,
                 } },
                 { selector: 'edge.entity-edge', style: {
                     'width': 1,
@@ -191,6 +209,8 @@ class WissensnetzApp {
                     'text-background-color': cssToken('--surface-sunken'),
                     'text-background-opacity': 0.9,
                     'text-background-padding': 2,
+                    'transition-property': 'opacity, text-opacity',
+                    'transition-duration': '0.25s',
                 } },
                 { selector: 'edge:selected', style: {
                     'line-color': cssToken('--accent'),
@@ -312,6 +332,7 @@ class WissensnetzApp {
         // Slot sofort reservieren, damit Doppel-Klicks nicht doppelt auffächern.
         this.expandedTypes.set(typeId, null);
         parent.addClass('expanded');
+        this.applyFocus(typeId);        // Rest des Netzes tritt zurück
         if (this.zoomAnim) { await this.zoomAnim; this.zoomAnim = null; }
         // Während der Kamerafahrt wieder eingeklappt? Dann nichts auffächern.
         if (!this.expandedTypes.has(typeId)) return;
@@ -346,11 +367,24 @@ class WissensnetzApp {
         this.expandedTypes.set(typeId, added);
     }
 
+    /** Fokus-Modus: unbeteiligte Kanten und Typ-Knoten zurücktreten lassen,
+        damit die Satelliten-Texte nicht mit Kantenlabels kollidieren. */
+    applyFocus(typeId) {
+        const parent = this.cy.getElementById(typeId);
+        this.cy.edges().not('.entity-edge').addClass('faded');
+        this.cy.nodes('[icon]').not(parent).addClass('faded');
+    }
+
+    clearFocus() {
+        this.cy.elements('.faded').removeClass('faded');
+    }
+
     collapseType(typeId) {
         const satellites = this.expandedTypes.get(typeId);
         this.expandedTypes.delete(typeId);
         const parent = this.cy.getElementById(typeId);
         parent.removeClass('expanded');
+        this.clearFocus();
         if (!satellites) return;
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (reduceMotion || parent.empty()) { satellites.remove(); return; }
