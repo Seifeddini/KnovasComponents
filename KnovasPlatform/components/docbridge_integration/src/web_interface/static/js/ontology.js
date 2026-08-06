@@ -248,7 +248,11 @@ class CortexApp {
             if (evt.target === this.cy) this.closeDrawers();
         });
         this.cy.on('dbltap', (evt) => {
-            if (evt.target === this.cy) this.cy.fit(undefined, 70);
+            if (evt.target !== this.cy) return;
+            if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
+            this.cy.stop();
+            this.cy.animate({ fit: { padding: 60 } },
+                            { duration: 350, easing: 'ease-out-quart' });
         });
         this.cy.on('mouseover', 'node', (evt) => evt.target.addClass('hovered'));
         this.cy.on('mouseout', 'node', (evt) => evt.target.removeClass('hovered'));
@@ -261,15 +265,28 @@ class CortexApp {
     }
 
     bindZoomControls() {
+        // Buttons gleiten statt zu springen; cy.stop() bricht eine laufende
+        // Fahrt ab, damit schnelle Klickfolgen sich nicht stapeln.
         const zoomBy = (factor) => {
-            this.cy.zoom({
-                level: this.cy.zoom() * factor,
-                renderedPosition: { x: this.cy.width() / 2, y: this.cy.height() / 2 },
-            });
+            const level = this.cy.zoom() * factor;
+            const center = { x: this.cy.width() / 2, y: this.cy.height() / 2 };
+            if (CortexApp.reducedMotion()) {
+                this.cy.zoom({ level, renderedPosition: center });
+                return;
+            }
+            this.cy.stop();
+            this.cy.animate({ zoom: { level, renderedPosition: center } },
+                            { duration: 220, easing: 'ease-out-quart' });
+        };
+        const fitAll = () => {
+            if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
+            this.cy.stop();
+            this.cy.animate({ fit: { padding: 60 } },
+                            { duration: 350, easing: 'ease-out-quart' });
         };
         document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.25));
         document.getElementById('zoomOut').addEventListener('click', () => zoomBy(0.8));
-        document.getElementById('zoomFit').addEventListener('click', () => this.cy.fit(undefined, 70));
+        document.getElementById('zoomFit').addEventListener('click', fitAll);
     }
 
     /** Typ-Knoten-Klick: aufklappen (Kamerafahrt + Satelliten + Drawer)
