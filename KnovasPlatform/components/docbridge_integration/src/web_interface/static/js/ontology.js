@@ -52,14 +52,15 @@ const FALLBACK_ICON =
     '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/>';
 
 /** SVG-Icon als Data-URI für Cytoscape-Knoten, Strichfarbe aus dem Token.
-    ViewBox mit Rand: Striche auf den Aussenkanten (x=1/2) würden sonst
-    an der ViewBox abgeschnitten (sichtbar z. B. beim Ebenen-Symbol). */
+    Rand fürs Icon über translate, NICHT über negativen ViewBox-Ursprung —
+    Chrome rastert SVGs mit negativem Ursprung im Canvas falsch (verschoben,
+    abgeschnitten). Explizite width/height für die intrinsische Grösse. */
 function iconDataUri(typeId, color) {
     const inner = TYPE_ICONS[typeId] || FALLBACK_ICON;
     const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28" fill="none" ` +
-        `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
-        inner + '</svg>';
+        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">` +
+        `<g transform="translate(2 2)" fill="none" stroke="${color}" stroke-width="2" ` +
+        `stroke-linecap="round" stroke-linejoin="round">` + inner + '</g></svg>';
     return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
@@ -206,6 +207,9 @@ class WissensnetzApp {
             randomize: false,
             fit: true,
             padding: 60,
+            // Feste Layout-Fläche statt Container-Pixelmasse: sonst hängt das
+            // Ergebnis von der Fenstergrösse beim Laden ab (Spec: deterministisch).
+            boundingBox: { x1: 0, y1: 0, w: 1200, h: 800 },
             nodeDimensionsIncludeLabels: true,
             idealEdgeLength: () => 130,
             nodeRepulsion: () => 150000,
@@ -262,6 +266,7 @@ class WissensnetzApp {
             setTimeout(() => node.unselect(), 0);
             return;
         }
+        this.collapseAllTypes(typeId);   // nur ein Typ gleichzeitig aufgeklappt
         this.onTypeSelect(typeId, node.data('label'));
     }
 
@@ -280,6 +285,9 @@ class WissensnetzApp {
         const radius = parent.data('size') / 2 + 90;
         const eles = [];
         entities.forEach((e) => {
+            // Reste einer noch laufenden Einfahr-Animation räumen (ID-Kollision).
+            const stale = this.cy.getElementById(`ent:${e.id}`);
+            if (stale.nonempty()) stale.remove();
             eles.push({ group: 'nodes', classes: 'entity',
                         data: { id: `ent:${e.id}`, entityId: e.id, label: e.label, size: 26 },
                         position: { x: p.x, y: p.y } });
@@ -301,9 +309,22 @@ class WissensnetzApp {
 
     collapseType(typeId) {
         const satellites = this.expandedTypes.get(typeId);
-        if (satellites) satellites.remove();
         this.expandedTypes.delete(typeId);
-        this.cy.getElementById(typeId).removeClass('expanded');
+        const parent = this.cy.getElementById(typeId);
+        parent.removeClass('expanded');
+        if (!satellites) return;
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduceMotion || parent.empty()) { satellites.remove(); return; }
+        // Zurück in den Typ-Knoten gleiten, dann entfernen.
+        satellites.nodes().animate({ position: parent.position() },
+                                   { duration: 200, easing: 'ease-in' });
+        setTimeout(() => satellites.remove(), 210);
+    }
+
+    collapseAllTypes(exceptTypeId = null) {
+        for (const typeId of [...this.expandedTypes.keys()]) {
+            if (typeId !== exceptTypeId) this.collapseType(typeId);
+        }
     }
 
     bindDrawerControls() {
@@ -326,7 +347,10 @@ class WissensnetzApp {
     closeDrawers() {
         this.closeDocDrawer();
         document.getElementById('entityPane').classList.remove('open');
-        if (this.cy) this.cy.elements(':selected').unselect();
+        if (this.cy) {
+            this.cy.elements(':selected').unselect();
+            this.collapseAllTypes();    // Wegklicken fährt die Satelliten ein
+        }
     }
 
     /** Escaping vor jeder Interpolation — Fixture-/Backend-Text ist Fremdtext. */
