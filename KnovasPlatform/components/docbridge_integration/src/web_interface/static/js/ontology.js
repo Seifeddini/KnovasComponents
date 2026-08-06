@@ -71,6 +71,7 @@ class WissensnetzApp {
         this.selectedEntity = null;
         this.entityAbort = null;
         this.expandedTypes = new Map();   // typeId -> Cytoscape-Collection der Satelliten
+        this.zoomAnim = null;             // laufende Kamerafahrt (Promise)
         this.init();
     }
 
@@ -255,26 +256,65 @@ class WissensnetzApp {
         document.getElementById('zoomFit').addEventListener('click', () => this.cy.fit(undefined, 70));
     }
 
-    /** Typ-Knoten-Klick: aufklappen (Satelliten + Drawer) bzw. wieder einklappen. */
+    /** Typ-Knoten-Klick: aufklappen (Kamerafahrt + Satelliten + Drawer)
+        bzw. wieder einklappen (inkl. Rückfahrt zur Übersicht). */
     onTypeTap(node) {
         const typeId = node.id();
         if (this.expandedTypes.has(typeId)) {
-            this.collapseType(typeId);
-            this.closeDrawers();
+            this.closeDrawers();         // klappt ein und zoomt zurück
             // Der Tap selektiert den Knoten nativ erst nach diesem Handler —
             // beim Einklappen soll aber nichts ausgewählt zurückbleiben.
             setTimeout(() => node.unselect(), 0);
             return;
         }
         this.collapseAllTypes(typeId);   // nur ein Typ gleichzeitig aufgeklappt
+        this.zoomAnim = this.zoomToNode(node);
         this.onTypeSelect(typeId, node.data('label'));
     }
 
-    /** Entitäten eines Typs als Satelliten-Knoten am Typ-Knoten auffächern. */
-    renderEntityNodes(typeId, entities) {
+    static reducedMotion() {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    /** Kamerafahrt auf einen Knoten; zentriert in der Fläche links vom
+        Entitäten-Drawer. Liefert ein Promise für die Sequenz "erst Zoom,
+        dann Satelliten". */
+    zoomToNode(node) {
+        const level = Math.max(this.cy.zoom(), 1.35);
+        const p = node.position();
+        // Sichtbares Zentrum: der Drawer (400px + Ränder) verdeckt rechts.
+        const visibleW = Math.max(this.cy.width() - 432, this.cy.width() * 0.45);
+        const pan = { x: visibleW / 2 - p.x * level,
+                      y: this.cy.height() / 2 - p.y * level };
+        if (WissensnetzApp.reducedMotion()) {
+            this.cy.viewport({ zoom: level, pan });
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            this.cy.animate({ zoom: level, pan },
+                            { duration: 380, easing: 'ease-in-out', complete: resolve });
+        });
+    }
+
+    /** Zurück zur Gesamtansicht (nach dem Einklappen). */
+    animateFit() {
+        if (WissensnetzApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
+        this.cy.animate({ fit: { padding: 60 } },
+                        { duration: 380, easing: 'ease-in-out' });
+    }
+
+    /** Entitäten eines Typs als Satelliten-Knoten am Typ-Knoten auffächern.
+        Wartet eine laufende Kamerafahrt ab: erst reinzoomen, dann aufpoppen. */
+    async renderEntityNodes(typeId, entities) {
         if (this.expandedTypes.has(typeId) || !entities.length) return;
         const parent = this.cy.getElementById(typeId);
         if (parent.empty()) return;
+        // Slot sofort reservieren, damit Doppel-Klicks nicht doppelt auffächern.
+        this.expandedTypes.set(typeId, null);
+        parent.addClass('expanded');
+        if (this.zoomAnim) { await this.zoomAnim; this.zoomAnim = null; }
+        // Während der Kamerafahrt wieder eingeklappt? Dann nichts auffächern.
+        if (!this.expandedTypes.has(typeId)) return;
         const p = parent.position();
         // Auffächern in Richtung "vom Netz weg", damit freie Fläche genutzt wird.
         const bb = this.cy.nodes().boundingBox();
@@ -303,7 +343,6 @@ class WissensnetzApp {
             if (reduceMotion) satellite.position(target);
             else satellite.animate({ position: target }, { duration: 260, easing: 'ease-out' });
         });
-        parent.addClass('expanded');
         this.expandedTypes.set(typeId, added);
     }
 
@@ -349,7 +388,9 @@ class WissensnetzApp {
         document.getElementById('entityPane').classList.remove('open');
         if (this.cy) {
             this.cy.elements(':selected').unselect();
+            const hadExpansion = this.expandedTypes.size > 0;
             this.collapseAllTypes();    // Wegklicken fährt die Satelliten ein
+            if (hadExpansion) this.animateFit();   // Kamera zurück zur Übersicht
         }
     }
 
