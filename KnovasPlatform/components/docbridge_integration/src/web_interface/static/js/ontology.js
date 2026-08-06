@@ -128,6 +128,9 @@ class WissensnetzApp {
             minZoom: 0.2,
             maxZoom: 4,
             wheelSensitivity: 0.2,
+            // Kamerafahrten rendern eine Textur statt jedes Frame das ganze
+            // Netz (Retina: Millionen Pixel × 3 Canvas-Layer) neu zu zeichnen.
+            textureOnViewport: true,
             style: [
                 { selector: 'node', style: {
                     'background-color': cssToken('--card-bg'),
@@ -332,10 +335,12 @@ class WissensnetzApp {
         // Slot sofort reservieren, damit Doppel-Klicks nicht doppelt auffächern.
         this.expandedTypes.set(typeId, null);
         parent.addClass('expanded');
-        this.applyFocus(typeId);        // Rest des Netzes tritt zurück
         if (this.zoomAnim) { await this.zoomAnim; this.zoomAnim = null; }
         // Während der Kamerafahrt wieder eingeklappt? Dann nichts auffächern.
         if (!this.expandedTypes.has(typeId)) return;
+        // Fade erst NACH der Kamerafahrt: Style-Transitions während der
+        // Viewport-Animation erzwingen sonst pro Frame einen Voll-Redraw.
+        this.applyFocus(typeId);
         const p = parent.position();
         // Auffächern in Richtung "vom Netz weg", damit freie Fläche genutzt wird.
         const bb = this.cy.nodes().boundingBox();
@@ -424,7 +429,12 @@ class WissensnetzApp {
             this.cy.elements(':selected').unselect();
             const hadExpansion = this.expandedTypes.size > 0;
             this.collapseAllTypes();    // Wegklicken fährt die Satelliten ein
-            if (hadExpansion) this.animateFit();   // Kamera zurück zur Übersicht
+            if (hadExpansion) {
+                // Kamerafahrt leicht versetzt: erst Einfahren/Fade (Transitions),
+                // dann die Rückfahrt — nicht beides pro Frame gleichzeitig rendern.
+                if (WissensnetzApp.reducedMotion()) this.animateFit();
+                else setTimeout(() => this.animateFit(), 230);
+            }
         }
     }
 

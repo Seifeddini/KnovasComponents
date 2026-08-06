@@ -59,6 +59,7 @@
     transform: translateX(calc(100% + 40px));
     visibility: hidden;
     transition: transform .28s ease, visibility 0s linear .28s;
+    will-change: transform;   /* Drawer-Slide auf eigener GPU-Ebene */
     z-index: 2;
 }
 .ontology-drawer.open {
