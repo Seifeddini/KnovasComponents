@@ -50,18 +50,28 @@ const TYPE_ICONS = {
 };
 const FALLBACK_ICON =
     '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/>';
+const FILTER_ICON =
+    '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>';
 
 /** SVG-Icon als Data-URI für Cytoscape-Knoten, Strichfarbe aus dem Token.
     Rand fürs Icon über translate, NICHT über negativen ViewBox-Ursprung —
     Chrome rastert SVGs mit negativem Ursprung im Canvas falsch (verschoben,
     abgeschnitten). Explizite width/height für die intrinsische Grösse. */
-function iconDataUri(typeId, color) {
-    const inner = TYPE_ICONS[typeId] || FALLBACK_ICON;
+function svgDataUri(inner, color) {
     const svg =
         `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">` +
         `<g transform="translate(2 2)" fill="none" stroke="${color}" stroke-width="2" ` +
         `stroke-linecap="round" stroke-linejoin="round">` + inner + '</g></svg>';
     return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
+
+function iconDataUri(typeId, color) {
+    return svgDataUri(TYPE_ICONS[typeId] || FALLBACK_ICON, color);
+}
+
+function csrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.content : '';
 }
 
 class CortexApp {
@@ -185,6 +195,20 @@ class CortexApp {
                     'opacity': 0.18,
                     'text-opacity': 0,
                 } },
+                // Filter-Unter-Knoten: Trichter am Entitäts-Satelliten.
+                { selector: 'node.filter-node', style: {
+                    'background-color': cssToken('--card-bg'),
+                    'border-width': 1.5,
+                    'border-style': 'dashed',
+                    'border-color': cssToken('--accent'),
+                    'font-family': cssFontToken('--font-body') || 'IBM Plex Sans, sans-serif',
+                    'font-weight': 400,
+                    'font-size': 10,
+                    'color': cssToken('--text-secondary'),
+                    'text-margin-y': 4,
+                    'text-wrap': 'wrap',
+                    'text-max-width': 140,
+                } },
                 { selector: 'edge.entity-edge', style: {
                     'width': 1,
                     'line-style': 'dashed',
@@ -237,7 +261,10 @@ class CortexApp {
 
         this.cy.on('tap', 'node', (evt) => {
             const node = evt.target;
-            if (node.hasClass('entity')) {
+            if (node.hasClass('filter-node')) {
+                this.openEntityDrawer();
+                this.renderFilterPanel(node.data('filterId'));
+            } else if (node.hasClass('entity')) {
                 this.openEntityDrawer();
                 this.onEntitySelect(node.data('entityId'));
             } else {
@@ -367,7 +394,8 @@ class CortexApp {
             const stale = this.cy.getElementById(`ent:${e.id}`);
             if (stale.nonempty()) stale.remove();
             eles.push({ group: 'nodes', classes: 'entity',
-                        data: { id: `ent:${e.id}`, entityId: e.id, label: e.label, size: 26 },
+                        data: { id: `ent:${e.id}`, entityId: e.id, typeId,
+                                label: e.label, size: 26 },
                         position: { x: p.x, y: p.y } });
             eles.push({ group: 'edges', classes: 'entity-edge',
                         data: { id: `ee:${typeId}:${e.id}`, source: typeId,
@@ -389,7 +417,7 @@ class CortexApp {
     applyFocus(typeId) {
         const parent = this.cy.getElementById(typeId);
         this.cy.edges().not('.entity-edge').addClass('faded');
-        this.cy.nodes('[icon]').not(parent).addClass('faded');
+        this.cy.nodes().not(parent).not('.entity').not('.filter-node').addClass('faded');
     }
 
     clearFocus() {
@@ -466,6 +494,18 @@ class CortexApp {
         return resp.json();
     }
 
+    async postJson(url, payload) {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json',
+                       'X-CSRF-Token': csrfToken() },
+            body: JSON.stringify(payload),
+        });
+        if (resp.status === 401) { window.location.assign('/login'); return null; }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+
     async onTypeSelect(typeId, label) {
         this.selectedType = typeId;
         this.closeDocDrawer();          // Belege des vorherigen Kontexts sind veraltet
@@ -531,16 +571,46 @@ class CortexApp {
                      </button></li>`).join('')}
                    </ol>`
                 : '<p class="ontology-empty">Keine Belege zu dieser Entität erfasst.</p>';
+            const filters = data.filters || [];
+            const filterRows = filters.map((f) => `
+                <li><button type="button" class="btn-text filter-chip" data-id="${esc(f.id)}">
+                    ${esc(f.label)}
+                    <span class="filter-chip-state">${CortexApp.filterStateText(f)}</span>
+                </button></li>`).join('');
+            const filterExplainer = filters.length ? '' : `
+                <ol class="filter-explainer">
+                    <li>Beschreiben Sie in Alltagssprache, was Knovas heraussuchen soll.</li>
+                    <li>Knovas liest die Dokumente dieser Entität laufend mit.</li>
+                    <li>Sie prüfen die Funde — Abgelehntes wird nie wieder vorgeschlagen.</li>
+                </ol>`;
             body.innerHTML = `
                 <div class="entity-detail">
                     <button type="button" class="btn-text" id="entityBack">← Zurück zur Liste</button>
                     <h3>${esc(data.entity.label)}</h3>
                     <h4>Verbindungen</h4>${relations}
                     <h4>Belege</h4>${evidence}
+                    <h4>Filter</h4>
+                    ${filters.length ? `<ul class="filter-list">${filterRows}</ul>` : ''}
+                    ${filterExplainer}
+                    <div class="filter-create">
+                        <input type="text" id="filterInput" maxlength="120"
+                               placeholder="z. B. Kündigungsklauseln und Fristen"
+                               aria-label="Filterbeschreibung">
+                        <button type="button" id="filterCreateBtn" class="btn btn-outline">Filter anlegen</button>
+                    </div>
                 </div>`;
             document.getElementById('entityBack').addEventListener('click', () => {
                 const node = this.cy.getElementById(this.selectedType);
                 this.onTypeSelect(this.selectedType, node.data('label'));
+            });
+            this.syncFilterNodes(entityId, filters);
+            body.querySelectorAll('.filter-chip').forEach((btn) =>
+                btn.addEventListener('click', () => this.renderFilterPanel(btn.dataset.id)));
+            const filterInput = document.getElementById('filterInput');
+            const createFilter = () => this.onFilterCreate(entityId, filterInput.value);
+            document.getElementById('filterCreateBtn').addEventListener('click', createFilter);
+            filterInput.addEventListener('keydown', (evt) => {
+                if (evt.key === 'Enter') { evt.preventDefault(); createFilter(); }
             });
             body.querySelectorAll('.entity-link').forEach((btn) =>
                 btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
@@ -557,6 +627,209 @@ class CortexApp {
             if (err.name === 'AbortError') return;
             body.innerHTML = '<p class="ontology-empty">Entität konnte nicht geladen werden.</p>';
         }
+    }
+
+    static filterStateText(f) {
+        if (f.status === 'collecting') return 'liest den Aktenbestand …';
+        const parts = [];
+        if (f.counts.pending) parts.push(`${f.counts.pending} zur Prüfung`);
+        if (f.counts.accepted) parts.push(`${f.counts.accepted} übernommen`);
+        if (f.counts.rejected) parts.push(`${f.counts.rejected} abgelehnt`);
+        return parts.join(' · ') || 'keine Fundstellen';
+    }
+
+    static filterNodeLabel(f) {
+        if (f.status === 'collecting') return `${f.label}\nliest …`;
+        if (f.counts.pending) return `${f.label}\n${f.counts.pending} zur Prüfung`;
+        return f.label;
+    }
+
+    /** Filter-Unter-Knoten am Entitäts-Satelliten anlegen/aktualisieren. */
+    syncFilterNodes(entityId, filters) {
+        const satellite = this.cy.getElementById(`ent:${entityId}`);
+        if (satellite.empty()) return;      // Entität ist nicht aufgefächert
+        const typeId = satellite.data('typeId');
+        const typeNode = typeId ? this.cy.getElementById(typeId) : null;
+        const sp = satellite.position();
+        // Weiter nach aussen, in Verlängerung Typ -> Satellit.
+        let base = -Math.PI / 2;
+        if (typeNode && typeNode.nonempty()) {
+            const tp = typeNode.position();
+            base = Math.atan2(sp.y - tp.y, sp.x - tp.x);
+        }
+        const reduceMotion = CortexApp.reducedMotion();
+        filters.forEach((f, i) => {
+            const existing = this.cy.getElementById(`flt:${f.id}`);
+            if (existing.nonempty()) {
+                existing.data('label', CortexApp.filterNodeLabel(f));
+                return;
+            }
+            const a = base + (i - (filters.length - 1) / 2) * 0.55;
+            const target = { x: sp.x + 85 * Math.cos(a), y: sp.y + 85 * Math.sin(a) };
+            const added = this.cy.add([
+                { group: 'nodes', classes: 'filter-node',
+                  data: { id: `flt:${f.id}`, filterId: f.id, entityId,
+                          label: CortexApp.filterNodeLabel(f), size: 30,
+                          icon: svgDataUri(FILTER_ICON, cssToken('--accent')) },
+                  position: { x: sp.x, y: sp.y } },
+                { group: 'edges', classes: 'entity-edge',
+                  data: { id: `fe:${f.id}`, source: `ent:${entityId}`,
+                          target: `flt:${f.id}`, label: '', width: 1 } },
+            ]);
+            const node = added.nodes();
+            if (reduceMotion) node.position(target);
+            else node.animate({ position: target }, { duration: 320, easing: 'ease-out-quart' });
+            // Mit der Satelliten-Collection einklappen/aufräumen.
+            if (typeId && this.expandedTypes.has(typeId)) {
+                const current = this.expandedTypes.get(typeId);
+                if (current) this.expandedTypes.set(typeId, current.union(added));
+            }
+        });
+    }
+
+    async onFilterCreate(entityId, label) {
+        const input = document.getElementById('filterInput');
+        label = String(label || '').trim();
+        if (!label) { if (input) input.focus(); return; }
+        try {
+            const data = await this.postJson('/api/ontology/filters',
+                                             { entity_id: entityId, label });
+            if (!data) return;
+            this.syncFilterNodes(entityId, [data.filter]);
+            this.renderFilterPanel(data.filter.id, data);
+        } catch (err) {
+            console.error('Cortex: Filter nicht anlegbar', err);
+            if (input) input.setCustomValidity('');
+        }
+    }
+
+    /** Prüf-Panel: Vorschläge eines Filters mit Übernehmen/Ablehnen. */
+    async renderFilterPanel(filterId, preloaded = null) {
+        const body = document.getElementById('entityPaneBody');
+        if (!preloaded) body.innerHTML = skeleton(4);
+        try {
+            const data = preloaded ||
+                await this.fetchJson(`/api/ontology/filters/${encodeURIComponent(filterId)}`);
+            if (!data) return;
+            this.filterView = { id: filterId, filter: data.filter,
+                                proposals: data.proposals, tab: 'pending' };
+            document.getElementById('entityPaneTitle').textContent = 'Filter';
+            const esc = CortexApp.esc;
+            body.innerHTML = `
+                <div class="entity-detail">
+                    <button type="button" class="btn-text" id="filterBack">← Zurück zur Entität</button>
+                    <h3>${esc(data.filter.label)}</h3>
+                    <p class="filter-status">${data.filter.status === 'collecting'
+                        ? 'Knovas liest den Aktenbestand laufend — noch keine Fundstellen.'
+                        : 'Läuft laufend im Hintergrund. Knovas schlägt vor — Sie entscheiden.'}</p>
+                    <div class="tab-chips" role="tablist" id="filterTabs"></div>
+                    <div id="proposalList"></div>
+                </div>`;
+            document.getElementById('filterBack').addEventListener('click', () =>
+                this.onEntitySelect(this.filterView.filter.entity_id));
+            this.renderProposalTabs();
+            this.renderProposalList();
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            body.innerHTML = '<p class="ontology-empty">Filter konnte nicht geladen werden.</p>';
+        }
+    }
+
+    renderProposalTabs() {
+        const counts = { pending: 0, accepted: 0, rejected: 0 };
+        this.filterView.proposals.forEach((p) => { counts[p.state] += 1; });
+        const tabs = [['pending', 'Zur Prüfung'], ['accepted', 'Übernommen'],
+                      ['rejected', 'Abgelehnt']];
+        const holder = document.getElementById('filterTabs');
+        holder.innerHTML = tabs.map(([key, label]) => `
+            <button type="button" role="tab" class="tab-chip${this.filterView.tab === key ? ' active' : ''}"
+                    data-tab="${key}">${label} (${counts[key]})</button>`).join('');
+        holder.querySelectorAll('.tab-chip').forEach((btn) =>
+            btn.addEventListener('click', () => {
+                this.filterView.tab = btn.dataset.tab;
+                this.renderProposalTabs();
+                this.renderProposalList();
+            }));
+    }
+
+    renderProposalList() {
+        const esc = CortexApp.esc;
+        const view = this.filterView;
+        const list = document.getElementById('proposalList');
+        const shown = view.proposals.filter((p) => p.state === view.tab);
+        if (!shown.length) {
+            const empty = { pending: 'Keine offenen Vorschläge.',
+                            accepted: 'Noch nichts übernommen.',
+                            rejected: 'Noch nichts abgelehnt.' };
+            list.innerHTML = `<p class="ontology-empty">${empty[view.tab]}</p>`;
+            return;
+        }
+        list.innerHTML = shown.map((p) => `
+            <div class="proposal-card" data-id="${esc(p.id)}">
+                <span class="score-chip">Zuversicht ${Math.round(p.score * 100)} %</span>
+                <button type="button" class="evidence-item proposal-quote"
+                        data-path="${esc(p.document.path)}" data-page="${p.page}"
+                        data-title="${esc(p.document.title)}">
+                    <span class="evidence-quote">«${esc(p.quote)}»</span>
+                    <span class="evidence-source">${esc(p.document.title)}, Seite ${p.page}</span>
+                </button>
+                ${p.state === 'pending' ? `
+                <div class="proposal-actions">
+                    <button type="button" class="btn btn-outline act-accept">Übernehmen</button>
+                    <button type="button" class="btn-text act-reject">Ablehnen</button>
+                </div>` : ''}
+                ${p.state === 'rejected' ? `
+                <p class="proposal-note">Dauerhaft gemerkt — wird nie wieder vorgeschlagen,
+                   auch bei erneutem Upload.</p>` : ''}
+            </div>`).join('');
+        list.querySelectorAll('.proposal-quote').forEach((btn) =>
+            btn.addEventListener('click', () => {
+                this.onEvidenceSelect({ path: btn.dataset.path,
+                                        page: Number(btn.dataset.page),
+                                        title: btn.dataset.title });
+            }));
+        list.querySelectorAll('.act-accept').forEach((btn) =>
+            btn.addEventListener('click', () =>
+                this.onProposalDecide(btn.closest('.proposal-card'), 'accept')));
+        list.querySelectorAll('.act-reject').forEach((btn) =>
+            btn.addEventListener('click', () =>
+                this.onProposalDecide(btn.closest('.proposal-card'), 'reject')));
+    }
+
+    async onProposalDecide(card, action) {
+        const proposalId = card.dataset.id;
+        const view = this.filterView;
+        try {
+            const data = await this.postJson(
+                `/api/ontology/filters/${encodeURIComponent(view.id)}/decision`,
+                { proposal_id: proposalId, action });
+            if (!data) return;
+            const proposal = view.proposals.find((p) => p.id === proposalId);
+            if (proposal) proposal.state = data.proposal.state;
+            this.updateFilterNodeCounts();
+            if (action === 'reject') {
+                // Das Produktversprechen im Moment der Korrektur zeigen.
+                card.innerHTML = '<p class="proposal-note proposal-confirm">' +
+                    'Verstanden — wird nie wieder vorgeschlagen.</p>';
+                setTimeout(() => { this.renderProposalTabs(); this.renderProposalList(); }, 1400);
+            } else {
+                this.renderProposalTabs();
+                this.renderProposalList();
+            }
+        } catch (err) {
+            console.error('Cortex: Entscheidung fehlgeschlagen', err);
+        }
+    }
+
+    updateFilterNodeCounts() {
+        const view = this.filterView;
+        if (!view) return;
+        const counts = { pending: 0, accepted: 0, rejected: 0 };
+        view.proposals.forEach((p) => { counts[p.state] += 1; });
+        const f = { ...view.filter, counts,
+                    status: view.proposals.length ? 'active' : 'collecting' };
+        const node = this.cy.getElementById(`flt:${view.id}`);
+        if (node.nonempty()) node.data('label', CortexApp.filterNodeLabel(f));
     }
 
     onEvidenceSelect(evidence) {

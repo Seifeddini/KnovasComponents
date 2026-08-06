@@ -62,8 +62,11 @@ def _build_app(tmp_path, monkeypatch, autodoc_root):
     fixture_path = tmp_path / "ontology_fixture.json"
     fixture_path.write_text(json.dumps(FIXTURE), encoding="utf-8")
     monkeypatch.setenv("ONTOLOGY_FIXTURE_PATH", str(fixture_path))
+    monkeypatch.setenv("ONTOLOGY_FILTER_STATE_PATH", str(tmp_path / "filter_state.json"))
     import ontology_store
     ontology_store._cache = None  # Test-Isolation
+    import ontology_filters
+    ontology_filters._engine_cache = None
 
     ad_str = str(autodoc_root).replace("\\", "/")
     config_path = tmp_path / "config.yaml"
@@ -161,3 +164,74 @@ def test_ontology_page_renders_after_login(app):
     resp = client.get("/ontology")
     assert resp.status_code == 200
     assert "Cortex".encode("utf-8") in resp.data
+
+
+def _csrf_header(client):
+    with client.session_transaction() as sess:
+        return {"X-CSRF-Token": sess["csrf_token"]}
+
+
+def test_filter_api_requires_login(app):
+    client = app.test_client()
+    assert client.post("/api/ontology/filters", json={}).status_code == 401
+    assert client.get("/api/ontology/filters/f-x").status_code == 401
+
+
+def test_filter_create_requires_csrf_header(app):
+    client = app.test_client()
+    _login(client)
+    resp = client.post("/api/ontology/filters",
+                       json={"entity_id": "e-001", "label": "Fristen"})
+    assert resp.status_code == 403
+
+
+def test_filter_create_and_detail_contract(app):
+    client = app.test_client()
+    _login(client)
+    resp = client.post("/api/ontology/filters",
+                       json={"entity_id": "e-001", "label": "Fristen"},
+                       headers=_csrf_header(client))
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["filter"]["label"] == "Fristen"
+    # vertrag.pdf ist kein echtes PDF -> keine Segmente -> ehrlicher Sammel-Zustand
+    assert data["filter"]["status"] == "collecting"
+    assert data["proposals"] == []
+
+    detail = client.get(f"/api/ontology/filters/{data['filter']['id']}").get_json()
+    assert detail["success"] is True
+    assert detail["filter"]["id"] == data["filter"]["id"]
+
+    # Entity-Detail traegt den Filter jetzt mit
+    entity = client.get("/api/ontology/entities/e-001").get_json()
+    assert [f["label"] for f in entity["filters"]] == ["Fristen"]
+
+
+def test_filter_create_validates_input(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+    assert client.post("/api/ontology/filters", json={"entity_id": "e-404",
+                       "label": "x"}, headers=headers).status_code == 404
+    assert client.post("/api/ontology/filters", json={"entity_id": "e-001",
+                       "label": ""}, headers=headers).status_code == 400
+
+
+def test_filter_decision_validates(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+    created = client.post("/api/ontology/filters",
+                          json={"entity_id": "e-001", "label": "Fristen"},
+                          headers=headers).get_json()
+    fid = created["filter"]["id"]
+    assert client.post(f"/api/ontology/filters/{fid}/decision",
+                       json={"proposal_id": "x", "action": "vielleicht"},
+                       headers=headers).status_code == 400
+    assert client.post(f"/api/ontology/filters/{fid}/decision",
+                       json={"proposal_id": "x", "action": "reject"},
+                       headers=headers).status_code == 404
+    assert client.post("/api/ontology/filters/f-unbekannt/decision",
+                       json={"proposal_id": "x", "action": "reject"},
+                       headers=headers).status_code == 404

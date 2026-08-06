@@ -185,6 +185,41 @@ Spalten (CSS-Grid), kein Modal — der Graph bleibt immer sichtbar:
 4. Zahlformatierung `1'847` (JS-seitig trivial, ein Unit-Test im Store für
    die Datenintegrität genügt serverseitig)
 
+## Filter (Automatic Knowledge Filtering) — Erweiterung 2026-08-06
+
+Req-Doc 2.2 („junior associate that never sleeps"): Der Kunde beschreibt in
+Alltagssprache einen Filter auf einer Entität; passende Passagen aus den
+Dokumenten der Entität landen als prüfbare Vorschläge in einem eigenen
+Unter-Knoten. Ablehnung ist **permanent** (Rejection-Memory).
+
+**Echt, nicht gemockt** — Entscheid nach interner Deadline-Klärung:
+
+- **`src/ontology_filters.py`** (Flask-frei): extrahiert Text der
+  Entitäts-Dokumente per pymupdf (Cache per mtime), segmentiert satzweise,
+  scored lexikalisch (Token-Normalisierung, Umlaut-Folding, Präfix-Matching
+  für Komposita: „Kündigungsklauseln" trifft „Kündigungsfrist"). Später
+  ersetzt der echte Knovas-Endpunkt nur das Matching — Vertrag bleibt.
+- **Dokumente einer Entität** = Evidence-Dokumente der Entität plus der
+  direkt verbundenen Entitäten (1 Hop; deckt „the matter's documents" ab).
+- **Persistenz** `ONTOLOGY_FILTER_STATE_PATH` (JSON): Filter +
+  Entscheidungen, gekeyt per Fingerprint sha1(pfad|seite|normalisiertes
+  Zitat) — stabil über Re-Uploads/Re-Runs. Rejected ist endgültig
+  (nie wieder „zur Prüfung", auch nach Neustart).
+- **Vertrag v1.2:** `entity_detail.filters[{id,label,status,counts}]`;
+  `GET /api/ontology/filters/<id>` (Vorschläge mit quote/page/score/state/
+  document); `POST /api/ontology/filters` {entity_id,label};
+  `POST /api/ontology/filters/<id>/decision` {proposal_id, action}.
+  POSTs hinter bestehendem CSRF-Header-Gate (X-CSRF-Token), Auth wie alle.
+- **UX:** Filter-Bereich im Entitäts-Detail mit Dreischritt-Explainer
+  (Beschreiben → Knovas liest laufend → Sie prüfen); Filter-Unter-Knoten
+  am Entitäts-Satelliten (Trichter-Icon, Badge = zur Prüfung); Prüf-Panel
+  mit Reitern Zur Prüfung/Übernommen/Abgelehnt, Karten im Beleg-Stil mit
+  Zuversicht-Chip und Übernehmen/Ablehnen; beim Ablehnen inline:
+  „Verstanden — wird nie wieder vorgeschlagen." Kein Treffer → ehrlicher
+  Sammel-Zustand („Knovas liest den Aktenbestand laufend …").
+- **Nicht enthalten:** semantisches Routing (kommt vom Backend),
+  Score-Kalibrierung (Gate R), Mehrbenutzer-Rollen.
+
 ## Nicht im MVP (bewusst)
 
 Ego-Graph pro Entität · Merge-UI / Entity-Resolution-Korrektur ·

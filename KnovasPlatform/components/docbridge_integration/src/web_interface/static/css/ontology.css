@@ -151,6 +151,78 @@
 .doc-frame { width: 100%; height: 100%; border: 0;
              border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--card-bg); }
 
+/* Filter (Req 2.2): Anlegen, Chips, Prüf-Panel. Nur Token-Farben. */
+.filter-list { list-style: none; padding: 0; }
+.filter-list li { padding: 2px 0; }
+.filter-chip-state {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.filter-explainer {
+    margin: 4px 0 10px;
+    padding-left: 18px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+.filter-explainer li { margin-bottom: 2px; }
+.filter-create { display: flex; gap: 8px; margin-top: 6px; }
+.filter-create input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+}
+.filter-create input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.filter-create .btn { white-space: nowrap; }
+
+.filter-status { color: var(--text-secondary); font-size: 0.85rem; margin: 4px 0 10px; }
+
+.tab-chips { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.tab-chip {
+    padding: 4px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+}
+.tab-chip:hover { border-color: var(--accent); }
+.tab-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tab-chip.active {
+    background: var(--highlight);
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+}
+
+.proposal-card {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: var(--card-bg);
+}
+.proposal-card .evidence-item { margin: 6px 0 0; }
+.score-chip {
+    display: inline-block;
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 1px 8px;
+    background: var(--surface-sunken);
+}
+.proposal-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.proposal-actions .btn { padding: 4px 12px; }
+.proposal-note { color: var(--text-secondary); font-size: 0.82rem; margin-top: 8px; }
+.proposal-confirm { color: var(--primary-color); margin: 4px 0; }
+
 /* Lade-Skeleton: schimmernde Platzhalterzeilen statt Spinner/Textblitzer.
    Nur Token-Farben; die Animation nutzt Transparenz, keinen neuen Farbwert. */
 .skeleton-row {

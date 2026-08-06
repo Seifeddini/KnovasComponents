@@ -29,6 +29,7 @@ from context_store import enrich_result_with_context
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
+from ontology_filters import get_filter_engine
 from ontology_store import get_ontology
 from web_interface.preview import (
     PreviewFailed,
@@ -1651,9 +1652,66 @@ def create_app(config_path: Optional[str] = None):
             detail = store.entity_detail(entity_id)
             if detail is None:
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            detail['filters'] = engine.filters_for_entity(store, entity_id)
             return jsonify({'success': True, **detail})
         except Exception:
             logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-
+    # Memory, Logik in ontology_filters.py. POSTs laufen durch das
+    # bestehende CSRF-Header-Gate; Routen stehen in KEINEM Exempt-Set.
+
+    @app.route('/api/ontology/filters', methods=['POST'])
+    def ontology_filter_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            entity_id = str(payload.get('entity_id') or '').strip()
+            label = str(payload.get('label') or '').strip()
+            store = get_ontology(path_exists=_ontology_path_exists)
+            if store.entity_detail(entity_id) is None:
+                return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            created = engine.create_filter(entity_id, label)
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Filterbeschreibung fehlt'}), 400
+            detail = engine.filter_detail(store, created['id'])
+            return jsonify({'success': True, **detail}), 201
+        except Exception:
+            logger.error("Ontology filter create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/filters/<filter_id>', methods=['GET'])
+    def ontology_filter_detail(filter_id: str):
+        try:
+            store = get_ontology(path_exists=_ontology_path_exists)
+            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            detail = engine.filter_detail(store, filter_id)
+            if detail is None:
+                return jsonify({'success': False, 'error': 'Filter nicht gefunden'}), 404
+            return jsonify({'success': True, **detail})
+        except Exception:
+            logger.error("Ontology filter detail error for %s", filter_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/filters/<filter_id>/decision', methods=['POST'])
+    def ontology_filter_decision(filter_id: str):
+        try:
+            payload = request.get_json(silent=True) or {}
+            proposal_id = str(payload.get('proposal_id') or '').strip()
+            action = str(payload.get('action') or '').strip()
+            store = get_ontology(path_exists=_ontology_path_exists)
+            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            proposal, error = engine.decide(store, filter_id, proposal_id, action)
+            if error == 'bad_action':
+                return jsonify({'success': False, 'error': 'Ungültige Aktion'}), 400
+            if error == 'not_found':
+                return jsonify({'success': False, 'error': 'Vorschlag nicht gefunden'}), 404
+            return jsonify({'success': True, 'proposal': proposal})
+        except Exception:
+            logger.error("Ontology filter decision error for %s", filter_id, exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     return app
