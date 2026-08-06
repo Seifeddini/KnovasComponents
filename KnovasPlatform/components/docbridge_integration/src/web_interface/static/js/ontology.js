@@ -165,7 +165,7 @@ class CortexApp {
                     'border-color': cssToken('--primary-color'),
                 } },
                 // Entitäten-Satelliten: kleine Instanz-Knoten am Typ-Knoten.
-                // Label-Platte in Bühnenfarbe, damit keine Kante durch den Text läuft.
+                // Keine Label-Platte — der Fokus-Modus räumt den Hintergrund frei.
                 { selector: 'node.entity', style: {
                     'background-color': cssToken('--surface-sunken'),
                     'border-width': 1.5,
@@ -176,10 +176,6 @@ class CortexApp {
                     'text-margin-y': 5,
                     'text-wrap': 'wrap',
                     'text-max-width': 150,
-                    'text-background-color': cssToken('--surface-sunken'),
-                    'text-background-opacity': 0.95,
-                    'text-background-padding': 3,
-                    'text-background-shape': 'round-rectangle',
                 } },
                 // Fokus-Modus: während ein Typ aufgeklappt ist, treten die
                 // unbeteiligten Teile des Netzes zurück (Kantenlabels ganz weg —
