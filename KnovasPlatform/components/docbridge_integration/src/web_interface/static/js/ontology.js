@@ -522,17 +522,18 @@ class CortexApp {
             }
             this.renderEntityNodes(typeId, data.entities);
             const esc = CortexApp.esc;
+            // Kartenform analog zu den Suchtreffern (document-card):
+            // Metazeile + Titel, Karte selbst ist die Geste.
             body.innerHTML = `
                 <p class="entity-hint">Auswahl der wichtigsten Entitäten</p>
-                <table class="entity-table">
-                  <thead><tr><th>Entität</th><th class="num">Dokumente</th></tr></thead>
-                  <tbody>${data.entities.map((e) => `
-                    <tr><td><button type="button" class="btn-text entity-link"
-                                data-id="${esc(e.id)}">${esc(e.label)}</button></td>
-                        <td class="num">${formatCount(e.doc_count)}</td></tr>`).join('')}
-                  </tbody>
-                </table>`;
-            body.querySelectorAll('.entity-link').forEach((btn) =>
+                <ul class="entity-cards">${data.entities.map((e) => `
+                    <li><button type="button" class="entity-card" data-id="${esc(e.id)}">
+                        <span class="entity-card-metaline">${formatCount(e.doc_count)}
+                            ${e.doc_count === 1 ? 'Dokument' : 'Dokumente'}</span>
+                        <span class="entity-card-title">${esc(e.label)}</span>
+                    </button></li>`).join('')}
+                </ul>`;
+            body.querySelectorAll('.entity-card').forEach((btn) =>
                 btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
         } catch (err) {
             if (err.name === 'AbortError') return;
