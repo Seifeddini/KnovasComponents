@@ -11,9 +11,54 @@ function cssToken(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+/** Font-Token für Cytoscape: dessen Validierung lehnt Anführungszeichen im
+    Font-Stack ab ("invalid" → Fallback-Schrift), Canvas braucht sie nicht. */
+function cssFontToken(name) {
+    return cssToken(name).replace(/['"]/g, '');
+}
+
 /** Lade-Skeleton: schimmernde Platzhalterzeilen statt Text-Blitzer. */
 function skeleton(rows = 3) {
     return Array.from({ length: rows }, () => '<div class="skeleton-row"></div>').join('');
+}
+
+/** Cytoscape rendert ins Canvas und zeichnet nicht neu, wenn Webfonts erst
+    nach dem ersten Frame eintreffen (font-display: swap) — deshalb die
+    CI-Schriften explizit laden, bevor der Graph entsteht. */
+async function loadBrandFonts() {
+    if (!document.fonts || !document.fonts.load) return;
+    const wanted = ["600 13px 'IBM Plex Mono'", "400 13px 'IBM Plex Sans'"];
+    try {
+        await Promise.race([
+            Promise.all(wanted.map((f) => document.fonts.load(f))),
+            new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]);
+    } catch (_) { /* Fallback-Schrift ist besser als gar kein Graph. */ }
+}
+
+/* Typ-Symbole im Stil der bestehenden UI-Icons (Feather-Strichstärke 2).
+   Farben kommen zur Laufzeit aus den Tokens, keine Hexwerte hier. */
+const TYPE_ICONS = {
+    mandant: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    gegenpartei: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    dossier: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    vertrag: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+    gericht: '<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+    frist: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    honorar: '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+    dokumenttyp: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+};
+const FALLBACK_ICON =
+    '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/>';
+
+/** SVG-Icon als Data-URI für Cytoscape-Knoten, Strichfarbe aus dem Token. */
+function iconDataUri(typeId, color) {
+    const inner = TYPE_ICONS[typeId] || FALLBACK_ICON;
+    const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ` +
+        `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+        inner + '</svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
 class WissensnetzApp {
@@ -27,7 +72,7 @@ class WissensnetzApp {
 
     async init() {
         try {
-            const resp = await fetch('/api/ontology/summary');
+            const [resp] = await Promise.all([fetch('/api/ontology/summary'), loadBrandFonts()]);
             if (resp.status === 401) { window.location.assign('/login'); return; }
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
@@ -39,6 +84,7 @@ class WissensnetzApp {
             }
             this.renderGraph(data);
             this.bindZoomControls();
+            this.bindDrawerControls();
         } catch (err) {
             console.error('Wissensnetz: Summary nicht ladbar', err);
             const empty = document.getElementById('graphEmpty');
@@ -49,10 +95,20 @@ class WissensnetzApp {
     }
 
     renderGraph(data) {
+        const iconColor = cssToken('--primary-color');
         const maxCount = Math.max(...data.types.map((t) => t.count), 1);
-        const nodes = data.types.map((t) => ({
+        const n = data.types.length;
+        // Deterministischer Kreis-Seed (Spec Regel 4): das anschliessende
+        // cose-Layout mit randomize:false liefert damit stets dasselbe Bild.
+        const seedRadius = 300;
+        const nodes = data.types.map((t, i) => ({
             data: { id: t.id, label: t.label, count: t.count,
-                    size: 32 + Math.round(40 * (t.count / maxCount)) },
+                    icon: iconDataUri(t.id, iconColor),
+                    size: 46 + Math.round(38 * (t.count / maxCount)) },
+            position: {
+                x: seedRadius * Math.cos((2 * Math.PI * i) / n - Math.PI / 2),
+                y: seedRadius * Math.sin((2 * Math.PI * i) / n - Math.PI / 2),
+            },
         }));
         const maxRel = Math.max(...data.relations.map((r) => r.count), 1);
         const edges = data.relations.map((r, i) => ({
@@ -69,17 +125,21 @@ class WissensnetzApp {
             wheelSensitivity: 0.2,
             style: [
                 { selector: 'node', style: {
-                    'background-color': cssToken('--surface-sunken'),
+                    'background-color': cssToken('--card-bg'),
                     'border-width': 2,
                     'border-color': cssToken('--accent'),
                     'width': 'data(size)',
                     'height': 'data(size)',
+                    'background-image': 'data(icon)',
+                    'background-width': '52%',
+                    'background-height': '52%',
                     'label': 'data(label)',
-                    'font-family': cssToken('--font-body') || 'IBM Plex Sans, sans-serif',
-                    'font-size': 12,
+                    'font-family': cssFontToken('--font-heading') || 'IBM Plex Mono, monospace',
+                    'font-weight': 600,
+                    'font-size': 13,
                     'color': cssToken('--text-primary'),
                     'text-valign': 'bottom',
-                    'text-margin-y': 6,
+                    'text-margin-y': 8,
                 } },
                 { selector: 'node:selected', style: {
                     'background-color': cssToken('--highlight'),
@@ -96,11 +156,12 @@ class WissensnetzApp {
                     'curve-style': 'bezier',
                     'width': 'data(width)',
                     'label': 'data(label)',
-                    'font-size': 10,
+                    'font-family': cssFontToken('--font-body') || 'IBM Plex Sans, sans-serif',
+                    'font-size': 11,
                     'color': cssToken('--text-secondary'),
                     'text-rotation': 'autorotate',
-                    'text-background-color': cssToken('--bg-color'),
-                    'text-background-opacity': 0.85,
+                    'text-background-color': cssToken('--surface-sunken'),
+                    'text-background-opacity': 0.9,
                     'text-background-padding': 2,
                 } },
                 { selector: 'edge:selected', style: {
@@ -108,16 +169,33 @@ class WissensnetzApp {
                     'target-arrow-color': cssToken('--accent'),
                 } },
             ],
-            // Deterministisch (Spec Regel 4): concentric sortiert stabil nach count.
-            layout: { name: 'concentric', fit: true, padding: 40, minNodeSpacing: 60,
-                      concentric: (n) => n.data('count'), levelWidth: () => 1 },
+            layout: { name: 'preset' },
         });
+
+        // Kräftelayout ab dem Kreis-Seed: zieht verbundene Typen zusammen,
+        // drückt unverbundene auseinander — ohne Zufall (randomize:false).
+        this.cy.layout({
+            name: 'cose',
+            animate: false,
+            randomize: false,
+            fit: true,
+            padding: 60,
+            nodeDimensionsIncludeLabels: true,
+            idealEdgeLength: () => 130,
+            nodeRepulsion: () => 150000,
+            edgeElasticity: () => 150,
+            gravity: 2.2,
+            numIter: 3000,
+        }).run();
 
         this.cy.on('tap', 'node', (evt) => {
             this.onTypeSelect(evt.target.id(), evt.target.data('label'));
         });
+        this.cy.on('tap', (evt) => {
+            if (evt.target === this.cy) this.closeDrawers();
+        });
         this.cy.on('dbltap', (evt) => {
-            if (evt.target === this.cy) this.cy.fit(undefined, 40);
+            if (evt.target === this.cy) this.cy.fit(undefined, 70);
         });
         this.cy.on('mouseover', 'node', (evt) => evt.target.addClass('hovered'));
         this.cy.on('mouseout', 'node', (evt) => evt.target.removeClass('hovered'));
@@ -138,7 +216,30 @@ class WissensnetzApp {
         };
         document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.25));
         document.getElementById('zoomOut').addEventListener('click', () => zoomBy(0.8));
-        document.getElementById('zoomFit').addEventListener('click', () => this.cy.fit(undefined, 40));
+        document.getElementById('zoomFit').addEventListener('click', () => this.cy.fit(undefined, 70));
+    }
+
+    bindDrawerControls() {
+        document.getElementById('entityClose').addEventListener('click', () => this.closeDrawers());
+        document.getElementById('docClose').addEventListener('click', () => this.closeDocDrawer());
+    }
+
+    openEntityDrawer() {
+        document.getElementById('entityPane').classList.add('open');
+    }
+
+    openDocDrawer() {
+        document.getElementById('docPane').classList.add('open');
+    }
+
+    closeDocDrawer() {
+        document.getElementById('docPane').classList.remove('open');
+    }
+
+    closeDrawers() {
+        this.closeDocDrawer();
+        document.getElementById('entityPane').classList.remove('open');
+        if (this.cy) this.cy.elements(':selected').unselect();
     }
 
     /** Escaping vor jeder Interpolation — Fixture-/Backend-Text ist Fremdtext. */
@@ -159,6 +260,8 @@ class WissensnetzApp {
 
     async onTypeSelect(typeId, label) {
         this.selectedType = typeId;
+        this.closeDocDrawer();          // Belege des vorherigen Kontexts sind veraltet
+        this.openEntityDrawer();
         const body = document.getElementById('entityPaneBody');
         document.getElementById('entityPaneTitle').textContent = label;
         body.innerHTML = skeleton(4);
@@ -190,6 +293,7 @@ class WissensnetzApp {
 
     async onEntitySelect(entityId) {
         this.selectedEntity = entityId;
+        this.closeDocDrawer();          // Beleg gehört zur vorherigen Entität
         const body = document.getElementById('entityPaneBody');
         body.innerHTML = skeleton(5);
         try {
@@ -258,7 +362,10 @@ class WissensnetzApp {
                 '<p class="ontology-empty">Dokument konnte nicht geladen werden.</p>';
         });
         body.appendChild(frame);
+        this.openDocDrawer();
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => { new WissensnetzApp(); });
+document.addEventListener('DOMContentLoaded', () => {
+    window.wissensnetzApp = new WissensnetzApp();
+});

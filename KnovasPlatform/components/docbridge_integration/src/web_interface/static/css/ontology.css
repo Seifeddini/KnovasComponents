@@ -1,23 +1,76 @@
 /* src/web_interface/static/css/ontology.css — Wissensnetz-Layout.
-   Ausschliesslich Design-Tokens aus style.css; keine neuen Farbwerte. */
+   Ausschliesslich Design-Tokens aus style.css; keine neuen Farbwerte
+   (Schatten nutzen die vorhandenen RGB-Tripel-Tokens mit Transparenz). */
 
-.container-wide { max-width: 1440px; }
+.container-wide { max-width: none; height: 100vh; padding-bottom: 16px; }
 
-.ontology-layout {
-    display: grid;
-    grid-template-columns: minmax(320px, 5fr) minmax(280px, 4fr) minmax(320px, 6fr);
-    gap: 16px;
-    align-items: stretch;
-    min-height: 640px;
-}
+/* Kompakterer Header: die Bühne gehört dem Graphen. */
+.container-wide .site-header { padding-bottom: 12px; margin-bottom: 14px; }
+.container-wide .site-header-bar { margin-bottom: 14px; }
 
-.ontology-pane {
+/* Die Box wie gehabt (Rahmen, Header mit Titel und Zoom), aber über die
+   ganze Bildschirmbreite und die restliche Höhe. */
+.ontology-stage {
+    flex: 1;
+    min-height: 420px;
+    display: flex;
+    flex-direction: column;
     background: var(--surface-sunken);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+/* Innenraum der Box: Graph füllt alles, Drawer gleiten darüber. */
+.ontology-stage-body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+}
+
+#graphContainer { position: absolute; inset: 0; }
+
+.ontology-empty {
+    color: var(--text-secondary);
+    padding: 24px 16px;
+    text-align: center;
+}
+#graphEmpty { position: absolute; inset: 0; display: grid; place-content: center; }
+#graphEmpty[hidden] { display: none; }
+
+.graph-toolbar { display: flex; gap: 6px; }
+.graph-toolbar .btn { padding: 4px 10px; line-height: 1; }
+
+/* Drawer: erscheinen erst bei Auswahl, gleiten von rechts über den Graphen. */
+.ontology-stage-body { --drawer-w: 400px; }
+
+.ontology-drawer {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    bottom: 16px;
+    width: min(var(--drawer-w), calc(100vw - 72px));
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 28px rgba(var(--text-primary-rgb), 0.14);
+    transform: translateX(calc(100% + 40px));
+    visibility: hidden;
+    transition: transform .28s ease, visibility 0s linear .28s;
+    z-index: 2;
+}
+.ontology-drawer.open {
+    transform: none;
+    visibility: visible;
+    transition: transform .28s ease;
+}
+
+/* Dokument-Drawer: breiter, links neben dem Entitäten-Drawer. */
+.ontology-drawer-doc {
+    right: calc(16px + var(--drawer-w) + 12px);
+    width: min(680px, calc(100vw - var(--drawer-w) - 120px));
 }
 
 .ontology-pane-header {
@@ -28,22 +81,15 @@
     padding: 12px 16px;
     border-bottom: 1px solid var(--border-color);
 }
-
 .ontology-pane-header h2 {
     font-family: var(--font-heading);
     font-size: 0.95rem;
     color: var(--text-primary);
 }
-
-.graph-toolbar { display: flex; gap: 6px; }
-.graph-toolbar .btn { padding: 4px 10px; line-height: 1; }
-
-#graphContainer { flex: 1; min-height: 480px; }
-
-.ontology-empty {
-    color: var(--text-secondary);
-    padding: 24px 16px;
-    text-align: center;
+.drawer-close {
+    padding: 2px 9px;
+    line-height: 1.3;
+    font-size: 1rem;
 }
 
 #entityPaneBody, #docPaneBody { flex: 1; min-height: 0; overflow: auto; }
@@ -86,7 +132,7 @@
     display: block;
     width: 100%;
     text-align: left;
-    background: var(--card-bg);
+    background: var(--surface-sunken);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 10px 12px;
@@ -101,7 +147,7 @@
 .evidence-quote { display: block; }
 .evidence-source { display: block; margin-top: 4px; font-size: 0.85rem; color: var(--text-secondary); }
 
-.doc-frame { width: 100%; height: 100%; min-height: 560px; border: 0;
+.doc-frame { width: 100%; height: 100%; border: 0;
              border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--card-bg); }
 
 /* Lade-Skeleton: schimmernde Platzhalterzeilen statt Spinner/Textblitzer.
@@ -121,14 +167,14 @@
 }
 @media (prefers-reduced-motion: reduce) {
     .skeleton-row { animation: none; opacity: 0.6; }
+    .ontology-drawer { transition: none; }
 }
 
 /* Ruhige Übergänge für interaktive Elemente. */
 .evidence-item, .site-nav a, .btn { transition: border-color .15s ease, background-color .15s ease, color .15s ease; }
 
-/* Responsive Verhalten unter ~1100px: Spalten stapeln statt quetschen. */
+/* Schmale Fenster: Drawer als Vollflächen-Overlay statt Nebeneinander. */
 @media (max-width: 1100px) {
-    .ontology-layout { grid-template-columns: 1fr; }
-    #graphContainer { min-height: 360px; }
-    .doc-frame { min-height: 480px; }
+    .ontology-drawer { left: 16px; width: auto; }
+    .ontology-drawer-doc { right: 16px; width: auto; z-index: 3; }
 }

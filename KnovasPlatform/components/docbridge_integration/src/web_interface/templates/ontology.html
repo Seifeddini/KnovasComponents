@@ -38,33 +38,37 @@
             </h1>
         </header>
 
-        <main class="ontology-layout">
-            <section class="ontology-pane" id="graphPane" aria-label="Wissensnetz-Graph">
+        <main class="ontology-stage" aria-label="Wissensnetz">
+            <div class="ontology-pane-header">
+                <h2>Struktur</h2>
+                <div class="graph-toolbar" role="toolbar" aria-label="Zoom-Navigation">
+                    <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
+                    <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
+                    <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
+                </div>
+            </div>
+            <div class="ontology-stage-body">
+            <div id="graphContainer" aria-hidden="true"></div>
+            <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Wissensnetz vorhanden.</p>
+
+            <aside class="ontology-drawer" id="entityPane" aria-label="Entitäten und Belege">
                 <div class="ontology-pane-header">
-                    <h2>Struktur</h2>
-                    <div class="graph-toolbar" role="toolbar" aria-label="Zoom-Navigation">
-                        <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
-                        <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
-                        <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
-                    </div>
+                    <h2 id="entityPaneTitle">Entitäten</h2>
+                    <button type="button" class="btn btn-outline drawer-close" id="entityClose"
+                            aria-label="Schliessen">×</button>
                 </div>
-                <div id="graphContainer" aria-hidden="true"></div>
-                <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Wissensnetz vorhanden.</p>
-            </section>
+                <div id="entityPaneBody"></div>
+            </aside>
 
-            <section class="ontology-pane" id="entityPane" aria-label="Entitäten und Belege">
-                <div class="ontology-pane-header"><h2 id="entityPaneTitle">Entitäten</h2></div>
-                <div id="entityPaneBody">
-                    <p class="ontology-empty">Typ im Netz wählen, um Entitäten zu sehen.</p>
+            <aside class="ontology-drawer ontology-drawer-doc" id="docPane" aria-label="Dokument">
+                <div class="ontology-pane-header">
+                    <h2 id="docPaneTitle">Dokument</h2>
+                    <button type="button" class="btn btn-outline drawer-close" id="docClose"
+                            aria-label="Schliessen">×</button>
                 </div>
-            </section>
-
-            <section class="ontology-pane" id="docPane" aria-label="Dokument">
-                <div class="ontology-pane-header"><h2 id="docPaneTitle">Dokument</h2></div>
-                <div id="docPaneBody">
-                    <p class="ontology-empty">Beleg wählen, um die Fundstelle zu sehen.</p>
-                </div>
-            </section>
+                <div id="docPaneBody"></div>
+            </aside>
+            </div>
         </main>
     </div>
 
