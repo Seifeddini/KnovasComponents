@@ -51,11 +51,13 @@ const TYPE_ICONS = {
 const FALLBACK_ICON =
     '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/>';
 
-/** SVG-Icon als Data-URI für Cytoscape-Knoten, Strichfarbe aus dem Token. */
+/** SVG-Icon als Data-URI für Cytoscape-Knoten, Strichfarbe aus dem Token.
+    ViewBox mit Rand: Striche auf den Aussenkanten (x=1/2) würden sonst
+    an der ViewBox abgeschnitten (sichtbar z. B. beim Ebenen-Symbol). */
 function iconDataUri(typeId, color) {
     const inner = TYPE_ICONS[typeId] || FALLBACK_ICON;
     const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ` +
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28" fill="none" ` +
         `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
         inner + '</svg>';
     return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
@@ -67,6 +69,7 @@ class WissensnetzApp {
         this.selectedType = null;
         this.selectedEntity = null;
         this.entityAbort = null;
+        this.expandedTypes = new Map();   // typeId -> Cytoscape-Collection der Satelliten
         this.init();
     }
 
@@ -104,7 +107,7 @@ class WissensnetzApp {
         const nodes = data.types.map((t, i) => ({
             data: { id: t.id, label: t.label, count: t.count,
                     icon: iconDataUri(t.id, iconColor),
-                    size: 46 + Math.round(38 * (t.count / maxCount)) },
+                    size: 54 + Math.round(40 * (t.count / maxCount)) },
             position: {
                 x: seedRadius * Math.cos((2 * Math.PI * i) / n - Math.PI / 2),
                 y: seedRadius * Math.sin((2 * Math.PI * i) / n - Math.PI / 2),
@@ -130,9 +133,6 @@ class WissensnetzApp {
                     'border-color': cssToken('--accent'),
                     'width': 'data(size)',
                     'height': 'data(size)',
-                    'background-image': 'data(icon)',
-                    'background-width': '52%',
-                    'background-height': '52%',
                     'label': 'data(label)',
                     'font-family': cssFontToken('--font-heading') || 'IBM Plex Mono, monospace',
                     'font-weight': 600,
@@ -141,6 +141,11 @@ class WissensnetzApp {
                     'text-valign': 'bottom',
                     'text-margin-y': 8,
                 } },
+                { selector: 'node[icon]', style: {
+                    'background-image': 'data(icon)',
+                    'background-width': '62%',
+                    'background-height': '62%',
+                } },
                 { selector: 'node:selected', style: {
                     'background-color': cssToken('--highlight'),
                     'border-color': cssToken('--primary-color'),
@@ -148,6 +153,27 @@ class WissensnetzApp {
                 } },
                 { selector: 'node.hovered', style: {
                     'border-color': cssToken('--primary-color'),
+                } },
+                { selector: 'node.expanded', style: {
+                    'border-color': cssToken('--primary-color'),
+                } },
+                // Entitäten-Satelliten: kleine Instanz-Knoten am Typ-Knoten.
+                { selector: 'node.entity', style: {
+                    'background-color': cssToken('--surface-sunken'),
+                    'border-width': 1.5,
+                    'border-color': cssToken('--callout'),
+                    'font-family': cssFontToken('--font-body') || 'IBM Plex Sans, sans-serif',
+                    'font-weight': 400,
+                    'font-size': 11,
+                    'text-margin-y': 5,
+                    'text-wrap': 'wrap',
+                    'text-max-width': 150,
+                } },
+                { selector: 'edge.entity-edge', style: {
+                    'width': 1,
+                    'line-style': 'dashed',
+                    'target-arrow-shape': 'none',
+                    'label': '',
                 } },
                 { selector: 'edge', style: {
                     'line-color': cssToken('--border-color'),
@@ -189,7 +215,13 @@ class WissensnetzApp {
         }).run();
 
         this.cy.on('tap', 'node', (evt) => {
-            this.onTypeSelect(evt.target.id(), evt.target.data('label'));
+            const node = evt.target;
+            if (node.hasClass('entity')) {
+                this.openEntityDrawer();
+                this.onEntitySelect(node.data('entityId'));
+            } else {
+                this.onTypeTap(node);
+            }
         });
         this.cy.on('tap', (evt) => {
             if (evt.target === this.cy) this.closeDrawers();
@@ -217,6 +249,61 @@ class WissensnetzApp {
         document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.25));
         document.getElementById('zoomOut').addEventListener('click', () => zoomBy(0.8));
         document.getElementById('zoomFit').addEventListener('click', () => this.cy.fit(undefined, 70));
+    }
+
+    /** Typ-Knoten-Klick: aufklappen (Satelliten + Drawer) bzw. wieder einklappen. */
+    onTypeTap(node) {
+        const typeId = node.id();
+        if (this.expandedTypes.has(typeId)) {
+            this.collapseType(typeId);
+            this.closeDrawers();
+            // Der Tap selektiert den Knoten nativ erst nach diesem Handler —
+            // beim Einklappen soll aber nichts ausgewählt zurückbleiben.
+            setTimeout(() => node.unselect(), 0);
+            return;
+        }
+        this.onTypeSelect(typeId, node.data('label'));
+    }
+
+    /** Entitäten eines Typs als Satelliten-Knoten am Typ-Knoten auffächern. */
+    renderEntityNodes(typeId, entities) {
+        if (this.expandedTypes.has(typeId) || !entities.length) return;
+        const parent = this.cy.getElementById(typeId);
+        if (parent.empty()) return;
+        const p = parent.position();
+        // Auffächern in Richtung "vom Netz weg", damit freie Fläche genutzt wird.
+        const bb = this.cy.nodes().boundingBox();
+        let base = Math.atan2(p.y - (bb.y1 + bb.y2) / 2, p.x - (bb.x1 + bb.x2) / 2);
+        if (!Number.isFinite(base)) base = -Math.PI / 2;
+        const k = entities.length;
+        const spread = Math.min(Math.PI * 0.85, (Math.PI / 4) * k);
+        const radius = parent.data('size') / 2 + 90;
+        const eles = [];
+        entities.forEach((e) => {
+            eles.push({ group: 'nodes', classes: 'entity',
+                        data: { id: `ent:${e.id}`, entityId: e.id, label: e.label, size: 26 },
+                        position: { x: p.x, y: p.y } });
+            eles.push({ group: 'edges', classes: 'entity-edge',
+                        data: { id: `ee:${typeId}:${e.id}`, source: typeId,
+                                target: `ent:${e.id}`, label: '', width: 1 } });
+        });
+        const added = this.cy.add(eles);
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        added.nodes().forEach((satellite, i) => {
+            const a = k === 1 ? base : base - spread / 2 + (spread * i) / (k - 1);
+            const target = { x: p.x + radius * Math.cos(a), y: p.y + radius * Math.sin(a) };
+            if (reduceMotion) satellite.position(target);
+            else satellite.animate({ position: target }, { duration: 260, easing: 'ease-out' });
+        });
+        parent.addClass('expanded');
+        this.expandedTypes.set(typeId, added);
+    }
+
+    collapseType(typeId) {
+        const satellites = this.expandedTypes.get(typeId);
+        if (satellites) satellites.remove();
+        this.expandedTypes.delete(typeId);
+        this.cy.getElementById(typeId).removeClass('expanded');
     }
 
     bindDrawerControls() {
@@ -272,6 +359,7 @@ class WissensnetzApp {
                 body.innerHTML = '<p class="ontology-empty">Keine Entitäten dieses Typs im Korpus.</p>';
                 return;
             }
+            this.renderEntityNodes(typeId, data.entities);
             const esc = WissensnetzApp.esc;
             body.innerHTML = `
                 <p class="entity-hint">Auswahl der wichtigsten Entitäten</p>
@@ -294,6 +382,11 @@ class WissensnetzApp {
     async onEntitySelect(entityId) {
         this.selectedEntity = entityId;
         this.closeDocDrawer();          // Beleg gehört zur vorherigen Entität
+        const satellite = this.cy.getElementById(`ent:${entityId}`);
+        if (satellite.nonempty() && !satellite.selected()) {
+            this.cy.elements(':selected').unselect();
+            satellite.select();
+        }
         const body = document.getElementById('entityPaneBody');
         body.innerHTML = skeleton(5);
         try {
