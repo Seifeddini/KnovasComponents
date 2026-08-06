@@ -128,9 +128,6 @@ class CortexApp {
             minZoom: 0.2,
             maxZoom: 4,
             wheelSensitivity: 0.2,
-            // Kamerafahrten rendern eine Textur statt jedes Frame das ganze
-            // Netz (Retina: Millionen Pixel × 3 Canvas-Layer) neu zu zeichnen.
-            textureOnViewport: true,
             style: [
                 { selector: 'node', style: {
                     'background-color': cssToken('--card-bg'),
@@ -146,7 +143,7 @@ class CortexApp {
                     'text-valign': 'bottom',
                     'text-margin-y': 8,
                     'transition-property': 'opacity, text-opacity',
-                    'transition-duration': '0.25s',
+                    'transition-duration': '0.2s',
                 } },
                 { selector: 'node[icon]', style: {
                     'background-image': 'data(icon)',
@@ -209,7 +206,7 @@ class CortexApp {
                     'text-background-opacity': 0.9,
                     'text-background-padding': 2,
                     'transition-property': 'opacity, text-opacity',
-                    'transition-duration': '0.25s',
+                    'transition-duration': '0.2s',
                 } },
                 { selector: 'edge:selected', style: {
                     'line-color': cssToken('--accent'),
@@ -309,17 +306,19 @@ class CortexApp {
             this.cy.viewport({ zoom: level, pan });
             return Promise.resolve();
         }
-        return new Promise((resolve) => {
-            this.cy.animate({ zoom: level, pan },
-                            { duration: 380, easing: 'ease-in-out', complete: resolve });
-        });
+        // Schnell losfahren, weich ausgleiten (ease-out statt ease-in-out) —
+        // und das Promise löst schon im Ausgleiten auf, damit die Satelliten
+        // in die letzte Phase der Fahrt hineinpoppen statt danach.
+        this.cy.animate({ zoom: level, pan },
+                        { duration: 480, easing: 'ease-out-quart' });
+        return new Promise((resolve) => setTimeout(resolve, 300));
     }
 
     /** Zurück zur Gesamtansicht (nach dem Einklappen). */
     animateFit() {
         if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
         this.cy.animate({ fit: { padding: 60 } },
-                        { duration: 380, easing: 'ease-in-out' });
+                        { duration: 480, easing: 'ease-out-quart' });
     }
 
     /** Entitäten eines Typs als Satelliten-Knoten am Typ-Knoten auffächern.
@@ -363,7 +362,7 @@ class CortexApp {
             const a = k === 1 ? base : base - spread / 2 + (spread * i) / (k - 1);
             const target = { x: p.x + radius * Math.cos(a), y: p.y + radius * Math.sin(a) };
             if (reduceMotion) satellite.position(target);
-            else satellite.animate({ position: target }, { duration: 260, easing: 'ease-out' });
+            else satellite.animate({ position: target }, { duration: 320, easing: 'ease-out-quart' });
         });
         this.expandedTypes.set(typeId, added);
     }
@@ -391,8 +390,8 @@ class CortexApp {
         if (reduceMotion || parent.empty()) { satellites.remove(); return; }
         // Zurück in den Typ-Knoten gleiten, dann entfernen.
         satellites.nodes().animate({ position: parent.position() },
-                                   { duration: 200, easing: 'ease-in' });
-        setTimeout(() => satellites.remove(), 210);
+                                   { duration: 180, easing: 'ease-in-quad' });
+        setTimeout(() => satellites.remove(), 190);
     }
 
     collapseAllTypes(exceptTypeId = null) {
@@ -426,10 +425,10 @@ class CortexApp {
             const hadExpansion = this.expandedTypes.size > 0;
             this.collapseAllTypes();    // Wegklicken fährt die Satelliten ein
             if (hadExpansion) {
-                // Kamerafahrt leicht versetzt: erst Einfahren/Fade (Transitions),
-                // dann die Rückfahrt — nicht beides pro Frame gleichzeitig rendern.
+                // Rückfahrt beginnt, während die Satelliten gerade landen —
+                // fühlt sich nach einer Bewegung an statt nach zwei Schritten.
                 if (CortexApp.reducedMotion()) this.animateFit();
-                else setTimeout(() => this.animateFit(), 230);
+                else setTimeout(() => this.animateFit(), 150);
             }
         }
     }
