@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wissensnetz – {{ app_title }}</title>
+    <title>Cortex – {{ app_title }}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/ontology.css') }}?v={{ asset_version }}">
@@ -18,7 +18,7 @@
                 </a>
                 <nav class="site-nav" aria-label="Hauptnavigation">
                     <a href="{{ url_for('index') }}">Suche</a>
-                    <a href="{{ url_for('ontology_page') }}" aria-current="page">Wissensnetz</a>
+                    <a href="{{ url_for('ontology_page') }}" aria-current="page">Cortex</a>
                 </nav>
                 <form method="post" action="{{ url_for('logout') }}" class="logout-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -33,12 +33,12 @@
                     </button>
                 </form>
             </div>
-            <h1 class="site-greeting">Wissensnetz<br>
-                <span class="site-greeting-question">Was Knovas in Ihren Dokumenten verstanden hat</span>
+            <h1 class="site-greeting">Cortex<br>
+                <span class="site-greeting-question">Ihr Wissen, vernetzt.</span>
             </h1>
         </header>
 
-        <main class="ontology-stage" aria-label="Wissensnetz">
+        <main class="ontology-stage" aria-label="Cortex">
             <div class="ontology-pane-header">
                 <h2>Struktur</h2>
                 <div class="graph-toolbar" role="toolbar" aria-label="Zoom-Navigation">
@@ -49,7 +49,7 @@
             </div>
             <div class="ontology-stage-body">
             <div id="graphContainer" aria-hidden="true"></div>
-            <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Wissensnetz vorhanden.</p>
+            <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Cortex vorhanden.</p>
 
             <aside class="ontology-drawer" id="entityPane" aria-label="Entitäten und Belege">
                 <div class="ontology-pane-header">

@@ -160,4 +160,4 @@ def test_ontology_page_renders_after_login(app):
     _login(client)
     resp = client.get("/ontology")
     assert resp.status_code == 200
-    assert "Wissensnetz".encode("utf-8") in resp.data
+    assert "Cortex".encode("utf-8") in resp.data

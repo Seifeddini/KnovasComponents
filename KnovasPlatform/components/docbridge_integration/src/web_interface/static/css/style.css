@@ -1095,7 +1095,7 @@ mark.context-snippet-match,
     .toast { animation: none; }
 }
 
-/* Hauptnavigation (Suche | Wissensnetz) */
+/* Hauptnavigation (Suche | Cortex) */
 .site-nav { display: flex; gap: 16px; margin-inline: auto; }
 .site-nav a {
     color: var(--text-secondary);

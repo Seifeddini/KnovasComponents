@@ -1,4 +1,4 @@
-// Knovas Wissensnetz — Ontologie-Explorer (Vertrag: /api/ontology/*)
+// Knovas Cortex — Ontologie-Explorer (Vertrag: /api/ontology/*)
 'use strict';
 
 /** Schweizer Tausendertrennung: 1847 -> "1'847" (ASCII-Apostroph). */
@@ -64,7 +64,7 @@ function iconDataUri(typeId, color) {
     return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
-class WissensnetzApp {
+class CortexApp {
     constructor() {
         this.cy = null;
         this.selectedType = null;
@@ -91,9 +91,9 @@ class WissensnetzApp {
             this.bindZoomControls();
             this.bindDrawerControls();
         } catch (err) {
-            console.error('Wissensnetz: Summary nicht ladbar', err);
+            console.error('Cortex: Summary nicht ladbar', err);
             const empty = document.getElementById('graphEmpty');
-            empty.textContent = 'Wissensnetz konnte nicht geladen werden. Seite neu laden.';
+            empty.textContent = 'Cortex konnte nicht geladen werden. Seite neu laden.';
             empty.hidden = false;
             document.querySelector('.graph-toolbar').hidden = true;
         }
@@ -309,7 +309,7 @@ class WissensnetzApp {
         const visibleW = Math.max(this.cy.width() - 432, this.cy.width() * 0.45);
         const pan = { x: visibleW / 2 - p.x * level,
                       y: this.cy.height() / 2 - p.y * level };
-        if (WissensnetzApp.reducedMotion()) {
+        if (CortexApp.reducedMotion()) {
             this.cy.viewport({ zoom: level, pan });
             return Promise.resolve();
         }
@@ -321,7 +321,7 @@ class WissensnetzApp {
 
     /** Zurück zur Gesamtansicht (nach dem Einklappen). */
     animateFit() {
-        if (WissensnetzApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
+        if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
         this.cy.animate({ fit: { padding: 60 } },
                         { duration: 380, easing: 'ease-in-out' });
     }
@@ -432,7 +432,7 @@ class WissensnetzApp {
             if (hadExpansion) {
                 // Kamerafahrt leicht versetzt: erst Einfahren/Fade (Transitions),
                 // dann die Rückfahrt — nicht beides pro Frame gleichzeitig rendern.
-                if (WissensnetzApp.reducedMotion()) this.animateFit();
+                if (CortexApp.reducedMotion()) this.animateFit();
                 else setTimeout(() => this.animateFit(), 230);
             }
         }
@@ -469,7 +469,7 @@ class WissensnetzApp {
                 return;
             }
             this.renderEntityNodes(typeId, data.entities);
-            const esc = WissensnetzApp.esc;
+            const esc = CortexApp.esc;
             body.innerHTML = `
                 <p class="entity-hint">Auswahl der wichtigsten Entitäten</p>
                 <table class="entity-table">
@@ -501,7 +501,7 @@ class WissensnetzApp {
         try {
             const data = await this.fetchJson(
                 `/api/ontology/entities/${encodeURIComponent(entityId)}`);
-            const esc = WissensnetzApp.esc;
+            const esc = CortexApp.esc;
             const relations = data.relations.length
                 ? `<ul class="entity-relations">${data.relations.map((r) => `
                      <li><span class="predicate">${r.direction === 'in' ? '← ' : ''}${esc(r.predicate)}</span>
@@ -569,5 +569,5 @@ class WissensnetzApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    window.wissensnetzApp = new WissensnetzApp();
+    window.cortexApp = new CortexApp();
 });

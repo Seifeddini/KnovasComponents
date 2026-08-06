@@ -1003,7 +1003,7 @@ def create_app(config_path: Optional[str] = None):
 
     @app.route('/ontology')
     def ontology_page():
-        """Wissensnetz: Ontologie-Explorer (Typ-Graph -> Entitaeten -> Belege -> PDF)."""
+        """Cortex: Ontologie-Explorer (Typ-Graph -> Entitaeten -> Belege -> PDF)."""
         return render_template(
             'ontology.html',
             app_title=web_app_title,
@@ -1613,7 +1613,7 @@ def create_app(config_path: Optional[str] = None):
             'build_id': DOCBRIDGE_BUILD_ID,
         })
 
-    # --- Wissensnetz (Ontology Explorer) -----------------------------------
+    # --- Cortex (Ontology Explorer) -----------------------------------
     # Datenvertrag siehe docs/superpowers/specs/2026-08-04-wissensnetz-ontology-mvp-design.md
     # Mock hinter stabilem Vertrag: get_ontology() liest die Fixture; der
     # spaetere echte Knovas-Endpunkt ersetzt nur das Innere des Stores.

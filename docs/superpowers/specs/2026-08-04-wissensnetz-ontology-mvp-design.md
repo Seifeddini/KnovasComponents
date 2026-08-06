@@ -17,9 +17,12 @@ ersetzen, Extraktion bauen, Backend ändern.
   Blick in dieses Gehirn: „Knovas hat Ihre 4'200 Dokumente gelesen — das
   Wissensnetz zeigt, was es verstanden hat." Die Gehirn-Metapher trägt die
   Demo-Erzählung, erscheint aber nicht als UI-Beschriftung.
-- **UI-Label (sichtbar):** „Wissensnetz" — deutsch, kein Jargon, bewusst
-  nicht „Cloud" (DSG-Konnotation bei Kanzleien) und nicht „Ontologie"
-  (verkauft Technologie statt Befund).
+- **UI-Label (sichtbar):** „Cortex" (Marketing: „Knovas Cortex") — catchy
+  SaaS-Anglizismus, trägt die Gehirn-Vision; Subheadline deutsch:
+  „Ihr Wissen, vernetzt." Entschieden am 2026-08-06, ersetzt das erste
+  Label „Wissensnetz" (dem User nicht catchy genug). Weiterhin tabu im UI:
+  „Cloud" (DSG-Konnotation bei Kanzleien) und „Ontologie" (verkauft
+  Technologie statt Befund).
 - **Code/Routen (stabil, englisch):** `ontology` — Route `/ontology`,
   `/api/ontology/…`, `ontology_store.py`, `ontology.js`, `ontology.css`,
   `ontology.html`. Deckungsgleich mit dem später erwarteten

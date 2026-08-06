@@ -1,4 +1,4 @@
-"""Wissensnetz: Fixture-JSON laden und validieren.
+"""Cortex: Fixture-JSON laden und validieren.
 
 Traegt bewusst kein Flask-Wissen (Muster: web_interface/preview.py).
 Der Store ist der spaetere Andockpunkt fuer den echten Knovas-Endpunkt:

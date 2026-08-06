@@ -17,7 +17,7 @@
                 </a>
                 <nav class="site-nav" aria-label="Hauptnavigation">
                     <a href="{{ url_for('index') }}" aria-current="page">Suche</a>
-                    <a href="{{ url_for('ontology_page') }}">Wissensnetz</a>
+                    <a href="{{ url_for('ontology_page') }}">Cortex</a>
                 </nav>
                 <form method="post" action="{{ url_for('logout') }}" class="logout-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

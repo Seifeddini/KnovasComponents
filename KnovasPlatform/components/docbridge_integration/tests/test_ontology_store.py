@@ -1,4 +1,4 @@
-"""Tests fuer den Wissensnetz-Ontology-Store (Fixture laden/validieren)."""
+"""Tests fuer den Cortex-Ontology-Store (Fixture laden/validieren)."""
 import json
 import sys
 from pathlib import Path
