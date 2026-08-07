@@ -184,6 +184,17 @@ class CortexApp {
                     'text-wrap': 'wrap',
                     'text-max-width': 150,
                 } },
+                // Auswahl/Hover für Satelliten: die Klassen-Styles oben stehen
+                // später im Stylesheet als node:selected und würden das
+                // Feedback sonst überschreiben (spätere Regel gewinnt).
+                { selector: 'node.entity:selected', style: {
+                    'background-color': cssToken('--highlight'),
+                    'border-color': cssToken('--primary-color'),
+                    'border-width': 2.5,
+                } },
+                { selector: 'node.entity.hovered', style: {
+                    'border-color': cssToken('--primary-color'),
+                } },
                 // Fokus-Modus: während ein Typ aufgeklappt ist, treten die
                 // unbeteiligten Teile des Netzes zurück (Kantenlabels ganz weg —
                 // sie sind es, die mit den Satelliten-Texten kollidieren).
@@ -208,6 +219,13 @@ class CortexApp {
                     'text-margin-y': 4,
                     'text-wrap': 'wrap',
                     'text-max-width': 140,
+                } },
+                { selector: 'node.filter-node:selected', style: {
+                    'background-color': cssToken('--highlight'),
+                    'border-color': cssToken('--primary-color'),
+                } },
+                { selector: 'node.filter-node.hovered', style: {
+                    'border-color': cssToken('--primary-color'),
                 } },
                 { selector: 'edge.entity-edge', style: {
                     'width': 1,
