@@ -573,11 +573,19 @@ class CortexApp {
             const data = await this.fetchJson(
                 `/api/ontology/entities/${encodeURIComponent(entityId)}`);
             const esc = CortexApp.esc;
+            // Verbundene Entitäten als klickbare Mini-Karten: Prädikat lesbar
+            // (ohne Unterstriche), Chevron als Klick-Signal. Die Richtung
+            // steht bewusst nicht hier — die zeigt der Graph.
             const relations = data.relations.length
-                ? `<ul class="entity-relations">${data.relations.map((r) => `
-                     <li><span class="predicate">${r.direction === 'in' ? '← ' : ''}${esc(r.predicate)}</span>
-                         <button type="button" class="btn-text entity-link"
-                                 data-id="${esc(r.target.id)}">${esc(r.target.label)}</button></li>`).join('')}
+                ? `<ul class="relation-cards">${data.relations.map((r) => `
+                     <li><button type="button" class="relation-card entity-link"
+                                 data-id="${esc(r.target.id)}">
+                         <span class="relation-card-body">
+                             <span class="relation-card-metaline">${esc(r.predicate.replace(/_/g, ' '))}</span>
+                             <span class="relation-card-title">${esc(r.target.label)}</span>
+                         </span>
+                         <span class="relation-card-chevron" aria-hidden="true">›</span>
+                     </button></li>`).join('')}
                    </ul>`
                 : '<p class="ontology-empty">Keine Verbindungen erfasst.</p>';
             const evidence = data.evidence.length
@@ -596,27 +604,35 @@ class CortexApp {
                     ${esc(f.label)}
                     <span class="filter-chip-state">${CortexApp.filterStateText(f)}</span>
                 </button></li>`).join('');
-            const filterExplainer = filters.length ? '' : `
-                <ol class="filter-explainer">
-                    <li>Beschreiben Sie in Alltagssprache, was Knovas heraussuchen soll.</li>
-                    <li>Knovas liest die Dokumente dieser Entität laufend mit.</li>
-                    <li>Sie prüfen die Funde — Abgelehntes wird nie wieder vorgeschlagen.</li>
-                </ol>`;
+            // Filter-Karte direkt unter dem Titel: das Feature bekommt die
+            // Bühne und erklärt seinen Zweck in einem Satz selbst.
+            const filterCard = `
+                <section class="filter-card" aria-label="Cortex-Filter">
+                    <h4 class="filter-card-title">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                        </svg>
+                        Cortex-Filter
+                    </h4>
+                    <p class="filter-card-purpose">Knovas sammelt laufend Fundstellen
+                        zu Ihrem Thema — Sie prüfen und entscheiden.</p>
+                    ${filters.length ? `<ul class="filter-list">${filterRows}</ul>` : ''}
+                    <div class="filter-create">
+                        <input type="text" id="filterInput" maxlength="120"
+                               placeholder="Thema, z. B. Kündigungsklauseln und Fristen"
+                               aria-label="Filterthema">
+                        <button type="button" id="filterCreateBtn" class="btn btn-primary">Anlegen</button>
+                    </div>
+                </section>`;
             body.innerHTML = `
                 <div class="entity-detail">
                     <button type="button" class="btn-text" id="entityBack">← Zurück zur Liste</button>
                     <h3>${esc(data.entity.label)}</h3>
-                    <h4>Verbindungen</h4>${relations}
+                    ${filterCard}
                     <h4>Belege</h4>${evidence}
-                    <h4>Filter</h4>
-                    ${filters.length ? `<ul class="filter-list">${filterRows}</ul>` : ''}
-                    ${filterExplainer}
-                    <div class="filter-create">
-                        <input type="text" id="filterInput" maxlength="120"
-                               placeholder="z. B. Kündigungsklauseln und Fristen"
-                               aria-label="Filterbeschreibung">
-                        <button type="button" id="filterCreateBtn" class="btn btn-outline">Filter anlegen</button>
-                    </div>
+                    <h4>Verbundene Entitäten</h4>${relations}
                 </div>`;
             document.getElementById('entityBack').addEventListener('click', () => {
                 const node = this.cy.getElementById(this.selectedType);
