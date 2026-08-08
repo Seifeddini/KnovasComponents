@@ -959,26 +959,14 @@ class CortexApp {
                     ${filterCard}
                     <h4>Belege</h4>${evidence}
                     <h4>Verbundene Entitäten</h4>${relations}
-                    <div class="connect-form">
-                        <input type="text" id="relationInput" maxlength="80"
-                               placeholder="Beziehung, z. B. hat Dossier"
-                               aria-label="Art der Beziehung">
-                        <select id="relationTarget" aria-label="Zielentität">
-                            <option value="">Zielentität wählen …</option>
-                        </select>
-                        <button type="button" id="relationCreateBtn" class="btn btn-outline">Verbinden</button>
-                    </div>
                 </div>`;
             document.getElementById('entityBack').addEventListener('click', () => {
                 const node = this.cy.getElementById(this.selectedType);
                 this.onTypeSelect(this.selectedType, node.data('label'));
             });
             this.syncFilterNodes(entityId, filters);
-            document.getElementById('relationCreateBtn').addEventListener(
-                'click', () => this.onRelationCreate(entityId));
             this.setDrawerDelete(() => this.confirmEntityDelete(
                 entityId, data.entity.label, data.entity.type));
-            this.fillRelationTargets(entityId);
             body.querySelectorAll('.filter-chip').forEach((btn) =>
                 btn.addEventListener('click', () => this.renderFilterPanel(btn.dataset.id)));
             const filterInput = document.getElementById('filterInput');
@@ -1120,37 +1108,6 @@ class CortexApp {
                                  { duration: 350, easing: 'ease-out-quart' });
         }
         return node;
-    }
-
-    /** Auswahlliste für das Verbinden: alle Entitäten ausser dieser. */
-    async fillRelationTargets(entityId) {
-        const select = document.getElementById('relationTarget');
-        if (!select) return;
-        try {
-            const data = await this.fetchJson('/api/ontology/entities');
-            if (!data) return;
-            const esc = CortexApp.esc;
-            select.insertAdjacentHTML('beforeend', data.entities
-                .filter((e) => e.id !== entityId)
-                .map((e) => `<option value="${esc(e.id)}">${esc(e.label)}</option>`)
-                .join(''));
-        } catch (err) {
-            if (err.name !== 'AbortError') console.error('Cortex: Ziele nicht ladbar', err);
-        }
-    }
-
-    async onRelationCreate(entityId) {
-        const predicate = String(document.getElementById('relationInput').value || '').trim();
-        const target = document.getElementById('relationTarget').value;
-        if (!predicate || !target) return;
-        try {
-            const data = await this.postJson('/api/ontology/relations',
-                                             { src: entityId, predicate, dst: target });
-            if (!data) return;
-            await this.onEntitySelect(entityId);          // Detail neu laden
-        } catch (err) {
-            console.error('Cortex: Verbindung nicht anlegbar', err);
-        }
     }
 
     /** Nach einem Zug den Namen erfragen und die Verbindung anlegen. */

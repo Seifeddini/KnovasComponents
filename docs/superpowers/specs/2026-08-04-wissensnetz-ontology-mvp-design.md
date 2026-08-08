@@ -220,6 +220,14 @@ Unter-Knoten. Ablehnung ist **permanent** (Rejection-Memory).
 - **Nicht enthalten:** semantisches Routing (kommt vom Backend),
   Score-Kalibrierung (Gate R), Mehrbenutzer-Rollen.
 
+## Verbindungen zeichnen — Erweiterung 2026-08-08
+
+Das Formular im Entitäts-Detail (Beziehung eintippen, Zielentität aus
+Auswahlliste wählen) entfällt. Verbindungen entstehen jetzt direkt im
+Graphen per Zieh-Geste von einem Knoten zum anderen, inklusive Vorschau
+und Löschen per Klick auf die Linie. Details siehe Spec
+`docs/superpowers/specs/2026-08-08-cortex-verbindungen-zeichnen-design.md`.
+
 ## Nicht im MVP (bewusst)
 
 Ego-Graph pro Entität · Merge-UI / Entity-Resolution-Korrektur ·

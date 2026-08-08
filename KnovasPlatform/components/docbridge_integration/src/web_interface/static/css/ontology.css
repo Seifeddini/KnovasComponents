@@ -320,11 +320,10 @@
     .ontology-drawer-doc { right: 16px; width: auto; z-index: 3; }
 }
 
-/* Kuratieren: Entitaet anlegen und Verbindung herstellen. Der Wissensgraph
-   wird gepflegt, nicht abgeleitet - diese Eingaben gehoeren zum Ablauf. */
+/* Kuratieren: Entitaet und Typ anlegen. Der Wissensgraph wird gepflegt,
+   nicht abgeleitet - diese Eingaben gehoeren zum Ablauf. */
 .create-row { display: flex; gap: 8px; padding: 4px 16px 16px; }
-.connect-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.create-row input, .connect-form input, .connect-form select {
+.create-row input {
     flex: 1;
     min-width: 0;
     padding: 6px 10px;
@@ -334,10 +333,8 @@
     color: var(--text-primary);
     font: inherit;
 }
-.create-row input:focus-visible,
-.connect-form input:focus-visible,
-.connect-form select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.create-row .btn, .connect-form .btn { white-space: nowrap; }
+.create-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.create-row .btn { white-space: nowrap; }
 
 /* Loeschen liegt im Drawer-Kopf neben dem Schliessen - nicht im Rumpf,
    wo es buendig an der Kante klebte und neben dem Anlegen zu leicht zu
