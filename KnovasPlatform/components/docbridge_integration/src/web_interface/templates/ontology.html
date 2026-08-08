@@ -25,7 +25,6 @@
             <div class="ontology-pane-header">
                 <h2>Struktur</h2>
                 <div class="graph-toolbar" role="toolbar" aria-label="Werkzeuge">
-                    <button type="button" id="typeCreate" class="btn btn-outline">Typ anlegen</button>
                     <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
                     <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
                     <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
@@ -33,13 +32,29 @@
             </div>
             <div class="ontology-stage-body">
             <div id="graphContainer" aria-hidden="true"></div>
+            <button type="button" class="graph-add-type" id="typeCreate">
+                <span class="graph-add-type-circle" aria-hidden="true">+</span>
+                <span class="graph-add-type-label">Typ anlegen</span>
+            </button>
             <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Cortex vorhanden.</p>
 
             <aside class="ontology-drawer" id="entityPane" aria-label="Entitäten und Belege">
                 <div class="ontology-pane-header">
                     <h2 id="entityPaneTitle">Entitäten</h2>
-                    <button type="button" class="btn btn-outline drawer-close" id="entityClose"
-                            aria-label="Schliessen">×</button>
+                    <div class="pane-actions">
+                        <button type="button" class="btn btn-outline drawer-delete" id="entityDelete"
+                                hidden aria-label="Löschen" title="Löschen">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                 stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                                <path d="M10 11v6M14 11v6"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="btn btn-outline drawer-close" id="entityClose"
+                                aria-label="Schliessen">×</button>
+                    </div>
                 </div>
                 <div id="entityPaneBody"></div>
             </aside>

@@ -68,3 +68,4 @@ venv/
 # Local git worktrees (Claude Code)
 .worktrees/
 KnovasPlatform/docbridge_test_data/ontology/ontology_filter_state.json
+KnovasPlatform/docbridge_test_data/ontology/ontology_fixture.local.json

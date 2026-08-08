@@ -56,7 +56,9 @@ const ICONS = {
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
     tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
     filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
 };
+
 
 /* Default-Pack "Recht": Schlüsselwort -> Icon-Name, erster Treffer gewinnt
    (spezifisch vor generisch). Bewusst nur eine VERMUTUNG für den Fall, dass
@@ -171,15 +173,10 @@ class CortexApp {
             const data = await resp.json();
             this.bindZoomControls();
             this.bindDrawerControls();
-            this.bindTypeCreate();
-            if (!data.types.length) {
-                // Leer heisst nicht Sackgasse: der Knopf zum Anlegen bleibt.
-                document.getElementById('graphContainer').hidden = true;
-                document.getElementById('graphEmpty').hidden = false;
-                document.getElementById('graphEmpty').textContent =
-                    'Noch keine Typen angelegt. Beginnen Sie mit "Typ anlegen".';
-                return;
-            }
+            document.getElementById('typeCreate')
+                .addEventListener('click', () => this.openTypeCreateForm());
+            // Auch ohne Typen wird der Graph gezeigt: dann steht dort nur der
+            // Plus-Knoten - ein Anfang statt einer Sackgasse.
             this.renderGraph(data);
         } catch (err) {
             console.error('Cortex: Summary nicht ladbar', err);
@@ -344,22 +341,7 @@ class CortexApp {
 
         // Kräftelayout ab dem Kreis-Seed: zieht verbundene Typen zusammen,
         // drückt unverbundene auseinander — ohne Zufall (randomize:false).
-        this.cy.layout({
-            name: 'cose',
-            animate: false,
-            randomize: false,
-            fit: true,
-            padding: 60,
-            // Feste Layout-Fläche statt Container-Pixelmasse: sonst hängt das
-            // Ergebnis von der Fenstergrösse beim Laden ab (Spec: deterministisch).
-            boundingBox: { x1: 0, y1: 0, w: 1200, h: 800 },
-            nodeDimensionsIncludeLabels: true,
-            idealEdgeLength: () => 130,
-            nodeRepulsion: () => 150000,
-            edgeElasticity: () => 150,
-            gravity: 2.2,
-            numIter: 3000,
-        }).run();
+        if (nodes.length) this.runLayout();
 
         this.cy.on('tap', 'node', (evt) => {
             const node = evt.target;
@@ -391,6 +373,26 @@ class CortexApp {
         this.cy.on('mouseout', 'node', () => {
             document.getElementById('graphContainer').style.cursor = '';
         });
+    }
+
+    /** Kraeftelayout ab dem Kreis-Seed, deterministisch. */
+    runLayout() {
+        this.cy.layout({
+            name: 'cose',
+            animate: false,
+            randomize: false,
+            fit: true,
+            padding: 60,
+            // Feste Layout-Fläche statt Container-Pixelmasse: sonst hängt das
+            // Ergebnis von der Fenstergrösse beim Laden ab (Spec: deterministisch).
+            boundingBox: { x1: 0, y1: 0, w: 1200, h: 800 },
+            nodeDimensionsIncludeLabels: true,
+            idealEdgeLength: () => 130,
+            nodeRepulsion: () => 150000,
+            edgeElasticity: () => 150,
+            gravity: 2.2,
+            numIter: 3000,
+        }).run();
     }
 
     bindZoomControls() {
@@ -606,26 +608,55 @@ class CortexApp {
         return resp.json();
     }
 
-    /** Zwei-Schritt-Bestaetigung statt Browser-Dialog: der Knopf fragt selbst
-        nach und faellt nach kurzer Zeit in den Ruhezustand zurueck. */
-    static armDelete(button, onConfirm) {
-        const idle = button.textContent;
-        let armed = false;
-        let timer = null;
-        button.addEventListener('click', () => {
-            if (armed) {
-                clearTimeout(timer);
-                onConfirm();
-                return;
-            }
-            armed = true;
-            button.textContent = 'Wirklich löschen?';
-            button.classList.add('is-armed');
-            timer = setTimeout(() => {
-                armed = false;
-                button.textContent = idle;
-                button.classList.remove('is-armed');
-            }, 4000);
+    /** Loeschknopf im Drawer-Kopf: erscheint nur, wo etwas zu loeschen ist. */
+    setDrawerDelete(handler) {
+        const button = document.getElementById('entityDelete');
+        if (!button) return;
+        const fresh = button.cloneNode(true);      // alte Bindung mit entfernen
+        button.replaceWith(fresh);
+        if (!handler) { fresh.hidden = true; return; }
+        fresh.hidden = false;
+        fresh.addEventListener('click', handler);
+    }
+
+    /** Bestaetigungsblatt statt Browser-Dialog: nennt die Folgen genau,
+        bevor etwas verschwindet. */
+    askDelete({ title, detail, onConfirm, onCancel }) {
+        const esc = CortexApp.esc;
+        const body = document.getElementById('entityPaneBody');
+        this.setDrawerDelete(null);
+        body.innerHTML = `
+            <div class="entity-detail">
+                <h3>${esc(title)}</h3>
+                <p class="confirm-detail">${esc(detail)}</p>
+                <div class="confirm-actions">
+                    <button type="button" id="confirmDelete" class="btn btn-danger">Endgültig löschen</button>
+                    <button type="button" id="cancelDelete" class="btn-text">Abbrechen</button>
+                </div>
+            </div>`;
+        document.getElementById('confirmDelete').addEventListener('click', onConfirm);
+        document.getElementById('cancelDelete').addEventListener('click', onCancel);
+    }
+
+    confirmTypeDelete(typeId, typeLabel, entityCount) {
+        const folgen = entityCount
+            ? `Der Typ und ${entityCount} ${entityCount === 1 ? 'Entität' : 'Entitäten'} `
+              + 'werden entfernt, samt deren Verbindungen und Belegen.'
+            : 'Der Typ enthält keine Entitäten.';
+        this.askDelete({
+            title: `${typeLabel} löschen?`,
+            detail: folgen,
+            onConfirm: () => this.onTypeDelete(typeId),
+            onCancel: () => this.onTypeSelect(typeId, typeLabel),
+        });
+    }
+
+    confirmEntityDelete(entityId, entityLabel, typeId) {
+        this.askDelete({
+            title: `${entityLabel} löschen?`,
+            detail: 'Die Entität wird entfernt, samt ihrer Verbindungen und Belege.',
+            onConfirm: () => this.onEntityDelete(entityId, typeId),
+            onCancel: () => this.onEntitySelect(entityId),
         });
     }
 
@@ -651,8 +682,25 @@ class CortexApp {
         try {
             const data = await this.fetchJson(
                 `/api/ontology/entities?type=${encodeURIComponent(typeId)}`);
+            // Auch der leere Typ muss loeschbar sein - gerade der vertippte.
+            this.setDrawerDelete(() => this.confirmTypeDelete(typeId, label,
+                                                             data.entities.length));
             if (!data.entities.length) {
-                body.innerHTML = '<p class="ontology-empty">Keine Entitäten dieses Typs im Korpus.</p>';
+                body.innerHTML = `
+                    <p class="ontology-empty">Noch keine Entitäten in diesem Typ.</p>
+                    <div class="create-row">
+                        <input type="text" id="entityInput" maxlength="120"
+                               placeholder="Erste Entität, z. B. Müller Bau AG"
+                               aria-label="Name der neuen Entität">
+                        <button type="button" id="entityCreateBtn" class="btn btn-primary">Anlegen</button>
+                    </div>`;
+                const leerInput = document.getElementById('entityInput');
+                const leerCreate = () => this.onEntityCreate(typeId, label, leerInput.value);
+                document.getElementById('entityCreateBtn').addEventListener('click', leerCreate);
+                leerInput.addEventListener('keydown', (evt) => {
+                    if (evt.key === 'Enter') { evt.preventDefault(); leerCreate(); }
+                });
+                leerInput.focus();
                 return;
             }
             this.renderEntityNodes(typeId, data.entities);
@@ -674,12 +722,9 @@ class CortexApp {
                            placeholder="Neue Entität, z. B. Meier Immobilien AG"
                            aria-label="Name der neuen Entität">
                     <button type="button" id="entityCreateBtn" class="btn btn-outline">Anlegen</button>
-                </div>
-                <div class="danger-row">
-                    <button type="button" id="typeDeleteBtn" class="btn-text is-danger">Typ löschen</button>
                 </div>`);
-            CortexApp.armDelete(document.getElementById('typeDeleteBtn'),
-                                () => this.onTypeDelete(typeId));
+            this.setDrawerDelete(() => this.confirmTypeDelete(typeId, label,
+                                                             data.entities.length));
             const entityInput = document.getElementById('entityInput');
             const createEntity = () => this.onEntityCreate(typeId, label, entityInput.value);
             document.getElementById('entityCreateBtn').addEventListener('click', createEntity);
@@ -811,9 +856,6 @@ class CortexApp {
                         </select>
                         <button type="button" id="relationCreateBtn" class="btn btn-outline">Verbinden</button>
                     </div>
-                    <div class="danger-row">
-                        <button type="button" id="entityDeleteBtn" class="btn-text is-danger">Entität löschen</button>
-                    </div>
                 </div>`;
             document.getElementById('entityBack').addEventListener('click', () => {
                 const node = this.cy.getElementById(this.selectedType);
@@ -822,8 +864,8 @@ class CortexApp {
             this.syncFilterNodes(entityId, filters);
             document.getElementById('relationCreateBtn').addEventListener(
                 'click', () => this.onRelationCreate(entityId));
-            CortexApp.armDelete(document.getElementById('entityDeleteBtn'),
-                                () => this.onEntityDelete(entityId, data.entity.type));
+            this.setDrawerDelete(() => this.confirmEntityDelete(
+                entityId, data.entity.label, data.entity.type));
             this.fillRelationTargets(entityId);
             body.querySelectorAll('.filter-chip').forEach((btn) =>
                 btn.addEventListener('click', () => this.renderFilterPanel(btn.dataset.id)));
@@ -870,32 +912,30 @@ class CortexApp {
 
     /** Typ anlegen. Ohne Typen gibt es keinen Einstieg in den Graphen —
         deshalb ist der Knopf immer erreichbar, auch im leeren Zustand. */
-    bindTypeCreate() {
-        const button = document.getElementById('typeCreate');
-        if (!button) return;
-        button.addEventListener('click', () => {
-            this.openEntityDrawer();
-            document.getElementById('entityPaneTitle').textContent = 'Neuer Typ';
-            const body = document.getElementById('entityPaneBody');
-            body.innerHTML = `
-                <div class="entity-detail">
-                    <p class="entity-hint">Typen sind die Struktur Ihres Wissensnetzes,
-                       zum Beispiel Mandant, Dossier oder Vertrag.</p>
-                    <div class="create-row">
-                        <input type="text" id="typeInput" maxlength="80"
-                               placeholder="Name des Typs, z. B. Mandant"
-                               aria-label="Name des neuen Typs">
-                        <button type="button" id="typeCreateSubmit" class="btn btn-primary">Anlegen</button>
-                    </div>
-                </div>`;
-            const input = document.getElementById('typeInput');
-            const submit = () => this.onTypeCreate(input.value);
-            document.getElementById('typeCreateSubmit').addEventListener('click', submit);
-            input.addEventListener('keydown', (evt) => {
-                if (evt.key === 'Enter') { evt.preventDefault(); submit(); }
-            });
-            input.focus();
+    /** Formular fuer einen neuen Typ (aufgerufen vom Plus-Knoten im Graphen). */
+    openTypeCreateForm() {
+        this.openEntityDrawer();
+        this.setDrawerDelete(null);
+        document.getElementById('entityPaneTitle').textContent = 'Neuer Typ';
+        const body = document.getElementById('entityPaneBody');
+        body.innerHTML = `
+            <div class="entity-detail">
+                <p class="entity-hint">Typen sind die Struktur Ihres Netzes,
+                   zum Beispiel Mandant, Dossier oder Vertrag.</p>
+                <div class="create-row">
+                    <input type="text" id="typeInput" maxlength="80"
+                           placeholder="Name des Typs, z. B. Mandant"
+                           aria-label="Name des neuen Typs">
+                    <button type="button" id="typeCreateSubmit" class="btn btn-primary">Anlegen</button>
+                </div>
+            </div>`;
+        const input = document.getElementById('typeInput');
+        const submit = () => this.onTypeCreate(input.value);
+        document.getElementById('typeCreateSubmit').addEventListener('click', submit);
+        input.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter') { evt.preventDefault(); submit(); }
         });
+        input.focus();
     }
 
     async onTypeCreate(label) {
@@ -943,7 +983,6 @@ class CortexApp {
         if (this.cy) { this.cy.destroy(); this.cy = null; }
         const container = document.getElementById('graphContainer');
         const empty = document.getElementById('graphEmpty');
-        if (!data.types.length) { container.hidden = true; empty.hidden = false; return; }
         container.hidden = false;
         empty.hidden = true;
         this.renderGraph(data);   // Zoom-Knöpfe lesen this.cy erst beim Klick
@@ -1065,6 +1104,7 @@ class CortexApp {
             this.filterView = { id: filterId, filter: data.filter,
                                 proposals: data.proposals, tab: 'pending' };
             document.getElementById('entityPaneTitle').textContent = 'Filter';
+            this.setDrawerDelete(null);
             const esc = CortexApp.esc;
             body.innerHTML = `
                 <div class="entity-detail">
