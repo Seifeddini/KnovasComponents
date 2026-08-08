@@ -484,13 +484,15 @@ class CortexApp {
             setTimeout(() => node.unselect(), 0);
             return;
         }
-        this.collapseAllTypes(typeId);   // nur ein Typ gleichzeitig aufgeklappt
+        // Mehrere Typen duerfen gleichzeitig offen stehen: eine Verbindung
+        // zwischen Entitaeten VERSCHIEDENER Typen ist sonst gar nicht
+        // zeichenbar, weil nie zwei Satellitengruppen sichtbar waeren.
         // Sofort als aufgeklappt vermerken: sonst gilt ein Typ OHNE Entitäten
         // nie als offen und liesse sich nicht zuklappen - jeder weitere Klick
         // führe erneut hin.
         this.expandedTypes.set(typeId, null);
         node.addClass('expanded');
-        this.applyFocus(typeId);
+        this.applyFocus();
         this.zoomAnim = fly ? this.zoomToNode(node) : null;
         this.onTypeSelect(typeId, node.data('label'));
     }
@@ -615,18 +617,77 @@ class CortexApp {
         // fliegen. Bei Randknoten landen sie sonst hinter dem Drawer oder
         // ausserhalb und wirken abgeschnitten.
         this.frameGroup(ziele);
+        // Bestehende Verbindungen nachtragen, ohne den Aufbau aufzuhalten.
+        this.restoreEntityRelations(entities).catch(() => { /* nie eskalieren */ });
+    }
+
+    /** Anfragelimit: hoechstens so viele Detailabfragen je Auffaechern, in
+        kleinen Buendeln nacheinander statt alles auf einmal. */
+    static get RELATION_FETCH_MAX() { return 24; }
+
+    static get RELATION_FETCH_BATCH() { return 6; }
+
+    /** Bestehende Verbindungen der gerade aufgefaecherten Entitaeten
+        nachzeichnen. Ohne das waere eine gezogene Linie nach dem Einklappen
+        oder einem Neuladen verschwunden, obwohl sie serverseitig besteht.
+        Gezeichnet wird nur, was beidseitig als Knoten im Graphen liegt. */
+    async restoreEntityRelations(entities) {
+        const ids = entities
+            .map((e) => e.id)
+            .filter((id) => this.cy.getElementById(`ent:${id}`).nonempty())
+            .slice(0, CortexApp.RELATION_FETCH_MAX);
+        for (let i = 0; i < ids.length; i += CortexApp.RELATION_FETCH_BATCH) {
+            const buendel = ids.slice(i, i + CortexApp.RELATION_FETCH_BATCH);
+            // Eigener fetch statt fetchJson: dessen AbortController bricht die
+            // jeweils vorige Abfrage ab, hier laufen mehrere nebeneinander.
+            const antworten = await Promise.all(buendel.map((id) =>
+                fetch(`/api/ontology/entities/${encodeURIComponent(id)}`)
+                    .then((resp) => (resp.ok ? resp.json() : null))
+                    .catch(() => null)));
+            antworten.forEach((data, k) => {
+                if (!data || !Array.isArray(data.relations)) return;
+                data.relations.forEach((rel) => this.drawKnownRelation(buendel[k], rel));
+            });
+        }
+    }
+
+    /** Eine gemeldete Relation zeichnen, wenn beide Enden im Graphen liegen.
+        Auch die eingehende Richtung wird ausgewertet: sonst bliebe eine
+        Verbindung von einem laenger offenen Typ zu einem gerade geoeffneten
+        unsichtbar, weil nur die neuen Entitaeten abgefragt werden. */
+    drawKnownRelation(entityId, rel) {
+        if (!rel || !rel.target || !rel.target.id || !rel.predicate) return;
+        const hier = `ent:${entityId}`;
+        const dort = `ent:${rel.target.id}`;
+        if (this.cy.getElementById(dort).empty()) return;
+        if (rel.direction === 'out') this.addRelationToGraph(hier, dort, rel.predicate, 'entitaet');
+        else if (rel.direction === 'in') this.addRelationToGraph(dort, hier, rel.predicate, 'entitaet');
     }
 
     /** Fokus-Modus: unbeteiligte Kanten und Typ-Knoten zurücktreten lassen,
-        damit die Satelliten-Texte nicht mit Kantenlabels kollidieren. */
-    applyFocus(typeId) {
-        const parent = this.cy.getElementById(typeId);
+        damit die Satelliten-Texte nicht mit Kantenlabels kollidieren.
+        Beruecksichtigt ALLE offenen Typen - stehen zwei offen, bleiben beide
+        Gruppen sichtbar, sonst waere der Leitfall Mandant zu Dossier auf
+        Entitaetsebene nicht herstellbar. */
+    applyFocus() {
+        this.clearFocus();          // zuerst raeumen: die Menge hat sich geändert
+        let offen = this.cy.collection();
+        for (const typeId of this.expandedTypes.keys()) {
+            offen = offen.union(this.cy.getElementById(typeId));
+        }
         this.cy.edges().not('.entity-edge').not('.observed-relation').addClass('faded');
-        this.cy.nodes().not(parent).not('.entity').not('.filter-node').addClass('faded');
+        this.cy.nodes().not(offen).not('.entity').not('.filter-node').addClass('faded');
     }
 
     clearFocus() {
         this.cy.elements('.faded').removeClass('faded');
+    }
+
+    /** Fokus nachziehen, nachdem sich die Menge der offenen Typen geändert
+        hat: ohne offenen Typ gibt es nichts hervorzuheben. */
+    refreshFocus() {
+        if (this.expandedTypes.size) this.applyFocus();
+        else this.clearFocus();
     }
 
     collapseType(typeId) {
@@ -634,7 +695,7 @@ class CortexApp {
         this.expandedTypes.delete(typeId);
         const parent = this.cy.getElementById(typeId);
         parent.removeClass('expanded');
-        this.clearFocus();
+        this.refreshFocus();
         if (!satellites) return;
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (reduceMotion || parent.empty()) { satellites.remove(); return; }
@@ -644,9 +705,11 @@ class CortexApp {
         setTimeout(() => satellites.remove(), 190);
     }
 
-    collapseAllTypes(exceptTypeId = null) {
+    /** Alles einklappen. Nur beim Wegklicken - einzelne Typen bleiben sonst
+        nebeneinander offen. */
+    collapseAllTypes() {
         for (const typeId of [...this.expandedTypes.keys()]) {
-            if (typeId !== exceptTypeId) this.collapseType(typeId);
+            this.collapseType(typeId);
         }
     }
 
@@ -865,7 +928,14 @@ class CortexApp {
         if (existing.nonempty()) { this.selectSatellite(existing); return; }
         const typeNode = this.cy.getElementById(entity.type);
         if (typeNode.empty()) return;          // Typ nicht im Graphen
-        this.collapseAllTypes(entity.type);
+        // Die anderen Typen bleiben offen - mehrere Gruppen nebeneinander
+        // sind gewollt. Den Zieltyp als offen vermerken, sonst braeche
+        // renderEntityNodes ab: es faechert nur fuer offene Typen auf.
+        if (!this.expandedTypes.has(entity.type)) {
+            this.expandedTypes.set(entity.type, null);
+            typeNode.addClass('expanded');
+        }
+        this.applyFocus();
         this.selectedType = entity.type;       // "Zurück zur Liste" zeigt den neuen Typ
         this.zoomAnim = this.zoomToNode(typeNode);
         let entities = [];
