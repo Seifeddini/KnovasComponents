@@ -488,6 +488,37 @@ class CortexApp {
         return new Promise((resolve) => setTimeout(resolve, 300));
     }
 
+    /** Eine Gruppe von Zielpunkten so einrahmen, dass sie links vom Drawer
+        vollstaendig sichtbar ist. Passt sie schon, bleibt die Kamera stehen. */
+    frameGroup(punkte) {
+        if (!punkte.length) return;
+        const pad = 40;
+        const sichtbar = Math.max(this.cy.width() - 432, this.cy.width() * 0.45);
+        const zoom = this.cy.zoom();
+        const pan = this.cy.pan();
+        const gerendert = punkte.map((q) => ({
+            x1: q.x * zoom + pan.x - q.r, x2: q.x * zoom + pan.x + q.r,
+            y1: q.y * zoom + pan.y - q.r, y2: q.y * zoom + pan.y + q.r,
+        }));
+        const passt = gerendert.every((b) => b.x1 > pad && b.x2 < sichtbar - pad
+            && b.y1 > pad && b.y2 < this.cy.height() - pad);
+        if (passt) return;
+
+        const x1 = Math.min(...punkte.map((q) => q.x - q.r));
+        const x2 = Math.max(...punkte.map((q) => q.x + q.r));
+        const y1 = Math.min(...punkte.map((q) => q.y - q.r));
+        const y2 = Math.max(...punkte.map((q) => q.y + q.r));
+        const level = Math.min(this.cy.maxZoom(), 1.4,
+                               (sichtbar - 2 * pad) / Math.max(x2 - x1, 1),
+                               (this.cy.height() - 2 * pad) / Math.max(y2 - y1, 1));
+        const ziel = { x: sichtbar / 2 - ((x1 + x2) / 2) * level,
+                       y: this.cy.height() / 2 - ((y1 + y2) / 2) * level };
+        if (CortexApp.reducedMotion()) { this.cy.viewport({ zoom: level, pan: ziel }); return; }
+        this.cy.stop();
+        this.cy.animate({ zoom: level, pan: ziel },
+                        { duration: 420, easing: 'ease-out-quart' });
+    }
+
     /** Zurück zur Gesamtansicht (nach dem Einklappen). */
     animateFit() {
         if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
@@ -527,13 +558,19 @@ class CortexApp {
         });
         const added = this.cy.add(eles);
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const ziele = [{ x: p.x, y: p.y, r: parent.data('size') / 2 }];
         added.nodes().forEach((satellite, i) => {
             const a = k === 1 ? base : base - spread / 2 + (spread * i) / (k - 1);
             const target = { x: p.x + radius * Math.cos(a), y: p.y + radius * Math.sin(a) };
+            ziele.push({ x: target.x, y: target.y, r: 60 });   // Radius inkl. Beschriftung
             if (reduceMotion) satellite.position(target);
             else satellite.animate({ position: target }, { duration: 320, easing: 'ease-out-quart' });
         });
         this.expandedTypes.set(typeId, added);
+        // Erst jetzt rahmen: vorher ist nicht bekannt, wohin die Satelliten
+        // fliegen. Bei Randknoten landen sie sonst hinter dem Drawer oder
+        // ausserhalb und wirken abgeschnitten.
+        this.frameGroup(ziele);
     }
 
     /** Fokus-Modus: unbeteiligte Kanten und Typ-Knoten zurücktreten lassen,
