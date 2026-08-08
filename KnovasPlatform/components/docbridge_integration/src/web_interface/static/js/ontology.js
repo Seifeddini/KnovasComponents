@@ -478,7 +478,16 @@ class CortexApp {
     onTypeTap(node, { fly = true } = {}) {
         const typeId = node.id();
         if (this.expandedTypes.has(typeId)) {
-            this.closeDrawers();         // klappt ein und zoomt zurück
+            // Nur DIESEN Typ zuklappen: stehen mehrere offen, sollen die
+            // anderen Gruppen stehen bleiben. Erst wenn keiner mehr offen
+            // ist, faehrt die Kamera zur Uebersicht zurueck.
+            this.collapseType(typeId);
+            this.closeDocDrawer();
+            document.getElementById('entityPane').classList.remove('open');
+            if (!this.expandedTypes.size) {
+                if (CortexApp.reducedMotion()) this.animateFit();
+                else setTimeout(() => this.animateFit(), 150);
+            }
             // Der Tap selektiert den Knoten nativ erst nach diesem Handler —
             // beim Einklappen soll aber nichts ausgewählt zurückbleiben.
             setTimeout(() => node.unselect(), 0);
@@ -616,9 +625,28 @@ class CortexApp {
         // Erst jetzt rahmen: vorher ist nicht bekannt, wohin die Satelliten
         // fliegen. Bei Randknoten landen sie sonst hinter dem Drawer oder
         // ausserhalb und wirken abgeschnitten.
-        this.frameGroup(ziele);
+        this.frameGroup(ziele.concat(this.otherOpenPoints(typeId)));
         // Bestehende Verbindungen nachtragen, ohne den Aufbau aufzuhalten.
         this.restoreEntityRelations(entities).catch(() => { /* nie eskalieren */ });
+    }
+
+    /** Punkte aller bereits offenen Gruppen ausser der angegebenen. Beim
+        Oeffnen eines zweiten Typs muss der Ausschnitt BEIDE Gruppen fassen:
+        sonst waere die erste aus dem Bild gewandert und der Zug zwischen
+        zwei Gruppen genau dann unmoeglich, wenn er gebraucht wird. */
+    otherOpenPoints(ausser) {
+        const punkte = [];
+        for (const [typeId, satelliten] of this.expandedTypes) {
+            if (typeId === ausser) continue;
+            const knoten = this.cy.getElementById(typeId);
+            if (knoten.empty()) continue;
+            const gruppe = satelliten ? knoten.union(satelliten) : knoten;
+            gruppe.forEach((el) => {
+                const p = el.position();
+                punkte.push({ x: p.x, y: p.y, r: 60 });   // Radius inkl. Beschriftung
+            });
+        }
+        return punkte;
     }
 
     /** Anfragelimit: hoechstens so viele Detailabfragen je Auffaechern, in
@@ -670,7 +698,7 @@ class CortexApp {
         Gruppen sichtbar, sonst waere der Leitfall Mandant zu Dossier auf
         Entitaetsebene nicht herstellbar. */
     applyFocus() {
-        this.clearFocus();          // zuerst raeumen: die Menge hat sich geändert
+        this.clearFocus();          // zuerst raeumen: die Menge hat sich geaendert
         let offen = this.cy.collection();
         for (const typeId of this.expandedTypes.keys()) {
             offen = offen.union(this.cy.getElementById(typeId));
@@ -683,7 +711,7 @@ class CortexApp {
         this.cy.elements('.faded').removeClass('faded');
     }
 
-    /** Fokus nachziehen, nachdem sich die Menge der offenen Typen geändert
+    /** Fokus nachziehen, nachdem sich die Menge der offenen Typen geaendert
         hat: ohne offenen Typ gibt es nichts hervorzuheben. */
     refreshFocus() {
         if (this.expandedTypes.size) this.applyFocus();
