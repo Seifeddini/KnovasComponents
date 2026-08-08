@@ -416,3 +416,5 @@
 .connect-handle:hover { transform: scale(1.25); }
 .connect-handle:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 .connect-handle[hidden] { display: none; }
+
+.connect-hint { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 8px; }

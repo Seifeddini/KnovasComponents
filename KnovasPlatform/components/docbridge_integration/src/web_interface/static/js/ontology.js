@@ -209,8 +209,11 @@ class CortexApp {
         const maxRel = Math.max(...data.relations.map((r) => r.count), 1);
         const edges = data.relations.map((r, i) => ({
             data: { id: `r-${i}`, source: r.src, target: r.dst,
-                    label: `${r.predicate} (${formatCount(r.count)})`,
-                    width: 1.5 + 3 * (r.count / maxRel) },
+                    src: r.src, dst: r.dst, predicate: r.predicate,
+                    label: r.count ? `${r.predicate} (${formatCount(r.count)})`
+                                   : r.predicate,
+                    width: r.count ? 1.5 + 3 * (r.count / maxRel) : 1.5 },
+            classes: r.count ? '' : 'declared',
         }));
 
         this.cy = cytoscape({
@@ -331,6 +334,28 @@ class CortexApp {
                     'transition-property': 'opacity, text-opacity',
                     'transition-duration': '0.2s',
                 } },
+                // Vorgabe: gestrichelt und ohne Zahl. Bleibt sichtbar, solange
+                // keine echte Verbindung dieser Art existiert.
+                { selector: 'edge.declared', style: {
+                    'line-style': 'dashed',
+                    'width': 1.5,
+                    'line-color': cssToken('--callout'),
+                    'target-arrow-color': cssToken('--callout'),
+                } },
+                { selector: 'edge.connect-preview', style: {
+                    'line-style': 'dashed',
+                    'line-color': cssToken('--primary-color'),
+                    'target-arrow-shape': 'none',
+                    'width': 2,
+                    'label': '',
+                } },
+                { selector: 'node.connect-pointer', style: {
+                    'width': 1, 'height': 1, 'opacity': 0, 'label': '',
+                } },
+                { selector: 'node.connect-target', style: {
+                    'border-color': cssToken('--primary-color'),
+                    'border-width': 4,
+                } },
                 { selector: 'edge:selected', style: {
                     'line-color': cssToken('--accent'),
                     'target-arrow-color': cssToken('--accent'),
@@ -372,6 +397,11 @@ class CortexApp {
         });
         this.cy.on('mouseout', 'node', () => {
             document.getElementById('graphContainer').style.cursor = '';
+        });
+
+        if (this.connect) this.connect.destroy();
+        this.connect = new ConnectGesture(this.cy, {
+            onConnect: (zug) => this.onConnectDrawn(zug),
         });
     }
 
@@ -1107,6 +1137,77 @@ class CortexApp {
         } catch (err) {
             console.error('Cortex: Verbindung nicht anlegbar', err);
         }
+    }
+
+    /** Nach einem Zug den Namen erfragen und die Verbindung anlegen. */
+    onConnectDrawn({ srcId, dstId, ebene }) {
+        const esc = CortexApp.esc;
+        const vorschlaege = [...new Set(
+            this.cy.edges().map((e) => e.data('predicate')).filter(Boolean))];
+        this.openEntityDrawer();
+        this.setDrawerDelete(null);
+        document.getElementById('entityPaneTitle').textContent = 'Neue Verbindung';
+        const body = document.getElementById('entityPaneBody');
+        const label = (id) => esc(this.cy.getElementById(id).data('label') || id);
+        body.innerHTML = `
+            <div class="entity-detail">
+                <p class="entity-hint">${label(srcId)} zu ${label(dstId)}</p>
+                <div class="create-row">
+                    <input type="text" id="connectInput" maxlength="80" list="connectVorschlaege"
+                           placeholder="Beziehung, z. B. hat Dossier"
+                           aria-label="Art der Beziehung">
+                    <datalist id="connectVorschlaege">${vorschlaege
+                        .map((v) => `<option value="${esc(v)}"></option>`).join('')}</datalist>
+                    <button type="button" id="connectSubmit" class="btn btn-primary">Verbinden</button>
+                </div>
+                <p class="ontology-empty" id="connectFehler" hidden></p>
+            </div>`;
+        const eingabe = document.getElementById('connectInput');
+        const senden = () => this.onConnectSubmit(srcId, dstId, ebene, eingabe.value);
+        document.getElementById('connectSubmit').addEventListener('click', senden);
+        eingabe.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter') { evt.preventDefault(); senden(); }
+            if (evt.key === 'Escape') this.closeDrawers();
+        });
+        eingabe.focus({ preventScroll: true });
+    }
+
+    async onConnectSubmit(srcId, dstId, ebene, predicate) {
+        predicate = String(predicate || '').trim();
+        const fehler = document.getElementById('connectFehler');
+        if (!predicate) { document.getElementById('connectInput').focus({ preventScroll: true }); return; }
+        const url = ebene === 'typ' ? '/api/ontology/type-relations'
+                                    : '/api/ontology/relations';
+        // Satelliten tragen die Entitaets-Id im Datenfeld, nicht in der Knoten-Id.
+        const kennung = (id) => {
+            const n = this.cy.getElementById(id);
+            return n.data('entityId') || id;
+        };
+        try {
+            const data = await this.postJson(url, {
+                src: kennung(srcId), predicate, dst: kennung(dstId) });
+            if (!data) return;
+            this.addRelationToGraph(srcId, dstId, predicate, ebene);
+            this.closeDrawers();
+        } catch (err) {
+            console.error('Cortex: Verbindung nicht anlegbar', err);
+            if (fehler) {
+                fehler.textContent = 'Verbindung konnte nicht angelegt werden.';
+                fehler.hidden = false;
+            }
+        }
+    }
+
+    /** Linie einfuegen, ohne den Graphen neu aufzubauen. */
+    addRelationToGraph(srcId, dstId, predicate, ebene) {
+        const id = `neu:${srcId}:${predicate}:${dstId}`;
+        if (this.cy.getElementById(id).nonempty()) return;
+        this.cy.add({
+            group: 'edges',
+            classes: ebene === 'typ' ? 'declared' : 'entity-edge',
+            data: { id, source: srcId, target: dstId, src: srcId, dst: dstId,
+                    predicate, label: ebene === 'typ' ? predicate : '', width: 1.5 },
+        });
     }
 
     static filterStateText(f) {
