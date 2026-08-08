@@ -10,30 +10,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/ontology.css') }}?v={{ asset_version }}">
 </head>
 <body>
-    <div class="container container-wide">
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        <div class="container container-wide">
         <header class="site-header">
-            <div class="site-header-bar">
-                <a class="site-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
-                    <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
-                         alt="Knovas" width="132" height="18">
-                </a>
-                <nav class="site-nav" aria-label="Hauptnavigation">
-                    <a href="{{ url_for('index') }}">Suche</a>
-                    <a href="{{ url_for('ontology_page') }}" aria-current="page">Cortex</a>
-                </nav>
-                <form method="post" action="{{ url_for('logout') }}" class="logout-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn btn-outline logout-button">
-                        <svg class="icon" viewBox="0 0 24 24" width="15" height="15" fill="none"
-                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                             stroke-linejoin="round" aria-hidden="true" focusable="false">
-                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                            <polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>
-                        </svg>
-                        Abmelden
-                    </button>
-                </form>
-            </div>
             <h1 class="site-greeting">Cortex<br>
                 <span class="site-greeting-question">Ihr Wissen, vernetzt.</span>
             </h1>
@@ -71,6 +53,8 @@
             </aside>
             </div>
         </main>
+        </div>
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>

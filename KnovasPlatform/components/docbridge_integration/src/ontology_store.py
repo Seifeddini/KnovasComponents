@@ -24,7 +24,7 @@ _ICON_NAME_RE = re.compile(r"[a-z0-9_-]{1,32}")
 
 _EMPTY: Dict[str, Any] = {
     "types": [], "relations": [], "entities": [],
-    "entity_relations": [], "evidence": [],
+    "entity_relations": [], "evidence": [], "corpus": {},
 }
 
 
@@ -42,8 +42,13 @@ class OntologyStore:
         self._entities: List[Dict[str, Any]] = data["entities"]
         self._entity_relations: List[Dict[str, Any]] = data["entity_relations"]
         self._evidence: List[Dict[str, Any]] = data["evidence"]
+        self._corpus: Dict[str, Any] = data.get("corpus") or {}
         self._entity_by_id = {e["id"]: e for e in self._entities}
         self.warnings = warnings
+
+    def corpus(self) -> Dict[str, Any]:
+        """Korpus-Kennzahlen fuer die Plattform-Leiste (optional in der Fixture)."""
+        return dict(self._corpus)
 
     def summary(self) -> Dict[str, Any]:
         return {
@@ -150,9 +155,19 @@ def _validate(raw: Any, path_exists: Optional[Callable[[str], bool]]) -> Tuple[D
             "quote": str(ev.get("quote") or ""),
         })
 
+    # Optionale Korpus-Kennzahlen; fehlend oder unbrauchbar -> leer, damit die
+    # Oberflaeche den Block weglaesst statt eine Zahl zu erfinden.
+    corpus: Dict[str, Any] = {}
+    raw_corpus = raw.get("corpus")
+    if isinstance(raw_corpus, dict):
+        documents = _as_int(raw_corpus.get("documents"), default=0)
+        if documents > 0:
+            corpus["documents"] = documents
+
     return (
         {"types": types, "relations": relations, "entities": entities,
-         "entity_relations": entity_relations, "evidence": evidence},
+         "entity_relations": entity_relations, "evidence": evidence,
+         "corpus": corpus},
         warnings,
     )
 

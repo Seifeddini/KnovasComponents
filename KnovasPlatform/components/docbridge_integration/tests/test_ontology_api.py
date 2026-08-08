@@ -235,3 +235,35 @@ def test_filter_decision_validates(app):
     assert client.post("/api/ontology/filters/f-unbekannt/decision",
                        json={"proposal_id": "x", "action": "reject"},
                        headers=headers).status_code == 404
+
+
+def test_settings_page_requires_login_and_renders(app):
+    client = app.test_client()
+    resp = client.get("/settings")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+    _login(client)
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "Einstellungen" in body
+    assert "office" in body          # angemeldeter Benutzer
+    assert "Test Company" in body    # Firmenname aus der Konfiguration
+
+
+def test_sidebar_shows_corpus_only_when_fixture_has_it(app, tmp_path, monkeypatch):
+    """Ohne corpus-Block bleibt die Zahl weg statt erfunden zu werden."""
+    client = app.test_client()
+    _login(client)
+    assert "corpus-status" not in client.get("/ontology").data.decode("utf-8")
+
+    data = json.loads(json.dumps(FIXTURE))
+    data["corpus"] = {"documents": 1847}
+    fixture_path = tmp_path / "ontology_fixture.json"
+    fixture_path.write_text(json.dumps(data), encoding="utf-8")
+    import ontology_store
+    ontology_store._cache = None
+    body = client.get("/ontology").data.decode("utf-8")
+    assert "corpus-status" in body
+    assert "1&#39;847" in body       # Schweizer Trennung, HTML-escaped

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Einstellungen · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+</head>
+<body>
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+            <div class="container">
+                <header class="site-header">
+                    <h1 class="site-greeting">Einstellungen<br>
+                        <span class="site-greeting-question">Konto und System</span>
+                    </h1>
+                </header>
+
+                <main class="settings-layout">
+                    <section class="settings-card">
+                        <h2>Konto</h2>
+                        <dl class="settings-list">
+                            <dt>Angemeldet als</dt><dd>{{ login_name }}</dd>
+                            <dt>Firma</dt><dd>{{ company_name }}</dd>
+                        </dl>
+                        <form method="post" action="{{ url_for('logout') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="btn btn-outline">
+                                <svg class="icon" viewBox="0 0 24 24" width="15" height="15" fill="none"
+                                     stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                     stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                    <polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>
+                                </svg>
+                                Abmelden
+                            </button>
+                        </form>
+                    </section>
+
+                    <section class="settings-card">
+                        <h2>System</h2>
+                        <dl class="settings-list">
+                            <dt>Build</dt><dd class="mono">{{ build_id }}</dd>
+                            <dt>Oberfläche</dt><dd class="mono">{{ asset_version }}</dd>
+                            {% if corpus_documents_display %}
+                            <dt>Korpus</dt><dd>{{ corpus_documents_display }} Dokumente gelesen</dd>
+                            {% endif %}
+                        </dl>
+                    </section>
+                </main>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

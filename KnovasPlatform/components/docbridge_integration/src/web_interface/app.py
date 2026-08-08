@@ -983,14 +983,33 @@ def create_app(config_path: Optional[str] = None):
         session.clear()
         return redirect(url_for('login'))
 
+    def _swiss_number(value: int) -> str:
+        """1847 -> "1'847" (Schweizer Tausendertrennung, wie im Frontend)."""
+        return f"{value:,}".replace(",", "'")
+
+    def _sidebar_context() -> Dict[str, Any]:
+        """Gemeinsame Werte der Plattform-Leiste. Die Korpus-Zahl ist optional:
+        fehlt sie in der Fixture, laesst die Leiste den Block weg."""
+        documents = 0
+        try:
+            raw = get_ontology(path_exists=_ontology_path_exists).corpus().get('documents')
+            documents = int(raw) if raw is not None else 0
+        except Exception:
+            logger.warning("Korpus-Kennzahl nicht ermittelbar", exc_info=True)
+        return {
+            'company_name': login_company_name,
+            'corpus_documents_display': _swiss_number(documents) if documents > 0 else None,
+        }
+
     @app.route('/')
     def index():
         """Main search page."""
         _load_search_enrichment(config)
         return render_template(
             'index.html',
+            active_nav='suche',
+            **_sidebar_context(),
             app_title=web_app_title,
-            company_name=login_company_name,
             csrf_token=_ensure_csrf_token(),
             companion_enabled=companion_enabled,
             browser_client_open_enabled=browser_client_open_enabled,
@@ -1007,9 +1026,25 @@ def create_app(config_path: Optional[str] = None):
         """Cortex: Ontologie-Explorer (Typ-Graph -> Entitaeten -> Belege -> PDF)."""
         return render_template(
             'ontology.html',
+            active_nav='cortex',
+            **_sidebar_context(),
             app_title=web_app_title,
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
+        )
+
+    @app.route('/settings')
+    def settings_page():
+        """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
+        return render_template(
+            'settings.html',
+            active_nav='einstellungen',
+            **_sidebar_context(),
+            app_title=web_app_title,
+            login_name=config.get('web.login.username', '') or '',
+            csrf_token=_ensure_csrf_token(),
+            asset_version=_static_asset_version(),
+            build_id=DOCBRIDGE_BUILD_ID,
         )
 
     @app.route('/api/search', methods=['POST'])
