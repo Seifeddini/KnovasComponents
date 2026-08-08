@@ -18,7 +18,12 @@
     background: var(--surface-sunken);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    overflow: hidden;
+    /* clip statt hidden: hidden macht die Box zum Scrollcontainer, und die
+       ausgeblendeten Drawer stehen per transform rechts ausserhalb. Ein
+       focus() im Drawer liess den Browser dorthin scrollen - der Graph rutschte
+       424px nach links und Cytoscapes Zeigermathematik stimmte nicht mehr.
+       clip kappt genauso, erzeugt aber keinen scrollbaren Bereich. */
+    overflow: clip;
 }
 
 /* Innenraum der Box: Graph füllt alles, Drawer gleiten darüber. */
