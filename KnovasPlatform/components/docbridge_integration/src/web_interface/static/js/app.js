@@ -80,10 +80,16 @@ class DocumentSearchApp {
             }
         });
         
-        document.getElementById('healthCheck').addEventListener('click', (e) => {
-            e.preventDefault();
-            this.checkHealth();
-        });
+        // Der Systemstatus liegt in den Einstellungen; auf der Suchseite gibt
+        // es den Ausloeser nicht mehr. Ohne Pruefung wuerde die gesamte
+        // Initialisierung an dieser Zeile abbrechen.
+        const healthCheckLink = document.getElementById('healthCheck');
+        if (healthCheckLink) {
+            healthCheckLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.checkHealth();
+            });
+        }
 
         this.loadMoreButton.addEventListener('click', () => this.loadMore());
 

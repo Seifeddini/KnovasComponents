@@ -48,11 +48,39 @@
                             {% if corpus_documents_display %}
                             <dt>Korpus</dt><dd>{{ corpus_documents_display }} Dokumente gelesen</dd>
                             {% endif %}
+                            <dt>Status</dt>
+                            <dd>
+                                <button type="button" class="btn btn-outline" id="healthCheck">Status prüfen</button>
+                                <p class="settings-status" id="healthResult" role="status" aria-live="polite"></p>
+                            </dd>
                         </dl>
+                        <p class="settings-legal">&copy; 2026 Knovas</p>
                     </section>
                 </main>
             </div>
         </div>
     </div>
+
+    <script>
+        // Eigenstaendig: die Einstellungen laden app.js nicht.
+        document.getElementById('healthCheck').addEventListener('click', async (event) => {
+            const button = event.currentTarget;
+            const out = document.getElementById('healthResult');
+            button.disabled = true;
+            out.textContent = 'Wird geprüft …';
+            try {
+                const resp = await fetch('/api/health', { credentials: 'same-origin' });
+                const data = await resp.json();
+                const online = Boolean(data.semantix_api);
+                out.textContent = `Oberfläche: Online · Knovas API: ${online ? 'Online' : 'Offline'}`;
+                out.classList.toggle('is-error', !online);
+            } catch (err) {
+                out.textContent = `Status nicht abrufbar: ${err.message}`;
+                out.classList.add('is-error');
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
 </body>
 </html>

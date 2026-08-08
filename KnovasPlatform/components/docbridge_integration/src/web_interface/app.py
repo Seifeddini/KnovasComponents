@@ -983,6 +983,10 @@ def create_app(config_path: Optional[str] = None):
         session.clear()
         return redirect(url_for('login'))
 
+    # Feedback-Ziel: bisher im Fuss der Suchseite, jetzt eigener
+    # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
+    feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
+
     def _swiss_number(value: int) -> str:
         """1847 -> "1'847" (Schweizer Tausendertrennung, wie im Frontend)."""
         return f"{value:,}".replace(",", "'")
@@ -999,6 +1003,7 @@ def create_app(config_path: Optional[str] = None):
         return {
             'company_name': login_company_name,
             'corpus_documents_display': _swiss_number(documents) if documents > 0 else None,
+            'feedback_url': feedback_url,
         }
 
     @app.route('/')

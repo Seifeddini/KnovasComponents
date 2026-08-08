@@ -1260,3 +1260,14 @@ mark.context-snippet-match,
     .corpus-status { display: none; }
     .app-user-text { display: none; }
 }
+
+/* Einstellungen: Statuszeile und Rechtliches (aus dem Fuss der Suchseite). */
+.settings-status { margin-top: 8px; font-size: 0.85rem; color: var(--text-secondary); }
+.settings-status.is-error { color: var(--error-color); }
+.settings-legal {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}

@@ -41,6 +41,17 @@
             </svg>
             Einstellungen
         </a>
+        {% if feedback_url %}
+        <a href="{{ feedback_url }}" class="app-nav-item" target="_blank" rel="noopener noreferrer"
+           title="Feedback über Jira senden">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Feedback
+        </a>
+        {% endif %}
     </nav>
 
     <div class="app-sidebar-foot">
