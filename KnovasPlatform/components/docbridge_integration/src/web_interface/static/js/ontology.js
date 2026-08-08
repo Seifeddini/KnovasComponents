@@ -1229,22 +1229,45 @@ class CortexApp {
         });
     }
 
-    /** Eine Linie zeigen und zum Loeschen anbieten. */
+    /** Eine Linie zeigen. Drei Arten: Vorgabe und echte Verbindung sind
+        einzeln loeschbar; eine verdichtete Typ-Linie fasst mehrere echte
+        Verbindungen zusammen und bietet deshalb keinen Loeschknopf an -
+        einzelne Verbindungen entfernt man im Detail der jeweiligen Entitaet. */
     onEdgeSelect(edge) {
         const esc = CortexApp.esc;
         const predicate = edge.data('predicate') || '';
         const vorgabe = edge.hasClass('declared');
+        const verbindung = edge.hasClass('observed-relation');
+        const verdichtet = !vorgabe && !verbindung;
         const quelle = this.cy.getElementById(edge.data('src'));
         const ziel = this.cy.getElementById(edge.data('dst'));
         this.openEntityDrawer();
         this.setDrawerDelete(null);
         document.getElementById('entityPaneTitle').textContent =
-            vorgabe ? 'Vorgabe' : 'Verbindung';
+            vorgabe ? 'Vorgabe' : (verdichtet ? 'Verbindungen' : 'Verbindung');
+        const hinweis = `${esc(quelle.data('label') || '')}
+                   zu ${esc(ziel.data('label') || '')}`;
+        if (verdichtet) {
+            // Die Anzahl steckt nicht in einem eigenen Datenfeld, nur in der
+            // Beschriftung ("Praedikat (1'234)"). Laesst sie sich nicht
+            // sauber herausloesen, bleibt sie schlicht weg statt geraten.
+            const treffer = /\(([\d']+)\)\s*$/.exec(edge.data('label') || '');
+            const anzahl = treffer ? treffer[1] : null;
+            document.getElementById('entityPaneBody').innerHTML = `
+                <div class="entity-detail">
+                    <h3>${esc(predicate)}</h3>
+                    <p class="entity-hint">${hinweis}</p>
+                    <p class="confirm-detail">${anzahl
+                        ? `Diese Linie fasst ${anzahl} Verbindungen zwischen einzelnen Entitäten zusammen.`
+                        : 'Diese Linie fasst mehrere Verbindungen zwischen einzelnen Entitäten zusammen.'}
+                        Einzelne Verbindungen entfernen Sie im Detail der jeweiligen Entität.</p>
+                </div>`;
+            return;
+        }
         document.getElementById('entityPaneBody').innerHTML = `
             <div class="entity-detail">
                 <h3>${esc(predicate)}</h3>
-                <p class="entity-hint">${esc(quelle.data('label') || '')}
-                   zu ${esc(ziel.data('label') || '')}</p>
+                <p class="entity-hint">${hinweis}</p>
                 <p class="confirm-detail">${vorgabe
                     ? 'Eine Vorgabe beschreibt, was vorgesehen ist. Sie bleibt sichtbar, solange keine Verbindung dieser Art besteht.'
                     : 'Eine gezogene Verbindung zwischen zwei Entitäten.'}</p>
