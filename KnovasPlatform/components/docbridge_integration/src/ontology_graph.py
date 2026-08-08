@@ -311,19 +311,32 @@ class GraphOntologySource:
 
     def create_type_relation(self, src: str, predicate: str,
                              dst: str) -> Optional[Dict[str, Any]]:
-        """Vorgabe auf Typebene. Die API kennt keine Kante zwischen Typen,
-        deshalb ein Schema-Attribut vom Typ entity_ref auf dem Quelltyp."""
-        predicate = " ".join(str(predicate or "").split())
-        src, dst = str(src or "").strip(), str(dst or "").strip()
-        if not predicate or not src or not dst or src == dst:
-            return None
-        if self._client.graph_create_schema_attribute(src, predicate) is None:
-            return None
-        self._invalidate()
-        return {"src": src, "predicate": predicate, "dst": dst, "count": 0}
+        """Vorgabe auf Typebene: im Graph-Modus bewusst noch nicht moeglich.
+
+        Die API kennt keine Kante zwischen Typen. Naheliegend waere ein
+        Schema-Attribut vom Typ entity_ref auf dem Quelltyp, doch dabei
+        faellt der Zieltyp weg, und der Antwortvertrag des Schema-Endpunkts
+        (welche Felder eine Attributliste je Typ zurueckgibt) ist ungeklaert.
+        summary() kann die Vorgabe deshalb nicht zurueckliefern: sie baut
+        relations ausschliesslich aus verdichteten Kanten, also nie mit
+        count 0. Eine Linie, die beim naechsten Laden verschwindet, waere ein
+        gebrochenes Versprechen - deshalb None, die Route antwortet mit 400
+        und die Oberflaeche zeichnet nichts.
+
+        Sobald der Schema-Endpunkt geklaert ist (Anlegen mit Zieltyp und
+        Lesen der Attribute je Typ), gehoert hier das Schreiben hin und in
+        summary() das Zurueckgeben der Vorgaben mit count 0.
+        """
+        return None
 
     def delete_type_relation(self, src: str, predicate: str, dst: str) -> bool:
-        """Attribut anhand seines Namens auf dem Quelltyp suchen und loeschen."""
+        """Attribut anhand seines Namens auf dem Quelltyp suchen und loeschen.
+
+        Der Zieltyp (dst) laesst sich im Schema nicht hinterlegen und damit
+        auch nicht pruefen - eine bekannte Grenze der API, siehe
+        create_type_relation. Gleichnamige Attribute verschiedener Zieltypen
+        sind hier also nicht unterscheidbar.
+        """
         predicate = " ".join(str(predicate or "").split())
         for node_type in self._export()["node_types"]:
             if _type_id(node_type) != str(src):
@@ -333,15 +346,23 @@ class GraphOntologySource:
                     continue
                 if str(_first(attribut, "name", "label")) != predicate:
                     continue
+                attribut_id = str(_first(attribut, "id", "attribute_id"))
+                if not attribut_id:
+                    return False        # keine leere Kennung an die API
                 ok = self._client.graph_delete_schema_attribute(
-                    src, str(_first(attribut, "id", "attribute_id"))) is not None
+                    src, attribut_id) is not None
                 if ok:
                     self._invalidate()
                 return ok
         return False
 
     def delete_relation(self, src: str, predicate: str, dst: str) -> bool:
-        """Passende Kante suchen und loeschen; Richtung beidseitig pruefen."""
+        """Passende Kante suchen und loeschen.
+
+        Gerichtet wie gezeichnet: nur die Kante von src nach dst wird
+        getroffen, nicht die Gegenrichtung. Sonst loeschte ein Klick auf
+        eine Linie eine andere als die gezeigte.
+        """
         predicate = " ".join(str(predicate or "").split())
         for edge in self._export()["edges"]:
             enden = _edge_ends(edge)
@@ -349,7 +370,7 @@ class GraphOntologySource:
                 continue
             e_src, e_dst, e_pred = enden
             passt = (e_pred == predicate
-                     and {e_src, e_dst} == {str(src), str(dst)})
+                     and e_src == str(src) and e_dst == str(dst))
             if not passt:
                 continue
             edge_id = str(_first(edge, "id", "edge_id", "uuid"))

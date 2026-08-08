@@ -293,8 +293,9 @@ def test_create_relation_maps_to_edge_endpoints():
     assert source.create_relation("n-1", "", "n-2") is None
 
 
-def test_type_relation_maps_to_schema_attribute():
-    """Die API kennt keine Typ-Kante; eine Vorgabe wird ein Schema-Attribut."""
+def test_type_relation_is_not_promised_in_graph_mode():
+    """Der Schema-Endpunkt kann eine Vorgabe nicht zurueckliefern, also wird
+    im Graph-Modus auch keine versprochen: None, die Route antwortet 400."""
     client = FakeGraphClient()
     aufrufe = []
     client.graph_create_schema_attribute = lambda type_id, name, datatype="entity_ref": (
@@ -302,10 +303,8 @@ def test_type_relation_maps_to_schema_attribute():
         or {"status": "success", "attribute": {"id": "a-1", "name": name}})
     source = GraphOntologySource(client)
 
-    erstellt = source.create_type_relation("t-mandant", "hat Dossier", "t-dossier")
-    assert erstellt == {"src": "t-mandant", "predicate": "hat Dossier",
-                        "dst": "t-dossier", "count": 0}
-    assert aufrufe == [("t-mandant", "hat Dossier", "entity_ref")]
+    assert source.create_type_relation("t-mandant", "hat Dossier", "t-dossier") is None
+    assert aufrufe == []            # es wird nichts geschrieben
     assert source.create_type_relation("t-mandant", "", "t-dossier") is None
     assert source.create_type_relation("t-x", "y", "t-x") is None
 
@@ -322,6 +321,39 @@ def test_delete_relation_removes_matching_edge():
     assert source.delete_relation("n-1", "hat_Dossier", "n-2") is True
     assert geloescht == ["e-1"]
     assert source.delete_relation("n-1", "gibt_es_nicht", "n-2") is False
+
+
+def test_delete_relation_is_directed():
+    """Gezeichnet wird gerichtet, also gilt gerichtet: die Gegenrichtung
+    trifft die Kante nicht."""
+    client = FakeGraphClient()
+    geloescht = []
+    client.graph_delete_edge = lambda edge_id: (geloescht.append(edge_id)
+                                                or {"status": "success"})
+    client.edges = [{"id": "e-1", "node_lo": "n-1", "node_hi": "n-2",
+                     "relation": "hat_Dossier"}]
+    source = GraphOntologySource(client)
+
+    assert source.delete_relation("n-2", "hat_Dossier", "n-1") is False
+    assert geloescht == []
+    assert source.delete_relation("n-1", "hat_Dossier", "n-2") is True
+    assert geloescht == ["e-1"]
+
+
+def test_delete_type_relation_needs_an_attribute_id():
+    """Ohne Attribut-Kennung geht keine Anfrage an die API."""
+    client = FakeGraphClient()
+    aufrufe = []
+    client.graph_delete_schema_attribute = lambda type_id, attribute_id: (
+        aufrufe.append((type_id, attribute_id)) or {"status": "success"})
+    client.node_types = [
+        {"id": "t-mandant", "name": "Mandant",
+         "schema": [{"name": "hat Dossier"}]},      # Eintrag ohne Kennung
+    ]
+    source = GraphOntologySource(client)
+
+    assert source.delete_type_relation("t-mandant", "hat Dossier", "t-dossier") is False
+    assert aufrufe == []
 
 
 def test_delete_type_relation_robust_against_corrupt_schema():
