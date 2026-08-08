@@ -1666,6 +1666,8 @@ def create_app(config_path: Optional[str] = None):
     # Quelle des Cortex: 'fixture' (Standard, lokale JSON) oder 'graph'
     # (Knovas Knowledge Graph API). Der Vertrag ist identisch, deshalb ist
     # der Wechsel ein Schalter und kein Umbau.
+    # Laufzeit-Zustand des Cortex: Textaufloeser, Quelle und Filter-Engine
+    # werden einmal erzeugt und wiederverwendet (siehe _ontology_source).
     _cortex_text_resolver: Dict[str, Any] = {}
 
     def _ontology_source_is_graph() -> bool:
@@ -1680,20 +1682,27 @@ def create_app(config_path: Optional[str] = None):
         return _cortex_text_resolver['resolver']
 
     def _ontology_source():
+        # Eine Instanz ueber alle Anfragen: sonst waere der Topologie-Cache
+        # wirkungslos und jede Route holte den Export erneut - bei einem
+        # Limit von rund einer Anfrage pro Sekunde ein echtes Problem.
         if not _ontology_source_is_graph():
             return get_ontology(path_exists=_ontology_path_exists)
-        from ontology_graph import GraphOntologySource
-        return GraphOntologySource(api_client,
-                                   text_resolver=_document_text_resolver())
+        if 'source' not in _cortex_text_resolver:
+            from ontology_graph import GraphOntologySource
+            _cortex_text_resolver['source'] = GraphOntologySource(
+                api_client, text_resolver=_document_text_resolver())
+        return _cortex_text_resolver['source']
 
     def _ontology_filter_engine():
         if not _ontology_source_is_graph():
             return get_filter_engine(resolve_path=_resolve_autodoc_path)
-        from ontology_graph_filters import GraphFilterEngine
-        return GraphFilterEngine(
-            api_client,
-            state_path=(os.getenv('ONTOLOGY_FILTER_STATE_PATH') or '').strip() or None,
-            text_resolver=_document_text_resolver())
+        if 'filters' not in _cortex_text_resolver:
+            from ontology_graph_filters import GraphFilterEngine
+            _cortex_text_resolver['filters'] = GraphFilterEngine(
+                api_client,
+                state_path=(os.getenv('ONTOLOGY_FILTER_STATE_PATH') or '').strip() or None,
+                text_resolver=_document_text_resolver())
+        return _cortex_text_resolver['filters']
 
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
