@@ -117,3 +117,14 @@ def test_get_ontology_uses_env_and_mtime_cache(tmp_path, monkeypatch):
     import os
     os.utime(path, (0, Path(path).stat().st_mtime + 10))
     assert len(get_ontology().summary()["types"]) == 3
+
+
+def test_optional_icon_name_passes_through_sanitized(tmp_path):
+    """types[].icon ist optional; nur ein enger Zeichensatz kommt durch."""
+    data = json.loads(json.dumps(VALID))
+    data["types"][0]["icon"] = "Shield"          # wird kleingeschrieben
+    data["types"][1]["icon"] = "../../etc/passwd"  # verworfen
+    store = load_ontology(_fixture(tmp_path, data))
+    types = {t["id"]: t for t in store.summary()["types"]}
+    assert types[data["types"][0]["id"]]["icon"] == "shield"
+    assert "icon" not in types[data["types"][1]["id"]]

@@ -12,11 +12,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 ENV_FIXTURE_PATH = "ONTOLOGY_FIXTURE_PATH"
+
+# Erlaubter Zeichensatz fuer optionale Symbolnamen (types[].icon).
+_ICON_NAME_RE = re.compile(r"[a-z0-9_-]{1,32}")
 
 _EMPTY: Dict[str, Any] = {
     "types": [], "relations": [], "entities": [],
@@ -87,7 +91,14 @@ def _validate(raw: Any, path_exists: Optional[Callable[[str], bool]]) -> Tuple[D
             warnings.append(f"Typ verworfen: {t!r}")
             continue
         seen_type_ids.add(tid)
-        types.append({"id": tid, "label": label, "count": _as_int(t.get("count"))})
+        entry = {"id": tid, "label": label, "count": _as_int(t.get("count"))}
+        # Optionaler Symbolname aus dem Vertrag. Zeichensatz eng gefasst; das
+        # Frontend schlaegt ohnehin nur bekannte Namen nach und faellt sonst
+        # auf ein Monogramm zurueck.
+        icon = str(t.get("icon") or "").strip().lower()
+        if icon and _ICON_NAME_RE.fullmatch(icon):
+            entry["icon"] = icon
+        types.append(entry)
 
     relations = []
     for r in raw.get("relations") or []:

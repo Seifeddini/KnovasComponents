@@ -36,22 +36,59 @@ async function loadBrandFonts() {
     } catch (_) { /* Fallback-Schrift ist besser als gar kein Graph. */ }
 }
 
-/* Typ-Symbole im Stil der bestehenden UI-Icons (Feather-Strichstärke 2).
-   Farben kommen zur Laufzeit aus den Tokens, keine Hexwerte hier. */
-const TYPE_ICONS = {
-    mandant: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-    gegenpartei: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
-    dossier: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
-    vertrag: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
-    gericht: '<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
-    frist: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-    honorar: '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
-    dokumenttyp: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+/* Benannte Symbole im Stil der bestehenden UI-Icons (Feather, Strichstärke 2).
+   Schlüssel sind Icon-NAMEN, nicht Typ-IDs: der Datenvertrag darf pro Typ ein
+   optionales `icon: "<name>"` mitliefern, das immer gewinnt. Farben kommen
+   zur Laufzeit aus den Tokens, keine Hexwerte hier. */
+const ICONS = {
+    person: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    people: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+    court: '<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    card: '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+    layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+    briefcase: '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+    book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+    mail: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/>',
+    place: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+    filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
 };
-const FALLBACK_ICON =
-    '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/>';
-const FILTER_ICON =
-    '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>';
+
+/* Default-Pack "Recht": Schlüsselwort -> Icon-Name, erster Treffer gewinnt
+   (spezifisch vor generisch). Bewusst nur eine VERMUTUNG für den Fall, dass
+   die Daten kein `icon` mitbringen — bei fremden Domänen/Sprachen greift
+   stattdessen das Monogramm, statt dass alles gleich aussieht. Ein eigenes
+   Pack pro Branche gehört später in die Daten, nicht in diese Datei. */
+const KEYWORD_PACK = [
+    [/dokumenttyp|dokumentart|kategorie|rubrik/, 'layers'],
+    [/gegenpartei|gegner|beklagt/, 'people'],
+    [/mandant|klient|partei|person|anwalt|klager|zeuge|kontakt/, 'person'],
+    [/dossier|akte|fall|mandat|verfahren|projekt/, 'folder'],
+    [/gericht|instanz|kammer|behorde|amt/, 'court'],
+    [/frist|termin|datum|fallig|stichtag|laufzeit/, 'clock'],
+    [/honorar|kosten|rechnung|betrag|gebuhr|streitwert|zahlung|preis/, 'card'],
+    [/firma|gesellschaft|unternehmen|gmbh|\bag\b|konzern|arbeitgeber/, 'briefcase'],
+    [/gesetz|artikel|paragraf|norm|verordnung|richtlinie/, 'book'],
+    [/schreiben|brief|korrespondenz|mail|mitteilung/, 'mail'],
+    [/ort|adresse|standort|liegenschaft|grundstuck|objekt/, 'place'],
+    [/versicherung|police|schaden|risiko|haftung|garantie/, 'shield'],
+    [/vertrag|klausel|urkunde|vereinbarung|nachtrag|dokument/, 'document'],
+];
+
+/** Anteil erkannter Typen, ab dem Symbole statt Monogrammen gezeigt werden.
+    Darunter wirkt das Bild als Flickenteppich — dann bekommen ALLE ein
+    Monogramm, was als System gewollt aussieht statt kaputt. */
+const ICON_COVERAGE_MIN = 0.6;
+
+/** Umlaut-Faltung für die Schlüsselwortsuche (identisch zum Backend-Muster). */
+function foldText(s) {
+    return String(s || '').toLowerCase()
+        .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss');
+}
 
 /** SVG-Icon als Data-URI für Cytoscape-Knoten, Strichfarbe aus dem Token.
     Rand fürs Icon über translate, NICHT über negativen ViewBox-Ursprung —
@@ -65,8 +102,49 @@ function svgDataUri(inner, color) {
     return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
-function iconDataUri(typeId, color) {
-    return svgDataUri(TYPE_ICONS[typeId] || FALLBACK_ICON, color);
+/** Monogramm-Fallback: Anfangsbuchstabe des Labels im Knoten (wie
+    Avatar-Initialen). Sprach- und branchenunabhängig, trägt Information und
+    kann nie „falsch" sein — das Sicherheitsnetz für unbekannte Vokabulare.
+    Webfonts stehen im SVG-Bildkontext nicht zur Verfügung, daher System-Mono. */
+function monogramDataUri(label, color) {
+    const first = Array.from(String(label || '').trim())[0] || '?';
+    const glyph = first.toLocaleUpperCase()
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return svgDataUri(
+        `<text x="12" y="12" text-anchor="middle" dominant-baseline="central" ` +
+        `stroke="none" fill="${color}" font-size="15" font-weight="600" ` +
+        `font-family="ui-monospace, SFMono-Regular, Menlo, monospace">${glyph}</text>`,
+        color);
+}
+
+/** Icon-Name eines Typs: explizites Feld aus dem Vertrag schlägt alles. */
+function explicitIconName(type) {
+    const name = String(type.icon || '').trim();
+    return ICONS[name] ? name : null;
+}
+
+/** Vermutung aus dem Default-Pack über Label und ID. */
+function guessedIconName(type) {
+    const hay = foldText(`${type.label || ''} ${type.id || ''}`);
+    for (const [pattern, name] of KEYWORD_PACK) {
+        if (pattern.test(hay)) return name;
+    }
+    return null;
+}
+
+/** Symbol je Typ, als Data-URI in der Reihenfolge:
+    explizites `icon` -> Default-Pack (nur bei genügend Abdeckung) -> Monogramm.
+    Die Abdeckung entscheidet für den GANZEN Graphen, damit das Bild
+    einheitlich bleibt. */
+function iconsForTypes(types, color) {
+    const explicit = types.map(explicitIconName);
+    const guessed = types.map(guessedIconName);
+    const known = types.filter((_, i) => explicit[i] || guessed[i]).length;
+    const useGuesses = types.length > 0 && known / types.length >= ICON_COVERAGE_MIN;
+    return types.map((t, i) => {
+        const name = explicit[i] || (useGuesses ? guessed[i] : null);
+        return name ? svgDataUri(ICONS[name], color) : monogramDataUri(t.label, color);
+    });
 }
 
 function csrfToken() {
@@ -116,9 +194,10 @@ class CortexApp {
         // Deterministischer Kreis-Seed (Spec Regel 4): das anschliessende
         // cose-Layout mit randomize:false liefert damit stets dasselbe Bild.
         const seedRadius = 300;
+        const typeIcons = iconsForTypes(data.types, iconColor);
         const nodes = data.types.map((t, i) => ({
             data: { id: t.id, label: t.label, count: t.count,
-                    icon: iconDataUri(t.id, iconColor),
+                    icon: typeIcons[i],
                     size: 54 + Math.round(40 * (t.count / maxCount)) },
             position: {
                 x: seedRadius * Math.cos((2 * Math.PI * i) / n - Math.PI / 2),
@@ -581,13 +660,13 @@ class CortexApp {
                      <li><button type="button" class="relation-card entity-link"
                                  data-id="${esc(r.target.id)}">
                          <span class="relation-card-body">
-                             <span class="relation-card-metaline">${esc(r.predicate.replace(/_/g, ' '))}</span>
+                             <span class="relation-card-metaline">${esc(r.predicate.replace(/[_-]+/g, ' '))}</span>
                              <span class="relation-card-title">${esc(r.target.label)}</span>
                          </span>
                          <span class="relation-card-chevron" aria-hidden="true">›</span>
                      </button></li>`).join('')}
                    </ul>`
-                : '<p class="ontology-empty">Keine Verbindungen erfasst.</p>';
+                : '<p class="ontology-empty">Keine verbundenen Entitäten erfasst.</p>';
             const evidence = data.evidence.length
                 ? `<ol class="evidence-list">${data.evidence.map((ev, i) => `
                      <li><button type="button" class="evidence-item" data-index="${i}"
@@ -599,25 +678,28 @@ class CortexApp {
                    </ol>`
                 : '<p class="ontology-empty">Keine Belege zu dieser Entität erfasst.</p>';
             const filters = data.filters || [];
+            // Label als eigener Block: sonst erzeugt der Zeilenumbruch im
+            // Template ein führendes Leerzeichen, das die erste Zeile
+            // gegenüber der Statuszeile darunter eingerückt aussehen lässt.
             const filterRows = filters.map((f) => `
-                <li><button type="button" class="btn-text filter-chip" data-id="${esc(f.id)}">
-                    ${esc(f.label)}
-                    <span class="filter-chip-state">${CortexApp.filterStateText(f)}</span>
-                </button></li>`).join('');
+                <li><button type="button" class="btn-text filter-chip" data-id="${esc(f.id)}"
+                    ><span class="filter-chip-label">${esc(f.label)}</span
+                    ><span class="filter-chip-state">${CortexApp.filterStateText(f)}</span
+                ></button></li>`).join('');
             // Filter-Karte direkt unter dem Titel: das Feature bekommt die
             // Bühne und erklärt seinen Zweck in einem Satz selbst.
             const filterCard = `
-                <section class="filter-card" aria-label="Cortex-Filter">
+                <section class="filter-card" aria-label="Cortex Filter">
                     <h4 class="filter-card-title">
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round" aria-hidden="true" focusable="false">
                             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
                         </svg>
-                        Cortex-Filter
+                        Cortex Filter
                     </h4>
                     <p class="filter-card-purpose">Knovas sammelt laufend Fundstellen
-                        zu Ihrem Thema — Sie prüfen und entscheiden.</p>
+                        zu Ihrem Thema. Sie prüfen und entscheiden.</p>
                     ${filters.length ? `<ul class="filter-list">${filterRows}</ul>` : ''}
                     <div class="filter-create">
                         <input type="text" id="filterInput" maxlength="120"
@@ -705,7 +787,7 @@ class CortexApp {
                 { group: 'nodes', classes: 'filter-node',
                   data: { id: `flt:${f.id}`, filterId: f.id, entityId,
                           label: CortexApp.filterNodeLabel(f), size: 30,
-                          icon: svgDataUri(FILTER_ICON, cssToken('--accent')) },
+                          icon: svgDataUri(ICONS.filter, cssToken('--accent')) },
                   position: { x: sp.x, y: sp.y } },
                 { group: 'edges', classes: 'entity-edge',
                   data: { id: `fe:${f.id}`, source: `ent:${entityId}`,
@@ -755,8 +837,8 @@ class CortexApp {
                     <button type="button" class="btn-text" id="filterBack">← Zurück zur Entität</button>
                     <h3>${esc(data.filter.label)}</h3>
                     <p class="filter-status">${data.filter.status === 'collecting'
-                        ? 'Knovas liest den Aktenbestand laufend — noch keine Fundstellen.'
-                        : 'Läuft laufend im Hintergrund. Knovas schlägt vor — Sie entscheiden.'}</p>
+                        ? 'Knovas liest den Aktenbestand laufend. Noch keine Fundstellen.'
+                        : 'Läuft laufend im Hintergrund. Knovas schlägt vor, Sie entscheiden.'}</p>
                     <div class="tab-chips" role="tablist" id="filterTabs"></div>
                     <div id="proposalList"></div>
                 </div>`;
@@ -814,7 +896,7 @@ class CortexApp {
                     <button type="button" class="btn-text act-reject">Ablehnen</button>
                 </div>` : ''}
                 ${p.state === 'rejected' ? `
-                <p class="proposal-note">Dauerhaft gemerkt — wird nie wieder vorgeschlagen,
+                <p class="proposal-note">Dauerhaft gemerkt. Wird nie wieder vorgeschlagen,
                    auch bei erneutem Upload.</p>` : ''}
             </div>`).join('');
         list.querySelectorAll('.proposal-quote').forEach((btn) =>
@@ -845,7 +927,7 @@ class CortexApp {
             if (action === 'reject') {
                 // Das Produktversprechen im Moment der Korrektur zeigen.
                 card.innerHTML = '<p class="proposal-note proposal-confirm">' +
-                    'Verstanden — wird nie wieder vorgeschlagen.</p>';
+                    'Verstanden. Wird nie wieder vorgeschlagen.</p>';
                 setTimeout(() => { this.renderProposalTabs(); this.renderProposalList(); }, 1400);
             } else {
                 this.renderProposalTabs();
@@ -870,7 +952,7 @@ class CortexApp {
     onEvidenceSelect(evidence) {
         const body = document.getElementById('docPaneBody');
         document.getElementById('docPaneTitle').textContent =
-            `${evidence.title} – Seite ${evidence.page}`;
+            `${evidence.title}, Seite ${evidence.page}`;
         // Query VOR dem Fragment: der browsernative PDF-Viewer liest #page=N.
         const url = `/api/document/${encodeURIComponent(evidence.title)}/preview` +
                     `?path=${encodeURIComponent(evidence.path)}#page=${evidence.page}`;

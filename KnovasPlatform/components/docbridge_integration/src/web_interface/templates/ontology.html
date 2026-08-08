@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>Cortex – {{ app_title }}</title>
+    <title>Cortex · {{ app_title }}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/ontology.css') }}?v={{ asset_version }}">
@@ -42,7 +42,7 @@
         <main class="ontology-stage" aria-label="Cortex">
             <div class="ontology-pane-header">
                 <h2>Struktur</h2>
-                <div class="graph-toolbar" role="toolbar" aria-label="Zoom-Navigation">
+                <div class="graph-toolbar" role="toolbar" aria-label="Zoom">
                     <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
                     <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
                     <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
