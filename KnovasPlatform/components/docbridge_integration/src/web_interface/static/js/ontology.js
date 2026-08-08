@@ -169,21 +169,26 @@ class CortexApp {
             if (resp.status === 401) { window.location.assign('/login'); return; }
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
+            this.bindZoomControls();
+            this.bindDrawerControls();
+            this.bindTypeCreate();
             if (!data.types.length) {
+                // Leer heisst nicht Sackgasse: der Knopf zum Anlegen bleibt.
                 document.getElementById('graphContainer').hidden = true;
                 document.getElementById('graphEmpty').hidden = false;
-                document.querySelector('.graph-toolbar').hidden = true;
+                document.getElementById('graphEmpty').textContent =
+                    'Noch keine Typen angelegt. Beginnen Sie mit "Typ anlegen".';
                 return;
             }
             this.renderGraph(data);
-            this.bindZoomControls();
-            this.bindDrawerControls();
         } catch (err) {
             console.error('Cortex: Summary nicht ladbar', err);
             const empty = document.getElementById('graphEmpty');
             empty.textContent = 'Cortex konnte nicht geladen werden. Seite neu laden.';
             empty.hidden = false;
-            document.querySelector('.graph-toolbar').hidden = true;
+            ['zoomIn', 'zoomOut', 'zoomFit'].forEach((id) => {
+                document.getElementById(id).hidden = true;
+            });
         }
     }
 
@@ -591,6 +596,39 @@ class CortexApp {
         return resp.json();
     }
 
+    async deleteJson(url) {
+        const resp = await fetch(url, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': csrfToken() },
+        });
+        if (resp.status === 401) { window.location.assign('/login'); return null; }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+
+    /** Zwei-Schritt-Bestaetigung statt Browser-Dialog: der Knopf fragt selbst
+        nach und faellt nach kurzer Zeit in den Ruhezustand zurueck. */
+    static armDelete(button, onConfirm) {
+        const idle = button.textContent;
+        let armed = false;
+        let timer = null;
+        button.addEventListener('click', () => {
+            if (armed) {
+                clearTimeout(timer);
+                onConfirm();
+                return;
+            }
+            armed = true;
+            button.textContent = 'Wirklich löschen?';
+            button.classList.add('is-armed');
+            timer = setTimeout(() => {
+                armed = false;
+                button.textContent = idle;
+                button.classList.remove('is-armed');
+            }, 4000);
+        });
+    }
+
     async postJson(url, payload) {
         const resp = await fetch(url, {
             method: 'POST',
@@ -636,7 +674,12 @@ class CortexApp {
                            placeholder="Neue Entität, z. B. Meier Immobilien AG"
                            aria-label="Name der neuen Entität">
                     <button type="button" id="entityCreateBtn" class="btn btn-outline">Anlegen</button>
+                </div>
+                <div class="danger-row">
+                    <button type="button" id="typeDeleteBtn" class="btn-text is-danger">Typ löschen</button>
                 </div>`);
+            CortexApp.armDelete(document.getElementById('typeDeleteBtn'),
+                                () => this.onTypeDelete(typeId));
             const entityInput = document.getElementById('entityInput');
             const createEntity = () => this.onEntityCreate(typeId, label, entityInput.value);
             document.getElementById('entityCreateBtn').addEventListener('click', createEntity);
@@ -768,6 +811,9 @@ class CortexApp {
                         </select>
                         <button type="button" id="relationCreateBtn" class="btn btn-outline">Verbinden</button>
                     </div>
+                    <div class="danger-row">
+                        <button type="button" id="entityDeleteBtn" class="btn-text is-danger">Entität löschen</button>
+                    </div>
                 </div>`;
             document.getElementById('entityBack').addEventListener('click', () => {
                 const node = this.cy.getElementById(this.selectedType);
@@ -776,6 +822,8 @@ class CortexApp {
             this.syncFilterNodes(entityId, filters);
             document.getElementById('relationCreateBtn').addEventListener(
                 'click', () => this.onRelationCreate(entityId));
+            CortexApp.armDelete(document.getElementById('entityDeleteBtn'),
+                                () => this.onEntityDelete(entityId, data.entity.type));
             this.fillRelationTargets(entityId);
             body.querySelectorAll('.filter-chip').forEach((btn) =>
                 btn.addEventListener('click', () => this.renderFilterPanel(btn.dataset.id)));
@@ -811,14 +859,94 @@ class CortexApp {
             const data = await this.postJson('/api/ontology/entities',
                                              { type: typeId, label });
             if (!data) return;
-            await this.onTypeSelect(typeId, typeLabel);   // Liste neu laden
-            this.collapseType(typeId);                    // Satelliten neu auffächern
-            const fresh = await this.fetchJson(
-                `/api/ontology/entities?type=${encodeURIComponent(typeId)}`);
-            if (fresh) this.renderEntityNodes(typeId, fresh.entities);
+            // Satelliten zuerst abräumen, dann den Typ frisch aufklappen —
+            // sonst überschneidet sich die Einfahr-Animation mit dem Neuaufbau.
+            this.collapseType(typeId);
+            await this.onTypeSelect(typeId, typeLabel);
         } catch (err) {
             console.error('Cortex: Entität nicht anlegbar', err);
         }
+    }
+
+    /** Typ anlegen. Ohne Typen gibt es keinen Einstieg in den Graphen —
+        deshalb ist der Knopf immer erreichbar, auch im leeren Zustand. */
+    bindTypeCreate() {
+        const button = document.getElementById('typeCreate');
+        if (!button) return;
+        button.addEventListener('click', () => {
+            this.openEntityDrawer();
+            document.getElementById('entityPaneTitle').textContent = 'Neuer Typ';
+            const body = document.getElementById('entityPaneBody');
+            body.innerHTML = `
+                <div class="entity-detail">
+                    <p class="entity-hint">Typen sind die Struktur Ihres Wissensnetzes,
+                       zum Beispiel Mandant, Dossier oder Vertrag.</p>
+                    <div class="create-row">
+                        <input type="text" id="typeInput" maxlength="80"
+                               placeholder="Name des Typs, z. B. Mandant"
+                               aria-label="Name des neuen Typs">
+                        <button type="button" id="typeCreateSubmit" class="btn btn-primary">Anlegen</button>
+                    </div>
+                </div>`;
+            const input = document.getElementById('typeInput');
+            const submit = () => this.onTypeCreate(input.value);
+            document.getElementById('typeCreateSubmit').addEventListener('click', submit);
+            input.addEventListener('keydown', (evt) => {
+                if (evt.key === 'Enter') { evt.preventDefault(); submit(); }
+            });
+            input.focus();
+        });
+    }
+
+    async onTypeCreate(label) {
+        label = String(label || '').trim();
+        if (!label) { document.getElementById('typeInput').focus(); return; }
+        try {
+            const data = await this.postJson('/api/ontology/types', { label });
+            if (!data) return;
+            await this.reloadGraph();
+            // Direkt weiterarbeiten: der neue Typ ist offen, Entitäten folgen.
+            const node = this.cy.getElementById(data.type.id);
+            if (node.nonempty()) this.onTypeTap(node);
+        } catch (err) {
+            console.error('Cortex: Typ nicht anlegbar', err);
+        }
+    }
+
+    async onEntityDelete(entityId, typeId) {
+        try {
+            if (!await this.deleteJson(`/api/ontology/entities/${encodeURIComponent(entityId)}`)) return;
+            this.collapseType(typeId);
+            const node = this.cy.getElementById(typeId);
+            if (node.nonempty()) await this.onTypeSelect(typeId, node.data('label'));
+            else this.closeDrawers();
+        } catch (err) {
+            console.error('Cortex: Entität nicht löschbar', err);
+        }
+    }
+
+    async onTypeDelete(typeId) {
+        try {
+            if (!await this.deleteJson(`/api/ontology/types/${encodeURIComponent(typeId)}`)) return;
+            this.closeDrawers();
+            await this.reloadGraph();
+        } catch (err) {
+            console.error('Cortex: Typ nicht löschbar', err);
+        }
+    }
+
+    /** Graph neu aufbauen, nachdem sich die Typ-Ebene geändert hat. */
+    async reloadGraph() {
+        const data = await this.fetchJson('/api/ontology/summary');
+        if (!data || !data.types) return;
+        this.expandedTypes.clear();
+        if (this.cy) { this.cy.destroy(); this.cy = null; }
+        const container = document.getElementById('graphContainer');
+        const empty = document.getElementById('graphEmpty');
+        if (!data.types.length) { container.hidden = true; empty.hidden = false; return; }
+        container.hidden = false;
+        empty.hidden = true;
+        this.renderGraph(data);   // Zoom-Knöpfe lesen this.cy erst beim Klick
     }
 
     /** Auswahlliste für das Verbinden: alle Entitäten ausser dieser. */

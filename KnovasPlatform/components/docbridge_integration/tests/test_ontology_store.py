@@ -162,3 +162,45 @@ def test_create_entity_and_relation_persist_to_fixture(tmp_path):
 def test_entities_without_type_returns_all(tmp_path):
     store = load_ontology(_fixture(tmp_path, VALID))
     assert len(store.entities_for_type("")["entities"]) == len(VALID["entities"])
+
+
+def test_create_and_delete_type_cascades(tmp_path):
+    """Typ anlegen und wieder loeschen - samt seiner Entitaeten und Verweise."""
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+
+    created = store.create_type("  Sachverständiger  ")
+    assert created["label"] == "Sachverständiger"
+    assert created["id"] == "sachverstaendiger"        # Umlaute im Bezeichner aufgeloest
+    assert store.create_type("sachverständiger")["id"] == created["id"]   # kein Duplikat
+    assert store.create_type("") is None
+
+    entity = store.create_entity("Dr. Bauer", created["id"])
+    other = VALID["entities"][0]["id"]
+    store.create_relation(entity["id"], "begutachtet", other)
+
+    assert store.delete_type(created["id"]) is True
+    assert store.delete_type(created["id"]) is False    # zweimal loeschen ist kein Fehlerfall
+
+    frisch = load_ontology(path)
+    assert created["id"] not in [t["id"] for t in frisch.summary()["types"]]
+    assert frisch.entity_detail(entity["id"]) is None   # Entitaet mitgeloescht
+    # kein Verweis ins Leere beim Gegenueber (eigene Relationen bleiben)
+    assert "begutachtet" not in [
+        r["predicate"] for r in frisch.entity_detail(other)["relations"]]
+
+
+def test_delete_entity_removes_relations_and_evidence(tmp_path):
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+    victim = VALID["entities"][0]["id"]
+    partner = store.create_entity("Partner AG", VALID["types"][0]["id"])
+    store.create_relation(partner["id"], "arbeitet mit", victim)
+
+    assert store.delete_entity(victim) is True
+    assert store.delete_entity(victim) is False
+
+    frisch = load_ontology(path)
+    assert frisch.entity_detail(victim) is None
+    assert frisch.entity_detail(partner["id"])["relations"] == []   # nur die eine, jetzt weg
+    assert all(ev["entity_id"] != victim for ev in frisch._evidence)

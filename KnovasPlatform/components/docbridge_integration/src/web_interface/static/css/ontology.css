@@ -333,3 +333,8 @@
 .connect-form input:focus-visible,
 .connect-form select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .create-row .btn, .connect-form .btn { white-space: nowrap; }
+
+/* Loeschen: zurueckhaltend gesetzt, im gespannten Zustand deutlich. */
+.danger-row { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-color); }
+.btn-text.is-danger { color: var(--error-color); }
+.btn-text.is-danger.is-armed { font-weight: 600; }

@@ -1744,6 +1744,19 @@ def create_app(config_path: Optional[str] = None):
     # ihn nicht ab. Beide Quellen koennen schreiben - die Fixture in ihre
     # Datei, die Graph-Quelle ueber POST /secured/graph/nodes bzw. /edges.
 
+    @app.route('/api/ontology/types', methods=['POST'])
+    def ontology_type_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            label = str(payload.get('label') or '').strip()
+            created = _ontology_source().create_type(label)
+            if created is None:
+                return jsonify({'success': False, 'error': 'Name fehlt'}), 400
+            return jsonify({'success': True, 'type': created}), 201
+        except Exception:
+            logger.error("Ontology type create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
     @app.route('/api/ontology/entities', methods=['POST'])
     def ontology_entity_create():
         try:
@@ -1775,6 +1788,26 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': True, 'relation': created}), 201
         except Exception:
             logger.error("Ontology relation create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
+    def ontology_type_delete(type_id: str):
+        try:
+            if not _ontology_source().delete_type(type_id):
+                return jsonify({'success': False, 'error': 'Typ nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology type delete error for %s", type_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])
+    def ontology_entity_delete(entity_id: str):
+        try:
+            if not _ontology_source().delete_entity(entity_id):
+                return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology entity delete error for %s", entity_id, exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-

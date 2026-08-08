@@ -57,6 +57,30 @@ class OntologyStore:
     # derselbe Ablauf lokal und gegen die API funktioniert, schreibt die
     # Fixture-Quelle in ihre JSON-Datei zurueck.
 
+    def create_type(self, label: str) -> Optional[Dict[str, Any]]:
+        """Typ anlegen (z. B. "Mandant"). Ohne Typen gibt es keinen Einstieg."""
+        label = " ".join(str(label or "").split())
+        if not label:
+            return None
+        for existing in self._types:
+            if existing["label"].lower() == label.lower():
+                return dict(existing)
+        entry = {"id": self._slug(label), "label": label, "count": 0}
+        self._types.append(entry)
+        self._persist(lambda raw: raw.setdefault("types", []).append(dict(entry)))
+        return dict(entry)
+
+    def _slug(self, label: str) -> str:
+        base = re.sub(r"[^a-z0-9]+", "_",
+                      label.lower().replace("ä", "ae").replace("ö", "oe")
+                      .replace("ü", "ue").replace("ß", "ss")).strip("_")
+        base = base or "typ"
+        used = {t["id"] for t in self._types}
+        candidate, index = base, 2
+        while candidate in used:
+            candidate, index = f"{base}_{index}", index + 1
+        return candidate
+
     def create_entity(self, label: str, type_id: str) -> Optional[Dict[str, Any]]:
         label = " ".join(str(label or "").split())
         type_id = str(type_id or "").strip()
@@ -86,6 +110,61 @@ class OntologyStore:
         self._entity_relations.append(relation)
         self._persist(lambda raw: raw.setdefault("entity_relations", []).append(dict(relation)))
         return dict(relation)
+
+    def delete_entity(self, entity_id: str) -> bool:
+        """Entitaet loeschen, samt ihrer Relationen und Belege - sonst blieben
+        Verweise ins Leere zurueck."""
+        entity_id = str(entity_id or "").strip()
+        if entity_id not in self._entity_by_id:
+            return False
+        self._entities[:] = [e for e in self._entities if e["id"] != entity_id]
+        del self._entity_by_id[entity_id]
+        self._entity_relations[:] = [
+            r for r in self._entity_relations
+            if r["src"] != entity_id and r["dst"] != entity_id]
+        self._evidence[:] = [ev for ev in self._evidence
+                             if ev["entity_id"] != entity_id]
+        self._persist(lambda raw: self._prune(raw, {entity_id}))
+        return True
+
+    def delete_type(self, type_id: str) -> bool:
+        """Typ loeschen, samt seiner Entitaeten (Kaskade wie in der API)."""
+        type_id = str(type_id or "").strip()
+        if not any(t["id"] == type_id for t in self._types):
+            return False
+        doomed = {e["id"] for e in self._entities if e["type"] == type_id}
+        self._types[:] = [t for t in self._types if t["id"] != type_id]
+        self._relations[:] = [r for r in self._relations
+                              if r["src"] != type_id and r["dst"] != type_id]
+        self._entities[:] = [e for e in self._entities if e["type"] != type_id]
+        for eid in doomed:
+            self._entity_by_id.pop(eid, None)
+        self._entity_relations[:] = [
+            r for r in self._entity_relations
+            if r["src"] not in doomed and r["dst"] not in doomed]
+        self._evidence[:] = [ev for ev in self._evidence
+                             if ev["entity_id"] not in doomed]
+        self._persist(lambda raw: self._prune(raw, doomed, type_id=type_id))
+        return True
+
+    @staticmethod
+    def _prune(raw: Dict[str, Any], entity_ids: set,
+               type_id: Optional[str] = None) -> None:
+        """Dieselbe Bereinigung auf der Rohfixture, damit Datei und Speicher
+        denselben Stand haben."""
+        if type_id is not None:
+            raw["types"] = [t for t in raw.get("types") or []
+                            if str(t.get("id")) != type_id]
+            raw["relations"] = [r for r in raw.get("relations") or []
+                                if str(r.get("src")) != type_id
+                                and str(r.get("dst")) != type_id]
+        raw["entities"] = [e for e in raw.get("entities") or []
+                           if str(e.get("id")) not in entity_ids]
+        raw["entity_relations"] = [r for r in raw.get("entity_relations") or []
+                                   if str(r.get("src")) not in entity_ids
+                                   and str(r.get("dst")) not in entity_ids]
+        raw["evidence"] = [ev for ev in raw.get("evidence") or []
+                           if str(ev.get("entity_id")) not in entity_ids]
 
     def _next_entity_id(self) -> str:
         used = {e["id"] for e in self._entities}

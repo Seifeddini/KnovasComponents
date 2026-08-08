@@ -266,6 +266,24 @@ class GraphOntologySource:
     def _invalidate(self) -> None:
         self._export_cache = None
 
+    def create_type(self, label: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/node-types - Typ-Vokabular erweitern."""
+        label = " ".join(str(label or "").split())
+        if not label:
+            return None
+        for existing in self._export()["node_types"]:
+            if _type_label(existing).lower() == label.lower():
+                return {"id": _type_id(existing), "label": _type_label(existing),
+                        "count": 0}
+        created = self._client.graph_create_node_type(label)
+        if not created:
+            return None
+        node_type = (created.get("node_type") if isinstance(created.get("node_type"), dict)
+                     else created)
+        self._invalidate()
+        return {"id": _type_id(node_type), "label": _type_label(node_type) or label,
+                "count": 0}
+
     def create_entity(self, label: str, type_id: str) -> Optional[Dict[str, Any]]:
         label = " ".join(str(label or "").split())
         if not label:
@@ -290,6 +308,23 @@ class GraphOntologySource:
             return None
         self._invalidate()
         return {"src": src, "predicate": predicate, "dst": dst}
+
+    def delete_entity(self, entity_id: str) -> bool:
+        """DELETE auf den Knoten; die API kaskadiert Zuordnungen und Kanten."""
+        if not str(entity_id or "").strip():
+            return False
+        ok = self._client.graph_delete_node(entity_id) is not None
+        if ok:
+            self._invalidate()
+        return ok
+
+    def delete_type(self, type_id: str) -> bool:
+        if not str(type_id or "").strip():
+            return False
+        ok = self._client.graph_delete_node_type(type_id) is not None
+        if ok:
+            self._invalidate()
+        return ok
 
     def assign_document(self, entity_id: str, pointer: str) -> bool:
         """Dokument einem Knoten zuordnen - Grundlage fuer Filter."""

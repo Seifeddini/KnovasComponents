@@ -1628,6 +1628,14 @@ class KnovasAPIClient:
             'POST', f'/nodes/{quote(str(node_id), safe="")}/knowledge',
             data={'pointer': pointer})
 
+    def graph_delete_node(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/nodes/<id> - Kaskade laut Spezifikation."""
+        return self._graph_request('DELETE', f'/nodes/{quote(str(node_id), safe="")}')
+
+    def graph_delete_node_type(self, type_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/node-types/<id>."""
+        return self._graph_request('DELETE', f'/node-types/{quote(str(type_id), safe="")}')
+
     def graph_filters(self, node_id: str) -> List[Dict[str, Any]]:
         """GET /secured/graph/nodes/<id>/filters - Filter eines Knotens."""
         payload = self._graph_request(
