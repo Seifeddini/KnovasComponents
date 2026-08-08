@@ -1261,9 +1261,23 @@ mark.context-snippet-match,
     .app-user-text { display: none; }
 }
 
-/* Einstellungen: Statuszeile und Rechtliches (aus dem Fuss der Suchseite). */
-.settings-status { margin-top: 8px; font-size: 0.85rem; color: var(--text-secondary); }
-.settings-status.is-error { color: var(--error-color); }
+/* Einstellungen: Statusanzeige und Rechtliches (aus dem Fuss der Suchseite).
+   Der Punkt traegt die Aussage nicht allein - daneben steht sie als Text,
+   damit sie auch ohne Farbunterscheidung ankommt. */
+.status-list { list-style: none; padding: 0; margin: 0; display: flex;
+               flex-direction: column; gap: 4px; }
+.status-item { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+.status-dot {
+    flex: 0 0 auto;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+.status-dot.is-online { background: var(--success-color); }
+.status-dot.is-offline { background: var(--error-color); }
+.status-dot.is-pending, .status-dot.is-unknown { background: var(--border-color); }
+.status-name { color: var(--text-primary); }
+.status-value { color: var(--text-secondary); font-size: 0.85rem; }
 .settings-legal {
     margin-top: 4px;
     padding-top: 12px;

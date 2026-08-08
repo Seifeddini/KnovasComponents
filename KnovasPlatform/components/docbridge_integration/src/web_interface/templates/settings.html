@@ -50,8 +50,18 @@
                             {% endif %}
                             <dt>Status</dt>
                             <dd>
-                                <button type="button" class="btn btn-outline" id="healthCheck">Status prüfen</button>
-                                <p class="settings-status" id="healthResult" role="status" aria-live="polite"></p>
+                                <ul class="status-list" id="healthResult" role="status" aria-live="polite">
+                                    <li class="status-item" data-component="ui">
+                                        <span class="status-dot is-pending" aria-hidden="true"></span>
+                                        <span class="status-name">Oberfläche</span>
+                                        <span class="status-value">wird geprüft …</span>
+                                    </li>
+                                    <li class="status-item" data-component="api">
+                                        <span class="status-dot is-pending" aria-hidden="true"></span>
+                                        <span class="status-name">Knovas API</span>
+                                        <span class="status-value">wird geprüft …</span>
+                                    </li>
+                                </ul>
                             </dd>
                         </dl>
                         <p class="settings-legal">&copy; 2026 Knovas</p>
@@ -62,25 +72,30 @@
     </div>
 
     <script>
-        // Eigenstaendig: die Einstellungen laden app.js nicht.
-        document.getElementById('healthCheck').addEventListener('click', async (event) => {
-            const button = event.currentTarget;
-            const out = document.getElementById('healthResult');
-            button.disabled = true;
-            out.textContent = 'Wird geprüft …';
-            try {
-                const resp = await fetch('/api/health', { credentials: 'same-origin' });
-                const data = await resp.json();
-                const online = Boolean(data.semantix_api);
-                out.textContent = `Oberfläche: Online · Knovas API: ${online ? 'Online' : 'Offline'}`;
-                out.classList.toggle('is-error', !online);
-            } catch (err) {
-                out.textContent = `Status nicht abrufbar: ${err.message}`;
-                out.classList.add('is-error');
-            } finally {
-                button.disabled = false;
-            }
-        });
+        // Eigenstaendig: die Einstellungen laden app.js nicht. Der Status wird
+        // beim Oeffnen der Seite geholt, nicht auf Knopfdruck.
+        (function () {
+            const setState = (component, state, text) => {
+                const row = document.querySelector(`.status-item[data-component="${component}"]`);
+                if (!row) return;
+                const dot = row.querySelector('.status-dot');
+                dot.className = `status-dot is-${state}`;
+                row.querySelector('.status-value').textContent = text;
+            };
+
+            fetch('/api/health', { credentials: 'same-origin' })
+                .then((resp) => resp.json())
+                .then((data) => {
+                    // Die Antwort kommt von dieser Oberflaeche - sie laeuft.
+                    setState('ui', 'online', 'Online');
+                    const online = Boolean(data.semantix_api);
+                    setState('api', online ? 'online' : 'offline', online ? 'Online' : 'Offline');
+                })
+                .catch(() => {
+                    setState('ui', 'offline', 'Nicht erreichbar');
+                    setState('api', 'unknown', 'Unbekannt');
+                });
+        })();
     </script>
 </body>
 </html>
