@@ -638,19 +638,50 @@ class CortexApp {
         }
     }
 
+    selectSatellite(node) {
+        if (node.empty() || node.selected()) return;
+        this.cy.elements(':selected').unselect();
+        node.select();
+    }
+
+    /** Der Graph folgt dem Drilldown: Eine verbundene Entität gehört meist zu
+        einem anderen Typ, dessen Satelliten noch gar nicht ausgefächert sind.
+        Dann Typ aufklappen, hinfahren und die Entität auswählen. */
+    async focusEntityInGraph(entity) {
+        const existing = this.cy.getElementById(`ent:${entity.id}`);
+        if (existing.nonempty()) { this.selectSatellite(existing); return; }
+        const typeNode = this.cy.getElementById(entity.type);
+        if (typeNode.empty()) return;          // Typ nicht im Graphen
+        this.collapseAllTypes(entity.type);
+        this.selectedType = entity.type;       // "Zurück zur Liste" zeigt den neuen Typ
+        this.zoomAnim = this.zoomToNode(typeNode);
+        let entities = [];
+        try {
+            const data = await this.fetchJson(
+                `/api/ontology/entities?type=${encodeURIComponent(entity.type)}`);
+            entities = (data && data.entities) || [];
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+        }
+        // Die Liste ist eine kuratierte Auswahl — die angesteuerte Entität
+        // muss sichtbar sein, auch wenn sie nicht darin vorkommt.
+        if (!entities.some((e) => e.id === entity.id)) {
+            entities = [{ id: entity.id, label: entity.label, doc_count: 0 }, ...entities];
+        }
+        await this.renderEntityNodes(entity.type, entities);
+        this.selectSatellite(this.cy.getElementById(`ent:${entity.id}`));
+    }
+
     async onEntitySelect(entityId) {
         this.selectedEntity = entityId;
         this.closeDocDrawer();          // Beleg gehört zur vorherigen Entität
-        const satellite = this.cy.getElementById(`ent:${entityId}`);
-        if (satellite.nonempty() && !satellite.selected()) {
-            this.cy.elements(':selected').unselect();
-            satellite.select();
-        }
         const body = document.getElementById('entityPaneBody');
         body.innerHTML = skeleton(5);
         try {
             const data = await this.fetchJson(
                 `/api/ontology/entities/${encodeURIComponent(entityId)}`);
+            if (!data) return;
+            this.focusEntityInGraph(data.entity);   // Graph nachziehen, ohne den Drawer zu blockieren
             const esc = CortexApp.esc;
             // Verbundene Entitäten als klickbare Mini-Karten: Prädikat lesbar
             // (ohne Unterstriche), Chevron als Klick-Signal. Die Richtung
