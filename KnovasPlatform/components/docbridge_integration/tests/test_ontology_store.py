@@ -204,3 +204,42 @@ def test_delete_entity_removes_relations_and_evidence(tmp_path):
     assert frisch.entity_detail(victim) is None
     assert frisch.entity_detail(partner["id"])["relations"] == []   # nur die eine, jetzt weg
     assert all(ev["entity_id"] != victim for ev in frisch._evidence)
+
+
+def test_create_type_relation_is_a_declaration(tmp_path):
+    """Vorgaben haben count 0 und bleiben ohne Instanzen bestehen."""
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+    a, b = VALID["types"][0]["id"], VALID["types"][1]["id"]
+
+    created = store.create_type_relation(a, "  hat   Dossier ", b)
+    assert created == {"src": a, "predicate": "hat Dossier", "dst": b, "count": 0}
+    # zweimal anlegen ergibt keinen zweiten Eintrag
+    assert store.create_type_relation(a, "hat Dossier", b) == created
+    assert store.create_type_relation(a, "", b) is None
+    assert store.create_type_relation(a, "x", "gibt-es-nicht") is None
+    assert store.create_type_relation(a, "x", a) is None       # Selbstbezug
+
+    frisch = load_ontology(path)
+    vorgaben = [r for r in frisch.summary()["relations"] if r["count"] == 0]
+    assert {"src": a, "predicate": "hat Dossier", "dst": b, "count": 0} in vorgaben
+
+
+def test_delete_type_relation_and_relation(tmp_path):
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+    a, b = VALID["types"][0]["id"], VALID["types"][1]["id"]
+    store.create_type_relation(a, "hat Dossier", b)
+
+    assert store.delete_type_relation(a, "hat Dossier", b) is True
+    assert store.delete_type_relation(a, "hat Dossier", b) is False
+    assert all(r["predicate"] != "hat Dossier"
+               for r in load_ontology(path).summary()["relations"])
+
+    # Entitaetsverbindung loeschen
+    e1 = VALID["entities"][0]["id"]
+    e2 = store.create_entity("Partner AG", a)["id"]
+    store.create_relation(e2, "arbeitet mit", e1)
+    assert store.delete_relation(e2, "arbeitet mit", e1) is True
+    assert store.delete_relation(e2, "arbeitet mit", e1) is False
+    assert load_ontology(path).entity_detail(e2)["relations"] == []

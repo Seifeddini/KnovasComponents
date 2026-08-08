@@ -111,6 +111,57 @@ class OntologyStore:
         self._persist(lambda raw: raw.setdefault("entity_relations", []).append(dict(relation)))
         return dict(relation)
 
+    def create_type_relation(self, src: str, predicate: str,
+                             dst: str) -> Optional[Dict[str, Any]]:
+        """Vorgabe auf Typebene: "Mandanten haben Dossiers".
+
+        count bleibt 0 - daran erkennt die Oberflaeche eine Vorgabe. Sobald
+        echte Verbindungen dieser Art entstehen, zaehlt die Verdichtung hoch.
+        """
+        predicate = " ".join(str(predicate or "").split())
+        src, dst = str(src or "").strip(), str(dst or "").strip()
+        known = {t["id"] for t in self._types}
+        if not predicate or src == dst or src not in known or dst not in known:
+            return None
+        for existing in self._relations:
+            if (existing["src"] == src and existing["dst"] == dst
+                    and existing["predicate"] == predicate):
+                return dict(existing)
+        relation = {"src": src, "predicate": predicate, "dst": dst, "count": 0}
+        self._relations.append(relation)
+        self._persist(lambda raw: raw.setdefault("relations", []).append(dict(relation)))
+        return dict(relation)
+
+    def delete_type_relation(self, src: str, predicate: str, dst: str) -> bool:
+        predicate = " ".join(str(predicate or "").split())
+        vorher = len(self._relations)
+        self._relations[:] = [
+            r for r in self._relations
+            if not (r["src"] == src and r["dst"] == dst
+                    and r["predicate"] == predicate)]
+        if len(self._relations) == vorher:
+            return False
+        self._persist(lambda raw: raw.__setitem__("relations", [
+            r for r in raw.get("relations") or []
+            if not (str(r.get("src")) == src and str(r.get("dst")) == dst
+                    and str(r.get("predicate")) == predicate)]))
+        return True
+
+    def delete_relation(self, src: str, predicate: str, dst: str) -> bool:
+        predicate = " ".join(str(predicate or "").split())
+        vorher = len(self._entity_relations)
+        self._entity_relations[:] = [
+            r for r in self._entity_relations
+            if not (r["src"] == src and r["dst"] == dst
+                    and r["predicate"] == predicate)]
+        if len(self._entity_relations) == vorher:
+            return False
+        self._persist(lambda raw: raw.__setitem__("entity_relations", [
+            r for r in raw.get("entity_relations") or []
+            if not (str(r.get("src")) == src and str(r.get("dst")) == dst
+                    and str(r.get("predicate")) == predicate)]))
+        return True
+
     def delete_entity(self, entity_id: str) -> bool:
         """Entitaet loeschen, samt ihrer Relationen und Belege - sonst blieben
         Verweise ins Leere zurueck."""
