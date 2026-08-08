@@ -253,3 +253,41 @@ def test_decide_rejects_unknown_ids():
     engine = _engine(FakeGraphClient())
     assert engine.decide(None, "f-unbekannt", "p-1", "reject")[1] == "not_found"
     assert engine.decide(None, "f-1", "p-1", "bla")[1] == "bad_action"
+
+
+def test_create_entity_calls_api_and_refreshes_topology():
+    """Kuratieren im Graph-Modus: Anlegen geht an die API, der Cache faellt."""
+    client = FakeGraphClient()
+    created_calls = []
+
+    def create_node(name, node_type_id=None):
+        created_calls.append((name, node_type_id))
+        node = {"id": "n-3", "name": name, "node_type_id": node_type_id,
+                "assignments": []}
+        client.nodes.append(node)
+        return {"status": "success", "node": node}
+
+    client.graph_create_node = create_node
+    source = GraphOntologySource(client, ttl_seconds=3600)
+    source.summary()                                   # Topologie im Cache
+    created = source.create_entity("Meier Immobilien AG", "t-mandant")
+    assert created == {"id": "n-3", "label": "Meier Immobilien AG",
+                       "type": "t-mandant", "doc_count": 0}
+    assert created_calls == [("Meier Immobilien AG", "t-mandant")]
+    # Cache wurde verworfen, der neue Knoten erscheint sofort
+    assert any(e["id"] == "n-3"
+               for e in source.entities_for_type("t-mandant")["entities"])
+    assert source.create_entity("", "t-mandant") is None
+
+
+def test_create_relation_maps_to_edge_endpoints():
+    client = FakeGraphClient()
+    calls = []
+    client.graph_create_edge = lambda node_lo, node_hi, relation: (
+        calls.append((node_lo, node_hi, relation)) or {"status": "success"})
+    source = GraphOntologySource(client)
+    assert source.create_relation("n-1", "hat Dossier", "n-2") == {
+        "src": "n-1", "predicate": "hat Dossier", "dst": "n-2"}
+    assert calls == [("n-1", "n-2", "hat Dossier")]
+    assert source.create_relation("n-1", "x", "n-1") is None      # Selbstbezug
+    assert source.create_relation("n-1", "", "n-2") is None

@@ -128,3 +128,37 @@ def test_optional_icon_name_passes_through_sanitized(tmp_path):
     types = {t["id"]: t for t in store.summary()["types"]}
     assert types[data["types"][0]["id"]]["icon"] == "shield"
     assert "icon" not in types[data["types"][1]["id"]]
+
+
+def test_create_entity_and_relation_persist_to_fixture(tmp_path):
+    """Der Graph ist kuratiert: Anlegen muss die Fixture fortschreiben."""
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+    type_id = VALID["types"][0]["id"]
+
+    created = store.create_entity("  Meier   Immobilien AG ", type_id)
+    assert created["label"] == "Meier Immobilien AG"      # Leerraum normalisiert
+    assert created["type"] == type_id
+    # gleicher Name im selben Typ legt nicht doppelt an
+    assert store.create_entity("meier immobilien ag", type_id)["id"] == created["id"]
+    assert store.create_entity("", type_id) is None
+    assert store.create_entity("X", "gibt-es-nicht") is None
+
+    other = VALID["entities"][0]["id"]
+    relation = store.create_relation(created["id"], "hat  Dossier", other)
+    assert relation == {"src": created["id"], "predicate": "hat Dossier", "dst": other}
+    assert store.create_relation(created["id"], "x", created["id"]) is None  # Selbstbezug
+    assert store.create_relation("e-404", "x", other) is None
+
+    # Neu eingelesen ist beides da, und das Detail zeigt die Verbindung
+    frisch = load_ontology(path)
+    labels = [e["label"] for e in frisch.entities_for_type(type_id)["entities"]]
+    assert "Meier Immobilien AG" in labels
+    detail = frisch.entity_detail(created["id"])
+    assert [(r["predicate"], r["direction"]) for r in detail["relations"]] == [
+        ("hat Dossier", "out")]
+
+
+def test_entities_without_type_returns_all(tmp_path):
+    store = load_ontology(_fixture(tmp_path, VALID))
+    assert len(store.entities_for_type("")["entities"]) == len(VALID["entities"])

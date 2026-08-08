@@ -630,6 +630,19 @@ class CortexApp {
                         <span class="entity-card-title">${esc(e.label)}</span>
                     </button></li>`).join('')}
                 </ul>`;
+            body.insertAdjacentHTML('beforeend', `
+                <div class="create-row">
+                    <input type="text" id="entityInput" maxlength="120"
+                           placeholder="Neue Entität, z. B. Meier Immobilien AG"
+                           aria-label="Name der neuen Entität">
+                    <button type="button" id="entityCreateBtn" class="btn btn-outline">Anlegen</button>
+                </div>`);
+            const entityInput = document.getElementById('entityInput');
+            const createEntity = () => this.onEntityCreate(typeId, label, entityInput.value);
+            document.getElementById('entityCreateBtn').addEventListener('click', createEntity);
+            entityInput.addEventListener('keydown', (evt) => {
+                if (evt.key === 'Enter') { evt.preventDefault(); createEntity(); }
+            });
             body.querySelectorAll('.entity-card').forEach((btn) =>
                 btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
         } catch (err) {
@@ -746,12 +759,24 @@ class CortexApp {
                     ${filterCard}
                     <h4>Belege</h4>${evidence}
                     <h4>Verbundene Entitäten</h4>${relations}
+                    <div class="connect-form">
+                        <input type="text" id="relationInput" maxlength="80"
+                               placeholder="Beziehung, z. B. hat Dossier"
+                               aria-label="Art der Beziehung">
+                        <select id="relationTarget" aria-label="Zielentität">
+                            <option value="">Zielentität wählen …</option>
+                        </select>
+                        <button type="button" id="relationCreateBtn" class="btn btn-outline">Verbinden</button>
+                    </div>
                 </div>`;
             document.getElementById('entityBack').addEventListener('click', () => {
                 const node = this.cy.getElementById(this.selectedType);
                 this.onTypeSelect(this.selectedType, node.data('label'));
             });
             this.syncFilterNodes(entityId, filters);
+            document.getElementById('relationCreateBtn').addEventListener(
+                'click', () => this.onRelationCreate(entityId));
+            this.fillRelationTargets(entityId);
             body.querySelectorAll('.filter-chip').forEach((btn) =>
                 btn.addEventListener('click', () => this.renderFilterPanel(btn.dataset.id)));
             const filterInput = document.getElementById('filterInput');
@@ -774,6 +799,56 @@ class CortexApp {
         } catch (err) {
             if (err.name === 'AbortError') return;
             body.innerHTML = '<p class="ontology-empty">Entität konnte nicht geladen werden.</p>';
+        }
+    }
+
+    /** Entität anlegen: der Graph ist kuratiert, Knovas leitet ihn nicht ab. */
+    async onEntityCreate(typeId, typeLabel, label) {
+        const input = document.getElementById('entityInput');
+        label = String(label || '').trim();
+        if (!label) { if (input) input.focus(); return; }
+        try {
+            const data = await this.postJson('/api/ontology/entities',
+                                             { type: typeId, label });
+            if (!data) return;
+            await this.onTypeSelect(typeId, typeLabel);   // Liste neu laden
+            this.collapseType(typeId);                    // Satelliten neu auffächern
+            const fresh = await this.fetchJson(
+                `/api/ontology/entities?type=${encodeURIComponent(typeId)}`);
+            if (fresh) this.renderEntityNodes(typeId, fresh.entities);
+        } catch (err) {
+            console.error('Cortex: Entität nicht anlegbar', err);
+        }
+    }
+
+    /** Auswahlliste für das Verbinden: alle Entitäten ausser dieser. */
+    async fillRelationTargets(entityId) {
+        const select = document.getElementById('relationTarget');
+        if (!select) return;
+        try {
+            const data = await this.fetchJson('/api/ontology/entities');
+            if (!data) return;
+            const esc = CortexApp.esc;
+            select.insertAdjacentHTML('beforeend', data.entities
+                .filter((e) => e.id !== entityId)
+                .map((e) => `<option value="${esc(e.id)}">${esc(e.label)}</option>`)
+                .join(''));
+        } catch (err) {
+            if (err.name !== 'AbortError') console.error('Cortex: Ziele nicht ladbar', err);
+        }
+    }
+
+    async onRelationCreate(entityId) {
+        const predicate = String(document.getElementById('relationInput').value || '').trim();
+        const target = document.getElementById('relationTarget').value;
+        if (!predicate || !target) return;
+        try {
+            const data = await this.postJson('/api/ontology/relations',
+                                             { src: entityId, predicate, dst: target });
+            if (!data) return;
+            await this.onEntitySelect(entityId);          // Detail neu laden
+        } catch (err) {
+            console.error('Cortex: Verbindung nicht anlegbar', err);
         }
     }
 

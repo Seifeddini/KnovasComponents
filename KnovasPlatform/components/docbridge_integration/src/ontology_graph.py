@@ -174,13 +174,14 @@ class GraphOntologySource:
 
     def entities_for_type(self, type_id: str) -> Dict[str, Any]:
         entities = []
+        want = str(type_id or "").strip()
         for node in self._export()["nodes"]:
-            if _node_type_id(node) != str(type_id):
+            if want and _node_type_id(node) != want:
                 continue
             entities.append({
                 "id": _node_id(node),
                 "label": _node_label(node) or _node_id(node),
-                "type": str(type_id),
+                "type": _node_type_id(node),
                 "doc_count": self._doc_count(node),
             })
         return {"entities": entities}
@@ -256,6 +257,48 @@ class GraphOntologySource:
                 "quote": quote,
             })
         return evidence
+
+    # -- Kuratieren -----------------------------------------------------
+    # Der Graph ist client-kuratiert: Knovas leitet Knoten und Relationen
+    # nicht selbst ab, wir legen sie an. Darauf setzen die automatischen
+    # Teile (Filter, Identifiers) erst auf.
+
+    def _invalidate(self) -> None:
+        self._export_cache = None
+
+    def create_entity(self, label: str, type_id: str) -> Optional[Dict[str, Any]]:
+        label = " ".join(str(label or "").split())
+        if not label:
+            return None
+        created = self._client.graph_create_node(label, node_type_id=str(type_id or "") or None)
+        if not created:
+            return None
+        node = created.get("node") if isinstance(created.get("node"), dict) else created
+        self._invalidate()
+        return {"id": _node_id(node), "label": _node_label(node) or label,
+                "type": _node_type_id(node) or str(type_id or ""), "doc_count": 0}
+
+    def create_relation(self, src: str, predicate: str,
+                        dst: str) -> Optional[Dict[str, Any]]:
+        predicate = " ".join(str(predicate or "").split())
+        src, dst = str(src or "").strip(), str(dst or "").strip()
+        if not predicate or not src or not dst or src == dst:
+            return None
+        created = self._client.graph_create_edge(node_lo=src, node_hi=dst,
+                                                 relation=predicate)
+        if not created:
+            return None
+        self._invalidate()
+        return {"src": src, "predicate": predicate, "dst": dst}
+
+    def assign_document(self, entity_id: str, pointer: str) -> bool:
+        """Dokument einem Knoten zuordnen - Grundlage fuer Filter."""
+        if not entity_id or not pointer:
+            return False
+        ok = self._client.graph_assign_knowledge(entity_id, pointer) is not None
+        if ok:
+            self._invalidate()
+        return ok
 
     def corpus(self) -> Dict[str, Any]:
         """Anzahl unterschiedlicher Dokumente ueber alle Knoten."""

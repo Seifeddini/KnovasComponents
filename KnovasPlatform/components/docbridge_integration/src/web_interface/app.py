@@ -1740,6 +1740,43 @@ def create_app(config_path: Optional[str] = None):
             logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
+    # Kuratieren: Der Wissensgraph wird vom Anwender gepflegt, Knovas leitet
+    # ihn nicht ab. Beide Quellen koennen schreiben - die Fixture in ihre
+    # Datei, die Graph-Quelle ueber POST /secured/graph/nodes bzw. /edges.
+
+    @app.route('/api/ontology/entities', methods=['POST'])
+    def ontology_entity_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            label = str(payload.get('label') or '').strip()
+            type_id = str(payload.get('type') or '').strip()
+            store = _ontology_source()
+            created = store.create_entity(label, type_id)
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Name oder Typ fehlt'}), 400
+            return jsonify({'success': True, 'entity': created}), 201
+        except Exception:
+            logger.error("Ontology entity create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/relations', methods=['POST'])
+    def ontology_relation_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            src = str(payload.get('src') or '').strip()
+            dst = str(payload.get('dst') or '').strip()
+            predicate = str(payload.get('predicate') or '').strip()
+            store = _ontology_source()
+            created = store.create_relation(src, predicate, dst)
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Verbindung nicht anlegbar'}), 400
+            return jsonify({'success': True, 'relation': created}), 201
+        except Exception:
+            logger.error("Ontology relation create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
     # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-
     # Memory, Logik in ontology_filters.py. POSTs laufen durch das
     # bestehende CSRF-Header-Gate; Routen stehen in KEINEM Exempt-Set.

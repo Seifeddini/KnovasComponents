@@ -1595,6 +1595,39 @@ class KnovasAPIClient:
             params={'depth': depth})
         return _graph_payload_list(payload, 'neighbors', 'nodes')
 
+    # -- Kuratieren (der Graph wird vom Client gepflegt, nicht abgeleitet) --
+
+    def graph_create_node_type(self, name: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/node-types - Typ-Vokabular erweitern."""
+        return self._graph_request('POST', '/node-types', data={'name': name})
+
+    def graph_create_node(self, name: str,
+                          node_type_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/nodes - Entitaet anlegen.
+
+        Achtung: Die Spezifikation zeigt als Body nur name (plus die
+        Zugriffsfelder); wie ein Knoten seinen Typ bekommt, ist dort nicht
+        beschrieben. Wir senden node_type_id - beim ersten Lauf gegen eine
+        echte Instanz pruefen, ob der Typ wirklich gesetzt wird.
+        """
+        payload: Dict[str, Any] = {'name': name}
+        if node_type_id:
+            payload['node_type_id'] = node_type_id
+        return self._graph_request('POST', '/nodes', data=payload)
+
+    def graph_create_edge(self, node_lo: str, node_hi: str,
+                          relation: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/edges - typisierte Relation zwischen Knoten."""
+        return self._graph_request('POST', '/edges', data={
+            'node_lo': node_lo, 'node_hi': node_hi, 'relation': relation})
+
+    def graph_assign_knowledge(self, node_id: str,
+                               pointer: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/nodes/<id>/knowledge - Dokument zuordnen."""
+        return self._graph_request(
+            'POST', f'/nodes/{quote(str(node_id), safe="")}/knowledge',
+            data={'pointer': pointer})
+
     def graph_filters(self, node_id: str) -> List[Dict[str, Any]]:
         """GET /secured/graph/nodes/<id>/filters - Filter eines Knotens."""
         payload = self._graph_request(

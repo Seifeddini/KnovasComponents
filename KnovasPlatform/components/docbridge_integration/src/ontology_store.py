@@ -36,7 +36,9 @@ def _as_int(value: Any, default: int = 0) -> int:
 
 
 class OntologyStore:
-    def __init__(self, data: Dict[str, Any], warnings: List[str]):
+    def __init__(self, data: Dict[str, Any], warnings: List[str],
+                 path: Optional[str] = None):
+        self._path = path
         self._types: List[Dict[str, Any]] = data["types"]
         self._relations: List[Dict[str, Any]] = data["relations"]
         self._entities: List[Dict[str, Any]] = data["entities"]
@@ -50,6 +52,69 @@ class OntologyStore:
         """Korpus-Kennzahlen fuer die Plattform-Leiste (optional in der Fixture)."""
         return dict(self._corpus)
 
+    # -- Kuratieren ------------------------------------------------------
+    # Der Wissensgraph wird vom Anwender gepflegt, nicht abgeleitet. Damit
+    # derselbe Ablauf lokal und gegen die API funktioniert, schreibt die
+    # Fixture-Quelle in ihre JSON-Datei zurueck.
+
+    def create_entity(self, label: str, type_id: str) -> Optional[Dict[str, Any]]:
+        label = " ".join(str(label or "").split())
+        type_id = str(type_id or "").strip()
+        if not label or not any(t["id"] == type_id for t in self._types):
+            return None
+        for existing in self._entities:
+            if existing["type"] == type_id and existing["label"].lower() == label.lower():
+                return dict(existing)
+        entity = {"id": self._next_entity_id(), "label": label,
+                  "type": type_id, "doc_count": 0}
+        self._entities.append(entity)
+        self._entity_by_id[entity["id"]] = entity
+        self._persist(lambda raw: raw.setdefault("entities", []).append(dict(entity)))
+        return dict(entity)
+
+    def create_relation(self, src: str, predicate: str,
+                        dst: str) -> Optional[Dict[str, Any]]:
+        predicate = " ".join(str(predicate or "").split())
+        src, dst = str(src or "").strip(), str(dst or "").strip()
+        if not predicate or src == dst:
+            return None
+        if src not in self._entity_by_id or dst not in self._entity_by_id:
+            return None
+        relation = {"src": src, "predicate": predicate, "dst": dst}
+        if relation in self._entity_relations:
+            return dict(relation)
+        self._entity_relations.append(relation)
+        self._persist(lambda raw: raw.setdefault("entity_relations", []).append(dict(relation)))
+        return dict(relation)
+
+    def _next_entity_id(self) -> str:
+        used = {e["id"] for e in self._entities}
+        index = len(used) + 1
+        while f"e-{index:03d}" in used:
+            index += 1
+        return f"e-{index:03d}"
+
+    def _persist(self, mutate: Callable[[Dict[str, Any]], None]) -> None:
+        """Aenderung in die Fixture schreiben (atomar). Ohne Pfad bleibt sie
+        im Speicher - dann ist der Store aus einem Test heraus gebaut."""
+        if not self._path:
+            return
+        try:
+            with open(self._path, encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                raise ValueError("Fixture ist kein JSON-Objekt")
+            mutate(raw)
+            tmp = f"{self._path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(raw, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self._path)
+        except (OSError, ValueError) as exc:
+            logger.error("Fixture nicht schreibbar (%s): %s", self._path, exc)
+            return
+        global _cache
+        _cache = None            # naechster Zugriff liest neu ein
+
     def summary(self) -> Dict[str, Any]:
         return {
             "types": [dict(t) for t in self._types],
@@ -57,6 +122,9 @@ class OntologyStore:
         }
 
     def entities_for_type(self, type_id: str) -> Dict[str, Any]:
+        """Ohne Typ alle Entitaeten - das braucht die Auswahl beim Verbinden."""
+        if not str(type_id or "").strip():
+            return {"entities": [dict(e) for e in self._entities]}
         return {"entities": [dict(e) for e in self._entities if e["type"] == type_id]}
 
     def entity_detail(self, entity_id: str) -> Optional[Dict[str, Any]]:
@@ -184,7 +252,7 @@ def load_ontology(path: str,
     data, warnings = _validate(raw, path_exists)
     for w in warnings:
         logger.warning("Ontology-Fixture: %s", w)
-    return OntologyStore(data, warnings)
+    return OntologyStore(data, warnings, path=path)
 
 
 _cache: Optional[Tuple[str, float, OntologyStore]] = None
