@@ -329,6 +329,8 @@ class GraphOntologySource:
             if _type_id(node_type) != str(src):
                 continue
             for attribut in node_type.get("schema") or node_type.get("attributes") or []:
+                if not isinstance(attribut, dict):
+                    continue
                 if str(_first(attribut, "name", "label")) != predicate:
                     continue
                 ok = self._client.graph_delete_schema_attribute(

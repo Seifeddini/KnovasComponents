@@ -322,3 +322,34 @@ def test_delete_relation_removes_matching_edge():
     assert source.delete_relation("n-1", "hat_Dossier", "n-2") is True
     assert geloescht == ["e-1"]
     assert source.delete_relation("n-1", "gibt_es_nicht", "n-2") is False
+
+
+def test_delete_type_relation_robust_against_corrupt_schema():
+    """delete_type_relation filtert nicht-Dict-Elemente in der schema-Liste."""
+    client = FakeGraphClient()
+    geloescht = []
+    client.graph_delete_schema_attribute = lambda type_id, attribute_id: (
+        geloescht.append((type_id, attribute_id)) or {"status": "success"})
+
+    # Knotentyp mit schema-Liste, die gueltige Attribute und kaputte Eintraege enthaelt
+    client.node_types = [
+        {"id": "t-mandant", "name": "Mandant",
+         "schema": [
+             None,                                          # kaputt
+             42,                                            # kaputt
+             {"id": "a-1", "name": "hat Dossier"},         # gueltig
+         ]}
+    ]
+    source = GraphOntologySource(client)
+
+    # Erfolgsfall: Attribut wird gefunden und geloescht trotz kaputter Eintraege
+    assert source.delete_type_relation("t-mandant", "hat Dossier", "t-dossier") is True
+    assert geloescht == [("t-mandant", "a-1")]
+
+    # fehlendes Attribut
+    geloescht.clear()
+    assert source.delete_type_relation("t-mandant", "gibt_es_nicht", "t-dossier") is False
+    assert geloescht == []
+
+    # fehlender Typ
+    assert source.delete_type_relation("t-unbekannt", "hat Dossier", "t-dossier") is False
