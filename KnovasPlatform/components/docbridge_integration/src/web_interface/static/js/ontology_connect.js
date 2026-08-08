@@ -22,7 +22,15 @@ class ConnectGesture {
 
     _bind() {
         this._onOver = (evt) => this._zeigeGriff(evt.target);
-        this._onOut = () => this._versteckeGriff();
+        this._onOut = (evt) => {
+            if (evt.originalEvent && evt.originalEvent.relatedTarget === this.griff) {
+                return;
+            }
+            if (evt.originalEvent && this.griff && this.griff.contains(evt.originalEvent.relatedTarget)) {
+                return;
+            }
+            this._versteckeGriff();
+        };
         this._onPan = () => this._versteckeGriff();
         this.cy.on('mouseover', 'node', this._onOver);
         this.cy.on('mouseout', 'node', this._onOut);
@@ -36,7 +44,11 @@ class ConnectGesture {
             this.griff.className = 'connect-handle';
             this.griff.setAttribute('aria-label', 'Verbindung ziehen');
             this._onGriffMouseDown = (e) => this._start(e);
+            this._onGriffMouseLeave = () => {
+                if (!this.quelle) this._versteckeGriff();
+            };
             this.griff.addEventListener('mousedown', this._onGriffMouseDown);
+            this.griff.addEventListener('mouseleave', this._onGriffMouseLeave);
             this.cy.container().parentElement.appendChild(this.griff);
         }
         return this.griff;
@@ -46,11 +58,11 @@ class ConnectGesture {
         if (this.quelle) return;                    // waehrend eines Zuges nicht
         if (!nodeEbene(node)) { this._versteckeGriff(); return; }
         const p = node.renderedPosition();
-        const radius = (node.renderedWidth() / 2) + 6;
+        const radius = (node.renderedWidth() / 2) - 2;
         const griff = this._griffElement();
         griff.dataset.nodeId = node.id();
         griff.style.left = `${p.x + radius}px`;
-        griff.style.top = `${p.y - radius}px`;
+        griff.style.top = `${p.y}px`;
         griff.hidden = false;
     }
 
@@ -119,7 +131,6 @@ class ConnectGesture {
     }
 
     _beende(event) {
-        window.removeEventListener('mousemove', this._onMove);
         const ziel = this._zielUnter(event);
         const quelle = this.quelle;
         const ebene = this.ebene;
@@ -133,6 +144,14 @@ class ConnectGesture {
         this.cy.nodes('.connect-target').removeClass('connect-target');
         if (this.vorschau) { this.vorschau.remove(); this.vorschau = null; }
         if (this.zeiger) { this.zeiger.remove(); this.zeiger = null; }
+        if (this._onMove) {
+            window.removeEventListener('mousemove', this._onMove);
+            this._onMove = null;
+        }
+        if (this._onUp) {
+            window.removeEventListener('mouseup', this._onUp);
+            this._onUp = null;
+        }
         this.quelle = null;
         this.ebene = null;
         this.cy.userPanningEnabled(true);
@@ -148,6 +167,9 @@ class ConnectGesture {
         if (this.griff) {
             if (this._onGriffMouseDown) {
                 this.griff.removeEventListener('mousedown', this._onGriffMouseDown);
+            }
+            if (this._onGriffMouseLeave) {
+                this.griff.removeEventListener('mouseleave', this._onGriffMouseLeave);
             }
             this.griff.remove();
             this.griff = null;
