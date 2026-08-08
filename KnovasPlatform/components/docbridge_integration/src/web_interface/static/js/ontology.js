@@ -703,7 +703,7 @@ class CortexApp {
                      <li><button type="button" class="evidence-item" data-index="${i}"
                                  data-path="${esc(ev.document.path)}" data-page="${ev.page}"
                                  data-title="${esc(ev.document.title)}">
-                         <span class="evidence-quote">«${esc(ev.quote)}»</span>
+                         ${ev.quote ? `<span class="evidence-quote">«${esc(ev.quote)}»</span>` : ''}
                          <span class="evidence-source">${esc(ev.document.title)}, Seite ${ev.page}</span>
                      </button></li>`).join('')}
                    </ol>`
@@ -918,7 +918,7 @@ class CortexApp {
                 <button type="button" class="evidence-item proposal-quote"
                         data-path="${esc(p.document.path)}" data-page="${p.page}"
                         data-title="${esc(p.document.title)}">
-                    <span class="evidence-quote">«${esc(p.quote)}»</span>
+                    ${p.quote ? `<span class="evidence-quote">«${esc(p.quote)}»</span>` : ''}
                     <span class="evidence-source">${esc(p.document.title)}, Seite ${p.page}</span>
                 </button>
                 ${p.state === 'pending' ? `

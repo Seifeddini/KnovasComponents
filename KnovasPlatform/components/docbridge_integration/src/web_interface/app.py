@@ -992,7 +992,7 @@ def create_app(config_path: Optional[str] = None):
         fehlt sie in der Fixture, laesst die Leiste den Block weg."""
         documents = 0
         try:
-            raw = get_ontology(path_exists=_ontology_path_exists).corpus().get('documents')
+            raw = _ontology_source().corpus().get('documents')
             documents = int(raw) if raw is not None else 0
         except Exception:
             logger.warning("Korpus-Kennzahl nicht ermittelbar", exc_info=True)
@@ -1658,10 +1658,42 @@ def create_app(config_path: Optional[str] = None):
         full = _resolve_autodoc_path(rel_path)
         return bool(full) and os.path.exists(full)
 
+    # Quelle des Cortex: 'fixture' (Standard, lokale JSON) oder 'graph'
+    # (Knovas Knowledge Graph API). Der Vertrag ist identisch, deshalb ist
+    # der Wechsel ein Schalter und kein Umbau.
+    _cortex_text_resolver: Dict[str, Any] = {}
+
+    def _ontology_source_is_graph() -> bool:
+        return (os.getenv('ONTOLOGY_SOURCE') or 'fixture').strip().lower() == 'graph'
+
+    def _document_text_resolver():
+        """Wortlaut zu einem Pointer - die API liefert keinen Passagentext."""
+        if 'resolver' not in _cortex_text_resolver:
+            from ontology_text import DocumentTextResolver
+            _cortex_text_resolver['resolver'] = DocumentTextResolver(
+                resolve_path=_resolve_autodoc_path)
+        return _cortex_text_resolver['resolver']
+
+    def _ontology_source():
+        if not _ontology_source_is_graph():
+            return get_ontology(path_exists=_ontology_path_exists)
+        from ontology_graph import GraphOntologySource
+        return GraphOntologySource(api_client,
+                                   text_resolver=_document_text_resolver())
+
+    def _ontology_filter_engine():
+        if not _ontology_source_is_graph():
+            return get_filter_engine(resolve_path=_resolve_autodoc_path)
+        from ontology_graph_filters import GraphFilterEngine
+        return GraphFilterEngine(
+            api_client,
+            state_path=(os.getenv('ONTOLOGY_FILTER_STATE_PATH') or '').strip() or None,
+            text_resolver=_document_text_resolver())
+
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
         try:
-            store = get_ontology(path_exists=_ontology_path_exists)
+            store = _ontology_source()
             payload = store.summary()
             return jsonify({'success': True,
                             'types': payload['types'],
@@ -1674,7 +1706,7 @@ def create_app(config_path: Optional[str] = None):
     def ontology_entities():
         try:
             type_id = str(request.args.get('type') or '').strip()
-            store = get_ontology(path_exists=_ontology_path_exists)
+            store = _ontology_source()
             return jsonify({'success': True, **store.entities_for_type(type_id)})
         except Exception:
             logger.error("Ontology entities error", exc_info=True)
@@ -1683,11 +1715,11 @@ def create_app(config_path: Optional[str] = None):
     @app.route('/api/ontology/entities/<entity_id>', methods=['GET'])
     def ontology_entity_detail(entity_id: str):
         try:
-            store = get_ontology(path_exists=_ontology_path_exists)
+            store = _ontology_source()
             detail = store.entity_detail(entity_id)
             if detail is None:
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
-            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            engine = _ontology_filter_engine()
             detail['filters'] = engine.filters_for_entity(store, entity_id)
             return jsonify({'success': True, **detail})
         except Exception:
@@ -1704,10 +1736,10 @@ def create_app(config_path: Optional[str] = None):
             payload = request.get_json(silent=True) or {}
             entity_id = str(payload.get('entity_id') or '').strip()
             label = str(payload.get('label') or '').strip()
-            store = get_ontology(path_exists=_ontology_path_exists)
+            store = _ontology_source()
             if store.entity_detail(entity_id) is None:
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
-            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            engine = _ontology_filter_engine()
             created = engine.create_filter(entity_id, label)
             if created is None:
                 return jsonify({'success': False,
@@ -1721,8 +1753,8 @@ def create_app(config_path: Optional[str] = None):
     @app.route('/api/ontology/filters/<filter_id>', methods=['GET'])
     def ontology_filter_detail(filter_id: str):
         try:
-            store = get_ontology(path_exists=_ontology_path_exists)
-            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            store = _ontology_source()
+            engine = _ontology_filter_engine()
             detail = engine.filter_detail(store, filter_id)
             if detail is None:
                 return jsonify({'success': False, 'error': 'Filter nicht gefunden'}), 404
@@ -1737,8 +1769,8 @@ def create_app(config_path: Optional[str] = None):
             payload = request.get_json(silent=True) or {}
             proposal_id = str(payload.get('proposal_id') or '').strip()
             action = str(payload.get('action') or '').strip()
-            store = get_ontology(path_exists=_ontology_path_exists)
-            engine = get_filter_engine(resolve_path=_resolve_autodoc_path)
+            store = _ontology_source()
+            engine = _ontology_filter_engine()
             proposal, error = engine.decide(store, filter_id, proposal_id, action)
             if error == 'bad_action':
                 return jsonify({'success': False, 'error': 'Ungültige Aktion'}), 400

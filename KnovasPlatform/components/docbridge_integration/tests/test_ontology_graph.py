@@ -1,0 +1,255 @@
+"""Mapping Knowledge Graph API -> Cortex-Vertrag.
+
+Gegen einen simulierten Client: die echte Instanz steht noch nicht, das
+Mapping soll trotzdem beweisbar sein. Die Antwortformen folgen
+Knowledge_Graph_API.md; wo die Spezifikation schweigt (Placements), decken
+die Tests die tolerante Auswertung ab.
+"""
+import sys
+from pathlib import Path
+
+import pytest
+
+SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from ontology_graph import GraphOntologySource  # noqa: E402
+from ontology_graph_filters import GraphFilterEngine  # noqa: E402
+
+
+class FakeGraphClient:
+    """Minimaler Client mit den Antwortformen der Spezifikation."""
+
+    def __init__(self, **overrides):
+        self.node_types = [
+            {"id": "t-mandant", "name": "Mandant"},
+            {"id": "t-dossier", "name": "Dossier"},
+        ]
+        self.nodes = [
+            {"id": "n-1", "name": "Müller Bau AG", "node_type_id": "t-mandant",
+             "assignments": [{"pointer": "kanzlei/mandat.pdf"}]},
+            {"id": "n-2", "name": "Dossier 2024-001", "node_type_id": "t-dossier",
+             "assignments": [{"pointer": "kanzlei/dossier.pdf"}]},
+        ]
+        self.edges = [
+            {"node_lo": "n-1", "node_hi": "n-2", "relation": "hat_Dossier"},
+        ]
+        self.filters = {}
+        self.placements = {}
+        self.rejected = []
+        self.__dict__.update(overrides)
+
+    def graph_export(self):
+        return {"status": "success", "node_types": self.node_types,
+                "nodes": self.nodes, "edges": self.edges}
+
+    def graph_node_types(self):
+        return self.node_types
+
+    def graph_nodes(self):
+        return self.nodes
+
+    def graph_edges(self):
+        return self.edges
+
+    def graph_node(self, node_id):
+        for node in self.nodes:
+            if node["id"] == node_id:
+                return {"status": "success", "node": node}
+        return None
+
+    def graph_filters(self, node_id):
+        return self.filters.get(node_id, [])
+
+    def graph_create_filter(self, node_id, query_text, child_node_name):
+        created = {"id": f"f-{len(self.filters) + 1}", "query_text": query_text,
+                   "child_node_id": f"c-{node_id}"}
+        self.filters.setdefault(node_id, []).append(created)
+        return {"status": "success", "filter": created}
+
+    def graph_placements(self, node_id, status="active"):
+        return [p for p in self.placements.get(node_id, [])
+                if p.get("_status", "active") == status]
+
+    def graph_reject_placement(self, placement_id):
+        for items in self.placements.values():
+            for placement in items:
+                if placement["id"] == placement_id:
+                    placement["_status"] = "rejected"
+                    self.rejected.append(placement_id)
+                    return {"status": "success"}
+        return None
+
+
+class FakeText:
+    """Steht fuer die lokale Textaufloesung (API liefert keinen Wortlaut)."""
+
+    def __init__(self, mentions=None, page_quotes=None):
+        self.mentions = mentions or {}
+        self.page_quotes = page_quotes or {}
+
+    def find_mention(self, pointer, needle):
+        return self.mentions.get((pointer, needle))
+
+    def quote_on_page(self, pointer, page, needle=None):
+        return self.page_quotes.get((pointer, page), "")
+
+
+def test_summary_maps_node_types_and_aggregates_edges():
+    source = GraphOntologySource(FakeGraphClient())
+    summary = source.summary()
+    assert [t["id"] for t in summary["types"]] == ["t-mandant", "t-dossier"]
+    assert [t["label"] for t in summary["types"]] == ["Mandant", "Dossier"]
+    assert [t["count"] for t in summary["types"]] == [1, 1]
+    # Instanz-Kanten werden zu einer Typ-Kante verdichtet
+    assert summary["relations"] == [
+        {"src": "t-mandant", "predicate": "hat_Dossier", "dst": "t-dossier",
+         "count": 1},
+    ]
+
+
+def test_entities_for_type_and_doc_count():
+    source = GraphOntologySource(FakeGraphClient())
+    entities = source.entities_for_type("t-mandant")["entities"]
+    assert entities == [{"id": "n-1", "label": "Müller Bau AG",
+                         "type": "t-mandant", "doc_count": 1}]
+    assert source.entities_for_type("gibt-es-nicht")["entities"] == []
+
+
+def test_entity_detail_relations_carry_direction():
+    source = GraphOntologySource(FakeGraphClient())
+    detail = source.entity_detail("n-2")
+    assert detail["entity"]["label"] == "Dossier 2024-001"
+    # n-2 ist node_hi -> eingehende Richtung
+    assert detail["relations"] == [
+        {"predicate": "hat_Dossier", "direction": "in",
+         "target": {"id": "n-1", "label": "Müller Bau AG", "type": "t-mandant"}},
+    ]
+    assert source.entity_detail("n-404") is None
+
+
+def test_evidence_uses_local_text_and_never_invents_a_quote():
+    text = FakeText(mentions={
+        ("kanzlei/mandat.pdf", "Müller Bau AG"): (3, "Die Müller Bau AG erteilt das Mandat."),
+    })
+    source = GraphOntologySource(FakeGraphClient(), text_resolver=text)
+
+    found = source.entity_detail("n-1")["evidence"]
+    assert found == [{"document": {"path": "kanzlei/mandat.pdf", "title": "mandat"},
+                      "page": 3, "quote": "Die Müller Bau AG erteilt das Mandat."}]
+
+    # Ohne woertliche Fundstelle bleibt das Zitat leer statt erfunden
+    ohne = GraphOntologySource(FakeGraphClient(), text_resolver=FakeText())
+    assert ohne.entity_detail("n-1")["evidence"][0]["quote"] == ""
+
+
+def test_corpus_counts_distinct_pointers():
+    assert GraphOntologySource(FakeGraphClient()).corpus() == {"documents": 2}
+    leer = GraphOntologySource(FakeGraphClient(nodes=[]))
+    assert leer.corpus() == {}
+
+
+def test_export_is_cached_within_ttl():
+    client = FakeGraphClient()
+    calls = {"n": 0}
+    original = client.graph_export
+
+    def counting():
+        calls["n"] += 1
+        return original()
+
+    client.graph_export = counting
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: 1000.0)
+    source.summary()
+    source.summary()
+    assert calls["n"] == 1
+
+
+def test_tolerates_alternative_field_names():
+    """Die Spec zeigt die Listenformen nicht - andere Schreibweisen duerfen
+    nicht zum leeren Graphen fuehren."""
+    client = FakeGraphClient(
+        node_types=[{"node_type_id": "t-x", "label": "Vertrag"}],
+        nodes=[{"node_id": "n-9", "title": "Werkvertrag", "type_id": "t-x",
+                "pointers": ["a/b.pdf"]}],
+        edges=[],
+    )
+    summary = GraphOntologySource(client).summary()
+    assert summary["types"] == [{"id": "t-x", "label": "Vertrag", "count": 1}]
+    entities = GraphOntologySource(client).entities_for_type("t-x")["entities"]
+    assert entities[0]["label"] == "Werkvertrag"
+    assert entities[0]["doc_count"] == 1
+
+
+# -- Filter ---------------------------------------------------------------
+
+
+def _engine(client, tmp_path=None, text=None):
+    return GraphFilterEngine(client,
+                             state_path=str(tmp_path / "review.json") if tmp_path else None,
+                             text_resolver=text)
+
+
+def test_create_filter_calls_api_and_dedupes():
+    client = FakeGraphClient()
+    engine = _engine(client)
+    first = engine.create_filter("n-2", "Kündigungsklauseln und Fristen")
+    assert first["id"] == "f-1"
+    again = engine.create_filter("n-2", "  kündigungsklauseln und fristen ")
+    assert again["id"] == "f-1"          # kein zweiter Filter
+    assert len(client.filters["n-2"]) == 1
+    assert engine.create_filter("n-2", "") is None
+
+
+def test_placements_map_to_proposals_with_local_quote():
+    client = FakeGraphClient()
+    engine = _engine(client, text=FakeText(page_quotes={
+        ("kanzlei/dossier.pdf", 3): "Die Kündigungsfrist beträgt drei Monate.",
+    }))
+    engine.create_filter("n-2", "Fristen")
+    client.placements["c-n-2"] = [
+        {"id": "p-1", "pointer": "kanzlei/dossier.pdf", "page_number": 3,
+         "score": 0.81},
+    ]
+    detail = engine.filter_detail(None, "f-1")
+    proposal = detail["proposals"][0]
+    assert proposal["state"] == "pending"
+    assert proposal["page"] == 3 and proposal["score"] == 0.81
+    assert proposal["quote"] == "Die Kündigungsfrist beträgt drei Monate."
+    assert detail["filter"]["counts"] == {"pending": 1, "accepted": 0, "rejected": 0}
+
+
+def test_reject_goes_to_api_and_is_final():
+    client = FakeGraphClient()
+    engine = _engine(client)
+    engine.create_filter("n-2", "Fristen")
+    client.placements["c-n-2"] = [{"id": "p-1", "pointer": "a.pdf", "page_number": 1,
+                                   "score": 0.5}]
+    proposal, err = engine.decide(None, "f-1", "p-1", "reject")
+    assert err == "" and proposal["state"] == "rejected"
+    assert client.rejected == ["p-1"]        # Ablehnung liegt im Backend
+
+    # danach unveraenderbar, auch per accept
+    proposal, err = engine.decide(None, "f-1", "p-1", "accept")
+    assert err == "" and proposal["state"] == "rejected"
+
+
+def test_accept_is_local_review_state_and_survives_restart(tmp_path):
+    client = FakeGraphClient()
+    engine = _engine(client, tmp_path)
+    engine.create_filter("n-2", "Fristen")
+    client.placements["c-n-2"] = [{"id": "p-1", "pointer": "a.pdf", "page_number": 1,
+                                   "score": 0.5}]
+    proposal, err = engine.decide(None, "f-1", "p-1", "accept")
+    assert err == "" and proposal["state"] == "accepted"
+    assert client.rejected == []             # accept fasst die API nicht an
+
+    wieder = _engine(client, tmp_path)
+    assert wieder.filter_detail(None, "f-1")["proposals"][0]["state"] == "accepted"
+
+
+def test_decide_rejects_unknown_ids():
+    engine = _engine(FakeGraphClient())
+    assert engine.decide(None, "f-unbekannt", "p-1", "reject")[1] == "not_found"
+    assert engine.decide(None, "f-1", "p-1", "bla")[1] == "bad_action"

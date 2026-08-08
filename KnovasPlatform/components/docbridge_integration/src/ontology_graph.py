@@ -1,0 +1,272 @@
+"""Cortex-Quelle auf Basis der Knovas Knowledge Graph API.
+
+Erfuellt denselben Vertrag wie ontology_store.OntologyStore (summary,
+entities_for_type, entity_detail, corpus), holt die Daten aber aus
+/secured/graph statt aus einer Fixture. Damit bleibt alles darueber -
+Routen, JSON-Vertrag, Oberflaeche - unveraendert.
+
+Abbildung (Knowledge_Graph_API.md):
+    Typ                  -> node-type
+    Entitaet             -> node
+    Verbundene Entitaet  -> edge (node_lo/node_hi + relation)
+    Beleg                -> Zuordnung (pointer) + lokal aufgeloester Wortlaut
+
+Feldnamen werden tolerant gelesen: die Spezifikation zeigt die
+Listen-Antworten nicht im Detail, deshalb akzeptiert jeder Zugriff mehrere
+plausible Schreibweisen, statt bei der ersten Abweichung zu brechen.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_TTL_SECONDS = 60
+
+
+def _first(mapping: Dict[str, Any], *keys: str, default: Any = "") -> Any:
+    for key in keys:
+        if key in mapping and mapping[key] not in (None, ""):
+            return mapping[key]
+    return default
+
+
+def _node_id(node: Dict[str, Any]) -> str:
+    return str(_first(node, "id", "node_id", "uuid"))
+
+
+def _node_label(node: Dict[str, Any]) -> str:
+    return str(_first(node, "name", "label", "title"))
+
+
+def _node_type_id(node: Dict[str, Any]) -> str:
+    value = _first(node, "node_type_id", "type_id", "node_type", "type")
+    if isinstance(value, dict):                 # eingebettetes Typ-Objekt
+        return str(_first(value, "id", "node_type_id", "uuid"))
+    return str(value)
+
+
+def _type_id(node_type: Dict[str, Any]) -> str:
+    return str(_first(node_type, "id", "node_type_id", "uuid"))
+
+
+def _type_label(node_type: Dict[str, Any]) -> str:
+    return str(_first(node_type, "name", "label", "title"))
+
+
+def _edge_ends(edge: Dict[str, Any]) -> Optional[tuple]:
+    """(src, dst, predicate) einer Kante; None wenn unbrauchbar."""
+    src = str(_first(edge, "node_lo", "source", "src", "from_node_id"))
+    dst = str(_first(edge, "node_hi", "target", "dst", "to_node_id"))
+    predicate = str(_first(edge, "relation", "predicate", "label", "type"))
+    if not src or not dst or not predicate:
+        return None
+    return src, dst, predicate
+
+
+def _pointers_of(node_detail: Dict[str, Any]) -> List[str]:
+    """Dokument-Pointer eines Knotens aus seinen Zuordnungen."""
+    out: List[str] = []
+    for key in ("assignments", "knowledge", "documents", "pointers"):
+        value = node_detail.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, str):
+                pointer = item
+            elif isinstance(item, dict):
+                pointer = str(_first(item, "pointer", "identifier", "document_id"))
+            else:
+                continue
+            if pointer and pointer not in out:
+                out.append(pointer)
+        if out:
+            break
+    return out
+
+
+class GraphOntologySource:
+    """Lesende Cortex-Quelle gegen /secured/graph.
+
+    Der Topologie-Export traegt Typen, Knoten und Kanten in einem Aufruf und
+    wird kurz zwischengespeichert - das haelt die Zahl der Anfragen klein
+    (die Secure-API begrenzt sie deutlich).
+    """
+
+    def __init__(self, client: Any,
+                 text_resolver: Any = None,
+                 ttl_seconds: int = DEFAULT_TTL_SECONDS,
+                 now: Optional[Callable[[], float]] = None):
+        self._client = client
+        self._text = text_resolver
+        self._ttl = max(0, int(ttl_seconds))
+        self._now = now or time.time
+        self._export_cache: Optional[Dict[str, Any]] = None
+        self._export_at = 0.0
+        self.warnings: List[str] = []
+
+    # -- Topologie ------------------------------------------------------
+
+    def _export(self) -> Dict[str, Any]:
+        if (self._export_cache is not None
+                and self._now() - self._export_at < self._ttl):
+            return self._export_cache
+        from knovas_client import _graph_payload_list
+
+        raw = self._client.graph_export() or {}
+        node_types = _graph_payload_list(raw.get("node_types") or raw,
+                                         "node_types", "nodeTypes", "types")
+        nodes = _graph_payload_list(raw.get("nodes") or raw, "nodes")
+        edges = _graph_payload_list(raw.get("edges") or raw, "edges")
+        # Der Export ist nicht in jeder Ausbaustufe vollstaendig - fehlende
+        # Teile einzeln nachholen, statt mit einem leeren Graphen dazustehen.
+        if not node_types:
+            node_types = self._client.graph_node_types()
+        if not nodes:
+            nodes = self._client.graph_nodes()
+        if not edges:
+            edges = self._client.graph_edges()
+        data = {"node_types": node_types, "nodes": nodes, "edges": edges}
+        self._export_cache = data
+        self._export_at = self._now()
+        return data
+
+    def summary(self) -> Dict[str, Any]:
+        data = self._export()
+        nodes = data["nodes"]
+        type_by_node = {_node_id(n): _node_type_id(n) for n in nodes}
+
+        counts: Dict[str, int] = {}
+        for node in nodes:
+            counts[_node_type_id(node)] = counts.get(_node_type_id(node), 0) + 1
+
+        types = []
+        for node_type in data["node_types"]:
+            tid = _type_id(node_type)
+            if not tid:
+                continue
+            entry = {"id": tid, "label": _type_label(node_type) or tid,
+                     "count": counts.get(tid, 0)}
+            icon = str(node_type.get("icon") or "").strip().lower()
+            if icon:
+                entry["icon"] = icon
+            types.append(entry)
+
+        # Typ-Ebene: Kanten zwischen Instanzen zu Typ-Paaren verdichten.
+        known = {t["id"] for t in types}
+        aggregated: Dict[tuple, int] = {}
+        for edge in data["edges"]:
+            ends = _edge_ends(edge)
+            if ends is None:
+                continue
+            src, dst, predicate = ends
+            src_type, dst_type = type_by_node.get(src), type_by_node.get(dst)
+            if src_type not in known or dst_type not in known:
+                continue
+            key = (src_type, predicate, dst_type)
+            aggregated[key] = aggregated.get(key, 0) + 1
+
+        relations = [{"src": s, "predicate": p, "dst": d, "count": c}
+                     for (s, p, d), c in sorted(aggregated.items())]
+        return {"types": types, "relations": relations}
+
+    def entities_for_type(self, type_id: str) -> Dict[str, Any]:
+        entities = []
+        for node in self._export()["nodes"]:
+            if _node_type_id(node) != str(type_id):
+                continue
+            entities.append({
+                "id": _node_id(node),
+                "label": _node_label(node) or _node_id(node),
+                "type": str(type_id),
+                "doc_count": self._doc_count(node),
+            })
+        return {"entities": entities}
+
+    @staticmethod
+    def _doc_count(node: Dict[str, Any]) -> int:
+        for key in ("document_count", "doc_count", "assignment_count"):
+            if isinstance(node.get(key), int):
+                return int(node[key])
+        pointers = _pointers_of(node)
+        return len(pointers)
+
+    # -- Detail ---------------------------------------------------------
+
+    def entity_detail(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        detail = self._client.graph_node(entity_id)
+        if not detail:
+            return None
+        node = detail.get("node") if isinstance(detail.get("node"), dict) else detail
+        entity = {
+            "id": _node_id(node) or str(entity_id),
+            "label": _node_label(node) or str(entity_id),
+            "type": _node_type_id(node),
+            "doc_count": self._doc_count(node) or self._doc_count(detail),
+        }
+
+        data = self._export()
+        label_by_id = {_node_id(n): _node_label(n) for n in data["nodes"]}
+        type_by_id = {_node_id(n): _node_type_id(n) for n in data["nodes"]}
+        relations = []
+        for edge in data["edges"]:
+            ends = _edge_ends(edge)
+            if ends is None:
+                continue
+            src, dst, predicate = ends
+            if src == entity["id"]:
+                other, direction = dst, "out"
+            elif dst == entity["id"]:
+                other, direction = src, "in"
+            else:
+                continue
+            if other not in label_by_id:
+                continue
+            relations.append({
+                "predicate": predicate,
+                "direction": direction,
+                "target": {"id": other, "label": label_by_id[other] or other,
+                           "type": type_by_id.get(other, "")},
+            })
+
+        return {"entity": entity, "relations": relations,
+                "evidence": self._evidence(detail, node, entity["label"])}
+
+    def _evidence(self, detail: Dict[str, Any], node: Dict[str, Any],
+                  label: str) -> List[Dict[str, Any]]:
+        """Belege aus den zugeordneten Dokumenten.
+
+        Die API nennt nur den Pointer. Seite und Wortlaut kommen aus der
+        lokalen Aufloesung; findet sie keine woertliche Erwaehnung, bleibt
+        das Zitat leer - erfunden wird nichts.
+        """
+        pointers = _pointers_of(detail) or _pointers_of(node)
+        evidence = []
+        for pointer in pointers:
+            page, quote = 1, ""
+            if self._text is not None:
+                found = self._text.find_mention(pointer, label)
+                if found:
+                    page, quote = found
+            evidence.append({
+                "document": {"path": pointer, "title": _title_for(pointer)},
+                "page": page,
+                "quote": quote,
+            })
+        return evidence
+
+    def corpus(self) -> Dict[str, Any]:
+        """Anzahl unterschiedlicher Dokumente ueber alle Knoten."""
+        pointers = set()
+        for node in self._export()["nodes"]:
+            pointers.update(_pointers_of(node))
+        return {"documents": len(pointers)} if pointers else {}
+
+
+def _title_for(pointer: str) -> str:
+    """Lesbarer Titel aus einem Pointer (Dateiname ohne Endung)."""
+    base = str(pointer or "").replace("\\", "/").rstrip("/").split("/")[-1]
+    stem = base.rsplit(".", 1)[0] if "." in base else base
+    return stem or str(pointer)
