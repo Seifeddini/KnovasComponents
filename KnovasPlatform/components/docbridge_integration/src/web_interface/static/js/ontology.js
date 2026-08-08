@@ -1228,7 +1228,11 @@ class CortexApp {
             const data = await this.postJson(url, {
                 src: kennung(srcId), predicate, dst: kennung(dstId) });
             if (!data) return;
-            this.addRelationToGraph(srcId, dstId, predicate, ebene);
+            // Der Server gibt bei gleichem Tripel den bestehenden Eintrag
+            // zurueck. Traegt der bereits eine Anzahl, ist es keine Vorgabe
+            // mehr, sondern eine verdichtete Linie.
+            const anzahl = (data.relation && Number(data.relation.count)) || 0;
+            this.addRelationToGraph(srcId, dstId, predicate, ebene, anzahl);
             // Bei Entitaeten NICHT die Drawer schliessen: closeDrawers klappt
             // den Typ ein und entfernt dabei die Satelliten samt der gerade
             // gezeichneten Kante. Stattdessen das Detail der Quelle neu
@@ -1244,15 +1248,33 @@ class CortexApp {
         }
     }
 
-    /** Linie einfuegen, ohne den Graphen neu aufzubauen. */
-    addRelationToGraph(srcId, dstId, predicate, ebene) {
+    /** Gibt es schon eine Linie mit denselben Enden und demselben Namen?
+        Ueber die Datenfelder, nicht ueber die Id: dieselbe Verbindung kann
+        aus dem Aufbau (r-3) oder aus einem Zug (neu:...) stammen. */
+    hasRelationEdge(srcId, dstId, predicate) {
+        return this.cy.edges().some((e) => e.data('src') === srcId
+            && e.data('dst') === dstId && e.data('predicate') === predicate);
+    }
+
+    /** Linie einfuegen, ohne den Graphen neu aufzubauen.
+        anzahl > 0 heisst: die Typ-Linie fasst bereits echte Verbindungen
+        zusammen. Dann ist sie keine Vorgabe, sondern verdichtet - ohne
+        Klasse, mit Anzahl in der Beschriftung. */
+    addRelationToGraph(srcId, dstId, predicate, ebene, anzahl = 0) {
+        if (this.hasRelationEdge(srcId, dstId, predicate)) return;
         const id = `neu:${srcId}:${predicate}:${dstId}`;
         if (this.cy.getElementById(id).nonempty()) return;
+        const verdichtet = ebene === 'typ' && anzahl > 0;
+        let klasse = 'observed-relation';
+        if (ebene === 'typ') klasse = verdichtet ? '' : 'declared';
         this.cy.add({
             group: 'edges',
-            classes: ebene === 'typ' ? 'declared' : 'observed-relation',
+            classes: klasse,
             data: { id, source: srcId, target: dstId, src: srcId, dst: dstId,
-                    predicate, label: predicate, width: 1.5 },
+                    predicate,
+                    label: verdichtet ? `${predicate} (${formatCount(anzahl)})`
+                                      : predicate,
+                    width: 1.5 },
         });
     }
 
@@ -1336,7 +1358,26 @@ class CortexApp {
             this.closeDrawers();
         } catch (err) {
             console.error('Cortex: Verbindung nicht löschbar', err);
+            // Ohne Rueckmeldung bliebe das Bestaetigungsblatt stehen und
+            // nichts geschaehe - im selben Stil wie beim Anlegen.
+            this.showDrawerError(vorgabe
+                ? 'Vorgabe konnte nicht gelöscht werden.'
+                : 'Verbindung konnte nicht gelöscht werden.');
         }
+    }
+
+    /** Sichtbarer Hinweis im Drawer, unterhalb des aktuellen Inhalts. */
+    showDrawerError(text) {
+        const body = document.getElementById('entityPaneBody');
+        if (!body) return;
+        let hinweis = document.getElementById('drawerFehler');
+        if (!hinweis) {
+            hinweis = document.createElement('p');
+            hinweis.id = 'drawerFehler';
+            hinweis.className = 'ontology-empty';
+            (body.querySelector('.entity-detail') || body).appendChild(hinweis);
+        }
+        hinweis.textContent = text;      // Fremdtext bleibt aussen vor
     }
 
     static filterStateText(f) {
