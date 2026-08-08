@@ -1790,6 +1790,55 @@ def create_app(config_path: Optional[str] = None):
             logger.error("Ontology relation create error", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
+    @app.route('/api/ontology/type-relations', methods=['POST'])
+    def ontology_type_relation_create():
+        """Vorgabe auf Typebene. Die API kennt keine Kante zwischen Typen,
+        deshalb wird daraus ein Schema-Attribut (siehe Design 2026-08-08)."""
+        try:
+            payload = request.get_json(silent=True) or {}
+            created = _ontology_source().create_type_relation(
+                str(payload.get('src') or '').strip(),
+                str(payload.get('predicate') or '').strip(),
+                str(payload.get('dst') or '').strip())
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Vorgabe nicht anlegbar'}), 400
+            return jsonify({'success': True, 'relation': created}), 201
+        except Exception:
+            logger.error("Ontology type relation create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/type-relations', methods=['DELETE'])
+    def ontology_type_relation_delete():
+        try:
+            payload = request.get_json(silent=True) or {}
+            entfernt = _ontology_source().delete_type_relation(
+                str(payload.get('src') or '').strip(),
+                str(payload.get('predicate') or '').strip(),
+                str(payload.get('dst') or '').strip())
+            if not entfernt:
+                return jsonify({'success': False, 'error': 'Vorgabe nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology type relation delete error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/relations', methods=['DELETE'])
+    def ontology_relation_delete():
+        try:
+            payload = request.get_json(silent=True) or {}
+            entfernt = _ontology_source().delete_relation(
+                str(payload.get('src') or '').strip(),
+                str(payload.get('predicate') or '').strip(),
+                str(payload.get('dst') or '').strip())
+            if not entfernt:
+                return jsonify({'success': False,
+                                'error': 'Verbindung nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology relation delete error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
     @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
     def ontology_type_delete(type_id: str):
         try:

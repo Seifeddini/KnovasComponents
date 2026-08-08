@@ -267,3 +267,58 @@ def test_sidebar_shows_corpus_only_when_fixture_has_it(app, tmp_path, monkeypatc
     body = client.get("/ontology").data.decode("utf-8")
     assert "corpus-status" in body
     assert "1&#39;847" in body       # Schweizer Trennung, HTML-escaped
+
+
+def test_type_relation_routes_require_login_and_csrf(app):
+    client = app.test_client()
+    assert client.post("/api/ontology/type-relations", json={}).status_code == 401
+    _login(client)
+    ohne_token = client.post("/api/ontology/type-relations",
+                             json={"src": "mandant", "predicate": "x",
+                                   "dst": "dossier"})
+    assert ohne_token.status_code == 403
+
+
+def test_type_relation_create_and_delete(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+
+    angelegt = client.post("/api/ontology/type-relations",
+                           json={"src": "mandant", "predicate": "hat Dossier",
+                                 "dst": "dossier"}, headers=headers)
+    assert angelegt.status_code == 201
+    assert angelegt.get_json()["relation"]["count"] == 0
+
+    # taucht als Vorgabe in der Zusammenfassung auf
+    zusammenfassung = client.get("/api/ontology/summary").get_json()
+    assert any(r["predicate"] == "hat Dossier" and r["count"] == 0
+               for r in zusammenfassung["relations"])
+
+    weg = client.delete("/api/ontology/type-relations",
+                        json={"src": "mandant", "predicate": "hat Dossier",
+                              "dst": "dossier"}, headers=headers)
+    assert weg.status_code == 200
+    nochmal = client.delete("/api/ontology/type-relations",
+                            json={"src": "mandant", "predicate": "hat Dossier",
+                                  "dst": "dossier"}, headers=headers)
+    assert nochmal.status_code == 404
+
+
+def test_relation_delete_route(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+    neu = client.post("/api/ontology/entities",
+                      json={"type": "mandant", "label": "Partner AG"},
+                      headers=headers).get_json()["entity"]
+    client.post("/api/ontology/relations",
+                json={"src": neu["id"], "predicate": "arbeitet mit",
+                      "dst": "e-001"}, headers=headers)
+
+    weg = client.delete("/api/ontology/relations",
+                        json={"src": neu["id"], "predicate": "arbeitet mit",
+                              "dst": "e-001"}, headers=headers)
+    assert weg.status_code == 200
+    detail = client.get(f"/api/ontology/entities/{neu['id']}").get_json()
+    assert detail["relations"] == []
