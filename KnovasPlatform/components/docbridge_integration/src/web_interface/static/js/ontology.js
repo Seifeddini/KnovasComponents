@@ -944,10 +944,11 @@ class CortexApp {
         try {
             const data = await this.postJson('/api/ontology/types', { label });
             if (!data) return;
-            await this.reloadGraph();
-            // Direkt weiterarbeiten: der neue Typ ist offen, Entitäten folgen.
-            const node = this.cy.getElementById(data.type.id);
-            if (node.nonempty()) this.onTypeTap(node);
+            // Einfügen statt neu aufbauen: ein erneutes Kräftelayout würde
+            // alle bestehenden Knoten verschieben, und genau das wirkt, als
+            // verzöge sich der Graph.
+            const node = this.addTypeToGraph(data.type);
+            if (node) this.onTypeTap(node);
         } catch (err) {
             console.error('Cortex: Typ nicht anlegbar', err);
         }
@@ -968,26 +969,560 @@ class CortexApp {
     async onTypeDelete(typeId) {
         try {
             if (!await this.deleteJson(`/api/ontology/types/${encodeURIComponent(typeId)}`)) return;
+            this.collapseType(typeId);
             this.closeDrawers();
-            await this.reloadGraph();
+            this.cy.getElementById(typeId).remove();   // Kanten gehen mit
+            this.setDrawerDelete(null);
+        } catch (err) {
+            console.error('Cortex: Typ nicht löschbar', err);
+        }
+    }
+
+    /** Neuen Typ in den bestehenden Graphen setzen, ohne das Layout erneut
+        laufen zu lassen: freier Platz am Rand des Netzes, Kamera bleibt
+        stehen, solange der Knoten schon im Bild liegt. */
+    addTypeToGraph(type) {
+        if (!this.cy || this.cy.getElementById(type.id).nonempty()) return null;
+        const others = this.cy.nodes('[icon]');
+        let position = { x: 0, y: 0 };
+        if (others.length) {
+            const bb = others.boundingBox();
+            const cx = (bb.x1 + bb.x2) / 2;
+            const cy0 = (bb.y1 + bb.y2) / 2;
+            const radius = Math.max(bb.w, bb.h) / 2 + 120;
+            const angle = (others.length * 2.39996);   // goldener Winkel: streut
+            position = { x: cx + radius * Math.cos(angle),
+                         y: cy0 + radius * Math.sin(angle) };
+        }
+        const node = this.cy.add({
+            group: 'nodes',
+            data: { id: type.id, label: type.label, count: type.count || 0,
+                    icon: iconsForTypes([type], cssToken('--primary-color'))[0],
+                    size: 54 },
+            position,
+        });
+        // Nur nachfassen, wenn der neue Knoten sonst ausserhalb läge.
+        const p = node.renderedPosition();
+        const outside = p.x < 60 || p.y < 60
+            || p.x > this.cy.width() - 60 || p.y > this.cy.height() - 60;
+        if (outside) {
+            if (CortexApp.reducedMotion()) this.cy.fit(undefined, 60);
+            else this.cy.animate({ fit: { padding: 60 } },
+                                 { duration: 350, easing: 'ease-out-quart' });
+        }
+        return node;
+    }
+
+    /** Entitäten eines Typs als Satelliten-Knoten am Typ-Knoten auffächern.
+        Wartet eine laufende Kamerafahrt ab: erst reinzoomen, dann aufpoppen. */
+    async renderEntityNodes(typeId, entities) {
+        if (this.expandedTypes.has(typeId) || !entities.length) return;
+        const parent = this.cy.getElementById(typeId);
+        if (parent.empty()) return;
+        // Slot sofort reservieren, damit Doppel-Klicks nicht doppelt auffächern.
+        this.expandedTypes.set(typeId, null);
+        parent.addClass('expanded');
+        if (this.zoomAnim) { await this.zoomAnim; this.zoomAnim = null; }
+        // Während der Kamerafahrt wieder eingeklappt? Dann nichts auffächern.
+        if (!this.expandedTypes.has(typeId)) return;
+        // Fade erst NACH der Kamerafahrt: Style-Transitions während der
+        // Viewport-Animation erzwingen sonst pro Frame einen Voll-Redraw.
+        this.applyFocus(typeId);
+        const p = parent.position();
+        // Auffächern in Richtung "vom Netz weg", damit freie Fläche genutzt wird.
+        const bb = this.cy.nodes().boundingBox();
+        let base = Math.atan2(p.y - (bb.y1 + bb.y2) / 2, p.x - (bb.x1 + bb.x2) / 2);
+        if (!Number.isFinite(base)) base = -Math.PI / 2;
+        const k = entities.length;
+        const spread = Math.min(Math.PI * 0.85, (Math.PI / 4) * k);
+        const radius = parent.data('size') / 2 + 90;
+        const eles = [];
+        entities.forEach((e) => {
+            // Reste einer noch laufenden Einfahr-Animation räumen (ID-Kollision).
+            const stale = this.cy.getElementById(`ent:${e.id}`);
+            if (stale.nonempty()) stale.remove();
+            eles.push({ group: 'nodes', classes: 'entity',
+                        data: { id: `ent:${e.id}`, entityId: e.id, typeId,
+                                label: e.label, size: 26 },
+                        position: { x: p.x, y: p.y } });
+            eles.push({ group: 'edges', classes: 'entity-edge',
+                        data: { id: `ee:${typeId}:${e.id}`, source: typeId,
+                                target: `ent:${e.id}`, label: '', width: 1 } });
+        });
+        const added = this.cy.add(eles);
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        added.nodes().forEach((satellite, i) => {
+            const a = k === 1 ? base : base - spread / 2 + (spread * i) / (k - 1);
+            const target = { x: p.x + radius * Math.cos(a), y: p.y + radius * Math.sin(a) };
+            if (reduceMotion) satellite.position(target);
+            else satellite.animate({ position: target }, { duration: 320, easing: 'ease-out-quart' });
+        });
+        this.expandedTypes.set(typeId, added);
+    }
+
+    /** Fokus-Modus: unbeteiligte Kanten und Typ-Knoten zurücktreten lassen,
+        damit die Satelliten-Texte nicht mit Kantenlabels kollidieren. */
+    applyFocus(typeId) {
+        const parent = this.cy.getElementById(typeId);
+        this.cy.edges().not('.entity-edge').addClass('faded');
+        this.cy.nodes().not(parent).not('.entity').not('.filter-node').addClass('faded');
+    }
+
+    clearFocus() {
+        this.cy.elements('.faded').removeClass('faded');
+    }
+
+    collapseType(typeId) {
+        const satellites = this.expandedTypes.get(typeId);
+        this.expandedTypes.delete(typeId);
+        const parent = this.cy.getElementById(typeId);
+        parent.removeClass('expanded');
+        this.clearFocus();
+        if (!satellites) return;
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduceMotion || parent.empty()) { satellites.remove(); return; }
+        // Zurück in den Typ-Knoten gleiten, dann entfernen.
+        satellites.nodes().animate({ position: parent.position() },
+                                   { duration: 180, easing: 'ease-in-quad' });
+        setTimeout(() => satellites.remove(), 190);
+    }
+
+    collapseAllTypes(exceptTypeId = null) {
+        for (const typeId of [...this.expandedTypes.keys()]) {
+            if (typeId !== exceptTypeId) this.collapseType(typeId);
+        }
+    }
+
+    bindDrawerControls() {
+        document.getElementById('entityClose').addEventListener('click', () => this.closeDrawers());
+        document.getElementById('docClose').addEventListener('click', () => this.closeDocDrawer());
+    }
+
+    openEntityDrawer() {
+        document.getElementById('entityPane').classList.add('open');
+    }
+
+    openDocDrawer() {
+        document.getElementById('docPane').classList.add('open');
+    }
+
+    closeDocDrawer() {
+        document.getElementById('docPane').classList.remove('open');
+    }
+
+    closeDrawers() {
+        this.closeDocDrawer();
+        document.getElementById('entityPane').classList.remove('open');
+        if (this.cy) {
+            this.cy.elements(':selected').unselect();
+            const hadExpansion = this.expandedTypes.size > 0;
+            this.collapseAllTypes();    // Wegklicken fährt die Satelliten ein
+            if (hadExpansion) {
+                // Rückfahrt beginnt, während die Satelliten gerade landen —
+                // fühlt sich nach einer Bewegung an statt nach zwei Schritten.
+                if (CortexApp.reducedMotion()) this.animateFit();
+                else setTimeout(() => this.animateFit(), 150);
+            }
+        }
+    }
+
+    /** Escaping vor jeder Interpolation — Fixture-/Backend-Text ist Fremdtext. */
+    static esc(s) {
+        const d = document.createElement('span');
+        d.textContent = String(s ?? '');
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    async fetchJson(url) {
+        if (this.entityAbort) this.entityAbort.abort();     // Spec Regel 5
+        this.entityAbort = new AbortController();
+        const resp = await fetch(url, { signal: this.entityAbort.signal });
+        if (resp.status === 401) { window.location.assign('/login'); return null; }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+
+    async deleteJson(url) {
+        const resp = await fetch(url, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': csrfToken() },
+        });
+        if (resp.status === 401) { window.location.assign('/login'); return null; }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+
+    /** Loeschknopf im Drawer-Kopf: erscheint nur, wo etwas zu loeschen ist. */
+    setDrawerDelete(handler) {
+        const button = document.getElementById('entityDelete');
+        if (!button) return;
+        const fresh = button.cloneNode(true);      // alte Bindung mit entfernen
+        button.replaceWith(fresh);
+        if (!handler) { fresh.hidden = true; return; }
+        fresh.hidden = false;
+        fresh.addEventListener('click', handler);
+    }
+
+    /** Bestaetigungsblatt statt Browser-Dialog: nennt die Folgen genau,
+        bevor etwas verschwindet. */
+    askDelete({ title, detail, onConfirm, onCancel }) {
+        const esc = CortexApp.esc;
+        const body = document.getElementById('entityPaneBody');
+        this.setDrawerDelete(null);
+        body.innerHTML = `
+            <div class="entity-detail">
+                <h3>${esc(title)}</h3>
+                <p class="confirm-detail">${esc(detail)}</p>
+                <div class="confirm-actions">
+                    <button type="button" id="confirmDelete" class="btn btn-danger">Endgültig löschen</button>
+                    <button type="button" id="cancelDelete" class="btn-text">Abbrechen</button>
+                </div>
+            </div>`;
+        document.getElementById('confirmDelete').addEventListener('click', onConfirm);
+        document.getElementById('cancelDelete').addEventListener('click', onCancel);
+    }
+
+    confirmTypeDelete(typeId, typeLabel, entityCount) {
+        const folgen = entityCount
+            ? `Der Typ und ${entityCount} ${entityCount === 1 ? 'Entität' : 'Entitäten'} `
+              + 'werden entfernt, samt deren Verbindungen und Belegen.'
+            : 'Der Typ enthält keine Entitäten.';
+        this.askDelete({
+            title: `${typeLabel} löschen?`,
+            detail: folgen,
+            onConfirm: () => this.onTypeDelete(typeId),
+            onCancel: () => this.onTypeSelect(typeId, typeLabel),
+        });
+    }
+
+    confirmEntityDelete(entityId, entityLabel, typeId) {
+        this.askDelete({
+            title: `${entityLabel} löschen?`,
+            detail: 'Die Entität wird entfernt, samt ihrer Verbindungen und Belege.',
+            onConfirm: () => this.onEntityDelete(entityId, typeId),
+            onCancel: () => this.onEntitySelect(entityId),
+        });
+    }
+
+    async postJson(url, payload) {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json',
+                       'X-CSRF-Token': csrfToken() },
+            body: JSON.stringify(payload),
+        });
+        if (resp.status === 401) { window.location.assign('/login'); return null; }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+
+    async onTypeSelect(typeId, label) {
+        this.selectedType = typeId;
+        this.closeDocDrawer();          // Belege des vorherigen Kontexts sind veraltet
+        this.openEntityDrawer();
+        const body = document.getElementById('entityPaneBody');
+        document.getElementById('entityPaneTitle').textContent = label;
+        body.innerHTML = skeleton(4);
+        try {
+            const data = await this.fetchJson(
+                `/api/ontology/entities?type=${encodeURIComponent(typeId)}`);
+            // Auch der leere Typ muss loeschbar sein - gerade der vertippte.
+            this.setDrawerDelete(() => this.confirmTypeDelete(typeId, label,
+                                                             data.entities.length));
+            if (!data.entities.length) {
+                body.innerHTML = `
+                    <p class="ontology-empty">Noch keine Entitäten in diesem Typ.</p>
+                    <div class="create-row">
+                        <input type="text" id="entityInput" maxlength="120"
+                               placeholder="Erste Entität, z. B. Müller Bau AG"
+                               aria-label="Name der neuen Entität">
+                        <button type="button" id="entityCreateBtn" class="btn btn-primary">Anlegen</button>
+                    </div>`;
+                const leerInput = document.getElementById('entityInput');
+                const leerCreate = () => this.onEntityCreate(typeId, label, leerInput.value);
+                document.getElementById('entityCreateBtn').addEventListener('click', leerCreate);
+                leerInput.addEventListener('keydown', (evt) => {
+                    if (evt.key === 'Enter') { evt.preventDefault(); leerCreate(); }
+                });
+                leerInput.focus();
+                return;
+            }
+            this.renderEntityNodes(typeId, data.entities);
+            const esc = CortexApp.esc;
+            // Kartenform analog zu den Suchtreffern (document-card):
+            // Metazeile + Titel, Karte selbst ist die Geste.
+            body.innerHTML = `
+                <p class="entity-hint">Auswahl der wichtigsten Entitäten</p>
+                <ul class="entity-cards">${data.entities.map((e) => `
+                    <li><button type="button" class="entity-card" data-id="${esc(e.id)}">
+                        <span class="entity-card-metaline">${formatCount(e.doc_count)}
+                            ${e.doc_count === 1 ? 'Dokument' : 'Dokumente'}</span>
+                        <span class="entity-card-title">${esc(e.label)}</span>
+                    </button></li>`).join('')}
+                </ul>`;
+            body.insertAdjacentHTML('beforeend', `
+                <div class="create-row">
+                    <input type="text" id="entityInput" maxlength="120"
+                           placeholder="Neue Entität, z. B. Meier Immobilien AG"
+                           aria-label="Name der neuen Entität">
+                    <button type="button" id="entityCreateBtn" class="btn btn-outline">Anlegen</button>
+                </div>`);
+            this.setDrawerDelete(() => this.confirmTypeDelete(typeId, label,
+                                                             data.entities.length));
+            const entityInput = document.getElementById('entityInput');
+            const createEntity = () => this.onEntityCreate(typeId, label, entityInput.value);
+            document.getElementById('entityCreateBtn').addEventListener('click', createEntity);
+            entityInput.addEventListener('keydown', (evt) => {
+                if (evt.key === 'Enter') { evt.preventDefault(); createEntity(); }
+            });
+            body.querySelectorAll('.entity-card').forEach((btn) =>
+                btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            body.innerHTML = '<p class="ontology-empty">Entitäten konnten nicht geladen werden.</p>';
+        }
+    }
+
+    selectSatellite(node) {
+        if (node.empty() || node.selected()) return;
+        this.cy.elements(':selected').unselect();
+        node.select();
+    }
+
+    /** Der Graph folgt dem Drilldown: Eine verbundene Entität gehört meist zu
+        einem anderen Typ, dessen Satelliten noch gar nicht ausgefächert sind.
+        Dann Typ aufklappen, hinfahren und die Entität auswählen. */
+    async focusEntityInGraph(entity) {
+        const existing = this.cy.getElementById(`ent:${entity.id}`);
+        if (existing.nonempty()) { this.selectSatellite(existing); return; }
+        const typeNode = this.cy.getElementById(entity.type);
+        if (typeNode.empty()) return;          // Typ nicht im Graphen
+        this.collapseAllTypes(entity.type);
+        this.selectedType = entity.type;       // "Zurück zur Liste" zeigt den neuen Typ
+        this.zoomAnim = this.zoomToNode(typeNode);
+        let entities = [];
+        try {
+            const data = await this.fetchJson(
+                `/api/ontology/entities?type=${encodeURIComponent(entity.type)}`);
+            entities = (data && data.entities) || [];
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+        }
+        // Die Liste ist eine kuratierte Auswahl — die angesteuerte Entität
+        // muss sichtbar sein, auch wenn sie nicht darin vorkommt.
+        if (!entities.some((e) => e.id === entity.id)) {
+            entities = [{ id: entity.id, label: entity.label, doc_count: 0 }, ...entities];
+        }
+        await this.renderEntityNodes(entity.type, entities);
+        this.selectSatellite(this.cy.getElementById(`ent:${entity.id}`));
+    }
+
+    async onEntitySelect(entityId) {
+        this.selectedEntity = entityId;
+        this.closeDocDrawer();          // Beleg gehört zur vorherigen Entität
+        const body = document.getElementById('entityPaneBody');
+        body.innerHTML = skeleton(5);
+        try {
+            const data = await this.fetchJson(
+                `/api/ontology/entities/${encodeURIComponent(entityId)}`);
+            if (!data) return;
+            this.focusEntityInGraph(data.entity);   // Graph nachziehen, ohne den Drawer zu blockieren
+            const esc = CortexApp.esc;
+            // Verbundene Entitäten als klickbare Mini-Karten: Prädikat lesbar
+            // (ohne Unterstriche), Chevron als Klick-Signal. Die Richtung
+            // steht bewusst nicht hier — die zeigt der Graph.
+            const relations = data.relations.length
+                ? `<ul class="relation-cards">${data.relations.map((r) => `
+                     <li><button type="button" class="relation-card entity-link"
+                                 data-id="${esc(r.target.id)}">
+                         <span class="relation-card-body">
+                             <span class="relation-card-metaline">${esc(r.predicate.replace(/[_-]+/g, ' '))}</span>
+                             <span class="relation-card-title">${esc(r.target.label)}</span>
+                         </span>
+                         <span class="relation-card-chevron" aria-hidden="true">›</span>
+                     </button></li>`).join('')}
+                   </ul>`
+                : '<p class="ontology-empty">Keine verbundenen Entitäten erfasst.</p>';
+            const evidence = data.evidence.length
+                ? `<ol class="evidence-list">${data.evidence.map((ev, i) => `
+                     <li><button type="button" class="evidence-item" data-index="${i}"
+                                 data-path="${esc(ev.document.path)}" data-page="${ev.page}"
+                                 data-title="${esc(ev.document.title)}">
+                         ${ev.quote ? `<span class="evidence-quote">«${esc(ev.quote)}»</span>` : ''}
+                         <span class="evidence-source">${esc(ev.document.title)}, Seite ${ev.page}</span>
+                     </button></li>`).join('')}
+                   </ol>`
+                : '<p class="ontology-empty">Keine Belege zu dieser Entität erfasst.</p>';
+            const filters = data.filters || [];
+            // Label als eigener Block: sonst erzeugt der Zeilenumbruch im
+            // Template ein führendes Leerzeichen, das die erste Zeile
+            // gegenüber der Statuszeile darunter eingerückt aussehen lässt.
+            const filterRows = filters.map((f) => `
+                <li><button type="button" class="btn-text filter-chip" data-id="${esc(f.id)}"
+                    ><span class="filter-chip-label">${esc(f.label)}</span
+                    ><span class="filter-chip-state">${CortexApp.filterStateText(f)}</span
+                ></button></li>`).join('');
+            // Filter-Karte direkt unter dem Titel: das Feature bekommt die
+            // Bühne und erklärt seinen Zweck in einem Satz selbst.
+            const filterCard = `
+                <section class="filter-card" aria-label="Cortex Filter">
+                    <h4 class="filter-card-title">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                        </svg>
+                        Cortex Filter
+                    </h4>
+                    <p class="filter-card-purpose">Knovas sammelt laufend Fundstellen
+                        zu Ihrem Thema. Sie prüfen und entscheiden.</p>
+                    ${filters.length ? `<ul class="filter-list">${filterRows}</ul>` : ''}
+                    <div class="filter-create">
+                        <input type="text" id="filterInput" maxlength="120"
+                               placeholder="Thema, z. B. Kündigungsklauseln und Fristen"
+                               aria-label="Filterthema">
+                        <button type="button" id="filterCreateBtn" class="btn btn-primary">Anlegen</button>
+                    </div>
+                </section>`;
+            body.innerHTML = `
+                <div class="entity-detail">
+                    <button type="button" class="btn-text" id="entityBack">← Zurück zur Liste</button>
+                    <h3>${esc(data.entity.label)}</h3>
+                    ${filterCard}
+                    <h4>Belege</h4>${evidence}
+                    <h4>Verbundene Entitäten</h4>${relations}
+                    <div class="connect-form">
+                        <input type="text" id="relationInput" maxlength="80"
+                               placeholder="Beziehung, z. B. hat Dossier"
+                               aria-label="Art der Beziehung">
+                        <select id="relationTarget" aria-label="Zielentität">
+                            <option value="">Zielentität wählen …</option>
+                        </select>
+                        <button type="button" id="relationCreateBtn" class="btn btn-outline">Verbinden</button>
+                    </div>
+                </div>`;
+            document.getElementById('entityBack').addEventListener('click', () => {
+                const node = this.cy.getElementById(this.selectedType);
+                this.onTypeSelect(this.selectedType, node.data('label'));
+            });
+            this.syncFilterNodes(entityId, filters);
+            document.getElementById('relationCreateBtn').addEventListener(
+                'click', () => this.onRelationCreate(entityId));
+            this.setDrawerDelete(() => this.confirmEntityDelete(
+                entityId, data.entity.label, data.entity.type));
+            this.fillRelationTargets(entityId);
+            body.querySelectorAll('.filter-chip').forEach((btn) =>
+                btn.addEventListener('click', () => this.renderFilterPanel(btn.dataset.id)));
+            const filterInput = document.getElementById('filterInput');
+            const createFilter = () => this.onFilterCreate(entityId, filterInput.value);
+            document.getElementById('filterCreateBtn').addEventListener('click', createFilter);
+            filterInput.addEventListener('keydown', (evt) => {
+                if (evt.key === 'Enter') { evt.preventDefault(); createFilter(); }
+            });
+            body.querySelectorAll('.entity-link').forEach((btn) =>
+                btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
+            body.querySelectorAll('.evidence-item').forEach((btn) =>
+                btn.addEventListener('click', () => {
+                    body.querySelectorAll('.evidence-item.selected')
+                        .forEach((b) => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    this.onEvidenceSelect({ path: btn.dataset.path,
+                                            page: Number(btn.dataset.page),
+                                            title: btn.dataset.title });
+                }));
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            body.innerHTML = '<p class="ontology-empty">Entität konnte nicht geladen werden.</p>';
+        }
+    }
+
+    /** Entität anlegen: der Graph ist kuratiert, Knovas leitet ihn nicht ab. */
+    async onEntityCreate(typeId, typeLabel, label) {
+        const input = document.getElementById('entityInput');
+        label = String(label || '').trim();
+        if (!label) { if (input) input.focus(); return; }
+        try {
+            const data = await this.postJson('/api/ontology/entities',
+                                             { type: typeId, label });
+            if (!data) return;
+            // Satelliten zuerst abräumen, dann den Typ frisch aufklappen —
+            // sonst überschneidet sich die Einfahr-Animation mit dem Neuaufbau.
+            this.collapseType(typeId);
+            await this.onTypeSelect(typeId, typeLabel);
+        } catch (err) {
+            console.error('Cortex: Entität nicht anlegbar', err);
+        }
+    }
+
+    /** Typ anlegen. Ohne Typen gibt es keinen Einstieg in den Graphen —
+        deshalb ist der Knopf immer erreichbar, auch im leeren Zustand. */
+    /** Formular fuer einen neuen Typ (aufgerufen vom Plus-Knoten im Graphen). */
+    openTypeCreateForm() {
+        this.openEntityDrawer();
+        this.setDrawerDelete(null);
+        document.getElementById('entityPaneTitle').textContent = 'Neuer Typ';
+        const body = document.getElementById('entityPaneBody');
+        body.innerHTML = `
+            <div class="entity-detail">
+                <p class="entity-hint">Typen sind die Struktur Ihres Netzes,
+                   zum Beispiel Mandant, Dossier oder Vertrag.</p>
+                <div class="create-row">
+                    <input type="text" id="typeInput" maxlength="80"
+                           placeholder="Name des Typs, z. B. Mandant"
+                           aria-label="Name des neuen Typs">
+                    <button type="button" id="typeCreateSubmit" class="btn btn-primary">Anlegen</button>
+                </div>
+            </div>`;
+        const input = document.getElementById('typeInput');
+        const submit = () => this.onTypeCreate(input.value);
+        document.getElementById('typeCreateSubmit').addEventListener('click', submit);
+        input.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter') { evt.preventDefault(); submit(); }
+        });
+        input.focus();
+    }
+
+    async onTypeCreate(label) {
+        label = String(label || '').trim();
+        if (!label) { document.getElementById('typeInput').focus(); return; }
+        try {
+            const data = await this.postJson('/api/ontology/types', { label });
+            if (!data) return;
+            // Einfügen statt neu aufbauen: ein erneutes Kräftelayout würde
+            // alle bestehenden Knoten verschieben, und genau das wirkt, als
+            // verzöge sich der Graph.
+            const node = this.addTypeToGraph(data.type);
+            if (node) this.onTypeTap(node);
+        } catch (err) {
+            console.error('Cortex: Typ nicht anlegbar', err);
+        }
+    }
+
+    async onEntityDelete(entityId, typeId) {
+        try {
+            if (!await this.deleteJson(`/api/ontology/entities/${encodeURIComponent(entityId)}`)) return;
+            this.collapseType(typeId);
+            const node = this.cy.getElementById(typeId);
+            if (node.nonempty()) await this.onTypeSelect(typeId, node.data('label'));
+            else this.closeDrawers();
+        } catch (err) {
+            console.error('Cortex: Entität nicht löschbar', err);
+        }
+    }
+
+    async onTypeDelete(typeId) {
+        try {
+            if (!await this.deleteJson(`/api/ontology/types/${encodeURIComponent(typeId)}`)) return;
+            this.collapseType(typeId);
+            this.closeDrawers();
+            this.cy.getElementById(typeId).remove();   // Kanten gehen mit
+            this.setDrawerDelete(null);
         } catch (err) {
             console.error('Cortex: Typ nicht löschbar', err);
         }
     }
 
     /** Graph neu aufbauen, nachdem sich die Typ-Ebene geändert hat. */
-    async reloadGraph() {
-        const data = await this.fetchJson('/api/ontology/summary');
-        if (!data || !data.types) return;
-        this.expandedTypes.clear();
-        if (this.cy) { this.cy.destroy(); this.cy = null; }
-        const container = document.getElementById('graphContainer');
-        const empty = document.getElementById('graphEmpty');
-        container.hidden = false;
-        empty.hidden = true;
-        this.renderGraph(data);   // Zoom-Knöpfe lesen this.cy erst beim Klick
-    }
-
     /** Auswahlliste für das Verbinden: alle Entitäten ausser dieser. */
     async fillRelationTargets(entityId) {
         const select = document.getElementById('relationTarget');
