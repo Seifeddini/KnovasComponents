@@ -35,7 +35,8 @@ class ConnectGesture {
             this.griff.type = 'button';
             this.griff.className = 'connect-handle';
             this.griff.setAttribute('aria-label', 'Verbindung ziehen');
-            this.griff.addEventListener('mousedown', (e) => this._start(e));
+            this._onGriffMouseDown = (e) => this._start(e);
+            this.griff.addEventListener('mousedown', this._onGriffMouseDown);
             this.cy.container().parentElement.appendChild(this.griff);
         }
         return this.griff;
@@ -144,6 +145,12 @@ class ConnectGesture {
         this.cy.removeListener('mouseout', 'node', this._onOut);
         this.cy.removeListener('pan zoom', this._onPan);
         this._aufraeumen();
-        if (this.griff) { this.griff.remove(); this.griff = null; }
+        if (this.griff) {
+            if (this._onGriffMouseDown) {
+                this.griff.removeEventListener('mousedown', this._onGriffMouseDown);
+            }
+            this.griff.remove();
+            this.griff = null;
+        }
     }
 }
