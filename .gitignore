@@ -67,3 +67,6 @@ venv/
 
 # Local git worktrees (Claude Code)
 .worktrees/
+
+# Demo corpus (built by RemoteController/scripts/demo_corpus)
+corpus/
