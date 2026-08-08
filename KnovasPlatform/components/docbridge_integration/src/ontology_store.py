@@ -245,10 +245,46 @@ class OntologyStore:
         global _cache
         _cache = None            # naechster Zugriff liest neu ein
 
+    def _relation_counts(self) -> Dict[Tuple[str, str, str], int]:
+        """Echte Verbindungen je Tripel (Quelltyp, Praedikat, Zieltyp) zaehlen.
+
+        Das ist der Uebergang von der Vorgabe zur Beobachtung: eine Vorgabe
+        bleibt gestrichelt, solange die Zahl 0 ist, und fuellt sich sichtbar,
+        sobald Verbindungen dieser Art entstehen.
+        """
+        counts: Dict[Tuple[str, str, str], int] = {}
+        for r in self._entity_relations:
+            src = self._entity_by_id.get(r["src"])
+            dst = self._entity_by_id.get(r["dst"])
+            if src is None or dst is None:
+                continue
+            key = (src["type"], r["predicate"], dst["type"])
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
     def summary(self) -> Dict[str, Any]:
+        """Typen und Typ-Linien. Die Zaehlung entsteht hier aus den echten
+        Verbindungen und ueberschreibt den gespeicherten Wert - die Fixture
+        selbst bleibt unangetastet."""
+        counts = self._relation_counts()
+        relations: List[Dict[str, Any]] = []
+        deklariert = set()
+        for r in self._relations:
+            key = (r["src"], r["predicate"], r["dst"])
+            deklariert.add(key)
+            entry = dict(r)
+            entry["count"] = counts.get(key, 0)
+            relations.append(entry)
+        # Ungeplante Tripel ergaenzen: entsteht eine Verbindung, die niemand
+        # vorgesehen hat, soll sie trotzdem im Modell auftauchen.
+        for (src, predicate, dst), count in sorted(counts.items()):
+            if (src, predicate, dst) in deklariert:
+                continue
+            relations.append({"src": src, "predicate": predicate,
+                              "dst": dst, "count": count})
         return {
             "types": [dict(t) for t in self._types],
-            "relations": [dict(r) for r in self._relations],
+            "relations": relations,
         }
 
     def entities_for_type(self, type_id: str) -> Dict[str, Any]:

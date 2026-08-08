@@ -135,7 +135,10 @@ def test_summary_contract(app):
     data = client.get("/api/ontology/summary").get_json()
     assert data["success"] is True
     assert [t["id"] for t in data["types"]] == ["mandant", "dossier"]
-    assert data["relations"][0]["count"] == 47
+    assert data["relations"][0]["predicate"] == "hat_Dossier"
+    # Die Zahl zaehlt echte Verbindungen; die Fixture hat keine, also 0
+    # (gestrichelte Vorgabe), unabhaengig vom gespeicherten Wert.
+    assert data["relations"][0]["count"] == 0
 
 
 def test_entities_contract(app):

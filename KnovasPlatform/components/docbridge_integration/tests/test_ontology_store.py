@@ -47,7 +47,9 @@ def test_summary_shape(tmp_path):
     s = store.summary()
     assert [t["id"] for t in s["types"]] == ["mandant", "dossier"]
     assert s["relations"][0]["predicate"] == "hat_Dossier"
-    assert s["relations"][0]["count"] == 47
+    # Die Zahl kommt aus den echten Verbindungen, nicht aus der Fixture:
+    # eine Entitaetsverbindung dieser Art existiert.
+    assert s["relations"][0]["count"] == 1
 
 
 def test_entities_for_type_filters(tmp_path):
@@ -223,6 +225,43 @@ def test_create_type_relation_is_a_declaration(tmp_path):
     frisch = load_ontology(path)
     vorgaben = [r for r in frisch.summary()["relations"] if r["count"] == 0]
     assert {"src": a, "predicate": "hat Dossier", "dst": b, "count": 0} in vorgaben
+
+
+def test_summary_counts_entity_relations_into_type_lines(tmp_path):
+    """Vorgabe wird Beobachtung: eine deklarierte Relation mit count 0 zaehlt
+    hoch, sobald eine passende Entitaetsverbindung entsteht."""
+    daten = json.loads(json.dumps(VALID))
+    daten["relations"] = [
+        {"src": "mandant", "predicate": "kennt", "dst": "mandant", "count": 0},
+    ]
+    daten["entity_relations"] = []
+    path = _fixture(tmp_path, daten)
+    store = load_ontology(path)
+
+    vorgabe = [r for r in store.summary()["relations"] if r["predicate"] == "kennt"]
+    assert vorgabe == [{"src": "mandant", "predicate": "kennt",
+                        "dst": "mandant", "count": 0}]
+
+    zweiter = store.create_entity("Meier Immobilien AG", "mandant")["id"]
+    store.create_relation("e-001", "kennt", zweiter)
+    relations = load_ontology(path).summary()["relations"]
+    assert [r for r in relations if r["predicate"] == "kennt"] == [
+        {"src": "mandant", "predicate": "kennt", "dst": "mandant", "count": 1}]
+
+
+def test_summary_adds_undeclared_triples(tmp_path):
+    """Ein ungeplantes Tripel erscheint zusaetzlich, statt unsichtbar zu
+    bleiben - die Fixture selbst bleibt dabei unveraendert."""
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+    store.create_relation("e-014", "gehoert zu", "e-001")   # Dossier -> Mandant
+
+    relations = load_ontology(path).summary()["relations"]
+    assert {"src": "dossier", "predicate": "gehoert zu",
+            "dst": "mandant", "count": 1} in relations
+    # In der Datei steht weiterhin nur die deklarierte Relation.
+    roh = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert [r["predicate"] for r in roh["relations"]] == ["hat_Dossier"]
 
 
 def test_delete_type_relation_and_relation(tmp_path):
