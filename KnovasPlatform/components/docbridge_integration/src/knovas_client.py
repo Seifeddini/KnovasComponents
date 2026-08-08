@@ -1621,6 +1621,33 @@ class KnovasAPIClient:
         return self._graph_request('POST', '/edges', data={
             'node_lo': node_lo, 'node_hi': node_hi, 'relation': relation})
 
+    def graph_create_schema_attribute(self, type_id: str, name: str,
+                                      datatype: str = 'entity_ref'
+                                      ) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/node-types/<id>/schema - Attributdefinition.
+
+        Fuer Vorgaben auf Typebene nutzen wir datatype entity_ref; laut
+        Datentyp-Tabelle materialisiert der eine typisierte Kante. Der Body
+        des Endpunkts ist in der Spezifikation nicht gezeigt, deshalb beim
+        ersten Lauf gegen eine echte Instanz pruefen (Task 17).
+        """
+        return self._graph_request(
+            'POST', f'/node-types/{quote(str(type_id), safe="")}/schema',
+            data={'name': name, 'datatype': datatype})
+
+    def graph_delete_schema_attribute(self, type_id: str,
+                                      attribute_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/node-types/<id>/schema/<aid>."""
+        return self._graph_request(
+            'DELETE',
+            f'/node-types/{quote(str(type_id), safe="")}'
+            f'/schema/{quote(str(attribute_id), safe="")}')
+
+    def graph_delete_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/edges/<id> - nur manuelle Kanten."""
+        return self._graph_request(
+            'DELETE', f'/edges/{quote(str(edge_id), safe="")}')
+
     def graph_assign_knowledge(self, node_id: str,
                                pointer: str) -> Optional[Dict[str, Any]]:
         """POST /secured/graph/nodes/<id>/knowledge - Dokument zuordnen."""

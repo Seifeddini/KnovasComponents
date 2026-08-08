@@ -309,6 +309,56 @@ class GraphOntologySource:
         self._invalidate()
         return {"src": src, "predicate": predicate, "dst": dst}
 
+    def create_type_relation(self, src: str, predicate: str,
+                             dst: str) -> Optional[Dict[str, Any]]:
+        """Vorgabe auf Typebene. Die API kennt keine Kante zwischen Typen,
+        deshalb ein Schema-Attribut vom Typ entity_ref auf dem Quelltyp."""
+        predicate = " ".join(str(predicate or "").split())
+        src, dst = str(src or "").strip(), str(dst or "").strip()
+        if not predicate or not src or not dst or src == dst:
+            return None
+        if self._client.graph_create_schema_attribute(src, predicate) is None:
+            return None
+        self._invalidate()
+        return {"src": src, "predicate": predicate, "dst": dst, "count": 0}
+
+    def delete_type_relation(self, src: str, predicate: str, dst: str) -> bool:
+        """Attribut anhand seines Namens auf dem Quelltyp suchen und loeschen."""
+        predicate = " ".join(str(predicate or "").split())
+        for node_type in self._export()["node_types"]:
+            if _type_id(node_type) != str(src):
+                continue
+            for attribut in node_type.get("schema") or node_type.get("attributes") or []:
+                if str(_first(attribut, "name", "label")) != predicate:
+                    continue
+                ok = self._client.graph_delete_schema_attribute(
+                    src, str(_first(attribut, "id", "attribute_id"))) is not None
+                if ok:
+                    self._invalidate()
+                return ok
+        return False
+
+    def delete_relation(self, src: str, predicate: str, dst: str) -> bool:
+        """Passende Kante suchen und loeschen; Richtung beidseitig pruefen."""
+        predicate = " ".join(str(predicate or "").split())
+        for edge in self._export()["edges"]:
+            enden = _edge_ends(edge)
+            if enden is None:
+                continue
+            e_src, e_dst, e_pred = enden
+            passt = (e_pred == predicate
+                     and {e_src, e_dst} == {str(src), str(dst)})
+            if not passt:
+                continue
+            edge_id = str(_first(edge, "id", "edge_id", "uuid"))
+            if not edge_id:
+                return False
+            ok = self._client.graph_delete_edge(edge_id) is not None
+            if ok:
+                self._invalidate()
+            return ok
+        return False
+
     def delete_entity(self, entity_id: str) -> bool:
         """DELETE auf den Knoten; die API kaskadiert Zuordnungen und Kanten."""
         if not str(entity_id or "").strip():
