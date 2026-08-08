@@ -397,3 +397,22 @@
     line-height: 1;
 }
 .graph-add-type:hover .graph-add-type-circle { border-style: solid; }
+
+/* Griff zum Verbinden: erscheint beim Zeigen auf einen Knoten. Absolut
+   ueber dem Canvas, damit er unabhaengig von Cytoscape klickbar bleibt. */
+.connect-handle {
+    position: absolute;
+    z-index: 2;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    padding: 0;
+    border: 2px solid var(--card-bg);
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: crosshair;
+    transition: transform .12s ease;
+}
+.connect-handle:hover { transform: scale(1.25); }
+.connect-handle:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.connect-handle[hidden] { display: none; }
