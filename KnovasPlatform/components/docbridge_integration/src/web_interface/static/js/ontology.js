@@ -389,6 +389,11 @@ class CortexApp {
                 this.onTypeTap(node);
             }
         });
+        this.cy.on('tap', 'edge', (evt) => {
+            const kante = evt.target;
+            if (kante.hasClass('entity-edge') && !kante.data('predicate')) return;
+            this.onEdgeSelect(kante);
+        });
         this.cy.on('tap', (evt) => {
             if (evt.target === this.cy) this.closeDrawers();
         });
@@ -1222,6 +1227,66 @@ class CortexApp {
             data: { id, source: srcId, target: dstId, src: srcId, dst: dstId,
                     predicate, label: predicate, width: 1.5 },
         });
+    }
+
+    /** Eine Linie zeigen und zum Loeschen anbieten. */
+    onEdgeSelect(edge) {
+        const esc = CortexApp.esc;
+        const predicate = edge.data('predicate') || '';
+        const vorgabe = edge.hasClass('declared');
+        const quelle = this.cy.getElementById(edge.data('src'));
+        const ziel = this.cy.getElementById(edge.data('dst'));
+        this.openEntityDrawer();
+        this.setDrawerDelete(null);
+        document.getElementById('entityPaneTitle').textContent =
+            vorgabe ? 'Vorgabe' : 'Verbindung';
+        document.getElementById('entityPaneBody').innerHTML = `
+            <div class="entity-detail">
+                <h3>${esc(predicate)}</h3>
+                <p class="entity-hint">${esc(quelle.data('label') || '')}
+                   zu ${esc(ziel.data('label') || '')}</p>
+                <p class="confirm-detail">${vorgabe
+                    ? 'Eine Vorgabe beschreibt, was vorgesehen ist. Sie bleibt sichtbar, solange keine Verbindung dieser Art besteht.'
+                    : 'Eine gezogene Verbindung zwischen zwei Entitäten.'}</p>
+                <div class="confirm-actions">
+                    <button type="button" id="edgeDelete" class="btn btn-danger">Löschen</button>
+                </div>
+            </div>`;
+        document.getElementById('edgeDelete').addEventListener('click', () => {
+            this.askDelete({
+                title: `${predicate} löschen?`,
+                detail: vorgabe
+                    ? 'Die Vorgabe wird entfernt. Bestehende Verbindungen bleiben.'
+                    : 'Die Verbindung zwischen den beiden Entitäten wird entfernt.',
+                onConfirm: () => this.onEdgeDelete(edge, vorgabe),
+                onCancel: () => this.onEdgeSelect(edge),
+            });
+        });
+    }
+
+    async onEdgeDelete(edge, vorgabe) {
+        const url = vorgabe ? '/api/ontology/type-relations'
+                            : '/api/ontology/relations';
+        const kennung = (id) => {
+            const n = this.cy.getElementById(id);
+            return n.data('entityId') || id;
+        };
+        try {
+            const resp = await fetch(url, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json',
+                           'X-CSRF-Token': csrfToken() },
+                body: JSON.stringify({ src: kennung(edge.data('src')),
+                                       predicate: edge.data('predicate'),
+                                       dst: kennung(edge.data('dst')) }),
+            });
+            if (resp.status === 401) { window.location.assign('/login'); return; }
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            edge.remove();
+            this.closeDrawers();
+        } catch (err) {
+            console.error('Cortex: Verbindung nicht löschbar', err);
+        }
     }
 
     static filterStateText(f) {
