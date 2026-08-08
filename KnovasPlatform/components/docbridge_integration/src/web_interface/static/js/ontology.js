@@ -342,6 +342,15 @@ class CortexApp {
                     'line-color': cssToken('--callout'),
                     'target-arrow-color': cssToken('--callout'),
                 } },
+                // Beobachtete Verbindung zwischen zwei Entitaeten: durchgezogen
+                // mit Pfeil und Namen, klar unterschieden von der Stammlinie.
+                { selector: 'edge.observed-relation', style: {
+                    'line-style': 'solid',
+                    'line-color': cssToken('--border-color'),
+                    'target-arrow-shape': 'triangle',
+                    'target-arrow-color': cssToken('--border-color'),
+                    'width': 1.5,
+                } },
                 { selector: 'edge.connect-preview', style: {
                     'line-style': 'dashed',
                     'line-color': cssToken('--primary-color'),
@@ -607,7 +616,7 @@ class CortexApp {
         damit die Satelliten-Texte nicht mit Kantenlabels kollidieren. */
     applyFocus(typeId) {
         const parent = this.cy.getElementById(typeId);
-        this.cy.edges().not('.entity-edge').addClass('faded');
+        this.cy.edges().not('.entity-edge').not('.observed-relation').addClass('faded');
         this.cy.nodes().not(parent).not('.entity').not('.filter-node').addClass('faded');
     }
 
@@ -1188,7 +1197,12 @@ class CortexApp {
                 src: kennung(srcId), predicate, dst: kennung(dstId) });
             if (!data) return;
             this.addRelationToGraph(srcId, dstId, predicate, ebene);
-            this.closeDrawers();
+            // Bei Entitaeten NICHT die Drawer schliessen: closeDrawers klappt
+            // den Typ ein und entfernt dabei die Satelliten samt der gerade
+            // gezeichneten Kante. Stattdessen das Detail der Quelle neu
+            // zeigen, der Typ bleibt aufgeklappt und die Linie sichtbar.
+            if (ebene === 'entitaet') await this.onEntitySelect(kennung(srcId));
+            else this.closeDrawers();
         } catch (err) {
             console.error('Cortex: Verbindung nicht anlegbar', err);
             if (fehler) {
@@ -1204,9 +1218,9 @@ class CortexApp {
         if (this.cy.getElementById(id).nonempty()) return;
         this.cy.add({
             group: 'edges',
-            classes: ebene === 'typ' ? 'declared' : 'entity-edge',
+            classes: ebene === 'typ' ? 'declared' : 'observed-relation',
             data: { id, source: srcId, target: dstId, src: srcId, dst: dstId,
-                    predicate, label: ebene === 'typ' ? predicate : '', width: 1.5 },
+                    predicate, label: predicate, width: 1.5 },
         });
     }
 
