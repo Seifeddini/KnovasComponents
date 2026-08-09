@@ -2,11 +2,11 @@
    Ausschliesslich Design-Tokens aus style.css; keine neuen Farbwerte
    (Schatten nutzen die vorhandenen RGB-Tripel-Tokens mit Transparenz). */
 
-.container-wide { max-width: none; height: 100vh; padding-bottom: 16px; }
-
-/* Kompakterer Header: die Bühne gehört dem Graphen. */
-.container-wide .site-header { padding-bottom: 12px; margin-bottom: 14px; }
-.container-wide .site-header-bar { margin-bottom: 14px; }
+/* Nur die Breite faellt aus der Reihe, damit der Graph den Bildschirm
+   bekommt. Abstaende bleiben die der anderen Seiten: der Rumpf hatte hier
+   einmal engere Werte, wodurch Suche, Cortex und Einstellungen sichtbar
+   unterschiedlich sassen. */
+.container-wide { max-width: none; height: 100vh; }
 
 /* Die Box wie gehabt (Rahmen, Header mit Titel und Zoom), aber über die
    ganze Bildschirmbreite und die restliche Höhe. */
