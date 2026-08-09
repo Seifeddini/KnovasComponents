@@ -99,6 +99,11 @@
 }
 
 #entityPaneBody, #docPaneBody { flex: 1; min-height: 0; overflow: auto; }
+/* Die Dokumentvorschau bringt ihre eigene Bildlaufleiste mit. Bliebe der
+   Rumpf hier ebenfalls rollbar, staenden zwei nebeneinander. clip statt
+   hidden: hidden macht den Kasten zu einem Rollbehaelter, den ein focus()
+   verschieben kann - genau daran hatte sich der Graph schon einmal verzogen. */
+#docPaneBody { overflow: clip; }
 
 .entity-hint { color: var(--text-secondary); font-size: 0.85rem; padding: 10px 16px 0; margin: 0; }
 
@@ -198,7 +203,9 @@
 .evidence-quote { display: block; }
 .evidence-source { display: block; margin-top: 4px; font-size: 0.85rem; color: var(--text-secondary); }
 
-.doc-frame { width: 100%; height: 100%; border: 0;
+/* display block, sonst sitzt das iframe als Inline-Kasten auf der
+   Textgrundlinie und ist ein paar Pixel hoeher als sein Elternteil. */
+.doc-frame { display: block; width: 100%; height: 100%; border: 0;
              border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--card-bg); }
 
 /* Filter (Req 2.2): hervorgehobene Karte, Chips, Prüf-Panel. Nur Tokens. */
