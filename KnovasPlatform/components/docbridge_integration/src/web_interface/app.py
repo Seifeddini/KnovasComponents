@@ -683,6 +683,11 @@ def create_app(config_path: Optional[str] = None):
     file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
     web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
+    # Kurzform der Marke fuer die Titelzeile. Die Titel liefen auseinander
+    # ("Login - Knovas Document Search" gegen "Cortex . Knovas Document
+    # Search"); einheitlich ist "Knovas Cortex", "Knovas Suche" und so fort.
+    web_brand = (str(config.get('web.brand', '') or '').strip()
+                 or (web_app_title.split() or ['Knovas'])[0])
     login_company_name = config.get('web.login.company_name', 'Knovas')
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
@@ -981,6 +986,7 @@ def create_app(config_path: Optional[str] = None):
         return render_template(
             'login.html',
             app_title=web_app_title,
+            brand=web_brand,
             company_name=login_company_name,
             error=error,
             next_url=next_url,
@@ -1028,6 +1034,7 @@ def create_app(config_path: Optional[str] = None):
             active_nav='suche',
             **_sidebar_context(),
             app_title=web_app_title,
+            brand=web_brand,
             csrf_token=_ensure_csrf_token(),
             companion_enabled=companion_enabled,
             browser_client_open_enabled=browser_client_open_enabled,
@@ -1047,6 +1054,7 @@ def create_app(config_path: Optional[str] = None):
             active_nav='cortex',
             **_sidebar_context(),
             app_title=web_app_title,
+            brand=web_brand,
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
         )
@@ -1059,6 +1067,7 @@ def create_app(config_path: Optional[str] = None):
             active_nav='einstellungen',
             **_sidebar_context(),
             app_title=web_app_title,
+            brand=web_brand,
             login_name=config.get('web.login.username', '') or '',
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
