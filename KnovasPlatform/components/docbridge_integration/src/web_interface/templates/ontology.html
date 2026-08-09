@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ brand }} Cortex</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ontology.css') }}?v={{ asset_version }}">
+</head>
+<body>
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        <div class="container container-wide">
+        <header class="site-header">
+            <h1 class="site-greeting">Cortex<br>
+                <span class="site-greeting-question">Ihr Wissen, vernetzt.</span>
+            </h1>
+        </header>
+
+        <main class="ontology-stage" aria-label="Cortex">
+            <div class="ontology-pane-header">
+                <h2>Struktur</h2>
+                <div class="graph-toolbar" role="toolbar" aria-label="Werkzeuge">
+                    <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
+                    <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
+                    <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
+                </div>
+            </div>
+            <div class="ontology-stage-body">
+            <div id="graphContainer" aria-hidden="true"></div>
+            <button type="button" class="graph-add-type" id="typeCreate">
+                <span class="graph-add-type-circle" aria-hidden="true">+</span>
+                <span class="graph-add-type-label">Typ anlegen</span>
+            </button>
+            <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Cortex vorhanden.</p>
+
+            <aside class="ontology-drawer" id="entityPane" aria-label="Entitäten und Belege">
+                <div class="ontology-pane-header">
+                    <h2 id="entityPaneTitle">Entitäten</h2>
+                    <div class="pane-actions">
+                        <button type="button" class="btn btn-outline drawer-delete" id="entityDelete"
+                                hidden aria-label="Löschen" title="Löschen">
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                 stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                <line x1="10" y1="11" x2="10" y2="17"/>
+                                <line x1="14" y1="11" x2="14" y2="17"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="btn btn-outline drawer-close" id="entityClose"
+                                aria-label="Schliessen">×</button>
+                    </div>
+                </div>
+                <div id="entityPaneBody"></div>
+            </aside>
+
+            <aside class="ontology-drawer ontology-drawer-doc" id="docPane" aria-label="Dokument">
+                <div class="ontology-pane-header">
+                    <h2 id="docPaneTitle">Dokument</h2>
+                    <button type="button" class="btn btn-outline drawer-close" id="docClose"
+                            aria-label="Schliessen">×</button>
+                </div>
+                <div id="docPaneBody"></div>
+            </aside>
+            </div>
+        </main>
+        </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/ontology_connect.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/ontology.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

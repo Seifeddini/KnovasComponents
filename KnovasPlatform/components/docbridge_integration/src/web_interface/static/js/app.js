@@ -1,5 +1,25 @@
 // Knovas Document Search - JavaScript
 
+/**
+ * Lucide-Icons (ISC) als Inline-SVG. Bewusst keine Icon-Library als
+ * Dependency: es sind eine Handvoll Pfade, und das Frontend kommt ohne
+ * Build-Schritt aus. currentColor laesst sie die Textfarbe erben.
+ */
+const LUCIDE_ICONS = {
+    'external-link': '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/>',
+    'file-text': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+    'mail': '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+    'download': '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    'clipboard': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+};
+
+/** @param {keyof LUCIDE_ICONS} name */
+function lucide(name) {
+    return `<svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" `
+        + `stroke="currentColor" stroke-width="2" stroke-linecap="round" `
+        + `stroke-linejoin="round" aria-hidden="true" focusable="false">${LUCIDE_ICONS[name]}</svg>`;
+}
+
 class DocumentSearchApp {
     constructor() {
         this.searchInput = document.getElementById('searchInput');
@@ -7,25 +27,34 @@ class DocumentSearchApp {
         this.resultsSection = document.getElementById('resultsSection');
         this.resultsContainer = document.getElementById('resultsContainer');
         this.resultsCount = document.getElementById('resultsCount');
-        this.loadingIndicator = document.getElementById('loadingIndicator');
-        this.errorMessage = document.getElementById('errorMessage');
-        this.resultsPerPage = document.getElementById('resultsPerPage');
-        
+        this.resultsQuery = document.getElementById('resultsQuery');
+        this.toastContainer = document.getElementById('toastContainer');
+        this.loadMoreButton = document.getElementById('loadMoreButton');
+        this.previewDialog = document.getElementById('previewDialog');
+        this.previewTitle = document.getElementById('previewTitle');
+        this.previewMeta = document.getElementById('previewMeta');
+        this.previewBody = document.getElementById('previewBody');
+        this.previewActions = document.getElementById('previewActions');
+        this.previewClose = document.getElementById('previewClose');
+        this.previewPrev = document.getElementById('previewPrev');
+        this.previewNext = document.getElementById('previewNext');
+        this.previewPosition = document.getElementById('previewPosition');
+        /** @type {AbortController|null} laufende Vorschau-Anfrage */
+        this._previewAbort = null;
+        /** @type {number|null} Index des aktuell gezeigten Treffers */
+        this._previewIndex = null;
+
         this.currentQuery = '';
         this.currentResults = [];
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         this.onedriveEnrichmentLoaded = !!cfg.onedriveEnrichmentLoaded;
         /** CSRF token for state-changing requests (server enforces it on every POST). */
         this.csrfToken = cfg.csrfToken || '';
-        /** @type {string|null} Knovas query_session_id from last /secured/query (for engagement analytics). */
-        this.querySessionId = null;
-        /** @type {Array<{action: string, pointer: string, position?: number}>} */
-        this._engagementQueue = [];
-        this._engagementFlushTimer = null;
-        this._hoverPreviewEl = null;
-        this._hoverPreviewTimer = null;
-        this._hoverPreviewCard = null;
-        this._hoverPdfCache = new Map();
+        /** Wieviele Treffer angefragt werden. Waechst ueber "Mehr laden". */
+        this._searchLimitBase = Number(cfg.resultsPerPage) || 20;
+        this._searchLimit = this._searchLimitBase;
+        /** Fuer welche Anfrage das aktuelle Limit gilt. */
+        this._limitQuery = '';
 
         this.initializeEventListeners();
     }
@@ -51,74 +80,84 @@ class DocumentSearchApp {
             }
         });
         
-        document.getElementById('healthCheck').addEventListener('click', (e) => {
-            e.preventDefault();
-            this.checkHealth();
-        });
+        // Der Systemstatus liegt in den Einstellungen; auf der Suchseite gibt
+        // es den Ausloeser nicht mehr. Ohne Pruefung wuerde die gesamte
+        // Initialisierung an dieser Zeile abbrechen.
+        const healthCheckLink = document.getElementById('healthCheck');
+        if (healthCheckLink) {
+            healthCheckLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.checkHealth();
+            });
+        }
+
+        this.loadMoreButton.addEventListener('click', () => this.loadMore());
 
         this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
-        this.resultsContainer.addEventListener('mouseenter', (e) => this._onResultHoverEnter(e), true);
-        this.resultsContainer.addEventListener('mouseleave', (e) => this._onResultHoverLeave(e), true);
-        this.resultsContainer.addEventListener('focusin', (e) => this._onResultHoverEnter(e));
-        this.resultsContainer.addEventListener('focusout', (e) => this._onResultHoverLeave(e));
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this._hideHoverPreview();
+
+        // Bildfehler steigen nicht auf, deshalb capture. Ein Vorschaubild, dessen
+        // Datei zwischen Indexierung und Suche verschwunden ist, faellt auf das
+        // Icon zurueck -- sonst steht der Alt-Text als Textblock in der Karte.
+        // load steigt wie error nicht auf -- deshalb capture.
+        this.resultsContainer.addEventListener('load', (e) => {
+            const img = e.target;
+            if (!img || !img.matches || !img.matches('.document-thumb img')) return;
+            const thumb = img.closest('.document-thumb');
+            if (thumb) thumb.classList.remove('document-thumb--loading');
+        }, true);
+
+        this.resultsContainer.addEventListener('error', (e) => {
+            const img = e.target;
+            if (!img || !img.matches || !img.matches('.document-thumb img')) return;
+            const thumb = img.closest('.document-thumb');
+            if (!thumb) return;
+            thumb.classList.remove('document-thumb--loading');
+            thumb.classList.add('document-thumb--icon');
+            thumb.innerHTML = lucide('file-text');
+        }, true);
+
+        this.previewClose.addEventListener('click', () => this.closePreview());
+        this.previewPrev.addEventListener('click', () => this.stepPreview(-1));
+        this.previewNext.addEventListener('click', () => this.stepPreview(1));
+
+        // <dialog> feuert 'close' bei Escape und bei close() gleichermassen --
+        // ein Ort fuer das Aufraeumen statt einer eigenen Escape-Behandlung.
+        this.previewDialog.addEventListener('close', () => this._afterPreviewClosed());
+
+        // Klick auf den Backdrop schliesst. Das Ereignis landet auf dem Dialog
+        // selbst, deshalb wird gegen sein Rechteck geprueft statt gegen contains().
+        this.previewDialog.addEventListener('click', (e) => {
+            if (e.target !== this.previewDialog) return;
+            const r = this.previewDialog.getBoundingClientRect();
+            const inside = e.clientX >= r.left && e.clientX <= r.right
+                && e.clientY >= r.top && e.clientY <= r.bottom;
+            if (!inside) this.closePreview();
         });
-        window.addEventListener('scroll', () => this._hideHoverPreview(), true);
-    }
 
-    _pointerForDoc(doc) {
-        const p = doc && (doc.doc_id || doc.pointer || doc.path);
-        return p != null ? String(p).trim() : '';
-    }
-
-    _queueEngagement(action, pointer, position) {
-        if (!this.querySessionId || !pointer) return;
-        const ev = { action, pointer: String(pointer).trim() };
-        if (position != null && position >= 1) {
-            ev.position = position;
-        }
-        this._engagementQueue.push(ev);
-        if (this._engagementQueue.length >= 50) {
-            this._flushEngagement();
-        } else {
-            this._flushEngagementSoon();
-        }
-    }
-
-    _flushEngagementSoon() {
-        if (this._engagementFlushTimer) return;
-        this._engagementFlushTimer = window.setTimeout(() => this._flushEngagement(), 300);
-    }
-
-    async _flushEngagement() {
-        if (this._engagementFlushTimer) {
-            window.clearTimeout(this._engagementFlushTimer);
-            this._engagementFlushTimer = null;
-        }
-        if (!this.querySessionId || !this._engagementQueue.length) return;
-        const events = this._engagementQueue.splice(0, 50);
-        try {
-            const response = await fetch('/api/analytics/engagement', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify({
-                    query_session_id: this.querySessionId,
-                    events,
-                }),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
-                console.debug('Engagement not accepted:', data.error || response.status);
+        // Pfeiltasten blaettern durch die Treffer, solange das Modal offen ist.
+        this.previewDialog.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                this.stepPreview(1);
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                this.stepPreview(-1);
             }
-        } catch (err) {
-            console.debug('Engagement send failed:', err);
-        }
-        if (this._engagementQueue.length) {
-            this._flushEngagementSoon();
-        }
+        });
+
+        // Die Karten liegen per tabindex in der Tab-Reihenfolge, reagierten aber
+        // nur auf Klicks -- damit war die Vorschau fuer Tastaturnutzer nicht
+        // erreichbar. Enter und Leertaste loesen jetzt dasselbe aus wie ein Klick.
+        this.resultsContainer.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            if (e.target.closest('a, button')) return;
+            const card = e.target.closest('.document-card');
+            if (!card) return;
+            const idx = parseInt(card.getAttribute('data-index') || '-1', 10);
+            if (idx < 0) return;
+            e.preventDefault();
+            this.openPreview(idx);
+        });
     }
 
     _redirectIfLoginRequired(response) {
@@ -130,52 +169,218 @@ class DocumentSearchApp {
     }
 
     _onResultsClick(e) {
-        const previewLink = e.target.closest('a[href*="/preview?"]');
-        if (previewLink) {
-            const card = previewLink.closest('.document-card');
-            if (card) {
-                const pointer = card.getAttribute('data-pointer');
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement('view', pointer, pos > 0 ? pos : undefined);
-            }
-            return;
-        }
-
-        const externalLink = e.target.closest('a[href*="/external-open?"]');
-        if (externalLink) {
-            const card = externalLink.closest('.document-card');
-            if (card) {
-                const pointer = card.getAttribute('data-pointer');
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement('view', pointer, pos > 0 ? pos : undefined);
-            }
-            return;
-        }
-
-        const titleEl = e.target.closest('.document-title');
-        if (titleEl) {
-            const card = titleEl.closest('.document-card');
-            if (card) {
-                const pointer = card.getAttribute('data-pointer');
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement('click', pointer, pos > 0 ? pos : undefined);
+        // Buttons und Links behalten ihr eigenes Verhalten.
+        if (!e.target.closest('a, button')) {
+            const openCard = e.target.closest('.document-card');
+            if (openCard) {
+                const idx = parseInt(openCard.getAttribute('data-index') || '-1', 10);
+                if (idx >= 0) {
+                    this.openPreview(idx);
+                    return;
+                }
             }
         }
-
     }
-    
-    async performSearch() {
-        const query = this.searchInput.value.trim();
-        
+
+    /** Menschenlesbare Kopfzeile aus den Metadaten der Extraktion. */
+    _previewMetaText(kind, meta) {
+        const parts = [kind.toUpperCase()];
+        if (meta) {
+            if (meta.page_count) parts.push(`${meta.page_count} Seiten`);
+            if (meta.word_count) parts.push(`${meta.word_count} Wörter`);
+        }
+        return parts.join(' · ');
+    }
+
+    /**
+     * Absender und Empfaenger einer E-Mail als beschrifteter Kopf ueber dem
+     * Text. In der Metazeile standen sie in einer Reihe mit Format und
+     * Wortzahl -- bei einer Mail sind das aber Kopffelder, keine Metadaten,
+     * und aneinandergereiht liest sie niemand.
+     */
+    _mailHeaderHtml(meta) {
+        if (!meta) return '';
+        const rows = [
+            ['Von', meta['msg:from']],
+            ['An', meta['msg:to']],
+        ].filter(([, v]) => v);
+        if (!rows.length) return '';
+        const body = rows.map(([label, value]) =>
+            `<div class="mail-header-label">${label}</div>`
+            + `<div class="mail-header-value">${this.escapeHtml(String(value))}</div>`
+        ).join('');
+        return `<div class="mail-header">${body}</div>`;
+    }
+
+    _previewActionsHtml(doc) {
+        const docId = doc.doc_id || '';
+        const path = doc.path || '';
+        const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
+        const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
+        if (externalUrl) {
+            const href = this.externalOpenHref(docId, path || docId);
+            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${lucide('external-link')}In OneDrive öffnen</a>`;
+        }
+        // Der degradierte Download hing frueher als dritter Knopf an der Karte.
+        // Mit den Karten-Aktionen waere er ersatzlos entfallen und
+        // allowDegradedDownloadOpen ein Schalter ohne Wirkung geworden.
+        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+        const download = cfg.allowDegradedDownloadOpen
+            ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Download</button>`
+            : '';
+        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">${lucide('external-link')}Öffnen</button>${download}`;
+    }
+
+    closePreview() {
+        if (this.previewDialog.open) {
+            this.previewDialog.close();   // loest 'close' aus -> _afterPreviewClosed
+        } else {
+            this._afterPreviewClosed();
+        }
+    }
+
+    /** Aufraeumen nach dem Schliessen, egal ob per Escape, Button oder Backdrop. */
+    _afterPreviewClosed() {
+        if (this._previewAbort) {
+            this._previewAbort.abort();
+            this._previewAbort = null;
+        }
+        this._previewIndex = null;
+        this._markActiveCard(null);
+        this.previewBody.classList.remove('is-pdf');
+        this.previewBody.innerHTML = '';
+        this.previewActions.innerHTML = '';
+        this.previewPosition.textContent = '';
+    }
+
+    /** Blaettert relativ zum aktuellen Treffer, ohne ueber die Enden zu laufen. */
+    stepPreview(delta) {
+        if (this._previewIndex == null) return;
+        const next = this._previewIndex + delta;
+        if (next < 0 || next >= this.currentResults.length) return;
+        this.openPreview(next);
+    }
+
+    /** Zaehler und Pfeil-Zustaende an die Position anpassen. */
+    _updatePreviewPosition(index) {
+        const total = this.currentResults.length;
+        this.previewPosition.textContent = total ? `${index + 1} von ${total}` : '';
+        this.previewPrev.disabled = index <= 0;
+        this.previewNext.disabled = index >= total - 1;
+    }
+
+    /** Hebt die Karte hervor, deren Dokument gerade im Panel steht. */
+    _markActiveCard(index) {
+        this.resultsContainer.querySelectorAll('.document-card.is-active')
+            .forEach((el) => el.classList.remove('is-active'));
+        if (index == null) return;
+        const card = this.resultsContainer.querySelector(`.document-card[data-index="${index}"]`);
+        if (card) card.classList.add('is-active');
+    }
+
+    async openPreview(index) {
+        const doc = this.currentResults[index];
+        if (!doc) return;
+
+        // Laufende Anfrage abbrechen, damit ein schneller Kartenwechsel nicht
+        // die Antwort des vorherigen Dokuments einblendet.
+        if (this._previewAbort) this._previewAbort.abort();
+        const controller = new AbortController();
+        this._previewAbort = controller;
+        this._previewIndex = index;
+
+        const docId = String(doc.doc_id || doc.pointer || '');
+        const path = String(doc.path || '');
+        const title = this.displayTitle(doc);
+
+        if (!this.previewDialog.open) {
+            this.previewDialog.showModal();
+        }
+        this._markActiveCard(index);
+        this._updatePreviewPosition(index);
+        this.previewTitle.textContent = title;
+        this.previewMeta.textContent = '';
+        this.previewActions.innerHTML = this._previewActionsHtml(doc);
+        this.previewBody.classList.remove('is-pdf');
+        this.previewBody.innerHTML =
+            '<div class="preview-skeleton"><span></span><span></span><span></span><span></span></div>';
+
+        if (path.toLowerCase().endsWith('.pdf')) {
+            const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+            if (!cfg.pdfInlineInBrowser) {
+                this.previewMeta.textContent = 'PDF';
+                this.previewBody.innerHTML =
+                    '<p class="preview-error">Die PDF-Vorschau ist deaktiviert. Nutzen Sie „Öffnen“.</p>';
+                this._previewAbort = null;
+                return;
+            }
+            const src = `/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}`;
+            try {
+                const probe = await fetch(src, { method: 'GET', headers: { Range: 'bytes=0-0' },
+                                                 credentials: 'same-origin', signal: controller.signal });
+                if (this._redirectIfLoginRequired(probe)) return;
+                if (this._previewIndex !== index) return;
+                if (!probe.ok && probe.status !== 206) {
+                    throw new Error(`HTTP ${probe.status}`);
+                }
+                this.previewMeta.textContent = 'PDF';
+                this.previewBody.classList.add('is-pdf');
+                this.previewBody.innerHTML =
+                    `<iframe src="${this.escapeAttr(src)}" title="PDF-Vorschau"></iframe>`;
+            } catch (error) {
+                if (error.name === 'AbortError') return;
+                this.previewBody.innerHTML =
+                    `<p class="preview-error">Vorschau nicht verfügbar (${this.escapeHtml(error.message)}). Nutzen Sie „Öffnen“.</p>`;
+            } finally {
+                if (this._previewAbort === controller) this._previewAbort = null;
+            }
+            return;
+        }
+
+        try {
+            const url = `/api/document/${encodeURIComponent(docId)}/preview-content?path=${encodeURIComponent(path)}`;
+            const response = await fetch(url, {
+                credentials: 'same-origin',
+                signal: controller.signal,
+            });
+            if (this._redirectIfLoginRequired(response)) return;
+            const data = await response.json().catch(() => ({}));
+            // Zwischenzeitlicher Kartenwechsel: Antwort verwerfen, bevor sie
+            // irgendetwas ins Panel schreibt -- Erfolg wie Fehler.
+            if (this._previewIndex !== index) return;
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+
+            this.previewMeta.textContent = this._previewMetaText(data.kind, data.meta);
+            this.previewBody.innerHTML = this._mailHeaderHtml(data.meta)
+                + window.KnovasMarkdown.render(data.markdown);
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            console.warn('Preview:', error);
+            this.previewBody.innerHTML =
+                `<p class="preview-error">Vorschau nicht verfügbar (${this.escapeHtml(error.message)}). Nutzen Sie „Öffnen“.</p>`;
+        } finally {
+            if (this._previewAbort === controller) this._previewAbort = null;
+        }
+    }
+
+    /** @param {string} [queryOverride] Erweitert eine laufende Suche ("Mehr laden"). */
+    async performSearch(queryOverride) {
+        const query = String(queryOverride != null ? queryOverride : this.searchInput.value).trim();
+
         if (!query) {
             this.showError('Bitte geben Sie einen Suchbegriff ein.');
             return;
         }
-        
+
         this.currentQuery = query;
+        if (query !== this._limitQuery) {
+            this._searchLimit = this._searchLimitBase;
+            this._limitQuery = query;
+        }
         this.showLoading();
-        this.hideError();
-        
+
         try {
             const response = await fetch('/api/search', {
                 method: 'POST',
@@ -183,7 +388,7 @@ class DocumentSearchApp {
                 headers: this._jsonHeadersWithCsrf(),
                 body: JSON.stringify({
                     query: query,
-                    limit: parseInt(this.resultsPerPage.value),
+                    limit: this._searchLimit,
                     filters: {}
                 })
             });
@@ -201,11 +406,6 @@ class DocumentSearchApp {
                     this.onedriveEnrichmentLoaded = !!data.onedrive_enrichment_loaded;
                 }
                 this.currentResults = data.results || [];
-                const sx = data.semantix;
-                this.querySessionId =
-                    sx && sx.query_session_id != null && String(sx.query_session_id).trim()
-                        ? String(sx.query_session_id).trim()
-                        : null;
                 this.displayResults(data.results, data.total, data.semantix);
             } else {
                 throw new Error(data.error || 'Suche fehlgeschlagen');
@@ -218,24 +418,82 @@ class DocumentSearchApp {
             this.hideLoading();
         }
     }
-    
+
+    /**
+     * Die Knovas-API kennt kein offset (POST /secured/query nimmt nur Input),
+     * es laesst sich also nicht nachladen. Stattdessen wird dieselbe Anfrage
+     * mit hoeherem Limit gestellt und die Liste ersetzt. Fuer den Nutzer sieht
+     * das wie Nachladen aus, ist aber eine zweite vollstaendige Suche.
+     */
+    loadMore() {
+        if (this._searchLimit >= 100) return;
+        this._searchLimit = Math.min(100, this._searchLimit * 2);
+        const y = window.scrollY;
+        this.performSearch(this.currentQuery).then(() => window.scrollTo({ top: y }));
+    }
+
+    /**
+     * Treffer nach Akte gruppieren, in der Reihenfolge ihres ersten Auftretens
+     * -- die Akte mit dem bestplatzierten Treffer steht oben. Innerhalb einer
+     * Gruppe bleibt die API-Reihenfolge unveraendert: wir kennen die
+     * Ranking-Logik nicht und sortieren deshalb nicht um.
+     * Treffer ohne Akte sammeln sich am Ende.
+     */
+    _groupByAkte(results) {
+        const groups = new Map();
+        const ohne = [];
+        results.forEach((doc, index) => {
+            const akte = String(doc.akten_id || '').trim();
+            if (!akte) {
+                ohne.push({ doc, index });
+                return;
+            }
+            if (!groups.has(akte)) groups.set(akte, []);
+            groups.get(akte).push({ doc, index });
+        });
+        const out = [...groups.entries()].map(([akte, items]) => ({ akte, items }));
+        if (ohne.length) out.push({ akte: null, items: ohne });
+        return out;
+    }
+
     displayResults(results, total, semantix) {
+        this.closePreview();
         this.resultsSection.style.display = 'block';
         this.resultsContainer.innerHTML = '';
-        
+
         if (!results || results.length === 0) {
             this.showEmptyState(semantix);
             return;
         }
-        
+
+        this.resultsQuery.textContent = this.currentQuery ? ` für „${this.currentQuery}“` : '';
         this.resultsCount.textContent = `${results.length} von ${total || results.length} Ergebnissen`;
-        
-        results.forEach((doc, index) => {
-            const card = this.createDocumentCard(doc, index);
-            this.resultsContainer.appendChild(card);
+
+        const groups = this._groupByAkte(results);
+        // Eine einzige Gruppe braucht keine Zwischenueberschrift -- die waere
+        // reines Rauschen und verschlechtert den haeufigsten Fall.
+        const grouped = groups.filter((g) => g.akte).length > 1;
+
+        groups.forEach((group) => {
+            if (grouped) {
+                const head = document.createElement('div');
+                head.className = 'results-group';
+                const label = group.akte ? `Akte ${group.akte}` : 'Ohne Aktenbezug';
+                head.innerHTML = `<span class="results-group-label">${this.escapeHtml(label)}</span>`
+                    + `<span class="results-group-count">${group.items.length}</span>`;
+                this.resultsContainer.appendChild(head);
+            }
+            group.items.forEach(({ doc, index }) => {
+                this.resultsContainer.appendChild(this.createDocumentCard(doc, index));
+            });
         });
+
+        // Nur anbieten, wenn die Antwort das Limit ausgeschoepft hat -- sonst
+        // gibt es plausibel nichts mehr zu holen.
+        const more = results.length >= this._searchLimit && this._searchLimit < 100;
+        this.loadMoreButton.hidden = !more;
     }
-    
+
     /** Up to maxSentences sentences from plain text (falls back to char limit). */
     firstSentencesExcerpt(text, maxSentences = 4, maxChars = 6000) {
         const raw = String(text || '').trim();
@@ -312,218 +570,61 @@ class DocumentSearchApp {
         return `<div class="document-first-page-text">${this.escapeHtml(this.capSummaryLength(raw, 4000))}</div>`;
     }
 
-    _ensureHoverPreview() {
-        if (this._hoverPreviewEl) return this._hoverPreviewEl;
-        const el = document.createElement('div');
-        el.className = 'document-hover-preview';
-        el.setAttribute('role', 'tooltip');
-        el.hidden = true;
-        document.body.appendChild(el);
-        this._hoverPreviewEl = el;
-        return el;
-    }
-
-    _docForCard(card) {
-        if (!card) return null;
-        const idx = parseInt(card.getAttribute('data-index') || '-1', 10);
-        if (Number.isNaN(idx) || idx < 0) return null;
-        return this.currentResults[idx] || null;
-    }
-
-    _onResultHoverEnter(e) {
-        const card = e.target.closest('.document-card');
-        if (!card || !this.resultsContainer.contains(card)) return;
-        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        if (!cfg.hoverPreviewEnabled) return;
-        if (this._hoverPreviewTimer) {
-            clearTimeout(this._hoverPreviewTimer);
-            this._hoverPreviewTimer = null;
-        }
-        this._hoverPreviewCard = card;
-        this._hoverPreviewTimer = window.setTimeout(() => {
-            this._hoverPreviewTimer = null;
-            if (this._hoverPreviewCard === card) {
-                this._showHoverPreview(card);
-            }
-        }, 150);
-    }
-
-    _onResultHoverLeave(e) {
-        const card = e.target.closest('.document-card');
-        if (!card) return;
-        const related = e.relatedTarget;
-        if (related && (card.contains(related) || this._hoverPreviewEl?.contains(related))) {
-            return;
-        }
-        if (this._hoverPreviewTimer) {
-            clearTimeout(this._hoverPreviewTimer);
-            this._hoverPreviewTimer = null;
-        }
-        if (this._hoverPreviewCard === card) {
-            this._hideHoverPreview();
+    /** Nur das Datum, ohne Uhrzeit -- die Minute sagt beim Auswaehlen nichts. */
+    _formatDateShort(dateString) {
+        try {
+            return new Date(dateString).toLocaleDateString('de-DE', {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+            });
+        } catch {
+            return dateString;
         }
     }
 
-    _showHoverPreview(card) {
-        const doc = this._docForCard(card);
-        if (!doc) return;
-        const title = this.displayTitle(doc);
-        const firstPage = String(doc.first_page_preview || '').trim();
-        const snippet = doc.context_snippet;
+    /** Formatkürzel aus der Dateiendung, z. B. "PDF". Leer wenn unbekannt. */
+    _formatLabel(path) {
+        const m = /\.([a-z0-9]+)$/i.exec(String(path || ''));
+        return m ? m[1].toUpperCase() : '';
+    }
+
+    /**
+     * Vorschaubild links auf der Karte. PDFs zeigen die gerenderte erste
+     * Seite; fuer die uebrigen Formate gibt es ohne Konverter keine Seite,
+     * deshalb steht dort ein Icon im gleich grossen Rahmen -- sonst haetten
+     * die Karten je nach Format eine andere Hoehe.
+     */
+    _thumbHtml(doc, docId, path, title, localAvailable) {
+        const ext = this._formatLabel(path);
+        if (ext === 'PDF' && localAvailable) {
+            const src = `/api/document/${encodeURIComponent(docId)}/thumbnail`
+                + `?path=${encodeURIComponent(path)}`;
+            return `<div class="document-thumb document-thumb--loading"><img loading="lazy"`
+                + ` alt="Erste Seite von ${this.escapeAttr(title)}"`
+                + ` src="${this.escapeAttr(src)}"></div>`;
+        }
+        const icon = ext === 'MSG' ? 'mail' : 'file-text';
+        return `<div class="document-thumb document-thumb--icon">${lucide(icon)}</div>`;
+    }
+
+    /**
+     * Genau eine Textquelle, in dieser Rangfolge: Trefferkontext, sonst erste
+     * Seite, sonst Zusammenfassung. Zwei Textbloecke nebeneinander helfen beim
+     * Auswaehlen nicht und kosten die halbe Karte.
+     */
+    _snippetHtml(doc) {
+        if (doc.context_snippet) {
+            const html = this._buildContextSnippetHtml(doc.context_snippet);
+            if (html) return html;
+        }
+        if (doc.first_page_preview) {
+            return this._buildFirstPageHtml(doc.first_page_preview);
+        }
         const summary = this.ingestedSummaryText(doc);
-        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        const path = String(doc.path || '');
-        const docId = String(doc.doc_id || doc.pointer || path || '');
-        const isPdf = path.toLowerCase().endsWith('.pdf');
-        const canEmbedPdf = !!cfg.pdfInlineInBrowser && isPdf && doc.can_open === true && path;
-        const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
-        const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
-
-        let bodyHtml = '';
-        if (firstPage) {
-            bodyHtml += `<div class="document-hover-preview-section"><div class="document-hover-preview-label">Erste Seite</div>${this._buildFirstPageHtml(firstPage)}</div>`;
+        if (summary) {
+            return `<div class="document-first-page-text">`
+                + `${this.escapeHtml(this.capSummaryLength(summary, 400))}</div>`;
         }
-        if (snippet) {
-            bodyHtml += `<div class="document-hover-preview-section"><div class="document-hover-preview-label">Trefferkontext</div>${this._buildContextSnippetHtml(snippet)}</div>`;
-        }
-        if (!bodyHtml && summary) {
-            bodyHtml = `<div class="document-hover-preview-section"><div class="document-hover-preview-label">Zusammenfassung</div><div class="document-first-page-text">${this.escapeHtml(this.capSummaryLength(summary, 1200))}</div></div>`;
-        }
-        if (!bodyHtml) return;
-
-        const pop = this._ensureHoverPreview();
-        let pdfHtml = '';
-        if (canEmbedPdf) {
-            const cacheKey = `${docId}|${path}`;
-            let pdfUrl = this._hoverPdfCache.get(cacheKey);
-            if (!pdfUrl) {
-                pdfUrl = `/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}#page=1&view=FitH`;
-                this._hoverPdfCache.set(cacheKey, pdfUrl);
-            }
-            pdfHtml = `<div class="document-hover-preview-pdf"><object type="application/pdf" data="${this.escapeAttr(pdfUrl)}" aria-label="PDF Vorschau Seite 1"></object></div>`;
-        }
-        const footerHtml = externalUrl
-            ? `<div class="document-hover-preview-footer"><a href="${this.escapeAttr(externalUrl)}" target="_blank" rel="noopener noreferrer">In OneDrive öffnen</a></div>`
-            : '';
-
-        pop.innerHTML = `
-            <div class="document-hover-preview-title">${this.escapeHtml(title)}</div>
-            ${pdfHtml}
-            <div class="document-hover-preview-body">${bodyHtml}</div>
-            ${footerHtml}
-        `;
-        pop.hidden = false;
-        const rect = card.getBoundingClientRect();
-        const popRect = pop.getBoundingClientRect();
-        let top = rect.bottom + 8;
-        let left = rect.left;
-        if (left + popRect.width > window.innerWidth - 12) {
-            left = Math.max(12, window.innerWidth - popRect.width - 12);
-        }
-        if (top + 200 > window.innerHeight - 12) {
-            top = Math.max(12, rect.top - popRect.height - 8);
-        }
-        pop.style.top = `${top + window.scrollY}px`;
-        pop.style.left = `${left + window.scrollX}px`;
-    }
-
-    _hideHoverPreview() {
-        if (this._hoverPreviewTimer) {
-            clearTimeout(this._hoverPreviewTimer);
-            this._hoverPreviewTimer = null;
-        }
-        this._hoverPreviewCard = null;
-        if (this._hoverPreviewEl) {
-            this._hoverPreviewEl.hidden = true;
-            this._hoverPreviewEl.innerHTML = '';
-        }
-    }
-
-    /** Knovas /secured/query returns page/sentence only — no matching chunk text. */
-    _formatLocation(pageNum, sentNum) {
-        const parts = [];
-        if (pageNum != null && pageNum !== '') {
-            parts.push(`Seite ${String(pageNum)}`);
-        }
-        if (sentNum != null && sentNum !== '') {
-            parts.push(`Satz ${String(sentNum)}`);
-        }
-        return parts.join(' · ');
-    }
-
-    _formatSimilarity(value) {
-        if (value == null || value === '') return '';
-        const n = Number(value);
-        if (Number.isNaN(n)) return '';
-        return n.toFixed(2);
-    }
-
-    _collectMatchLocations(doc) {
-        const chunks = Array.isArray(doc.top_chunks) ? doc.top_chunks : [];
-        let primaryPage = doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page;
-        let primarySent = doc.sentence_number;
-        if ((primaryPage == null || primaryPage === '') && chunks.length) {
-            primaryPage = chunks[0].page_number ?? chunks[0].page;
-            if (primarySent == null || primarySent === '') {
-                primarySent = chunks[0].sentence_number;
-            }
-        }
-        const primaryKey = `${primaryPage ?? ''}|${primarySent ?? ''}`;
-        const locations = [];
-        const primaryLabel = this._formatLocation(primaryPage, primarySent);
-        if (primaryLabel) {
-            locations.push({
-                label: primaryLabel,
-                sim: doc.cosine_similarity,
-                primary: true,
-            });
-        }
-        const extras = [];
-        for (const chunk of chunks) {
-            const key = `${chunk.page_number ?? ''}|${chunk.sentence_number ?? ''}`;
-            if (key === primaryKey) continue;
-            const label = this._formatLocation(chunk.page_number, chunk.sentence_number);
-            if (!label) continue;
-            extras.push({
-                label,
-                sim: chunk.cosine_similarity,
-                primary: false,
-            });
-        }
-        extras.sort((a, b) => (Number(b.sim) || 0) - (Number(a.sim) || 0));
-        return locations.concat(extras);
-    }
-
-    _buildMatchLocationsHtml(doc) {
-        const locations = this._collectMatchLocations(doc);
-        if (!locations.length) return '';
-
-        const count = locations.length;
-        const maxDisplayed = 4;
-        const displayed = locations.slice(0, maxDisplayed);
-        const hiddenCount = count - displayed.length;
-        const chips = displayed.map((loc) => {
-            const sim = this._formatSimilarity(loc.sim);
-            const chipClass = loc.primary
-                ? 'match-location-chip match-location-chip--primary'
-                : 'match-location-chip';
-            const scoreHtml = sim
-                ? `<span class="match-location-chip-score">${this.escapeHtml(sim)}</span>`
-                : '';
-            return `<span class="${chipClass}">${this.escapeHtml(loc.label)}${scoreHtml}</span>`;
-        }).join('');
-        const moreHint = hiddenCount > 0
-            ? ` <span class="document-match-more">+${hiddenCount} weitere</span>`
-            : '';
-
-        return `
-            <div class="document-match" role="region" aria-label="Trefferstellen">
-                <div class="document-match-header">
-                    <span class="document-match-label">Trefferstellen</span>
-                    <span class="document-match-count">${count} im Dokument${moreHint}</span>
-                </div>
-                <div class="match-location-list">${chips}</div>
-            </div>`;
+        return '';
     }
 
     createDocumentCard(doc, index) {
@@ -531,16 +632,9 @@ class DocumentSearchApp {
         card.className = 'document-card';
         card.setAttribute('tabindex', '0');
         card.setAttribute('data-index', index);
-        const pointer = this._pointerForDoc(doc);
-        if (pointer) {
-            card.setAttribute('data-pointer', pointer);
-        }
-        card.setAttribute('data-display-position', String(index + 1));
         
         const title = this.displayTitle(doc);
         const docId = doc.doc_id || 'N/A';
-        const ingestedSummary = this.ingestedSummaryText(doc);
-        const hasContext = this.hasContextPreview(doc);
         const path = doc.path || '';
         const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
@@ -554,108 +648,39 @@ class DocumentSearchApp {
             !hasOneDrive &&
             (doc.file_exists === true ||
                 (doc.file_exists == null && doc.can_open === true));
-        const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        const useBrowserClientOpen = !!cfg.browserClientOpenEnabled;
-        const useCompanion = !!cfg.companionEnabled;
-        const isPdf = path.toLowerCase().endsWith('.pdf');
-        const canPreviewPdf = !!cfg.pdfInlineInBrowser && isPdf;
-        const showDegradedDownload = !!cfg.allowDegradedDownloadOpen;
-        const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-        const openBtnLabel =
-            onHttps && !useCompanion ? 'Pfad kopieren' : 'Öffnen';
+        // Keine Aktionen auf der Karte. Die Karte selbst oeffnet die Vorschau
+        // (_onResultsClick), und dort steht "Oeffnen" bzw. "In OneDrive
+        // oeffnen" -- der Weg geht also nicht verloren, er liegt eine Ebene
+        // tiefer. Knoepfe hier haben ihn verdeckt: _onResultsClick ueberspringt
+        // Klicks auf a und button, sie konkurrierten also mit genau der Geste,
+        // die der Nutzer lernen soll.
+        const actionsHtml = localAvailable || hasOneDrive
+            ? ''
+            : '<span class="badge badge-error">Datei nicht verf\u00fcgbar</span>';
 
-        let actionsHtml;
-        if (hasOneDrive) {
-            const openHref = this.externalOpenHref(docId, path || docId);
-            actionsHtml = `
-                <a class="btn btn-success" href="${this.escapeAttr(openHref)}" target="_blank" rel="noopener noreferrer">
-                    In OneDrive öffnen
-                </a>
-            `;
-        } else if (localAvailable) {
-            const previewBtn = canPreviewPdf
-                ? `<a class="btn btn-outline" target="_blank" rel="noopener noreferrer" href="/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}">PDF Vorschau</a>`
-                : '';
-            const downloadBtn = showDegradedDownload
-                ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">
-                    Download (degradiert)
-                </button>`
-                : '';
-            actionsHtml = `
-                <button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}', ${useBrowserClientOpen ? 'true' : 'false'}, ${useCompanion ? 'true' : 'false'})">
-                    ${openBtnLabel}
-                </button>
-                ${previewBtn}
-                ${downloadBtn}
-            `;
-        } else {
-            actionsHtml = `<span class="badge badge-error">Datei nicht verfügbar</span>`;
-        }
-        
-        const summaryStr = !hasContext && ingestedSummary
-            ? this.capSummaryLength(ingestedSummary, 2000)
-            : '';
-        const summaryHtml = summaryStr ? this.escapeHtml(summaryStr) : '';
-        const firstPageHtml = hasContext && doc.first_page_preview
-            ? this._buildFirstPageHtml(doc.first_page_preview)
-            : '';
-        const contextHtml = hasContext && doc.context_snippet
-            ? this._buildContextSnippetHtml(doc.context_snippet)
-            : '';
-        const matchHtml = this._buildMatchLocationsHtml(doc);
-        const primaryLocation = this._formatLocation(
-            doc.page_number != null && doc.page_number !== '' ? doc.page_number : doc.page,
-            doc.sentence_number,
-        );
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
-        const fileModified = doc.modified_at || null;
+        // Nur Format und Datum: die Dokumentart steht meist schon im Titel,
+        // und drei Angaben nebeneinander lesen sich als Datenzeile statt als
+        // Einordnung.
+        const metaParts = [];
+        const fmt = this._formatLabel(path);
+        if (fmt) metaParts.push(fmt);
+        if (documentDate) metaParts.push(this.escapeHtml(this._formatDateShort(documentDate)));
 
         card.innerHTML = `
-            <div class="document-header">
-                <div class="document-header-text">
-                    <div class="document-title">${this.escapeHtml(title)}</div>
-                    ${primaryLocation ? `<div class="document-location">${this.escapeHtml(primaryLocation)}</div>` : ''}
+            ${this._thumbHtml(doc, docId, path, title, localAvailable)}
+            <div class="document-body">
+                <div class="document-headline">
+                    <div class="document-headline-text">
+                        ${metaParts.length ? `<div class="document-metaline">${metaParts.join(' · ')}</div>` : ''}
+                        <div class="document-title">${this.escapeHtml(title)}</div>
+                    </div>
+                    ${actionsHtml ? `<div class="document-actions">${actionsHtml}</div>` : ''}
                 </div>
-                <div class="document-actions">
-                    ${actionsHtml}
-                </div>
+                ${this._snippetHtml(doc)}
             </div>
-            
-            ${matchHtml}
-            
-            ${documentDate || fileModified ? `
-            <div class="document-meta">
-                ${documentDate ? `
-                    <span class="meta-item">${this.formatDate(documentDate)}</span>
-                ` : ''}
-                ${fileModified ? `
-                    <span class="meta-item meta-item-muted">Geändert ${this.formatDate(fileModified)}</span>
-                ` : ''}
-            </div>
-            ` : ''}
-            
-            ${firstPageHtml ? `
-            <div class="document-first-page" role="region" aria-label="Erste Seite">
-                <div class="document-first-page-label">Erste Seite</div>
-                ${firstPageHtml}
-            </div>
-            ` : ''}
-            
-            ${contextHtml ? `
-            <div class="document-context-snippet" role="region" aria-label="Trefferkontext">
-                <div class="document-context-snippet-label">Trefferkontext</div>
-                ${contextHtml}
-            </div>
-            ` : ''}
-            
-            ${summaryHtml ? `
-            <div class="document-ingested-summary" role="region" aria-label="Dokumentzusammenfassung">
-                <div class="document-ingested-summary-label">Dokumentzusammenfassung (Knovas)</div>
-                <div class="document-ingested-summary-text">${summaryHtml}</div>
-            </div>
-            ` : ''}
         `;
-        
+
         return card;
     }
     
@@ -669,7 +694,6 @@ class DocumentSearchApp {
             useBrowserClientOpen = pathOrBrowserFlag;
             useCompanion = browserOrCompanionFlag;
         }
-        this._reportEngagementForDocId(docId, 'view');
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         const browserOpen = useBrowserClientOpen === true || !!cfg.browserClientOpenEnabled;
         const companionOpen = useCompanion === true || !!cfg.companionEnabled;
@@ -831,22 +855,8 @@ class DocumentSearchApp {
         }
     }
     
-    _reportEngagementForDocId(docId, action) {
-        const cards = this.resultsContainer.querySelectorAll('.document-card');
-        for (const card of cards) {
-            const pointer = card.getAttribute('data-pointer');
-            if (pointer && pointer === String(docId)) {
-                const pos = parseInt(card.getAttribute('data-display-position') || '0', 10);
-                this._queueEngagement(action, pointer, pos > 0 ? pos : undefined);
-                return;
-            }
-        }
-        this._queueEngagement(action, docId);
-    }
-
     async downloadDocument(docId, path) {
         try {
-            this._reportEngagementForDocId(docId, 'download');
             const idSeg = encodeURIComponent(docId);
             window.location.href = `/api/document/${idSeg}/download?path=${encodeURIComponent(path)}`;
             this.showSuccess('Download wird gestartet...');
@@ -860,67 +870,94 @@ class DocumentSearchApp {
         try {
             const response = await fetch('/api/health', { credentials: 'same-origin' });
             const data = await response.json();
-            
-            const status = data.semantix_api ? '✅ Online' : '❌ Offline';
-            alert(`System Status:\n\nWeb Interface: ✅ Online\nKnovas API: ${status}\n\nZeitstempel: ${data.timestamp}`);
-            
+            const status = data.semantix_api ? 'Online' : 'Offline';
+            this.showToast(
+                `Systemstatus\nWeb-Oberfläche: Online\nKnovas API: ${status}\nZeitstempel: ${data.timestamp}`,
+                data.semantix_api ? 'success' : 'error',
+            );
         } catch (error) {
-            alert(`System Status:\n\n❌ Verbindungsfehler: ${error.message}`);
+            this.showToast(`Systemstatus konnte nicht geladen werden: ${error.message}`, 'error');
         }
     }
     
     showLoading() {
-        // Loading markup lives inside #resultsSection, which starts hidden — show it
-        // so the first search (and any search) displays the spinner immediately.
         this.resultsSection.style.display = 'block';
         this.resultsSection.setAttribute('aria-busy', 'true');
-        this.loadingIndicator.style.display = 'block';
-        this.resultsContainer.style.display = 'none';
-        if (this.resultsCount) {
-            this.resultsCount.textContent = '';
-        }
+        this.loadMoreButton.hidden = true;
+        if (this.resultsCount) this.resultsCount.textContent = '';
+        // Skelett in der Form der echten Karten: ohne das springt das Layout,
+        // sobald die Ergebnisse eintreffen.
+        this.resultsContainer.innerHTML = Array.from({ length: 3 }, () => `
+            <div class="document-card document-card--skeleton" aria-hidden="true">
+                <div class="document-thumb skeleton-block"></div>
+                <div class="document-body">
+                    <span class="skeleton-line skeleton-line--meta"></span>
+                    <span class="skeleton-line skeleton-line--title"></span>
+                    <span class="skeleton-line"></span>
+                    <span class="skeleton-line skeleton-line--short"></span>
+                </div>
+            </div>
+        `).join('');
         this.searchButton.disabled = true;
     }
-    
+
     hideLoading() {
-        this.loadingIndicator.style.display = 'none';
-        this.resultsContainer.style.display = 'flex';
         this.resultsSection.setAttribute('aria-busy', 'false');
         this.searchButton.disabled = false;
     }
     
+    /** Wie lange ein Toast stehen bleibt, bevor er sich selbst entfernt. */
+    static TOAST_TIMEOUT_MS = { error: 10000, success: 6000, info: 6000 };
+
+    /**
+     * Einziger Weg, dem Nutzer etwas mitzuteilen. Jeder Toast verschwindet von
+     * selbst; Fehler bekommen laenger Zeit, weil sie mehr Text tragen und
+     * gelesen werden wollen. Wer schneller ist, klickt das x.
+     * @param {'info'|'success'|'error'} kind
+     */
+    showToast(message, kind = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast--${kind}`;
+
+        const text = document.createElement('div');
+        text.className = 'toast-text';
+        text.textContent = message;
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'toast-close';
+        close.setAttribute('aria-label', 'Meldung schliessen');
+        close.textContent = '×';
+        close.addEventListener('click', () => toast.remove());
+
+        toast.appendChild(text);
+        toast.appendChild(close);
+        this.toastContainer.appendChild(toast);
+
+        const timeout = DocumentSearchApp.TOAST_TIMEOUT_MS[kind]
+            || DocumentSearchApp.TOAST_TIMEOUT_MS.info;
+        window.setTimeout(() => toast.remove(), timeout);
+    }
+
     showError(message) {
-        this.errorMessage.textContent = message;
-        this.errorMessage.style.display = 'block';
-        setTimeout(() => {
-            this.hideError();
-        }, 5000);
+        this.showToast(message, 'error');
     }
-    
-    hideError() {
-        this.errorMessage.style.display = 'none';
-    }
-    
+
     showSuccess(message) {
-        const successDiv = document.createElement('div');
-        successDiv.className = 'success-message';
-        successDiv.textContent = message;
-        
-        const container = this.resultsSection || document.querySelector('.container');
-        container.insertBefore(successDiv, container.firstChild);
-        
-        setTimeout(() => {
-            successDiv.remove();
-        }, 8000);
+        this.showToast(message, 'success');
     }
-    
+
     showEmptyState(semantix) {
+        this.loadMoreButton.hidden = true;
         this.resultsContainer.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">🔍</div>
-                <h3>Keine Ergebnisse gefunden</h3>
-                <p>Ihre Suche nach "${this.escapeHtml(this.currentQuery)}" ergab keine Treffer.</p>
-                <p class="mt-20">Versuchen Sie es mit anderen Suchbegriffen.</p>
+                <h3>Keine Treffer für „${this.escapeHtml(this.currentQuery)}“</h3>
+                <p>Die Suche durchsucht den <strong>Inhalt</strong> der Dokumente, nicht nur die Dateinamen.</p>
+                <ul class="empty-state-hints">
+                    <li>Kürzeren oder allgemeineren Begriff versuchen</li>
+                    <li>Schreibweise prüfen</li>
+                    <li>Oberbegriff statt Fachbegriff verwenden</li>
+                </ul>
             </div>
         `;
         this.resultsCount.textContent = '0 Ergebnisse';

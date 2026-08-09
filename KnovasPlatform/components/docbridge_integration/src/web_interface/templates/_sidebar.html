@@ -1,0 +1,72 @@
+{# Plattform-Seitenleiste: eine Quelle fuer alle Module.
+   Erwartet: active_nav ('suche' | 'cortex' | 'einstellungen'), company_name,
+   optional corpus_documents_display (fehlt -> Block wird weggelassen). #}
+<aside class="app-sidebar">
+    <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
+        <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
+             alt="Knovas" width="120" height="16">
+    </a>
+
+    <nav class="app-nav" aria-label="Hauptnavigation">
+        <a href="{{ url_for('index') }}" class="app-nav-item{% if active_nav == 'suche' %} active{% endif %}"
+           {% if active_nav == 'suche' %}aria-current="page"{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            Suche
+        </a>
+        <a href="{{ url_for('ontology_page') }}" class="app-nav-item{% if active_nav == 'cortex' %} active{% endif %}"
+           {% if active_nav == 'cortex' %}aria-current="page"{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+            Cortex
+        </a>
+        <a href="{{ url_for('settings_page') }}" class="app-nav-item{% if active_nav == 'einstellungen' %} active{% endif %}"
+           {% if active_nav == 'einstellungen' %}aria-current="page"{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+                <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+                <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/>
+                <line x1="17" y1="16" x2="23" y2="16"/>
+            </svg>
+            Einstellungen
+        </a>
+        {% if feedback_url %}
+        <a href="{{ feedback_url }}" class="app-nav-item" target="_blank" rel="noopener noreferrer"
+           title="Feedback über Jira senden">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Feedback
+        </a>
+        {% endif %}
+    </nav>
+
+    <div class="app-sidebar-foot">
+        {% if corpus_documents_display %}
+        <div class="corpus-status">
+            <span class="corpus-count">{{ corpus_documents_display }}</span>
+            <span class="corpus-label">Dokumente gelesen</span>
+        </div>
+        {% endif %}
+        <a class="app-user" href="{{ url_for('settings_page') }}">
+            <span class="app-avatar" aria-hidden="true">{{ company_name[0] | upper }}</span>
+            <span class="app-user-text">
+                <span class="app-user-name">{{ company_name }}</span>
+                <span class="app-user-role">Angemeldet</span>
+            </span>
+        </a>
+    </div>
+</aside>

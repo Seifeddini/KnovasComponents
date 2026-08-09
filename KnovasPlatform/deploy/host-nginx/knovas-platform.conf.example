@@ -30,8 +30,10 @@ server {
     # Security response headers (apply to every response, incl. proxied/errors).
     # HSTS is safe here because this vhost is TLS-only (the :80 block 301-redirects).
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Content-Security-Policy "frame-ancestors 'none'" always;
+    # SAMEORIGIN statt DENY: die App bettet eigene Dokumentvorschauen als
+    # <iframe> ein. Framing durch fremde Herkuenfte bleibt verboten.
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Content-Security-Policy "frame-ancestors 'self'" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 

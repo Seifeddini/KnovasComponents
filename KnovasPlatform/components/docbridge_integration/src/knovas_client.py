@@ -7,6 +7,7 @@ import requests
 import logging
 import json
 from typing import List, Dict, Any, Optional, Tuple, Union
+from urllib.parse import quote
 from datetime import datetime, timezone
 import time
 import os
@@ -486,7 +487,6 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
     return parts, init_fields
 
 
-_ENGAGEMENT_ACTIONS = frozenset({"view", "click", "download", "dismiss"})
 _MAX_TABLES_PER_PART = 50
 _MAX_TABLE_COLUMNS = 64
 _MAX_TABLE_ROWS = 5000
@@ -856,6 +856,36 @@ def _secured_query_hit_to_row(item: Dict[str, Any]) -> Dict[str, Any]:
     return row
 
 
+class KnowledgeGraphDisabled(RuntimeError):
+    """Der Wissensgraph ist fuer dieses Deployment nicht aktiviert.
+
+    Die API antwortet auf jede /secured/graph/*-Route mit 404 und
+    error_code 'knowledge_graph_disabled' (siehe Knowledge_Graph_API.md).
+    """
+
+
+def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, Any]]:
+    """Liste aus einer flachen Envelope ziehen.
+
+    Die Graph-Spezifikation nennt die Schluesselnamen der Listen-Antworten
+    nicht. Deshalb erst die plausiblen Namen probieren, dann auf die erste
+    Liste im Objekt zurueckfallen - tolerant statt zu raten und zu brechen.
+    """
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in candidate_keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    for key, value in payload.items():
+        if key in ('status', 'message') or not isinstance(value, list):
+            continue
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
 class KnovasAPIClient:
     """Client for Knovas API operations."""
     
@@ -917,9 +947,6 @@ class KnovasAPIClient:
             'generate_certificate': self.config.get('api.endpoints.generate_certificate', '/secured/generate_certificate'),
             'sign_certificate': self.config.get(
                 'api.endpoints.sign_certificate', '/secured/sign_certificate'
-            ),
-            'engagement': self.config.get(
-                'api.endpoints.engagement', '/secured/analytics/engagement'
             ),
             'delete_information_object': self.config.get(
                 'api.endpoints.delete_information_object', '/secured/delete_information_object'
@@ -1320,56 +1347,6 @@ class KnovasAPIClient:
         response.raise_for_status()
         return response
 
-    def post_engagement_events(
-        self,
-        query_session_id: str,
-        events: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """
-        POST /secured/analytics/engagement — implicit engagement (fire-and-forget).
-        """
-        session_id = str(query_session_id or '').strip()
-        if not session_id:
-            raise ValueError('query_session_id is required')
-        if not events or not isinstance(events, list):
-            raise ValueError('events must be a non-empty array')
-        if len(events) > 50:
-            raise ValueError('events exceeds max 50 per request')
-
-        normalized_events: List[Dict[str, Any]] = []
-        for idx, ev in enumerate(events):
-            if not isinstance(ev, dict):
-                raise ValueError(f'events[{idx}] must be an object')
-            action = str(ev.get('action') or '').strip().lower()
-            if action not in _ENGAGEMENT_ACTIONS:
-                raise ValueError(
-                    f'events[{idx}].action must be one of: {", ".join(sorted(_ENGAGEMENT_ACTIONS))}'
-                )
-            pointer = str(ev.get('pointer') or '').strip()
-            if not pointer:
-                raise ValueError(f'events[{idx}].pointer is required')
-            item: Dict[str, Any] = {'action': action, 'pointer': pointer}
-            position = ev.get('position')
-            if position is not None:
-                pos_i = int(position)
-                if pos_i < 1:
-                    raise ValueError(f'events[{idx}].position must be >= 1')
-                item['position'] = pos_i
-            normalized_events.append(item)
-
-        endpoint = self.endpoints.get('engagement', '/secured/analytics/engagement')
-        response = self._request_no_retry(
-            'POST',
-            endpoint,
-            data={
-                'query_session_id': session_id,
-                'events': normalized_events,
-            },
-        )
-        if response.status_code not in (200, 202):
-            response.raise_for_status()
-        return response.json() if response.content else {}
-
     def delete_information_object(self, pointer: str) -> Dict[str, Any]:
         """DELETE /secured/delete_information_object — remove document by pointer."""
         if not pointer or not str(pointer).strip():
@@ -1542,7 +1519,193 @@ class KnovasAPIClient:
         except Exception as e:
             logger.warning(f"Health check failed: {e}")
             return False
-    
+
+    # ------------------------------------------------------------------
+    # Knowledge Graph (Cortex)
+    # Spezifikation: KnowledgeBase docs/Knovas_Developer_Kit/api/
+    #                Knowledge_Graph_API.md
+    # Alle Routen liegen unter /secured/graph und antworten in derselben
+    # flachen Envelope wie der Rest der Secure-API.
+    # ------------------------------------------------------------------
+
+    def _graph_request(
+        self,
+        method: str,
+        path: str,
+        data: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Graph-Aufruf. Gibt den geparsten Body zurueck.
+
+        404 bedeutet laut Spezifikation entweder 'Feature aus' (error_code
+        knowledge_graph_disabled) oder 'Id unbekannt bzw. nicht deine' -
+        letzteres ist ein normaler Zustand und liefert None, kein Fehler.
+        """
+        endpoint = f"/secured/graph{path}"
+        try:
+            response = self._make_request(method=method, endpoint=endpoint,
+                                          data=data, params=params)
+        except requests.exceptions.HTTPError as exc:
+            response = exc.response
+            if response is None or response.status_code != 404:
+                raise
+            body: Dict[str, Any] = {}
+            try:
+                body = response.json() or {}
+            except ValueError:
+                body = {}
+            if body.get('error_code') == 'knowledge_graph_disabled':
+                raise KnowledgeGraphDisabled(
+                    'Der Wissensgraph ist fuer dieses Deployment nicht aktiviert'
+                ) from exc
+            logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
+            return None
+        try:
+            return response.json() or {}
+        except ValueError:
+            logger.warning("Graph-Antwort ohne JSON-Body: %s %s", method, endpoint)
+            return {}
+
+    def graph_export(self) -> Dict[str, Any]:
+        """GET /secured/graph - vollstaendiger Topologie-Export."""
+        return self._graph_request('GET', '') or {}
+
+    def graph_node_types(self) -> List[Dict[str, Any]]:
+        """GET /secured/graph/node-types - Typ-Vokabular."""
+        return _graph_payload_list(self._graph_request('GET', '/node-types'),
+                                   'node_types', 'nodeTypes', 'types')
+
+    def graph_nodes(self) -> List[Dict[str, Any]]:
+        """GET /secured/graph/nodes - alle Knoten des Mandanten."""
+        return _graph_payload_list(self._graph_request('GET', '/nodes'), 'nodes')
+
+    def graph_node(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """GET /secured/graph/nodes/<id> - Detail inkl. Zuordnungen und Fakten."""
+        return self._graph_request('GET', f'/nodes/{quote(str(node_id), safe="")}')
+
+    def graph_edges(self) -> List[Dict[str, Any]]:
+        """GET /secured/graph/edges - typisierte Relationen."""
+        return _graph_payload_list(self._graph_request('GET', '/edges'), 'edges')
+
+    def graph_neighbors(self, node_id: str, depth: int = 1) -> List[Dict[str, Any]]:
+        """GET /secured/graph/nodes/<id>/neighbors - Traversal, max. 3 Hops."""
+        depth = max(0, min(3, int(depth)))
+        payload = self._graph_request(
+            'GET', f'/nodes/{quote(str(node_id), safe="")}/neighbors',
+            params={'depth': depth})
+        return _graph_payload_list(payload, 'neighbors', 'nodes')
+
+    # -- Kuratieren (der Graph wird vom Client gepflegt, nicht abgeleitet) --
+
+    def graph_create_node_type(self, name: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/node-types - Typ-Vokabular erweitern."""
+        return self._graph_request('POST', '/node-types', data={'name': name})
+
+    def graph_create_node(self, name: str,
+                          node_type_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/nodes - Entitaet anlegen.
+
+        Achtung: Die Spezifikation zeigt als Body nur name (plus die
+        Zugriffsfelder); wie ein Knoten seinen Typ bekommt, ist dort nicht
+        beschrieben. Wir senden node_type_id - beim ersten Lauf gegen eine
+        echte Instanz pruefen, ob der Typ wirklich gesetzt wird.
+        """
+        payload: Dict[str, Any] = {'name': name}
+        if node_type_id:
+            payload['node_type_id'] = node_type_id
+        return self._graph_request('POST', '/nodes', data=payload)
+
+    def graph_create_edge(self, node_lo: str, node_hi: str,
+                          relation: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/edges - typisierte Relation zwischen Knoten."""
+        return self._graph_request('POST', '/edges', data={
+            'node_lo': node_lo, 'node_hi': node_hi, 'relation': relation})
+
+    def graph_create_schema_attribute(self, type_id: str, name: str,
+                                      datatype: str = 'entity_ref'
+                                      ) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/node-types/<id>/schema - Attributdefinition.
+
+        Fuer Vorgaben auf Typebene nutzen wir datatype entity_ref; laut
+        Datentyp-Tabelle materialisiert der eine typisierte Kante. Der Body
+        des Endpunkts ist in der Spezifikation nicht gezeigt, deshalb beim
+        ersten Lauf gegen eine echte Instanz pruefen (Task 17).
+        """
+        return self._graph_request(
+            'POST', f'/node-types/{quote(str(type_id), safe="")}/schema',
+            data={'name': name, 'datatype': datatype})
+
+    def graph_delete_schema_attribute(self, type_id: str,
+                                      attribute_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/node-types/<id>/schema/<aid>."""
+        return self._graph_request(
+            'DELETE',
+            f'/node-types/{quote(str(type_id), safe="")}'
+            f'/schema/{quote(str(attribute_id), safe="")}')
+
+    def graph_delete_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/edges/<id> - nur manuelle Kanten."""
+        return self._graph_request(
+            'DELETE', f'/edges/{quote(str(edge_id), safe="")}')
+
+    def graph_assign_knowledge(self, node_id: str,
+                               pointer: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/nodes/<id>/knowledge - Dokument zuordnen."""
+        return self._graph_request(
+            'POST', f'/nodes/{quote(str(node_id), safe="")}/knowledge',
+            data={'pointer': pointer})
+
+    def graph_delete_node(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/nodes/<id> - Kaskade laut Spezifikation."""
+        return self._graph_request('DELETE', f'/nodes/{quote(str(node_id), safe="")}')
+
+    def graph_delete_node_type(self, type_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/node-types/<id>."""
+        return self._graph_request('DELETE', f'/node-types/{quote(str(type_id), safe="")}')
+
+    def graph_filters(self, node_id: str) -> List[Dict[str, Any]]:
+        """GET /secured/graph/nodes/<id>/filters - Filter eines Knotens."""
+        payload = self._graph_request(
+            'GET', f'/nodes/{quote(str(node_id), safe="")}/filters')
+        return _graph_payload_list(payload, 'filters')
+
+    def graph_create_filter(self, node_id: str, query_text: str,
+                            child_node_name: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/nodes/<id>/filters - Filter anlegen.
+
+        Erzeugt bzw. bindet einen Kind-Knoten; passende Chunks der Dokumente
+        des Eltern-Knotens erscheinen danach als Placements. Max. 16 pro
+        Knoten, keine Filter auf filter-erzeugten Kindern (Tiefe 1).
+        """
+        return self._graph_request(
+            'POST', f'/nodes/{quote(str(node_id), safe="")}/filters',
+            data={'query_text': query_text, 'child_node_name': child_node_name})
+
+    def graph_delete_filter(self, node_id: str, filter_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/nodes/<id>/filters/<fid>."""
+        return self._graph_request(
+            'DELETE',
+            f'/nodes/{quote(str(node_id), safe="")}/filters/{quote(str(filter_id), safe="")}')
+
+    def graph_placements(self, node_id: str,
+                         status: str = 'active') -> List[Dict[str, Any]]:
+        """GET /secured/graph/nodes/<id>/placements?status=active|rejected."""
+        status = status if status in ('active', 'rejected') else 'active'
+        payload = self._graph_request(
+            'GET', f'/nodes/{quote(str(node_id), safe="")}/placements',
+            params={'status': status})
+        return _graph_payload_list(payload, 'placements')
+
+    def graph_reject_placement(self, placement_id: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/placements/<pid>/reject - dauerhaft."""
+        return self._graph_request(
+            'POST', f'/placements/{quote(str(placement_id), safe="")}/reject')
+
+    def graph_restore_placement(self, placement_id: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/placements/<pid>/restore - expliziter Override."""
+        return self._graph_request(
+            'POST', f'/placements/{quote(str(placement_id), safe="")}/restore')
+
     def format_document_payload(
         self,
         doc_id: str,

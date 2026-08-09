@@ -6,6 +6,7 @@ through Knovas.
 """
 
 import sys
+import io
 import os
 import json
 import hmac
@@ -28,6 +29,15 @@ from context_store import enrich_result_with_context
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
+from ontology_filters import get_filter_engine
+from ontology_store import get_ontology
+from web_interface.preview import (
+    PreviewFailed,
+    PreviewUnsupported,
+    extract_markdown,
+    preview_kind,
+    render_first_page_png,
+)
 from unc_path import (
     filesystem_path_to_client_local,
     map_path_with_roots,
@@ -253,8 +263,11 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
             'Der Vertrag wird im beiderseitigen Einvernehmen geschlossen.'
         ),
         'context_snippet': _demo_context_snippet(
+            'Die Vertragsparteien haben die Liegenschaft gemeinsam besichtigt und den Zustand protokolliert. '
+            'Der Verkäufer sichert zu, dass keine über die im Grundbuch eingetragenen hinausgehenden Lasten bestehen. '
             'Die Übergabe der Liegenschaft erfolgt nach vollständiger Zahlung des Kaufpreises. '
-            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen.',
+            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen. '
+            'Ein Treuhandkonto wird bei der beurkundenden Notarin eingerichtet.',
             'Der Kaufpreis in Höhe von EUR 485.000,00 ist spätestens bis zum vereinbarten Übergabetermin zu bezahlen.',
             'Mit Übergabe gehen Nutzen und Lasten auf den Käufer über. Mängelansprüche verjähren nach den '
             'gesetzlichen Fristen. Die Parteien vereinbaren einen Rücktrittsvorbehalt bei Finanzierungsausfall.',
@@ -265,6 +278,102 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         ),
         'file_size': 245760,
         'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Mustervertrag.pdf',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Aktennotiz.txt',
+        'path': 'corpus/2024-001/Aktennotiz.txt',
+        'title': 'Aktennotiz Übergabetermin',
+        'akten_id': '2024-001',
+        'type': 'Aktennotiz',
+        'score': 0.88,
+        'cosine_similarity': 0.88,
+        'cosine_distance': 0.12,
+        'page_number': 1,
+        'sentence_number': 3,
+        'document_date': '2024-03-20T11:30:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 3, 'cosine_similarity': 0.88},
+        ],
+        'first_page_preview': (
+            'Aktennotiz vom 20.03.2024. Übergabetermin für die Liegenschaft laut '
+            'Kaufvertrag 2024-001 vereinbart für den 05.04.2024, 10:00 Uhr vor Ort.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Der Käufer wurde telefonisch über den vorgeschlagenen Termin informiert.',
+            'Übergabe der Liegenschaft ist für den 05.04.2024 vorgesehen, vorbehaltlich '
+            'vollständiger Kaufpreiszahlung.',
+            'Die Schlüsselübergabe erfolgt direkt vor Ort. Ein Übergabeprotokoll wird von '
+            'beiden Seiten unterzeichnet.',
+        ),
+        'ingested_summary': (
+            'Aktennotiz zur Vereinbarung des Übergabetermins im Zusammenhang mit dem '
+            'Kaufvertrag 2024-001.'
+        ),
+        'file_size': 247,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Aktennotiz.txt',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Kaufvertrag.docx',
+        'path': 'corpus/2024-001/Kaufvertrag.docx',
+        'title': 'Kaufvertrag Immobilie (Entwurf)',
+        'akten_id': '2024-001',
+        'type': 'Vertrag',
+        'score': 0.93,
+        'cosine_similarity': 0.93,
+        'cosine_distance': 0.07,
+        'page_number': 1,
+        'sentence_number': 5,
+        'document_date': '2024-03-10T09:00:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 5, 'cosine_similarity': 0.93},
+            {'page_number': 2, 'sentence_number': 2, 'cosine_similarity': 0.81},
+        ],
+        'first_page_preview': (
+            'KAUFVERTRAG (Entwurf) über eine Wohnimmobilie. Verkäufer: Immobilien GmbH, '
+            'Käufer: Max Mustermann. Dieser Entwurf dient der Abstimmung vor Unterzeichnung.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Die Vertragsparteien haben sich auf den nachstehenden Kaufpreis geeinigt.',
+            'Der Kaufpreis beträgt EUR 485.000,00 und ist bis zum Übergabetermin zu entrichten.',
+            'Änderungen an diesem Entwurf bedürfen der Schriftform und der Zustimmung beider Parteien.',
+        ),
+        'ingested_summary': (
+            'Entwurfsfassung des Kaufvertrags über die Wohnimmobilie EZ 1234 KG Musterstadt, '
+            'zur Abstimmung vor der Unterzeichnung.'
+        ),
+        'file_size': 36822,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Kaufvertrag.docx',
+    },
+    {
+        'doc_id': 'corpus/2024-001/Rueckfrage.msg',
+        'path': 'corpus/2024-001/Rueckfrage.msg',
+        'title': 'Rückfrage zum Kaufvertrag',
+        'akten_id': '2024-001',
+        'type': 'E-Mail',
+        'score': 0.86,
+        'cosine_similarity': 0.86,
+        'cosine_distance': 0.14,
+        'page_number': 1,
+        'sentence_number': 2,
+        'document_date': '2024-03-18T15:20:00',
+        'top_chunks': [
+            {'page_number': 1, 'sentence_number': 2, 'cosine_similarity': 0.86},
+        ],
+        'first_page_preview': (
+            'E-Mail-Rückfrage des Käufers zu einzelnen Klauseln des Kaufvertrags, '
+            'insbesondere zur Fälligkeit des Kaufpreises und zum Übergabetermin.'
+        ),
+        'context_snippet': _demo_context_snippet(
+            'Der Käufer bedankt sich für die Zusendung des Entwurfs.',
+            'Er bittet um Klarstellung, ob der Übergabetermin verschoben werden kann, '
+            'falls sich die Finanzierung verzögert.',
+            'Eine Antwort wird bis Ende der Woche erbeten.',
+        ),
+        'ingested_summary': (
+            'Rückfrage des Käufers zu Fälligkeit und Übergabetermin im laufenden Kaufvertrag.'
+        ),
+        'file_size': 5120,
+        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Rueckfrage.msg',
     },
     {
         'doc_id': 'corpus/2024-001/Schriftsatz_Klage.docx',
@@ -431,8 +540,6 @@ def _apply_test_open_hints(
             result['companion_scheme'] = companion_uri_scheme
 
 
-DRAFT_THEME_SLUGS = frozenset({'atelier', 'ledger', 'horizon', 'helvetia'})
-
 # Bump when search UI / open behaviour changes — visible in footer and GET /api/version
 DOCBRIDGE_BUILD_ID = 'onedrive-locations-v4'
 
@@ -491,23 +598,29 @@ def _open_autodoc_fileobj(full_path: str):
     return os.fdopen(fd, 'rb')
 
 
-def _normalize_ui_theme_slug(raw: Optional[str]) -> Optional[str]:
-    slug = (raw or '').strip().lower()
-    if slug in DRAFT_THEME_SLUGS:
-        return slug
-    return None
-
-
 def _static_asset_version() -> str:
-    """Cache-bust static JS/CSS after deploy (mtime of app.js)."""
+    """Cache-bust static JS/CSS after deploy (neueste Aenderung aller Assets).
+
+    Frueher zaehlte nur app.js. Aenderungen an ontology.js oder ontology.css
+    liessen die Versionsnummer damit unberuehrt, und Browser lieferten
+    tagelang die alte Datei aus dem Zwischenspeicher aus.
+    """
+    neueste = 0
     try:
         static_root = os.path.join(os.path.dirname(__file__), 'static')
-        app_js = os.path.join(static_root, 'js', 'app.js')
-        if os.path.isfile(app_js):
-            return str(int(os.path.getmtime(app_js)))
+        for ordner in ('js', 'css'):
+            pfad = os.path.join(static_root, ordner)
+            if not os.path.isdir(pfad):
+                continue
+            for name in os.listdir(pfad):
+                if not name.endswith(('.js', '.css')):
+                    continue
+                datei = os.path.join(pfad, name)
+                if os.path.isfile(datei):
+                    neueste = max(neueste, int(os.path.getmtime(datei)))
     except OSError:
         pass
-    return '1'
+    return str(neueste) if neueste else '1'
 
 
 def create_app(config_path: Optional[str] = None):
@@ -557,7 +670,7 @@ def create_app(config_path: Optional[str] = None):
         """Avoid browsers serving cached HTML/JS after docker rebuild."""
         path = request.path or ''
         if (
-            path in ('/', '/login')
+            path in ('/', '/login', '/ontology')
             or path.endswith('.js')
             or path.endswith('.css')
             or path.startswith('/static/')
@@ -570,27 +683,11 @@ def create_app(config_path: Optional[str] = None):
     file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
     web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
-    configured_ui_theme_raw = str(config.get('web.theme', '') or '').strip()
-    web_ui_theme = _normalize_ui_theme_slug(configured_ui_theme_raw)
-    if configured_ui_theme_raw and not web_ui_theme:
-        logger.warning(
-            'Invalid web.theme / WEB_UI_THEME=%r; must be one of: %s',
-            configured_ui_theme_raw,
-            ', '.join(sorted(DRAFT_THEME_SLUGS)),
-        )
-    elif web_ui_theme:
-        logger.info('Web UI theme: %s', web_ui_theme)
-
-    def _resolve_ui_theme() -> Optional[str]:
-        """?theme= overrides web.theme / WEB_UI_THEME when set."""
-        query_theme = _normalize_ui_theme_slug(request.args.get('theme'))
-        if query_theme:
-            return query_theme
-        return web_ui_theme
-
-    def _theme_from_query_only() -> Optional[str]:
-        """Explicit ?theme= only (e.g. preserve preview override after login)."""
-        return _normalize_ui_theme_slug(request.args.get('theme'))
+    # Kurzform der Marke fuer die Titelzeile. Die Titel liefen auseinander
+    # ("Login - Knovas Document Search" gegen "Cortex . Knovas Document
+    # Search"); einheitlich ist "Knovas Cortex", "Knovas Suche" und so fort.
+    web_brand = (str(config.get('web.brand', '') or '').strip()
+                 or (web_app_title.split() or ['Knovas'])[0])
     login_company_name = config.get('web.login.company_name', 'Knovas')
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
@@ -644,7 +741,6 @@ def create_app(config_path: Optional[str] = None):
         store_path=open_token_store_path,
     )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
-    hover_preview_enabled = config.get_bool('web.search.hover_preview', True)
     allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
     companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
@@ -784,6 +880,7 @@ def create_app(config_path: Optional[str] = None):
             return None
         if request.endpoint in {
             'static',
+            'favicon',
             'login',
             'logout',
             'stats',
@@ -831,6 +928,14 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
         return None
 
+    @app.route('/favicon.ico')
+    def favicon():
+        """Browser fragen /favicon.ico an der Wurzel an, unabhaengig vom <link>-Tag.
+
+        Ohne diese Route laeuft jeder Seitenaufruf in ein 404 im Log.
+        """
+        return redirect(url_for('static', filename='img/favicon.svg'), code=301)
+
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         """Company login page."""
@@ -873,12 +978,7 @@ def create_app(config_path: Optional[str] = None):
                 session['company_login_ok'] = True
                 session['company_login_name'] = submitted_name
                 session['csrf_token'] = secrets.token_urlsafe(32)
-                dest = next_url
-                theme = _theme_from_query_only()
-                if theme:
-                    sep = '&' if '?' in dest else '?'
-                    dest = f'{dest}{sep}theme={theme}'
-                return redirect(dest)
+                return redirect(next_url)
             else:
                 _record_login_failure(client_ip)
                 error = 'Login-Name oder Passwort ist falsch.'
@@ -886,11 +986,11 @@ def create_app(config_path: Optional[str] = None):
         return render_template(
             'login.html',
             app_title=web_app_title,
+            brand=web_brand,
             company_name=login_company_name,
             error=error,
             next_url=next_url,
             csrf_token=csrf_token,
-            draft_theme=_resolve_ui_theme(),
         ), status_code
 
     @app.route('/logout', methods=['POST'])
@@ -902,26 +1002,78 @@ def create_app(config_path: Optional[str] = None):
         session.clear()
         return redirect(url_for('login'))
 
+    # Feedback-Ziel: bisher im Fuss der Suchseite, jetzt eigener
+    # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
+    feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
+
+    def _swiss_number(value: int) -> str:
+        """1847 -> "1'847" (Schweizer Tausendertrennung, wie im Frontend)."""
+        return f"{value:,}".replace(",", "'")
+
+    def _sidebar_context() -> Dict[str, Any]:
+        """Gemeinsame Werte der Plattform-Leiste. Die Korpus-Zahl ist optional:
+        fehlt sie in der Fixture, laesst die Leiste den Block weg."""
+        documents = 0
+        try:
+            raw = _ontology_source().corpus().get('documents')
+            documents = int(raw) if raw is not None else 0
+        except Exception:
+            logger.warning("Korpus-Kennzahl nicht ermittelbar", exc_info=True)
+        return {
+            'company_name': login_company_name,
+            'corpus_documents_display': _swiss_number(documents) if documents > 0 else None,
+            'feedback_url': feedback_url,
+        }
+
     @app.route('/')
     def index():
         """Main search page."""
         _load_search_enrichment(config)
         return render_template(
             'index.html',
+            active_nav='suche',
+            **_sidebar_context(),
             app_title=web_app_title,
-            company_name=login_company_name,
+            brand=web_brand,
             csrf_token=_ensure_csrf_token(),
             companion_enabled=companion_enabled,
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=allow_degraded_download_open,
             pdf_inline_in_browser=pdf_inline_in_browser,
-            hover_preview_enabled=hover_preview_enabled,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
+            results_per_page=config.get_int('web.search.results_per_page', 20),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
-            draft_theme=_resolve_ui_theme(),
         )
-    
+
+    @app.route('/ontology')
+    def ontology_page():
+        """Cortex: Ontologie-Explorer (Typ-Graph -> Entitaeten -> Belege -> PDF)."""
+        return render_template(
+            'ontology.html',
+            active_nav='cortex',
+            **_sidebar_context(),
+            app_title=web_app_title,
+            brand=web_brand,
+            csrf_token=_ensure_csrf_token(),
+            asset_version=_static_asset_version(),
+        )
+
+    @app.route('/settings')
+    def settings_page():
+        """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
+        return render_template(
+            'settings.html',
+            active_nav='einstellungen',
+            **_sidebar_context(),
+            app_title=web_app_title,
+            brand=web_brand,
+            login_name=config.get('web.login.username', '') or '',
+            csrf_token=_ensure_csrf_token(),
+            asset_version=_static_asset_version(),
+            build_id=DOCBRIDGE_BUILD_ID,
+        )
+
     @app.route('/api/search', methods=['POST'])
     def search():
         """
@@ -1206,6 +1358,88 @@ def create_app(config_path: Optional[str] = None):
             logger.error(f"Error previewing document: {e}", exc_info=True)
             return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
 
+    @app.route('/api/document/<path:doc_id>/thumbnail', methods=['GET'])
+    def document_thumbnail(doc_id: str):
+        """Seite 1 als PNG fuer die Trefferkarte. Nur PDF -- siehe preview.py."""
+        file_path = str(request.args.get('path') or '').strip()
+        if not file_path:
+            return jsonify({'success': False, 'error': 'Document path required'}), 400
+
+        full_path = _resolve_autodoc_path(file_path)
+        if not full_path:
+            return jsonify({'success': False, 'error': 'Document path not allowed'}), 400
+
+        if preview_kind(file_path) != 'pdf':
+            return jsonify({'success': False, 'error': 'Thumbnail only supported for PDF'}), 415
+
+        if not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': 'Document file not found'}), 404
+
+        try:
+            png = render_first_page_png(full_path)
+        except PreviewUnsupported:
+            return jsonify({'success': False, 'error': 'Thumbnail only supported for PDF'}), 415
+        except PreviewFailed as exc:
+            logger.warning("Thumbnail failed for %s: %s", file_path, exc)
+            return jsonify({'success': False, 'error': 'Vorschaubild konnte nicht erzeugt werden'}), 422
+        except Exception:
+            logger.error("Thumbnail error for %s", file_path, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+        response = send_file(io.BytesIO(png), mimetype='image/png')
+        # Das Bild aendert sich nur, wenn die Datei sich aendert; ohne diesen
+        # Header laedt jede Suche jedes Vorschaubild neu.
+        try:
+            stat = os.stat(full_path)
+            response.set_etag(f"{stat.st_mtime_ns}-{stat.st_size}")
+        except OSError:
+            pass
+        response.headers['Cache-Control'] = 'private, max-age=300'
+        return response.make_conditional(request)
+
+    @app.route('/api/document/<path:doc_id>/preview-content', methods=['GET'])
+    def preview_content(doc_id: str):
+        """Sanitisiertes Markdown fuer DOCX, TXT und MSG.
+
+        PDF laeuft bewusst nicht hierueber: der Client bettet /preview ein und
+        laesst den Browser rendern. Antwort enthaelt niemals HTML -- der Client
+        escaped zuerst und formatiert danach (siehe static/js/markdown.js).
+        """
+        file_path = str(request.args.get('path') or '').strip()
+        if not file_path:
+            return jsonify({'success': False, 'error': 'Document path required'}), 400
+
+        full_path = _resolve_autodoc_path(file_path)
+        if not full_path:
+            return jsonify({'success': False, 'error': 'Document path not allowed'}), 400
+
+        kind = preview_kind(file_path)
+        if kind is None or kind == 'pdf':
+            return jsonify({'success': False, 'error': 'Preview not supported for this format'}), 415
+
+        if not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': 'Document file not found'}), 404
+
+        try:
+            extracted = extract_markdown(full_path)
+        except PreviewUnsupported:
+            return jsonify({'success': False, 'error': 'Preview not supported for this format'}), 415
+        except PreviewFailed as exc:
+            logger.warning("Preview extraction failed for %s: %s", file_path, exc)
+            return jsonify({'success': False, 'error': 'Vorschau konnte nicht erzeugt werden'}), 422
+        except Exception:
+            logger.error("Preview error for %s", file_path, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+        return jsonify({
+            'success': True,
+            'doc_id': doc_id,
+            'kind': extracted['kind'],
+            'markdown': extracted['markdown'],
+            'meta': extracted['meta'],
+            'warnings': extracted['warnings'],
+        })
+
     @app.route('/api/document/<path:doc_id>/client-path', methods=['GET'])
     def document_client_path(doc_id: str):
         """
@@ -1389,31 +1623,6 @@ def create_app(config_path: Optional[str] = None):
             'semantix_api': api_client.health_check()
         })
 
-    @app.route('/api/analytics/engagement', methods=['POST'])
-    def analytics_engagement():
-        """
-        Proxy: POST /secured/analytics/engagement (implicit engagement events).
-        """
-        try:
-            data = request.get_json() or {}
-            qsid = (data.get('query_session_id') or '').strip()
-            if not qsid:
-                return jsonify({'success': False, 'error': 'query_session_id ist erforderlich'}), 400
-            events = data.get('events')
-            if not isinstance(events, list) or not events:
-                return jsonify({'success': False, 'error': 'events ist erforderlich'}), 400
-            if len(events) > 50:
-                return jsonify({'success': False, 'error': 'maximal 50 events pro Anfrage'}), 400
-
-            raw = api_client.post_engagement_events(query_session_id=qsid, events=events)
-            return jsonify({'success': True, 'semantix': raw}), 202
-        except ValueError as e:
-            logger.info('Engagement rejected: %s', e, exc_info=True)
-            return jsonify({'success': False, 'error': 'Ungültige Anfrage.'}), 400
-        except Exception as e:
-            logger.warning('Engagement failed: %s', e, exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 502
-
     @app.route('/api/version', methods=['GET'])
     def api_version():
         """Public build marker — use after deploy to confirm the running image."""
@@ -1466,7 +1675,267 @@ def create_app(config_path: Optional[str] = None):
             'asset_version': _static_asset_version(),
             'build_id': DOCBRIDGE_BUILD_ID,
         })
-    
+
+    # --- Cortex (Ontology Explorer) -----------------------------------
+    # Datenvertrag siehe docs/superpowers/specs/2026-08-04-wissensnetz-ontology-mvp-design.md
+    # Mock hinter stabilem Vertrag: get_ontology() liest die Fixture; der
+    # spaetere echte Knovas-Endpunkt ersetzt nur das Innere des Stores.
+
+    def _ontology_path_exists(rel_path: str) -> bool:
+        full = _resolve_autodoc_path(rel_path)
+        return bool(full) and os.path.exists(full)
+
+    # Quelle des Cortex: 'fixture' (Standard, lokale JSON) oder 'graph'
+    # (Knovas Knowledge Graph API). Der Vertrag ist identisch, deshalb ist
+    # der Wechsel ein Schalter und kein Umbau.
+    # Laufzeit-Zustand des Cortex: Textaufloeser, Quelle und Filter-Engine
+    # werden einmal erzeugt und wiederverwendet (siehe _ontology_source).
+    _cortex_text_resolver: Dict[str, Any] = {}
+
+    def _ontology_source_is_graph() -> bool:
+        return (os.getenv('ONTOLOGY_SOURCE') or 'fixture').strip().lower() == 'graph'
+
+    def _document_text_resolver():
+        """Wortlaut zu einem Pointer - die API liefert keinen Passagentext."""
+        if 'resolver' not in _cortex_text_resolver:
+            from ontology_text import DocumentTextResolver
+            _cortex_text_resolver['resolver'] = DocumentTextResolver(
+                resolve_path=_resolve_autodoc_path)
+        return _cortex_text_resolver['resolver']
+
+    def _ontology_source():
+        # Eine Instanz ueber alle Anfragen: sonst waere der Topologie-Cache
+        # wirkungslos und jede Route holte den Export erneut - bei einem
+        # Limit von rund einer Anfrage pro Sekunde ein echtes Problem.
+        if not _ontology_source_is_graph():
+            return get_ontology(path_exists=_ontology_path_exists)
+        if 'source' not in _cortex_text_resolver:
+            from ontology_graph import GraphOntologySource
+            _cortex_text_resolver['source'] = GraphOntologySource(
+                api_client, text_resolver=_document_text_resolver())
+        return _cortex_text_resolver['source']
+
+    def _ontology_filter_engine():
+        if not _ontology_source_is_graph():
+            return get_filter_engine(resolve_path=_resolve_autodoc_path)
+        if 'filters' not in _cortex_text_resolver:
+            from ontology_graph_filters import GraphFilterEngine
+            _cortex_text_resolver['filters'] = GraphFilterEngine(
+                api_client,
+                state_path=(os.getenv('ONTOLOGY_FILTER_STATE_PATH') or '').strip() or None,
+                text_resolver=_document_text_resolver())
+        return _cortex_text_resolver['filters']
+
+    @app.route('/api/ontology/summary', methods=['GET'])
+    def ontology_summary():
+        try:
+            store = _ontology_source()
+            payload = store.summary()
+            return jsonify({'success': True,
+                            'types': payload['types'],
+                            'relations': payload['relations']})
+        except Exception:
+            logger.error("Ontology summary error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/entities', methods=['GET'])
+    def ontology_entities():
+        try:
+            type_id = str(request.args.get('type') or '').strip()
+            store = _ontology_source()
+            return jsonify({'success': True, **store.entities_for_type(type_id)})
+        except Exception:
+            logger.error("Ontology entities error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/entities/<entity_id>', methods=['GET'])
+    def ontology_entity_detail(entity_id: str):
+        try:
+            store = _ontology_source()
+            detail = store.entity_detail(entity_id)
+            if detail is None:
+                return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+            engine = _ontology_filter_engine()
+            detail['filters'] = engine.filters_for_entity(store, entity_id)
+            return jsonify({'success': True, **detail})
+        except Exception:
+            logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    # Kuratieren: Der Wissensgraph wird vom Anwender gepflegt, Knovas leitet
+    # ihn nicht ab. Beide Quellen koennen schreiben - die Fixture in ihre
+    # Datei, die Graph-Quelle ueber POST /secured/graph/nodes bzw. /edges.
+
+    @app.route('/api/ontology/types', methods=['POST'])
+    def ontology_type_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            label = str(payload.get('label') or '').strip()
+            created = _ontology_source().create_type(label)
+            if created is None:
+                return jsonify({'success': False, 'error': 'Name fehlt'}), 400
+            return jsonify({'success': True, 'type': created}), 201
+        except Exception:
+            logger.error("Ontology type create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/entities', methods=['POST'])
+    def ontology_entity_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            label = str(payload.get('label') or '').strip()
+            type_id = str(payload.get('type') or '').strip()
+            store = _ontology_source()
+            created = store.create_entity(label, type_id)
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Name oder Typ fehlt'}), 400
+            return jsonify({'success': True, 'entity': created}), 201
+        except Exception:
+            logger.error("Ontology entity create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/relations', methods=['POST'])
+    def ontology_relation_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            src = str(payload.get('src') or '').strip()
+            dst = str(payload.get('dst') or '').strip()
+            predicate = str(payload.get('predicate') or '').strip()
+            store = _ontology_source()
+            created = store.create_relation(src, predicate, dst)
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Verbindung nicht anlegbar'}), 400
+            return jsonify({'success': True, 'relation': created}), 201
+        except Exception:
+            logger.error("Ontology relation create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/type-relations', methods=['POST'])
+    def ontology_type_relation_create():
+        """Vorgabe auf Typebene. Die API kennt keine Kante zwischen Typen,
+        deshalb wird daraus ein Schema-Attribut (siehe Design 2026-08-08)."""
+        try:
+            payload = request.get_json(silent=True) or {}
+            created = _ontology_source().create_type_relation(
+                str(payload.get('src') or '').strip(),
+                str(payload.get('predicate') or '').strip(),
+                str(payload.get('dst') or '').strip())
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Vorgabe nicht anlegbar'}), 400
+            return jsonify({'success': True, 'relation': created}), 201
+        except Exception:
+            logger.error("Ontology type relation create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/type-relations', methods=['DELETE'])
+    def ontology_type_relation_delete():
+        try:
+            payload = request.get_json(silent=True) or {}
+            entfernt = _ontology_source().delete_type_relation(
+                str(payload.get('src') or '').strip(),
+                str(payload.get('predicate') or '').strip(),
+                str(payload.get('dst') or '').strip())
+            if not entfernt:
+                return jsonify({'success': False, 'error': 'Vorgabe nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology type relation delete error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/relations', methods=['DELETE'])
+    def ontology_relation_delete():
+        try:
+            payload = request.get_json(silent=True) or {}
+            entfernt = _ontology_source().delete_relation(
+                str(payload.get('src') or '').strip(),
+                str(payload.get('predicate') or '').strip(),
+                str(payload.get('dst') or '').strip())
+            if not entfernt:
+                return jsonify({'success': False,
+                                'error': 'Verbindung nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology relation delete error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
+    def ontology_type_delete(type_id: str):
+        try:
+            if not _ontology_source().delete_type(type_id):
+                return jsonify({'success': False, 'error': 'Typ nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology type delete error for %s", type_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])
+    def ontology_entity_delete(entity_id: str):
+        try:
+            if not _ontology_source().delete_entity(entity_id):
+                return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+            return jsonify({'success': True})
+        except Exception:
+            logger.error("Ontology entity delete error for %s", entity_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-
+    # Memory, Logik in ontology_filters.py. POSTs laufen durch das
+    # bestehende CSRF-Header-Gate; Routen stehen in KEINEM Exempt-Set.
+
+    @app.route('/api/ontology/filters', methods=['POST'])
+    def ontology_filter_create():
+        try:
+            payload = request.get_json(silent=True) or {}
+            entity_id = str(payload.get('entity_id') or '').strip()
+            label = str(payload.get('label') or '').strip()
+            store = _ontology_source()
+            if store.entity_detail(entity_id) is None:
+                return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
+            engine = _ontology_filter_engine()
+            created = engine.create_filter(entity_id, label)
+            if created is None:
+                return jsonify({'success': False,
+                                'error': 'Filterbeschreibung fehlt'}), 400
+            detail = engine.filter_detail(store, created['id'])
+            return jsonify({'success': True, **detail}), 201
+        except Exception:
+            logger.error("Ontology filter create error", exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/filters/<filter_id>', methods=['GET'])
+    def ontology_filter_detail(filter_id: str):
+        try:
+            store = _ontology_source()
+            engine = _ontology_filter_engine()
+            detail = engine.filter_detail(store, filter_id)
+            if detail is None:
+                return jsonify({'success': False, 'error': 'Filter nicht gefunden'}), 404
+            return jsonify({'success': True, **detail})
+        except Exception:
+            logger.error("Ontology filter detail error for %s", filter_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/filters/<filter_id>/decision', methods=['POST'])
+    def ontology_filter_decision(filter_id: str):
+        try:
+            payload = request.get_json(silent=True) or {}
+            proposal_id = str(payload.get('proposal_id') or '').strip()
+            action = str(payload.get('action') or '').strip()
+            store = _ontology_source()
+            engine = _ontology_filter_engine()
+            proposal, error = engine.decide(store, filter_id, proposal_id, action)
+            if error == 'bad_action':
+                return jsonify({'success': False, 'error': 'Ungültige Aktion'}), 400
+            if error == 'not_found':
+                return jsonify({'success': False, 'error': 'Vorschlag nicht gefunden'}), 404
+            return jsonify({'success': True, 'proposal': proposal})
+        except Exception:
+            logger.error("Ontology filter decision error for %s", filter_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
     return app
 
 

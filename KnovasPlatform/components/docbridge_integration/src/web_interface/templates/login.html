@@ -3,18 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - {{ app_title }}</title>
+    <title>{{ brand }} Login</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    {% if draft_theme %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/drafts/' ~ draft_theme ~ '.css') }}">
-    {% endif %}
 </head>
-<body class="login-page{% if draft_theme %} theme-draft-{{ draft_theme }}{% endif %}">
+<body class="login-page">
     <main class="login-shell">
         <section class="login-card" aria-labelledby="loginTitle">
-            <div class="login-brand">{{ app_title }}</div>
-            <h1 id="loginTitle">Company Login</h1>
-            <p class="login-subtitle">{{ company_name }}</p>
+            <img class="login-logo"
+                 src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
+                 alt="Knovas" width="180" height="30">
+            <p class="login-slogan">Search Made Smarter</p>
+            <h1 id="loginTitle">Login</h1>
+            {# Der Mandantenname, nicht der Hersteller -- er sagt, in welcher
+               Instanz man sich anmeldet. Das Logo darueber sagt nur, wessen
+               Produkt es ist. #}
+            {% if company_name %}<p class="login-subtitle">{{ company_name }}</p>{% endif %}
 
             {% if error %}
             <div class="login-error" role="alert">{{ error }}</div>
@@ -24,7 +28,7 @@
                 <input type="hidden" name="next" value="{{ next_url }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-                <label for="loginName">Login-Name</label>
+                <label for="loginName">Benutzername</label>
                 <input
                     type="text"
                     id="loginName"

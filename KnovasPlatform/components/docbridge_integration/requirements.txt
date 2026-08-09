@@ -30,7 +30,10 @@ python-dateutil==2.8.2
 tenacity==8.2.3
 
 # Document extraction (sentences, sections, tables for secured upload)
-knovas-extract[pdf,docx,msg,markdown,sentences]>=0.3
+knovas-extract[pdf,docx,msg,markdown,html,sentences]>=0.3
+
+# PDF-Textextraktion für die Cortex-Filter (Passagen-Matching)
+pymupdf==1.28.0
 
 # Environment variables
 python-dotenv==1.0.0

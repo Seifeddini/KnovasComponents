@@ -78,13 +78,13 @@ docker compose up -d --force-recreate docbridge-web docbridge-web-nginx
 
 Windows (PowerShell): `.\start_stack.ps1`
 
-**Faster restart** (reuse existing image; no rebuild) — picks up `.env` changes such as `WEB_UI_THEME` only after **recreate**:
+**Faster restart** (reuse existing image; no rebuild) — picks up `.env` changes such as `WEB_APP_TITLE` only after **recreate**:
 
 ```bash
 docker compose up -d --force-recreate docbridge-web docbridge-web-nginx
 ```
 
-**UI theme / code changes** require an image rebuild first (static CSS and app code are baked into the image):
+**Code changes** require an image rebuild first (static CSS and app code are baked into the image):
 
 ```bash
 docker compose build docbridge-web
