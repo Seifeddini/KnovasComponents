@@ -924,7 +924,7 @@ class CortexApp {
                     <input type="text" id="entityInput" maxlength="120"
                            placeholder="Neue Entität, z. B. Meier Immobilien AG"
                            aria-label="Name der neuen Entität">
-                    <button type="button" id="entityCreateBtn" class="btn btn-outline">Anlegen</button>
+                    <button type="button" id="entityCreateBtn" class="btn btn-primary">Anlegen</button>
                 </div>`);
             this.setDrawerDelete(() => this.confirmTypeDelete(typeId, label,
                                                              data.entities.length));
