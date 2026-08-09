@@ -87,7 +87,12 @@ services:
       - docbridge_integration_data:/app/data
       - ${AUTODOC_MOUNT_PATH:-./docbridge_test_data/AutoDoc}:/mnt/autodoc:ro
       - ${SEMANTIX_CERTS_DIR:-./certs}:/app/certs:ro
-      - ./docbridge_test_data/ontology:/mnt/ontology:ro
+      # Beschreibbar, nicht ro: der Cortex-Graph ist kundengepflegt. Typen,
+      # Entitaeten und Verbindungen legt der Anwender selbst an, und der Store
+      # schreibt sie in die Fixture. Auf einem ro-Mount schlaegt das fehl,
+      # wird nur geloggt und sieht in der Oberflaeche wie Erfolg aus - bis
+      # zum naechsten Neuladen.
+      - ./docbridge_test_data/ontology:/mnt/ontology
     command: >
       sh -c "gunicorn
       --workers=$${DOCBRIDGE_WEB_WORKERS}
