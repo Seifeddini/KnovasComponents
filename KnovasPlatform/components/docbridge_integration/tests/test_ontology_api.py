@@ -389,3 +389,49 @@ def test_cortex_eingeschaltet_bleibt_erreichbar(app):
     assert client.get("/ontology").status_code == 200
     assert client.get("/api/ontology/summary").status_code == 200
     assert "Cortex" in client.get("/").get_data(as_text=True)
+
+
+# --- Abgeschalteter Wissensgraph ist kein Programmfehler ----------------
+
+def test_wissensgraph_abgeschaltet_liefert_503_mit_grund(app, monkeypatch):
+    """Ein nicht freigeschalteter Wissensgraph muss sich selbst erklaeren.
+
+    Vorher wurde daraus ein generischer 500: die Oberflaeche riet zum
+    Neuladen, und die Ursache stand nur im Serverlog. Auf einem Server,
+    an den man nicht herankommt, ist das eine Sackgasse.
+    """
+    import web_interface.app as web_app
+    from knovas_client import KnowledgeGraphDisabled
+
+    class KaputteQuelle:
+        def summary(self):
+            raise KnowledgeGraphDisabled("nicht aktiviert")
+        def corpus(self):
+            return {}
+
+    monkeypatch.setattr(web_app, "get_ontology", lambda **_: KaputteQuelle())
+    client = app.test_client()
+    _login(client)
+    antwort = client.get("/api/ontology/summary")
+    assert antwort.status_code == 503
+    daten = antwort.get_json()
+    assert daten["error_code"] == "knowledge_graph_disabled"
+    assert "freischaltet" in daten["error"]
+
+
+def test_andere_fehler_bleiben_generisch(app, monkeypatch):
+    """Gegenprobe: ein echter Programmfehler verraet weiterhin nichts."""
+    import web_interface.app as web_app
+
+    class KaputteQuelle:
+        def summary(self):
+            raise RuntimeError("interner Zustand: /pfad/geheim")
+        def corpus(self):
+            return {}
+
+    monkeypatch.setattr(web_app, "get_ontology", lambda **_: KaputteQuelle())
+    client = app.test_client()
+    _login(client)
+    antwort = client.get("/api/ontology/summary")
+    assert antwort.status_code == 500
+    assert "geheim" not in antwort.get_data(as_text=True)

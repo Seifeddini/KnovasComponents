@@ -26,7 +26,7 @@ from urllib.parse import quote
 
 from config_loader import get_config
 from context_store import enrich_result_with_context
-from knovas_client import KnovasAPIClient
+from knovas_client import KnovasAPIClient, KnowledgeGraphDisabled
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
 from ontology_filters import get_filter_engine
@@ -1754,6 +1754,28 @@ def create_app(config_path: Optional[str] = None):
                 text_resolver=_document_text_resolver())
         return _cortex_text_resolver['filters']
 
+    def _cortex_fehler(kontext: str):
+        """Einheitliche Antwort auf einen Fehler im Cortex.
+
+        Frueher wurde jede Ausnahme zu einem generischen 500. Ein
+        abgeschalteter Wissensgraph ist aber kein Programmfehler, sondern
+        eine Aussage ueber das Deployment - und niemand konnte sie sehen,
+        ohne ins Serverlog zu schauen. Solche Faelle bekommen deshalb einen
+        eigenen Status und einen Text, der sagt, was zu tun ist.
+        """
+        fehler = sys.exc_info()[1]
+        if isinstance(fehler, KnowledgeGraphDisabled):
+            logger.warning("%s: Wissensgraph im Tenant nicht aktiviert", kontext)
+            return jsonify({
+                'success': False,
+                'error': 'Der Wissensgraph ist für dieses Deployment nicht '
+                         'aktiviert. Cortex bleibt leer, bis Knovas ihn '
+                         'freischaltet.',
+                'error_code': 'knowledge_graph_disabled',
+            }), 503
+        logger.error(kontext, exc_info=True)
+        return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
         try:
@@ -1763,8 +1785,7 @@ def create_app(config_path: Optional[str] = None):
                             'types': payload['types'],
                             'relations': payload['relations']})
         except Exception:
-            logger.error("Ontology summary error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology summary error")
 
     @app.route('/api/ontology/entities', methods=['GET'])
     def ontology_entities():
@@ -1773,8 +1794,7 @@ def create_app(config_path: Optional[str] = None):
             store = _ontology_source()
             return jsonify({'success': True, **store.entities_for_type(type_id)})
         except Exception:
-            logger.error("Ontology entities error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology entities error")
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['GET'])
     def ontology_entity_detail(entity_id: str):
@@ -1787,8 +1807,7 @@ def create_app(config_path: Optional[str] = None):
             detail['filters'] = engine.filters_for_entity(store, entity_id)
             return jsonify({'success': True, **detail})
         except Exception:
-            logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler(f"Ontology entity detail error for {entity_id}")
 
     # Kuratieren: Der Wissensgraph wird vom Anwender gepflegt, Knovas leitet
     # ihn nicht ab. Beide Quellen koennen schreiben - die Fixture in ihre
@@ -1804,8 +1823,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Name fehlt'}), 400
             return jsonify({'success': True, 'type': created}), 201
         except Exception:
-            logger.error("Ontology type create error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology type create error")
 
     @app.route('/api/ontology/entities', methods=['POST'])
     def ontology_entity_create():
@@ -1820,8 +1838,7 @@ def create_app(config_path: Optional[str] = None):
                                 'error': 'Name oder Typ fehlt'}), 400
             return jsonify({'success': True, 'entity': created}), 201
         except Exception:
-            logger.error("Ontology entity create error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology entity create error")
 
     @app.route('/api/ontology/relations', methods=['POST'])
     def ontology_relation_create():
@@ -1837,8 +1854,7 @@ def create_app(config_path: Optional[str] = None):
                                 'error': 'Verbindung nicht anlegbar'}), 400
             return jsonify({'success': True, 'relation': created}), 201
         except Exception:
-            logger.error("Ontology relation create error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology relation create error")
 
     @app.route('/api/ontology/type-relations', methods=['POST'])
     def ontology_type_relation_create():
@@ -1855,8 +1871,7 @@ def create_app(config_path: Optional[str] = None):
                                 'error': 'Vorgabe nicht anlegbar'}), 400
             return jsonify({'success': True, 'relation': created}), 201
         except Exception:
-            logger.error("Ontology type relation create error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology type relation create error")
 
     @app.route('/api/ontology/type-relations', methods=['DELETE'])
     def ontology_type_relation_delete():
@@ -1870,8 +1885,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Vorgabe nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology type relation delete error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology type relation delete error")
 
     @app.route('/api/ontology/relations', methods=['DELETE'])
     def ontology_relation_delete():
@@ -1886,8 +1900,7 @@ def create_app(config_path: Optional[str] = None):
                                 'error': 'Verbindung nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology relation delete error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology relation delete error")
 
     @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
     def ontology_type_delete(type_id: str):
@@ -1896,8 +1909,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Typ nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology type delete error for %s", type_id, exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler(f"Ontology type delete error for {type_id}")
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])
     def ontology_entity_delete(entity_id: str):
@@ -1906,8 +1918,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology entity delete error for %s", entity_id, exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler(f"Ontology entity delete error for {entity_id}")
 
     # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-
     # Memory, Logik in ontology_filters.py. POSTs laufen durch das
@@ -1930,8 +1941,7 @@ def create_app(config_path: Optional[str] = None):
             detail = engine.filter_detail(store, created['id'])
             return jsonify({'success': True, **detail}), 201
         except Exception:
-            logger.error("Ontology filter create error", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler("Ontology filter create error")
 
     @app.route('/api/ontology/filters/<filter_id>', methods=['GET'])
     def ontology_filter_detail(filter_id: str):
@@ -1943,8 +1953,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Filter nicht gefunden'}), 404
             return jsonify({'success': True, **detail})
         except Exception:
-            logger.error("Ontology filter detail error for %s", filter_id, exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler(f"Ontology filter detail error for {filter_id}")
 
     @app.route('/api/ontology/filters/<filter_id>/decision', methods=['POST'])
     def ontology_filter_decision(filter_id: str):
@@ -1961,8 +1970,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Vorschlag nicht gefunden'}), 404
             return jsonify({'success': True, 'proposal': proposal})
         except Exception:
-            logger.error("Ontology filter decision error for %s", filter_id, exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+            return _cortex_fehler(f"Ontology filter decision error for {filter_id}")
 
     return app
 

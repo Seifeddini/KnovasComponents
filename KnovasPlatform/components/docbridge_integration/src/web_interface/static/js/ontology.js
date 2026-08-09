@@ -169,7 +169,16 @@ class CortexApp {
         try {
             const [resp] = await Promise.all([fetch('/api/ontology/summary'), loadBrandFonts()]);
             if (resp.status === 401) { window.location.assign('/login'); return; }
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            if (!resp.ok) {
+                // Der Server unterscheidet inzwischen: ein abgeschalteter
+                // Wissensgraph ist kein Programmfehler, sondern eine Aussage
+                // ueber das Deployment. Dann seinen Text zeigen statt zum
+                // Neuladen zu raten, das hier nichts bessern kann.
+                const fehler = new Error(`HTTP ${resp.status}`);
+                fehler.serverText = await resp.json()
+                    .then((d) => (d && d.error) || '').catch(() => '');
+                throw fehler;
+            }
             const data = await resp.json();
             this.bindZoomControls();
             this.bindDrawerControls();
@@ -181,7 +190,8 @@ class CortexApp {
         } catch (err) {
             console.error('Cortex: Summary nicht ladbar', err);
             const empty = document.getElementById('graphEmpty');
-            empty.textContent = 'Cortex konnte nicht geladen werden. Seite neu laden.';
+            empty.textContent = err.serverText
+                || 'Cortex konnte nicht geladen werden. Seite neu laden.';
             empty.hidden = false;
             ['zoomIn', 'zoomOut', 'zoomFit'].forEach((id) => {
                 document.getElementById(id).hidden = true;
