@@ -21,7 +21,13 @@ class ConnectGesture {
     }
 
     _bind() {
-        this._onOver = (evt) => this._zeigeGriff(evt.target);
+        this._onOver = (evt) => this._zeigeGriff(evt.target, evt.renderedPosition);
+        this._onMoveOverNode = (evt) => {
+            // Der Griff wandert mit dem Zeiger um den Rand: sonst klebt er
+            // rechts und man muesste zum Ziel links quer ueber den Knoten.
+            if (this.quelle) return;
+            this._zeigeGriff(evt.target, evt.renderedPosition);
+        };
         this._onOut = (evt) => {
             if (evt.originalEvent && evt.originalEvent.relatedTarget === this.griff) {
                 return;
@@ -32,9 +38,20 @@ class ConnectGesture {
             this._versteckeGriff();
         };
         this._onPan = () => this._versteckeGriff();
+        // Verschiebt jemand den Knoten, muss der Griff mit. Frueher blieb er
+        // an der alten Stelle stehen und zeigte auf einen Knoten, der nicht
+        // mehr dort war.
+        this._onPosition = (evt) => {
+            if (this.quelle) return;
+            if (!this.griff || this.griff.hidden) return;
+            if (this.griff.dataset.nodeId === evt.target.id()) this._platziere(evt.target);
+            else this._versteckeGriff();
+        };
         this.cy.on('mouseover', 'node', this._onOver);
+        this.cy.on('mousemove', 'node', this._onMoveOverNode);
         this.cy.on('mouseout', 'node', this._onOut);
         this.cy.on('pan zoom', this._onPan);
+        this.cy.on('position', 'node', this._onPosition);
     }
 
     _griffElement() {
@@ -54,16 +71,30 @@ class ConnectGesture {
         return this.griff;
     }
 
-    _zeigeGriff(node) {
+    _zeigeGriff(node, zeiger) {
         if (this.quelle) return;                    // waehrend eines Zuges nicht
         if (!nodeEbene(node)) { this._versteckeGriff(); return; }
-        const p = node.renderedPosition();
-        const radius = (node.renderedWidth() / 2) - 2;
         const griff = this._griffElement();
         griff.dataset.nodeId = node.id();
-        griff.style.left = `${p.x + radius}px`;
-        griff.style.top = `${p.y}px`;
+        this._platziere(node, zeiger);
         griff.hidden = false;
+    }
+
+    /** Griff auf den Knotenrand setzen, in Richtung des Zeigers. Ohne Zeiger
+        (etwa beim Nachziehen nach einem Verschieben) bleibt der zuletzt
+        benutzte Winkel erhalten. */
+    _platziere(node, zeiger) {
+        if (!this.griff) return;
+        const p = node.renderedPosition();
+        if (zeiger) {
+            const dx = zeiger.x - p.x;
+            const dy = zeiger.y - p.y;
+            if (dx || dy) this._winkel = Math.atan2(dy, dx);
+        }
+        const winkel = this._winkel || 0;
+        const radius = (node.renderedWidth() / 2) - 2;
+        this.griff.style.left = `${p.x + radius * Math.cos(winkel)}px`;
+        this.griff.style.top = `${p.y + radius * Math.sin(winkel)}px`;
     }
 
     _versteckeGriff() {
@@ -161,8 +192,10 @@ class ConnectGesture {
 
     destroy() {
         this.cy.removeListener('mouseover', 'node', this._onOver);
+        this.cy.removeListener('mousemove', 'node', this._onMoveOverNode);
         this.cy.removeListener('mouseout', 'node', this._onOut);
         this.cy.removeListener('pan zoom', this._onPan);
+        this.cy.removeListener('position', 'node', this._onPosition);
         this._aufraeumen();
         if (this.griff) {
             if (this._onGriffMouseDown) {

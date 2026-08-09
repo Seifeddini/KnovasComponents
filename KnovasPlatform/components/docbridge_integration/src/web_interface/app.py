@@ -599,15 +599,28 @@ def _open_autodoc_fileobj(full_path: str):
 
 
 def _static_asset_version() -> str:
-    """Cache-bust static JS/CSS after deploy (mtime of app.js)."""
+    """Cache-bust static JS/CSS after deploy (neueste Aenderung aller Assets).
+
+    Frueher zaehlte nur app.js. Aenderungen an ontology.js oder ontology.css
+    liessen die Versionsnummer damit unberuehrt, und Browser lieferten
+    tagelang die alte Datei aus dem Zwischenspeicher aus.
+    """
+    neueste = 0
     try:
         static_root = os.path.join(os.path.dirname(__file__), 'static')
-        app_js = os.path.join(static_root, 'js', 'app.js')
-        if os.path.isfile(app_js):
-            return str(int(os.path.getmtime(app_js)))
+        for ordner in ('js', 'css'):
+            pfad = os.path.join(static_root, ordner)
+            if not os.path.isdir(pfad):
+                continue
+            for name in os.listdir(pfad):
+                if not name.endswith(('.js', '.css')):
+                    continue
+                datei = os.path.join(pfad, name)
+                if os.path.isfile(datei):
+                    neueste = max(neueste, int(os.path.getmtime(datei)))
     except OSError:
         pass
-    return '1'
+    return str(neueste) if neueste else '1'
 
 
 def create_app(config_path: Optional[str] = None):
