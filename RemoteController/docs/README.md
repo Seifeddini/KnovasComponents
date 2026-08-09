@@ -24,6 +24,7 @@
 | [operations.md](operations.md) | Health, metrics, **stop sync**, upgrades |
 | [onboarding-checklist.md](onboarding-checklist.md) | Go-live checklist |
 | [hosting/server_01_home-corpus-setup.md](hosting/server_01_home-corpus-setup.md) | server_01_home corpus ingest setup (detailed) |
+| [../scripts/demo_corpus/README.md](../scripts/demo_corpus/README.md) | **Demo corpus** — download documents only (`build`); separate from RC deploy |
 | [nginx-edge.example.conf](nginx-edge.example.conf) | HTTPS edge at NGINX |
 
 Example sync body: [examples/sync-request.json](../examples/sync-request.json)

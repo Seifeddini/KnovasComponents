@@ -146,6 +146,8 @@ def is_unconvertible_error(error: str | None) -> bool:
         or lowered.startswith("corrupt ")
         or lowered.startswith("encrypted ")
         or lowered.startswith("resource limit exceeded")
+        or lowered.startswith("valueerror:")
+        or "invalid literal for int" in lowered
         or "not a zip file" in lowered
         or "not a valid zip container" in lowered
         or "bad zipfile" in lowered
@@ -201,6 +203,16 @@ def tesseract_language() -> str:
     return raw or DEFAULT_TESSERACT_LANG
 
 
+def _is_parser_value_error(message: str) -> bool:
+    """True when a binary parser raised ValueError on malformed structure."""
+    lowered = message.lower()
+    return lowered.startswith("valueerror:") or "invalid literal for int" in lowered
+
+
+def _corrupt_conversion_error(ext: str, exc: BaseException | str) -> ConversionError:
+    return ConversionError(f"corrupt {ext}: {exc}", extension=ext)
+
+
 def _extract_bytes(raw: bytes, ext: str) -> ExtractedDocument:
     mime = _EXT_TO_MIME.get(ext)
     if mime is None:
@@ -242,6 +254,8 @@ def _extract_bytes(raw: bytes, ext: str) -> ExtractedDocument:
         raise ConversionError(str(exc), extension=ext) from exc
     except ExtractError as exc:
         raise ConversionError(str(exc), extension=ext) from exc
+    except ValueError as exc:
+        raise _corrupt_conversion_error(ext, exc) from exc
 
     text = result.content.text
     if not text.strip():
@@ -289,6 +303,9 @@ def _extract_child(path_str: str, result_queue: Any) -> None:
         result_queue.put(("ok", extract_document(Path(path_str))))
     except ConversionError as exc:
         result_queue.put(("conversion", str(exc)))
+    except ValueError as exc:
+        ext = Path(path_str).suffix.lower()
+        result_queue.put(("conversion", f"corrupt {ext}: {exc}"))
     except Exception as exc:  # noqa: BLE001 - report any failure to the parent
         result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
 
@@ -352,9 +369,12 @@ def extract_document_guarded(file_path: Path) -> ExtractedDocument:
     kind, value = payload
     if kind == "ok":
         return value
+    message = str(value)
     if kind == "conversion":
-        raise ConversionError(str(value), extension=ext)
-    raise ConversionError(str(value), extension=ext)
+        raise ConversionError(message, extension=ext)
+    if _is_parser_value_error(message):
+        raise _corrupt_conversion_error(ext, message)
+    raise ConversionError(message, extension=ext)
 
 
 def bytes_to_markdown(raw_bytes: bytes, suffix: str) -> str:

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Setup RemoteController for KnovasInternal corpus on server_01_home.
+# Deploy RemoteController with the monorepo corpus mount (Docker, certs, .env).
+# Does NOT download corpus files — run fetch_demo_corpus.py build first if needed.
 # Run from: /home/master/KnovasInternal/RemoteController
 set -euo pipefail
 

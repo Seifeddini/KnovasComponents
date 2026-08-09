@@ -176,6 +176,17 @@ def test_should_skip_failed_upload():
         UploadResult("a.docx", None, 0, "error", 0, error="File is not a zip file"),
         "incremental",
     )
+    assert _should_skip_failed_upload(
+        UploadResult(
+            "a.msg",
+            None,
+            0,
+            "error",
+            0,
+            error="ValueError: invalid literal for int() with base 10: '\\x1c4'",
+        ),
+        "incremental",
+    )
     assert not _should_skip_failed_upload(
         UploadResult("a.pdf", "key", 2, "error", 3, error="part 1 failed: 503"),
         "incremental",

@@ -119,12 +119,28 @@ def test_is_unconvertible_error():
     assert is_unconvertible_error("File is not a zip file")
     assert is_unconvertible_error("no extractable text from .pdf file")
     assert is_unconvertible_error("corrupt .docx: something broke")
+    assert is_unconvertible_error("corrupt .msg: invalid literal for int() with base 10: '\\x1c4'")
+    assert is_unconvertible_error("ValueError: invalid literal for int() with base 10: '\\x1f3'")
     assert is_unconvertible_error("encrypted .pdf: password required")
     assert is_unconvertible_error("resource limit exceeded: page_count")
     assert is_unconvertible_error("unsupported extension: .bin")
     assert not is_unconvertible_error("init failed: 503")
     assert not is_unconvertible_error("part 2 failed: 500")
     assert not is_unconvertible_error(None)
+
+
+def test_msg_valueerror_from_extract_is_corrupt_and_skippable(monkeypatch):
+    import sync.document_text as dt
+
+    def raise_value_error(*_args, **_kwargs):
+        raise ValueError("invalid literal for int() with base 10: '\\x1c4'")
+
+    monkeypatch.setattr(dt, "extract", raise_value_error)
+
+    with pytest.raises(ConversionError, match=r"corrupt \.msg:") as exc:
+        dt.bytes_to_markdown(b"fake-msg-bytes", ".msg")
+
+    assert is_unconvertible_error(str(exc.value))
 
 
 def test_scan_pdf_in_executor(tmp_watch_root):

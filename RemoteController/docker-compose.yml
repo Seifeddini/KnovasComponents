@@ -14,6 +14,7 @@ services:
       - ./data:/data:ro
       - rc-config:/app/config
       - rc-state:/var/rc-state
+      - ./config/remote_controller_sync.json:/app/config/remote_controller_sync.json:ro
     expose:
       - "5001"
     restart: unless-stopped

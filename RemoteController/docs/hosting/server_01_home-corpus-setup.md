@@ -66,6 +66,43 @@ groups            # includes docker
 
 ---
 
+## Download demo corpus (documents only)
+
+To **fetch or refresh** the lawyer demo corpus on disk — without touching mTLS certs,
+Docker, or RemoteController — use `fetch_demo_corpus.py` from the monorepo root.
+
+| Command | Purpose |
+|---------|---------|
+| `build --out corpus/` | Download and assemble documents into `corpus/` |
+| `verify --out corpus/` | Re-hash files against `manifest.jsonl` |
+| `upload --out … --remote-path … --host …` | Copy an **already built** corpus to another machine (rsync) |
+
+`upload` does **not** download from the internet. On the server itself, use `build`, not
+`upload`.
+
+Full reference: [scripts/demo_corpus/README.md](../../scripts/demo_corpus/README.md).
+
+**Ubuntu 24.04** — use a venv (system `pip` is blocked by PEP 668):
+
+```bash
+cd /home/master/KnovasInternal
+sudo apt install python3.12-venv python3-full   # once
+python3 -m venv .venv-demo-corpus
+source .venv-demo-corpus/bin/activate
+pip install -r RemoteController/scripts/demo_corpus/requirements.txt
+
+python3 RemoteController/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/
+python3 RemoteController/scripts/demo_corpus/fetch_demo_corpus.py verify --out corpus/
+```
+
+Expect ~7 GB download, 30–60 minutes. `corpus/manifest.jsonl` confirms a successful
+`build`. Skip this section if `corpus/` is already complete.
+
+**Do not** run `scripts/setup_server_corpus.sh` for document download — that script
+deploys RemoteController (certs, `.env`, Docker).
+
+---
+
 ## Step 2 — Inspect the corpus
 
 ```bash
@@ -351,9 +388,11 @@ Open the platform in a browser and search for a known corpus term (e.g. a Wikipe
 
 ---
 
-## Automated setup script
+## Automated RC deploy (not document download)
 
-A repeatable script is at `RemoteController/scripts/setup_server_corpus.sh`. Run on the server:
+`scripts/setup_server_corpus.sh` **deploys RemoteController** with the corpus mount: tenant
+mTLS cert prep, `.env`, Docker build/start, health check. It does **not** download corpus
+files. Run `fetch_demo_corpus.py build` first if `corpus/` is empty or outdated.
 
 ```bash
 cd /home/master/KnovasInternal/RemoteController

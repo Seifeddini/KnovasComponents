@@ -378,7 +378,9 @@ For HTTPS edge, employee JWT, firewall, and Knovas registration, follow [SETUP.m
 
 **Large corpus at monorepo root** (`KnovasComponents/corpus/`): add `-f docker-compose.corpus.yml` to the compose command and set `RC_WATCH_ROOTS=/data/corpus`. See [docker-compose.corpus.yml](../docker-compose.corpus.yml).
 
-**Linux server automation** (not the main junior path): [scripts/setup_server_corpus.sh](../scripts/setup_server_corpus.sh).
+**Download demo corpus files only** (no Docker, no certs): [scripts/demo_corpus/README.md](../scripts/demo_corpus/README.md) — `fetch_demo_corpus.py build --out corpus/`.
+
+**Linux server RC deploy** with corpus mount (certs, Docker, `.env` — not document download): [scripts/setup_server_corpus.sh](../scripts/setup_server_corpus.sh).
 
 ---
 
