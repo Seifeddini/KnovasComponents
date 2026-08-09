@@ -1,0 +1,428 @@
+/* src/web_interface/static/css/ontology.css — Cortex-Layout.
+   Ausschliesslich Design-Tokens aus style.css; keine neuen Farbwerte
+   (Schatten nutzen die vorhandenen RGB-Tripel-Tokens mit Transparenz). */
+
+/* Nur die Breite faellt aus der Reihe, damit der Graph den Bildschirm
+   bekommt. Abstaende bleiben die der anderen Seiten: der Rumpf hatte hier
+   einmal engere Werte, wodurch Suche, Cortex und Einstellungen sichtbar
+   unterschiedlich sassen. */
+.container-wide { max-width: none; height: 100vh; }
+
+/* Die Box wie gehabt (Rahmen, Header mit Titel und Zoom), aber über die
+   ganze Bildschirmbreite und die restliche Höhe. */
+.ontology-stage {
+    flex: 1;
+    min-height: 420px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    /* clip statt hidden: hidden macht die Box zum Scrollcontainer, und die
+       ausgeblendeten Drawer stehen per transform rechts ausserhalb. Ein
+       focus() im Drawer liess den Browser dorthin scrollen - der Graph rutschte
+       424px nach links und Cytoscapes Zeigermathematik stimmte nicht mehr.
+       clip kappt genauso, erzeugt aber keinen scrollbaren Bereich. */
+    overflow: clip;
+}
+
+/* Innenraum der Box: Graph füllt alles, Drawer gleiten darüber. */
+.ontology-stage-body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+}
+
+#graphContainer { position: absolute; inset: 0; }
+
+.ontology-empty {
+    color: var(--text-secondary);
+    padding: 24px 16px;
+    text-align: center;
+}
+#graphEmpty { position: absolute; inset: 0; display: grid; place-content: center; }
+#graphEmpty[hidden] { display: none; }
+
+.graph-toolbar { display: flex; gap: 6px; }
+.graph-toolbar .btn { padding: 4px 10px; line-height: 1; }
+
+/* Drawer: erscheinen erst bei Auswahl, gleiten von rechts über den Graphen. */
+.ontology-stage-body { --drawer-w: 400px; }
+
+.ontology-drawer {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    bottom: 16px;
+    width: min(var(--drawer-w), calc(100vw - 72px));
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 28px rgba(var(--text-primary-rgb), 0.14);
+    transform: translateX(calc(100% + 40px));
+    visibility: hidden;
+    transition: transform .28s ease, visibility 0s linear .28s;
+    will-change: transform;   /* Drawer-Slide auf eigener GPU-Ebene */
+    z-index: 2;
+}
+.ontology-drawer.open {
+    transform: none;
+    visibility: visible;
+    transition: transform .28s ease;
+}
+
+/* Dokument-Drawer: breiter, links neben dem Entitäten-Drawer. */
+.ontology-drawer-doc {
+    right: calc(16px + var(--drawer-w) + 12px);
+    width: min(680px, calc(100vw - var(--drawer-w) - 120px));
+}
+
+.ontology-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: var(--pad-section);
+    border-bottom: 1px solid var(--border-color);
+}
+.ontology-pane-header h2 {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+.drawer-close {
+    padding: 2px 9px;
+    line-height: 1.3;
+    font-size: 1rem;
+}
+
+#entityPaneBody, #docPaneBody { flex: 1; min-height: 0; overflow: auto; }
+/* Die Dokumentvorschau bringt ihre eigene Bildlaufleiste mit. Bliebe der
+   Rumpf hier ebenfalls rollbar, staenden zwei nebeneinander. clip statt
+   hidden: hidden macht den Kasten zu einem Rollbehaelter, den ein focus()
+   verschieben kann - genau daran hatte sich der Graph schon einmal verzogen. */
+#docPaneBody { overflow: clip; }
+
+.entity-hint { color: var(--text-secondary); font-size: 0.85rem;
+               padding: 10px var(--gutter) 0; margin: 0; }
+
+/* Entitätenliste in Kartenform — gleiche DNA wie .document-card der Suche
+   (Karte auf card-bg, Hover-Akzent, Metazeile + Titel). */
+.entity-cards { list-style: none; padding: 10px var(--gutter) 16px; margin: 0;
+                display: flex; flex-direction: column; gap: 8px; }
+.entity-card {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    cursor: pointer;
+    font: inherit;
+    color: var(--text-primary);
+    transition: border-color 0.2s;
+}
+.entity-card:hover { border-color: var(--accent); }
+.entity-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.entity-card-metaline {
+    display: block;
+    font-family: var(--font-heading);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+.entity-card-title {
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.entity-detail { padding: 12px var(--gutter); }
+.entity-detail h3 { font-family: var(--font-heading); color: var(--text-primary); margin: 8px 0; }
+.entity-detail h4 {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin: 16px 0 6px;
+}
+/* Verbundene Entitäten: klickbare Mini-Karten (lesbares Prädikat als
+   Metazeile, Chevron als Klick-Signal; Richtung zeigt der Graph). */
+.relation-cards { list-style: none; padding: 0; margin: 0;
+                  display: flex; flex-direction: column; gap: 6px; }
+.relation-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    cursor: pointer;
+    font: inherit;
+    color: var(--text-primary);
+    transition: border-color 0.2s;
+}
+.relation-card:hover { border-color: var(--accent); }
+.relation-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.relation-card-metaline {
+    display: block;
+    font-family: var(--font-heading);
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.relation-card-title { display: block; font-size: 0.9rem; font-weight: 500; }
+.relation-card-chevron { color: var(--text-secondary); font-size: 1.1rem; line-height: 1; }
+
+.evidence-list { list-style: none; padding: 0; }
+.evidence-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    font: inherit;
+    color: var(--text-primary);
+}
+.evidence-item:hover { border-color: var(--accent); }
+.evidence-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.evidence-item.selected { background: var(--highlight); border-color: var(--primary-color); }
+.evidence-quote { display: block; }
+.evidence-source { display: block; margin-top: 4px; font-size: 0.85rem; color: var(--text-secondary); }
+
+/* display block, sonst sitzt das iframe als Inline-Kasten auf der
+   Textgrundlinie und ist ein paar Pixel hoeher als sein Elternteil. */
+.doc-frame { display: block; width: 100%; height: 100%; border: 0;
+             border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--card-bg); }
+
+/* Filter (Req 2.2): hervorgehobene Karte, Chips, Prüf-Panel. Nur Tokens. */
+.filter-card {
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-lg);
+    background: rgba(var(--accent-rgb), 0.05);
+    padding: 12px 14px;
+    margin: 12px 0 4px;
+}
+.filter-card .filter-card-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--primary-color);
+    margin: 0 0 4px;
+}
+.filter-card-purpose {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin: 0 0 8px;
+}
+.filter-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.filter-list li { padding: 2px 0; }
+.filter-chip { display: block; text-align: left; }
+.filter-chip-label { display: block; }
+.filter-chip-state {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.filter-create { display: flex; gap: 8px; margin-top: 6px; }
+.filter-create input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+}
+.filter-create input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.filter-create .btn { white-space: nowrap; }
+
+.filter-status { color: var(--text-secondary); font-size: 0.85rem; margin: 4px 0 10px; }
+
+.tab-chips { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.tab-chip {
+    padding: 4px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+}
+.tab-chip:hover { border-color: var(--accent); }
+.tab-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tab-chip.active {
+    background: var(--highlight);
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+}
+
+.proposal-card {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: var(--card-bg);
+}
+.proposal-card .evidence-item { margin: 6px 0 0; }
+.score-chip {
+    display: inline-block;
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 1px 8px;
+    background: var(--surface-sunken);
+}
+.proposal-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.proposal-actions .btn { padding: 4px 12px; }
+.proposal-note { color: var(--text-secondary); font-size: 0.82rem; margin-top: 8px; }
+.proposal-confirm { color: var(--primary-color); margin: 4px 0; }
+
+/* Lade-Skeleton: schimmernde Platzhalterzeilen statt Spinner/Textblitzer.
+   Nur Token-Farben; die Animation nutzt Transparenz, keinen neuen Farbwert. */
+.skeleton-row {
+    height: 14px;
+    margin: 12px 16px;
+    border-radius: var(--radius);
+    background: var(--highlight);
+    animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+.skeleton-row:nth-child(2) { width: 70%; }
+.skeleton-row:nth-child(3) { width: 85%; }
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.45; }
+    50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-row { animation: none; opacity: 0.6; }
+    .ontology-drawer { transition: none; }
+}
+
+/* Ruhige Übergänge für interaktive Elemente. */
+.evidence-item, .site-nav a, .btn { transition: border-color .15s ease, background-color .15s ease, color .15s ease; }
+
+/* Schmale Fenster: Drawer als Vollflächen-Overlay statt Nebeneinander. */
+@media (max-width: 1100px) {
+    .ontology-drawer { left: 16px; width: auto; }
+    .ontology-drawer-doc { right: 16px; width: auto; z-index: 3; }
+}
+
+/* Kuratieren: Entitaet und Typ anlegen. Der Wissensgraph wird gepflegt,
+   nicht abgeleitet - diese Eingaben gehoeren zum Ablauf. */
+.create-row { display: flex; gap: 8px; padding: 4px var(--gutter) 16px; }
+.create-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+    font: inherit;
+}
+.create-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.create-row .btn { white-space: nowrap; }
+
+/* Bereits verwendete Beziehungen als Chips. Eine datalist waere weniger
+   Code, aber ihr Aufklapp-Dreieck stellt der Browser und es passt weder
+   zur Marke noch sitzt es mittig. */
+.connect-vorschlaege { padding: 0 var(--gutter) 16px; margin-bottom: 0; }
+
+/* Loeschen liegt im Drawer-Kopf neben dem Schliessen - nicht im Rumpf,
+   wo es buendig an der Kante klebte und neben dem Anlegen zu leicht zu
+   treffen war. Bestaetigt wird auf einem eigenen Blatt, das die Folgen nennt. */
+.pane-actions { display: flex; align-items: center; gap: 6px; }
+.drawer-delete {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    color: var(--text-secondary);
+}
+.drawer-delete:hover { color: var(--error-color); border-color: var(--error-color); }
+.drawer-delete[hidden] { display: none; }
+
+.confirm-detail { color: var(--text-secondary); font-size: 0.9rem; margin: 6px 0 14px; }
+.confirm-actions { display: flex; align-items: center; gap: 12px; }
+.btn-danger {
+    background: var(--error-color);
+    color: var(--bg-color);
+    border: 1px solid var(--error-color);
+}
+.btn-danger:hover { filter: brightness(0.92); }
+
+/* Typ anlegen liegt sichtbar in der Graphflaeche, ist aber ein Bedienelement
+   ueber dem Canvas und kein Knoten darin: als Knoten musste das Einpassen ihn
+   mit einbeziehen, wodurch sich das ganze Netz verzogen hat. */
+.graph-add-type {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px 6px 6px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    box-shadow: 0 2px 10px rgba(var(--text-primary-rgb), 0.08);
+    transition: border-color .15s ease, color .15s ease;
+}
+.graph-add-type:hover { border-color: var(--accent); color: var(--text-primary); }
+.graph-add-type:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.graph-add-type-circle {
+    display: grid;
+    place-items: center;
+    width: 30px; height: 30px;
+    border: 2px dashed var(--accent);
+    border-radius: 50%;
+    color: var(--primary-color);
+    font-family: var(--font-heading);
+    font-size: 1.1rem;
+    line-height: 1;
+}
+.graph-add-type:hover .graph-add-type-circle { border-style: solid; }
+
+/* Griff zum Verbinden: erscheint beim Zeigen auf einen Knoten. Absolut
+   ueber dem Canvas, damit er unabhaengig von Cytoscape klickbar bleibt. */
+.connect-handle {
+    position: absolute;
+    z-index: 2;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    padding: 0;
+    border: 2px solid var(--card-bg);
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: crosshair;
+    transition: transform .12s ease;
+}
+.connect-handle:hover { transform: scale(1.25); }
+.connect-handle:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.connect-handle[hidden] { display: none; }

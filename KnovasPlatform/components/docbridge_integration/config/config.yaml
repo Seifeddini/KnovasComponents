@@ -17,7 +17,7 @@ database:
 # AutoDoc Configuration
 autodoc:
   # Mount path for AutoDoc directory
-  path: "/mnt/autodoc"
+  path: "${AUTODOC_PATH:-/mnt/autodoc}"
   # Cap for find_autodoc_files() directory walks (0 = unlimited)
   max_discovery_entries: 10000
   

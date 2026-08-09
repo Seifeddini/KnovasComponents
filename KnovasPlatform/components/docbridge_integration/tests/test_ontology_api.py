@@ -1,0 +1,327 @@
+"""Vertrag- und Auth-Tests fuer /api/ontology/* und /ontology."""
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+SRC = Path(__file__).resolve().parents[1] / "src"
+WEB_SRC = SRC / "web_interface"
+for p in (SRC, WEB_SRC):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
+
+class DummyKnovasClient:
+    def __init__(self, config):
+        self.config = config
+
+    def health_check(self):
+        return True
+
+    def search_documents(self, query, limit=20, filters=None):
+        return {"results": [], "total": 0}
+
+
+class TmpAutodocHandler:
+    def __init__(self, root):
+        self.autodoc_path = str(root)
+
+
+FIXTURE = {
+    "types": [
+        {"id": "mandant", "label": "Mandant", "count": 12},
+        {"id": "dossier", "label": "Dossier", "count": 47},
+    ],
+    "relations": [
+        {"src": "mandant", "predicate": "hat_Dossier", "dst": "dossier", "count": 47},
+    ],
+    "entities": [
+        {"id": "e-001", "label": "Müller Bau AG", "type": "mandant", "doc_count": 8},
+    ],
+    "entity_relations": [],
+    "evidence": [
+        {"entity_id": "e-001",
+         "document": {"path": "sub/vertrag.pdf", "title": "Vertrag"},
+         "page": 2, "quote": "…Müller Bau AG…"},
+        {"entity_id": "e-001",
+         "document": {"path": "sub/fehlt.pdf", "title": "Weg"},
+         "page": 1, "quote": "wird gefiltert"},
+    ],
+}
+
+
+def _build_app(tmp_path, monkeypatch, autodoc_root):
+    monkeypatch.setenv("WEB_SECRET_KEY", "test-secret-ontology")
+    monkeypatch.setenv("COMPANY_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("COMPANY_DISPLAY_NAME", "Test Company")
+    monkeypatch.setenv("COMPANY_LOGIN_NAME", "office")
+    monkeypatch.setenv("COMPANY_LOGIN_PASSWORD", "s3cret")
+    monkeypatch.delenv("AUTODOC_IDENTIFIER_PREFIX", raising=False)
+
+    fixture_path = tmp_path / "ontology_fixture.json"
+    fixture_path.write_text(json.dumps(FIXTURE), encoding="utf-8")
+    monkeypatch.setenv("ONTOLOGY_FIXTURE_PATH", str(fixture_path))
+    monkeypatch.setenv("ONTOLOGY_FILTER_STATE_PATH", str(tmp_path / "filter_state.json"))
+    import ontology_store
+    ontology_store._cache = None  # Test-Isolation
+    import ontology_filters
+    ontology_filters._engine_cache = None
+
+    ad_str = str(autodoc_root).replace("\\", "/")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"""
+web:
+  secret_key: "${{WEB_SECRET_KEY}}"
+  session_lifetime: 3600
+  login:
+    enabled: "${{COMPANY_LOGIN_ENABLED:-true}}"
+    company_name: "${{COMPANY_DISPLAY_NAME:-Knovas}}"
+    username: "${{COMPANY_LOGIN_NAME}}"
+    password: "${{COMPANY_LOGIN_PASSWORD}}"
+  search:
+    results_per_page: 20
+api:
+  base_url: "http://example.test"
+open:
+  companion_enabled: false
+  local_root: "{ad_str}"
+""",
+        encoding="utf-8",
+    )
+
+    import web_interface.app as web_app
+    monkeypatch.setattr(web_app, "KnovasAPIClient", DummyKnovasClient)
+    monkeypatch.setattr(web_app, "AutoDocFileHandler", lambda: TmpAutodocHandler(autodoc_root))
+    flask_app = web_app.create_app(str(config_path))
+    flask_app.config.update(TESTING=True)
+    return flask_app
+
+
+@pytest.fixture()
+def app(tmp_path, monkeypatch):
+    ad = tmp_path / "autodoc"
+    (ad / "sub").mkdir(parents=True)
+    (ad / "sub" / "vertrag.pdf").write_bytes(b"%PDF-1.4 minimal")
+    return _build_app(tmp_path, monkeypatch, ad)
+
+
+def _login(client):
+    client.get("/login")
+    with client.session_transaction() as sess:
+        token = sess["csrf_token"]
+    client.post("/login", data={"login_name": "office", "password": "s3cret",
+                                "csrf_token": token})
+
+
+def test_ontology_api_requires_login(app):
+    client = app.test_client()
+    assert client.get("/api/ontology/summary").status_code == 401
+    assert client.get("/api/ontology/entities?type=mandant").status_code == 401
+    assert client.get("/api/ontology/entities/e-001").status_code == 401
+
+
+def test_ontology_page_redirects_to_login(app):
+    client = app.test_client()
+    resp = client.get("/ontology")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+
+def test_summary_contract(app):
+    client = app.test_client()
+    _login(client)
+    data = client.get("/api/ontology/summary").get_json()
+    assert data["success"] is True
+    assert [t["id"] for t in data["types"]] == ["mandant", "dossier"]
+    assert data["relations"][0]["predicate"] == "hat_Dossier"
+    # Die Zahl zaehlt echte Verbindungen; die Fixture hat keine, also 0
+    # (gestrichelte Vorgabe), unabhaengig vom gespeicherten Wert.
+    assert data["relations"][0]["count"] == 0
+
+
+def test_entities_contract(app):
+    client = app.test_client()
+    _login(client)
+    data = client.get("/api/ontology/entities?type=mandant").get_json()
+    assert data["success"] is True
+    assert data["entities"][0]["label"] == "Müller Bau AG"
+    assert client.get("/api/ontology/entities?type=x").get_json()["entities"] == []
+
+
+def test_entity_detail_contract_filters_missing_files(app):
+    client = app.test_client()
+    _login(client)
+    data = client.get("/api/ontology/entities/e-001").get_json()
+    assert data["success"] is True
+    # sub/fehlt.pdf existiert nicht im tmp-Autodoc-Root -> gefiltert
+    assert [ev["document"]["path"] for ev in data["evidence"]] == ["sub/vertrag.pdf"]
+    assert data["evidence"][0]["page"] == 2
+    assert client.get("/api/ontology/entities/e-404").status_code == 404
+
+
+def test_ontology_page_renders_after_login(app):
+    client = app.test_client()
+    _login(client)
+    resp = client.get("/ontology")
+    assert resp.status_code == 200
+    assert "Cortex".encode("utf-8") in resp.data
+
+
+def _csrf_header(client):
+    with client.session_transaction() as sess:
+        return {"X-CSRF-Token": sess["csrf_token"]}
+
+
+def test_filter_api_requires_login(app):
+    client = app.test_client()
+    assert client.post("/api/ontology/filters", json={}).status_code == 401
+    assert client.get("/api/ontology/filters/f-x").status_code == 401
+
+
+def test_filter_create_requires_csrf_header(app):
+    client = app.test_client()
+    _login(client)
+    resp = client.post("/api/ontology/filters",
+                       json={"entity_id": "e-001", "label": "Fristen"})
+    assert resp.status_code == 403
+
+
+def test_filter_create_and_detail_contract(app):
+    client = app.test_client()
+    _login(client)
+    resp = client.post("/api/ontology/filters",
+                       json={"entity_id": "e-001", "label": "Fristen"},
+                       headers=_csrf_header(client))
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["filter"]["label"] == "Fristen"
+    # vertrag.pdf ist kein echtes PDF -> keine Segmente -> ehrlicher Sammel-Zustand
+    assert data["filter"]["status"] == "collecting"
+    assert data["proposals"] == []
+
+    detail = client.get(f"/api/ontology/filters/{data['filter']['id']}").get_json()
+    assert detail["success"] is True
+    assert detail["filter"]["id"] == data["filter"]["id"]
+
+    # Entity-Detail traegt den Filter jetzt mit
+    entity = client.get("/api/ontology/entities/e-001").get_json()
+    assert [f["label"] for f in entity["filters"]] == ["Fristen"]
+
+
+def test_filter_create_validates_input(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+    assert client.post("/api/ontology/filters", json={"entity_id": "e-404",
+                       "label": "x"}, headers=headers).status_code == 404
+    assert client.post("/api/ontology/filters", json={"entity_id": "e-001",
+                       "label": ""}, headers=headers).status_code == 400
+
+
+def test_filter_decision_validates(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+    created = client.post("/api/ontology/filters",
+                          json={"entity_id": "e-001", "label": "Fristen"},
+                          headers=headers).get_json()
+    fid = created["filter"]["id"]
+    assert client.post(f"/api/ontology/filters/{fid}/decision",
+                       json={"proposal_id": "x", "action": "vielleicht"},
+                       headers=headers).status_code == 400
+    assert client.post(f"/api/ontology/filters/{fid}/decision",
+                       json={"proposal_id": "x", "action": "reject"},
+                       headers=headers).status_code == 404
+    assert client.post("/api/ontology/filters/f-unbekannt/decision",
+                       json={"proposal_id": "x", "action": "reject"},
+                       headers=headers).status_code == 404
+
+
+def test_settings_page_requires_login_and_renders(app):
+    client = app.test_client()
+    resp = client.get("/settings")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+    _login(client)
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    assert "Einstellungen" in body
+    assert "office" in body          # angemeldeter Benutzer
+    assert "Test Company" in body    # Firmenname aus der Konfiguration
+
+
+def test_sidebar_shows_corpus_only_when_fixture_has_it(app, tmp_path, monkeypatch):
+    """Ohne corpus-Block bleibt die Zahl weg statt erfunden zu werden."""
+    client = app.test_client()
+    _login(client)
+    assert "corpus-status" not in client.get("/ontology").data.decode("utf-8")
+
+    data = json.loads(json.dumps(FIXTURE))
+    data["corpus"] = {"documents": 1847}
+    fixture_path = tmp_path / "ontology_fixture.json"
+    fixture_path.write_text(json.dumps(data), encoding="utf-8")
+    import ontology_store
+    ontology_store._cache = None
+    body = client.get("/ontology").data.decode("utf-8")
+    assert "corpus-status" in body
+    assert "1&#39;847" in body       # Schweizer Trennung, HTML-escaped
+
+
+def test_type_relation_routes_require_login_and_csrf(app):
+    client = app.test_client()
+    assert client.post("/api/ontology/type-relations", json={}).status_code == 401
+    _login(client)
+    ohne_token = client.post("/api/ontology/type-relations",
+                             json={"src": "mandant", "predicate": "x",
+                                   "dst": "dossier"})
+    assert ohne_token.status_code == 403
+
+
+def test_type_relation_create_and_delete(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+
+    angelegt = client.post("/api/ontology/type-relations",
+                           json={"src": "mandant", "predicate": "hat Dossier",
+                                 "dst": "dossier"}, headers=headers)
+    assert angelegt.status_code == 201
+    assert angelegt.get_json()["relation"]["count"] == 0
+
+    # taucht als Vorgabe in der Zusammenfassung auf
+    zusammenfassung = client.get("/api/ontology/summary").get_json()
+    assert any(r["predicate"] == "hat Dossier" and r["count"] == 0
+               for r in zusammenfassung["relations"])
+
+    weg = client.delete("/api/ontology/type-relations",
+                        json={"src": "mandant", "predicate": "hat Dossier",
+                              "dst": "dossier"}, headers=headers)
+    assert weg.status_code == 200
+    nochmal = client.delete("/api/ontology/type-relations",
+                            json={"src": "mandant", "predicate": "hat Dossier",
+                                  "dst": "dossier"}, headers=headers)
+    assert nochmal.status_code == 404
+
+
+def test_relation_delete_route(app):
+    client = app.test_client()
+    _login(client)
+    headers = _csrf_header(client)
+    neu = client.post("/api/ontology/entities",
+                      json={"type": "mandant", "label": "Partner AG"},
+                      headers=headers).get_json()["entity"]
+    client.post("/api/ontology/relations",
+                json={"src": neu["id"], "predicate": "arbeitet mit",
+                      "dst": "e-001"}, headers=headers)
+
+    weg = client.delete("/api/ontology/relations",
+                        json={"src": neu["id"], "predicate": "arbeitet mit",
+                              "dst": "e-001"}, headers=headers)
+    assert weg.status_code == 200
+    detail = client.get(f"/api/ontology/entities/{neu['id']}").get_json()
+    assert detail["relations"] == []

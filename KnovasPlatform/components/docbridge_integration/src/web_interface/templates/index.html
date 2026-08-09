@@ -3,31 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ app_title }}</title>
+    <title>{{ brand }} Suche</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
 </head>
 <body>
-    <div class="container">
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        <div class="container">
         <header class="site-header">
-            <div class="site-header-bar">
-                <a class="site-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
-                    <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
-                         alt="Knovas" width="132" height="18">
-                </a>
-                <form method="post" action="{{ url_for('logout') }}" class="logout-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn btn-outline logout-button">
-                        <svg class="icon" viewBox="0 0 24 24" width="15" height="15" fill="none"
-                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                             stroke-linejoin="round" aria-hidden="true" focusable="false">
-                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                            <polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>
-                        </svg>
-                        Abmelden
-                    </button>
-                </form>
-            </div>
             <h1 class="site-greeting">
                 Hallo,<br>
                 <span class="site-greeting-question">was möchten Sie suchen?</span>
@@ -110,14 +96,8 @@
             <div class="preview-body" id="previewBody" tabindex="0"></div>
         </dialog>
 
-        <footer class="site-footer">
-            <p>&copy; 2026 Knovas · Build {{ build_id }}</p>
-            <p class="footer-links">
-                <a href="#" id="healthCheck">System Status</a>
-                <span class="footer-sep" aria-hidden="true">·</span>
-                <a class="feedback-link feedback-link--footer" href="https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9" target="_blank" rel="noopener noreferrer" title="Feedback über Jira senden">Feedback geben</a>
-            </p>
-        </footer>
+        </div>
+        </div>
     </div>
 
     <script>
