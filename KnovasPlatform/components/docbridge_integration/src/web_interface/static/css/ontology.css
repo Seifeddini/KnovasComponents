@@ -84,7 +84,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 12px 16px;
+    padding: var(--pad-section);
     border-bottom: 1px solid var(--border-color);
 }
 .ontology-pane-header h2 {
@@ -105,11 +105,12 @@
    verschieben kann - genau daran hatte sich der Graph schon einmal verzogen. */
 #docPaneBody { overflow: clip; }
 
-.entity-hint { color: var(--text-secondary); font-size: 0.85rem; padding: 10px 16px 0; margin: 0; }
+.entity-hint { color: var(--text-secondary); font-size: 0.85rem;
+               padding: 10px var(--gutter) 0; margin: 0; }
 
 /* Entitätenliste in Kartenform — gleiche DNA wie .document-card der Suche
    (Karte auf card-bg, Hover-Akzent, Metazeile + Titel). */
-.entity-cards { list-style: none; padding: 10px 16px 16px; margin: 0;
+.entity-cards { list-style: none; padding: 10px var(--gutter) 16px; margin: 0;
                 display: flex; flex-direction: column; gap: 8px; }
 .entity-card {
     display: block;
@@ -142,7 +143,7 @@
     overflow-wrap: anywhere;
 }
 
-.entity-detail { padding: 12px 16px; }
+.entity-detail { padding: 12px var(--gutter); }
 .entity-detail h3 { font-family: var(--font-heading); color: var(--text-primary); margin: 8px 0; }
 .entity-detail h4 {
     font-family: var(--font-heading);
@@ -329,7 +330,7 @@
 
 /* Kuratieren: Entitaet und Typ anlegen. Der Wissensgraph wird gepflegt,
    nicht abgeleitet - diese Eingaben gehoeren zum Ablauf. */
-.create-row { display: flex; gap: 8px; padding: 4px 16px 16px; }
+.create-row { display: flex; gap: 8px; padding: 4px var(--gutter) 16px; }
 .create-row input {
     flex: 1;
     min-width: 0;
@@ -346,7 +347,7 @@
 /* Bereits verwendete Beziehungen als Chips. Eine datalist waere weniger
    Code, aber ihr Aufklapp-Dreieck stellt der Browser und es passt weder
    zur Marke noch sitzt es mittig. */
-.connect-vorschlaege { padding: 0 16px 16px; margin-bottom: 0; }
+.connect-vorschlaege { padding: 0 var(--gutter) 16px; margin-bottom: 0; }
 
 /* Loeschen liegt im Drawer-Kopf neben dem Schliessen - nicht im Rumpf,
    wo es buendig an der Kante klebte und neben dem Anlegen zu leicht zu
