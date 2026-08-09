@@ -80,9 +80,18 @@ class ConnectGesture {
         griff.hidden = false;
     }
 
-    /** Griff auf den Knotenrand setzen, in Richtung des Zeigers. Ohne Zeiger
-        (etwa beim Nachziehen nach einem Verschieben) bleibt der zuletzt
-        benutzte Winkel erhalten. */
+    /** Ueberlappung des Griffs mit dem Knotenrand in Pixeln. Muss groesser
+        als null bleiben: sonst verliesse der Zeiger auf dem Weg zum Griff
+        den Knoten, mouseout wuerde feuern und der Griff verschwaende, bevor
+        man ihn erreicht. */
+    static get UEBERLAPPUNG() { return 3; }
+
+    /** Griff an den Knotenrand setzen, in Richtung des Zeigers, und seine
+        Groesse an den Knoten koppeln. Ein fester Griff verdeckte auf einem
+        Satelliten von 26 Pixeln den halben Knoten, und da er dem Zeiger
+        folgt, lag er stets genau dort, wo man den Satelliten treffen wollte.
+        Ohne Zeiger (etwa beim Nachziehen nach einem Verschieben) bleibt der
+        zuletzt benutzte Winkel erhalten. */
     _platziere(node, zeiger) {
         if (!this.griff) return;
         const p = node.renderedPosition();
@@ -92,9 +101,17 @@ class ConnectGesture {
             if (dx || dy) this._winkel = Math.atan2(dy, dx);
         }
         const winkel = this._winkel || 0;
-        const radius = (node.renderedWidth() / 2) - 2;
-        this.griff.style.left = `${p.x + radius * Math.cos(winkel)}px`;
-        this.griff.style.top = `${p.y + radius * Math.sin(winkel)}px`;
+        // Gerendert, nicht Modell: beim Herauszoomen schrumpft der Knoten,
+        // der Griff als HTML-Element aber nicht.
+        const breite = node.renderedWidth();
+        const groesse = Math.max(9, Math.min(16, breite * 0.42));
+        this.griff.style.width = `${groesse}px`;
+        this.griff.style.height = `${groesse}px`;
+        this.griff.style.margin = `${-groesse / 2}px 0 0 ${-groesse / 2}px`;
+        // Mitte so weit draussen, dass nur der innere Rand den Knoten kuesst.
+        const abstand = breite / 2 + groesse / 2 - ConnectGesture.UEBERLAPPUNG;
+        this.griff.style.left = `${p.x + abstand * Math.cos(winkel)}px`;
+        this.griff.style.top = `${p.y + abstand * Math.sin(winkel)}px`;
     }
 
     _versteckeGriff() {

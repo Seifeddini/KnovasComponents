@@ -1212,28 +1212,44 @@ class CortexApp {
     onConnectDrawn({ srcId, dstId, ebene }) {
         const esc = CortexApp.esc;
         const vorschlaege = [...new Set(
-            this.cy.edges().map((e) => e.data('predicate')).filter(Boolean))];
+            this.cy.edges().map((e) => e.data('predicate')).filter(Boolean))].sort();
         this.openEntityDrawer();
         this.setDrawerDelete(null);
         document.getElementById('entityPaneTitle').textContent = 'Neue Verbindung';
         const body = document.getElementById('entityPaneBody');
         const label = (id) => esc(this.cy.getElementById(id).data('label') || id);
+        // Eigene Auswahl statt datalist: dessen Aufklapp-Dreieck stellt der
+        // Browser selbst, es laesst sich weder zentrieren noch der Marke
+        // anpassen. Die Chips gibt es im Haus bereits als tab-chip.
+        const auswahl = vorschlaege.length ? `
+                <p class="entity-hint">Bereits verwendet</p>
+                <div class="tab-chips connect-vorschlaege">${vorschlaege
+                    .map((v) => `<button type="button" class="tab-chip"
+                                 data-wert="${esc(v)}">${esc(v)}</button>`).join('')}</div>` : '';
         body.innerHTML = `
             <div class="entity-detail">
                 <p class="entity-hint">${label(srcId)} zu ${label(dstId)}</p>
                 <div class="create-row">
-                    <input type="text" id="connectInput" maxlength="80" list="connectVorschlaege"
+                    <input type="text" id="connectInput" maxlength="80" autocomplete="off"
                            placeholder="Beziehung, z. B. hat Dossier"
                            aria-label="Art der Beziehung">
-                    <datalist id="connectVorschlaege">${vorschlaege
-                        .map((v) => `<option value="${esc(v)}"></option>`).join('')}</datalist>
                     <button type="button" id="connectSubmit" class="btn btn-primary">Verbinden</button>
                 </div>
+                ${auswahl}
                 <p class="ontology-empty" id="connectFehler" hidden></p>
             </div>`;
         const eingabe = document.getElementById('connectInput');
         const senden = () => this.onConnectSubmit(srcId, dstId, ebene, eingabe.value);
         document.getElementById('connectSubmit').addEventListener('click', senden);
+        const chips = [...body.querySelectorAll('.connect-vorschlaege .tab-chip')];
+        const markiere = () => chips.forEach((c) =>
+            c.classList.toggle('active', c.dataset.wert === eingabe.value));
+        chips.forEach((chip) => chip.addEventListener('click', () => {
+            eingabe.value = chip.dataset.wert;
+            markiere();
+            eingabe.focus({ preventScroll: true });
+        }));
+        eingabe.addEventListener('input', markiere);
         eingabe.addEventListener('keydown', (evt) => {
             if (evt.key === 'Enter') { evt.preventDefault(); senden(); }
             if (evt.key === 'Escape') this.closeDrawers();

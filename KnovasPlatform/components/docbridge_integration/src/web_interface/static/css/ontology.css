@@ -336,6 +336,11 @@
 .create-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .create-row .btn { white-space: nowrap; }
 
+/* Bereits verwendete Beziehungen als Chips. Eine datalist waere weniger
+   Code, aber ihr Aufklapp-Dreieck stellt der Browser und es passt weder
+   zur Marke noch sitzt es mittig. */
+.connect-vorschlaege { padding: 0 16px 16px; margin-bottom: 0; }
+
 /* Loeschen liegt im Drawer-Kopf neben dem Schliessen - nicht im Rumpf,
    wo es buendig an der Kante klebte und neben dem Anlegen zu leicht zu
    treffen war. Bestaetigt wird auf einem eigenen Blatt, das die Folgen nennt. */
