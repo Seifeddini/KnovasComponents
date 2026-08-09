@@ -75,9 +75,12 @@ services:
       OPEN_ALLOW_SERVER_SIDE_STARTFILE: ${OPEN_ALLOW_SERVER_SIDE_STARTFILE:-false}
       OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN: ${OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN:-false}
       AUTODOC_IDENTIFIER_PREFIX: ${AUTODOC_IDENTIFIER_PREFIX:-}
-      ONTOLOGY_FIXTURE_PATH: /mnt/ontology/ontology_fixture.json
+      # Cortex. Fest verdrahtet waren die Pfade wirkungslos, wenn jemand sie in
+      # .env setzt - deshalb ueberschreibbar mit denselben Vorgaben.
+      ONTOLOGY_SOURCE: ${ONTOLOGY_SOURCE:-fixture}
+      ONTOLOGY_FIXTURE_PATH: ${ONTOLOGY_FIXTURE_PATH:-/mnt/ontology/ontology_fixture.json}
       # Cortex-Filter: Rejection-Memory muss Neustarts überleben -> rw-Datenvolume
-      ONTOLOGY_FILTER_STATE_PATH: /app/data/ontology_filter_state.json
+      ONTOLOGY_FILTER_STATE_PATH: ${ONTOLOGY_FILTER_STATE_PATH:-/app/data/ontology_filter_state.json}
     volumes:
       - ./components/docbridge_integration/config:/app/config:ro
       - docbridge_integration_logs:/app/logs
