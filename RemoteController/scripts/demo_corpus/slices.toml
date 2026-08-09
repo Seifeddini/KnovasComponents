@@ -1,0 +1,62 @@
+total_target = 8800
+
+[caselaw]
+license = "CC0-1.0"
+attribution = "OpenCaseLaw (Jonas Hertner) — https://opencaselaw.ch — CC0-1.0"
+base_url = "https://huggingface.co/datasets/voilaj/swiss-caselaw/resolve/main/data"
+min_text_length = 1500
+
+[caselaw.courts]
+bger = 1400
+bge = 600
+bvger = 700
+bstger = 200
+edoeb = 300
+weko = 200
+finma = 100
+zh_obergericht = 400
+zh_handelsgericht = 200
+ge_gerichte = 400
+ti_gerichte = 400
+vd_gerichte = 400
+
+[fedlex]
+license = "Swiss federal open government data"
+attribution = "Fedlex, Bundeskanzlei — https://www.fedlex.admin.ch"
+endpoint = "https://fedlex.data.admin.ch/sparqlendpoint"
+language = "de"
+acts = 1200
+version_chain_acts = 60
+max_versions_per_act = 10
+
+priority_sr = [
+  "101", "210", "220", "272", "273", "281.1", "311.0", "312.0", "313.0",
+  "235.1", "235.11", "251", "641.20", "642.11", "642.14", "822.11", "823.11",
+  "830.1", "831.10", "831.20", "832.10", "837.0", "221.213.2", "221.301",
+  "231.1", "232.11", "241", "251.4", "291", "935.61", "955.0", "958.1",
+]
+
+[slds]
+license = "CC BY 4.0"
+attribution = "Swiss Landmark Decisions Summarization (SLDS), ipst — CC BY 4.0"
+base_url = "https://huggingface.co/datasets/ipst/slds/resolve/main"
+config = "de_de"
+docs = 500
+
+[contracts]
+license = "CC BY 4.0"
+
+[contracts.cuad]
+attribution = "CUAD v1, The Atticus Project — CC BY 4.0"
+url = "https://zenodo.org/record/4595826/files/CUAD_v1.zip"
+member_glob = "*/full_contract_txt/*.txt"
+
+[contracts.maud]
+attribution = "MAUD v1, The Atticus Project — CC BY 4.0"
+api = "https://huggingface.co/api/datasets/theatticusproject/maud"
+base_url = "https://huggingface.co/datasets/theatticusproject/maud/resolve/main"
+member_prefix = "MAUD_v1/contracts/"
+
+[contracts.contractnli]
+attribution = "ContractNLI, Stanford NLP — CC BY 4.0"
+url = "https://stanfordnlp.github.io/contract-nli/resources/contract-nli.zip"
