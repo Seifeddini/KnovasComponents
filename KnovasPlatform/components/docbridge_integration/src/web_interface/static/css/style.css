@@ -107,7 +107,11 @@ h2 {
 
 .container {
     max-width: 1360px;
-    margin: 0 auto;
+    /* Linksbuendig, nicht zentriert. Zentriert loeste sich der Inhalt auf
+       breiten Bildschirmen von der Seitenleiste, waehrend Cortex ohne
+       Breitendeckel an ihr klebte - dieselbe Seite, zwei linke Kanten.
+       Der Deckel bleibt: Suchtreffer ueber 1360px waeren unlesbar. */
+    margin: 0;
     padding: 24px 20px 32px;
     min-height: 100vh;
     display: flex;
