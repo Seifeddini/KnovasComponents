@@ -51,13 +51,14 @@ FIXTURE = {
 }
 
 
-def _build_app(tmp_path, monkeypatch, autodoc_root):
+def _build_app(tmp_path, monkeypatch, autodoc_root, cortex_enabled=True):
     monkeypatch.setenv("WEB_SECRET_KEY", "test-secret-ontology")
     monkeypatch.setenv("COMPANY_LOGIN_ENABLED", "true")
     monkeypatch.setenv("COMPANY_DISPLAY_NAME", "Test Company")
     monkeypatch.setenv("COMPANY_LOGIN_NAME", "office")
     monkeypatch.setenv("COMPANY_LOGIN_PASSWORD", "s3cret")
     monkeypatch.delenv("AUTODOC_IDENTIFIER_PREFIX", raising=False)
+    monkeypatch.setenv("CORTEX_ENABLED", "true" if cortex_enabled else "false")
 
     fixture_path = tmp_path / "ontology_fixture.json"
     fixture_path.write_text(json.dumps(FIXTURE), encoding="utf-8")
@@ -87,6 +88,8 @@ api:
 open:
   companion_enabled: false
   local_root: "{ad_str}"
+cortex:
+  enabled: "${{CORTEX_ENABLED:-true}}"
 """,
         encoding="utf-8",
     )
@@ -325,3 +328,64 @@ def test_relation_delete_route(app):
     assert weg.status_code == 200
     detail = client.get(f"/api/ontology/entities/{neu['id']}").get_json()
     assert detail["relations"] == []
+
+
+# --- Cortex als zuschaltbares Feature -----------------------------------
+
+@pytest.fixture()
+def app_ohne_cortex(tmp_path, monkeypatch):
+    ad = tmp_path / "autodoc"
+    (ad / "sub").mkdir(parents=True)
+    (ad / "sub" / "vertrag.pdf").write_bytes(b"%PDF-1.4 minimal")
+    return _build_app(tmp_path, monkeypatch, ad, cortex_enabled=False)
+
+
+# Jede Cortex-Route, die es gibt. Waechst die Liste in app.py, faellt hier
+# auf, wenn jemand eine Route ausserhalb des Praefixes anlegt.
+_CORTEX_ROUTEN = [
+    ("GET", "/ontology"),
+    ("GET", "/api/ontology/summary"),
+    ("GET", "/api/ontology/entities"),
+    ("GET", "/api/ontology/entities/e-001"),
+    ("POST", "/api/ontology/types"),
+    ("POST", "/api/ontology/entities"),
+    ("POST", "/api/ontology/relations"),
+    ("DELETE", "/api/ontology/relations"),
+    ("POST", "/api/ontology/type-relations"),
+    ("DELETE", "/api/ontology/type-relations"),
+    ("DELETE", "/api/ontology/types/mandant"),
+    ("DELETE", "/api/ontology/entities/e-001"),
+    ("POST", "/api/ontology/filters"),
+    ("GET", "/api/ontology/filters/f-1"),
+    ("POST", "/api/ontology/filters/f-1/decision"),
+]
+
+
+@pytest.mark.parametrize("methode,pfad", _CORTEX_ROUTEN)
+def test_cortex_abgeschaltet_sperrt_jede_route(app_ohne_cortex, methode, pfad):
+    """Abgeschaltet heisst abwesend: 404 auf jeder Route, auch angemeldet.
+
+    Bewusst ueber alle Routen und nicht nur die Seite - wer die Adresse
+    kennt, soll ueber die API nichts anlegen oder loeschen koennen.
+    """
+    client = app_ohne_cortex.test_client()
+    _login(client)
+    antwort = client.open(pfad, method=methode)
+    assert antwort.status_code == 404, f"{methode} {pfad} lieferte {antwort.status_code}"
+
+
+def test_cortex_abgeschaltet_ohne_menuepunkt(app_ohne_cortex):
+    client = app_ohne_cortex.test_client()
+    _login(client)
+    seite = client.get("/").get_data(as_text=True)
+    assert "Cortex" not in seite
+    assert "/ontology" not in seite
+
+
+def test_cortex_eingeschaltet_bleibt_erreichbar(app):
+    """Gegenprobe: die Vorgabe ist an, sonst faende der Test oben nichts."""
+    client = app.test_client()
+    _login(client)
+    assert client.get("/ontology").status_code == 200
+    assert client.get("/api/ontology/summary").status_code == 200
+    assert "Cortex" in client.get("/").get_data(as_text=True)

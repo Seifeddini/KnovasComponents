@@ -17,6 +17,9 @@
             </svg>
             Suche
         </a>
+        {# Cortex ist pro Kunde zuschaltbar. Ohne Freigabe faellt der Punkt weg;
+           die Routen sperrt zusaetzlich ein Waechter in app.py. #}
+        {% if cortex_enabled %}
         <a href="{{ url_for('ontology_page') }}" class="app-nav-item{% if active_nav == 'cortex' %} active{% endif %}"
            {% if active_nav == 'cortex' %}aria-current="page"{% endif %}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
@@ -28,6 +31,7 @@
             </svg>
             Cortex
         </a>
+        {% endif %}
         <a href="{{ url_for('settings_page') }}" class="app-nav-item{% if active_nav == 'einstellungen' %} active{% endif %}"
            {% if active_nav == 'einstellungen' %}aria-current="page"{% endif %}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"

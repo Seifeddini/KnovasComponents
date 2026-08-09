@@ -271,3 +271,11 @@ security:
     - "application/vnd.ms-excel"
     - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     - "text/plain"
+
+# Cortex (Wissensgraph unter /ontology)
+cortex:
+  # Pro Kunde zuschaltbar. Vorgabe an, damit bestehende Installationen
+  # unveraendert weiterlaufen. Wo Cortex noch nicht ausgerollt ist,
+  # CORTEX_ENABLED=false setzen: dann faellt der Menuepunkt weg und die
+  # Seite samt aller /api/ontology-Routen antwortet mit 404.
+  enabled: "${CORTEX_ENABLED:-true}"

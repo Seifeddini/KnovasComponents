@@ -77,6 +77,9 @@ services:
       AUTODOC_IDENTIFIER_PREFIX: ${AUTODOC_IDENTIFIER_PREFIX:-}
       # Cortex. Fest verdrahtet waren die Pfade wirkungslos, wenn jemand sie in
       # .env setzt - deshalb ueberschreibbar mit denselben Vorgaben.
+      # Cortex pro Kunde zuschaltbar: false blendet den Menuepunkt aus und
+      # sperrt die Seite samt aller /api/ontology-Routen mit 404.
+      CORTEX_ENABLED: ${CORTEX_ENABLED:-true}
       ONTOLOGY_SOURCE: ${ONTOLOGY_SOURCE:-fixture}
       ONTOLOGY_FIXTURE_PATH: ${ONTOLOGY_FIXTURE_PATH:-/mnt/ontology/ontology_fixture.json}
       # Cortex-Filter: Rejection-Memory muss Neustarts überleben -> rw-Datenvolume

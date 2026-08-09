@@ -14,7 +14,7 @@ import secrets
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, abort
 from flask_cors import CORS
 import logging
 from datetime import datetime, timedelta
@@ -682,6 +682,10 @@ def create_app(config_path: Optional[str] = None):
     api_client = KnovasAPIClient(config)
     file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
+    # Cortex ist pro Kunde zuschaltbar. Vorgabe an, damit bestehende
+    # Installationen unveraendert weiterlaufen; wo es noch nicht
+    # ausgerollt ist, wird CORTEX_ENABLED=false gesetzt.
+    cortex_enabled = config.get_bool('cortex.enabled', True)
     web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
     # Kurzform der Marke fuer die Titelzeile. Die Titel liefen auseinander
     # ("Login - Knovas Document Search" gegen "Cortex . Knovas Document
@@ -874,6 +878,29 @@ def create_app(config_path: Optional[str] = None):
         return _confine_to_autodoc(file_handler.autodoc_path, file_path)
 
     @app.before_request
+    def require_cortex_enabled():
+        """Cortex ist pro Kunde zuschaltbar; wo es nicht ausgerollt ist, gibt
+        es die Seite nicht.
+
+        Bewusst ein Waechter ueber den Pfad und nicht ueber Endpunktnamen:
+        die Sperre gilt damit auch fuer jede Route, die spaeter unter
+        /api/ontology dazukommt, ohne dass jemand daran denken muss. Und
+        bewusst 404 statt 403 - ein nicht ausgerolltes Feature soll abwesend
+        wirken, nicht verboten.
+        """
+        if cortex_enabled:
+            return None
+        pfad = request.path
+        if not (pfad == '/ontology' or pfad.startswith('/ontology/')
+                or pfad.startswith('/api/ontology')):
+            return None
+        if pfad.startswith('/api/'):
+            return jsonify({'success': False, 'error': 'Nicht gefunden'}), 404
+        # Es gibt keine eigene 404-Vorlage; abort() liefert die Standardseite
+        # von Flask, genau wie bei jedem anderen unbekannten Pfad.
+        abort(404)
+
+    @app.before_request
     def require_company_login():
         """Require a shared company login before serving the search UI and APIs."""
         if not login_enabled:
@@ -1023,6 +1050,7 @@ def create_app(config_path: Optional[str] = None):
             'company_name': login_company_name,
             'corpus_documents_display': _swiss_number(documents) if documents > 0 else None,
             'feedback_url': feedback_url,
+            'cortex_enabled': cortex_enabled,
         }
 
     @app.route('/')

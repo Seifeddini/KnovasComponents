@@ -132,3 +132,7 @@ advanced:
     worker_threads: 4
     # Memory limit per document processing (bytes)
     memory_limit_per_doc: 52428800  # 50 MB
+
+# Cortex (Wissensgraph unter /ontology)
+cortex:
+  enabled: "${CORTEX_ENABLED:-true}"
