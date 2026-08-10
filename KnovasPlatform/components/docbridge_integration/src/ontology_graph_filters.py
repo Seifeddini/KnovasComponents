@@ -68,7 +68,7 @@ class GraphFilterEngine:
     # -- lokale Pruefmarkierung ----------------------------------------
 
     def _load_state(self) -> Dict[str, Any]:
-        empty: Dict[str, Any] = {"reviewed": {}}
+        empty: Dict[str, Any] = {"reviewed": {}, "parents": {}}
         if not self._state_path:
             return empty
         try:
@@ -82,7 +82,8 @@ class GraphFilterEngine:
             return empty
         if not isinstance(raw, dict):
             return empty
-        return {"reviewed": dict(raw.get("reviewed") or {})}
+        return {"reviewed": dict(raw.get("reviewed") or {}),
+                "parents": dict(raw.get("parents") or {})}
 
     def _save_state(self) -> None:
         if not self._state_path:
@@ -115,6 +116,7 @@ class GraphFilterEngine:
             return None
         for existing in self._filters_of_node(entity_id):
             if _filter_label(existing).strip().lower() == label.lower():
+                self._merke_eltern(_filter_id(existing), entity_id)
                 return {"id": _filter_id(existing), "entity_id": entity_id,
                         "label": label}
         created = self._client.graph_create_filter(
@@ -122,14 +124,43 @@ class GraphFilterEngine:
         if not created:
             return None
         payload = created.get("filter") if isinstance(created.get("filter"), dict) else created
+        self._merke_eltern(_filter_id(payload), entity_id)
         return {"id": _filter_id(payload), "entity_id": entity_id, "label": label}
+
+    def _merke_eltern(self, filter_id: str, entity_id: str) -> None:
+        """Elternknoten eines Filters festhalten.
+
+        Die API kennt Filter nur ueber ihren Elternknoten; ohne diese Notiz
+        muss _locate den ganzen Graphen absuchen. Bei 72 Knoten waren das
+        rund zehn Sekunden je Detailabfrage, und es waechst linear mit dem
+        Bestand - nach dem Ingest des Korpus waeren es Minuten.
+        """
+        filter_id, entity_id = str(filter_id or ""), str(entity_id or "")
+        if not filter_id or not entity_id:
+            return
+        with self._lock:
+            if self._state["parents"].get(filter_id) == entity_id:
+                return
+            self._state["parents"][filter_id] = entity_id
+            self._save_state()
 
     def _locate(self, filter_id: str) -> Optional[Tuple[str, Dict[str, Any]]]:
         """(entity_id, filter_obj) - die API kennt Filter nur ueber ihren
-        Eltern-Knoten, deshalb ueber die bekannten Knoten suchen."""
+        Eltern-Knoten.
+
+        Zuerst die gemerkte Zuordnung: das ist ein Aufruf statt einer Suche
+        ueber alle Knoten. Die Suche bleibt als Rueckfall, fuer Filter die
+        anderswo entstanden sind oder deren Notiz verlorenging.
+        """
+        gemerkt = self._state["parents"].get(str(filter_id))
+        if gemerkt:
+            for flt in self._filters_of_node(gemerkt):
+                if _filter_id(flt) == str(filter_id):
+                    return gemerkt, flt
         for entity_id in self._known_parents():
             for flt in self._filters_of_node(entity_id):
                 if _filter_id(flt) == str(filter_id):
+                    self._merke_eltern(filter_id, entity_id)
                     return entity_id, flt
         return None
 

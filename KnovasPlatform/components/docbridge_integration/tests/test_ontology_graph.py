@@ -385,3 +385,52 @@ def test_delete_type_relation_robust_against_corrupt_schema():
 
     # fehlender Typ
     assert source.delete_type_relation("t-unbekannt", "hat Dossier", "t-dossier") is False
+
+
+def test_filter_detail_sucht_nicht_den_ganzen_graphen(tmp_path):
+    """Der Elternknoten wird gemerkt, statt ihn jedes Mal zu suchen.
+
+    Die API kennt Filter nur ueber ihren Elternknoten. Ohne Notiz ging
+    _locate jeden Knoten des Graphen durch und rief je einen
+    /nodes/<id>/filters auf - gegen die Entwicklungsinstanz waren das bei
+    72 Knoten rund acht Sekunden je Detailabfrage, linear wachsend mit dem
+    Bestand. Nach dem Ingest des Korpus waeren es Minuten.
+    """
+    client = FakeGraphClient()
+    zaehler = {"nodes": 0, "filters": 0}
+    echte_nodes, echte_filters = client.graph_nodes, client.graph_filters
+
+    def gezaehlt_nodes():
+        zaehler["nodes"] += 1
+        return echte_nodes()
+
+    def gezaehlt_filters(node_id):
+        zaehler["filters"] += 1
+        return echte_filters(node_id)
+
+    client.graph_nodes = gezaehlt_nodes
+    client.graph_filters = gezaehlt_filters
+
+    engine = _engine(client, tmp_path)
+    angelegt = engine.create_filter("n-2", "Kündigungsklauseln")
+    zaehler["nodes"] = zaehler["filters"] = 0
+
+    engine.filter_detail(None, angelegt["id"])
+
+    # Kein Absuchen: die Knotenliste wird gar nicht erst geholt, und es
+    # wird genau der eine gemerkte Elternknoten befragt.
+    assert zaehler["nodes"] == 0, "Graph wurde abgesucht statt der Notiz zu folgen"
+    assert zaehler["filters"] == 1, f"erwartet 1 Aufruf, waren {zaehler['filters']}"
+
+
+def test_filter_detail_faellt_auf_die_suche_zurueck(tmp_path):
+    """Ohne Notiz - etwa bei einem anderswo angelegten Filter - muss die
+    Suche weiterhin greifen, sonst waere der Filter unauffindbar."""
+    client = FakeGraphClient()
+    engine = _engine(client, tmp_path)
+    engine.create_filter("n-2", "Kündigungsklauseln")
+    engine._state["parents"] = {}          # Notiz verloren
+
+    detail = engine.filter_detail(None, "f-1")
+    assert detail is not None
+    assert engine._state["parents"].get("f-1") == "n-2"   # danach gemerkt
