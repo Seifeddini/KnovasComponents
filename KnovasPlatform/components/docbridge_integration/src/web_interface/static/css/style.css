@@ -1172,27 +1172,8 @@ mark.context-snippet-match,
     font-weight: 600;
 }
 
-/* Fuss: Korpus-Zahl als ruhiges Fundament, darunter das Konto. */
+/* Fuss: Konto am unteren Rand der Leiste. */
 .app-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 14px; }
-
-.corpus-status { padding: 0 10px; border-top: 1px solid var(--border-color); padding-top: 14px; }
-.corpus-count {
-    display: block;
-    font-family: var(--font-heading);
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-variant-numeric: tabular-nums;
-}
-.corpus-label {
-    display: block;
-    font-family: var(--font-heading);
-    font-size: 0.62rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    margin-top: 2px;
-}
 
 .app-user {
     display: flex;

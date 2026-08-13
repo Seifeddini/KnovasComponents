@@ -1006,22 +1006,10 @@ def create_app(config_path: Optional[str] = None):
     # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
     feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
 
-    def _swiss_number(value: int) -> str:
-        """1847 -> "1'847" (Schweizer Tausendertrennung, wie im Frontend)."""
-        return f"{value:,}".replace(",", "'")
-
     def _sidebar_context() -> Dict[str, Any]:
-        """Gemeinsame Werte der Plattform-Leiste. Die Korpus-Zahl ist optional:
-        fehlt sie in der Fixture, laesst die Leiste den Block weg."""
-        documents = 0
-        try:
-            raw = _ontology_source().corpus().get('documents')
-            documents = int(raw) if raw is not None else 0
-        except Exception:
-            logger.warning("Korpus-Kennzahl nicht ermittelbar", exc_info=True)
+        """Gemeinsame Werte der Plattform-Leiste."""
         return {
             'company_name': login_company_name,
-            'corpus_documents_display': _swiss_number(documents) if documents > 0 else None,
             'feedback_url': feedback_url,
         }
 

@@ -1,6 +1,5 @@
 {# Plattform-Seitenleiste: eine Quelle fuer alle Module.
-   Erwartet: active_nav ('suche' | 'cortex' | 'einstellungen'), company_name,
-   optional corpus_documents_display (fehlt -> Block wird weggelassen). #}
+   Erwartet: active_nav ('suche' | 'cortex' | 'einstellungen'), company_name. #}
 <aside class="app-sidebar">
     <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
         <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
@@ -55,12 +54,6 @@
     </nav>
 
     <div class="app-sidebar-foot">
-        {% if corpus_documents_display %}
-        <div class="corpus-status">
-            <span class="corpus-count">{{ corpus_documents_display }}</span>
-            <span class="corpus-label">Dokumente gelesen</span>
-        </div>
-        {% endif %}
         <a class="app-user" href="{{ url_for('settings_page') }}">
             <span class="app-avatar" aria-hidden="true">{{ company_name[0] | upper }}</span>
             <span class="app-user-text">

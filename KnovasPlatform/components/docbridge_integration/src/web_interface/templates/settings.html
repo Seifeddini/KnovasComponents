@@ -45,9 +45,6 @@
                         <dl class="settings-list">
                             <dt>Build</dt><dd class="mono">{{ build_id }}</dd>
                             <dt>Oberfläche</dt><dd class="mono">{{ asset_version }}</dd>
-                            {% if corpus_documents_display %}
-                            <dt>Korpus</dt><dd>{{ corpus_documents_display }} Dokumente gelesen</dd>
-                            {% endif %}
                             <dt>Status</dt>
                             <dd>
                                 <ul class="status-list" id="healthResult" role="status" aria-live="polite">
