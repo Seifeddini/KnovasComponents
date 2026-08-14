@@ -213,7 +213,8 @@ A single versioned `ingestion_profiles` row is the only artifact a human edits. 
 
 | In the form | What the administrator does | What the Platform compiles |
 |-------------|-----------------------------|----------------------------|
-| **Folders** | Picks folders from a browser backed by `/discover` — never types a path. Per folder: file types as chips, not globs, and **which access group its documents get**. | `sources[].path`, `recursive`, `include_globs`, `exclude_globs`, `access_groups` → sync body |
+| **Folders** | Picks folders from a browser backed by `/discover` — never types a path. Per folder: recursive or not, and **which access group its documents get**. | `sources[].path`, `recursive`, `access_groups` → sync body |
+| **What to index** | Named file kinds as chips — *Documents*, *E-mail* — not glob patterns. Profile-level, because `sync_request.schema.json` puts `include_globs`/`exclude_globs` under `filters`, not under a source. Common junk (`~$*`, `Thumbs.db`, `.git/`) is excluded without being asked for. | `filters.include_globs`, `filters.exclude_globs` → sync body |
 | **When** | *Continuously* · *Nightly, outside office hours* · *Only when I start it*. "Advanced" discloses window and interval. | `mode`, `window.start_local`/`end_local`, `scan_interval_seconds` → sync config |
 | **How fast** | *Gentle* · *Normal* · *Fast*, each stated as a consequence ("Gentle: about 300 documents an hour, no noticeable load"). "Advanced" discloses the numbers. | `rate_limit.*`, `max_files_per_cycle` → sync config |
 | **Age cut-off** | One control, one place: "Ignore documents older than …". | `filters.max_document_age_seconds` → sync body **only**; the config-file default is never written, so the precedence rule stops existing |
