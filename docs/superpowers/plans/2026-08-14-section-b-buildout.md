@@ -81,12 +81,30 @@ credential."
 
 **All B1 work is in KnovasComponents. KnowledgeBase is unchanged for B1.**
 
+### Scope decision 2026-08-14: email and password only
+
+MFA and OIDC are **dropped**. What ships is individual accounts, email + password,
+server-side sessions and forced first-login rotation.
+
+**This does not fully close B1**, and the difference should be stated rather than
+discovered. B1's text is "Individual user accounts with SSO/OIDC + MFA", so as shipped:
+
+- **Closed** — the shared firm password, which the Pflichtenheft calls "disqualifying on its own",
+  and the joiner-mover-leaver lifecycle, since disabling an account ends its live sessions on the
+  next request.
+- **Not closed** — Entra ID / Google Workspace federation and the second factor. A firm that already
+  runs Entra will ask for both, and a single stolen password is now sufficient to reach the corpus.
+
+B1's honest label is therefore **PARTIAL**. The columns `users.mfa_secret_enc`,
+`users.mfa_enrolled_at` and `sessions.mfa_passed` are left in place and unused, so adding a second
+factor later is a feature rather than a migration; nothing gates on them today.
+
 | ID | Change | Why it closes B1 |
 |----|--------|------------------|
 | KC-B1-1 | Per-user local auth: argon2id, password policy, per-*user* lockout beside the existing per-IP throttle, forced rotation on `must_change_password`. | Removes the shared firm password |
 | KC-B1-2 | Server-side sessions. `session['company_login_ok']` → `session['sid']`, looked up in `sessions` on every request; `require_company_login` → `require_authenticated_user`. | Makes **leaver** real: disabling an account ends access on the next request, not at cookie expiry |
-| KC-B1-3 | TOTP MFA with recovery codes; mandatory for `admin`. Federated users delegate to the IdP. | The "+ MFA" clause |
-| KC-B1-4 | OIDC: authorization-code + PKCE against Entra ID / Google Workspace, `id_token` validated with discovery JWKS, JIT provisioning, optional group-claim → access-group mapping. | The SSO clause and the automatic half of joiner-mover-leaver |
+| ~~KC-B1-3~~ | ~~TOTP MFA with recovery codes.~~ **Dropped 2026-08-14** — email and password only. |
+| ~~KC-B1-4~~ | ~~OIDC against Entra ID / Google Workspace.~~ **Dropped 2026-08-14.** |
 | KC-B1-5 | Admin console **People** tab at `/admin/people`. Create/disable/re-enable, assign roles, reset password, force MFA re-enrol, revoke sessions. All audit-logged. | The requested administration page; manual joiner-mover-leaver |
 | KC-B1-6 | Refuse the old mode: with `identity.enabled` true, fail to start if shared-login config is present. | Prevents the disqualifying configuration surviving an upgrade |
 
@@ -441,7 +459,29 @@ Each step leaves the system working and shippable.
 | 11 | KB | Dual-control enforcement — KB-B5-1…3 + AL-6, AL-7 + the three dual mutants. **B5 complete** |
 | 12 | KC | Ingestion: profiles, compiler, RC firm-admin path, per-source ACLs — KC-IN-1…7 (+ AL-8 in KB) |
 | 13 | KB | Compose the new mechanisms in `system.als` — AL-9 |
-| 14 | KC | OIDC federation — KC-B1-4. Deliberately last: additive, most IdP-variable, and local accounts plus MFA already remove the disqualifying shared password |
+| ~~14~~ | KC | ~~OIDC federation — KC-B1-4.~~ Dropped 2026-08-14 along with MFA. |
+
+### Status as of 2026-08-14
+
+Landed on `feat/section-b-buildout` in KnovasComponents, all TDD, **398 tests passing**
+(1 pre-existing failure unrelated to this work):
+
+- **Step 01 complete** — KC-F1, KC-F2, KC-F3.
+- **KC-B1-1, KC-B1-2, KC-B1-6** — email + password sign-in, server-side sessions, forced
+  first-login rotation, and the app refuses to start with both auth paths configured.
+- **KC-B1-5** — the People tab: create, disable, re-enable, reset password, sign out
+  everywhere, roles, access groups. All audited.
+- **KC-B5-1** — the approvals service with the recorded administrator bypass.
+- **KC-IN-4, KC-IN-6** — the profile compiler and per-source `access_groups` in the RC contract.
+
+Not started: KC-B2 (the broker), KC-B3 (UI wall enforcement), KC-B5-2/3/4 (wiring the guarded
+actions to the service), KC-IN-1/2/3/5/7 (the ingestion tab and the RC tenant-admin path), and
+all of KnowledgeBase — KB-B2, KB-B3, KB-B5 and AL-1…AL-9 — which remains plan-only.
+
+**Nothing in KnowledgeBase has changed, so RBAC is still not enforced end to end.** The Platform
+knows who its users are and what groups they hold; it does not yet send that to the Secure API, and
+the Secure API cannot yet verify it. Until KC-B2 and KB-B2 land, every query still resolves to
+`asserted=False` — "unrestricted documents only".
 
 **Documentation is not at the end.** The Golden Invariants rows, model headers and manifest entries
 are lint inputs — they ship in the same commit as their model or CI fails. The two ADRs land with
