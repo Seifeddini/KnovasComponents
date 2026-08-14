@@ -14,7 +14,13 @@
         "additionalProperties": false,
         "properties": {
           "path": { "type": "string", "minLength": 1 },
-          "recursive": { "type": "boolean", "default": true }
+          "recursive": { "type": "boolean", "default": true },
+          "access_groups": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true,
+            "description": "Knovas RBAC access-group identifiers assigned to every document ingested from this source. Passed through to /secured/init_document_transmission, which materialises the ACL at ingest, so documents from a walled folder are born walled rather than repaired afterwards. Omit for unrestricted folders; an empty array is treated as omitted. Identifiers are resolved by the Secure API inside the caller's own tenant and fail the request closed if unknown (GI-ACCESSROLES-04)."
+          }
         }
       }
     },
