@@ -218,11 +218,30 @@ walled corpus. Until that test runs, describe B3 as "enforced on every read path
 `confirm_client_id` to echo the caller's own tenant — and its docstring is explicit that this "is a
 typo guard, not authentication."
 
+### Decided 2026-08-14: the administrator bypass
+
+**An administrator executes guarded actions immediately, without a second confirmer.**
+
+The operational case is real: a firm with one administrator, or an administrator locked out by a
+queue nobody can drain, is a failure as expensive as the one four-eyes prevents.
+
+The security cost belongs in front of a buyer rather than behind them. A compromised administrator
+account is precisely the single actor two-person control exists to stop, so with the bypass on, **B5
+is met for ordinary users and not met against a privileged attacker**. Its honest label is therefore
+**PARTIAL**, not BUILT, and the pilot contract should say which.
+
+What makes it defensible is that it is a **bypass, not an exemption**. The action writes
+`approval.bypassed` naming who acted and on what, so an auditor sees that a control was available and
+was not used — a fact they can weigh. An exemption that logged nothing would leave the same record
+looking like the control had never applied. `set_admin_bypass(False)` turns it off for a firm wanting
+strict enforcement. And the bypass is only for acting *directly*: once a request exists, an
+administrator still cannot approve their own.
+
 ### KnovasComponents
 
 | ID | Change |
 |----|--------|
-| KC-B5-1 | `src/identity/approvals.py` over `approval_requests`. Requester ≠ approver enforced both in the service and by a SQL check constraint; requests expire. |
+| KC-B5-1 | `src/identity/approvals.py` over `approval_requests`. Requester ≠ approver enforced both in the service and by a SQL check constraint; requests expire. Administrators bypass, and every bypass is recorded. |
 | KC-B5-2 | Guarded actions: matter (graph node) deletion, wall/ACL change, bulk export, tenant purge, ingestion-profile changes that widen or halt coverage. |
 | KC-B5-3 | Dual-control token: single-use, action + target + requester + approver, 15 min, signed with the same Ed25519 key as KC-B2-2. |
 | KC-B5-4 | Admin console **Approvals** tab: pending queue with a readable diff, approve/reject with a reason. |
@@ -441,6 +460,11 @@ one exception: **deduplicate the three Secure API copies before step 4.**
   are the substrate; the role-shaped default views are a separate product exercise.
 - **The Platform host remains a trusted component.** It holds both the tenant certificate and the
   broker signing key.
+- **B5 does not hold against a compromised administrator.** By decision, an administrator acts
+  without a second confirmer. Every such action is recorded as a bypass and the control can be
+  switched to strict, but as shipped the four-eyes guarantee covers ordinary users and not the most
+  privileged account. Say so in the pilot contract rather than letting a buyer infer otherwise from
+  the word "four-eyes".
 - **Ranking-signal leakage across walls is unverified.**
 - **Nothing here touches C4 (PMS sync), mailbox coverage, or time capture** — the largest missing
   hour levers in §2 of the Pflichtenheft. Section B is the permission hurdle, not the payoff hurdle.
