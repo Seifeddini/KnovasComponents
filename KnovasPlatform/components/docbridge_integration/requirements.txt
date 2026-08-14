@@ -20,6 +20,14 @@ gunicorn==22.0.0
 # Hashing and security
 cryptography==42.0.0
 
+# Per-user identity (Pflichtenheft B1/B2/B5): password verifiers, TOTP,
+# the local account database, and schema validation for compiled
+# RemoteController documents.
+argon2-cffi==25.1.0
+pyotp==2.10.0
+psycopg[binary]==3.3.4
+jsonschema==4.26.0
+
 # Logging
 python-json-logger==2.0.7
 
