@@ -162,9 +162,24 @@ What actually remains:
    `_tenant()` only, so each answers differently for "hidden node" and "no such node" — existence
    oracles, which GI-GRAPH-11's own 404-not-403 clause forbids — and each permits a write into a
    node the caller cannot see.
-3. **Node types** — the one genuine open decision. Recommendation: leave them tenant-level. A type
-   is schema ("Mandate", "Client", "Opposing Party"), not an instance, so it names no matter. The
-   export filters regardless of this choice.
+3. **Node types.** *Decided 2026-08-14: access-control them too.* `kg_node_types` has no ACL column
+   — `20260804_kg_object_acl.sql` covers `kg_nodes`, `kg_edges`, `kg_category`, `kg_tag`,
+   `kg_node_fact` only — so it gains the same triple via a migration that mirrors that file exactly,
+   sentinel default included, and the five node-type routes (`:474-612`) move to `_caller()`.
+
+   **The decision brings an ordering invariant with it.** Access-controlling types creates a state
+   the graph could not previously reach: a visible node of an invisible type. The node carries a
+   `node_type_id` the caller cannot resolve, which breaks the UI *and* discloses that a restricted
+   type exists. So node visibility is intersected with type visibility on read, and on write a
+   caller may only file a node into a type they can see — bounded the same way `can_assign` bounds
+   group assignment. Same shape as `filter_edges`'s endpoint rule, in the other direction.
+
+   The rejected alternative was to derive type visibility upward from its nodes ("a type is at least
+   as visible as its most visible node"). That lets filing a public node into a private type silently
+   widen the type, which is the failure `can_assign` exists to prevent.
+
+   With this, the topology exception disappears entirely rather than being narrowed: GI-GRAPH-11's
+   sentence is **removed**, and GI-GRAPH-12 becomes the single rule for every graph object.
 
 Three places still describe the superseded decision and must be corrected with the code:
 `graph_access.py:22-38`, the `_caller()` docstring at `graph_api.py:145-148`, and GI-GRAPH-11.
@@ -185,7 +200,8 @@ Three places still describe the superseded decision and must be corrected with t
 | ~~KB-B3-1~~ | ~~Node-level visibility: `kg_node_access` + a `node_visible()` rule.~~ **Withdrawn — already built** (`20260804_kg_object_acl.sql`, `GraphAccessGuard`, GI-GRAPH-12). Building it again would create a second, competing permission model over the same objects. Kept as a struck row so the reasoning stays auditable. |
 | KB-B3-2 | **The export.** `GET /secured/graph` (`graph_api.py:1808`) switches from `_tenant()` to `_caller()` and runs its five collections through the guard every other node route already uses — `filter_objects` for nodes, categories and tags, `filter_edges` with the visible node ids for edges. |
 | KB-B3-2b | The four node-attached routes (sections ×2, filters, identifiers) switch to `_caller()` and gate on `object_is_visible` before touching the node. |
-| KB-B3-2c | Node types stay tenant-level unless decided otherwise — the one genuine open decision in B3. |
+| KB-B3-2c | **Node types become access-controlled** (decided 2026-08-14). New migration adding the ACL triple to `kg_node_types`, mirroring `20260804_kg_object_acl.sql`; the five node-type routes switch to `_caller()` + guard; `_apply_acl_update` gains `kg_node_types`; schema-attribute routes inherit the type's visibility. |
+| KB-B3-2d | **Ordering invariant: a node is only as visible as its type.** Intersected on read; on write a caller may only file a node into a type they can see. Without it, restricted types leak by inference instead of by listing. |
 | KB-B3-3 | Screening ledger: append-only `kg_access_events` / `access_group_events` with verified actor, following `fact_event_ledger.py`; readable via `GET /secured/access_events`. |
 | KB-B3-4 | Invariants and tests: revise GI-GRAPH-11, extend the Alloy model, assert every graph read path resolves a principal. |
 
@@ -290,7 +306,7 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | AL-2 | **Create** `mechanisms/principal_brokering.als` — `signedByTenantBroker`, `algPinned`, `assertionTenantBound`, `assertionFresh`, `assertionUnreplayed`, `BrokeredIdentityMechanism` | One pred per code step, in the style of `mechanisms/identity_resolution.als`. `algPinned` is its own conjunct precisely so a mutant can drop it. | B2 |
 | AL-3 | **Create** `data_plane/principal_assertion.als` — `groups_bound_to_subject`, `assertion_cannot_cross_tenant`, `expired_assertion_never_grants`, `replayed_jti_never_grants`, `brokered_never_falls_back_to_body` | The last check is the important one: under `BROKERED`, body-asserted groups with no valid assertion must fail closed, not degrade to GI-ACCESSROLES-06's "unrestricted only" — which would look like correct behaviour while disabling the control. | B2 |
 | AL-4 | **Add** `check staleness_bounded_by_ttl` | The formal statement of why the TTL is 120 s: a subject disabled at the Platform keeps access for at most one assertion lifetime. The only part of B1's leaver property KnowledgeBase can enforce. | B1, B2 |
-| AL-5 | **Extend** `data_plane/kg_object_acl_assignment.als` — not a new model — with `edge_visible_implies_both_endpoints_visible` and `every_topology_read_resolves_a_principal` | The object ACL is already modelled, with seven checks on assignment and dominance. Two properties GI-GRAPH-12 *states* are not modelled: the endpoint rule (the file contains no reference to `node_lo` or an endpoint, and no mutant exercises it) and that a read path resolves a principal at all — exactly the conjunct `GET /secured/graph` drops. | B3 |
+| AL-5 | **Extend** `data_plane/kg_object_acl_assignment.als` — not a new model — with `edge_visible_implies_both_endpoints_visible`, `every_topology_read_resolves_a_principal` and `node_visible_implies_its_type_visible` (the last needs a new `nType` relation on `KnowledgeNode` in `domain/graph.als`, which today carries only `nTenant`) | The object ACL is already modelled, with seven checks on assignment and dominance. Two properties GI-GRAPH-12 *states* are not modelled: the endpoint rule (the file contains no reference to `node_lo` or an endpoint, and no mutant exercises it) and that a read path resolves a principal at all — exactly the conjunct `GET /secured/graph` drops. | B3 |
 | AL-6 | **Create** `lifecycles/dual_control.als` — `four_eyes_requires_two_distinct`, `token_single_use`, `token_target_bound`, `expired_token_never_executes`, `approval_precedes_execution` (temporal) | A lifecycle because it is inherently temporal. `token_target_bound` stops an approval for one matter authorising another. | B5 |
 | AL-7 | **Modify** `lifecycles/tenant_purge.als`, `lifecycles/acl_mutation.als` | Purge and ACL mutation gain the dual-control precondition when the tenant flag is set. | B5 |
 | AL-8 | **Modify** `core/remote_controller_guard.als`, `entities/remote_controller_requests.als` | The paths are *alternatives*, not a widening: a tenant-admin assertion authorises only its own client's RC, and neither path relaxes GI-RC-01's conjunctive employee checks. | Ingestion |
@@ -306,6 +322,7 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | `mutants/broker__jti_reused.als` | Replay cache not consulted | AL-2 |
 | `mutants/kg_object_acl__read_without_principal.als` | A topology read that resolves no principal — this mutant **is** `GET /secured/graph` today, and it must fail | AL-5 |
 | `mutants/kg_object_acl__edge_near_endpoint_only.als` | Edges filtered on the near endpoint only. The code is already correct here; the mutant proves the model would catch a regression, which today it would not. | AL-5 |
+| `mutants/kg_object_acl__node_outlives_its_type.als` | A node stays visible when its type is not, so the caller holds a `node_type_id` they cannot resolve — the restricted type disclosed by inference rather than by listing. | AL-5 |
 | `mutants/dual__self_approval.als` | Requester may approve their own request | AL-6 |
 | `mutants/dual__token_replay.als` | A token executes more than once | AL-6 |
 | `mutants/dual__target_swap.als` | An approval for one target authorises another | AL-6 |
@@ -319,7 +336,7 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | GI-BROKER-02 | Under BROKERED a request without a valid assertion fails closed. It never degrades to the GI-ACCESSROLES-06 path. | New |
 | GI-BROKER-03 | The actor recorded in the fact-event ledger is the assertion subject. No body field can set it. | New |
 | GI-BROKER-04 | A subject revoked at the broker loses access within one assertion lifetime. The bound is the TTL, stated not assumed. | New |
-| GI-GRAPH-11 | **Amended — a contradiction fix, not a reversal.** The sentence "Graph topology … is deliberately not access-controlled" already contradicts GI-GRAPH-12 two rows below it in the same file, which gives nodes, edges, categories and tags an ACL and is marked Covered. Narrowed to node types, which is what it is still true of. | Amend |
+| GI-GRAPH-11 | **Amended — a contradiction fix, not a reversal.** The sentence "Graph topology … is deliberately not access-controlled" already contradicts GI-GRAPH-12 two rows below it in the same file, which gives nodes, edges, categories and tags an ACL and is marked Covered. With node types access-controlled too (KB-B3-2c), the sentence is **removed outright** rather than narrowed — there is no longer any graph object it is true of. | Amend |
 | GI-GRAPH-14 | Every read path that returns graph objects resolves the caller's principal and filters through GI-GRAPH-12's guard — the `GET /secured/graph` export included. No route reaches a node by id without first deciding whether the caller may see it. *(Renumbered: first proposed as GI-GRAPH-12, which is taken; 13 is taken too.)* | New |
 | GI-DUAL-01 | A guarded destructive operation executes only against a valid, single-use dual-control token whose requester and approver differ and whose target equals the request's target. | New |
 | GI-DUAL-02 | Dual control is per-tenant opt-in via `clients.require_dual_control`. When set, omitting the token is a rejection, never a bypass. | New |
