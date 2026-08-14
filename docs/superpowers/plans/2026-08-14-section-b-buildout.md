@@ -134,11 +134,40 @@ reports, or AI answers. Screening changes logged. **Today: PARTIAL.**
 Three gaps; only the middle one is new engineering.
 
 - **(a) The UI never asserts.** Closed for free by KC-B2-1.
-- **(b) Graph topology is unfiltered by design.** `graph_access.py:22-38` states it; `GET
-  /secured/graph` (`graph_api.py:1808`) dumps it with the docstring "Deliberately not
-  access-controlled." For a law firm this is the requirement, not an edge case: a node named
-  *"Mandat Meier ./. Bank X"* is itself the trace B3 forbids.
+- **(b) Three surfaces bypass the object ACL that already exists** — see the correction below.
 - **(c) Screening changes are not logged** as an evidentiary record.
+
+### Correction: the graph is further along than its label
+
+An earlier revision of this plan proposed building node-level visibility. **It already exists.**
+`DB/migrations/20260804_kg_object_acl.sql` gives nodes, edges, categories and tags the same
+`(access_group_ids, acl_reader_ids, acl_epoch)` triple documents carry;
+`GraphAccessGuard.object_is_visible` / `filter_objects` enforce it on `GET /secured/graph/nodes` and
+`/nodes/<id>`; `filter_edges` already implements "an edge is only as visible as its least visible
+endpoint", with a docstring naming exactly the leak it prevents. **GI-GRAPH-12 states all of this
+and is marked Covered (Alloy + pytest), code landed.**
+
+The catalog therefore contradicts itself: **GI-GRAPH-11** says topology "(node types, nodes, edges,
+sections, categories, tags, filters) is deliberately not access-controlled"; **GI-GRAPH-12**, two
+rows below it in the same file, says otherwise. The code agrees with GI-GRAPH-12.
+
+What actually remains:
+
+1. **The export.** `GET /secured/graph` (`graph_api.py:1808`) calls `_tenant()` instead of
+   `_caller()` and dumps node_types, nodes, edges, categories and tags with no principal at all.
+   Every neighbouring node route filters; this one does not. One call, the whole matter list.
+2. **Four node-attached routes reach a node by id without checking it:**
+   `POST /nodes/<id>/sections` (`:835`), `PATCH|DELETE /sections/<sid>` (`:858`),
+   `PATCH|DELETE /filters/<fid>` (`:1319`), `PATCH|DELETE /identifiers/<iid>` (`:1522`). Each takes
+   `_tenant()` only, so each answers differently for "hidden node" and "no such node" — existence
+   oracles, which GI-GRAPH-11's own 404-not-403 clause forbids — and each permits a write into a
+   node the caller cannot see.
+3. **Node types** — the one genuine open decision. Recommendation: leave them tenant-level. A type
+   is schema ("Mandate", "Client", "Opposing Party"), not an instance, so it names no matter. The
+   export filters regardless of this choice.
+
+Three places still describe the superseded decision and must be corrected with the code:
+`graph_access.py:22-38`, the `_caller()` docstring at `graph_api.py:145-148`, and GI-GRAPH-11.
 
 ### KnovasComponents
 
@@ -153,8 +182,10 @@ Three gaps; only the middle one is new engineering.
 
 | ID | Change |
 |----|--------|
-| KB-B3-1 | Node-level visibility: `kg_node_access` + a `node_visible()` rule in `graph_access.py`, reusing `AccessPolicyEvaluator.reader_closure`. No second permission model. |
-| KB-B3-2 | Filter the topology surfaces. `GET /secured/graph` switches from `_tenant()` to the `_caller()` principal path the content routes already use. |
+| ~~KB-B3-1~~ | ~~Node-level visibility: `kg_node_access` + a `node_visible()` rule.~~ **Withdrawn — already built** (`20260804_kg_object_acl.sql`, `GraphAccessGuard`, GI-GRAPH-12). Building it again would create a second, competing permission model over the same objects. Kept as a struck row so the reasoning stays auditable. |
+| KB-B3-2 | **The export.** `GET /secured/graph` (`graph_api.py:1808`) switches from `_tenant()` to `_caller()` and runs its five collections through the guard every other node route already uses — `filter_objects` for nodes, categories and tags, `filter_edges` with the visible node ids for edges. |
+| KB-B3-2b | The four node-attached routes (sections ×2, filters, identifiers) switch to `_caller()` and gate on `object_is_visible` before touching the node. |
+| KB-B3-2c | Node types stay tenant-level unless decided otherwise — the one genuine open decision in B3. |
 | KB-B3-3 | Screening ledger: append-only `kg_access_events` / `access_group_events` with verified actor, following `fact_event_ledger.py`; readable via `GET /secured/access_events`. |
 | KB-B3-4 | Invariants and tests: revise GI-GRAPH-11, extend the Alloy model, assert every graph read path resolves a principal. |
 
@@ -259,7 +290,7 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | AL-2 | **Create** `mechanisms/principal_brokering.als` — `signedByTenantBroker`, `algPinned`, `assertionTenantBound`, `assertionFresh`, `assertionUnreplayed`, `BrokeredIdentityMechanism` | One pred per code step, in the style of `mechanisms/identity_resolution.als`. `algPinned` is its own conjunct precisely so a mutant can drop it. | B2 |
 | AL-3 | **Create** `data_plane/principal_assertion.als` — `groups_bound_to_subject`, `assertion_cannot_cross_tenant`, `expired_assertion_never_grants`, `replayed_jti_never_grants`, `brokered_never_falls_back_to_body` | The last check is the important one: under `BROKERED`, body-asserted groups with no valid assertion must fail closed, not degrade to GI-ACCESSROLES-06's "unrestricted only" — which would look like correct behaviour while disabling the control. | B2 |
 | AL-4 | **Add** `check staleness_bounded_by_ttl` | The formal statement of why the TTL is 120 s: a subject disabled at the Platform keeps access for at most one assertion lifetime. The only part of B1's leaver property KnowledgeBase can enforce. | B1, B2 |
-| AL-5 | **Modify** `domain/graph.als`; **Create** `data_plane/kg_topology_visibility.als` — `node_hidden_when_all_backing_denied`, `edge_visible_implies_both_endpoints_visible`, `export_is_filtered`, `node_read_answers_404` | The edge rule is the non-obvious one: a visible edge to a hidden node discloses the hidden node's existence. | B3 |
+| AL-5 | **Extend** `data_plane/kg_object_acl_assignment.als` — not a new model — with `edge_visible_implies_both_endpoints_visible` and `every_topology_read_resolves_a_principal` | The object ACL is already modelled, with seven checks on assignment and dominance. Two properties GI-GRAPH-12 *states* are not modelled: the endpoint rule (the file contains no reference to `node_lo` or an endpoint, and no mutant exercises it) and that a read path resolves a principal at all — exactly the conjunct `GET /secured/graph` drops. | B3 |
 | AL-6 | **Create** `lifecycles/dual_control.als` — `four_eyes_requires_two_distinct`, `token_single_use`, `token_target_bound`, `expired_token_never_executes`, `approval_precedes_execution` (temporal) | A lifecycle because it is inherently temporal. `token_target_bound` stops an approval for one matter authorising another. | B5 |
 | AL-7 | **Modify** `lifecycles/tenant_purge.als`, `lifecycles/acl_mutation.als` | Purge and ACL mutation gain the dual-control precondition when the tenant flag is set. | B5 |
 | AL-8 | **Modify** `core/remote_controller_guard.als`, `entities/remote_controller_requests.als` | The paths are *alternatives*, not a widening: a tenant-admin assertion authorises only its own client's RC, and neither path relaxes GI-RC-01's conjunctive employee checks. | Ingestion |
@@ -273,8 +304,8 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | `mutants/broker__no_tenant_binding.als` | Assertion tenant not compared with certificate tenant | AL-2 |
 | `mutants/broker__body_groups_fallback.als` | Under BROKERED, missing assertion falls back to body groups. The failure that looks like it works. | AL-3 |
 | `mutants/broker__jti_reused.als` | Replay cache not consulted | AL-2 |
-| `mutants/kg_topology__export_unfiltered.als` | Today's behaviour — this mutant **is** current code, and it must fail | AL-5 |
-| `mutants/kg_topology__edge_reveals_hidden_node.als` | Edges filtered on the near endpoint only | AL-5 |
+| `mutants/kg_object_acl__read_without_principal.als` | A topology read that resolves no principal — this mutant **is** `GET /secured/graph` today, and it must fail | AL-5 |
+| `mutants/kg_object_acl__edge_near_endpoint_only.als` | Edges filtered on the near endpoint only. The code is already correct here; the mutant proves the model would catch a regression, which today it would not. | AL-5 |
 | `mutants/dual__self_approval.als` | Requester may approve their own request | AL-6 |
 | `mutants/dual__token_replay.als` | A token executes more than once | AL-6 |
 | `mutants/dual__target_swap.als` | An approval for one target authorises another | AL-6 |
@@ -288,8 +319,8 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | GI-BROKER-02 | Under BROKERED a request without a valid assertion fails closed. It never degrades to the GI-ACCESSROLES-06 path. | New |
 | GI-BROKER-03 | The actor recorded in the fact-event ledger is the assertion subject. No body field can set it. | New |
 | GI-BROKER-04 | A subject revoked at the broker loses access within one assertion lifetime. The bound is the TTL, stated not assumed. | New |
-| GI-GRAPH-11 | **Amended.** Remove "Graph topology … is deliberately not access-controlled". | Amend |
-| GI-GRAPH-12 | Every graph topology surface — node types, nodes, edges, sections, and `GET /secured/graph` — is filtered through the caller's principal. An edge is served only when both endpoints are visible. A denied target answers 404. | New |
+| GI-GRAPH-11 | **Amended — a contradiction fix, not a reversal.** The sentence "Graph topology … is deliberately not access-controlled" already contradicts GI-GRAPH-12 two rows below it in the same file, which gives nodes, edges, categories and tags an ACL and is marked Covered. Narrowed to node types, which is what it is still true of. | Amend |
+| GI-GRAPH-14 | Every read path that returns graph objects resolves the caller's principal and filters through GI-GRAPH-12's guard — the `GET /secured/graph` export included. No route reaches a node by id without first deciding whether the caller may see it. *(Renumbered: first proposed as GI-GRAPH-12, which is taken; 13 is taken too.)* | New |
 | GI-DUAL-01 | A guarded destructive operation executes only against a valid, single-use dual-control token whose requester and approver differ and whose target equals the request's target. | New |
 | GI-DUAL-02 | Dual control is per-tenant opt-in via `clients.require_dual_control`. When set, omitting the token is a rejection, never a bypass. | New |
 | GI-RC-07 | RC admin routes are handled for either an allowlisted Knovas employee (GI-RC-01) or a tenant-admin assertion for that RC's own client. Disjoint alternatives; neither relaxes the other. | New |
@@ -300,13 +331,14 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
   mutant (`counterexample_found`).
 - `models/alloy/ci/obligations.yaml` — an obligation per new mechanism pred, naming code paths,
   resolvable pytest tests, and mutant.
-- `app/tests/alloy_invariants/` — `test_principal_assertion.py`, `test_kg_topology_visibility.py`,
-  `test_dual_control.py`, plus `@pytest.mark.alloy_obligation` markers.
+- `app/tests/alloy_invariants/` — `test_principal_assertion.py`, `test_dual_control.py`, and
+  additions to the existing `test_kg_v1_alloy_pins.py` for AL-5's two new commands, plus
+  `@pytest.mark.alloy_obligation` markers.
 - `docs/ModernDocs/alloy/component-manifest.yaml` — new `L2-PRINCIPAL-BROKER`; updated lists for
   `L2-SECURE-API`, `L2-INTERNAL-API`, the knowledge-graph components.
 - `docs/Docs/05_TESTS/alloy_component_coverage_matrix.md`.
 
-> **Sequencing note the model imposes:** `mutants/kg_topology__export_unfiltered.als` encodes
+> **Sequencing note the model imposes:** `mutants/kg_object_acl__read_without_principal.als` encodes
 > *today's* behaviour as a failure. It cannot be committed before KB-B3-2 lands, or CI goes red
 > against shipped code. Model changes ride in the same commit as the behaviour they describe.
 
@@ -328,8 +360,8 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | `Docs/01_SYSTEM/Golden_Invariants.md` | Eight new GIs, one amendment. Lints against the models. |
 | `Docs/01_SYSTEM/Trust_Boundaries_and_Security_Model.md` | The broker is a new trust boundary. One line becomes two: certificate for tenant, assertion for subject. |
 | `Docs/01_SYSTEM/Decisions/ADR-0003-platform-as-identity-broker.md` | **New ADR.** Why the subject is asserted by the customer's Platform rather than per-user certificates or a direct IdP token, and what stays trusted. |
-| `Docs/01_SYSTEM/Decisions/ADR-0004-graph-topology-access-control.md` | **New ADR.** Reverses a recorded decision — `graph_access.py` says topology-unfiltered "is a decision, not an oversight". |
-| `Docs/01_SYSTEM/Multi_Tenant_Data_Model.md`, `Data_Flows.md` | New `clients` columns, `kg_node_access`, the screening ledger; the assertion's path through the request flow. |
+| `Docs/01_SYSTEM/Decisions/ADR-0004-graph-topology-access-control.md` | **New ADR, reframed.** Not a reversal — GI-GRAPH-12 already reversed it for nodes, edges, categories and tags. Records that the reversal is finished (export + four node-attached routes), that node types stay tenant-level, and why three places still describe the superseded decision: `graph_access.py:22-38`, the `_caller()` docstring at `graph_api.py:145-148`, and GI-GRAPH-11. | B3 |
+| `Docs/01_SYSTEM/Multi_Tenant_Data_Model.md`, `Data_Flows.md` | New `clients` columns, the screening ledger, and the assertion's path through the request flow. (No new graph ACL table — `20260804_kg_object_acl.sql` already documents that one.) |
 | `Docs/01_SYSTEM/IOAccessControl-System_Client_Documents.md`, `Security_and_Compliance_Overview.md` | From "the client asserts groups" to "the client's broker proves them". The passage a Datenschutzbeauftragte reads. |
 | `Knovas_Developer_Kit/api/{Secure_API,Knowledge_Graph_API,Client_Integration_Guide}.md` | `principal_assertion`, the BROKERED 401, the dual-control token; graph topology reads principal-scoped and 404. |
 | `Knovas_Employee_Kit/` | Register a tenant broker key, rotate it, set the posture, enable `require_dual_control`. Without these the feature ships unprovisionable. |
@@ -366,7 +398,7 @@ Each step leaves the system working and shippable.
 | 04 | KB | Broker key registration, assertion verification, BROKERED — KB-B2-1…3 + AL-1…4 + the four broker mutants, same commits |
 | 05 | KC | Broker minting and principal on every call — KC-B2-1, B2-2, B3-1. This single step makes search, previews and AI answers wall-aware |
 | 06 | KC | Access-groups tab, tree sync and assignment — KC-B2-3. **B2 complete** |
-| 07 | KB | Node-level visibility and topology filtering — KB-B3-1, B3-2, B3-4 + AL-5 + ADR-0004 |
+| 07 | KB | Finish topology filtering — KB-B3-2, B3-2b, B3-4 + AL-5 + ADR-0004 (KB-B3-1 withdrawn: already built) |
 | 08 | KC | 404-not-403, open-token binding, Walls tab — KC-B3-2…4 |
 | 09 | KB | Screening ledger and actor_ref binding — KB-B2-4, B3-3. **B3 complete** |
 | 10 | KC | Approvals workflow and queue — KC-B5-1…4 |
