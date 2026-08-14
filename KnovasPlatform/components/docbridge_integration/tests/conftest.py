@@ -1,4 +1,56 @@
+import os
+import uuid
+
 import pytest
+
+# ── identity: a real PostgreSQL per test ───────────────────────────────────
+#
+# The identity schema uses citext, uuid, jsonb, inet and CHECK constraints, so
+# these tests run against the real thing. psycopg is imported lazily inside the
+# fixture: an environment without the identity extras must still collect and
+# run the rest of the suite.
+
+PLATFORM_DB_TEST_DSN = os.environ.get(
+    "PLATFORM_DB_TEST_DSN",
+    "postgresql://platform:testpw@127.0.0.1:55433/knovas_platform_test",
+)
+
+
+def platform_db_reachable() -> bool:
+    try:
+        import psycopg
+    except ImportError:
+        return False
+    try:
+        with psycopg.connect(PLATFORM_DB_TEST_DSN, connect_timeout=3):
+            return True
+    except Exception:
+        return False
+
+
+@pytest.fixture
+def platform_db():
+    """A migrated identity database in a schema of its own, dropped after.
+
+    Per-test schema rather than a transaction rollback, because the migration
+    runner commits DDL — a rollback would not undo it.
+    """
+    import psycopg
+
+    from identity import migrate
+
+    schema = f"t{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True) as setup:
+        setup.execute(f'CREATE SCHEMA "{schema}"')
+    conn = psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True)
+    conn.execute(f'SET search_path TO "{schema}"')
+    migrate.apply(conn)
+    try:
+        yield conn
+    finally:
+        conn.close()
+        with psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True) as cleanup:
+            cleanup.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
 def pytest_addoption(parser):
