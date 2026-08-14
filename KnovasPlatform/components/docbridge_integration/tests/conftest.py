@@ -53,6 +53,62 @@ def platform_db():
             cleanup.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
+@pytest.fixture
+def identity_app(platform_db, tmp_path, monkeypatch):
+    """The real Flask app, with per-user identity on and pointed at platform_db.
+
+    The app opens its own connections, so it must reach the same schema the
+    fixture migrated — passed through as a search_path in the DSN.
+    """
+    schema = platform_db.execute("SELECT current_schema()").fetchone()[0]
+    monkeypatch.setenv(
+        "PLATFORM_DB_DSN", f"{PLATFORM_DB_TEST_DSN}?options=-csearch_path%3D{schema}"
+    )
+    monkeypatch.delenv("PLATFORM_DB_PASSWORD_FILE", raising=False)
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        'web:\n'
+        '  secret_key: "a-strong-secret-for-tests-0123456789"\n'
+        '  session_lifetime: 3600\n'
+        '  session_cookie_secure: false\n'
+        '  login:\n'
+        '    enabled: true\n'
+        '    company_name: "TestCo"\n'
+        '  search:\n'
+        '    results_per_page: 20\n'
+        'identity:\n'
+        '  enabled: true\n'
+        'api:\n'
+        '  base_url: "http://example.test"\n'
+        'open:\n'
+        '  companion_enabled: false\n',
+        encoding="utf-8",
+    )
+
+    DummyKnovasClient.health_result = True
+    from web_interface import app as web_app
+
+    monkeypatch.setattr(web_app, "KnovasAPIClient", DummyKnovasClient)
+    monkeypatch.setattr(web_app, "AutoDocFileHandler", DummyFileHandler)
+
+    flask_app = web_app.create_app(str(config_path))
+    flask_app.config.update(TESTING=True)
+    return flask_app
+
+
+@pytest.fixture
+def identity_client(identity_app):
+    return identity_app.test_client()
+
+
+@pytest.fixture
+def identity_repo(platform_db):
+    from identity import users
+
+    return users.UserRepository(platform_db)
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--knovas-api",
