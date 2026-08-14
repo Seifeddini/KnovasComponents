@@ -955,6 +955,11 @@ def create_app(config_path: Optional[str] = None):
             return None
         if request.endpoint is None or request.endpoint in _CSRF_EXEMPT_ENDPOINTS:
             return None
+        # The admin console is server-rendered HTML forms, not XHR: each POST
+        # carries a hidden csrf_token field and every handler checks it before
+        # doing anything. This gate expects a header and would reject them all.
+        if request.endpoint.startswith('admin.'):
+            return None
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
@@ -1196,6 +1201,21 @@ def create_app(config_path: Optional[str] = None):
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
         )
+
+    if identity_gate is not None:
+        from web_interface.admin import create_admin_blueprint
+
+        app.register_blueprint(create_admin_blueprint(
+            identity_gate,
+            csrf_valid=_csrf_token_is_valid,
+            csrf_token=_ensure_csrf_token,
+            page_context=lambda: {
+                **_sidebar_context(),
+                'app_title': web_app_title,
+                'brand': web_brand,
+                'asset_version': _static_asset_version(),
+            },
+        ))
 
     @app.route('/api/search', methods=['POST'])
     def search():
