@@ -38,10 +38,10 @@
 | **KC-C** | Fristen (proposals, four-eyes, ICS feed); events poller + Posteingang; job status | E3, E4, E5, E6 | Part A KB-C/KB-D; section B for feed tokens + actor | after C-plan B5 |
 | **KC-D** | Cortex live: graph default + badge, ego graph, why-panel, trust chip, Berichte, CSV import wizard, Vorgaben live, filters live | G1–G8 | C-plan (Parts A/B/C); Part A KB-F-8..10 | after C-plan |
 | **KC-E** | Office add-ins component + `/api/filing/*`; Arbeitstag-Journal | H2, E5-adjacent, J2, J3 | section B (login in taskpane, journal user); Part A metadata contract | after section B |
-| **KC-F** | RemoteController: metadata at ingest, matter path rule, single extension list, XLSX/PPTX, OCR (ita + signal + benchmark), mailbox mirror, PST + queue, index status + schema fields | F1, F2, F3, D5, F5, H1, H4 | Part A KB-A1 (metadata contract), KB-C (transmission status), KB-E (identifier search for the path rule) | KC-F-3..6 immediately; KC-F-1/2/7/8/9 as their contracts land |
+| **KC-F** | RemoteController: metadata at ingest, matter path rule, single extension list, XLSX/PPTX, OCR (ita + signal + benchmark), mailbox mirror, PST + queue, index status + schema fields | F1, F2, F3, D5, F5, H1, H4 | Part A KB-A1 (metadata contract), KB-C (transmission status), KB-E (identifier search for the path rule) | KC-F-3/5/6 immediately; KC-F-4 after KC-F-1; KC-F-1/9 in phase 1; KC-F-2 after Part A KB-E-4 (phase 2); KC-F-7/8 in phase 3 |
 | **KC-G** | Declarations + capability legend; docs index; Developer-Kit mirror + drift check; specifications/hosting; release notes/changelogs; design copy | E1, G9, H6, J1, J4, F4-doc, F6-doc | — | Yes — start immediately (phase 0) |
 
-Sequencing follows design §10: KC-G and KC-F-3..6 in phase 0; KC-A and the rest of KC-F in phase 1; KC-B/C/D in phase 2 (after the C-plan and section B); KC-E and the mailbox/PST half of KC-F in phase 3.
+Sequencing follows design §10: KC-G, KC-F-3, KC-F-5 and KC-F-6 in phase 0; KC-A, KC-F-1, KC-F-4 and KC-F-9 in phase 1 (**KC-F-4 after KC-F-1** — it consumes `ExtractionPayload.extra` and `sync.extract_content.METADATA_EXTRA_WHITELIST`, both created by KC-F-1); KC-B/C/D **and KC-F-2** in phase 2 (after the C-plan and section B; KC-F-2 additionally needs `GET /secured/graph/identifiers/search` from Part A Task KB-E-4, which is Part A phase 2); KC-E and the mailbox/PST half of KC-F (KC-F-7, KC-F-8) in phase 3.
 
 ---
 
@@ -59,7 +59,7 @@ Sequencing follows design §10: KC-G and KC-F-3..6 in phase 0; KC-A and the rest
   - `API_FILTER_KEYS = ('author','document_type','language','document_status','source_kind','date_from','date_to','pointer_prefix')`, `SORT_VALUES = ('relevance','date_desc','date_asc')`, `FACET_KEYS = ('author','document_type','language','document_status','source_kind')`, `METADATA_KEYS = ('author','document_type','language','document_date','document_status','source_kind','extra')`.
   - `class SecuredApiError(RuntimeError)` with `.status: int`, `.error_code: str`, `.message: str`, `.details: Any`, `.retry_after: Optional[int]`.
   - `KnovasAPIClient.search_documents(query, *, filters=None, limit=None, offset=0, sort='relevance', facets=None, scope=None) -> dict` = `{results: [row], total: int, total_ranked: int, has_more: bool, offset: int, limit: int|None, sort: str, facets: {key: [{value: str, count: int}]}, no_strong_matches: bool, paging_supported: bool, semantix: {status, message, result_count, pointers, query_session_id}}`.
-  - Result row (`_secured_query_hit_to_row`) additionally carries — only when the API sent them — `author, document_type, language, document_status, source_kind` (str), `has_versions, is_current` (bool), `version_count` (int), `relevance_tier, score_mode` (str), `fusion_score` (number), `kg_node_ids` (list[str]), `snippet` (str ≤ 300), `primary_chunk_kind` (str), `chunk_uuid` (str); each `top_chunks[]` entry additionally `chunk_uuid, chunk_kind, snippet, sentence_number_end` when present.
+  - Result row (`_secured_query_hit_to_row`) additionally carries — only when the API sent them — `author, document_type, language, document_date, document_status, source_kind` (str, the six denormalised hit keys of Task KB-A2-4), `has_versions, is_current` (bool), `version_count` (int), `relevance_tier, score_mode` (str), `fusion_score` (number), `kg_node_ids` (list[str]), `snippet` (str ≤ 300), `primary_chunk_kind` (str), `chunk_uuid` (str); each `top_chunks[]` entry additionally `chunk_uuid, chunk_kind, snippet, sentence_number_end` when present.
   - `KnovasAPIClient.document_versions(document_uuid) -> Optional[dict]` = `{current: dict, versions: [{version_number, content_hash_raw, pointer_at_version, path, timestamp, changed_by, changed_by_kind}]}`; `None` on 404.
   - `KnovasAPIClient.similar_documents(document_uuid, *, limit=None, filters=None, scope=None) -> Optional[dict]` = `{results: [row], total, no_strong_matches, semantix}`; `None` on 404.
   - `KnovasAPIClient.update_document_metadata(document_uuid, metadata: dict) -> Optional[dict]` (parsed API body; `None` on 404; `ValueError` on unknown keys).
@@ -262,9 +262,10 @@ def test_hit_row_maps_metadata_versions_and_chunks():
 def test_hit_row_without_metadata_has_no_invented_fields():
     row = _secured_query_hit_to_row({"pointer": "a.pdf", "cosine_similarity": 0.5})
 
-    for key in ("author", "document_type", "language", "document_status",
-                "source_kind", "has_versions", "version_count", "is_current",
-                "relevance_tier", "snippet", "primary_chunk_kind", "chunk_uuid"):
+    for key in ("author", "document_type", "language", "document_date",
+                "document_status", "source_kind", "has_versions", "version_count",
+                "is_current", "relevance_tier", "snippet", "primary_chunk_kind",
+                "chunk_uuid"):
         assert key not in row, key
 
 
@@ -432,7 +433,12 @@ FACET_KEYS = ('author', 'document_type', 'language', 'document_status', 'source_
 ## PATCH /secured/documents/<uuid>/metadata accepts exactly the ingest metadata block.
 METADATA_KEYS = ('author', 'document_type', 'language', 'document_date',
                  'document_status', 'source_kind', 'extra')
-_HIT_METADATA_KEYS = ('author', 'document_type', 'language', 'document_status', 'source_kind')
+## Hit metadata copied verbatim from the API. `document_date` belongs here even
+## though it is not a facet axis: KB-A2-4 sends it on every hit and the dialog,
+## the metaline and `sort=date_desc|date_asc` all show it. FACET_KEYS stays the
+## five equality axes.
+_HIT_METADATA_KEYS = ('author', 'document_type', 'language', 'document_date',
+                      'document_status', 'source_kind')
 _SNIPPET_MAX_CHARS = 300
 
 
@@ -1445,122 +1451,8 @@ _LANGUAGE_LABELS: Dict[str, str] = {
     'de': 'Deutsch', 'fr': 'Französisch', 'it': 'Italienisch', 'en': 'Englisch',
 }
 
-_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}
-
----
-
-## Verification
-
-After all parts, on a Platform pointed at the dev tenant with `ONTOLOGY_SOURCE=graph` and section B enabled:
-
-```bash
-cd KnovasPlatform/components/docbridge_integration && python -m pytest
-python -m pytest tests/test_graph_contract_live.py --knovas-api        # cassette refresh against dev
-cd ../../../RemoteController && python -m pytest
-python -m benchmarks.ocr.run_ocr_benchmark --dpi 200,300 --languages de,fr,it
-```
-
-Then walk the product path once by hand: search with the filter rail → open a hit in the viewer at its page with the snippet highlighted → open the document's versions and similar documents → open *Parteien*, search "Mueller", merge a duplicate → run a *Konfliktprüfung*, print the protocol → open *Fristen*, adopt an extracted deadline as user A, try to confirm as A (disabled), confirm as B, subscribe the ICS feed in Outlook → open *Posteingang* and see the day's events → open a matter's *Akten-Kompass* → open *Berichte* → run the CSV import wizard in dry-run → file an email to a matter from Outlook → read *Mein Tag* → export the journal CSV → in RemoteController, drop a PST into the inbox and watch `/sync/status` report indexed counts.
-
-## Requirement traceability
-
-| Requirement | Tasks |
-| --- | --- |
-| F3 · filters + pagination (UI half) | KC-A-1..KC-A-4, KC-A-8; RC metadata KC-F-1 |
-| F9 · honest empty results (UI) | KC-A-4 |
-| D5 · expertise location | KC-A-5; KC-F-1 |
-| F6 · version history (UI) | KC-A-6 |
-| F8 · similar documents / matters | KC-A-6 (documents), KC-D-3 (matters via ego + `kg_node_ids`) |
-| H4 · tables (UI + XLSX) | KC-A-6, KC-F-4 |
-| F7 · jump to the hit | KC-A-7 |
-| D1 · party register + dedup | KC-B-1, KC-B-2, KC-B-6, KC-B-7 |
-| D3 · Zefix/UID enrichment | KC-B-3 |
-| D2 · conflicts check as evidence | KC-B-4, KC-B-7 |
-| D4 · lateral-hire import | KC-B-5 |
-| E3 · four-eyes (UI) | KC-C-1, KC-C-2, KC-C-8 |
-| E4 · proposal inbox | KC-C-2, KC-C-5 |
-| E5 · deadlines in Outlook with substitutes | KC-C-3, KC-C-8 |
-| E6 · eventing consumer (Posteingang, job status) | KC-C-4..KC-C-7 |
-| G1 · Cortex on the live graph | KC-D-2 |
-| G2 · matter ego graph | KC-D-1, KC-D-3 |
-| G3 · every node answers "why?" | KC-D-4 |
-| G4 · trust made visible | KC-D-5 |
-| G5 · partner's Monday report | KC-D-6 |
-| G6 · non-empty graph (import wizard + bootstrap) | KC-D-7 (+ C-plan C11) |
-| G7 · draw on the map (Vorgaben live) | KC-D-8 |
-| G8 · tireless junior (filters live) | KC-D-9 |
-| G9 · honesty labels | KC-G-1, KC-D-2 (badges) |
-| H2 · Outlook and Word add-ins | KC-E-1..KC-E-4 |
-| J2 · activity hints | KC-E-5, KC-E-6, KC-E-7 |
-| J3 · realization reporting (substrate + statement) | KC-E-6, KC-G-1 |
-| F1 · OCR accuracy evidence | KC-F-5, KC-F-6 |
-| F2 · whole estate (mailbox, XLSX/PPTX, PST) | KC-F-3, KC-F-4, KC-F-7, KC-F-8 |
-| H1 · migration incl. PST | KC-F-8, KC-F-9, KC-F-10 |
-| F5 · language at ingest | KC-F-1 |
-| E1/E2 · deadline strategy declared | KC-G-1 |
-| H6 · Justitia 4.0 | KC-G-1 |
-| J1/J4 · time capture / invoicing declared | KC-G-1 |
-| F4 · throughput statement in customer docs | KC-G-1, KC-G-5 |
-| H5 · exit doc + export UI pointers | KC-G-3 (mirror `Export_and_Exit.md`) |
-)
-_LANGUAGE_RE = re.compile(r'^[a-z]{2,3}
-
----
-
-## Verification
-
-After all parts, on a Platform pointed at the dev tenant with `ONTOLOGY_SOURCE=graph` and section B enabled:
-
-```bash
-cd KnovasPlatform/components/docbridge_integration && python -m pytest
-python -m pytest tests/test_graph_contract_live.py --knovas-api        # cassette refresh against dev
-cd ../../../RemoteController && python -m pytest
-python -m benchmarks.ocr.run_ocr_benchmark --dpi 200,300 --languages de,fr,it
-```
-
-Then walk the product path once by hand: search with the filter rail → open a hit in the viewer at its page with the snippet highlighted → open the document's versions and similar documents → open *Parteien*, search "Mueller", merge a duplicate → run a *Konfliktprüfung*, print the protocol → open *Fristen*, adopt an extracted deadline as user A, try to confirm as A (disabled), confirm as B, subscribe the ICS feed in Outlook → open *Posteingang* and see the day's events → open a matter's *Akten-Kompass* → open *Berichte* → run the CSV import wizard in dry-run → file an email to a matter from Outlook → read *Mein Tag* → export the journal CSV → in RemoteController, drop a PST into the inbox and watch `/sync/status` report indexed counts.
-
-## Requirement traceability
-
-| Requirement | Tasks |
-| --- | --- |
-| F3 · filters + pagination (UI half) | KC-A-1..KC-A-4, KC-A-8; RC metadata KC-F-1 |
-| F9 · honest empty results (UI) | KC-A-4 |
-| D5 · expertise location | KC-A-5; KC-F-1 |
-| F6 · version history (UI) | KC-A-6 |
-| F8 · similar documents / matters | KC-A-6 (documents), KC-D-3 (matters via ego + `kg_node_ids`) |
-| H4 · tables (UI + XLSX) | KC-A-6, KC-F-4 |
-| F7 · jump to the hit | KC-A-7 |
-| D1 · party register + dedup | KC-B-1, KC-B-2, KC-B-6, KC-B-7 |
-| D3 · Zefix/UID enrichment | KC-B-3 |
-| D2 · conflicts check as evidence | KC-B-4, KC-B-7 |
-| D4 · lateral-hire import | KC-B-5 |
-| E3 · four-eyes (UI) | KC-C-1, KC-C-2, KC-C-8 |
-| E4 · proposal inbox | KC-C-2, KC-C-5 |
-| E5 · deadlines in Outlook with substitutes | KC-C-3, KC-C-8 |
-| E6 · eventing consumer (Posteingang, job status) | KC-C-4..KC-C-7 |
-| G1 · Cortex on the live graph | KC-D-2 |
-| G2 · matter ego graph | KC-D-1, KC-D-3 |
-| G3 · every node answers "why?" | KC-D-4 |
-| G4 · trust made visible | KC-D-5 |
-| G5 · partner's Monday report | KC-D-6 |
-| G6 · non-empty graph (import wizard + bootstrap) | KC-D-7 (+ C-plan C11) |
-| G7 · draw on the map (Vorgaben live) | KC-D-8 |
-| G8 · tireless junior (filters live) | KC-D-9 |
-| G9 · honesty labels | KC-G-1, KC-D-2 (badges) |
-| H2 · Outlook and Word add-ins | KC-E-1..KC-E-4 |
-| J2 · activity hints | KC-E-5, KC-E-6, KC-E-7 |
-| J3 · realization reporting (substrate + statement) | KC-E-6, KC-G-1 |
-| F1 · OCR accuracy evidence | KC-F-5, KC-F-6 |
-| F2 · whole estate (mailbox, XLSX/PPTX, PST) | KC-F-3, KC-F-4, KC-F-7, KC-F-8 |
-| H1 · migration incl. PST | KC-F-8, KC-F-9, KC-F-10 |
-| F5 · language at ingest | KC-F-1 |
-| E1/E2 · deadline strategy declared | KC-G-1 |
-| H6 · Justitia 4.0 | KC-G-1 |
-| J1/J4 · time capture / invoicing declared | KC-G-1 |
-| F4 · throughput statement in customer docs | KC-G-1, KC-G-5 |
-| H5 · exit doc + export UI pointers | KC-G-3 (mirror `Export_and_Exit.md`) |
-)
+_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+_LANGUAGE_RE = re.compile(r'^[a-z]{2,3}$')
 
 
 class SearchFilterError(ValueError):
@@ -6578,64 +6470,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_ERROR = 'Interner Serverfehler'
 _NOT_FOUND = 'Dokument nicht gefunden'
-_UUID_RE = re.compile(r'^[0-9a-fA-F-]{8,64}
-
----
-
-## Verification
-
-After all parts, on a Platform pointed at the dev tenant with `ONTOLOGY_SOURCE=graph` and section B enabled:
-
-```bash
-cd KnovasPlatform/components/docbridge_integration && python -m pytest
-python -m pytest tests/test_graph_contract_live.py --knovas-api        # cassette refresh against dev
-cd ../../../RemoteController && python -m pytest
-python -m benchmarks.ocr.run_ocr_benchmark --dpi 200,300 --languages de,fr,it
-```
-
-Then walk the product path once by hand: search with the filter rail → open a hit in the viewer at its page with the snippet highlighted → open the document's versions and similar documents → open *Parteien*, search "Mueller", merge a duplicate → run a *Konfliktprüfung*, print the protocol → open *Fristen*, adopt an extracted deadline as user A, try to confirm as A (disabled), confirm as B, subscribe the ICS feed in Outlook → open *Posteingang* and see the day's events → open a matter's *Akten-Kompass* → open *Berichte* → run the CSV import wizard in dry-run → file an email to a matter from Outlook → read *Mein Tag* → export the journal CSV → in RemoteController, drop a PST into the inbox and watch `/sync/status` report indexed counts.
-
-## Requirement traceability
-
-| Requirement | Tasks |
-| --- | --- |
-| F3 · filters + pagination (UI half) | KC-A-1..KC-A-4, KC-A-8; RC metadata KC-F-1 |
-| F9 · honest empty results (UI) | KC-A-4 |
-| D5 · expertise location | KC-A-5; KC-F-1 |
-| F6 · version history (UI) | KC-A-6 |
-| F8 · similar documents / matters | KC-A-6 (documents), KC-D-3 (matters via ego + `kg_node_ids`) |
-| H4 · tables (UI + XLSX) | KC-A-6, KC-F-4 |
-| F7 · jump to the hit | KC-A-7 |
-| D1 · party register + dedup | KC-B-1, KC-B-2, KC-B-6, KC-B-7 |
-| D3 · Zefix/UID enrichment | KC-B-3 |
-| D2 · conflicts check as evidence | KC-B-4, KC-B-7 |
-| D4 · lateral-hire import | KC-B-5 |
-| E3 · four-eyes (UI) | KC-C-1, KC-C-2, KC-C-8 |
-| E4 · proposal inbox | KC-C-2, KC-C-5 |
-| E5 · deadlines in Outlook with substitutes | KC-C-3, KC-C-8 |
-| E6 · eventing consumer (Posteingang, job status) | KC-C-4..KC-C-7 |
-| G1 · Cortex on the live graph | KC-D-2 |
-| G2 · matter ego graph | KC-D-1, KC-D-3 |
-| G3 · every node answers "why?" | KC-D-4 |
-| G4 · trust made visible | KC-D-5 |
-| G5 · partner's Monday report | KC-D-6 |
-| G6 · non-empty graph (import wizard + bootstrap) | KC-D-7 (+ C-plan C11) |
-| G7 · draw on the map (Vorgaben live) | KC-D-8 |
-| G8 · tireless junior (filters live) | KC-D-9 |
-| G9 · honesty labels | KC-G-1, KC-D-2 (badges) |
-| H2 · Outlook and Word add-ins | KC-E-1..KC-E-4 |
-| J2 · activity hints | KC-E-5, KC-E-6, KC-E-7 |
-| J3 · realization reporting (substrate + statement) | KC-E-6, KC-G-1 |
-| F1 · OCR accuracy evidence | KC-F-5, KC-F-6 |
-| F2 · whole estate (mailbox, XLSX/PPTX, PST) | KC-F-3, KC-F-4, KC-F-7, KC-F-8 |
-| H1 · migration incl. PST | KC-F-8, KC-F-9, KC-F-10 |
-| F5 · language at ingest | KC-F-1 |
-| E1/E2 · deadline strategy declared | KC-G-1 |
-| H6 · Justitia 4.0 | KC-G-1 |
-| J1/J4 · time capture / invoicing declared | KC-G-1 |
-| F4 · throughput statement in customer docs | KC-G-1, KC-G-5 |
-| H5 · exit doc + export UI pointers | KC-G-3 (mirror `Export_and_Exit.md`) |
-)
+_UUID_RE = re.compile(r'^[0-9a-fA-F-]{8,64}$')
 ## Statuscodes, die der Browser sinnvoll unterscheiden kann. 401/403 der
 ## Tenant-API (Zertifikat, Rechte) sind KEIN Login-Problem des Nutzers und
 ## wuerden app.js in die Login-Weiterleitung schicken -> 502.
@@ -6645,122 +6480,8 @@ DOCUMENT_STATUS_VALUES = ('draft', 'final', 'executed', 'unknown')
 SOURCE_KIND_VALUES = ('share', 'onedrive', 'mailbox', 'pst', 'upload', 'addin')
 SIMILAR_LIMIT_DEFAULT = 5
 SIMILAR_LIMIT_MAX = 20
-_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}
-
----
-
-## Verification
-
-After all parts, on a Platform pointed at the dev tenant with `ONTOLOGY_SOURCE=graph` and section B enabled:
-
-```bash
-cd KnovasPlatform/components/docbridge_integration && python -m pytest
-python -m pytest tests/test_graph_contract_live.py --knovas-api        # cassette refresh against dev
-cd ../../../RemoteController && python -m pytest
-python -m benchmarks.ocr.run_ocr_benchmark --dpi 200,300 --languages de,fr,it
-```
-
-Then walk the product path once by hand: search with the filter rail → open a hit in the viewer at its page with the snippet highlighted → open the document's versions and similar documents → open *Parteien*, search "Mueller", merge a duplicate → run a *Konfliktprüfung*, print the protocol → open *Fristen*, adopt an extracted deadline as user A, try to confirm as A (disabled), confirm as B, subscribe the ICS feed in Outlook → open *Posteingang* and see the day's events → open a matter's *Akten-Kompass* → open *Berichte* → run the CSV import wizard in dry-run → file an email to a matter from Outlook → read *Mein Tag* → export the journal CSV → in RemoteController, drop a PST into the inbox and watch `/sync/status` report indexed counts.
-
-## Requirement traceability
-
-| Requirement | Tasks |
-| --- | --- |
-| F3 · filters + pagination (UI half) | KC-A-1..KC-A-4, KC-A-8; RC metadata KC-F-1 |
-| F9 · honest empty results (UI) | KC-A-4 |
-| D5 · expertise location | KC-A-5; KC-F-1 |
-| F6 · version history (UI) | KC-A-6 |
-| F8 · similar documents / matters | KC-A-6 (documents), KC-D-3 (matters via ego + `kg_node_ids`) |
-| H4 · tables (UI + XLSX) | KC-A-6, KC-F-4 |
-| F7 · jump to the hit | KC-A-7 |
-| D1 · party register + dedup | KC-B-1, KC-B-2, KC-B-6, KC-B-7 |
-| D3 · Zefix/UID enrichment | KC-B-3 |
-| D2 · conflicts check as evidence | KC-B-4, KC-B-7 |
-| D4 · lateral-hire import | KC-B-5 |
-| E3 · four-eyes (UI) | KC-C-1, KC-C-2, KC-C-8 |
-| E4 · proposal inbox | KC-C-2, KC-C-5 |
-| E5 · deadlines in Outlook with substitutes | KC-C-3, KC-C-8 |
-| E6 · eventing consumer (Posteingang, job status) | KC-C-4..KC-C-7 |
-| G1 · Cortex on the live graph | KC-D-2 |
-| G2 · matter ego graph | KC-D-1, KC-D-3 |
-| G3 · every node answers "why?" | KC-D-4 |
-| G4 · trust made visible | KC-D-5 |
-| G5 · partner's Monday report | KC-D-6 |
-| G6 · non-empty graph (import wizard + bootstrap) | KC-D-7 (+ C-plan C11) |
-| G7 · draw on the map (Vorgaben live) | KC-D-8 |
-| G8 · tireless junior (filters live) | KC-D-9 |
-| G9 · honesty labels | KC-G-1, KC-D-2 (badges) |
-| H2 · Outlook and Word add-ins | KC-E-1..KC-E-4 |
-| J2 · activity hints | KC-E-5, KC-E-6, KC-E-7 |
-| J3 · realization reporting (substrate + statement) | KC-E-6, KC-G-1 |
-| F1 · OCR accuracy evidence | KC-F-5, KC-F-6 |
-| F2 · whole estate (mailbox, XLSX/PPTX, PST) | KC-F-3, KC-F-4, KC-F-7, KC-F-8 |
-| H1 · migration incl. PST | KC-F-8, KC-F-9, KC-F-10 |
-| F5 · language at ingest | KC-F-1 |
-| E1/E2 · deadline strategy declared | KC-G-1 |
-| H6 · Justitia 4.0 | KC-G-1 |
-| J1/J4 · time capture / invoicing declared | KC-G-1 |
-| F4 · throughput statement in customer docs | KC-G-1, KC-G-5 |
-| H5 · exit doc + export UI pointers | KC-G-3 (mirror `Export_and_Exit.md`) |
-)
-_LANG_RE = re.compile(r'^[a-z]{2,3}
-
----
-
-## Verification
-
-After all parts, on a Platform pointed at the dev tenant with `ONTOLOGY_SOURCE=graph` and section B enabled:
-
-```bash
-cd KnovasPlatform/components/docbridge_integration && python -m pytest
-python -m pytest tests/test_graph_contract_live.py --knovas-api        # cassette refresh against dev
-cd ../../../RemoteController && python -m pytest
-python -m benchmarks.ocr.run_ocr_benchmark --dpi 200,300 --languages de,fr,it
-```
-
-Then walk the product path once by hand: search with the filter rail → open a hit in the viewer at its page with the snippet highlighted → open the document's versions and similar documents → open *Parteien*, search "Mueller", merge a duplicate → run a *Konfliktprüfung*, print the protocol → open *Fristen*, adopt an extracted deadline as user A, try to confirm as A (disabled), confirm as B, subscribe the ICS feed in Outlook → open *Posteingang* and see the day's events → open a matter's *Akten-Kompass* → open *Berichte* → run the CSV import wizard in dry-run → file an email to a matter from Outlook → read *Mein Tag* → export the journal CSV → in RemoteController, drop a PST into the inbox and watch `/sync/status` report indexed counts.
-
-## Requirement traceability
-
-| Requirement | Tasks |
-| --- | --- |
-| F3 · filters + pagination (UI half) | KC-A-1..KC-A-4, KC-A-8; RC metadata KC-F-1 |
-| F9 · honest empty results (UI) | KC-A-4 |
-| D5 · expertise location | KC-A-5; KC-F-1 |
-| F6 · version history (UI) | KC-A-6 |
-| F8 · similar documents / matters | KC-A-6 (documents), KC-D-3 (matters via ego + `kg_node_ids`) |
-| H4 · tables (UI + XLSX) | KC-A-6, KC-F-4 |
-| F7 · jump to the hit | KC-A-7 |
-| D1 · party register + dedup | KC-B-1, KC-B-2, KC-B-6, KC-B-7 |
-| D3 · Zefix/UID enrichment | KC-B-3 |
-| D2 · conflicts check as evidence | KC-B-4, KC-B-7 |
-| D4 · lateral-hire import | KC-B-5 |
-| E3 · four-eyes (UI) | KC-C-1, KC-C-2, KC-C-8 |
-| E4 · proposal inbox | KC-C-2, KC-C-5 |
-| E5 · deadlines in Outlook with substitutes | KC-C-3, KC-C-8 |
-| E6 · eventing consumer (Posteingang, job status) | KC-C-4..KC-C-7 |
-| G1 · Cortex on the live graph | KC-D-2 |
-| G2 · matter ego graph | KC-D-1, KC-D-3 |
-| G3 · every node answers "why?" | KC-D-4 |
-| G4 · trust made visible | KC-D-5 |
-| G5 · partner's Monday report | KC-D-6 |
-| G6 · non-empty graph (import wizard + bootstrap) | KC-D-7 (+ C-plan C11) |
-| G7 · draw on the map (Vorgaben live) | KC-D-8 |
-| G8 · tireless junior (filters live) | KC-D-9 |
-| G9 · honesty labels | KC-G-1, KC-D-2 (badges) |
-| H2 · Outlook and Word add-ins | KC-E-1..KC-E-4 |
-| J2 · activity hints | KC-E-5, KC-E-6, KC-E-7 |
-| J3 · realization reporting (substrate + statement) | KC-E-6, KC-G-1 |
-| F1 · OCR accuracy evidence | KC-F-5, KC-F-6 |
-| F2 · whole estate (mailbox, XLSX/PPTX, PST) | KC-F-3, KC-F-4, KC-F-7, KC-F-8 |
-| H1 · migration incl. PST | KC-F-8, KC-F-9, KC-F-10 |
-| F5 · language at ingest | KC-F-1 |
-| E1/E2 · deadline strategy declared | KC-G-1 |
-| H6 · Justitia 4.0 | KC-G-1 |
-| J1/J4 · time capture / invoicing declared | KC-G-1 |
-| F4 · throughput statement in customer docs | KC-G-1, KC-G-5 |
-| H5 · exit doc + export UI pointers | KC-G-3 (mirror `Export_and_Exit.md`) |
-)
+_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+_LANG_RE = re.compile(r'^[a-z]{2,3}$')
 _EXTRA_MAX_KEYS = 16
 
 
@@ -9522,8 +9243,8 @@ git commit -m "docs(search): feature docs for filters/versions/similar and the v
 - Produces on `KnovasAPIClient`:
   - `identifiers_search(q, *, kind=None, node_type_id=None, threshold=None, limit=None) -> {'matches': list[dict], 'degraded': bool}` — `GET /secured/graph/identifiers/search`
   - `node_duplicates(node_type_id=None, threshold=None, limit=None) -> {'candidates': list[dict]}` — `GET /secured/graph/nodes/duplicates`
-  - `merge_nodes(target_id, source_id, actor_ref=None) -> dict | None` — `POST /secured/graph/nodes/<target>/merge {source_node_id, actor_ref?}`; `None` = 404 (either node unknown/invisible); `ValueError` when target == source; `GraphError` for 409/503
-  - `conflict_check_run(queries, context=None, actor_ref=None) -> dict | None` — `POST /secured/graph/conflict-checks`; `queries` = list of `str` or `{'name', 'role'?}`, 1..50; `ValueError` on empty name / bad count
+  - `merge_nodes(target_id, source_id, actor_ref=None) -> dict | None` — `POST /secured/graph/nodes/<target>/merge {source_node_id, actor_ref?}`; returns the tenant body **verbatim**, `{'status', 'message', 'target': {...}, 'source': {'id','status','merged_into'}, 'moved': {...}, 'scope': {...}}` — the merged node is under `target`, there is **no** `node` key and this method renames nothing (see the note below); `None` = 404 (either node unknown/invisible); `ValueError` when target == source; `GraphError` for 409/503
+  - `conflict_check_run(queries, context=None, actor_ref=None) -> dict | None` — `POST /secured/graph/conflict-checks`; `queries` = list of `str` or `{'name', 'role'?}`, 1..50, `role` one of `client | opposing_party | related_party | other` (the tenant's `QUERY_ROLES`; anything else is a `400 conflict_check_invalid_role`); `ValueError` on empty name / bad count
   - `conflict_check_list(limit=None, offset=None, since=None) -> {'checks': list[dict], 'total': int | None}`
   - `conflict_check_get(check_id) -> dict | None`
   - `conflict_check_decide(check_id, decision, note=None, actor_ref=None) -> dict | None`; `ValueError` when `decision` not in `CONFLICT_DECISIONS`
@@ -9532,6 +9253,10 @@ git commit -m "docs(search): feature docs for filters/versions/similar and the v
   - `sync_single_document(document)` accepts `document['metadata']` (dict; only the seven keys `author, document_type, language, document_date, document_status, source_kind, extra` are forwarded as the init `metadata` object) and returns `{'status','identifier','mode','transmission_key_id'}`
   - class constants `KnovasAPIClient.IDENTIFIER_KINDS`, `KnovasAPIClient.CONFLICT_DECISIONS`
 - Produces in `src/graph_model.py`: `IDENTIFIER_KINDS`, `IDENTIFIER_KIND_LABELS`, `CONFLICT_DECISIONS`, `CONFLICT_DECISION_LABELS`, dataclasses `Identifier(id, node_id, text, kind, normalized)`, `IdentifierMatch(node_id, node_name, node_type_id, identifier_id, identifier_text, kind, score, channel)`, `DuplicatePair(node_a, node_b, score, identifiers)`, `ConflictHit(query_index, kind, node_id, pointer, matched_text, score, channel, matter_node_ids)`, `Decision(check_id, decision, note, actor, actor_kind, decided_at)`, `ConflictCheck(check_id, executed_at, queries, context, hits, hit_count, withheld_count, degraded, principal_scoped, actor, actor_kind, actor_ref, result_hash, decisions)` — each with `from_api(row) -> cls` and `to_dict()`, plus `ConflictCheck.grouped() -> {'parties', 'documents', 'matters'}`.
+
+> **Note (repository):** `KnovasAPIClient._graph_request` (`src/knovas_client.py:1531-1567`) returns `response.json()` unchanged — it strips no envelope, renames no key and normalises nothing (its only two special cases are `404 knowledge_graph_disabled` → `KnowledgeGraphDisabled` and any other `404` → `None`). Every method built on it therefore hands the tenant's own body to its caller. Two consequences this part depends on:
+> 1. `merge_nodes` returns `{"status","message","target",…}` — the merged node is `payload['target']`, **not** `payload['node']`. Task KC-B-2's `/api/parties/merge` reads `target`; every fake API client in the KC-B tests returns that same shape, so a route that reads the wrong key fails its test instead of shipping an empty party card.
+> 2. The conflict-check `role` is passed through verbatim, so the Platform — not the client — is where the vocabulary is enforced. The tenant's authority is `services/knowledge_graph/conflict_checks.py::QUERY_ROLES = ("client", "opposing_party", "related_party", "other")` (Part KB-E, Task KB-E-8); anything else is `400 conflict_check_invalid_role`. Task KC-B-4's `CONFLICT_ROLES` mirrors those four wire values exactly, and the German labels live only in `ROLE_LABELS`.
 
 - [ ] **Step 1: Write the failing client test**
 
@@ -9587,11 +9312,22 @@ def test_node_duplicates_passes_filters():
     assert seen["params"] == {"node_type_id": "t1", "threshold": 0.9, "limit": 20}
 
 
-def test_merge_sends_source_and_actor():
-    client, seen = _client(200, {"status": "success", "node": {"id": "n1"}})
-    client.merge_nodes("n1", "n2", actor_ref="user-7")
+def test_merge_sends_source_and_returns_the_tenant_shape_unchanged():
+    # Genau die Antwort von KB-E-6: target/source/moved/scope, KEIN 'node'.
+    client, seen = _client(200, {"status": "success", "message": "Nodes merged",
+                                 "target": {"id": "n1", "name": "Muster Bau AG"},
+                                 "source": {"id": "n2", "status": "merged",
+                                            "merged_into": "n1"},
+                                 "moved": {"identifiers": 1, "assignments": 1},
+                                 "scope": {"pointers": 1, "mode": "write_through"}})
+    merged = client.merge_nodes("n1", "n2", actor_ref="user-7")
     assert seen["url"].endswith("/secured/graph/nodes/n1/merge")
     assert seen["json"] == {"source_node_id": "n2", "actor_ref": "user-7"}
+    # Der Client benennt nichts um: der zusammengefuehrte Knoten steht unter
+    # 'target'. Wer 'node' liest, bekommt None - siehe Aufgabe KC-B-2.
+    assert merged["target"]["id"] == "n1"
+    assert merged["source"] == {"id": "n2", "status": "merged", "merged_into": "n1"}
+    assert "node" not in merged
 
 
 def test_merge_refuses_self_merge_before_calling_the_api():
@@ -9612,11 +9348,11 @@ def test_merge_404_is_none_and_409_is_graph_error():
 
 def test_conflict_check_run_normalises_queries():
     client, seen = _client(201, {"status": "success", "check_id": "c1", "hits": []})
-    client.conflict_check_run(["Muster AG", {"name": "Meier", "role": "counterparty"}],
+    client.conflict_check_run(["Muster AG", {"name": "Meier", "role": "opposing_party"}],
                               context="Neumandat", actor_ref="user-7")
     assert seen["url"].endswith("/secured/graph/conflict-checks")
     assert seen["json"] == {"queries": [{"name": "Muster AG"},
-                                        {"name": "Meier", "role": "counterparty"}],
+                                        {"name": "Meier", "role": "opposing_party"}],
                             "context": "Neumandat", "actor_ref": "user-7"}
 
 
@@ -9750,6 +9486,11 @@ Append to `class KnovasAPIClient` in `src/knovas_client.py`, after `graph_sort_d
 
         Die Quelle bleibt als Verweis (status='merged', merged_into) lesbar;
         None = einer der Knoten ist unbekannt oder nicht sichtbar (404).
+
+        Der Mandanten-Body wird unveraendert durchgereicht:
+        {'status', 'message', 'target': {...}, 'source': {'id','status',
+        'merged_into'}, 'moved': {...}, 'scope': {...}}. Der zusammengefuehrte
+        Knoten steht unter 'target' - einen Schluessel 'node' gibt es nicht.
         """
         if str(target_id) == str(source_id):
             raise ValueError('Ziel und Quelle sind derselbe Knoten')
@@ -9955,7 +9696,7 @@ def test_duplicate_pair_tolerates_node_a_b_and_nodes_list():
 def _payload():
     return {
         "check_id": "c1", "executed_at": "2026-08-15T10:00:00+00:00",
-        "queries": [{"name": "Muster AG", "role": "counterparty"}], "context": "Neumandat",
+        "queries": [{"name": "Muster AG", "role": "opposing_party"}], "context": "Neumandat",
         "hits": [
             {"query_index": 0, "kind": "party", "node_id": "n1", "matched_text": "Muster AG",
              "score": 0.95, "channel": "lexical", "matter_node_ids": ["m1", "m2"]},
@@ -10261,7 +10002,7 @@ def test_record_party_and_conflict_contract(live_client):
 
     check = live_client._graph_request(
         "POST", "/conflict-checks",
-        data={"queries": [{"name": "Muster Bau AG", "role": "counterparty"}],
+        data={"queries": [{"name": "Muster Bau AG", "role": "opposing_party"}],
               "context": "cassette", "actor_ref": "cassette-recorder"})
     recorded["POST /conflict-checks"] = check
     check_id = check["check_id"]
@@ -10317,6 +10058,19 @@ def test_conflict_check_carries_the_honesty_fields(contract):
 def test_merged_source_is_a_readable_tombstone(contract):
     node = contract["GET /nodes/<merged-source>"]["node"]
     assert node.get("merged_into"), "a merged source must stay readable and point at its target"
+
+
+def test_merge_answers_target_source_moved_and_scope_but_never_node(contract):
+    """KB-E-6's shape, pinned: the merged node is under 'target'.
+
+    The Platform route reads this payload; a 'node' key never existed, and a
+    reader that invents one renders an empty party card after a good merge.
+    """
+    payload = contract["POST /nodes/<id>/merge"]
+    assert {"target", "source", "moved", "scope"} <= set(payload)
+    assert "node" not in payload
+    assert {"id", "status", "merged_into"} <= set(payload["source"])
+    assert payload["source"]["status"] == "merged"
 ```
 
 Run (from `KnovasPlatform/components/docbridge_integration`; `api.base_url` reads
@@ -10329,7 +10083,7 @@ SEMANTIX_API_URL=https://<dev-host>:8443 SEMANTIX_CLIENT_CERT=/abs/path/client.c
 ```
 
 Expected: PASS and the cassette gains the seven keys. If any route answers 404 with an empty body, the KnowledgeBase parts for §5.8/§5.9 are not deployed on dev yet — stop and report; never hand-edit the cassette.
-Then run: `python -m pytest tests/test_graph_contract_parties.py -v` — Expected: PASS, 3 tests.
+Then run: `python -m pytest tests/test_graph_contract_parties.py -v` — Expected: PASS, 4 tests.
 
 - [ ] **Step 11: Commit**
 
@@ -10353,7 +10107,7 @@ git commit -m "feat(parties): client methods and typed rows for identifiers, dup
 - Create: `src/web_interface/templates/parties.html`
 - Create: `src/web_interface/static/js/parties.js`
 - Create: `src/web_interface/static/css/parties.css`
-- Modify: `src/web_interface/app.py` — the `_page_context()` helper inserted after `_sidebar_context()` (whose last line is `app.py:1014`; `@app.route('/')` follows at `:1016`), and the blueprint registration inserted directly above the `/api/ontology/summary` route (`app.py:1717`), next to the section-C `register_graph_routes(...)` call (C-plan C1 puts its call at the same anchor)
+- Modify: `src/web_interface/app.py` — the `_page_context()` helper inserted after `_sidebar_context()` (`app.py:1009-1014`, its last line — the closing `}` of the returned dict — is `:1014`; `:1015` is blank and `@app.route('/')` follows at `:1016`), and the blueprint registration inserted directly above the `/api/ontology/summary` route (`app.py:1717`), next to the section-C `register_graph_routes(...)` call (C-plan C1 puts its call at the same anchor)
 - Modify: `config/config.yaml` — new `web.graph` block inserted directly above the `  # Document opening` comment (`config/config.yaml:206`)
 - Modify (only when section B is on your branch): `src/identity/approvals.py` — add `"party_merge"` to `GUARDED_KINDS`
 - Test: `tests/test_parties_routes.py`
@@ -10374,16 +10128,17 @@ git commit -m "feat(parties): client methods and typed rows for identifiers, dup
   - `POST /api/parties/<node_id>/identifiers {identifier_text, kind}` → `201 {"success": true, "identifier": {...}}`; `400` empty text or unknown kind; `409 {"error_code": "identifier_limit_exceeded"}` passed through from `GraphError`
   - `DELETE /api/parties/<node_id>/identifiers/<identifier_id>` → `200 {"success": true}` / `404`
   - `GET /api/parties/duplicates?node_type_id=&threshold=&limit=` → `200 {"success": true, "candidates": [{"node_a": {...}, "node_b": {...}, "score": float, "identifiers": [...]}]}`
-  - `POST /api/parties/merge {target_node_id, source_node_id, reason?}` → `200 {"success": true, "node": {...}, "source_node_id": str, "message": "Zusammengeführt. Die Quelle bleibt als Verweis erhalten."}` when executed, `202 {"success": true, "status": "approval_requested", "request_id": str, "message": ...}` when a second confirmer is required, `400` on self-merge, `404` when either node is unknown
+  - `POST /api/parties/merge {target_node_id, source_node_id, reason?}` → `200 {"success": true, "node": {...}, "source": {"id","status","merged_into"}, "source_node_id": str, "message": "Zusammengeführt. Die Quelle bleibt als Verweis erhalten."}` when executed — `node` is the tenant's `target` object (the merged node), read from `merge_nodes(...)['target']`; the tenant answer has **no** `node` key (Part KB-E, Task KB-E-6) — `202 {"success": true, "status": "approval_requested", "request_id": str, "message": ...}` when a second confirmer is required, `400` on self-merge, `404` when either node is unknown
   - `app.config` hooks read by this blueprint and reused by Tasks KC-B-3/KC-B-4: `IDENTITY_GATE` (object with `current_user()`), `APPROVALS_FACTORY` (`callable() -> ApprovalService`), `AUDIT_RECORDER` (`callable(*, action, actor, target_type, target_id, outcome, detail)`), `KNOVAS_CONFIG` (the `ConfigLoader` built in `create_app`). All four default to absent, which is exactly the state of `main` today — the code path must work without them.
   - `app.py::_page_context() -> Dict[str, Any]` — `company_name`, `feedback_url`, `app_title`, `brand`, `csrf_token`, `asset_version`, `build_id`: the values `_sidebar.html` needs and that a Blueprint route cannot reach today. Task KC-B-4 consumes this exact helper (its Note 2 says “reuse it unchanged”) and Task KC-B-6 adds one key (`nav_items`) inside `_sidebar_context()`, which this helper spreads
   - Config keys `web.graph.party_node_types` (default `"Partei,Person,Organisation"`, env `PARTY_NODE_TYPES`) and `web.graph.organisation_node_types` (default `"Organisation,Firma,Gegenpartei"`, env `ORGANISATION_NODE_TYPES`)
 
-**Note (the repository contradicts four plan assumptions — the repository wins).**
+**Note (the repository and the tenant contract contradict five plan assumptions — they win).**
 1. `_sidebar_context()` is a *closure inside* `create_app` (`app.py:1009-1014`), and `web_app_title` (`:685`) / `web_brand` (`:689-690`) / `_static_asset_version` (`:601`) / `_ensure_csrf_token` (`:827`) / `DOCBRIDGE_BUILD_ID` are closure locals or module globals a Blueprint in another module cannot reach. `_sidebar.html:58` evaluates `{{ company_name[0] | upper }}`, and Jinja raises `UndefinedError` on an undefined subscript — so a Blueprint page that does not receive `company_name` **500s**, it does not merely look wrong. The C-plan's `matter_page` calls `render_template("matter.html", …, brand=current_app.config.get("BRAND", "Knovas"))` and would hit exactly that. Step 4 fixes it once with a named `_page_context()` helper handed to every Blueprint at registration time — the same convention the deadlines/reports/journal blueprints of this plan use (`page_context=lambda: {…}`), and the helper Task KC-B-4 reuses. It is deliberately **not** an `@app.context_processor`: two parts of this plan would otherwise register two processors with different names and different keys.
 2. The sidebar entry itself and the `active_nav='parteien'` link are **Task KC-B-6's** job (sidebar entries, `active_nav` values and honesty states for all new screens). This task only passes `active_nav='parteien'`; `/parteien` is reachable by URL until KC-B-6 lands.
 3. Section-C task C7 adds a *kind-less* `POST /api/graph/nodes/<id>/identifiers` for the matter page. The register's editor is kind-aware and owns `/api/parties/<node_id>/identifiers` instead of widening C7's contract, because the two screens ask different questions ("eine weitere Schreibweise für diese Akte" vs "welche Art von Kennung ist das"). Do not delete the C7 route in this task — the matter page still calls it.
-4. `app.py`'s login gate (`:876-897`) answers **before** routing succeeds: it checks `request.path.startswith('/api/')`, not `request.endpoint`. An unauthenticated call to a `/api/…` path that does not exist yet therefore answers `401`, and an unauthenticated `GET /parteien` answers `302`. That is why Step 2's expected failure is *not* “401 tests fail first” — `test_parties_api_requires_login` passes before a single line is written, for the wrong reason, and the tests that actually drive the implementation are the ones after it.
+4. **The merge answer has no `node` key.** `POST /secured/graph/nodes/<id>/merge` returns `{"status","message","target": {…}, "source": {"id","status","merged_into"}, "moved": {…}, "scope": {…}}` (Part KB-E, Task KB-E-6), and `KnovasAPIClient.merge_nodes` hands that body through unchanged — `_graph_request` (`src/knovas_client.py:1531-1567`) strips no envelope and renames nothing. Reading `merged['node']` therefore yields `None` and the party card renders empty after a *successful* merge. This task reads `merged['target']`, and `FakeApi.merge_result` below carries the real tenant shape so the test fails when the wrong key is read.
+5. `app.py`'s login gate (`:876-897`) answers **before** routing succeeds: it checks `request.path.startswith('/api/')`, not `request.endpoint`. An unauthenticated call to a `/api/…` path that does not exist yet therefore answers `401`, and an unauthenticated `GET /parteien` answers `302`. That is why Step 2's expected failure is *not* “401 tests fail first” — `test_parties_api_requires_login` passes before a single line is written, for the wrong reason, and the tests that actually drive the implementation are the ones after it.
 
 - [ ] **Step 1: Write the failing route test**
 
@@ -10426,7 +10181,17 @@ class FakeApi:
         }
         self.search_result = {"matches": [], "degraded": False}
         self.duplicates_result = {"candidates": []}
-        self.merge_result = {"node": {"id": "n1", "name": "Muster Bau AG"}}
+        # Exakt die Antwort von POST /secured/graph/nodes/<id>/merge (KB-E-6):
+        # der zusammengefuehrte Knoten steht unter 'target', ein 'node' gibt es
+        # dort nicht. Wer hier 'node' erfindet, testet die Route nie wirklich.
+        self.merge_result = {"status": "success", "message": "Nodes merged",
+                             "target": {"id": "n1", "name": "Muster Bau AG",
+                                        "node_type_id": "t-org"},
+                             "source": {"id": "n3", "status": "merged",
+                                        "merged_into": "n1"},
+                             "moved": {"identifiers": 1, "facts": 0, "edges": 0,
+                                       "assignments": 0},
+                             "scope": {"pointers": 0, "mode": "none"}}
         self.merge_raises = None
         self.identifiers = [{"id": "i1", "node_id": "n1",
                              "identifier_text": "Muster Bau AG", "kind": "legal_name"}]
@@ -10729,6 +10494,10 @@ def test_merge_executes_binds_the_actor_and_is_audited(app, api):
 
     assert ("merge_nodes", "n1", "n3", "u-7") in api.calls
     assert "Quelle bleibt als Verweis erhalten" in payload["message"]
+    # Der Mandant liefert den Knoten unter 'target'; die Karte bleibt sonst leer.
+    assert payload["node"] == {"id": "n1", "name": "Muster Bau AG",
+                               "node_type_id": "t-org"}
+    assert payload["source"] == {"id": "n3", "status": "merged", "merged_into": "n1"}
     assert audited[0]["action"] == "party.merged"
     assert audited[0]["target_id"] == "n1"
     assert audited[0]["detail"]["source_node_id"] == "n3"
@@ -11203,8 +10972,17 @@ def register_parties_routes(app, api_client, graph_mode, page_context):
                target_id=target_id, outcome='ok',
                detail={'source_node_id': source_id, 'actor_ref': actor_ref,
                        'reason': reason})
-        node = merged.get('node') if isinstance(merged, dict) else None
-        return jsonify({'success': True, 'node': node, 'source_node_id': source_id,
+        # Der Mandant antwortet {'target', 'source', 'moved', 'scope'} - der
+        # zusammengefuehrte Knoten steht unter 'target' (KB-E-6). Einen
+        # Schluessel 'node' gibt es dort nicht; wer ihn liest, schickt der
+        # Oberflaeche nach einer ERFOLGREICHEN Zusammenfuehrung ein leeres Feld.
+        payload = merged if isinstance(merged, dict) else {}
+        node = payload.get('target')
+        source = payload.get('source')
+        return jsonify({'success': True,
+                        'node': node if isinstance(node, dict) else None,
+                        'source': source if isinstance(source, dict) else None,
+                        'source_node_id': source_id,
                         'message': 'Zusammengeführt. Die Quelle bleibt als Verweis '
                                    'erhalten.'})
 
@@ -11215,7 +10993,8 @@ def register_parties_routes(app, api_client, graph_mode, page_context):
 - [ ] **Step 4: Register the blueprint and give Blueprint templates the sidebar context**
 
 In `src/web_interface/app.py`, directly **after** the `_sidebar_context()` helper
-(whose last line is `app.py:1014`, immediately before `@app.route('/')` at `:1016`), add:
+(`app.py:1009-1014`; its last line — the closing `}` of the returned dict — is `:1014`,
+`:1015` is blank, and `@app.route('/')` follows at `:1016`), add:
 
 ```python
     def _page_context() -> Dict[str, Any]:
@@ -12948,14 +12727,15 @@ git commit -m "feat(zefix): UID enrichment with a generated register extract as 
 - Create: `src/web_interface/templates/conflict_protocol.html`
 - Create: `src/web_interface/static/js/conflicts.js`
 - Create: `src/web_interface/static/css/conflicts.css`
-- Modify: `src/web_interface/app.py` — insert `_page_context()` after `_sidebar_context()` (which ends at `app.py:1015`, immediately before `@app.route('/')` at `:1016`); register the blueprint next to the C-plan `register_graph_routes(...)` call, i.e. immediately before `@app.route('/api/ontology/summary')` at `app.py:1717`
+- Modify: `src/web_interface/app.py` — insert `_page_context()` after `_sidebar_context()` (`app.py:1009-1014`; its last line — the closing `}` of the returned dict — is `:1014`, `:1015` is blank, and `@app.route('/')` follows at `:1016` — the same anchor Task KC-B-2 names); register the blueprint next to the C-plan `register_graph_routes(...)` call, i.e. immediately before `@app.route('/api/ontology/summary')` at `app.py:1717`
 - Modify: `config/config.yaml` — new `web.conflicts` block after `hover_preview: true` (`:204`), before `# Document opening` (`:206`)
 - Test: `tests/test_conflicts_routes.py`
 
-**Note (the repository beats the assumption, three places):**
+**Note (the repository and the tenant contract beat the assumption, four places):**
 1. The design and the C-plan prose say `KnovasClient`; the class at `src/knovas_client.py:889` is `KnovasAPIClient`. That name is used below.
 2. The C-plan's Task C6 renders `matter.html` with only `brand=current_app.config.get("BRAND", "Knovas")`. `_sidebar.html:60` evaluates `{{ company_name[0] | upper }}` and Jinja raises `UndefinedError` on an undefined subscript, so a blueprint page that does not pass the sidebar context 500s. This task therefore adds one `_page_context()` helper in `app.py`, and every blueprint page below renders `**page_context()`. Task KC-B-2 (Parteien) adds exactly this helper in its Step 4 and hands it to `register_parties_routes(app, api_client, graph_mode, page_context)`; if KC-B-2 landed first, reuse the helper unchanged and add only the registration line. There is deliberately no `@app.context_processor` for this — one named callable, handed over at registration, is the whole convention.
 3. `config/config.template.yaml` has no `web:` section (it is the legacy DocBridge template: `docbridge/semantix/sync/notifications/advanced`), so only `config/config.yaml` is edited.
+4. **The role vocabulary is the tenant's, not ours.** `services/knowledge_graph/conflict_checks.py` (Part KB-E, Task KB-E-8) enumerates `QUERY_ROLES = ("client", "opposing_party", "related_party", "other")` and answers `400` with `error_code conflict_check_invalid_role` for anything else — `counterparty` and `related` would be rejected on every call that carries them. `CONFLICT_ROLES` below is therefore those four wire values verbatim; the German a lawyer reads (`Gegenpartei` for `opposing_party`, `Beteiligte` for `related_party`) lives **only** in `ROLE_LABELS`. This is also why `_clean_queries` drops an unknown role instead of forwarding it: a name without a role is a valid query, a name with an invented role is a 400 for the whole check.
 
 **Interfaces:**
 - Consumes:
@@ -12968,7 +12748,7 @@ git commit -m "feat(zefix): UID enrichment with a generated register extract as 
   - `src/identity/audit.py::record(conn, *, action, actor, target_type, target_id, outcome, detail)` — (defined by section-B KC-B1-2; read `.../src/identity/audit.py:23`), reached through `current_app.config['AUDIT_RECORDER']`.
 - Produces:
   - `src/web_interface/conflicts_routes.py::register_conflict_routes(app, api_client, graph_mode, page_context, config=None) -> Blueprint` (blueprint name `conflicts_api` — so the endpoints are `conflicts_api.conflicts_page` and `conflicts_api.conflict_protocol_page`, which is what Task KC-B-6's `NAV_ITEMS` must name; `graph_mode` and `page_context` are zero-argument callables, `page_context` being the `app.py::_page_context()` of Task KC-B-2, `config` is the `ConfigLoader` from `create_app`)
-  - module constants `CONFLICT_ROLES = ('client', 'counterparty', 'related', 'other')`, `ROLE_LABELS`, `ACTOR_KIND_LABELS`
+  - module constants `CONFLICT_ROLES = ('client', 'opposing_party', 'related_party', 'other')` (the tenant's `QUERY_ROLES`, verbatim), `ROLE_LABELS` (the German the lawyer reads: `Mandantschaft`, `Gegenpartei`, `Beteiligte`, `Sonstige`), `ACTOR_KIND_LABELS`
   - page `GET /konfliktpruefung` (`active_nav='konfliktpruefung'` — the value KC-B-6 wires into `_sidebar.html`)
   - page `GET /konfliktpruefung/<check_id>/protokoll` (server-rendered, printable; 404 for an unknown check)
   - `POST /api/conflict-checks {queries: [{name, role?}|str], context?}` → `201 {"success": true, "check": <ConflictCheck.to_dict() with grouped.matters[].matter_name>, "actor_label": str}`; `400 {"success": false, "error": "Bitte mindestens einen Namen angeben."}`; `409` in fixture mode
@@ -13010,7 +12790,7 @@ CHECK_PAYLOAD = {
     "check_id": "c1",
     "executed_at": "2026-08-15T10:00:00+00:00",
     "queries": [{"name": "Muster Bau AG", "role": "client"},
-                {"name": "Meier", "role": "counterparty"}],
+                {"name": "Meier", "role": "opposing_party"}],
     "context": "Neumandat Weber",
     "hits": [
         {"query_index": 0, "kind": "party", "node_id": "n1",
@@ -13208,14 +12988,18 @@ def test_run_forwards_names_roles_and_context(graph_app):
     headers = login(client)
     resp = client.post("/api/conflict-checks",
                        json={"queries": [{"name": " Muster Bau AG ", "role": "client"},
+                                         {"name": "Weber AG", "role": "opposing_party"},
                                          {"name": "Meier", "role": "gegner"}],
                              "context": "Neumandat Weber"},
                        headers=headers)
     assert resp.status_code == 201
     kind, queries, context, actor_ref = stub.calls[0]
     assert kind == "run"
-    # 'gegner' steht nicht im Vokabular -> die Rolle faellt weg, der Name bleibt
-    assert queries == [{"name": "Muster Bau AG", "role": "client"}, {"name": "Meier"}]
+    # Die Drahtwerte sind die des Mandanten (QUERY_ROLES), nicht die Beschriftung:
+    # 'gegner' steht nicht im Vokabular -> die Rolle faellt weg, der Name bleibt.
+    assert queries == [{"name": "Muster Bau AG", "role": "client"},
+                       {"name": "Weber AG", "role": "opposing_party"},
+                       {"name": "Meier"}]
     assert context == "Neumandat Weber"
     assert actor_ref is None          # ohne section-B gibt es keinen verifizierten Akteur
 
@@ -13375,13 +13159,16 @@ logger = logging.getLogger(__name__)
 _GENERIC_ERROR = 'Es ist ein Fehler aufgetreten.'
 _NEEDS_GRAPH = 'Wissensnetz-Modus erforderlich'
 
-#: Rollen im Formular. Die API speichert 'role' als freien Text; dieses kleine
-#: Vokabular haelt die Belege vergleichbar, statt jede Schreibweise zu erben.
-CONFLICT_ROLES = ('client', 'counterparty', 'related', 'other')
+#: Rollen im Formular. Die Drahtwerte sind NICHT frei waehlbar: der Mandant
+#: prueft sie gegen services/knowledge_graph/conflict_checks.py::QUERY_ROLES und
+#: antwortet sonst 400 conflict_check_invalid_role. Diese vier Werte sind
+#: deshalb woertlich die des Mandanten - die deutsche Beschriftung steht
+#: ausschliesslich in ROLE_LABELS.
+CONFLICT_ROLES = ('client', 'opposing_party', 'related_party', 'other')
 ROLE_LABELS = {
     'client': 'Mandantschaft',
-    'counterparty': 'Gegenpartei',
-    'related': 'Beteiligte',
+    'opposing_party': 'Gegenpartei',
+    'related_party': 'Beteiligte',
     'other': 'Sonstige',
 }
 
@@ -13690,7 +13477,7 @@ def register_conflict_routes(app, api_client, graph_mode, page_context, config=N
 
 - [ ] **Step 4: Wire the blueprint and the shared page context into `app.py`**
 
-In `src/web_interface/app.py`, insert after `_sidebar_context()` (its last line is `app.py:1015`) and before `@app.route('/')` (`:1016`):
+In `src/web_interface/app.py`, insert after `_sidebar_context()` (`app.py:1009-1014`; its last line — the closing `}` of the returned dict — is `:1014`, `:1015` is blank) and before `@app.route('/')` (`:1016`):
 
 ```python
     def _page_context() -> Dict[str, Any]:
@@ -14255,10 +14042,12 @@ Create `src/web_interface/static/js/conflicts.js`:
         }
     }
 
+    // Die Rollenwerte sind die des Mandanten (QUERY_ROLES); die Beschriftung
+    // kommt aus cfg.roles, also aus ROLE_LABELS.
     appendNameRow('', 'client');
-    appendNameRow('', 'counterparty');
+    appendNameRow('', 'opposing_party');
     addRowButton.addEventListener('click', () => {
-        if (nameRows.children.length < (cfg.maxNames || 50)) appendNameRow('', 'counterparty');
+        if (nameRows.children.length < (cfg.maxNames || 50)) appendNameRow('', 'opposing_party');
     });
     form.addEventListener('submit', run);
     loadHistory();
@@ -14327,12 +14116,13 @@ git commit -m "feat(conflicts): Konfliktpruefung screen with evidentiary result,
 1. **Two calls, not one.** Parsing (`POST /api/conflict-checks/import`) never runs a check — design rule 2, "proposals never commit", and it lets the officer see the validation before anything becomes an immutable record. Execution (`POST /api/conflict-checks/import/run`) takes at most ten rows per call, and the browser walks the list in chunks. One request that runs 200 checks would exceed the gunicorn timeout (`DOCBRIDGE_WEB_TIMEOUT=120`) and the per-seat query bucket (6/min sustained, burst 18 — design §5.4) with nothing to show for the rows that did finish.
 2. **No new Platform store.** The bundle lives in the browser for the length of the run and in the `context` string of every recorded check (`lateral:<uuid> | Zeile 7 | Akte: … | Zeitraum: …`). The Knovas API has no bundle filter, so the plan says so on the screen instead of pretending a bundle is a first-class object; the officer takes the summary CSV.
 3. **`period` is context, never a filter.** A conflicts check has no time dimension — it always covers the whole visible corpus. Parsing dates would suggest otherwise, so the column is carried through verbatim.
-4. `openpyxl` is **not** a dependency of this component today (checked `requirements.txt` and `.venv/Lib/site-packages`). It is added here; the code still imports cleanly without it and the route answers `503` with a German instruction to save the list as CSV, so an older image degrades honestly instead of crashing.
+4. **A column header is not an API role.** `COLUMNS = ('client', 'counterparty', 'matter', 'period')` are the words a firm types into its spreadsheet, and they stay human — `counterparty`, `Gegenpartei`, `Gegner` all name the same column. The role the tenant accepts is a different vocabulary (`conflict_checks.py::QUERY_ROLES = ("client", "opposing_party", "related_party", "other")`, `400 conflict_check_invalid_role` otherwise). `COLUMN_ROLES` is the single, explicit bridge between the two, `ImportRow.queries()` is its only caller, and `test_the_counterparty_column_maps_to_the_tenants_wire_role` pins it — without that mapping every row of a two-hundred-row list would come back 400.
+5. `openpyxl` is **not** a dependency of this component today (checked `requirements.txt` and `.venv/Lib/site-packages`). It is added here; the code still imports cleanly without it and the route answers `503` with a German instruction to save the list as CSV, so an older image degrades honestly instead of crashing.
 
 **Interfaces:**
 - Consumes: `register_conflict_routes(app, api_client, graph_mode, page_context, config=None)`, `_clean_queries`, `_guard`, `_fail`, `_actor`, `_audit`, `CONFLICT_ROLES` (defined in Task KC-B-4); `KnovasAPIClient.conflict_check_run(queries, context=None, actor_ref=None)` (defined in Task KC-B-1); `graph_model.ConflictCheck` (defined in Task KC-B-1); the test helpers `build_conflicts_app`, `login`, `StubConflictAPI` from `tests/test_conflicts_routes.py` (defined in Task KC-B-4).
 - Produces:
-  - `src/lateral_import.py`: `COLUMNS = ('client', 'counterparty', 'matter', 'period')`, `COLUMN_ALIASES`, `TEMPLATE_CSV: str`, `MAX_NAMES_PER_ROW = 50`, exceptions `UnsupportedImportFile(ValueError)` and `XlsxUnavailable(RuntimeError)`, dataclasses `ImportRow(row_number, client, counterparties, matter, period, errors)` with `.valid`, `.queries() -> list[dict]`, `.to_dict()` and `ParsedImport(rows, header_errors, truncated)` with `.valid_count`, `.error_count`, `.to_dict()`, plus `parse_csv(data: bytes, *, max_rows: int) -> ParsedImport`, `parse_xlsx(data: bytes, *, max_rows: int) -> ParsedImport`, `parse_upload(filename: str, data: bytes, *, max_rows: int) -> ParsedImport`
+  - `src/lateral_import.py`: `COLUMNS = ('client', 'counterparty', 'matter', 'period')` (spreadsheet **column headers**, the words a firm types into Excel — not API roles), `COLUMN_ROLES = {'client': 'client', 'counterparty': 'opposing_party'}` (the one place a column name becomes a wire role from the tenant's `QUERY_ROLES`), `COLUMN_ALIASES`, `TEMPLATE_CSV: str`, `MAX_NAMES_PER_ROW = 50`, exceptions `UnsupportedImportFile(ValueError)` and `XlsxUnavailable(RuntimeError)`, dataclasses `ImportRow(row_number, client, counterparties, matter, period, errors)` with `.valid`, `.queries() -> list[dict]`, `.to_dict()` and `ParsedImport(rows, header_errors, truncated)` with `.valid_count`, `.error_count`, `.to_dict()`, plus `parse_csv(data: bytes, *, max_rows: int) -> ParsedImport`, `parse_xlsx(data: bytes, *, max_rows: int) -> ParsedImport`, `parse_upload(filename: str, data: bytes, *, max_rows: int) -> ParsedImport`
   - `GET /api/conflict-checks/import/template.csv` → `200 text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="konfliktpruefung-vorlage.csv"`, UTF-8 BOM
   - `POST /api/conflict-checks/import` (multipart field `file`) → `200 {"success": true, "bundle_id": "lateral:<hex32>", "rows": [{"row_number", "client", "counterparties", "matter", "period", "errors", "valid", "queries"}], "header_errors": [str], "valid_count": int, "error_count": int, "truncated": bool, "max_rows": int, "chunk_size": 10}`; `400` unsupported/empty; `413` too large; `503` XLSX unavailable; `409` fixture mode
   - `POST /api/conflict-checks/import/run {bundle_id, rows: [{row_number, queries, matter, period}]}` (≤ 10 rows) → `201 {"success": true, "bundle_id": str, "results": [{"row_number", "status": "done"|"invalid"|"failed", "check_id"?, "hit_count"?, "withheld_count"?, "degraded"?, "protocol_url"?, "error"?}], "actor_label": str}`
@@ -14482,9 +14272,29 @@ def test_queries_carry_the_roles_the_api_expects():
 
     assert parsed.rows[0].queries() == [
         {"name": "Muster Bau AG", "role": "client"},
-        {"name": "Meier AG", "role": "counterparty"},
-        {"name": "Meier Immobilien AG", "role": "counterparty"},
+        {"name": "Meier AG", "role": "opposing_party"},
+        {"name": "Meier Immobilien AG", "role": "opposing_party"},
     ]
+
+
+def test_the_counterparty_column_maps_to_the_tenants_wire_role():
+    """Die Spalte heisst 'counterparty', der Mandant kennt nur 'opposing_party'.
+
+    conflict_checks.py::QUERY_ROLES = ("client", "opposing_party",
+    "related_party", "other"); alles andere ist 400
+    conflict_check_invalid_role. Diese Zuordnung ist der einzige Ort, an dem
+    die Spaltennamen der Kanzlei auf das API-Vokabular treffen - deshalb wird
+    sie hier festgenagelt und nicht bloss nebenbei geprueft.
+    """
+    assert lateral_import.COLUMNS == ("client", "counterparty", "matter", "period")
+    assert lateral_import.COLUMN_ROLES == {"client": "client",
+                                           "counterparty": "opposing_party"}
+
+    parsed = _parse("lateral_utf8.csv")
+    roles = {query["role"] for row in parsed.rows for query in row.queries()}
+
+    assert roles <= {"client", "opposing_party", "related_party", "other"}
+    assert "counterparty" not in roles
 
 
 def test_too_many_names_in_one_row_is_a_row_error():
@@ -14578,7 +14388,19 @@ except ImportError:                     # pragma: no cover - alte Images
 
 logger = logging.getLogger(__name__)
 
+#: SPALTENUEBERSCHRIFTEN der hochgeladenen Liste - das, was eine Kanzlei in
+#: Excel tippt. Sie sind KEINE API-Rollen und behalten ihre menschlichen Namen.
 COLUMNS = ('client', 'counterparty', 'matter', 'period')
+
+#: Von der Spalte zur Rolle auf dem Draht. Der Mandant kennt nur
+#: conflict_checks.py::QUERY_ROLES ('client', 'opposing_party',
+#: 'related_party', 'other') und antwortet sonst 400
+#: conflict_check_invalid_role - die Spalte 'counterparty' wird deshalb hier,
+#: an genau einer Stelle, nach 'opposing_party' uebersetzt.
+COLUMN_ROLES = {
+    'client': 'client',
+    'counterparty': 'opposing_party',
+}
 
 #: Deutsche und englische Kopfzeilen. Kanzleien exportieren aus WinJur, Excel
 #: oder Word - eine feste Schreibweise zu verlangen erzeugt nur Support.
@@ -14627,11 +14449,18 @@ class ImportRow:
         return not self.errors
 
     def queries(self) -> List[Dict[str, str]]:
-        """Die Namen dieser Zeile in der Form, die die API erwartet."""
+        """Die Namen dieser Zeile in der Form, die die API erwartet.
+
+        Die Spalte heisst 'counterparty' - die Rolle auf dem Draht heisst
+        'opposing_party'. Die Uebersetzung steht in COLUMN_ROLES und nirgends
+        sonst; ein hier durchgereichtes 'counterparty' waere ein 400 fuer jede
+        einzelne Zeile der Liste.
+        """
         out: List[Dict[str, str]] = []
         if self.client:
-            out.append({'name': self.client, 'role': 'client'})
-        out.extend({'name': name, 'role': 'counterparty'} for name in self.counterparties)
+            out.append({'name': self.client, 'role': COLUMN_ROLES['client']})
+        out.extend({'name': name, 'role': COLUMN_ROLES['counterparty']}
+                   for name in self.counterparties)
         return out
 
     def to_dict(self) -> Dict[str, Any]:
@@ -14787,7 +14616,7 @@ def _collect(rows, *, max_rows: int) -> ParsedImport:
 - [ ] **Step 6: Run the parser test to verify it passes**
 
 Run: `python -m pytest tests/test_lateral_import.py -v`
-Expected: PASS — 12 tests.
+Expected: PASS — 13 tests.
 
 - [ ] **Step 7: Write the failing route test**
 
@@ -14918,7 +14747,7 @@ def test_run_executes_one_check_per_row_with_the_bundle_context(graph_app):
         "bundle_id": "lateral:abc123",
         "rows": [{"row_number": 2, "matter": "2024-014", "period": "2024-2025",
                   "queries": [{"name": "Muster Bau AG", "role": "client"},
-                              {"name": "Meier AG", "role": "counterparty"}]},
+                              {"name": "Meier AG", "role": "opposing_party"}]},
                  {"row_number": 3, "matter": "", "period": "",
                   "queries": [{"name": "Wüthrich & Partner", "role": "client"}]}],
     }).get_json()
@@ -15371,7 +15200,7 @@ end of the IIFE (`appendNameRow('', 'client');`):
 - [ ] **Step 12: Run the whole conflicts suite**
 
 Run: `python -m pytest tests/test_lateral_import.py tests/test_conflicts_import_routes.py tests/test_conflicts_routes.py -v`
-Expected: PASS — 12 + 11 + 16 tests.
+Expected: PASS — 13 + 11 + 16 tests.
 
 Then run the full suite once to prove nothing else moved:
 Run: `python -m pytest -q`
@@ -15429,27 +15258,46 @@ git commit -m "feat(conflicts): lateral-hire CSV/XLSX import running one conflic
 - Create: `src/web_interface/navigation.py`
 - Create: `src/web_interface/templates/_nav_icons.html`
 - Create: `src/web_interface/templates/_needs_graph.html`
-- Modify: `src/web_interface/templates/_sidebar.html:1-54` — the header comment (`:1-2`) and the whole `<nav class="app-nav">` block (`:9-54`); the brand (`:3-7`) and the foot (`:56-64`) stay untouched
-- Modify: `src/web_interface/app.py` — one import beside `from web_interface.preview import (…)` (`:33-40`), `_sidebar_context` (`:1009-1014`), and a context processor directly after it
-- Modify: `src/web_interface/static/css/style.css` — append after the `.app-nav-item.active` block (ends `:1173`, before the `/* Fuss: … */` comment at `:1175`) and one rule inside the `@media (max-width: 900px)` block (`:1234-1253`)
-- Modify: `src/web_interface/parties_routes.py` (created in Task KC-B-2) — the `/parteien` render call
-- Modify: `src/web_interface/conflicts_routes.py` (created in Task KC-B-4) — the `/konfliktpruefung` render call
-- Modify: `src/web_interface/templates/parties.html` (Task KC-B-2) and the `/konfliktpruefung` page template `templates/conflicts.html` (Task KC-B-4) — wrap the body in the fixture branch
+- Modify: `src/web_interface/templates/_sidebar.html:1-54` — the header comment (`:1-2`) and the whole `<nav class="app-nav">` block (`:9-54`, `<nav …>` on `:9` through `</nav>` on `:54`); the `<aside>` opener and brand (`:3-7`) and the foot (`:56-64`, `</aside>` on `:65`) stay untouched. The file is **65** lines on `main` (`wc -l` = 65; `</aside>` is the last line). Note that the block being replaced ends with the conditional `{% if feedback_url %}` Feedback anchor (`:43-53`) — it is *not* a `NAV_ITEMS` row and must survive the rewrite verbatim (Step 3 keeps it).
+- Modify: `src/web_interface/app.py` — one import directly after the `from web_interface.preview import (…)` block (`:34-40`; `:33` is `from ontology_store import get_ontology`) and **one key** added inside `_sidebar_context()` (`:1009-1014`). No context processor is added here — see Step 5.
+- Modify: `src/web_interface/static/css/style.css` — append after the `.app-nav-item.active` block (ends `:1173`, before the `/* Fuss: … */` comment at `:1175`) and one rule inside the **second** `@media (max-width: 900px)` block (`:1235-1253`; the first one is at `:1012` and is about the search page, not the shell)
+- Modify: `src/web_interface/parties_routes.py` (created in Task KC-B-2) — two added keyword arguments on the `/parteien` render call
+- Modify: `src/web_interface/conflicts_routes.py` (created in Task KC-B-4) — two added keyword arguments on the `/konfliktpruefung` render call
+- Modify: `src/web_interface/templates/parties.html` (Task KC-B-2) — replace the inline `<section class="parties-empty">` fixture notice inside the existing `{% if not graph_mode %}` branch with the shared partial
+- Modify: `src/web_interface/templates/conflicts.html` (Task KC-B-4) — replace the inline `<section class="conflict-card conflict-state">` fixture notice inside its existing `{% if not graph_mode %}` branch with the shared partial
 - Test: `tests/test_navigation.py`
 
 **Interfaces:**
-- Consumes: `_ontology_source_is_graph() -> bool` (`app.py:1683-1684`; reads `ONTOLOGY_SOURCE`, `'graph'` = live); `_sidebar_context()` (`app.py:1009-1014`); `_static_asset_version()` (`app.py:601`); `login_company_name` (`app.py:691`); `feedback_url` (`app.py:1007`); `web_app_title` (`:685`); `web_brand` (`:690`); the endpoints `index` (`app.py:1016`), `ontology_page` (`:1037`), `settings_page` (`:1050`); the blueprint endpoints `parties.parties_page` (defined in Task KC-B-2) and `conflicts.conflicts_page` (defined in Task KC-B-4).
+- Consumes: `_ontology_source_is_graph() -> bool` (`app.py:1683-1684`; reads `ONTOLOGY_SOURCE`, `'graph'` = live); `_sidebar_context()` (`app.py:1009-1014`); `_page_context()` (added to `app.py` directly after `_sidebar_context()` by **Task KC-B-2 Step 4**, and it spreads `**_sidebar_context()` — that is the whole reason one key is enough here); `_static_asset_version()` (`app.py:601`); `login_company_name` (`app.py:691`); `feedback_url` (`app.py:1007`); `web_app_title` (`:685`); `web_brand` (`:689-690`); the endpoints `index` (`@app.route('/')` `:1016`, `def index` `:1017`), `ontology_page` (`:1037/:1038`), `settings_page` (`:1050/:1051`) — all three already render `**_sidebar_context()` (`:1023`, `:1043`, `:1056`); the blueprint endpoints `parties.parties_page` (blueprint `Blueprint('parties', __name__)`, Task KC-B-2) and `conflicts_api.conflicts_page` (blueprint `Blueprint('conflicts_api', __name__)`, Task KC-B-4 — **not** `conflicts.`); `graph_mode()` and `page_context()`, the two zero-argument callables `register_parties_routes` / `register_conflict_routes` already receive.
 - Produces:
   - `src/web_interface/navigation.py::NAV_ITEMS: Tuple[Dict[str, Any], ...]` — rows `{'key': str, 'label': str, 'endpoint': str, 'icon': str, 'requires_graph': bool}`
   - `src/web_interface/navigation.py::build_nav(*, graph_mode: bool) -> List[Dict[str, Any]]` — one dict per **buildable** entry: `{'key', 'label', 'url', 'icon', 'requires_graph', 'available': bool, 'hint': str}`
   - `src/web_interface/navigation.py::NEEDS_GRAPH_HINT: str` = `'Benötigt den Wissensnetz-Modus (ONTOLOGY_SOURCE=graph)'`
-  - template context key `nav_items` on every rendered page (via `_sidebar_context()` for the three `app.py` pages, via the new `@app.context_processor` `_inject_platform_shell` for blueprint pages)
-  - the partial `templates/_needs_graph.html` — expects `screen_name: str` (e.g. `'Das Parteienregister'`), optional `screen_hint: str`; renders the heading **"Wissensnetz-Modus erforderlich"**
+  - template context key `nav_items` on every rendered page — added **once**, inside `_sidebar_context()`. The three `app.py` pages already spread `**_sidebar_context()`; every Blueprint page gets it because `_page_context()` (Task KC-B-2) spreads the same helper. No new context processor, no per-route plumbing.
+  - the partial `templates/_needs_graph.html` — expects `screen_name: str` (e.g. `'Das Parteienregister'`), optional `screen_hint: str`; renders the heading **"Wissensnetz-Modus erforderlich"**. It is rendered inside the `{% if not graph_mode %}` branch the two page templates already have, so `graph_mode` stays the single mode flag of this part (there is deliberately no second `needs_graph` variable).
   - the macro `templates/_nav_icons.html::nav_icon(name)` for `search | parties | conflicts | cortex | settings`
   - CSS classes `.app-nav-item.unavailable`, `.needs-graph`
   - the `active_nav` vocabulary `suche | parteien | konfliktpruefung | cortex | einstellungen` (later parts of this plan append one `NAV_ITEMS` row each; nothing else changes)
 
 **Note (the repository beats the assumption):** the section-C plan's Task C6 says "Add a 'Akten' entry to `_sidebar.html`" but shows no markup, and its matter page is `/matters/<node_id>` — a route `url_for` cannot build without an id. There is therefore no "Akten" row here. If C6 shipped a hard-coded anchor it sits inside the `<nav>` block this task replaces: move it into `NAV_ITEMS` in the same edit, with the endpoint C6 registered. `build_nav` drops any entry whose endpoint does not build, so a wrong endpoint name shows up as a missing nav entry and `test_nav_order_is_the_working_day` fails on exactly that.
+
+> **Note (merge order — three other tasks write into the same 46 lines):** this task replaces `_sidebar.html:9-54` wholesale, and three tasks of *this* plan insert hard-coded anchors into exactly that block. Whichever lands second must fold the other's entry into `NAV_ITEMS` instead of re-adding an anchor:
+>
+> | Task | Anchor it inserts | `NAV_ITEMS` row to use instead |
+> |------|-------------------|-------------------------------|
+> | KC-C-2b (`/fristen`) | between Cortex (`:29`) and Einstellungen (`:30`) | `{'key': 'fristen', 'label': 'Fristen', 'endpoint': 'deadlines.page', 'icon': 'deadlines', 'requires_graph': True}` — blueprint `Blueprint("deadlines", __name__)`, endpoint `deadlines.page`, icon `<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>` |
+> | KC-C-5 (`/posteingang`) | after the Fristen anchor | `{'key': 'posteingang', 'label': 'Posteingang', 'endpoint': 'inbox.page', 'icon': 'inbox', 'requires_graph': False}` — blueprint `Blueprint("inbox", __name__)`, endpoint `inbox.page` |
+> | KC-D-2 | no anchor, but it rewrites `_sidebar_context()` (see Step 5) | — |
+>
+> KC-C-5's anchor additionally carries a badge that `NAV_ITEMS` cannot express. Keep it as one conditional line **inside** the loop, reading the `inbox_unread` context key KC-C-5 already provides, directly after `{{ item.label }}`:
+>
+> ```html
+>             {% if item.key == 'posteingang' and inbox_unread %}
+>             <span class="app-nav-badge" aria-label="{{ inbox_unread }} ungelesene Ereignisse">{{ inbox_unread }}</span>
+>             {% endif %}
+> ```
+>
+> Each folded-in entry also needs one `{% elif name == '…' %}` branch in `templates/_nav_icons.html` carrying that task's SVG paths — an unknown icon name renders an empty `<svg>`, which is a silently blank nav entry rather than an error, so add the branch in the same edit. Both tasks also extend the `active_nav` enumeration in the header comment (`:1-2`), and KC-C-5 appends `.app-nav-badge` CSS at the same `style.css:1173` anchor this task uses — append, do not replace.
 
 - [ ] **Step 1: Write the failing navigation test**
 
@@ -15594,14 +15442,18 @@ def test_graph_screens_stay_visible_on_the_fixture_and_say_why(graph_app):
 def test_an_unregistered_screen_is_left_out_instead_of_raising(graph_app, monkeypatch):
     from web_interface import navigation
 
+    # Bewusst ein Endpunkt, den kein Teil dieses Plans je registriert: 'fristen'
+    # (deadlines.page) und 'posteingang' (inbox.page) kommen mit KC-C-2b/KC-C-5
+    # wirklich, ein Test darauf waere ab dem Zusammenfuehren falsch-gruen.
     monkeypatch.setattr(navigation, "NAV_ITEMS", navigation.NAV_ITEMS + (
-        {"key": "fristen", "label": "Fristen", "endpoint": "deadlines.deadlines_page",
+        {"key": "nichtregistriert", "label": "Nicht registriert",
+         "endpoint": "nichtregistriert.seite",
          "icon": "search", "requires_graph": True},))
 
     with graph_app.test_request_context("/"):
         keys = [i["key"] for i in navigation.build_nav(graph_mode=True)]
 
-    assert "fristen" not in keys
+    assert "nichtregistriert" not in keys
     assert "parteien" in keys
 
 
@@ -15664,11 +15516,11 @@ def test_the_search_page_still_renders_its_own_nav(fixture_app):
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `python -m pytest tests/test_navigation.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'web_interface.navigation'` in the first three tests, and `AssertionError: assert 'class="app-nav-item active unavailable"' in html` in the rendering tests (the sidebar is still three hard-coded anchors).
+Expected: FAIL — `ModuleNotFoundError: No module named 'web_interface.navigation'` in the first three tests, and `AssertionError: assert 'class="app-nav-item active unavailable"' in html` in the rendering tests (the `<nav>` block is still hand-written anchors: three on `main`, five if KC-C-2b/KC-C-5 landed first). `test_the_apis_behind_those_screens_answer_409_not_500` passes from the start — Tasks KC-B-2/KC-B-4 already guard those routes — and is here as a regression guard, not as a driver.
 
 - [ ] **Step 3: Implement `navigation.py`**
 
-Create `src/web_interface/navigation.py`:
+Create `src/web_interface/navigation.py` (`from werkzeug.routing import BuildError` is valid on the pinned stack — `flask==3.0.0` pulls Werkzeug 3.1.8, which re-exports it from `werkzeug.routing.exceptions` in `routing/__init__.py:117`):
 
 ```python
 """Die Plattform-Navigation an einer Stelle.
@@ -15703,7 +15555,7 @@ NAV_ITEMS: Tuple[Dict[str, Any], ...] = (
     {'key': 'parteien', 'label': 'Parteien', 'endpoint': 'parties.parties_page',
      'icon': 'parties', 'requires_graph': True},
     {'key': 'konfliktpruefung', 'label': 'Konfliktprüfung',
-     'endpoint': 'conflicts.conflicts_page', 'icon': 'conflicts',
+     'endpoint': 'conflicts_api.conflicts_page', 'icon': 'conflicts',
      'requires_graph': True},
     {'key': 'cortex', 'label': 'Cortex', 'endpoint': 'ontology_page',
      'icon': 'cortex', 'requires_graph': False},
@@ -15812,13 +15664,13 @@ and the whole `<nav class="app-nav">` block (`:9-54`, from `<nav …>` through `
 
 - [ ] **Step 5: Hand the nav to every page, including blueprint pages**
 
-In `src/web_interface/app.py`, add the import directly after the `from web_interface.preview import (…)` block (`:33-40`):
+In `src/web_interface/app.py`, add the import directly after the `from web_interface.preview import (…)` block (`:34-40`; `:41` starts `from unc_path import (`):
 
 ```python
 from web_interface.navigation import build_nav
 ```
 
-Replace `_sidebar_context` (`:1009-1014`) with:
+Then add **one key** to `_sidebar_context()` (`:1009-1014`) — that is the entire `app.py` change:
 
 ```python
     def _sidebar_context() -> Dict[str, Any]:
@@ -15828,25 +15680,15 @@ Replace `_sidebar_context` (`:1009-1014`) with:
             'feedback_url': feedback_url,
             'nav_items': build_nav(graph_mode=_ontology_source_is_graph()),
         }
-
-    @app.context_processor
-    def _inject_platform_shell():
-        """Blueprint-Seiten (Parteien, Konfliktpruefung) bekommen die Werte der
-        Leiste, ohne dass jede Route sie erneut durchreicht. Explizite
-        render_template-Argumente gewinnen (Flask-Vertrag), die drei Seiten in
-        dieser Datei bleiben deshalb unveraendert."""
-        return {
-            **_sidebar_context(),
-            'app_title': web_app_title,
-            'brand': web_brand,
-            'asset_version': _static_asset_version(),
-        }
 ```
 
-Two notes for the implementer:
+That single key reaches every page in the app, and this is why:
 
-1. `_ontology_source_is_graph` is defined further down the same `create_app` closure (`:1683-1684`). Python resolves the name when `_sidebar_context()` runs — during a request — so the forward reference is fine; it is the same closure the ontology routes already rely on.
-2. Task KC-D-2 of this plan (`feat(cortex): graph mode is the deploy default; sidebar and settings carry honesty badges`, Part KC-D) adds a context processor with the same name plus `honesty_badges` and `csrf_token`. If it landed first, do **not** add a second one: add the single key `'nav_items': build_nav(graph_mode=_ontology_source_is_graph())` to `_sidebar_context()` and leave its processor alone.
+1. The three pages in `app.py` — `index` (`:1023`), `ontology_page` (`:1043`), `settings_page` (`:1056`) — already spread `**_sidebar_context()`. They need no edit.
+2. Blueprint pages get it through `_page_context()`, the named helper **Task KC-B-2 Step 4** inserts directly after `_sidebar_context()` and hands to `register_parties_routes(...)` / `register_conflict_routes(...)` at registration time. Its first line is `**_sidebar_context()`, so `nav_items` arrives with `company_name`, `app_title`, `brand`, `csrf_token`, `asset_version` and `build_id`.
+3. **Do not add an `@app.context_processor` here.** Task KC-B-2's Note 1 rejects one on purpose ("zwei Teile dieses Plans registrieren sonst mehrere Prozessoren mit verschiedenen Namen und verschiedenen Schluesseln"), and Task KC-D-2 registers one called `_inject_platform_shell` that *also* spreads `_sidebar_context()`. Adding a third source of the same keys is how two of them silently disagree. One key in one helper works whichever of the three landed first.
+4. `_ontology_source_is_graph` is defined further down the same `create_app` closure (`:1683-1684`). Python resolves the name when `_sidebar_context()` runs — during a request — so the forward reference is fine; it is the same closure the ontology routes already rely on.
+5. `build_nav` needs a request context because of `url_for`. Every caller is inside a request (`render_template` in a route), including `login.html`, which does not include `_sidebar.html` and simply ignores the extra key.
 
 - [ ] **Step 6: Style the two new states**
 
@@ -15882,7 +15724,7 @@ In `src/web_interface/static/css/style.css`, insert after the `.app-nav-item.act
 .needs-graph code { font-family: var(--font-heading); font-size: 0.85rem; }
 ```
 
-and inside the `@media (max-width: 900px)` block (`:1234-1253`), next to `.app-nav { flex-direction: row; }` (`:1249`):
+and inside the **second** `@media (max-width: 900px)` block (`:1235-1253` — the one that turns the shell into a header; the first, `:1012`, is the search page), next to `.app-nav { flex-direction: row; }` (`:1249`):
 
 ```css
     /* Als Kopfzeile hat der Punkt rechts keinen Platz - er wandert ans Label. */
@@ -15917,64 +15759,72 @@ Create `src/web_interface/templates/_needs_graph.html`:
 
 - [ ] **Step 8: Wire the two screens to `active_nav` and the partial**
 
-In `src/web_interface/parties_routes.py` (Task KC-B-2) the page route reads (both modules import `render_template` and `session` from `flask` — add them to the existing `from flask import …` line if the task left them out):
+Both routes already exist and already pass `active_nav` and `graph_mode`. **Add keyword arguments, do not rewrite the calls** — the other arguments are load-bearing (`identifier_kinds` fills the kind selector, `roles`/`decisions`/`max_names`/`history_limit`/`actor_label` fill the check form, and `**page_context()` is what keeps `_sidebar.html` from raising `UndefinedError` on `company_name[0]`).
+
+In `src/web_interface/parties_routes.py` (Task KC-B-2), the route becomes:
 
 ```python
-    @bp.route("/parteien", methods=["GET"])
+    @bp.route('/parteien', methods=['GET'])
     def parties_page():
-        """Parteienregister. Im Fixture-Modus der ehrliche Zustand statt einer
-        leeren Liste - die Seite antwortet 200, nie 409 oder 500."""
-        return render_template("parties.html",
-                               active_nav="parteien",
-                               needs_graph=not graph_mode(),
-                               screen_name="Das Parteienregister",
-                               csrf_token=session.get("csrf_token", ""))
+        # Die Seite antwortet in beiden Betriebsarten mit 200: im
+        # Fixture-Modus zeigt sie den ehrlichen Hinweis statt einer
+        # Fehlerseite.
+        return render_template('parties.html', active_nav='parteien',
+                               graph_mode=bool(graph_mode()),
+                               screen_name='Das Parteienregister',
+                               identifier_kinds=[
+                                   {'value': k, 'label': IDENTIFIER_KIND_LABELS[k]}
+                                   for k in IDENTIFIER_KINDS],
+                               **page_context())
 ```
 
 and in `src/web_interface/conflicts_routes.py` (Task KC-B-4):
 
 ```python
-    @bp.route("/konfliktpruefung", methods=["GET"])
+    @bp.route('/konfliktpruefung', methods=['GET'])
     def conflicts_page():
-        """Konfliktpruefung. Fixture-Modus: der Zustand wird ausgeschrieben,
-        damit niemand ein leeres Ergebnis fuer 'kein Konflikt' haelt."""
-        return render_template("conflicts.html",
-                               active_nav="konfliktpruefung",
-                               needs_graph=not graph_mode(),
-                               screen_name="Die Konfliktprüfung",
-                               screen_hint="Ohne Wissensnetz hat eine Prüfung nichts "
-                                           "zu durchsuchen — ein leeres Ergebnis wäre "
-                                           "hier kein „kein Konflikt“.",
-                               csrf_token=session.get("csrf_token", ""))
+        _, actor_label = _actor()
+        return render_template('conflicts.html',
+                               active_nav='konfliktpruefung',
+                               graph_mode=bool(graph_mode()),
+                               screen_name='Die Konfliktprüfung',
+                               screen_hint='Ohne Wissensnetz hat eine Prüfung nichts '
+                                           'zu durchsuchen — ein leeres Ergebnis wäre '
+                                           'hier kein „kein Konflikt“.',
+                               roles=ROLE_LABELS,
+                               decisions=CONFLICT_DECISION_LABELS,
+                               max_names=max_names,
+                               history_limit=history_limit,
+                               actor_label=actor_label,
+                               **page_context())
 ```
 
-In `src/web_interface/templates/parties.html` (Task KC-B-2) and `templates/conflicts.html` (Task KC-B-4), wrap the body — everything inside `<div class="app-content">` below the `<header class="site-header">` — in the fixture branch, e.g. for `parties.html`:
+Both templates already carry a `{% if not graph_mode %}` branch with a hand-written notice. Replace the notice with the include so there is **one** wording in **one** place.
+
+In `src/web_interface/templates/parties.html` (Task KC-B-2), delete the whole `<main class="parties-stage">` … `</main>` block that holds `<section class="parties-empty" role="status">` — the `{% if not graph_mode %}` line above it and the `{% else %}` below it stay — so that the branch reads:
 
 ```html
-        <div class="app-content">
-        <div class="container container-wide">
-        <header class="site-header">
-            <h1 class="site-greeting">Parteien<br>
-                <span class="site-greeting-question">Wer ist wer in Ihren Akten.</span>
-            </h1>
-        </header>
-        {% if needs_graph %}
-            {% include '_needs_graph.html' %}
+        {% if not graph_mode %}
+        {% include '_needs_graph.html' %}
         {% else %}
-        <main class="parties-stage" aria-label="Parteienregister">
-            {# unveraenderter Inhalt aus Aufgabe KC-B-2 #}
-        </main>
-        {% endif %}
-        </div>
-        </div>
+        <main class="parties-stage" data-parties>
 ```
 
-If Tasks KC-B-2 / KC-B-4 already render an inline fixture notice, delete it and use the include — one wording, one place. The test in Step 1 asserts the partial's heading, the `ONTOLOGY_SOURCE=graph` line and the screen name on both routes, so a stale copy fails the run.
+In `src/web_interface/templates/conflicts.html` (Task KC-B-4), delete the `<main>` … `</main>` block holding `<section class="conflict-card conflict-state">` the same way, leaving:
+
+```html
+        {% if not graph_mode %}
+        {% include '_needs_graph.html' %}
+        {% else %}
+        <main class="conflict-layout">
+```
+
+`{% include %}` inherits the caller's context, so `screen_name` and `screen_hint` from the render call above reach the partial with no further plumbing. `parties.css`'s `.parties-empty` and `conflicts.css`'s `.conflict-state` rules become dead after this edit — delete them in the same commit rather than leaving two competing styles for one state. The test in Step 1 asserts the partial's heading, the `ONTOLOGY_SOURCE=graph` line and the screen name on both routes, so a stale copy fails the run.
 
 - [ ] **Step 9: Run the navigation suite plus every page test it touches**
 
-Run: `python -m pytest tests/test_navigation.py tests/test_ontology_api.py tests/test_web_login.py tests/test_platform_health.py tests/test_csrf_enforcement.py -v`
-Expected: PASS — 8 new tests, no regressions. The three `app.py` pages render the same nav markup as before (same anchors, same SVG paths) plus the two new entries.
+Run: `python -m pytest tests/test_navigation.py tests/test_parties_routes.py tests/test_conflicts_routes.py tests/test_ontology_api.py tests/test_web_login.py tests/test_platform_health.py tests/test_csrf_enforcement.py -v`
+Expected: PASS — 8 new tests, no regressions. `test_parties_routes.py` and `test_conflicts_routes.py` are in the list because Step 8 edited their routes and templates; their fixture-mode tests assert `"Wissensnetz-Modus erforderlich"` in the body, which the partial still renders. The three `app.py` pages render the same nav markup as before (same anchors, same SVG paths) plus the two new entries.
 
 - [ ] **Step 10: Run the whole suite and eyeball the two screens**
 
@@ -15994,6 +15844,7 @@ git add src/web_interface/navigation.py \
         src/web_interface/templates/conflicts.html \
         src/web_interface/parties_routes.py src/web_interface/conflicts_routes.py \
         src/web_interface/app.py src/web_interface/static/css/style.css \
+        src/web_interface/static/css/parties.css src/web_interface/static/css/conflicts.css \
         tests/test_navigation.py
 git commit -m "feat(platform): sidebar entries for Parteien and Konfliktpruefung, honest fixture state"
 ```
@@ -16010,17 +15861,29 @@ git commit -m "feat(platform): sidebar entries for Parteien and Konfliktpruefung
 - Create: `KnovasPlatform/docs/features/matters-and-parties.md`
 - Create: `KnovasPlatform/docs/features/conflicts-check.md`
 - Create (or extend, see Step 5): `KnovasPlatform/docs/integration/graph-api.md`
-- Modify: `KnovasPlatform/docs/README.md` — the "Screens and features" section (created by Task KC-A-8; created here if absent), and one row in the "Paths" table (`:7-22`)
-- Modify: `KnovasPlatform/docs/integration/troubleshooting.md` — append rows before the closing line `Check the Network tab on /api/open-tokens/mint …`
-- Modify: `RELEASE_NOTES.md:5-10` (the `## KnovasPlatform` section)
-- Modify: `KnovasPlatform/CHANGELOG.md` (created by Task KC-A-8; created here if absent)
-- Test: `tests/test_docs_platform_routes.py`
+- Modify: `KnovasPlatform/docs/README.md` — the "Screens and features" section (created by Task KC-A-8; created here if absent — the file has no such section on `main`, it ends at the "Paths" table), and one row in the "Paths" table (`:7-22`, header `:7-8`, `Open-token HTTP API` row `:18`)
+- Modify: `KnovasPlatform/docs/integration/troubleshooting.md` — append rows to the table (`:3-23`) before the closing line `Check the Network tab on /api/open-tokens/mint …` (`:25`)
+- Modify: `RELEASE_NOTES.md:5-10` (the `## KnovasPlatform` section: heading `:5`, sentence `:7`, two link bullets `:9-10`)
+- Modify: `KnovasPlatform/CHANGELOG.md` (created by Task KC-A-8; created here if absent — it does not exist on `main`)
+- Test: `tests/test_docs_platform_routes.py` (i.e. `KnovasPlatform/components/docbridge_integration/tests/test_docs_platform_routes.py`; all other paths in this task are relative to `E:/Knovas/KnovasComponents`)
 
 **Interfaces:**
-- Consumes: the routes of Tasks KC-B-2 (`/parteien`, `/api/parties`, `/api/parties/search`, `/api/parties/<node_id>`, `/api/parties/duplicates`, `/api/parties/merge`), KC-B-3 (`/api/zefix/lookup`, the "Aus Zefix übernehmen" action), KC-B-4 (`/konfliktpruefung`, `/api/conflict-checks` POST/GET, `/api/conflict-checks/<check_id>`, `/api/conflict-checks/<check_id>/decisions`, `templates/conflict_protocol.html`), KC-B-5 (`/api/conflict-checks/import`); the client methods and dataclasses of Task KC-B-1 (`identifiers_search`, `node_duplicates`, `merge_nodes`, `conflict_check_run/list/get/decide`, `IdentifierMatch`, `DuplicatePair`, `ConflictCheck.to_dict()`); the fixture state of Task KC-B-6 ("Wissensnetz-Modus erforderlich"); the tenant contracts of the KnowledgeBase parts (`GET /secured/graph/identifiers/search`, `GET /secured/graph/nodes/duplicates`, `POST /secured/graph/nodes/<node_id>/merge`, `POST|GET /secured/graph/conflict-checks`, `GET /secured/graph/conflict-checks/<id>`, `POST /secured/graph/conflict-checks/<id>/decisions`, `kg_node_identifier.kind`, `KG_MAX_IDENTIFIERS_PER_NODE=32`, `kg_node_events`, `GI-GRAPH-14`, `GI-CONFLICT-01..03`); the label vocabulary of `docs/product-statements.md` (LIVE · BUILT · GATED · DEMO · PARTIAL · PLANNED · MISSING · HYPOTHESIS — defined in the docs part, Task KC-G-1); the identity primitives `ApprovalService` and `audit.record` (defined by section-B KC-B1-2 on `feat/section-b-buildout` — read `E:/Knovas/KnovasComponents/.worktrees/section-b-buildout/KnovasPlatform/components/docbridge_integration/src/identity/approvals.py` and `…/audit.py` for the exact signatures).
+- Consumes: **the complete route surface of Tasks KC-B-2 to KC-B-5** — the reference below must list every one of them or Step 1's test fails naming the gap:
+  - KC-B-2: `GET /parteien`, `GET /api/parties`, `GET /api/parties/search`, `GET /api/parties/<node_id>`, `POST /api/parties/<node_id>/identifiers`, `DELETE /api/parties/<node_id>/identifiers/<identifier_id>`, `GET /api/parties/duplicates`, `POST /api/parties/merge`
+  - KC-B-3: `GET /api/zefix/lookup` (a **GET** with `?q=&limit=`, not a POST), `POST /api/parties/<node_id>/zefix`, `POST /api/parties/<node_id>/zefix/evidence`
+  - KC-B-4: `GET /konfliktpruefung`, `GET /konfliktpruefung/<check_id>/protokoll` (rendered by `templates/conflict_protocol.html`), `POST /api/conflict-checks`, `GET /api/conflict-checks`, `GET /api/conflict-checks/<check_id>`, `POST /api/conflict-checks/<check_id>/decisions`
+  - KC-B-5: `GET /api/conflict-checks/import/template.csv`, `POST /api/conflict-checks/import` (parse and validate only — it runs **no** check), `POST /api/conflict-checks/import/run` (≤ 10 rows per call)
+
+  plus the client methods and dataclasses of Task KC-B-1 (`identifiers_search`, `node_duplicates`, `merge_nodes`, `conflict_check_run/list/get/decide`, `IdentifierMatch`, `DuplicatePair`, `ConflictCheck.to_dict()`); `src/lateral_import.py::{COLUMNS, COLUMN_ROLES, COLUMN_ALIASES, TEMPLATE_CSV}` (KC-B-5); `graph_model::{IDENTIFIER_KIND_LABELS, CONFLICT_DECISIONS, CONFLICT_DECISION_LABELS}` and `conflicts_routes::{CONFLICT_ROLES, ROLE_LABELS}`; the fixture state of Task KC-B-6 ("Wissensnetz-Modus erforderlich"); the tenant contracts of the KnowledgeBase parts (`GET /secured/graph/identifiers/search`, `GET /secured/graph/nodes/duplicates`, `POST /secured/graph/nodes/<node_id>/merge`, `POST|GET /secured/graph/conflict-checks`, `GET /secured/graph/conflict-checks/<id>`, `POST /secured/graph/conflict-checks/<id>/decisions`, `kg_node_identifier.kind`, `KG_MAX_IDENTIFIERS_PER_NODE=32`, `kg_node_events`, `GI-GRAPH-14`, `GI-CONFLICT-01..03`); the label vocabulary of `docs/product-statements.md` (LIVE · BUILT · GATED · DEMO · PARTIAL · PLANNED · MISSING · HYPOTHESIS — defined in the docs part, Task KC-G-1); the identity primitives `ApprovalService` and `audit.record` (defined by section-B KC-B1-2 on `feat/section-b-buildout` — read `E:/Knovas/KnovasComponents/.worktrees/section-b-buildout/KnovasPlatform/components/docbridge_integration/src/identity/approvals.py` and `…/audit.py` for the exact signatures).
 - Produces: `KnovasPlatform/docs/features/matters-and-parties.md`, `KnovasPlatform/docs/features/conflicts-check.md`, `KnovasPlatform/docs/integration/graph-api.md` (the Platform-local route reference other parts append their own sections to), the index rows, the changelog and release-notes lines, and `tests/test_docs_platform_routes.py` which keeps the route reference complete.
 
-**Note:** `KnovasPlatform/docs/` has no `features/` directory today (it is 100 % deploy/operate: `setup.md`, `deployment/`, `integration/`, `platforms/`) and no Platform route reference except `integration/open-tokens-api.md`. Both new documents follow that file's shape — route heading, auth line, request, JSON response block — and the docs are English while the UI copy quoted inside them stays German.
+**Note:** `KnovasPlatform/docs/` has no `features/` directory today (it is 100 % deploy/operate: `README.md`, `setup.md`, `demo.md`, `deployment/`, `integration/`, `platforms/` — eleven files, verified) and no Platform route reference except `integration/open-tokens-api.md`. Both new documents follow that file's shape — `#` title, `## METHOD /path` route heading, auth line, request, JSON response block — and the docs are English while the UI copy quoted inside them stays German.
+
+> **Note (repository — four things these documents must not get wrong):**
+> 1. **Labels come from `docs/product-statements.md` §1 and mean what they say there.** `LIVE` requires *evidence from a production tenant*; `GATED` is "code complete, a **named** gate must clear", and §1 rule 1 says a `GATED` label without its gate written next to it is incomplete. Every screen in this task is gated on `ONTOLOGY_SOURCE=graph` plus a tenant whose knowledge graph is on, so the label is `GATED`, never `LIVE`. Writing `LIVE` here would be the exact failure the legend exists to prevent.
+> 2. **`web.graph.party_node_types` is a comma-separated string, not a YAML list.** Task KC-B-2 Step 5 writes `party_node_types: "${PARTY_NODE_TYPES:-Partei,Person,Organisation}"`, and the Zefix button is governed by a *second* key, `web.graph.organisation_node_types` (`"${ORGANISATION_NODE_TYPES:-Organisation,Firma,Gegenpartei}"`).
+> 3. **Zefix writes five facts, not four**, and the evidence link is often *pending*. Task KC-B-3 lists `UID`, `Sitz`, `Rechtsform`, `Status`, `Handelsregister-Auszug`; its Note 4 records that `top_chunks[].chunk_uuid` is dropped by `_normalize_top_chunks` (`src/knovas_client.py:737-751`) until the KC search part lands, so on a merged branch `evidence_pending: true` is the **normal** answer and the facts carry `provenance_pointer` alone until "Beleg jetzt verknüpfen" is pressed. A document that promises an evidence chain the code does not yet produce is the one thing G9 forbids.
+> 4. **The Platform's `ConflictCheck` dataclass does not carry `group_ids` or `engine_version`.** The tenant record does (`services.knowledge_graph.conflict_checks`, `ENGINE_VERSION = "conflict-check/1"`), but `graph_model.ConflictCheck` (Task KC-B-1) parses `check_id, executed_at, queries, context, hits, hit_count, withheld_count, degraded, principal_scoped, actor, actor_kind, actor_ref, result_hash, decisions` and nothing else. The record table below is therefore split into "stored by the tenant" and "printed on the protocol", instead of implying the protocol prints an engine version it never receives.
 
 - [ ] **Step 1: Write the failing documentation test**
 
@@ -16052,7 +15915,9 @@ WATCHED = ("/parteien", "/konfliktpruefung", "/api/parties", "/api/zefix",
            "/api/conflict-checks")
 
 ## Dokumente, die andere Teile dieses Plans anlegen; ihre Links duerfen auf
-## diesem Branch noch ins Leere zeigen.
+## diesem Branch noch ins Leere zeigen. product-statements.md kommt mit KC-G-1,
+## Knowledge_Graph_API.md mit KC-G-3 (nur aus graph-api.md verlinkt, hier
+## vorsorglich gelistet, damit ein spaeterer Verweis nicht rot wird).
 PENDING_LINKS = {
     "../../../docs/product-statements.md",
     "../../../docs/KnovasAPI/Knowledge_Graph_API.md",
@@ -16111,54 +15976,61 @@ def test_release_notes_name_the_two_new_screens():
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `python -m pytest tests/test_docs_platform_routes.py -v`
-Expected: FAIL — `FileNotFoundError: … KnovasPlatform/docs/integration/graph-api.md` in the first two tests and `AssertionError` in the last two (neither the index nor the release notes mention the screens).
+Expected: FAIL, 4 of 4 — `FileNotFoundError: … KnovasPlatform/docs/integration/graph-api.md` in `test_every_party_and_conflict_route_is_documented`, `FileNotFoundError: … KnovasPlatform/docs/features/matters-and-parties.md` in `test_the_two_feature_docs_link_only_to_files_that_exist` (the `features/` directory does not exist on `main`), and `AssertionError` in the last two, because neither the doc index nor the release notes mention the screens yet.
 
 - [ ] **Step 3: Write the party-register feature document**
 
-Create `KnovasPlatform/docs/features/matters-and-parties.md`:
+Create `KnovasPlatform/docs/features/matters-and-parties.md` (four backticks below because the document itself contains a fenced YAML block — everything between them is the file, verbatim):
 
-```markdown
+````markdown
 ## Parties: register, identifier kinds, duplicates, merge, Zefix
 
 Status labels follow [`docs/product-statements.md`](../../../docs/product-statements.md)
-(LIVE · BUILT · GATED · DEMO · PARTIAL · PLANNED · MISSING). "LIVE with graph
-mode" means: shipped in the Platform **and** the deployment runs
-`ONTOLOGY_SOURCE=graph` against a tenant whose knowledge graph is enabled and
-which runs the Knovas Knowledge Graph API contract of August 2026 (identifier
-kinds, `identifiers/search`, `nodes/duplicates`, `nodes/<id>/merge`). On the
-demo fixture every screen below renders "Wissensnetz-Modus erforderlich"
-instead of an empty list — no data is missing, none is queried.
+(LIVE · BUILT · GATED · DEMO · PARTIAL · PLANNED · MISSING · HYPOTHESIS). The
+gate on this page is one sentence, and it is the same for every row marked
+GATED: the deployment must run `ONTOLOGY_SOURCE=graph` against a tenant whose
+knowledge graph is enabled and which runs the Knovas Knowledge Graph API
+contract of August 2026 (identifier kinds, `identifiers/search`,
+`nodes/duplicates`, `nodes/<id>/merge`). Until it clears, every screen below
+renders "Wissensnetz-Modus erforderlich" instead of an empty list — no data is
+missing, none is queried.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Register list (`/parteien`), filtered by node type | LIVE with graph mode | Which types count as parties is configuration, not code: `web.graph.party_node_types`. |
-| Kind-aware search across the whole firm | LIVE with graph mode | Fuzzy match over normalised identifiers; every hit carries its score and the channel that found it. |
-| Party detail: facts, matters, corporate relations, identifiers | LIVE with graph mode | Matters come from the party's neighbours (one hop), not from a second index. |
-| Identifier editor with kinds | LIVE with graph mode | Up to 32 identifiers per node (`KG_MAX_IDENTIFIERS_PER_NODE`). |
-| "Dubletten" queue and merge | LIVE with graph mode | Merge is a guarded action (see [Merging](#merging-what-moves-and-what-stays)). |
-| "Aus Zefix übernehmen" on organisations | LIVE when Zefix credentials are configured, otherwise not offered | Called from **your** network with **your** Zefix credentials; see [Zefix](#zefix--what-it-can-and-cannot-fetch). |
+| Register list (`/parteien`), filtered by node type | GATED — graph mode | Which types count as parties is configuration, not code: `web.graph.party_node_types`. |
+| Kind-aware search across the whole firm | GATED — graph mode | Fuzzy match over normalised identifiers; every hit carries its score and the channel that found it. |
+| Party detail: facts, matters, corporate relations, identifiers | GATED — graph mode | Matters come from the party's neighbours (one hop), not from a second index. |
+| Identifier editor with kinds | GATED — graph mode | Up to 32 identifiers per node (`KG_MAX_IDENTIFIERS_PER_NODE`). |
+| "Dubletten" queue and merge | GATED — graph mode | Merge is a guarded action (see [Merging](#merging-what-moves-and-what-stays)). |
+| "Aus Zefix übernehmen" on organisations | GATED — graph mode **and** `ZEFIX_USERNAME`/`ZEFIX_PASSWORD` set | Called from **your** network with **your** Zefix credentials; see [Zefix](#zefix--what-it-can-and-cannot-fetch). Without the credentials the button is not offered at all. |
+| Zefix facts carry the uploaded extract as evidence | PARTIAL — the fact is written with its source pointer immediately; the chunk-level evidence link waits until the extract is indexed | The screen shows "Beleg noch nicht verknüpft" and a retry button; see [Zefix](#zefix--what-it-can-and-cannot-fetch). |
 | Signatories, purpose, capital, group structure from Zefix | MISSING | Not available from the Zefix public API — the cantonal excerpt has them. Stated so nobody plans on it. |
 
 ## The register
 
-`/parteien` lists the nodes of the node types configured as parties, newest
-first, with their primary identifier, their type and the number of matters they
-appear in. The register is the graph, not a second database: a party is a node,
+`/parteien` lists the nodes of the node types configured as parties, each with
+its name and its type; opening one shows its facts, its identifiers and the
+matters it appears in, fetched on demand rather than counted up front. The
+register is the graph, not a second database: a party is a node,
 its aliases are identifiers, its attributes are facts, its matters are edges.
 Nothing on this screen is stored twice.
 
-Which node types are parties is a firm decision. The default is the three types
-the Typ-Werkstatt creates:
+Which node types are parties is a firm decision. It is a comma-separated list,
+overridable from `.env` without touching `config/config.yaml`:
 
 ```yaml
 web:
   graph:
-    party_node_types: ["Partei", "Person", "Organisation"]
+    party_node_types: "${PARTY_NODE_TYPES:-Partei,Person,Organisation}"
+    organisation_node_types: "${ORGANISATION_NODE_TYPES:-Organisation,Firma,Gegenpartei}"
 ```
 
 A firm that named its types differently changes the list; a firm that has only
-one party type shortens it. Types that do not exist in the tenant are ignored,
-not an error.
+one party type shortens it; an empty list means "all types". Case does not
+matter. Types that do not exist in the tenant are ignored, not an error.
+
+`organisation_node_types` is the subset that counts as a company: only those
+parties are offered the Zefix take-over, because a human being has no UID.
 
 ## Identifier kinds — why a kind matters
 
@@ -16252,14 +16124,28 @@ parsed it.
 What "übernehmen" writes:
 
 1. A generated text document **"Zefix-Auszug &lt;UID&gt; &lt;date&gt;"** is
-   uploaded through the Platform's normal upload path with the metadata
-   `document_type: "Registerauszug"`, `source_kind: "upload"`,
+   uploaded through the Platform's normal ingest path with the metadata
+   `document_type: "Registerauszug"`, `source_kind: "upload"`, `author: "Zefix"`,
    `document_date: <the day of the query>`, `language: "de"`, and is assigned to
    the organisation's node.
-2. The facts (UID, Sitz, Rechtsform, Status) are created on that node **with
-   the uploaded document as their evidence**. They therefore carry the same
-   trust chips, the same "Warum?" panel and the same confirmation rules as every
-   other fact. There are no facts in Knovas that say "trust me".
+2. The UID is added as an identifier of kind `uid`.
+3. Five facts are created on the node — **UID**, **Sitz**, **Rechtsform**,
+   **Status** and the **Handelsregister-Auszug** link — each recording the
+   uploaded extract as its source. They therefore carry the same trust chips,
+   the same "Warum?" panel and the same confirmation rules as every other fact.
+   There are no facts in Knovas that say "trust me".
+
+**When the evidence link is not there yet.** A fact's source is recorded in two
+degrees: the pointer of the extract (written immediately, always) and the link
+to the indexed passage inside it (possible only once the tenant has ingested
+and chunked the extract, which happens asynchronously). Until then the answer
+carries `evidence_pending: true`, the party detail shows "Beleg noch nicht
+verknüpft" and a **"Beleg jetzt verknüpfen"** button repeats the link attempt.
+Knovas deliberately does *not* attach the best-scoring nearby passage in the
+meantime: `POST /secured/graph/facts/<id>/evidence/suggest` returns
+`[{chunk_id, score}]` with no pointer, so nothing in that answer proves the
+suggested passage came from this extract. An arbitrary passage under
+"Sitz: Zürich" would be worse than an honest "noch nicht verknüpft".
 
 Nothing is written until somebody presses the button — the button is the human
 act. Attributes marked four-eyes still need their second confirmation
@@ -16269,9 +16155,13 @@ afterwards; Zefix does not confirm anything.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `ONTOLOGY_SOURCE` | `graph` | `fixture` → the register renders "Wissensnetz-Modus erforderlich" |
-| `web.graph.party_node_types` (`config/config.yaml`) | `["Partei", "Person", "Organisation"]` | Node types listed as parties |
+| `ONTOLOGY_SOURCE` (`.env`) | `graph` | `fixture` → the register renders "Wissensnetz-Modus erforderlich" |
+| `PARTY_NODE_TYPES` (`.env`) → `web.graph.party_node_types` | `Partei,Person,Organisation` | Comma-separated node types listed as parties; empty = all types |
+| `ORGANISATION_NODE_TYPES` (`.env`) → `web.graph.organisation_node_types` | `Organisation,Firma,Gegenpartei` | The subset offered the Zefix take-over |
 | `ZEFIX_USERNAME` / `ZEFIX_PASSWORD` (`.env`) | unset | Zefix public REST credentials. Unset = the Zefix button is not offered at all; the feature is absent, not broken. |
+| `ZEFIX_BASE_URL` (`.env`) | `https://www.zefix.admin.ch/ZefixPublicREST` | Change only for a proxy in your own network |
+| `ZEFIX_TIMEOUT_SECONDS` (`.env`) | `10` | One attempt, no retry — a slow register must not hold a browser request |
+| `ZEFIX_POINTER_PREFIX` (`.env`) | `platform/zefix` | Where the generated extracts are filed in the corpus |
 
 ## Troubleshooting
 
@@ -16282,10 +16172,12 @@ afterwards; Zefix does not confirm anything.
 | Search says "Suche unvollständig" | The tenant answered `degraded: true`: one matching channel failed. Results shown are correct but incomplete; retry, then report |
 | A known party is not found by a spelling variant | Add it as an identifier with the right kind (`alias`, `legal_name`); folding covers umlauts, not word order or abbreviations |
 | "Zusammenführen" answers 404 | One of the two nodes is not visible to this login — by design; 404 never means 403 here |
-| "Zusammenführen" waits for approval | The firm's policy requires a second person for `party_merge`; an approver confirms in the same screen |
-| No Zefix button on an organisation | `ZEFIX_USERNAME`/`ZEFIX_PASSWORD` unset, or the node's type is not in `web.graph.party_node_types` |
+| "Zusammenführen" answers 202 instead of merging | The firm's policy requires a second person for `party_merge`; the request is recorded and an approver confirms it |
+| No Zefix button on an organisation | `ZEFIX_USERNAME`/`ZEFIX_PASSWORD` unset, or the node's type is not in `web.graph.organisation_node_types` |
+| Zefix lookup answers 503 | Zefix is not configured on this deployment (`ZEFIX_USERNAME`/`ZEFIX_PASSWORD` unset) — a state, not a failure |
 | Zefix lookup answers 502 | The Platform host cannot reach `zefix.admin.ch`, or the credentials were rejected — check egress and the Zefix account |
-```
+| A Zefix fact says "Beleg noch nicht verknüpft" | The generated extract is not indexed yet. The fact's source pointer is already recorded; press "Beleg jetzt verknüpfen" once ingestion has run |
+````
 
 - [ ] **Step 4: Write the conflicts-check feature document**
 
@@ -16295,27 +16187,33 @@ Create `KnovasPlatform/docs/features/conflicts-check.md`:
 ## Conflicts check and the lateral-hire import
 
 Status labels follow [`docs/product-statements.md`](../../../docs/product-statements.md)
-(LIVE · BUILT · GATED · DEMO · PARTIAL · PLANNED · MISSING). The screen needs
-graph mode and a tenant running the Knovas conflict-check contract of August
-2026; on the demo fixture it renders "Wissensnetz-Modus erforderlich" instead
-of an empty result, because an empty result would read as "no conflict".
+(LIVE · BUILT · GATED · DEMO · PARTIAL · PLANNED · MISSING · HYPOTHESIS). The
+gate on every GATED row below is the same one: `ONTOLOGY_SOURCE=graph` and a
+tenant running the Knovas conflict-check contract of August 2026. Until it
+clears the screen renders "Wissensnetz-Modus erforderlich" instead of an empty
+result, because an empty result would read as "no conflict".
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Check by name and role, with a free-text context | LIVE with graph mode | 1–50 names per check. |
-| Result grouped by parties / matters / documents | LIVE with graph mode | Every hit carries its score and channel. |
-| Withheld hits counted, never disclosed | LIVE with graph mode | See [The wall](#the-wall-counted-never-disclosed). |
-| Loud failure (`degraded`) | LIVE with graph mode | A check that could not search everything says so. |
-| Decision with note, append-only | LIVE with graph mode | `Kein Konflikt · Konflikt · Konflikt – mit Einwilligung freigegeben · Weitere Prüfung nötig`. |
-| Printable "Konfliktprüfungsprotokoll" | LIVE with graph mode | Browser print / PDF; content listed below. |
-| Lateral-hire batch import (CSV/XLSX) | LIVE with graph mode | One check per row, one bundle context. |
+| Check by name and role, with a free-text context | GATED — graph mode | 1–50 names per check. |
+| Result grouped by parties / matters / documents | GATED — graph mode | Every hit carries its score and channel. |
+| Withheld hits counted, never disclosed | GATED — graph mode | See [The wall](#the-wall-counted-never-disclosed). |
+| Loud failure (`degraded`) | GATED — graph mode | A check that could not search everything says so. |
+| Decision with note, append-only | GATED — graph mode | `Kein Konflikt · Konflikt · Konflikt – mit Einwilligung freigegeben · Weitere Prüfung nötig`. |
+| Printable "Konfliktprüfungsprotokoll" | GATED — graph mode | Browser print / PDF; content listed below. |
+| Lateral-hire batch import (CSV/XLSX) | GATED — graph mode; XLSX additionally needs `openpyxl` in the image | Without it the upload answers 503 and asks for a CSV. One check per row, one bundle context. |
+| Finding a whole bundle again after the browser tab closed | PARTIAL — every check is stored and findable individually, the bundle is not a stored object | The bundle id lives in each check's `context` string (`lateral:<uuid>`); the summary table is the browser's, so export it before leaving the page. |
 | Register-wide or cross-firm search | MISSING | Structurally impossible and deliberately so — see [Limits](#limits-what-a-check-is-not). |
 
 ## The workflow
 
-1. **Enter the names.** One line per party, each with an optional role
-   (Mandant, Gegenpartei, wirtschaftlich Berechtigter, …) and one context for
-   the whole check ("Neumandat Weber, Erstberatung 15.08.").
+1. **Enter the names.** One line per party, each with an optional role —
+   Mandantschaft (`client`), Gegenpartei (`opposing_party`), Beteiligte
+   (`related_party`) or Sonstige (`other`) — and one context for the whole
+   check ("Neumandat Weber, Erstberatung 15.08."). The German is the label on
+   the screen; the value in brackets is what goes on the wire, and the tenant
+   accepts exactly these four (`conflict_checks.py::QUERY_ROLES`) — anything
+   else is a `400 conflict_check_invalid_role`.
 2. **Run.** The check is executed and recorded in the same request — there is no
    "run it and decide later whether to keep it". Every run is evidence.
 3. **Read the result**, grouped as parties (the register), matters (which of the
@@ -16341,8 +16239,14 @@ references the same names.
 | `hit_count`, `withheld_count` | Disclosed and withheld hits (see below) |
 | `degraded` | `true` when any search channel failed |
 | `principal_scoped` | Whether the search covered the whole firm or only what this user may read |
-| `result_hash`, `engine_version` | So a printed protocol can be tied to the stored record and to the code that produced it |
+| `result_hash` | A SHA-256 over engine version, queries, context, hits and the four counters above, so a printed protocol can be tied to the stored record. It deliberately excludes `check_id` and `executed_at`: the same question over the same graph produces the same hash |
+| `engine_version` | The version of the matching code (`conflict-check/1`) |
 | `decisions[]` | Every decision with note, actor, actor kind and time — appended, never overwritten |
+
+Two of those fields are stored by the tenant but not surfaced by the Platform
+today: `group_ids` and `engine_version` are not part of the check payload the
+Platform screen and the printed protocol read. Ask the tenant API directly
+(`GET /secured/graph/conflict-checks/<id>`) when an audit needs them.
 
 ## The wall: counted, never disclosed
 
@@ -16373,21 +16277,37 @@ A lateral hire arrives with a list of their previous clients and counterparties
 and it must be checked against the firm's own book. Upload the list on the same
 screen:
 
-| Column | Required | Meaning |
-|--------|----------|---------|
-| `client` | yes | The client of the incoming lawyer's former matter |
-| `counterparty` | no | The opposing party of that matter |
-| `matter` | no | The former matter's name or number, carried into the check context |
-| `period` | no | Free text ("2021–2024"), carried into the context |
+| Column | Required | Also accepted as | Meaning |
+|--------|----------|------------------|---------|
+| `client` | yes | `clients`, `mandant`, `mandantin`, `mandantschaft`, `klient`, `kunde`, `auftraggeber` | The client of the incoming lawyer's former matter |
+| `counterparty` | no | `counterparties`, `gegenpartei`, `gegenparteien`, `gegner`, `gegenseite` | The opposing party of that matter. Several in one cell, separated by `;` or a line break |
+| `matter` | no | `akte`, `aktennummer`, `mandat`, `dossier`, `fall` | The former matter's name or number, carried into the check context |
+| `period` | no | `zeitraum`, `periode`, `jahr`, `zeit`, `von-bis` | Free text ("2021–2024"), carried into the context. Never used as a filter — a conflicts check has no time dimension |
 
-`.csv` (UTF-8, comma or semicolon) and `.xlsx` (first worksheet) are accepted;
-the header row names the columns and is matched case-insensitively. Each row
-becomes **one** check — one row, one record, one decision — and all of them
-share a bundle context `lateral:<uuid>` so the whole intake can be found and
-printed together later. Rows that fail validation (no client name, more names
-than a check accepts) are reported as rows in the summary table; they do not
-abort the run. The summary lists per row: names, hit count, withheld count,
-degraded, and a link to that row's protocol.
+Download the ready-made template from the screen (or
+`GET /api/conflict-checks/import/template.csv`): semicolon-separated, UTF-8 with
+a BOM so Excel on a Swiss PC shows "Wüthrich" rather than "WÃ¼thrich".
+`.csv` and `.xlsx` (first worksheet) are accepted; the header row names the
+columns and is matched case-insensitively against the table above.
+
+**Reading the list never runs a check.** Uploading only parses and validates, and
+shows you what it found; nothing is recorded. You then start the run, and the
+browser walks the list in blocks of ten — one request that ran two hundred
+checks would exceed the web timeout and the per-seat query budget with nothing
+to show for the rows that did finish. Each row becomes **one** check — one row,
+one record, one decision — and all of them carry a shared bundle context
+`lateral:<uuid> | Zeile 7 | Akte: … | Zeitraum: …`, so an individual check can
+always be traced back to the intake it came from.
+
+Rows that fail validation (no client name, more names than a check accepts) are
+reported as rows in the summary table; they do not abort the run. The summary
+lists per row: status (`done` / `invalid` / `failed`), hit count, withheld
+count, degraded, and a link to that row's protocol.
+
+The bundle itself is not a stored object — the Knovas API has no bundle filter,
+and inventing a Platform-side store for it would create a second copy of
+evidentiary records. The summary table lives in the browser for the length of
+the run; export it before leaving the page.
 
 ## Limits: what a check is not
 
@@ -16409,8 +16329,10 @@ degraded, and a link to that row's protocol.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `ONTOLOGY_SOURCE` | `graph` | `fixture` → "Wissensnetz-Modus erforderlich" |
-| `web.graph.party_node_types` (`config/config.yaml`) | `["Partei", "Person", "Organisation"]` | Also used to group the party hits of a result |
+| `ONTOLOGY_SOURCE` (`.env`) | `graph` | `fixture` → "Wissensnetz-Modus erforderlich" |
+| `PARTY_NODE_TYPES` (`.env`) → `web.graph.party_node_types` | `Partei,Person,Organisation` | Also used to group the party hits of a result |
+| `web.conflicts.import_max_rows` (`config/config.yaml`) | `200` | Rows accepted from one uploaded list |
+| `web.conflicts.import_max_bytes` (`config/config.yaml`) | `2000000` | Upload size limit; a larger file answers 413 |
 
 ## Troubleshooting
 
@@ -16419,8 +16341,11 @@ degraded, and a link to that row's protocol.
 | "Die Prüfung war unvollständig" | The tenant reported `degraded`: a search channel failed. Re-run; if it persists, report — do not file the result as clean |
 | "N Treffer wurden zurückgehalten" | Expected when the login's access groups do not cover every matter; have somebody with full access re-run before relying on it |
 | Check answers 409 "Wissensnetz-Modus erforderlich" | `ONTOLOGY_SOURCE=fixture` or the tenant's knowledge graph is off |
-| Import rejects a file | Not `.csv`/`.xlsx`, no header row, or no `client` column; the message names the row |
+| Import rejects a file | Not `.csv`/`.xlsx`, no header row, or no `client` column; the message names the accepted column spellings |
+| Import answers 503 "XLSX kann dieser Server nicht lesen" | `openpyxl` is missing from this image — save the list as CSV, or rebuild the image |
+| Import answers 413 | The file is larger than `web.conflicts.import_max_bytes` (2 MB by default) |
 | A row in the import has no hits but the party is known | The spelling differs from every stored identifier — add it as an `alias` on the party and re-run that row |
+| Decision answers 400 "Für diese Entscheidung ist eine Begründung nötig." | `Konflikt` and `Konflikt – mit Einwilligung freigegeben` require a note; the two other decisions do not |
 | Decision button answers 403 | The page was open across a session restart; reload `/konfliktpruefung` (CSRF token) |
 ```
 
@@ -16431,7 +16356,7 @@ branch, create it with the content below. If another part of this plan already
 created it, keep its header and append only the two sections
 "Parteien (D1, D3)" and "Konfliktprüfung (D2, D4)".
 
-```markdown
+````markdown
 ## Platform graph API
 
 The Platform's own HTTP routes — what the browser calls. The tenant-side
@@ -16441,30 +16366,38 @@ contract these proxy is
 Rules that hold for **every** route on this page:
 
 - Session cookie required (company login). Unauthenticated `/api/*` calls answer
-  `401 {"success": false, "error": "Login erforderlich"}`.
-- Every non-GET carries `X-CSRF-Token` (value from the `csrf-token` meta tag);
-  a missing or wrong token answers `403`.
+  `401 {"success": false, "error": "Login erforderlich"}`; unauthenticated page
+  requests (`/parteien`, `/konfliktpruefung`) redirect to `/login` with `302`.
+- Every non-GET carries `X-CSRF-Token` (value from the `csrf-token` meta tag),
+  the multipart upload included. A missing or wrong token answers
+  `403 {"success": false, "error": "CSRF token invalid or missing"}` — the gate
+  is a global `before_request`, so it applies to every route on this page.
 - Every route needs graph mode. With `ONTOLOGY_SOURCE=fixture` the `/api/*`
   routes answer `409 {"success": false, "error": "Wissensnetz-Modus erforderlich"}`
   and the pages render the same sentence as a state.
 - A tenant `404` stays a `404`. Ids you may not see read as "not found", never
   as "forbidden".
 - Errors carry `{"success": false, "error": "…"}`, and where the tenant supplied
-  one, `"error_code"`. `503` means "try later" (embedding model stale,
-  calibration missing), not "broken".
+  one, `"error_code"`. `502` means "an upstream we called said no" (the tenant
+  API, or Zefix). `503` means "this capability is not set up on this
+  deployment" — Zefix credentials absent, `openpyxl` missing from the image —
+  which is a state, not a breakage, and the message says which.
 
 ## Parteien (D1, D3)
 
 | Route | Purpose |
 |-------|---------|
-| `GET /parteien` | The register page (HTML) |
-| `GET /api/parties` | Register list. Query: `node_type_id`, `q`, `limit`, `offset` |
+| `GET /parteien` | The register page (HTML). Answers `200` in both modes; `?node=<node_id>` opens that party's detail on load |
+| `GET /api/parties` | Register list. Query: `q`, `node_type_id`, `limit` |
 | `GET /api/parties/search` | Fuzzy identifier search. Query: `q` (required), `kind`, `node_type_id`, `threshold`, `limit` |
-| `GET /api/parties/<node_id>` | One party: facts, identifiers, neighbours (matters, corporate relations) |
 | `GET /api/parties/duplicates` | Duplicate candidates. Query: `node_type_id`, `threshold`, `limit` |
-| `POST /api/parties/merge` | Merge source into target. Body `{"target_id": "…", "source_id": "…"}` |
-| `POST /api/parties/<node_id>/zefix` | Take the Zefix result over onto this organisation (uploads the extract, writes the facts) |
-| `POST /api/zefix/lookup` | Zefix lookup only, nothing written. Body `{"q": "Muster Bau AG"}` |
+| `GET /api/parties/<node_id>` | One party: facts, identifiers, neighbours (matters, corporate relations), `zefix_enabled` |
+| `POST /api/parties/<node_id>/identifiers` | Add a spelling. Body `{"identifier_text": "…", "kind": "alias"}` → `201`; `400` empty text or unknown kind; `409 identifier_limit_exceeded` past 32 |
+| `DELETE /api/parties/<node_id>/identifiers/<identifier_id>` | Remove a spelling → `200` / `404` |
+| `POST /api/parties/merge` | Merge source into target. Body `{"target_node_id": "…", "source_node_id": "…", "reason": "…"}` |
+| `POST /api/parties/<node_id>/zefix` | Take the Zefix result over onto this organisation (uploads the extract, adds the `uid` identifier, writes the five facts). Body `{"uid": "CHE-123.456.789"}` |
+| `POST /api/parties/<node_id>/zefix/evidence` | Retry the evidence link once the extract is indexed. Body `{"pointer": "platform/zefix/…"}` → `{"evidence_chunk_id", "evidence_pending", "linked"}` |
+| `GET /api/zefix/lookup` | Zefix lookup only, nothing written. Query: `q` (required), `limit`. `400` empty `q`; `502` Zefix error or timeout; `503` Zefix not configured (`{"enabled": false}`) |
 
 ### `GET /api/parties/search?q=Muster&kind=legal_name&limit=10`
 
@@ -16508,12 +16441,13 @@ Rules that hold for **every** route on this page:
 
 ### `POST /api/parties/merge`
 
-Body `{"target_id": "n-1", "source_id": "n-2"}`. Status codes:
+Body `{"target_node_id": "n-1", "source_node_id": "n-2", "reason": "Dublette aus PMS-Import"}`
+(`reason` optional, recorded in the audit entry). Status codes:
 
 | Code | Meaning |
 |------|---------|
-| `200` | Merged. The source is a readable tombstone pointing at the target |
-| `202` | The firm's policy requires an approval for `party_merge`; the request is recorded and waits |
+| `200` | Merged: `{"node": {…}, "source": {"id": "n-2", "status": "merged", "merged_into": "n-1"}, "source_node_id": "n-2", "message": "Zusammengeführt. Die Quelle bleibt als Verweis erhalten."}`. `node` is the **surviving target** node — the Platform reads it from the tenant's `target` key (`POST /secured/graph/nodes/<id>/merge` answers `{target, source, moved, scope}` and has no `node` of its own) |
+| `202` | The firm's policy requires an approval for `party_merge`: `{"status": "approval_requested", "request_id": "…"}`; nothing has been merged yet |
 | `400` | Target and source are the same node |
 | `403` | CSRF token missing or invalid |
 | `404` | One of the two nodes is unknown or not visible to this login |
@@ -16523,12 +16457,15 @@ Body `{"target_id": "n-1", "source_id": "n-2"}`. Status codes:
 
 | Route | Purpose |
 |-------|---------|
-| `GET /konfliktpruefung` | The check page (HTML), form and history |
-| `POST /api/conflict-checks` | Run and record a check. Body `{"queries": [{"name": "…", "role": "…"}], "context": "…"}` (1–50 names) |
+| `GET /konfliktpruefung` | The check page (HTML), form and history. Answers `200` in both modes |
+| `GET /konfliktpruefung/<check_id>/protokoll` | The printable protocol of one check (HTML, server-rendered, prints without JavaScript). `404` when the check is unknown or invisible |
+| `POST /api/conflict-checks` | Run and record a check. Body `{"queries": [{"name": "…", "role": "client\|opposing_party\|related_party\|other"}], "context": "…"}` (1–50 names). An unknown role is dropped, never forwarded — the tenant answers `400 conflict_check_invalid_role` for anything outside those four |
 | `GET /api/conflict-checks` | History. Query: `limit`, `offset`, `since` |
 | `GET /api/conflict-checks/<check_id>` | One check with hits and decisions |
-| `POST /api/conflict-checks/<check_id>/decisions` | Append a decision. Body `{"decision": "clear\|conflict\|waived_with_consent\|needs_review", "note": "…"}` |
-| `POST /api/conflict-checks/import` | Lateral-hire batch (multipart `file`, `.csv`/`.xlsx`), one check per row |
+| `POST /api/conflict-checks/<check_id>/decisions` | Append a decision. Body `{"decision": "clear\|conflict\|waived_with_consent\|needs_review", "note": "…"}` → `201`. `400` for an unknown decision, and for `conflict`/`waived_with_consent` without a note |
+| `GET /api/conflict-checks/import/template.csv` | The empty list to fill in: `text/csv; charset=utf-8`, UTF-8 BOM, semicolon-separated |
+| `POST /api/conflict-checks/import` | Read and validate a lateral-hire list (multipart `file`, `.csv`/`.xlsx`). **Runs no check.** Returns the parsed rows and a fresh `bundle_id`; `400` unsupported/empty, `413` too large, `503` XLSX unsupported by this image |
+| `POST /api/conflict-checks/import/run` | Run **at most ten** rows of a parsed list. Body `{"bundle_id": "lateral:<hex32>", "rows": [{"row_number", "queries", "matter", "period"}]}` → `201` with one result per row |
 
 ### `POST /api/conflict-checks`
 
@@ -16538,7 +16475,7 @@ Body `{"target_id": "n-1", "source_id": "n-2"}`. Status codes:
   "check": {
     "check_id": "c-1",
     "executed_at": "2026-08-15T10:00:00+00:00",
-    "queries": [{"name": "Muster Bau AG", "role": "counterparty"}],
+    "queries": [{"name": "Muster Bau AG", "role": "opposing_party"}],
     "context": "Neumandat Weber",
     "hits": [
       {"query_index": 0, "kind": "party", "node_id": "n-1", "pointer": "",
@@ -16565,7 +16502,7 @@ screen asks (parties / documents / matters).
 
 The check record is append-only in the tenant; there is deliberately no
 `PATCH`/`DELETE`. A later assessment is a new check.
-```
+````
 
 - [ ] **Step 6: Index rows, troubleshooting, changelog, release notes**
 
@@ -16607,14 +16544,15 @@ closing line `Check the Network tab on /api/open-tokens/mint …`:
 ```
 
 Append to the `## Unreleased` section of `KnovasPlatform/CHANGELOG.md` (created
-by Task KC-A-8; if the file does not exist on your branch, create it with the
-two heading lines `## Changelog` and `## Unreleased` first):
+by Task KC-A-8; if the file does not exist on your branch, create it first with
+the two heading lines `# Changelog` and `## Unreleased`, the shape
+`RemoteController/CHANGELOG.md` uses):
 
 ```markdown
 - Parteien (D1): register at `/parteien` over the configured party node types (`web.graph.party_node_types`), kind-aware fuzzy search across the firm (`degraded` shown, never swallowed), party detail with facts, identifiers and matters, identifier editor with the eight kinds (`name`, `alias`, `legal_name`, `uid`, `matter_number`, `email`, `iban`, `other`), "Dubletten" queue and a merge sheet ("Quelle bleibt als Verweis erhalten"); merge is guarded by the `party_merge` approval policy, bypasses and executions are audited.
-- Zefix (D3): "Aus Zefix übernehmen" on organisations — called from the customer's network with the firm's own `ZEFIX_USERNAME`/`ZEFIX_PASSWORD`; writes a generated "Zefix-Auszug &lt;UID&gt; &lt;date&gt;" document (`document_type: Registerauszug`, `source_kind: upload`) and creates UID / Sitz / Rechtsform / Status facts with that document as evidence. Signatories, purpose, capital and group structure are **not** available from the Zefix API and are documented as such.
-- Konfliktprüfung (D2): `/konfliktpruefung` — check by name and role with a context, result grouped by parties / matters / documents, `withheld_count` and `degraded` rendered prominently, append-only decisions with note, and a printable "Konfliktprüfungsprotokoll" carrying check id, actor, time, queries, hits, decisions and the result hash.
-- Lateral-hire import (D4): CSV/XLSX upload (`client`, `counterparty`, `matter`, `period`) — one check per row under a shared `lateral:<uuid>` context, summary table with per-row status and protocol links.
+- Zefix (D3): "Aus Zefix übernehmen" on organisations (`web.graph.organisation_node_types`) — called from the customer's network with the firm's own `ZEFIX_USERNAME`/`ZEFIX_PASSWORD`; writes a generated "Zefix-Auszug &lt;UID&gt; &lt;date&gt;" document (`document_type: Registerauszug`, `source_kind: upload`, `author: Zefix`), adds the UID as a `uid` identifier, and creates UID / Sitz / Rechtsform / Status / Handelsregister-Auszug facts pointing at that document. The chunk-level evidence link is retried through "Beleg jetzt verknüpfen" while the extract is still being indexed (`evidence_pending`), never faked from a suggested passage. Signatories, purpose, capital and group structure are **not** available from the Zefix API and are documented as such.
+- Konfliktprüfung (D2): `/konfliktpruefung` — check by name and role with a context, result grouped by parties / matters / documents, `withheld_count` and `degraded` rendered prominently, append-only decisions with note (`Konflikt` and `Konflikt – mit Einwilligung freigegeben` require one), and a printable "Konfliktprüfungsprotokoll" at `/konfliktpruefung/<id>/protokoll` carrying check id, actor, time, queries, hits, decisions and the result hash.
+- Lateral-hire import (D4): CSV/XLSX upload with German or English headers (`client`/`mandant`, `counterparty`/`gegenpartei`, `matter`/`akte`, `period`/`zeitraum`) — reading the list runs nothing, the run then walks it in blocks of ten, one recorded check per row under a shared `lateral:<uuid>` context, summary table with per-row status and protocol links. `openpyxl` added to `requirements.txt`; without it XLSX answers 503 and asks for a CSV.
 - Sidebar: entries "Parteien" and "Konfliktprüfung"; screens that need the knowledge graph stay visible on the demo fixture and render "Wissensnetz-Modus erforderlich" instead of an empty page.
 - Docs: `docs/features/matters-and-parties.md`, `docs/features/conflicts-check.md`, `docs/integration/graph-api.md`.
 ```
@@ -16634,6 +16572,7 @@ New in this release (needs the Knovas Knowledge Graph API contract of August 202
 
 - Deploy: [KnovasPlatform/docs/setup.md](KnovasPlatform/docs/setup.md)
 - Screens and features: [KnovasPlatform/docs/README.md](KnovasPlatform/docs/README.md#screens-and-features)
+- Changelog: [KnovasPlatform/CHANGELOG.md](KnovasPlatform/CHANGELOG.md)
 - API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)
 ```
 
@@ -16643,23 +16582,67 @@ list alone.
 
 - [ ] **Step 7: Reconcile the documents with the code, then run the test**
 
-The route reference is a contract; three greps decide whether it is telling the
+The route reference is a contract; four greps decide whether it is telling the
 truth. Run from `KnovasPlatform/components/docbridge_integration`:
 
 ```bash
 grep -n "@bp.route" src/web_interface/parties_routes.py src/web_interface/conflicts_routes.py
-grep -n "ZEFIX_" src/zefix_client.py
-grep -rn "client\|counterparty\|matter\|period" src/web_interface/conflicts_routes.py | grep -i "column\|header\|COLUMNS"
+grep -rn "ZEFIX_" config/config.yaml ../../.env.example ../../docker-compose.yml
+grep -n "COLUMNS = \|COLUMN_ALIASES = " -A 10 src/lateral_import.py
+grep -n "IDENTIFIER_KIND_LABELS = \|CONFLICT_DECISION_LABELS = " -A 8 src/graph_model.py
 ```
 
-Expected: every route printed by the first command appears in
-`KnovasPlatform/docs/integration/graph-api.md` with the same method and path
-(the code is the authority — fix the doc row, not the route); the only Zefix
-environment names are `ZEFIX_USERNAME` and `ZEFIX_PASSWORD`; the import column
-vocabulary is exactly `client`, `counterparty`, `matter`, `period`. If Task
-KC-B-5 also accepts German header aliases, add them to the column table in
-`conflicts-check.md` — the table must list what the parser accepts, no more and
-no less.
+Expected:
+
+1. Twenty `@bp.route` decorators: eleven in `parties_routes.py` (eight from Task
+   KC-B-2, three Zefix from KC-B-3) and nine in `conflicts_routes.py` (six from
+   KC-B-4 — two of them pages — and three from KC-B-5). That is exactly the
+   eleven + nine rows of the two route tables written in Step 5, and **every one
+   of them** appears in
+   `KnovasPlatform/docs/integration/graph-api.md` with the same method and path.
+   The code is the authority — fix the doc row, not the route. Step 1's test
+   fails naming any `METHOD /path` you missed.
+2. Five Zefix environment names — `ZEFIX_USERNAME`, `ZEFIX_PASSWORD`,
+   `ZEFIX_BASE_URL`, `ZEFIX_TIMEOUT_SECONDS`, `ZEFIX_POINTER_PREFIX` — matching
+   the configuration table in `matters-and-parties.md` exactly. (Task KC-B-3
+   adds four of them to `docker-compose.yml` and `.env.example`; the fifth,
+   `ZEFIX_POINTER_PREFIX`, exists only in `config/config.yaml`. If your branch
+   really carries only four, drop the fifth row rather than documenting a key
+   nobody can set.)
+3. `COLUMNS = ('client', 'counterparty', 'matter', 'period')` plus the German
+   aliases in `COLUMN_ALIASES`, and next to them
+   `COLUMN_ROLES = {'client': 'client', 'counterparty': 'opposing_party'}`. The
+   column table in `conflicts-check.md` lists what the parser accepts, no more
+   and no less — if `COLUMN_ALIASES` gained or lost a spelling, the table moves
+   with it. The column names are the firm's spreadsheet headings and stay
+   human; `COLUMN_ROLES` is where they become the tenant's wire roles, so a
+   `counterparty` **column** and an `opposing_party` **role** in the same
+   document are correct, not a typo.
+4. The eight identifier kinds and four decision values documented above are the
+   ones the code actually enumerates. A kind or decision in the docs that the
+   code rejects is a support ticket waiting to happen.
+
+One boundary to re-check while you are here, because it used to diverge:
+`conflicts_routes.py::CONFLICT_ROLES` must be **identical** to the tenant's
+`services/knowledge_graph/conflict_checks.py::QUERY_ROLES = ("client",
+"opposing_party", "related_party", "other")` — the service answers
+`400 conflict_check_invalid_role` for anything else, so a Platform-only
+spelling such as `counterparty` or `related` would fail every check that
+carries it. Task KC-B-4 sets those four wire values and keeps the German in
+`ROLE_LABELS` (`Mandantschaft`, `Gegenpartei`, `Beteiligte`, `Sonstige`); Task
+KC-B-5 translates the spreadsheet column `counterparty` through
+`lateral_import.COLUMN_ROLES` before it ever reaches the API. Confirm all three
+still agree:
+
+```bash
+grep -n "CONFLICT_ROLES = \|ROLE_LABELS = " -A 7 src/web_interface/conflicts_routes.py
+grep -n "COLUMN_ROLES = " -A 4 src/lateral_import.py
+```
+
+Expected: the same four wire values in `CONFLICT_ROLES` and as the keys of
+`ROLE_LABELS`, and `COLUMN_ROLES` mapping `counterparty → opposing_party`. The
+code is the authority: if the merged code sends something else, that is a defect
+in the route, not in this document — report it instead of documenting both.
 
 Run: `python -m pytest tests/test_docs_platform_routes.py -v`
 Expected: PASS, 4 tests. A failure of `test_every_party_and_conflict_route_is_documented`
@@ -16673,16 +16656,18 @@ Run from `E:/Knovas/KnovasComponents`:
 for f in KnovasPlatform/docs/features/matters-and-parties.md \
          KnovasPlatform/docs/features/conflicts-check.md \
          KnovasPlatform/docs/integration/graph-api.md \
-         KnovasPlatform/CHANGELOG.md docs/product-statements.md; do
+         KnovasPlatform/CHANGELOG.md \
+         docs/product-statements.md docs/KnovasAPI/Knowledge_Graph_API.md; do
   test -f "$f" && echo "ok  $f" || echo "MISSING $f"; done
 grep -n "matters-and-parties.md\|conflicts-check.md\|graph-api.md" KnovasPlatform/docs/README.md
 ```
 
-Expected: every file `ok` except `docs/product-statements.md` and
-`docs/KnovasAPI/Knowledge_Graph_API.md`, which the docs part (Tasks KC-G-1 and
-KC-G-3) creates — the two links stay, they resolve when that part lands, and
-`PENDING_LINKS` in the test names exactly those two so nothing rots silently.
-The grep prints three matches in the Platform doc index.
+Expected: the first four `ok`; `docs/product-statements.md` and
+`docs/KnovasAPI/Knowledge_Graph_API.md` `MISSING` until the docs part (Tasks
+KC-G-1 and KC-G-3) lands — the links to them stay, they resolve when that part
+lands, and `PENDING_LINKS` in the test names exactly those two so nothing rots
+silently. The grep prints three matches in the Platform doc index (one "Paths"
+row, two "Screens and features" rows).
 
 ```bash
 git add KnovasPlatform/docs/features/matters-and-parties.md \
@@ -16706,7 +16691,7 @@ git commit -m "docs(platform): party register, Zefix scope, conflicts check and 
 **Requirements:** E3, E4, E6
 
 **Files:**
-- Modify: `src/knovas_client.py` — add `SecureApiError` beside `KnowledgeGraphDisabled` (line 859 on `main`; after C-plan B2 it sits beside `GraphError`); add `_secured_json` directly after `_request_no_retry` (lines 1324-1348); append the six public methods after the last `graph_*` method (after `graph_restore_placement`, lines 1704-1707 on `main`; after C-plan B5/B6 the last one is `graph_sort_document`).
+- Modify: `src/knovas_client.py` — **reuse** `SecuredApiError` beside `KnowledgeGraphDisabled` (line 859 on `main`; after C-plan B2 it sits beside `GraphError`) — Task **KC-A-1** creates that class at exactly this spot and lands first (phase 1 vs. this part's phase 2); create it here only if KC-A-1 has not landed, with KC-A-1's definition verbatim, and **do not** add a second, differently-named exception; add `_secured_json` directly after `_request_no_retry` (lines 1324-1348); append the six public methods after the last `graph_*` method (after `graph_restore_placement`, lines 1704-1707 on `main`; after C-plan B5/B6 the last one is `graph_sort_document`).
 - Modify: `src/graph_model.py` (created by C-plan B3) — append the `Event` dataclass.
 - Test: `tests/test_knovas_client_events_facts.py`
 - Test: `tests/test_graph_model_event.py`
@@ -16720,11 +16705,11 @@ git commit -m "docs(platform): party register, Zefix scope, conflicts check and 
   - `fact_adopt(fact_id: str, actor_ref: str | None) -> dict | None` — `POST /facts/<id>/adopt {actor_ref}`; `None` on 404; `GraphError` (409 `actor_required` / `four_eyes_required`) otherwise.
   - `fact_propose(node_id: str, value, *, attribute_id=None, label=None, evidence: list[dict], confidence: float | None = None) -> dict | None` — `POST /facts/propose`; evidence items `{chunk_id, char_start?, char_end?, quote?}`; empty evidence → `ValueError`.
   - `events_poll(after: int = 0, limit: int = 200, types: list[str] | None = None) -> dict` — `{'events': list[dict], 'next_after': int, 'has_more': bool}`.
-  - `transmission_status(transmission_key_id: str) -> dict | None` — status object (`status`, `pointer`, `attempts`, `error`, `updated_at`) or `None` on 404.
-  - `graph_job(job_id: str) -> dict | None` — job object (`id`, `kind`, `target_id`, `status`, `total`, `done_count`, `failed_count`, `error`) or `None`.
-  - `SecureApiError(status: int, error_code: str, message: str = '')`.
+  - `transmission_status(transmission_key_id: str) -> dict | None` — the flat KB-C-8 envelope minus the envelope's own `status`/`message` keys, i.e. `{transmission_key_id, pointer, job_status, attempts, error, document_uuid, action, created_at, updated_at}` (`part_count` when the upload is still receiving); `None` on 404. **The durable state is `job_status`, not `status`** — Part A wraps every payload in `APIResponseService`, so the top-level `status` is the envelope's `"success"` and is stripped here. Callers read `job_status` (`queued|running|indexed|failed|dead_lettered`, plus `receiving`).
+  - `graph_job(job_id: str) -> dict | None` — job object (`id`, `kind`, `target_id`, `status`, `total`, `done_count`, `failed_count`, `error`) or `None`. Here `status` **is** the job's own state (`queued|running|completed|failed`): KB-C-9 nests the job under a `job` key, so unwrapping it keeps the envelope out of the way.
+  - `SecuredApiError(status: int, error_code: str = '', message: str = '', details: Any = None)` with `.retry_after` — **the class Task KC-A-1 adds to `knovas_client`**, reused unchanged. There is exactly one `/secured/*` exception type in this module.
   - `graph_model.Event(seq, event_type, subject_type='', subject_id='', occurred_at='', payload={}, event_id='')` with `Event.from_api(raw) -> Event` and `.to_row() -> dict`.
-  Tasks KC-C-2a/2b/3b/4b/5/6/7 call these.
+  Tasks KC-C-2a/2b/3b/4/5/6/7 call these.
 
 - [ ] **Step 1: Write the failing client test**
 
@@ -16740,7 +16725,7 @@ from __future__ import annotations
 
 import pytest
 
-from knovas_client import SecureApiError
+from knovas_client import SecuredApiError
 from test_knovas_client_hardening import FakeResponse, FakeSession, make_secured_client
 
 
@@ -16851,19 +16836,29 @@ def test_transmission_status_returns_none_on_404_and_the_object_otherwise():
     def responder(method, url, **kw):
         if url.endswith("/secured/transmissions/gone/status"):
             return FakeResponse(404, {"status": "error", "error": "not found"})
-        return FakeResponse(200, {"status": "success", "message": "ok",
-                                  "transmission": {"status": "indexed", "pointer": "a/b.pdf",
-                                                   "attempts": 1, "error": None}})
+        # The exact flat envelope of Part A Task KB-C-8: the durable state is
+        # job_status; the top-level "status" belongs to APIResponseService.
+        return FakeResponse(200, {"status": "success", "message": "Transmission status",
+                                  "transmission_key_id": "k1", "pointer": "a/b.pdf",
+                                  "job_status": "indexed", "attempts": 1, "error": None,
+                                  "document_uuid": "d-1", "action": "create",
+                                  "created_at": "2026-08-15T06:30:00Z",
+                                  "updated_at": "2026-08-15T06:31:00Z"})
 
     client = _client_with(responder)
     assert client.transmission_status("gone") is None
-    assert client.transmission_status("k1")["status"] == "indexed"
+    row = client.transmission_status("k1")
+    assert row["job_status"] == "indexed"
+    assert row["pointer"] == "a/b.pdf"
+    # The envelope's own keys are stripped, so nothing can mistake "success"
+    # for an ingest state.
+    assert "status" not in row and "message" not in row
 
 
 def test_non_404_secured_error_carries_the_code():
     client = _client_with(lambda *a, **k: FakeResponse(
         429, {"status": "error", "error_code": "rate_limited", "message": "slow down"}))
-    with pytest.raises(SecureApiError) as caught:
+    with pytest.raises(SecuredApiError) as caught:
         client.events_poll(after=0)
     assert caught.value.status == 429
     assert caught.value.error_code == "rate_limited"
@@ -16879,25 +16874,44 @@ def test_graph_job_unwraps_the_job_key():
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `python -m pytest tests/test_knovas_client_events_facts.py -v`
-Expected: FAIL with `ImportError: cannot import name 'SecureApiError' from 'knovas_client'`
+Expected: FAIL — `AttributeError: 'KnovasAPIClient' object has no attribute 'events_poll'`
+(or, if Task KC-A-1 has not landed either, `ImportError: cannot import name
+'SecuredApiError' from 'knovas_client'`).
 
-- [ ] **Step 3: Implement `SecureApiError` and `_secured_json`**
+- [ ] **Step 3: Reuse `SecuredApiError`, implement `_secured_json`**
 
-In `src/knovas_client.py`, directly after `class KnowledgeGraphDisabled` (lines 859-865 on `main`; after C-plan B2 directly after `class GraphError`), add:
+`SecuredApiError` is **Task KC-A-1's class** — one `/secured/*` exception type for
+the whole module, defined beside `KnowledgeGraphDisabled` (line 859 on `main`;
+after C-plan B2 beside `GraphError`). KC-A-1 is phase 1 and this part is phase 2,
+so normally it is already there. Check:
+
+```bash
+cd KnovasPlatform/components/docbridge_integration && grep -n "class SecuredApiError" src/knovas_client.py
+```
+
+- One hit → **do not add anything**; go straight to `_secured_json` below.
+- No hit (KC-A-1 has not landed) → add KC-A-1 Step 3's class **verbatim** at that
+  spot and delete the duplicate when you reach KC-A-1. Do **not** invent a second,
+  differently-named exception: `_secured_json` and the Trefferliste's
+  `api_error_view` must raise and catch the same type, and `.retry_after` /
+  `.details` are what the search screen reads for its 429/503 copy.
 
 ```python
-class SecureApiError(RuntimeError):
-    """A non-graph /secured/* call failed with an error_code the caller can act on.
+class SecuredApiError(RuntimeError):
+    """A /secured/* call answered 4xx/5xx with a body the caller can act on.
 
-    Sibling of GraphError for the events, transmission-status and export
-    routes. 404 stays outside this type for the same reason: an unknown key
-    is a normal state and returns None.
+    Defined by Task KC-A-1; reproduced here only for the out-of-order case.
+    404 stays outside this type: an unknown key is a normal state -> None.
     """
 
-    def __init__(self, status: int, error_code: str, message: str = ""):
-        super().__init__(message or error_code or f"HTTP {status}")
+    def __init__(self, status: int, error_code: str = '', message: str = '',
+                 details: Any = None):
+        super().__init__(message or error_code or f'HTTP {status}')
         self.status = status
         self.error_code = error_code
+        self.message = message
+        self.details = details
+        self.retry_after: Optional[int] = None
 ```
 
 Directly after `_request_no_retry` (ends at line 1348 on `main`), add:
@@ -16913,7 +16927,7 @@ Directly after `_request_no_retry` (ends at line 1348 on `main`), add:
         """JSON call to a non-graph /secured/* route.
 
         404 -> None (unknown key, normal state). Any other HTTP error ->
-        SecureApiError carrying the body's error_code, so a route can say
+        SecuredApiError carrying the body's error_code, so a route can say
         "spaeter erneut" for 429/503 instead of "kaputt".
         """
         try:
@@ -16931,7 +16945,7 @@ Directly after `_request_no_retry` (ends at line 1348 on `main`), add:
             if response.status_code == 404:
                 logger.info("Secure-API 404: %s %s", method, endpoint)
                 return None
-            raise SecureApiError(
+            raise SecuredApiError(
                 response.status_code,
                 str(body.get('error_code') or ''),
                 str(body.get('message') or body.get('error') or ''),
@@ -17031,15 +17045,19 @@ Append after the last `graph_*` method of `KnovasAPIClient` (after `graph_restor
         return {'events': events, 'next_after': int(next_after), 'has_more': bool(has_more)}
 
     def transmission_status(self, transmission_key_id: str) -> Optional[Dict[str, Any]]:
-        """GET /secured/transmissions/<key>/status - queued|running|indexed|failed|dead_lettered."""
+        """GET /secured/transmissions/<key>/status.
+
+        Der dauerhafte Zustand steht in 'job_status'
+        (receiving|queued|running|indexed|failed|dead_lettered), NICHT in
+        'status': Part A KB-C-8 legt jede Antwort in die APIResponseService-
+        Envelope, deren 'status' immer "success" ist. Genau diese beiden
+        Envelope-Schluessel werden hier entfernt, damit kein Aufrufer
+        "success" fuer einen Ingest-Zustand haelt.
+        """
         payload = self._secured_json(
             'GET', f'/secured/transmissions/{quote(str(transmission_key_id), safe="")}/status')
         if payload is None:
             return None
-        for key in ('transmission', 'job', 'ingest_job'):
-            if isinstance(payload.get(key), dict):
-                return payload[key]
-        # Flache Envelope: 'status'/'message' gehoeren der Envelope, nicht dem Auftrag.
         return {k: v for k, v in payload.items() if k not in ('status', 'message')}
 
     def graph_job(self, job_id: str) -> Optional[Dict[str, Any]]:
@@ -20380,7 +20398,7 @@ git commit -m "docs(deadlines): DEADLINES_FEED_ENABLED and the Outlook subscript
 - Modify: `KnovasPlatform/.env.example`, `KnovasPlatform/docker-compose.yml`, `KnovasPlatform/docs/setup.md`, `scripts/lib/expand_knovas_env.sh`, `knovas.env.example` (repository root).
 
 **Interfaces:**
-- Consumes: `KnovasAPIClient.events_poll(after: int = 0, limit: int = 200, types: list[str] | None = None) -> {'events': list[dict], 'next_after': int, 'has_more': bool}` and `SecureApiError(status, error_code, message)` (Task KC-C-1); `graph_model.Event.from_api(raw) -> Event` with `.seq/.event_id/.event_type/.subject_type/.subject_id/.occurred_at/.payload` (Task KC-C-1); `identity.db.connect(settings=None, *, autocommit=True)` and `identity.db.settings_from_env()` (defined by section-B KC-F2 on `feat/section-b-buildout` — read `E:/Knovas/KnovasComponents/.worktrees/section-b-buildout/KnovasPlatform/components/docbridge_integration/src/identity/db.py:92-112` for the exact signatures); `identity.migrate.apply(conn) -> list[str]` (same branch, `src/identity/migrate.py:83`); backend route `GET /secured/events?after=&limit=&types=` answering `{"status":"success","events":[{seq,id,event_type,subject_type,subject_id,occurred_at,payload,idempotency_key}],"next_after":int,"has_more":bool}` (defined in Part KB-C).
+- Consumes: `KnovasAPIClient.events_poll(after: int = 0, limit: int = 200, types: list[str] | None = None) -> {'events': list[dict], 'next_after': int, 'has_more': bool}` and `SecuredApiError(status, error_code, message)` (Task KC-C-1); `graph_model.Event.from_api(raw) -> Event` with `.seq/.event_id/.event_type/.subject_type/.subject_id/.occurred_at/.payload` (Task KC-C-1); `identity.db.connect(settings=None, *, autocommit=True)` and `identity.db.settings_from_env()` (defined by section-B KC-F2 on `feat/section-b-buildout` — read `E:/Knovas/KnovasComponents/.worktrees/section-b-buildout/KnovasPlatform/components/docbridge_integration/src/identity/db.py:92-112` for the exact signatures); `identity.migrate.apply(conn) -> list[str]` (same branch, `src/identity/migrate.py:83`); backend route `GET /secured/events?after=&limit=&types=` answering `{"status":"success","events":[{seq,id,event_type,subject_type,subject_id,occurred_at,payload,idempotency_key}],"next_after":int,"has_more":bool}` (defined in Part KB-C).
 - Produces (module `events_poller`, importable without Flask and without psycopg):
   - Constants `DEFAULT_TENANT_KEY = 'default'`, `DEFAULT_INTERVAL_SECONDS = 15`, `DEFAULT_LIMIT = 200`, `MAX_BATCHES_PER_TICK = 10`, `ADVISORY_LOCK_KEY = 1263424342`.
   - `EventStore(conn)` with `cursor(tenant_key=DEFAULT_TENANT_KEY) -> int`, `set_cursor(tenant_key, last_seq, *, error=None) -> None` (monotonic), `append(events: Iterable[dict]) -> int` (rows actually inserted), `recent(*, limit=100, offset=0, types=None, unread_only=False, since=None, until=None) -> list[dict]`, `unread_count(*, types=None) -> int`, `mark_read(seqs, *, read_by=None) -> int`, `mark_all_read(*, read_by=None, types=None) -> int`, `prune(older_than_days: int) -> int`. Row dicts: `{seq: int, event_id: str, event_type: str, subject_type: str, subject_id: str, payload: dict, occurred_at: str (ISO), seen_at: str (ISO), read_at: str (ISO) | None}`.
@@ -21004,9 +21022,9 @@ def test_a_backlog_that_never_ends_stops_after_the_batch_cap():
 
 
 def test_an_api_failure_keeps_the_cursor_and_records_the_reason():
-    from knovas_client import SecureApiError
+    from knovas_client import SecuredApiError
 
-    client = FakeClient(error=SecureApiError(503, "unavailable", "wartung"))
+    client = FakeClient(error=SecuredApiError(503, "unavailable", "wartung"))
     store = FakeStore(start=40)
 
     assert _poller(client, store, FakeLock()).poll_once() == 0
@@ -22872,8 +22890,8 @@ use, and exports the local event store as the CSV a firm files.
 - Test: `tests/test_events_routes.py`
 
 **Interfaces:**
-- Consumes: `KnovasAPIClient.transmission_status(transmission_key_id: str) -> dict | None`
-  and `SecureApiError(status: int, error_code: str, message: str = '')` (both defined in
+- Consumes: `KnovasAPIClient.transmission_status(transmission_key_id: str) -> dict | None` — the envelope-stripped KB-C-8 payload whose durable state is **`job_status`** (`receiving|queued|running|indexed|failed|dead_lettered`), never `status`
+  and `SecuredApiError(status: int, error_code: str = '', message: str = '', details=None)` (created by Task KC-A-1, reused via Task KC-C-1) (both defined in
   Task KC-C-1); the local table `events(seq BIGINT PRIMARY KEY, event_type TEXT,
   subject_type TEXT, subject_id TEXT, payload JSONB, occurred_at TIMESTAMPTZ,
   seen_at TIMESTAMPTZ, read_at TIMESTAMPTZ NULL)` from
@@ -22965,7 +22983,7 @@ def test_keys_come_from_a_comma_list_deduped_and_capped():
 
 
 def test_an_indexed_transmission_is_terminal_and_labelled():
-    row = tracker.status_row("k1", {"status": "indexed", "pointer": "akten/meier/brief.pdf",
+    row = tracker.status_row("k1", {"job_status": "indexed", "pointer": "akten/meier/brief.pdf",
                                     "attempts": 1, "error": None,
                                     "updated_at": "2026-08-15T10:00:00Z"})
 
@@ -22977,7 +22995,7 @@ def test_an_indexed_transmission_is_terminal_and_labelled():
 
 
 def test_a_failed_transmission_keeps_the_reason():
-    row = tracker.status_row("k2", {"status": "failed", "attempts": 3,
+    row = tracker.status_row("k2", {"job_status": "failed", "attempts": 3,
                                     "error": "extraction_failed"})
 
     assert row["terminal"] is True
@@ -22985,7 +23003,7 @@ def test_a_failed_transmission_keeps_the_reason():
 
 
 def test_a_queued_transmission_is_not_terminal():
-    assert tracker.status_row("k3", {"status": "queued"})["terminal"] is False
+    assert tracker.status_row("k3", {"job_status": "queued"})["terminal"] is False
 
 
 def test_an_unknown_key_is_unknown_not_a_failure():
@@ -22997,7 +23015,7 @@ def test_an_unknown_key_is_unknown_not_a_failure():
 
 
 def test_status_rows_answers_one_row_per_key_in_order():
-    client = FakeClient({"k1": {"status": "indexed"}, "k2": {"status": "running"}})
+    client = FakeClient({"k1": {"job_status": "indexed"}, "k2": {"job_status": "running"}})
 
     rows, degraded = tracker.status_rows(client, ["k1", "k2", "k3"])
 
@@ -23008,7 +23026,7 @@ def test_status_rows_answers_one_row_per_key_in_order():
 
 
 def test_a_throttled_lookup_is_degraded_never_a_failed_ingest():
-    client = FakeClient({"k1": {"status": "indexed"}}, raise_for={"k2"})
+    client = FakeClient({"k1": {"job_status": "indexed"}}, raise_for={"k2"})
 
     rows, degraded = tracker.status_rows(client, ["k1", "k2"])
 
@@ -23049,9 +23067,11 @@ logger = logging.getLogger(__name__)
 #: Query-Budget des Mandanten (Design §5.4) — deshalb eine harte Obergrenze.
 MAX_KEYS = 25
 
-#: Das Vokabular der API (ingest_jobs.status, Design §5.5) plus die zwei
-#: Zustände, die nur die Plattform sieht.
+#: Das Vokabular der API (`job_status` aus `GET /secured/transmissions/<key>/status`,
+#: Part A Task KB-C-8: receiving|queued|running|indexed|failed|dead_lettered) plus
+#: die zwei Zustände, die nur die Plattform sieht.
 STATUS_LABELS: Dict[str, str] = {
+    'receiving': 'Wird hochgeladen',
     'queued': 'In Warteschlange',
     'running': 'Wird verarbeitet',
     'indexed': 'Indexiert',
@@ -23082,7 +23102,13 @@ def normalise_keys(raw: Any) -> List[str]:
 
 
 def status_row(key: str, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Eine Statuszeile. payload=None bedeutet 404 — unbekannt, nicht gescheitert."""
+    """Eine Statuszeile. payload=None bedeutet 404 — unbekannt, nicht gescheitert.
+
+    Der Zustand steht in 'job_status' (Part A KB-C-8): 'status' gehoert der
+    APIResponseService-Envelope und ist dort immer "success". 'status' wird nur
+    als Rueckfall gelesen, falls ein Aufrufer eine bereits entpackte Zeile
+    hereinreicht — nie, um "success" als Ingest-Zustand zu akzeptieren.
+    """
     if payload is None:
         # Der Schlüssel ist der API unbekannt: entweder nie angelegt oder
         # abgelaufen. Beides ist kein Fehler, aber auch kein Erfolg;
@@ -23090,7 +23116,12 @@ def status_row(key: str, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         return {'key': key, 'status': 'unknown', 'label': STATUS_LABELS['unknown'],
                 'pointer': '', 'attempts': 0, 'error': None, 'updated_at': '',
                 'terminal': False, 'known': False}
-    status = str(payload.get('status') or '').strip().lower() or 'unknown'
+    raw_status = payload.get('job_status')
+    if raw_status is None:
+        raw_status = payload.get('status')
+    status = str(raw_status or '').strip().lower() or 'unknown'
+    if status == 'success':                      # Envelope statt Auftrag
+        status = 'unknown'
     error = payload.get('error')
     return {
         'key': key,
@@ -23512,8 +23543,8 @@ class StubKnovasClient:
 
     def transmission_status(self, key):
         if key in StubKnovasClient.raise_for:
-            from knovas_client import SecureApiError
-            raise SecureApiError(429, "rate_limited", "zu viele Anfragen")
+            from knovas_client import SecuredApiError
+            raise SecuredApiError(429, "rate_limited", "zu viele Anfragen")
         return StubKnovasClient.statuses.get(key)
 
 
@@ -23656,8 +23687,8 @@ def test_a_dead_database_is_503_not_a_truncated_download(app):
 
 def test_transmission_status_reports_indexed_and_failed(app):
     StubKnovasClient.statuses = {
-        "k1": {"status": "indexed", "pointer": "akten/meier/brief.pdf", "attempts": 1},
-        "k2": {"status": "failed", "attempts": 3, "error": "extraction_failed"},
+        "k1": {"job_status": "indexed", "pointer": "akten/meier/brief.pdf", "attempts": 1},
+        "k2": {"job_status": "failed", "attempts": 3, "error": "extraction_failed"},
     }
     client = app.test_client()
     _login(client)
@@ -23679,7 +23710,7 @@ def test_transmission_status_without_keys_is_400(app):
 
 
 def test_a_throttled_api_is_degraded_with_http_200(app):
-    StubKnovasClient.statuses = {"k1": {"status": "queued"}}
+    StubKnovasClient.statuses = {"k1": {"job_status": "queued"}}
     StubKnovasClient.raise_for = {"k2"}
     client = app.test_client()
     _login(client)
@@ -24702,7 +24733,8 @@ quotes) rather than the German plan style.
 
 **Interfaces:**
 - Consumes (documents, does not define): `/fristen`, `/api/deadlines/*` (Task KC-C-2b);
-  `GET /feeds/deadlines.ics?token=` and the settings feed-token UI (Task KC-C-3);
+  `GET /feeds/deadlines.ics?token=` and the settings feed-token UI (Task KC-C-3b;
+  the calendar text itself is `src/ics_feed.py`, Task KC-C-3a);
   `src/events_poller.py`, `EVENTS_POLL_*` (Task KC-C-4); `/posteingang`,
   `/api/inbox/unread-count` (Task KC-C-5); `GET /api/inbox/export`,
   `GET /api/transmissions/status` (Task KC-C-6); `GET /api/inbox/overdue` (Task KC-C-7);
@@ -33226,31 +33258,39 @@ git commit -m "docs(cortex): live graph vs demo fixture, screen guides, ONTOLOGY
 **Requirements:** H2 (file an e-mail and its attachments to a matter in ≤ 2 clicks, with dedup), F3/D5 (author, document_type, document_date, source_kind, language on the ingested document — the `metadata` object of §5.2)
 **Files:**
 - Create: `src/email_filing.py`
-- Create: `src/identity/migrations/0004_filing.sql`
-- Modify: `src/knovas_extract_upload.py:14-21` (public `SUPPORTED_EXTENSIONS` alias next to `_EXT_TO_MIME`)
-- Modify: `src/knovas_client.py:1803-1815` (`_sync_single_document_secured` — `metadata` and `graph_assign` on the init body)
+- Create: `src/identity/migrations/0004_filing.sql` (creates the `migrations/` directory too — see the section-B note above)
+- Modify: `src/knovas_extract_upload.py:14-21` (public `SUPPORTED_EXTENSIONS` alias directly after the `_EXT_TO_MIME` literal, which closes on line 21)
+- Modify: `src/knovas_client.py:1803-1812` (`_sync_single_document_secured`: `def` on 1803, `init_body.update(init_fields)` on 1812 — `metadata` and `graph_assign` are appended right after that line)
 - Create: `tests/fixtures/sample_mails.py`
 - Test: `tests/test_email_filing.py`, `tests/test_knovas_client_filing_metadata.py`, `tests/test_filed_email_store.py`
 
 **Interfaces:**
-- Consumes: `knovas_extract_upload._EXT_TO_MIME` (existing, `.txt .md .pdf .docx .eml .msg`); `KnovasAPIClient.sync_single_document(document: dict) -> dict` (existing; the document dict keys `doc_id`, `path`, `display_name`, `type`, `content_base64` are read by `_secured_transmit_parts_from_document`, `knovas_client.py:439`); `init_document_transmission` `metadata` object `{author, document_type, language, document_date, document_status, source_kind, extra}` and `graph_assign {"node_ids": [...]}` (defined in Part KB); `identity.migrate` (section B) applies the new `.sql` file by filename order.
+- Consumes: `knovas_extract_upload._EXT_TO_MIME` (existing, `knovas_extract_upload.py:14-21`, keys `.txt .md .pdf .docx .eml .msg`); `knovas_extract_upload.parts_from_base64(content_base64, ext, …)` (existing, `:36`) which returns `[]` for an unknown extension; `KnovasAPIClient.sync_single_document(document: dict) -> dict` (existing, `knovas_client.py:1427`, which dispatches to `_sync_single_document_secured` at `:1803` when `use_secured_api and mtls_enabled`); the document-dict keys `doc_id`, `type`, `content_base64` read by `_secured_transmit_parts_from_document` (`knovas_client.py:439`) and `display_name`/`path`/`description` read by `_secured_init_fields_from_document` (`knovas_client.py:398`, which produces the `title`/`path`/`description` init fields); `init_document_transmission` `metadata` object `{author, document_type, language, document_date, document_status, source_kind, extra}` and `graph_assign {"node_ids": [...]}` (defined in Part KB / section-C Task B7); `extract_msg` ≥ 0.55 (already installed through `knovas-extract[msg]` in `requirements.txt`) and its `Message.asEmailMessage()`; the existing `.msg` fixture `tests/fixtures/make_msg.py::build_sample_msg(path)`; `identity.migrate` (section B) applies the new `.sql` file by filename order.
 - Produces:
   - `knovas_extract_upload.SUPPORTED_EXTENSIONS: frozenset[str]` (dotted, e.g. `".pdf"`).
   - `KnovasAPIClient.sync_single_document(document)` honours two optional keys: `document["metadata"]` (dict, forwarded verbatim as `metadata`) and `document["graph_assign"]` (`{"node_ids": [...]}`, forwarded verbatim) on `POST /secured/init_document_transmission`. If section-C Task B7 already added `graph_assign` here, keep its form and add only `metadata`.
-  - `email_filing.parse_email(mime_bytes: bytes, *, max_bytes: int = MAX_MESSAGE_BYTES) -> ParsedEmail` (stdlib `email`, raises `EmailTooLarge` / `EmailUnparseable`);
-    `email_filing.parse_msg(msg_bytes: bytes, *, max_bytes=...) -> ParsedEmail` (extract-msg, already installed through `knovas-extract[msg]`);
+  - `email_filing.MAX_MESSAGE_BYTES = 40 * 1024 * 1024`, `MAX_BODY_CHARS = 200_000`, `MAX_ATTACHMENTS = 50`, `DOCUMENT_TYPE_EMAIL = "E-Mail"`, `SOURCE_KIND = "addin"`; exceptions `EmailFilingError` → `EmailTooLarge`, `EmailUnparseable`.
+  - `email_filing.Attachment(name: str, content_type: str, data: bytes)` and `email_filing.ParsedEmail(subject, author, sender_email, recipients, message_id, in_reply_to, document_date, body_text, attachments, dedup_key, raw_size)` — both frozen dataclasses.
+  - `email_filing.parse_email(mime_bytes: bytes, *, max_bytes: int = MAX_MESSAGE_BYTES) -> ParsedEmail` (stdlib `email` with `policy.default`, raises `EmailTooLarge` before parsing / `EmailUnparseable` on a body that carries no `From`, `Subject` *and* `Date`);
+    `email_filing.parse_msg(msg_bytes: bytes, *, max_bytes: int = MAX_MESSAGE_BYTES) -> ParsedEmail` (writes the bytes to a temp file, `extract_msg.openMsg(...).asEmailMessage()`, backfills the `Subject` and `Message-ID` headers that renderer drops — see the note below — then `parse_email`);
     `email_filing.build_mime_from_item(item: dict) -> bytes` (structured add-in fallback → RFC 5322 bytes);
-    `email_filing.build_metadata(parsed: ParsedEmail) -> dict` and `email_filing.attachment_metadata(parsed, attachment) -> dict` (the §5.2 object: `author`=From, `document_type` `"E-Mail"` / by extension, `document_date`=Date, `source_kind` `"addin"`, `language` when detected, `extra` `{"eml:message_id", "eml:in_reply_to", "eml:attachment_count"}`);
-    `email_filing.detect_language(text: str) -> str | None` (`de|fr|it|en`, stop-word ratio, no dependency);
-    `email_filing.FiledEmailStore(conn)` with `.lookup(message_id_hash: str, node_id: str) -> dict | None` and `.mark_filed(*, message_id_hash, node_id, pointer, filed_by: str | None, attachment_count: int) -> None`;
+    `email_filing.build_metadata(parsed: ParsedEmail) -> dict` and `email_filing.attachment_metadata(parsed: ParsedEmail, attachment: Attachment) -> dict` (the §5.2 object: `author`=the raw `From` header, `document_type` `"E-Mail"` for the message / `_DOCUMENT_TYPE_BY_EXT` for an attachment, `document_date`=`Date` as `YYYY-MM-DD`, `document_status` `"final"` for the message and `"unknown"` for an attachment, `source_kind` `"addin"`, `language` only when detected, `extra` = `{"eml:message_id"}` (only when the header is present) + `{"eml:in_reply_to"}` (only when present) + `{"eml:attachment_count"}` (always) + `{"eml:attachment_name"}` (attachments only) — **all values are strings**, because §5.2 caps `extra` values at 256 characters);
+    `email_filing.detect_language(text: str) -> str | None` (`de|fr|it|en`, stop-word count, no dependency; `None` on a tie or fewer than 2 hits — mirrors the KnowledgeBase-side `services/language_detect.py::detect_language` by name and by return domain, not by implementation);
+    `email_filing.FiledEmailStore(conn)` with `.lookup(message_id_hash: str, node_id: str) -> dict | None` (keys `pointer`, `attachment_count`, `filed_by`, `filed_at` — the last as an ISO-8601 string) and `.mark_filed(*, message_id_hash, node_id, pointer, filed_by: str | None, attachment_count: int) -> None` (`INSERT … ON CONFLICT DO NOTHING`; **the store never commits — the caller owns the transaction**, so the route in Task KC-E-2 commits and the pytest fixture can roll back);
     `email_filing.file_email(client, store, parsed, raw_bytes, *, node_id, include_attachments, filed_by, prefix, raw_ext="eml") -> FilingResult` where `FilingResult` has `status: "filed" | "already_filed"`, `pointer`, `node_id`, `attachments: [{name, pointer}]`, `skipped: [{name, reason}]`, `filed_at`, and `.to_dict()`;
-    identifiers `"<prefix>/mail/<sha256[:32]>"` for the message and `"<prefix>/mail/<sha256[:32]>/att/<safe-name>"` for attachments (`safe_name(name) -> str`, `_2`/`_3` suffix on collision);
-    table `filed_emails(id, message_id_hash CHAR(64), node_id TEXT, pointer TEXT, attachment_count INT, filed_by UUID NULL → users, filed_at TIMESTAMPTZ, UNIQUE(message_id_hash, node_id))`.
+    identifiers `"<prefix>/mail/<sha256[:32]>"` for the message and `"<prefix>/mail/<sha256[:32]>/att/<safe-name>"` for attachments (`safe_name(name) -> str`, `_2`/`_3` suffix on collision within one message);
+    table `filed_emails(id BIGSERIAL, message_id_hash CHAR(64), node_id TEXT, pointer TEXT, attachment_count INTEGER, filed_by UUID NULL → users(id), filed_at TIMESTAMPTZ, UNIQUE(message_id_hash, node_id))`.
     Consumed by Task KC-E-2.
+
+> **Note (repository):** `/secured/init_document_transmission` on KnowledgeBase `develop` (`knovas-software/app/src/api/secure_api.py:902-906`) reads only `identifier`, `part_count`, `title`, `description`, `path` via `data.get(...)` — it has no strict-key rejection and today knows neither `metadata` nor `graph_assign`. Sending both is therefore harmless against a current server (silently ignored), which is what lets this Platform task ship before Part KB-A1 and section-C Task B7 land. The tests below assert the *request body the Platform sends*, never a server behaviour.
+
+> **Note (design):** design §6.11 sketches the identifier as `<prefix>/mail/<message-id>/att/<name>`. A raw `Message-ID` contains `<`, `>`, `@` and arbitrary punctuation and would land verbatim in a Knovas `identifier` (≤ 1000 chars) and in `path`. This task therefore uses the *hash* of the dedup key — `<prefix>/mail/<sha256[:32]>` — which is stable, collision-free in practice and URL-safe. The message-id itself is preserved where it is actually queryable: `metadata.extra["eml:message_id"]`.
+
+> **Note (repository):** `extract_msg` 0.55 `Message.asEmailMessage()` renders `Date`, `From`, `To`, `Cc`, `Bcc`, `Message-Id`, `Authentication-Results` and `Content-Type` — but **no `Subject`**, and it emits an *empty* `Message-Id` header even when the `.msg` carries none. Verified against `tests/fixtures/make_msg.py`. `parse_msg` therefore backfills `Subject` from `Message.subject` and re-sets `Message-ID` from `Message.messageId` before handing the bytes to `parse_email`; without that backfill every filed `.msg` would lose its subject and be deduped only by content fingerprint.
 
 - [ ] **Step 1: Write the failing store/parse tests and the mail fixtures**
 
-Create `tests/fixtures/sample_mails.py` (real, deterministic messages built with the stdlib — no binary fixtures):
+Create `tests/fixtures/sample_mails.py` (real, deterministic messages built with the stdlib — no binary fixtures; it sits next to the existing `tests/fixtures/make_msg.py`, whose `build_sample_msg(path)` this task reuses for the `.msg` path, and is imported the same way the existing suite imports that one: `from fixtures.sample_mails import …`, see `tests/test_preview_extract.py:8`):
 
 ```python
 """Deterministic e-mail fixtures for the filing tests (RFC 5322 via stdlib)."""
@@ -33282,10 +33322,13 @@ def simple_eml() -> bytes:
 
 
 def html_only_eml() -> bytes:
+    # set_content(subtype="html") gives a single text/html body. add_alternative()
+    # on a message that has no plain part yet does NOT convert the message to
+    # multipart/alternative, so it would produce a malformed mail here.
     msg = _base(subject="Délai de recours")
-    msg.add_alternative("<html><body><p>Madame, Monsieur,</p><p>le délai de recours "
-                        "expire dans les 30 jours. Merci de confirmer.</p></body></html>",
-                        subtype="html")
+    msg.set_content("<html><body><p>Madame, Monsieur,</p><p>le délai de recours "
+                    "expire dans les 30 jours. Merci de confirmer.</p></body></html>",
+                    subtype="html")
     return msg.as_bytes()
 
 
@@ -33318,10 +33361,12 @@ import re
 
 import pytest
 
+from fixtures.make_msg import build_sample_msg
 from fixtures.sample_mails import (MINIMAL_PDF, eml_with_attachments, eml_without_message_id,
                                    html_only_eml, simple_eml)
-from email_filing import (EmailTooLarge, build_metadata, build_mime_from_item,
-                          detect_language, file_email, parse_email, safe_name)
+from email_filing import (EmailTooLarge, EmailUnparseable, attachment_metadata, build_metadata,
+                          build_mime_from_item, detect_language, file_email, parse_email,
+                          parse_msg, safe_name)
 
 
 class RecordingClient:
@@ -33386,6 +33431,25 @@ class TestParse:
         with pytest.raises(EmailTooLarge):
             parse_email(b"x" * 11, max_bytes=10)
 
+    def test_a_body_without_any_mail_header_is_refused(self):
+        with pytest.raises(EmailUnparseable):
+            parse_email(b"not a mail at all")
+
+    def test_msg_is_parsed_through_extract_msg(self, tmp_path):
+        target = tmp_path / "sample.msg"
+        build_sample_msg(str(target))
+
+        parsed = parse_msg(target.read_bytes())
+
+        assert parsed.subject == "Rückfrage zum Kaufvertrag 2024-001"
+        assert "Kaufpreis von EUR 485.000,00" in parsed.body_text
+        assert parsed.document_date == "2026-03-15"
+        # The fixture carries no PR_INTERNET_MESSAGE_ID, so extract-msg emits an
+        # empty Message-Id header and the dedup key falls back to the content
+        # fingerprint — which is exactly the branch the .msg path relies on.
+        assert parsed.message_id is None
+        assert re.fullmatch(r"[0-9a-f]{64}", parsed.dedup_key)
+
     def test_language_is_guessed_from_stopwords(self):
         assert detect_language(parse_email(simple_eml()).body_text) == "de"
         assert detect_language(parse_email(html_only_eml()).body_text) == "fr"
@@ -33395,18 +33459,39 @@ class TestParse:
 class TestMetadata:
     def test_metadata_matches_the_ingest_contract(self):
         md = build_metadata(parse_email(simple_eml()))
+        assert set(md) == {"author", "document_type", "language", "document_date",
+                           "document_status", "source_kind", "extra"}
         assert md["author"] == "Anna Muster <anna.muster@example.ch>"
         assert md["document_type"] == "E-Mail"
+        assert md["document_status"] == "final"
         assert md["source_kind"] == "addin"
         assert md["document_date"] == "2026-03-15"
         assert md["language"] == "de"
         assert md["extra"] == {"eml:message_id": "abc123@example.ch",
-                               "eml:in_reply_to": "parent-9@kanzlei.ch"}
+                               "eml:in_reply_to": "parent-9@kanzlei.ch",
+                               "eml:attachment_count": "0"}
+        assert all(isinstance(v, str) for v in md["extra"].values())
+
+    def test_absent_headers_are_omitted_rather_than_sent_empty(self):
+        md = build_metadata(parse_email(eml_without_message_id()))
+        assert "eml:message_id" not in md["extra"]
+        assert md["extra"]["eml:in_reply_to"] == "parent-9@kanzlei.ch"
+
+    def test_attachment_metadata_keeps_the_mail_author_and_types_the_file(self):
+        parsed = parse_email(eml_with_attachments())
+        md = attachment_metadata(parsed, parsed.attachments[0])
+        assert md["author"] == "Anna Muster <anna.muster@example.ch>"
+        assert md["document_type"] == "PDF"
+        assert md["document_status"] == "unknown"
+        assert md["source_kind"] == "addin"
+        assert md["extra"]["eml:attachment_name"] == "final.pdf"
+        assert md["extra"]["eml:attachment_count"] == "3"
 
     def test_safe_name_strips_paths_and_control_characters(self):
         assert safe_name("Vertrag ../final.pdf") == "final.pdf"
         assert safe_name("a\x00b\\c.docx") == "c.docx"
         assert safe_name("") == "anhang"
+        assert safe_name("..") == "anhang"
 
 
 class TestFileEmail:
@@ -33428,6 +33513,26 @@ class TestFileEmail:
         assert client.documents[1]["metadata"]["author"] == "Anna Muster <anna.muster@example.ch>"
         assert base64.b64decode(client.documents[1]["content_base64"]) == MINIMAL_PDF
         assert result.skipped == [{"name": "archiv.zip", "reason": "unsupported_type"}]
+        assert result.attachments == [
+            {"name": "final.pdf", "pointer": f"{result.pointer}/att/final.pdf"},
+            {"name": "notiz.txt", "pointer": f"{result.pointer}/att/notiz.txt"}]
+        # display_name/path become title/path on init (knovas_client.py:398).
+        assert client.documents[0]["display_name"] == "Rückfrage zum Kaufvertrag 2024-001"
+        assert client.documents[0]["path"] == result.pointer
+        assert client.documents[1]["display_name"] == "final.pdf"
+        # The dedup row is written exactly once, with the attachment count.
+        assert store.rows[(parsed.dedup_key, "n1")]["attachment_count"] == 2
+        assert result.to_dict()["status"] == "filed"
+
+    def test_attachments_are_skipped_entirely_when_the_caller_says_so(self):
+        client, store = RecordingClient(), InMemoryStore()
+        parsed = parse_email(eml_with_attachments())
+
+        result = file_email(client, store, parsed, eml_with_attachments(), node_id="n1",
+                            include_attachments=False, filed_by=None, prefix="k")
+
+        assert len(client.documents) == 1
+        assert result.attachments == [] and result.skipped == []
 
     def test_second_filing_of_the_same_message_to_the_same_matter_is_reported(self):
         client, store = RecordingClient(), InMemoryStore()
@@ -33439,6 +33544,7 @@ class TestFileEmail:
                            include_attachments=False, filed_by=None, prefix="k")
 
         assert again.status == "already_filed"
+        assert again.pointer == f"k/mail/{parsed.dedup_key[:32]}"
         assert len(client.documents) == 1
 
     def test_the_same_message_may_be_filed_under_a_second_matter(self):
@@ -33452,12 +33558,17 @@ class TestFileEmail:
         assert client.documents[1]["graph_assign"] == {"node_ids": ["n2"]}
 
     def test_a_failed_attachment_leaves_no_dedup_row_so_a_retry_re_files(self):
+        # The body and the first attachment are already in Knovas at this point.
+        # That is deliberate: the retry re-sends them under the SAME identifiers,
+        # and a content-identical re-ingest is a noop server-side (design §5.2),
+        # so "no dedup row" is the safe end state, not a leak.
         client, store = RecordingClient(fail_on="notiz.txt"), InMemoryStore()
         parsed = parse_email(eml_with_attachments())
         with pytest.raises(RuntimeError):
             file_email(client, store, parsed, eml_with_attachments(), node_id="n1",
                        include_attachments=True, filed_by=None, prefix="k")
         assert store.rows == {}
+        assert [d["doc_id"] for d in client.documents][-1].endswith("/att/final.pdf")
 
 
 def test_build_mime_from_item_round_trips_through_parse_email():
@@ -33473,18 +33584,64 @@ def test_build_mime_from_item_round_trips_through_parse_email():
     assert parsed.attachments[0].data == b"inhalt"
 ```
 
-Create `tests/test_filed_email_store.py` (real `platform-db`, skipped without one — the section-B convention):
+Create `tests/test_filed_email_store.py`. It talks to a real `platform-db` and skips when there is none. It carries its own DSN helper and its own `platform_db` fixture instead of importing them from `conftest.py`, because `tests/conftest.py` has neither today (see the section-B note at the top of this part); when `feat/section-b-buildout` merges, the module-level names below are simply shadowed by the richer conftest fixtures of the same shape and this file keeps passing:
 
 ```python
-"""filed_emails — one row per (message, matter), in platform-db (0004_filing.sql)."""
+"""filed_emails — one row per (message, matter), in platform-db (0004_filing.sql).
+
+Self-contained on purpose: no section-B conftest fixture is required. Point
+PLATFORM_DB_TEST_DSN at a scratch database to run these; without one the whole
+module skips.
+"""
+import os
+import pathlib
+
 import pytest
 
-from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+PLATFORM_DB_TEST_DSN = os.environ.get("PLATFORM_DB_TEST_DSN", "")
+MIGRATION = (pathlib.Path(__file__).resolve().parents[1]
+             / "src" / "identity" / "migrations" / "0004_filing.sql")
 
-pytestmark = pytest.mark.skipif(not platform_db_reachable(),
-                                reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+
+def platform_db_reachable() -> bool:
+    if not PLATFORM_DB_TEST_DSN:
+        return False
+    try:
+        import psycopg
+    except ImportError:
+        return False
+    try:
+        with psycopg.connect(PLATFORM_DB_TEST_DSN, connect_timeout=3):
+            return True
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(),
+    reason="Set PLATFORM_DB_TEST_DSN to a reachable PostgreSQL to run the filed_emails tests",
+)
 
 from email_filing import FiledEmailStore  # noqa: E402
+
+
+@pytest.fixture
+def platform_db():
+    """A connection with filed_emails present and empty; every test rolls back."""
+    import psycopg
+
+    ddl = MIGRATION.read_text(encoding="utf-8")
+    # users(id) may not exist yet on develop (section B); drop the FK clause so
+    # the table can be created standalone for this test. Production applies the
+    # file verbatim through identity.migrate, after 0001 created users.
+    ddl = ddl.replace("REFERENCES users(id) ON DELETE SET NULL", "")
+    with psycopg.connect(PLATFORM_DB_TEST_DSN) as conn:
+        with conn.cursor() as cur:
+            cur.execute(ddl)
+            cur.execute("TRUNCATE filed_emails")
+        conn.commit()
+        yield conn
+        conn.rollback()
 
 
 def test_lookup_is_none_until_marked(platform_db):
@@ -33505,12 +33662,89 @@ def test_second_mark_is_idempotent(platform_db):
     store.mark_filed(message_id_hash="b" * 64, node_id="n1", pointer="p", filed_by=None,
                      attachment_count=0)
     assert platform_db.execute("SELECT count(*) FROM filed_emails").fetchone()[0] == 1
+
+
+def test_the_same_message_may_be_filed_under_a_second_matter(platform_db):
+    store = FiledEmailStore(platform_db)
+    store.mark_filed(message_id_hash="c" * 64, node_id="n1", pointer="p1", filed_by=None,
+                     attachment_count=0)
+    store.mark_filed(message_id_hash="c" * 64, node_id="n2", pointer="p2", filed_by=None,
+                     attachment_count=0)
+    assert store.lookup("c" * 64, "n2")["pointer"] == "p2"
+    assert platform_db.execute("SELECT count(*) FROM filed_emails").fetchone()[0] == 2
+```
+
+Create `tests/test_knovas_client_filing_metadata.py` (the third test file of this task — it pins the *request body* the client sends, using the existing `FakeSession`/`make_secured_client` doubles from `tests/test_knovas_client_hardening.py:73` and `:128`):
+
+```python
+"""metadata + graph_assign must reach POST /secured/init_document_transmission."""
+import base64
+
+from test_knovas_client_hardening import FakeResponse, FakeSession, make_secured_client
+
+
+def _capture_init_body(document):
+    client = make_secured_client()
+    bodies = []
+
+    def responder(method, url, **kw):
+        bodies.append((url, kw.get("json")))  # _request_no_retry sends json=data
+        if url.endswith("/secured/init_document_transmission"):
+            return FakeResponse(200, {"transmission_key_id": "tk-1"})
+        return FakeResponse(200, {"status": "success"})
+
+    client._session = FakeSession(responder)
+    client.sync_single_document(document)
+    init_url, init_body = bodies[0]
+    assert init_url.endswith("/secured/init_document_transmission")
+    return init_body
+
+
+def _document(**extra):
+    doc = {"doc_id": "kanzlei/mail/abcd", "path": "kanzlei/mail/abcd",
+           "display_name": "Rückfrage", "type": "txt",
+           "content_base64": base64.b64encode("Guten Tag.".encode("utf-8")).decode()}
+    doc.update(extra)
+    return doc
+
+
+def test_metadata_and_graph_assign_are_forwarded_verbatim():
+    body = _capture_init_body(_document(
+        metadata={"author": "Anna Muster <anna@example.ch>", "document_type": "E-Mail",
+                  "language": "de", "document_date": "2026-03-15",
+                  "document_status": "final", "source_kind": "addin",
+                  "extra": {"eml:message_id": "abc123@example.ch"}},
+        graph_assign={"node_ids": ["n1"]}))
+
+    assert body["identifier"] == "kanzlei/mail/abcd"
+    assert body["title"] == "Rückfrage"
+    assert body["metadata"]["source_kind"] == "addin"
+    assert body["metadata"]["extra"] == {"eml:message_id": "abc123@example.ch"}
+    assert body["graph_assign"] == {"node_ids": ["n1"]}
+
+
+def test_a_document_without_the_optional_keys_sends_neither():
+    body = _capture_init_body(_document())
+    assert "metadata" not in body
+    assert "graph_assign" not in body
+
+
+def test_empty_or_wrongly_typed_values_are_dropped_not_forwarded():
+    body = _capture_init_body(_document(metadata={}, graph_assign={"node_ids": []}))
+    assert "metadata" not in body
+    body = _capture_init_body(_document(metadata="nope", graph_assign=["n1"]))
+    assert "metadata" not in body and "graph_assign" not in body
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `python -m pytest tests/test_email_filing.py tests/test_filed_email_store.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'email_filing'` (the store test is skipped when no PostgreSQL is reachable; with one, it fails on the missing table).
+Run: `python -m pytest tests/test_email_filing.py tests/test_filed_email_store.py tests/test_knovas_client_filing_metadata.py -v`
+Expected: FAIL. Precisely:
+- `tests/test_email_filing.py` — collection error, `ModuleNotFoundError: No module named 'email_filing'`.
+- `tests/test_filed_email_store.py` — `3 skipped` without `PLATFORM_DB_TEST_DSN`; with one set, the same `ModuleNotFoundError`.
+- `tests/test_knovas_client_filing_metadata.py` — collects and runs against today's client: `1 failed, 2 passed`. The failure is `test_metadata_and_graph_assign_are_forwarded_verbatim` with `KeyError: 'metadata'` (the `identifier` and `title` assertions before it already pass, which proves the FakeSession plumbing is right). The two green ones are the negative tests, which are green for the right reason: today the client forwards neither key.
+
+If `test_metadata_and_graph_assign_are_forwarded_verbatim` passes here, `metadata` is already being forwarded and Step 7 would be a duplicate — inspect `_sync_single_document_secured` before continuing.
 
 - [ ] **Step 3: Public extension set on the upload builder**
 
@@ -33524,6 +33758,12 @@ SUPPORTED_EXTENSIONS = frozenset(_EXT_TO_MIME)
 
 - [ ] **Step 4: Migration `0004_filing.sql`**
 
+Create the directory and the file — `src/identity/migrations/` does not exist on `develop` yet (section-B note above), so this step creates it:
+
+```
+mkdir -p src/identity/migrations
+```
+
 Create `src/identity/migrations/0004_filing.sql`:
 
 ```sql
@@ -33534,7 +33774,11 @@ Create `src/identity/migrations/0004_filing.sql`:
 -- selbst liegt nie hier — nur in Knovas, unter `pointer`. Dieselbe Nachricht
 -- darf unter einer zweiten Akte abgelegt werden; unter derselben nicht zweimal.
 --
--- Plan: docs/superpowers/plans/2026-08-15-pflichtenheft-d-j-components.md (KC-E-1)
+-- users(id) stammt aus 0001 (Abschnitt B). Solange dieser Zweig nicht gemerged
+-- ist, laeuft die Datei nur gegen eine Datenbank, in der users existiert; der
+-- Test in tests/test_filed_email_store.py entfernt die FK-Klausel dafuer.
+--
+-- Plan: KnovasComponents/docs/superpowers/plans/2026-08-15-pflichtenheft-d-j-components.md (KC-E-1)
 
 CREATE TABLE IF NOT EXISTS filed_emails (
     id               BIGSERIAL   PRIMARY KEY,
@@ -33548,6 +33792,656 @@ CREATE TABLE IF NOT EXISTS filed_emails (
 );
 
 CREATE INDEX IF NOT EXISTS idx_filed_emails_node ON filed_emails (node_id, filed_at DESC);
+```
+
+- [ ] **Step 5: `src/email_filing.py` — parsing, language, metadata**
+
+Create `src/email_filing.py` with everything up to and including `attachment_metadata`. Step 6 appends the rest to the same file.
+
+```python
+"""E-Mail-Ablage in eine Akte (Pflichtenheft H2).
+
+Parsing is stdlib-only (`email` with `policy.default`); Outlook `.msg` goes
+through extract-msg's ``asEmailMessage()``. Nothing in this module talks to
+Knovas or to PostgreSQL directly: ``file_email`` drives an injected
+``KnovasAPIClient`` through ``sync_single_document`` and an injected store for
+dedup, so the whole flow is testable without a network and without a database.
+"""
+from __future__ import annotations
+
+import base64
+import binascii
+import hashlib
+import html as html_module
+import logging
+import os
+import re
+import tempfile
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email import message_from_bytes
+from email.message import EmailMessage
+from email.policy import default as _POLICY
+from email.utils import format_datetime
+from typing import Any, Dict, List, Optional
+
+from knovas_extract_upload import SUPPORTED_EXTENSIONS
+
+logger = logging.getLogger(__name__)
+
+#: Hard ceiling on one message (MIME incl. attachments), checked before parsing.
+MAX_MESSAGE_BYTES = 40 * 1024 * 1024
+#: Body text handed to the ingest; a longer body is truncated, never refused.
+MAX_BODY_CHARS = 200_000
+#: Attachments considered per message (Outlook allows far more; we cap the work).
+MAX_ATTACHMENTS = 50
+
+DOCUMENT_TYPE_EMAIL = "E-Mail"
+#: §5.2 source_kind vocabulary: share | onedrive | mailbox | pst | upload | addin
+SOURCE_KIND = "addin"
+
+#: Client vocabulary for attachment document_type. Only extensions in
+#: SUPPORTED_EXTENSIONS can be filed at all, so this map covers every case.
+_DOCUMENT_TYPE_BY_EXT = {
+    ".pdf": "PDF",
+    ".docx": "Word-Dokument",
+    ".txt": "Textdatei",
+    ".md": "Markdown",
+    ".eml": DOCUMENT_TYPE_EMAIL,
+    ".msg": DOCUMENT_TYPE_EMAIL,
+}
+
+
+class EmailFilingError(Exception):
+    """Base class for every error this module raises on purpose."""
+
+
+class EmailTooLarge(EmailFilingError):
+    """The raw message exceeds the byte ceiling; refused before parsing."""
+
+
+class EmailUnparseable(EmailFilingError):
+    """The bytes are not a message we can read."""
+
+
+@dataclass(frozen=True)
+class Attachment:
+    name: str
+    content_type: str
+    data: bytes
+
+
+@dataclass(frozen=True)
+class ParsedEmail:
+    subject: str
+    author: str
+    sender_email: str
+    recipients: List[str]
+    message_id: Optional[str]
+    in_reply_to: Optional[str]
+    document_date: Optional[str]
+    body_text: str
+    attachments: List[Attachment]
+    dedup_key: str
+    raw_size: int
+
+
+## ---------------------------------------------------------------------------
+## Header and body helpers
+## ---------------------------------------------------------------------------
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_SCRIPT_RE = re.compile(r"(?is)<(script|style)\b.*?</\1>")
+_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
+
+
+def strip_html(raw: str) -> str:
+    """Tags out, entities decoded, whitespace collapsed. No dependency."""
+    text = _SCRIPT_RE.sub(" ", raw or "")
+    text = _TAG_RE.sub(" ", text)
+    text = html_module.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _header_text(msg: EmailMessage, name: str) -> str:
+    raw = msg.get(name)
+    return "" if raw is None else str(raw).strip()
+
+
+def _addresses(msg: EmailMessage, *names: str) -> List[str]:
+    """addr_specs of the named headers, in order, de-duplicated."""
+    out: List[str] = []
+    for name in names:
+        header = msg.get(name)
+        for addr in getattr(header, "addresses", ()) or ():
+            spec = (getattr(addr, "addr_spec", "") or "").strip()
+            if "@" in spec and spec not in out:
+                out.append(spec)
+    return out
+
+
+def _unbracket(value: Optional[str]) -> Optional[str]:
+    v = (value or "").strip()
+    if v.startswith("<") and v.endswith(">"):
+        v = v[1:-1].strip()
+    return v or None
+
+
+def _document_date(msg: EmailMessage) -> Optional[str]:
+    """The Date header as YYYY-MM-DD, in the sender's own offset (§5.2)."""
+    dt = getattr(msg.get("Date"), "datetime", None)
+    return dt.date().isoformat() if dt is not None else None
+
+
+def _body_text(msg: EmailMessage) -> str:
+    part = msg.get_body(preferencelist=("plain", "html"))
+    if part is None:
+        return ""
+    try:
+        content = part.get_content()
+    except Exception:  # unknown charset, broken CTE — fall back to raw bytes
+        payload = part.get_payload(decode=True) or b""
+        content = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+    if not isinstance(content, str):
+        content = str(content)
+    if part.get_content_type() == "text/html":
+        content = strip_html(content)
+    return content.strip()[:MAX_BODY_CHARS]
+
+
+def _attachments(msg: EmailMessage) -> List[Attachment]:
+    out: List[Attachment] = []
+    for part in msg.iter_attachments():
+        if len(out) >= MAX_ATTACHMENTS:
+            logger.warning("email_filing: more than %d attachments, rest ignored",
+                           MAX_ATTACHMENTS)
+            break
+        data = part.get_payload(decode=True)
+        if data is None:
+            continue
+        out.append(Attachment(name=str(part.get_filename() or ""),
+                              content_type=part.get_content_type(),
+                              data=bytes(data)))
+    return out
+
+
+def _dedup_key(message_id: Optional[str], *, sender: str, date_header: str, subject: str,
+               body_text: str, attachments: List[Attachment]) -> str:
+    """sha256 of the Message-ID, or of a content fingerprint when it is absent.
+
+    Both branches return 64 lowercase hex characters, which is what
+    ``filed_emails.message_id_hash CHAR(64)`` stores.
+    """
+    if message_id:
+        return hashlib.sha256(f"mid:{message_id}".encode("utf-8")).hexdigest()
+    fingerprint = "\x1f".join([
+        "fp", sender, date_header, subject, body_text,
+        "|".join(f"{a.name}:{len(a.data)}" for a in attachments),
+    ])
+    return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+
+
+## ---------------------------------------------------------------------------
+## Parsing
+## ---------------------------------------------------------------------------
+
+def parse_email(mime_bytes: bytes, *, max_bytes: int = MAX_MESSAGE_BYTES) -> ParsedEmail:
+    raw = bytes(mime_bytes or b"")
+    if len(raw) > max_bytes:
+        raise EmailTooLarge(f"message is {len(raw)} bytes, limit is {max_bytes}")
+    try:
+        msg = message_from_bytes(raw, policy=_POLICY)
+    except Exception as exc:
+        raise EmailUnparseable(f"not a MIME message: {exc}") from exc
+    if not (msg.get("From") or msg.get("Subject") or msg.get("Date")):
+        raise EmailUnparseable("message carries neither From, Subject nor Date")
+
+    subject = _header_text(msg, "Subject")
+    author = _header_text(msg, "From")[:500]
+    senders = _addresses(msg, "From")
+    body_text = _body_text(msg)
+    attachments = _attachments(msg)
+    message_id = _unbracket(_header_text(msg, "Message-ID"))
+    return ParsedEmail(
+        subject=subject,
+        author=author,
+        sender_email=senders[0] if senders else "",
+        recipients=_addresses(msg, "To", "Cc"),
+        message_id=message_id,
+        in_reply_to=_unbracket(_header_text(msg, "In-Reply-To")),
+        document_date=_document_date(msg),
+        body_text=body_text,
+        attachments=attachments,
+        dedup_key=_dedup_key(message_id, sender=author,
+                             date_header=_header_text(msg, "Date"), subject=subject,
+                             body_text=body_text, attachments=attachments),
+        raw_size=len(raw),
+    )
+
+
+def parse_msg(msg_bytes: bytes, *, max_bytes: int = MAX_MESSAGE_BYTES) -> ParsedEmail:
+    """Outlook .msg → ParsedEmail, via extract-msg's asEmailMessage()."""
+    raw = bytes(msg_bytes or b"")
+    if len(raw) > max_bytes:
+        raise EmailTooLarge(f"message is {len(raw)} bytes, limit is {max_bytes}")
+    try:
+        import extract_msg
+    except ImportError as exc:  # knovas-extract[msg] pulls it in
+        raise EmailUnparseable("extract-msg is not installed") from exc
+
+    handle, path = tempfile.mkstemp(suffix=".msg")
+    try:
+        with os.fdopen(handle, "wb") as fh:
+            fh.write(raw)
+        try:
+            opened = extract_msg.openMsg(path)
+        except Exception as exc:
+            raise EmailUnparseable(f"not an Outlook .msg: {exc}") from exc
+        try:
+            mime_message = opened.asEmailMessage()
+            # extract-msg 0.55 renders Date/From/To/Cc/Bcc/Message-Id/
+            # Authentication-Results/Content-Type — but NOT Subject, and it
+            # emits an EMPTY Message-Id even when the .msg carries none.
+            # Backfill both from the MAPI properties before parsing.
+            if not mime_message.get("Subject") and opened.subject:
+                mime_message["Subject"] = str(opened.subject)
+            del mime_message["Message-Id"]  # removes every occurrence
+            message_id = _unbracket(str(getattr(opened, "messageId", "") or ""))
+            if message_id:
+                mime_message["Message-ID"] = f"<{message_id}>"
+            mime = mime_message.as_bytes()
+        finally:
+            opened.close()
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    # The MIME rendering can be marginally larger than the .msg; the ceiling was
+    # already honoured above, so do not refuse the message here.
+    return parse_email(mime, max_bytes=max(max_bytes, len(mime)))
+
+
+def _parse_iso8601(value: Any) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def build_mime_from_item(item: Dict[str, Any]) -> bytes:
+    """Structured add-in payload → RFC 5322 bytes.
+
+    The third and last MIME source of the add-in (after item.getAsFileAsync and
+    EWS GetItem); see the decisions at the top of this part.
+    """
+    if not isinstance(item, dict):
+        raise EmailUnparseable("item must be an object")
+    msg = EmailMessage()
+    sender = str(item.get("from") or "").strip()
+    if sender:
+        msg["From"] = sender
+    for header, key in (("To", "to"), ("Cc", "cc")):
+        values = [str(v).strip() for v in (item.get(key) or []) if str(v).strip()]
+        if values:
+            msg[header] = ", ".join(values)
+    subject = str(item.get("subject") or "").strip()
+    if subject:
+        msg["Subject"] = subject
+    msg["Date"] = format_datetime(_parse_iso8601(item.get("date"))
+                                  or datetime.now(timezone.utc))
+    message_id = _unbracket(str(item.get("internet_message_id") or ""))
+    if message_id:
+        msg["Message-ID"] = f"<{message_id}>"
+
+    body = str(item.get("body_text") or "")
+    if not body.strip() and item.get("body_html"):
+        body = strip_html(str(item.get("body_html")))
+    msg.set_content(body)
+
+    for raw in (item.get("attachments") or [])[:MAX_ATTACHMENTS]:
+        if not isinstance(raw, dict):
+            continue
+        name = safe_name(raw.get("name"))
+        try:
+            data = base64.b64decode(str(raw.get("content_base64") or ""), validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise EmailUnparseable(f"attachment {name!r} is not valid base64") from exc
+        content_type = str(raw.get("content_type") or "application/octet-stream")
+        maintype, _, subtype = content_type.partition("/")
+        msg.add_attachment(data, maintype=maintype or "application",
+                           subtype=subtype or "octet-stream", filename=name)
+    return msg.as_bytes()
+
+
+## ---------------------------------------------------------------------------
+## Language and metadata (§5.2)
+## ---------------------------------------------------------------------------
+
+#: Stop words per language. Deliberately small and disjoint: this decides one
+#: metadata field, and a wrong guess is worse than no guess (see the None rule).
+_STOPWORDS = {
+    "de": {"der", "die", "das", "und", "ist", "nicht", "mit", "den", "dem", "zum",
+           "zur", "zu", "bis", "sie", "ich", "wir", "bitte", "sehr", "geehrte",
+           "freundliche", "grüsse", "grüssen", "ein", "eine", "auf", "für"},
+    "fr": {"le", "la", "les", "des", "une", "est", "ne", "pas", "dans", "vous",
+           "nous", "merci", "de", "du", "au", "aux", "monsieur", "madame",
+           "cordialement", "veuillez", "avec", "pour"},
+    "it": {"il", "lo", "la", "gli", "che", "per", "con", "sono", "grazie",
+           "della", "delle", "non", "una", "cordiali", "saluti", "egregio"},
+    "en": {"the", "and", "is", "are", "not", "with", "you", "we", "please",
+           "kind", "regards", "dear", "this", "that", "for", "from"},
+}
+
+
+def detect_language(text: str) -> Optional[str]:
+    """de | fr | it | en, or None when the evidence is thin or ambiguous."""
+    words = [w.lower() for w in _WORD_RE.findall(text or "")]
+    if not words:
+        return None
+    counts = {lang: sum(1 for w in words if w in stop) for lang, stop in _STOPWORDS.items()}
+    best = max(counts, key=lambda lang: counts[lang])
+    ranked = sorted(counts.values(), reverse=True)
+    if ranked[0] < 2 or ranked[0] == ranked[1]:
+        return None
+    return best
+
+
+def _ext_of(name: str) -> str:
+    stem, dot, ext = str(name or "").rpartition(".")
+    return f".{ext.lower()}" if dot and stem else ""
+
+
+def _extra(parsed: ParsedEmail) -> Dict[str, str]:
+    """§5.2 extra: namespaced keys, string values, absent keys simply omitted."""
+    extra: Dict[str, str] = {}
+    if parsed.message_id:
+        extra["eml:message_id"] = parsed.message_id[:256]
+    if parsed.in_reply_to:
+        extra["eml:in_reply_to"] = parsed.in_reply_to[:256]
+    extra["eml:attachment_count"] = str(len(parsed.attachments))
+    return extra
+
+
+def build_metadata(parsed: ParsedEmail) -> Dict[str, Any]:
+    """The §5.2 metadata object for the message itself."""
+    metadata: Dict[str, Any] = {
+        "author": parsed.author,
+        "document_type": DOCUMENT_TYPE_EMAIL,
+        # A sent message cannot change any more.
+        "document_status": "final",
+        "source_kind": SOURCE_KIND,
+        "extra": _extra(parsed),
+    }
+    if parsed.document_date:
+        metadata["document_date"] = parsed.document_date
+    language = detect_language(parsed.body_text)
+    if language:
+        metadata["language"] = language
+    return metadata
+
+
+def attachment_metadata(parsed: ParsedEmail, attachment: Attachment) -> Dict[str, Any]:
+    """Same object for an attachment: the mail's author and date, the file's type."""
+    metadata = build_metadata(parsed)
+    metadata["document_type"] = _DOCUMENT_TYPE_BY_EXT.get(
+        _ext_of(attachment.name), "Anhang")
+    # We know nothing about the state of an attached file.
+    metadata["document_status"] = "unknown"
+    metadata["extra"]["eml:attachment_name"] = safe_name(attachment.name)[:256]
+    return metadata
+```
+
+- [ ] **Step 6: `src/email_filing.py` — safe names, the dedup store, `file_email`**
+
+Append to `src/email_filing.py`:
+
+```python
+## ---------------------------------------------------------------------------
+## Identifiers
+## ---------------------------------------------------------------------------
+
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+_UNSAFE_RE = re.compile(r"[^\w .\-()+&äöüÄÖÜéèàçßÉÈÀÇ]", re.UNICODE)
+_MAX_NAME_CHARS = 120
+
+
+def safe_name(name: Any) -> str:
+    """A file name that is safe inside a Knovas identifier and a path.
+
+    Strips control characters, keeps only the last path segment (so
+    ``Vertrag ../final.pdf`` becomes ``final.pdf``), and never returns ``""``,
+    ``"."`` or ``".."``.
+    """
+    text = _CONTROL_RE.sub("", str(name or ""))
+    text = text.replace("\\", "/").split("/")[-1].strip()
+    text = _UNSAFE_RE.sub("_", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    if len(text) > _MAX_NAME_CHARS:
+        stem, dot, ext = text.rpartition(".")
+        if dot:
+            text = stem[:_MAX_NAME_CHARS - len(ext) - 1] + dot + ext
+        else:
+            text = text[:_MAX_NAME_CHARS]
+    return text or "anhang"
+
+
+def _unique_name(name: str, used: set) -> str:
+    """final.pdf, final_2.pdf, final_3.pdf — collisions inside ONE message."""
+    if name not in used:
+        used.add(name)
+        return name
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    counter = 2
+    while True:
+        candidate = f"{stem}_{counter}{('.' + ext) if ext else ''}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        counter += 1
+
+
+## ---------------------------------------------------------------------------
+## Dedup store (platform-db, 0004_filing.sql)
+## ---------------------------------------------------------------------------
+
+class FiledEmailStore:
+    """One row per (message, matter) in ``filed_emails``.
+
+    The store NEVER commits: the caller owns the transaction, so the filing
+    route commits once after a successful filing and rolls the row back with
+    everything else on failure.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def lookup(self, message_id_hash: str, node_id: str) -> Optional[Dict[str, Any]]:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT pointer, attachment_count, filed_by, filed_at "
+                "FROM filed_emails WHERE message_id_hash = %s AND node_id = %s",
+                (message_id_hash, node_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "pointer": row[0],
+            "attachment_count": row[1],
+            "filed_by": str(row[2]) if row[2] is not None else None,
+            "filed_at": row[3].isoformat() if row[3] is not None else None,
+        }
+
+    def mark_filed(self, *, message_id_hash: str, node_id: str, pointer: str,
+                   filed_by: Optional[str], attachment_count: int) -> None:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO filed_emails "
+                "(message_id_hash, node_id, pointer, attachment_count, filed_by) "
+                "VALUES (%s, %s, %s, %s, %s) "
+                "ON CONFLICT (message_id_hash, node_id) DO NOTHING",
+                (message_id_hash, node_id, pointer, int(attachment_count), filed_by),
+            )
+
+
+## ---------------------------------------------------------------------------
+## Filing
+## ---------------------------------------------------------------------------
+
+@dataclass
+class FilingResult:
+    status: str                       # "filed" | "already_filed"
+    pointer: str
+    node_id: str
+    attachments: List[Dict[str, str]] = field(default_factory=list)
+    skipped: List[Dict[str, str]] = field(default_factory=list)
+    filed_at: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "pointer": self.pointer,
+            "node_id": self.node_id,
+            "attachments": list(self.attachments),
+            "skipped": list(self.skipped),
+            "filed_at": self.filed_at,
+        }
+
+
+def _document(pointer: str, display_name: str, ext: str, data: bytes,
+              metadata: Dict[str, Any], node_id: str) -> Dict[str, Any]:
+    """The document dict KnovasAPIClient.sync_single_document consumes."""
+    return {
+        "doc_id": pointer,
+        "path": pointer,
+        "display_name": display_name,
+        "type": ext.lstrip("."),
+        "content_base64": base64.b64encode(data).decode("ascii"),
+        "metadata": metadata,
+        "graph_assign": {"node_ids": [node_id]},
+    }
+
+
+def file_email(client, store, parsed: ParsedEmail, raw_bytes: bytes, *, node_id: str,
+               include_attachments: bool, filed_by: Optional[str], prefix: str,
+               raw_ext: str = "eml") -> FilingResult:
+    """File one message (and optionally its attachments) into one matter.
+
+    Order matters: the dedup row is written LAST, so an upload that fails
+    half-way leaves no row and the next attempt re-files. The re-sent parts
+    carry the same identifiers, and a content-identical re-ingest is a noop
+    server-side (design §5.2), so a retry does not duplicate anything.
+    """
+    node = str(node_id or "").strip()
+    if not node:
+        raise ValueError("node_id is required")
+    clean_prefix = str(prefix or "").strip().strip("/")
+    if not clean_prefix:
+        raise ValueError("prefix is required")
+
+    existing = store.lookup(parsed.dedup_key, node)
+    if existing:
+        return FilingResult(status="already_filed", pointer=existing["pointer"],
+                            node_id=node, filed_at=existing.get("filed_at"))
+
+    pointer = f"{clean_prefix}/mail/{parsed.dedup_key[:32]}"
+    client.sync_single_document(_document(
+        pointer, parsed.subject or "E-Mail", raw_ext, bytes(raw_bytes),
+        build_metadata(parsed), node))
+
+    uploaded: List[Dict[str, str]] = []
+    skipped: List[Dict[str, str]] = []
+    used: set = set()
+    if include_attachments:
+        for attachment in parsed.attachments:
+            name = safe_name(attachment.name)
+            ext = _ext_of(name)
+            if ext not in SUPPORTED_EXTENSIONS:
+                skipped.append({"name": attachment.name, "reason": "unsupported_type"})
+                continue
+            name = _unique_name(name, used)
+            attachment_pointer = f"{pointer}/att/{name}"
+            metadata = attachment_metadata(parsed, attachment)
+            metadata["extra"]["eml:attachment_name"] = name[:256]
+            client.sync_single_document(_document(
+                attachment_pointer, name, ext, attachment.data, metadata, node))
+            uploaded.append({"name": name, "pointer": attachment_pointer})
+
+    store.mark_filed(message_id_hash=parsed.dedup_key, node_id=node, pointer=pointer,
+                     filed_by=filed_by, attachment_count=len(uploaded))
+    return FilingResult(status="filed", pointer=pointer, node_id=node,
+                        attachments=uploaded, skipped=skipped,
+                        filed_at=datetime.now(timezone.utc).isoformat())
+```
+
+- [ ] **Step 7: `metadata` and `graph_assign` on the secured init body**
+
+In `src/knovas_client.py`, inside `_sync_single_document_secured` (`:1803`), directly after `init_body.update(init_fields)` (`:1812`) and before the `# Non-idempotent:` comment, insert:
+
+```python
+        # Optional ingest metadata (§5.2) and upload-time matter assignment.
+        # Both are forwarded verbatim and validated server-side. A server that
+        # does not know them ignores unknown keys, so the Platform may ship the
+        # filing endpoint before the API side lands.
+        metadata = document.get('metadata')
+        if isinstance(metadata, dict) and metadata:
+            init_body['metadata'] = metadata
+        graph_assign = document.get('graph_assign')
+        if isinstance(graph_assign, dict) and graph_assign.get('node_ids'):
+            init_body['graph_assign'] = graph_assign
+```
+
+> **Note (repository):** do NOT add these to `_secured_init_fields_from_document` (`:398`) instead — it is annotated `-> Dict[str, str]` and every value it produces is a string. `metadata` and `graph_assign` are objects, so they belong on `init_body` directly.
+
+If section-C Task B7 already added a `graph_assign` block here, keep its exact form and add only the `metadata` block; do not end up with the key set twice.
+
+- [ ] **Step 8: Run the tests to verify they pass**
+
+Run: `python -m pytest tests/test_email_filing.py tests/test_knovas_client_filing_metadata.py -v`
+Expected: PASS — `18 passed` for `tests/test_email_filing.py` (8 in `TestParse`, 4 in `TestMetadata`, 5 in `TestFileEmail`, 1 module-level) and `3 passed` for `tests/test_knovas_client_filing_metadata.py`.
+
+Run (only where a scratch PostgreSQL is available):
+`PLATFORM_DB_TEST_DSN=postgresql://knovas:knovas@localhost:5432/platform_db_test python -m pytest tests/test_filed_email_store.py -v`
+Expected: PASS — 3 tests. Without the variable the same command reports `3 skipped`, which is the accepted outcome on a developer machine.
+
+- [ ] **Step 9: Full suite and commit**
+
+Run: `python -m pytest`
+Expected: PASS — the whole component suite green, with no new skips beyond `tests/test_filed_email_store.py` (and the pre-existing `knovas_api` skips, which only run with `--knovas-api`).
+
+Run: `python -m flake8 --max-line-length=100 src/email_filing.py tests/test_email_filing.py tests/fixtures/sample_mails.py`
+Expected: no output.
+
+> **Note (repository):** there is no `setup.cfg`, `tox.ini` or `.flake8` in the component, so flake8 7.0.0 (pinned in `requirements.txt`) falls back to its 79-column default, which the existing sources violate everywhere. Lint only the files this task adds, and pass `--max-line-length=100` explicitly — do not run a bare `python -m flake8 src/`, and do not reformat `knovas_client.py`.
+
+Commit:
+
+```
+git add src/email_filing.py src/knovas_extract_upload.py src/knovas_client.py \
+        src/identity/migrations/0004_filing.sql \
+        tests/fixtures/sample_mails.py tests/test_email_filing.py \
+        tests/test_filed_email_store.py tests/test_knovas_client_filing_metadata.py
+git commit -m "H2: email filing core — parse, ingest metadata, dedup store
+
+Adds src/email_filing.py: stdlib MIME and extract-msg parsing, the §5.2
+metadata object (author/document_type/language/document_date/
+document_status/source_kind/extra) for the message and for each attachment,
+a stop-word language guess, safe attachment identifiers, the filed_emails
+dedup store (0004_filing.sql) and file_email(), which uploads the message
+and its supported attachments as separate documents assigned to one matter.
+
+KnovasAPIClient now forwards document['metadata'] and
+document['graph_assign'] onto POST /secured/init_document_transmission, and
+knovas_extract_upload exposes SUPPORTED_EXTENSIONS so unsupported
+attachments are skipped instead of uploaded as path-only stubs.
+
+The dedup row is written last, so a partial failure re-files on retry."
 ```
 
 ---
@@ -53193,8 +54087,6 @@ git commit -m "docs(certs): state that add-ins and connectors need no tenant bun
 
 ---
 
----
-
 ## Verification
 
 After all parts, on a Platform pointed at the dev tenant with `ONTOLOGY_SOURCE=graph` and section B enabled:
@@ -53223,9 +54115,9 @@ Then walk the product path once by hand: search with the filter rail → open a 
 | D3 · Zefix/UID enrichment | KC-B-3 |
 | D2 · conflicts check as evidence | KC-B-4, KC-B-7 |
 | D4 · lateral-hire import | KC-B-5 |
-| E3 · four-eyes (UI) | KC-C-1, KC-C-2, KC-C-8 |
-| E4 · proposal inbox | KC-C-2, KC-C-5 |
-| E5 · deadlines in Outlook with substitutes | KC-C-3, KC-C-8 |
+| E3 · four-eyes (UI) | KC-C-1, KC-C-2a, KC-C-2b, KC-C-8 |
+| E4 · proposal inbox | KC-C-2a, KC-C-2b, KC-C-5 |
+| E5 · deadlines in Outlook with substitutes | KC-C-3a, KC-C-3b, KC-C-8 |
 | E6 · eventing consumer (Posteingang, job status) | KC-C-4..KC-C-7 |
 | G1 · Cortex on the live graph | KC-D-2 |
 | G2 · matter ego graph | KC-D-1, KC-D-3 |
