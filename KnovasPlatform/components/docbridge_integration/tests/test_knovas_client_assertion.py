@@ -21,6 +21,19 @@ def test_every_request_carries_an_assertion(client_with_broker, captured_request
     assert ASSERTION_FIELD in captured_requests[-1].body
 
 
+def test_non_empty_post_body_keeps_payload_and_carries_assertion(
+    client_with_broker, captured_requests
+):
+    documents = [{"doc_id": "doc-1", "title": "Mandate"}]
+
+    client_with_broker.sync_document_batch(documents)
+
+    request = captured_requests[-1]
+    assert request.method == "POST"
+    assert request.body["documents"] == documents
+    assert ASSERTION_FIELD in request.body
+
+
 def test_the_assertion_verifies_and_carries_the_users_groups(
     client_with_broker, captured_requests, broker_public_pem, broker_kid
 ):
@@ -60,3 +73,8 @@ def test_two_calls_get_distinct_jtis(
         captured_requests[-1].body[ASSERTION_FIELD], tenant="tenant-a"
     )
     assert first.jti != second.jti
+
+
+def test_assertion_is_not_sent_as_a_header(client_with_broker, captured_requests):
+    client_with_broker.search("Mietrecht")
+    assert ASSERTION_FIELD not in captured_requests[-1].headers

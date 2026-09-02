@@ -278,6 +278,9 @@ class _SearchableClient:
     def search(self, query):
         return self._client.search_documents(query)
 
+    def sync_document_batch(self, documents):
+        return self._client.sync_document_batch(documents)
+
 
 @pytest.fixture
 def broker_keypair(tmp_path):
@@ -302,23 +305,30 @@ def broker_kid(broker_keypair):
 
 @pytest.fixture
 def captured_requests(monkeypatch):
-    """Every outbound call's body, in order, after `_with_principal`.
+    """Every outbound call's actual ``json=`` body, in order.
 
     The bug this whole task fixes was that minting was well tested and never
-    called — so assert on what left the process, not on what mint() returned.
-    Production's retrying path is `_make_request` (the brief called it
-    `_request`); patch that so `.search()` hits the recorder.
+    called — so intercept requests.Session.request, below both production
+    request paths, and assert on what would leave the process.
     """
     calls = []
 
     class _Captured:
-        def __init__(self, body, headers):
+        def __init__(self, body, headers, method, url):
             self.body = body or {}
             self.headers = headers
+            self.method = method
+            self.url = url
 
-    def _record(self, method, endpoint, data=None, params=None, **kwargs):
-        body = self._with_principal(data)
-        calls.append(_Captured(body, dict(self._get_headers())))
+    def _record(self, method, url, **kwargs):
+        calls.append(
+            _Captured(
+                kwargs.get("json"),
+                dict(kwargs.get("headers") or {}),
+                method,
+                url,
+            )
+        )
 
         class _Resp:
             status_code = 200
@@ -327,11 +337,15 @@ def captured_requests(monkeypatch):
             def json():
                 return {"results": [], "total": 0}
 
+            @staticmethod
+            def raise_for_status():
+                return None
+
         return _Resp()
 
-    from knovas_client import KnovasAPIClient
+    import requests
 
-    monkeypatch.setattr(KnovasAPIClient, "_make_request", _record)
+    monkeypatch.setattr(requests.Session, "request", _record)
     return calls
 
 
