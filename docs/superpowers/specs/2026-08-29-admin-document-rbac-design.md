@@ -1,8 +1,11 @@
 # Admin document inventory and folder RBAC — design
 
 **Date:** 2026-08-29
-**Status:** approved design (six owner decisions taken, see §2) — planned in
-`docs/superpowers/plans/2026-08-29-admin-document-rbac-*.md`
+**Status:** implemented and reconciled 2026-09-02 — the design was planned in
+`docs/superpowers/plans/2026-08-29-admin-document-rbac-*.md`; §9 records what
+the code actually does where it differs from the text below. Sections 1.2, 5.4,
+5.5–5.7, 6.1–6.4 and 8 carry a **Built:** or **Not built:** note each; the
+original reasoning is left in place so the decisions stay legible.
 **Covers:** the firm administrator's console view of every uploaded document in
 their tenant, per-document ACL editing, folder-level access rules that survive
 re-ingest, and the operational switch that makes RBAC enforcing at all.
@@ -42,7 +45,7 @@ narrow-before-widen ordering (`document_acl_service.py:133`), Weaviate storage
 | `GET/PUT /secured/document_access` | `secure_api.py:3645` | Read / replace one document's ACL |
 | `GET /secured/documents_by_access` | `secure_api.py:3709` | Pointers readable by one group |
 
-### 1.2 What does not exist
+### 1.2 What did not exist on 2026-08-29 — and what does now
 
 1. **No admin surface anywhere.** `knovas_client.py` in
    `KnovasPlatform/components/docbridge_integration/src/` — 2400+ lines — makes
@@ -82,7 +85,32 @@ narrow-before-widen ordering (`document_acl_service.py:133`), Weaviate storage
    'disabled'`) and `principal_resolver.py:135` reads it, but no code path in
    either repository writes it. **RBAC is inert in every deployment today.**
 
-So the engine is real; the architecture around it is not.
+So, on 2026-08-29, the engine was real and the architecture around it was not.
+
+**Built since (2026-09-02):**
+
+1. `knovas_client.py` gained the RBAC methods (KnovasComponents commit
+   `971329b`; §6.2). The Platform now reaches the engine.
+2. The console shell is on `feat/admin-document-rbac` (KnovasComponents PR #9,
+   base `main`) with **Dokumente** and **Zugriffsgruppen** tabs (§6.3, §6.4).
+   The tabs this design excluded — **Freigaben** (B5) and **Ingestion**
+   (KC-IN-*) — were built afterwards on `feat/auth-assertion` (PR #11, stacked
+   on #9) and are documented in their own plans, not here.
+3. `GET /secured/documents` exists (`secure_api.py`, KnowledgeBase PR #147):
+   keyset-paged (`after`/`limit`), filtered by `prefix`, `group`,
+   `unrestricted`, `status`, ACL-filtered by the caller's own principal (D1),
+   and it lists unrestricted documents. It has **no** `conflicts` filter —
+   see §5.4.
+4. Folder rules exist: `folder_acl_rules` (migration
+   `20260829_folder_acl_rules.sql`), `FolderRuleService` (longest-matching
+   prefix, exactly one governor per document), `GET/POST /secured/folder_rules`
+   and `PATCH/DELETE /secured/folder_rules/<rule_id>`.
+5. RemoteController honours `sources[].access_groups` end to end
+   (KnovasComponents commit `384a37d`; §6.1).
+6. `PUT /admin/clients/<client_id>/rbac-enforcement` exists in
+   `internal_api.py` and refuses `enforcing` with 409 until a tenant-wide
+   backfill has completed (§5.6). No tenant is enforcing yet; the switch is
+   operator-only, as designed.
 
 ---
 
@@ -330,6 +358,19 @@ in a conflicts list surfaced by `GET /secured/documents?conflicts=true` for an
 explicit human decision. That preserves the fail-closed intent of D5 without
 orphaning documents.
 
+**Built (2026-09-02):** the refusal is real — `FolderRuleService` raises
+`FolderRuleConflictError` on an empty intersection
+(`test_rbac_folder_rules.py::test_empty_intersection_is_refused_not_written`),
+and the backfill worker counts each refused document, logs
+"folder-rule conflict, document parked" and reports the count in the job
+result. **Not built:** the conflicts *list*. `GET /secured/documents` does not
+accept `conflicts=true`; a parked document is visible only in the worker log and
+the job's conflict count. The Platform client forwards `conflicts=true` per this
+wire contract and the console's "nur Konflikte" checkbox is disabled with a
+note until the backend evaluates it. Listing conflicts is a KnowledgeBase
+follow-up, tracked under SS-326.
+
+
 ### 5.5 `acl_backfill_jobs` + worker (new)
 
 Backfill is never synchronous. Per §4.2 a folder *rule change* needs no backfill
@@ -358,6 +399,15 @@ It skips documents whose closure is already correct, preserves
 `set_access_by_pointer`'s narrow-before-widen ordering per document, and persists
 `last_pointer` after each page so a restart resumes rather than restarts.
 
+**Built (2026-09-02):** `acl_backfill_jobs` (same migration as
+`folder_acl_rules`), `FolderRuleRepository` job rows with the resumable
+`last_pointer`, and `services/rbac/acl_backfill_worker.py` streaming through the
+catalog cursor. Backfill is started from the CLI
+(`manage_weaviate.py acl-backfill`, §5.7). **Not built:** an HTTP surface for
+jobs — no job-start endpoint, no `backfill_job(job_id)` client method, no
+console progress (§6.4).
+
+
 ### 5.6 `PUT /admin/clients/<client_id>/rbac-enforcement` (internal API)
 
 Following the existing shape at `internal_api.py:1525`
@@ -371,12 +421,24 @@ unless an ACL backfill has completed for the tenant. Without it every pre-RBAC
 document lacks `acl_reader_ids` and the corpus goes dark — the exact failure
 `AclBackfillCommand`'s docstring warns about.
 
+**Built (2026-09-02):** `internal_api.py::set_rbac_enforcement`; the
+precondition answers 409 (`test_rbac_enforcement_toggle.py::test_enforcing_requires_a_completed_backfill`).
+The Platform has no method for it and the console no toggle — deliberately, per
+the paragraph above.
+
+
 ### 5.7 `AclBackfillCommand` — off offset paging
 
 `rbac_commands.py:70-92` is the only tenant-wide walk that exists and it has both
 scale defects (offset paging past the 100k ceiling; whole corpus in RAM). Move it
 onto the §5.1 cursor and make it stream. It keeps its dry-run default and its
 `--apply --confirm-tenant` guard.
+
+**Built (2026-09-02):** `AclBackfillCommand` pages with `after=` through the
+catalog service
+(`test_rbac_backfill_worker.py::test_command_no_longer_offset_pages`); the
+dry-run default and `--apply --confirm-tenant` guard are unchanged.
+
 
 ---
 
@@ -398,6 +460,11 @@ and uses `sources[0]` only when that mode is on. Per-source groups are therefore
 honoured in the normal multi-source path and degrade to the first source's value
 in sequential mode — which the plan documents rather than silently changing.
 
+**Built (2026-09-02):** commit `384a37d` — `_WalkTarget.access_groups`, the
+upload-queue tuple, and `init_body["access_groups"]` in `knovas_uploader.py`,
+exactly as listed.
+
+
 ### 6.2 `knovas_client.py` — the missing client methods
 
 None of these exist today: `access_groups()`, `create_access_group()`,
@@ -405,6 +472,12 @@ None of these exist today: `access_groups()`, `create_access_group()`,
 `set_document_access(pointer, groups, acting_as)`, `documents(after=, prefix=,
 group=, unrestricted=, conflicts=)`, `folder_rules()` plus mutators, and
 `backfill_job(job_id)`.
+
+**Built (2026-09-02):** commit `971329b` — all of the above except
+`backfill_job(job_id)` (no backend job endpoint exists, §5.5) and the
+`conflicts=` argument of `documents()`, which was added on 2026-09-02 and is
+forwarded but not yet evaluated by the backend (§5.4).
+
 
 ### 6.3 Console — **Documents** tab
 
@@ -417,12 +490,28 @@ by §5.1's cursor — the screen never holds the corpus, it holds a window.
 - Multi-select: apply groups to the selection.
 - Counts come from `total_count` (a Weaviate aggregate), never from a page walk.
 
+**Built (2026-09-02):** `web_interface/admin_documents.py` + template, behind
+`require_admin`, one keyset page at a time (`DocumentsView.page`), columns and
+filters as listed, per-document ACL edit. **Deviations:** the conflicts-only
+filter is present but disabled (§5.4); multi-select "apply groups to the
+selection" is not built — one document per ACL edit. ACL edits are four-eyes
+guarded on `feat/auth-assertion` (`run_guarded`, kind `acl_change`).
+
+
 ### 6.4 Console — **Access groups** tab
 
 Group tree CRUD over the already-shipped endpoints, plus folder rules: create a
 rule on a prefix, see how many documents it governs, and start an optional
 backfill with live progress from §5.5. Conflicts from §5.4 surface here as a
 "Needs a decision" panel.
+
+**Built (2026-09-02):** the **Zugriffsgruppen** tab — group tree CRUD over the
+existing endpoints, and folder rules (create on a prefix, edit groups, delete)
+through `create_folder_rule`/`update_folder_rule`/`delete_folder_rule`. **Not
+built:** the per-rule "how many documents it governs" count, the optional
+backfill with live progress (no job HTTP surface, §5.5), and the "Needs a
+decision" conflicts panel (§5.4).
+
 
 ---
 
@@ -448,15 +537,45 @@ backfill with live progress from §5.5. Conflicts from §5.4 surface here as a
 
 ---
 
-## 8 · Open decisions (with stated defaults — the plans are executable as-is)
+## 8 · Open decisions — how they were settled
 
-1. **Folder-rule inheritance depth.** Default: longest-matching prefix only, no
-   union with ancestors. A document inherits exactly one rule.
-2. **Who may create folder rules.** Default: `admin` role only, subject to the
-   existing `can_assign` domination check. Delegating to `ingestion_manager` is a
-   one-line change if wanted.
-3. **Conflicts-list ownership.** Default: surfaced in the Access groups tab; not
-   routed through the B5 approvals queue. Routing it there is strictly additive.
-4. **`PRINCIPAL_MAX_FILTER_TERMS = 4096`.** Chosen to sit well under gRPC message
-   limits; not measured against a real Weaviate deployment. The plan includes the
-   measurement task.
+Stated defaults at design time, and what the code does now (2026-09-02).
+
+1. **Folder-rule inheritance depth.** Settled as the default: longest-matching
+   prefix only, no union with ancestors; a document inherits exactly one rule
+   (`folder_rule_service.py`, and the "exactly one governor" invariant that
+   `acl_filter_builder.py` and `document_acl_service.py` document). Verified in
+   the Alloy folder model (GI-ACCESSROLES-10).
+2. **Who may create folder rules.** Settled as the default: the console gates
+   the routes with `require_admin`; KnowledgeBase authenticates the tenant
+   certificate and applies the `can_assign` domination check inside
+   `FolderRuleService`. Delegation to `ingestion_manager` was not taken.
+3. **Conflicts-list ownership.** Not settled by code, because the list does not
+   exist (§5.4). When it is built, the default stands: surface it in the
+   Zugriffsgruppen tab, not through the approvals queue.
+4. **`PRINCIPAL_MAX_FILTER_TERMS = 4096`.** The constant exists
+   (`services/rbac/models.py`) and is unit-tested; it has **not** been measured
+   against a real Weaviate deployment. Still open.
+
+---
+
+## 9 · Where this stands (2026-09-02)
+
+| Piece | State | Where |
+|---|---|---|
+| Keyset inventory `GET /secured/documents` | built | KnowledgeBase `feat/admin-document-rbac`, PR #147 |
+| Folder rules, service, routes, Alloy model | built | KnowledgeBase PR #147 |
+| Dedup refusal (empty intersection) | built | KnowledgeBase PR #147 |
+| Conflicts list (`?conflicts=true`) | **not built** — worker log + count only | KnowledgeBase follow-up |
+| Backfill jobs table, worker, CLI | built | KnowledgeBase PR #147 |
+| Backfill HTTP surface / console progress | **not built** | — |
+| Enforcement switch with backfill precondition | built, operator-only | KnowledgeBase PR #147 |
+| `AclBackfillCommand` on the cursor | built | KnowledgeBase PR #147 |
+| RemoteController `sources[].access_groups` | built | KnovasComponents `384a37d`, PR #9 |
+| Client RBAC methods | built (no `backfill_job`) | KnovasComponents `971329b`, PR #9 |
+| Dokumente tab | built (no multi-select; conflicts filter disabled) | KnovasComponents PR #9 |
+| Zugriffsgruppen tab | built (no governed-count, no backfill progress, no conflicts panel) | KnovasComponents PR #9 |
+| Four-eyes on ACL changes, principal assertion, Freigaben and Ingestion tabs | built, outside this design's scope | KnovasComponents PR #11 |
+
+No tenant has `rbac_enforcement = 'enforcing'`. Every wall this design builds is
+inert until an operator runs the backfill and flips the switch (§5.6).

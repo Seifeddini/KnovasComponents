@@ -341,3 +341,17 @@ class TestGuardedAclRoutesLive:
         pending = ApprovalService(platform_db, identity_repo).pending()
         assert len(pending) == 1 and pending[0].kind == "acl_change"
         assert pending[0].payload["pointers"] == ["rc-sync/a.docx"]
+
+
+def test_documents_view_only_passes_arguments_the_real_client_accepts():
+    """The console tests run against a fake client that takes **kw, so a
+    keyword the real KnovasAPIClient.documents() does not accept would only
+    surface in production, as a TypeError on every page load. Pin the
+    contract: every parameter of DocumentsView.page must exist on the client."""
+    import inspect
+    from knovas_client import KnovasAPIClient
+    from web_interface.admin_documents import DocumentsView
+
+    accepted = set(inspect.signature(KnovasAPIClient.documents).parameters) - {"self"}
+    used = set(inspect.signature(DocumentsView.page).parameters) - {"self"}
+    assert used <= accepted, sorted(used - accepted)
