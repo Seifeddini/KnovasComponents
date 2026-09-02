@@ -9,6 +9,20 @@ on:
 jobs:
   knovas-platform:
     runs-on: ubuntu-latest
+    services:
+      platform-db:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: testpw
+          POSTGRES_DB: knovas_platform_test
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d knovas_platform_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: KnovasPlatform
@@ -23,6 +37,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r components/docbridge_integration/requirements.txt
+
+      - name: Run identity migrations
+        working-directory: KnovasPlatform/components/docbridge_integration
+        env:
+          PLATFORM_DB_DSN: postgresql://platform:testpw@127.0.0.1:55433/knovas_platform_test
+        run: python -m src.identity.migrate
 
       - name: Pytest
         working-directory: KnovasPlatform/components/docbridge_integration
