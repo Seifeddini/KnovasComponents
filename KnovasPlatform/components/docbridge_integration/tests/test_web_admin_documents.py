@@ -136,7 +136,8 @@ class TestConsoleShell:
 
     def test_tab_strip_names_every_tab_that_exists(self):
         html = (TEMPLATES / "_admin_tabs.html").read_text(encoding="utf-8")
-        for endpoint in ("admin.people", "admin.documents", "admin.access_groups", "admin.approvals"):
+        for endpoint in ("admin.people", "admin.documents", "admin.access_groups",
+                         "admin.approvals", "admin.ingestion"):
             assert endpoint in html
 
     def test_sidebar_offers_the_console_only_when_told_to(self):

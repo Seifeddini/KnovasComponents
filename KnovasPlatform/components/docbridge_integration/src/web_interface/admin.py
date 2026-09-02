@@ -31,7 +31,7 @@ ASSIGNABLE_ROLES = ("admin", "approver", "ingestion_manager", "member")
 
 
 def create_admin_blueprint(
-    gate, *, csrf_valid, csrf_token, page_context, client_factory
+    gate, *, csrf_valid, csrf_token, page_context, client_factory, rc_client_factory=None
 ):
     """Build the console blueprint.
 
@@ -67,6 +67,7 @@ def create_admin_blueprint(
 
     require_admin = _require_roles(frozenset({"admin"}))
     require_approver = _require_roles(frozenset({"admin", "approver"}))
+    require_ingestion = _require_roles(frozenset({"admin", "ingestion_manager"}))
 
     def _form_csrf_ok() -> bool:
         return csrf_valid(str(request.form.get("csrf_token", "") or ""))
@@ -263,6 +264,35 @@ def create_admin_blueprint(
     from web_interface.admin_approvals import attach_approval_routes
     from web_interface.admin_documents import execute_acl_change
 
+    executors = {
+        "acl_change": lambda payload, actor: execute_acl_change(
+            client_factory(), payload, actor=actor, conn=gate.connection()
+        ),
+    }
+
+    # A deployment without RemoteController still gets the other tabs; the
+    # Ingestion routes and their executor only exist when rc_client_factory
+    # is given.
+    if rc_client_factory is not None:
+        from web_interface.admin_ingestion import apply_profile, attach_ingestion_routes
+
+        attach_ingestion_routes(
+            bp,
+            gate,
+            csrf_valid=csrf_valid,
+            csrf_token=csrf_token,
+            page_context=page_context,
+            client_factory=client_factory,
+            rc_client_factory=rc_client_factory,
+            require_ingestion=require_ingestion,
+        )
+        executors["ingestion_profile_change"] = lambda payload, actor: (
+            (rc_client_factory().stop() or {"stopped": True})
+            if payload.get("action") == "stop"
+            else apply_profile(payload, actor, conn=gate.connection(),
+                               rc_client=rc_client_factory())
+        )
+
     attach_approval_routes(
         bp,
         gate,
@@ -271,11 +301,7 @@ def create_admin_blueprint(
         page_context=page_context,
         require_approver=require_approver,
         require_admin=require_admin,
-        executors={
-            "acl_change": lambda payload, actor: execute_acl_change(
-                client_factory(), payload, actor=actor, conn=gate.connection()
-            ),
-        },
+        executors=executors,
     )
 
     return bp

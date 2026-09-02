@@ -1312,11 +1312,13 @@ def create_app(config_path: Optional[str] = None):
             # path uses, so mTLS material, retries and rate limiting are
             # configured in exactly one place.
             client_factory=lambda: api_client,
+            rc_client_factory=(lambda: rc_client) if rc_client is not None else None,
             page_context=lambda: {
                 **_sidebar_context(),
                 'app_title': web_app_title,
                 'brand': web_brand,
                 'asset_version': _static_asset_version(),
+                'ingestion_enabled': rc_client is not None,
             },
         ))
 
