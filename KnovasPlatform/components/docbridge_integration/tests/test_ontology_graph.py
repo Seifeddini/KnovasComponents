@@ -166,6 +166,31 @@ def test_export_is_cached_within_ttl():
     assert calls["n"] == 1
 
 
+def test_export_cache_ttl_is_fixed_not_sliding_on_repeated_hits():
+    """Repeated hits within TTL must not extend expiry; cache expires at cached_at + ttl."""
+    client = FakeGraphClient()
+    calls = {"n": 0}
+    original = client.graph_export
+
+    def counting():
+        calls["n"] += 1
+        return original()
+
+    client.graph_export = counting
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: clock["t"])
+
+    source.summary()                    # cached_at = 1000
+    for _ in range(5):
+        clock["t"] += 10                # 1010 … 1050 — hits refresh LRU only
+        source.summary()
+    assert calls["n"] == 1
+
+    clock["t"] = 1060.0                 # cached_at + ttl — must expire despite hits at 1050
+    source.summary()
+    assert calls["n"] == 2
+
+
 def test_ttl_zero_disables_export_cache():
     """ttl_seconds=0 must never serve or retain cached exports."""
     client = FakeGraphClient()
@@ -301,7 +326,7 @@ def test_brokered_export_cache_evicts_by_last_access_not_insertion():
 
     assert set(source._export_by_subject) == {"user-a", "user-c", "user-d"}
     assert "user-b" not in source._export_by_subject
-    assert source._export_by_subject["user-a"][0] == 1003.0
+    assert source._export_by_subject["user-a"][1] == 1003.0
 
 
 def test_tolerates_alternative_field_names():
