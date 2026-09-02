@@ -184,3 +184,23 @@ open:
     flask_app = web_app.create_app(str(config_path))
     flask_app.config.update(TESTING=True)
     return flask_app
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Under CI a PostgreSQL skip is a failure, not a pass.
+
+    151 identity tests skipped silently for weeks because an unreachable
+    database looked exactly like a green run. In CI we would rather be
+    loudly broken than quietly untested. Locally the skip stays a skip.
+    """
+    outcome = yield
+    report = outcome.get_result()
+    if os.environ.get("CI") != "true":
+        return
+    if report.skipped and "No PostgreSQL" in str(report.longrepr):
+        report.outcome = "failed"
+        report.longrepr = (
+            "PostgreSQL was unreachable in CI. Identity tests must execute, "
+            "not skip -- a skipped security test is a test that does not exist."
+        )

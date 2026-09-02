@@ -9,6 +9,24 @@ on:
 jobs:
   knovas-platform:
     runs-on: ubuntu-latest
+    services:
+      # The DSN, port, user, password and database name match what
+      # tests/conftest.py already expects (PLATFORM_DB_TEST_DSN). The
+      # platform_db fixture migrates its own per-test schema, so no separate
+      # migration step is needed here.
+      platform-db:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: testpw
+          POSTGRES_DB: knovas_platform_test
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d knovas_platform_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: KnovasPlatform
