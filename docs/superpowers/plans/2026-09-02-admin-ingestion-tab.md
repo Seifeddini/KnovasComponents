@@ -1539,7 +1539,7 @@ git commit -m "feat(admin): Ingestion tab — one profile, one form, one write; 
 
 - [ ] **Step 1: Share the public key with RemoteController, read-only**
 
-In both compose files, on the `remote-controller` service:
+**Ruling R-I7 (2026-09-02):** only the root `docker-compose.yml` runs `remote-controller` (`KnovasPlatform/docker-compose.yml` has no such service). On that one service, append to its existing `volumes:` list and add a new `environment:` block:
 
 ```yaml
     volumes:
@@ -1548,15 +1548,24 @@ In both compose files, on the `remote-controller` service:
       RC_PLATFORM_BROKER_PUBKEY_PATH: /app/secrets/broker/broker_ed25519.pub
 ```
 
-(merge into the existing `volumes:`/`environment:` lists rather than duplicating the keys). The named volume already exists from the auth work; RemoteController gets the whole directory read-only and reads only the `.pub`. State in a comment that the private key is in the same directory and that `:ro` plus RemoteController never opening it is the whole protection — a reviewer will ask.
+The service currently has `env_file:` and `volumes:` but no `environment:` block, so the block is new. The named volume `docbridge_broker_key` already exists from the auth work; RemoteController gets the whole directory read-only and reads only the `.pub`. State in a comment that the private key is in the same directory and that `:ro` plus RemoteController never opening it is the whole protection — a reviewer will ask.
 
-- [ ] **Step 2: Environment example**
+- [ ] **Step 2: Environment examples**
 
-Add beside `PLATFORM_BROKER_KEY_DIR`:
+In `knovas.env.example`, add beside `PLATFORM_BROKER_KEY_DIR`:
 
 ```
 # The console reaches the firm's RemoteController here (knovas-internal only).
 # RC_BASE_URL=http://remote-controller:5001
+```
+
+In `RemoteController/.env.example`, beside `RC_CLIENT_ID`:
+
+```
+# The Platform's broker public key (mounted read-only from the docbridge_broker_key volume).
+# With it set, the firm's administrator may drive /discover, /sync, /sync/config and
+# /sync/start|stop|status through the console; without it, only Knovas employees can.
+# RC_PLATFORM_BROKER_PUBKEY_PATH=/app/secrets/broker/broker_ed25519.pub
 ```
 
 - [ ] **Step 3: Feature doc and release note**
@@ -1595,7 +1604,7 @@ akzeptiert dafür die Anmeldung der Kanzlei selbst.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add KnovasPlatform/docker-compose.yml docker-compose.yml knovas.env.example KnovasPlatform/docs/features/document-administration.md RELEASE_NOTES.md
+git add docker-compose.yml knovas.env.example RemoteController/.env.example KnovasPlatform/docs/features/document-administration.md RELEASE_NOTES.md
 git commit -m "docs(admin): ingestion administration — key sharing with RemoteController, env, feature doc"
 ```
 
