@@ -17,6 +17,7 @@ from flask import render_template, request
 
 from identity import audit
 from identity.approvals import (
+    GUARDED_KINDS,
     ApprovalError,
     ApprovalService,
     InvalidTransitionError,
@@ -35,6 +36,8 @@ KIND_LABELS = {
     "purge_all_documents": "Alle Dokumente loeschen",
     "ingestion_profile_change": "Ingestion-Profil aendern",
 }
+
+assert set(KIND_LABELS) == set(GUARDED_KINDS), "every guarded kind needs a label"
 
 
 def _summary(kind: str, payload: Mapping[str, Any]) -> str:
@@ -121,6 +124,7 @@ def attach_approval_routes(
             pending=pending,
             approved=approved,
             bypasses=bypasses,
+            kind_labels=KIND_LABELS,
             bypass_enabled=service.admin_bypass_enabled(),
             can_toggle=bool(me and "admin" in me.roles),
             me=me,
@@ -149,10 +153,30 @@ def attach_approval_routes(
             logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id, exc)
             return None, (
                 "Freigegeben, aber die Ausfuehrung ist fehlgeschlagen. Unter "
-                "«Freigegeben, noch nicht ausgefuehrt» kann sie erneut "
+                "'Freigegeben, noch nicht ausgefuehrt' kann sie erneut "
                 "angestossen werden."
             )
-        _approvals().mark_executed(req.id, result)
+        failed = result.get("failed") or []
+        if failed:
+            # The executor did not raise, but not everything it touched
+            # succeeded (e.g. execute_acl_change collects per-pointer
+            # backend failures rather than raising). Do not mark this
+            # executed: the request stays 'approved' and retryable, since
+            # set_document_access is idempotent and a full retry re-applying
+            # already-changed pointers is harmless.
+            return None, (
+                f"Freigegeben, aber {len(failed)} Dokument(e) konnten nicht "
+                "geaendert werden. Unter 'Freigegeben, noch nicht ausgefuehrt' "
+                "kann die Aenderung erneut angestossen werden."
+            )
+        try:
+            _approvals().mark_executed(req.id, result, by=me)
+        except InvalidTransitionError:
+            # Someone else's approve/execute won the race in the moment
+            # between our approved()/approve() read and this write. The
+            # action already happened once; say that rather than implying
+            # this attempt did something.
+            return None, "Diese Anfrage wurde inzwischen von jemand anderem ausgefuehrt."
         return "Freigegeben und ausgefuehrt.", None
 
     @bp.route("/approvals")
@@ -160,7 +184,7 @@ def attach_approval_routes(
     def approvals():
         return _page()
 
-    @bp.route("/approvals/<request_id>/approve", methods=["POST"])
+    @bp.route("/approvals/<uuid:request_id>/approve", methods=["POST"])
     @require_approver
     def approve(request_id):
         csrf_ok = _csrf_ok()
@@ -180,7 +204,7 @@ def attach_approval_routes(
         notice, error = _execute(req, me)
         return _page(notice=notice, error=error)
 
-    @bp.route("/approvals/<request_id>/execute", methods=["POST"])
+    @bp.route("/approvals/<uuid:request_id>/execute", methods=["POST"])
     @require_approver
     def execute(request_id):
         csrf_ok = _csrf_ok()
@@ -197,7 +221,7 @@ def attach_approval_routes(
         notice, error = _execute(req, me)
         return _page(notice=notice, error=error)
 
-    @bp.route("/approvals/<request_id>/reject", methods=["POST"])
+    @bp.route("/approvals/<uuid:request_id>/reject", methods=["POST"])
     @require_approver
     def reject(request_id):
         csrf_ok = _csrf_ok()

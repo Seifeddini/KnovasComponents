@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import pathlib
+import types
 
 import pytest
 
@@ -14,6 +15,7 @@ from conftest import DummyKnovasClient, platform_db_reachable
 TEMPLATES = (
     pathlib.Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"
 )
+APP_PY = TEMPLATES.parent / "app.py"
 
 
 def _logout(client):
@@ -50,6 +52,44 @@ class TestRoutesAreGated:
         assert "@require_admin" in src[idx - 120:idx]
 
 
+class TestApproverOnlyReachesTheTab:
+    """An approver holds no 'admin' role and never reached the console
+    before: _console_url must offer Freigaben instead of Personen (finding 4)."""
+
+    def test_console_url_offers_approvals_to_a_pure_approver(self):
+        body = APP_PY.read_text(encoding="utf-8")
+        idx = body.index("def _console_url(")
+        window = body[idx:idx + 1200]
+        assert "url_for('admin.approvals')" in window
+        assert "'approver'" in window
+
+    def test_tabs_hide_admin_only_pages_for_an_approver(self):
+        import jinja2
+
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(str(TEMPLATES)),
+            autoescape=True, undefined=jinja2.StrictUndefined,
+        )
+        env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
+        me = types.SimpleNamespace(roles={"approver"})
+        html = env.get_template("_admin_tabs.html").render(admin_tab="approvals", me=me)
+        assert "/admin/people" not in html
+        assert "/admin/approvals" in html
+
+    def test_tabs_still_render_when_me_is_none(self):
+        """The stub render tests pass me=None; every tab must still appear."""
+        import jinja2
+
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(str(TEMPLATES)),
+            autoescape=True, undefined=jinja2.StrictUndefined,
+        )
+        env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
+        html = env.get_template("_admin_tabs.html").render(admin_tab="approvals", me=None)
+        assert "/admin/people" in html
+        assert "/admin/approvals" in html
+
+
 class TestTemplate:
     def test_every_post_form_carries_the_csrf_token(self):
         html = (TEMPLATES / "admin_approvals.html").read_text(encoding="utf-8")
@@ -79,6 +119,7 @@ class TestTemplate:
             console_url="/admin/people", active_nav="admin", csrf_token="t",
             error=None, notice=None, me=None, asset_version="1",
             can_toggle=True, bypass_enabled=True,
+            kind_labels={"acl_change": "Zugriffsaenderung"},
             pending=[{"id": "abc", "kind": "acl_change", "kind_label": "Zugriffsaenderung",
                       "target_ref": "rc-sync/a.docx", "requester_email": "x@kanzlei.ch",
                       "requested_at": "2026-09-02 10:00", "expires_at": "2026-09-03 10:00",
@@ -215,7 +256,7 @@ class TestLive:
         r = post_form(identity_client, f"/admin/approvals/{queued}/approve",
                       page="/admin/approvals")
         assert r.status_code == 200
-        assert "Ausfuehrung ist fehlgeschlagen" in r.data.decode("utf-8")
+        assert "konnten nicht geaendert werden" in r.data.decode("utf-8")
         assert DummyKnovasClient.last_instance.acl_calls == []
         row = platform_db.execute(
             "SELECT status FROM approval_requests WHERE id = %s", (queued,)

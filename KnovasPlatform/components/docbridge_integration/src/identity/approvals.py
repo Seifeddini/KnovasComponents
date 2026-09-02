@@ -250,9 +250,18 @@ class ApprovalService:
         self._check_decidable(existing, approver)
         row = self._conn.execute(
             "UPDATE approval_requests SET status = 'approved', approved_by = %s, "
-            f"approved_at = now() WHERE id = %s RETURNING {', '.join(_COLUMNS)}",
+            f"approved_at = now() WHERE id = %s AND status = 'pending' "
+            f"RETURNING {', '.join(_COLUMNS)}",
             (str(approver.id), str(existing.id)),
         ).fetchone()
+        if row is None:
+            # The pre-check above read a stale snapshot: someone else decided
+            # this request in the gap between that read and this write. The
+            # WHERE clause is the actual guard; the check above is only for a
+            # clearer message in the common, non-racing case.
+            raise InvalidTransitionError(
+                "This request was already decided by someone else."
+            )
         requester = self._users.get(existing.requested_by)
         audit.record(
             self._conn,
@@ -275,9 +284,14 @@ class ApprovalService:
         row = self._conn.execute(
             "UPDATE approval_requests SET status = 'rejected', approved_by = %s, "
             "approved_at = now(), decision_reason = %s WHERE id = %s "
+            "AND status = 'pending' "
             f"RETURNING {', '.join(_COLUMNS)}",
             (str(approver.id), reason, str(existing.id)),
         ).fetchone()
+        if row is None:
+            raise InvalidTransitionError(
+                "This request was already decided by someone else."
+            )
         audit.record(
             self._conn,
             action="approval.rejected",
@@ -289,7 +303,11 @@ class ApprovalService:
         return self._to_request(row)
 
     def mark_executed(
-        self, request_id: UUID | str, result: Mapping[str, Any]
+        self,
+        request_id: UUID | str,
+        result: Mapping[str, Any],
+        *,
+        by: Any | None = None,
     ) -> ApprovalRequest:
         """Record that an approved request has now been carried out, once."""
         existing = self._load(request_id)
@@ -300,10 +318,27 @@ class ApprovalService:
             )
         row = self._conn.execute(
             "UPDATE approval_requests SET status = 'executed', executed_at = now(), "
-            f"execution_result = %s WHERE id = %s RETURNING {', '.join(_COLUMNS)}",
+            f"execution_result = %s WHERE id = %s AND status = 'approved' "
+            f"RETURNING {', '.join(_COLUMNS)}",
             (json.dumps(dict(result)), str(existing.id)),
         ).fetchone()
-        return self._to_request(row)
+        if row is None:
+            # Same race as approve/reject: the pre-check saw "approved" a
+            # moment ago, but a concurrent execution already finished it.
+            raise InvalidTransitionError(
+                "This request is no longer approved; it may already have "
+                "been carried out."
+            )
+        executed = self._to_request(row)
+        audit.record(
+            self._conn,
+            action="approval.executed",
+            actor=by,
+            target_type=executed.kind,
+            target_id=executed.target_ref,
+            detail={"request_id": str(executed.id), "result": dict(result)},
+        )
+        return executed
 
     def pending(self) -> list[ApprovalRequest]:
         rows = self._conn.execute(

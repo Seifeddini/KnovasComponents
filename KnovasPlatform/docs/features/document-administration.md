@@ -86,8 +86,10 @@ guarded actions. Whether they run immediately depends on who acts:
   execute it.
 - Requests expire after 24 hours.
 
-State this to a buyer as it is: with the bypass on, four-eyes covers ordinary
-users and not the most privileged account.
+Every guarded action the console offers today is administrator-only, so with
+the bypass on nothing ever queues; the control is effective only in strict
+mode (*Strikt* on the Freigaben tab). Say that to a buyer rather than letting
+the word four-eyes imply more.
 
 ## RemoteController
 

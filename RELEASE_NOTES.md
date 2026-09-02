@@ -21,7 +21,9 @@ eine geschlossene Wand nicht wieder öffnet. Beschreibung:
 
 Zugriffsänderungen in der Verwaltung folgen dem Vier-Augen-Prinzip. Ein neuer
 Reiter «Freigaben» zeigt, was auf eine zweite Person wartet, und vermerkt jede
-Handlung, die ein Administrator allein ausgeführt hat.
+Handlung, die ein Administrator allein ausgeführt hat. Da heute alle
+abgesicherten Aktionen von Administratoren ausgehen, greift das
+Vier-Augen-Prinzip erst im strikten Modus.
 
 ## RemoteController
 

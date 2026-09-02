@@ -110,6 +110,7 @@
 
     <section class="panel">
         <h2>Umgehungen durch Administratoren</h2>
+        <p class="hint">Es werden die letzten 25 Umgehungen angezeigt.</p>
         {% if bypass_enabled %}
         <p class="warn">
             Administratoren handeln ohne zweite Person. Jede solche Handlung
@@ -134,7 +135,7 @@
                 <tr>
                     <td>{{ b.occurred_at }}</td>
                     <td>{{ b.actor_email or '?' }}</td>
-                    <td>{{ b.target_type }}</td>
+                    <td>{{ kind_labels.get(b.target_type, b.target_type) }}</td>
                     <td class="ptr">{{ b.target_id }}</td>
                 </tr>
             {% else %}

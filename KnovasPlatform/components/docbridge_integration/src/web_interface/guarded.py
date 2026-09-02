@@ -11,6 +11,10 @@ outcomes, and nothing in between:
 The second half is the part that keeps the record honest. An administrator
 acting alone is a decision, not an exemption, and an auditor must be able to
 tell the two apart (decided 2026-08-14).
+
+``audit.record`` is best-effort by design -- it never raises -- so the bypass
+row is written whenever the audit log is reachable, and a logging outage
+never blocks the guarded action itself.
 """
 from __future__ import annotations
 

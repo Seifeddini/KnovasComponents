@@ -2,6 +2,7 @@
    Erwartet: admin_tab ('people' | 'documents' | 'access_groups').
    Der Link ist Darstellung; require_admin auf der Route ist die Kontrolle. #}
 <nav class="tabs" aria-label="Verwaltung">
+    {% if not (me is defined and me and 'admin' not in me.roles) %}
     <a href="{{ url_for('admin.people') }}"
        class="{% if admin_tab == 'people' %}active{% endif %}"
        {% if admin_tab == 'people' %}aria-current="page"{% endif %}>Personen</a>
@@ -11,6 +12,7 @@
     <a href="{{ url_for('admin.access_groups') }}"
        class="{% if admin_tab == 'access_groups' %}active{% endif %}"
        {% if admin_tab == 'access_groups' %}aria-current="page"{% endif %}>Zugriffsgruppen</a>
+    {% endif %}
     <a href="{{ url_for('admin.approvals') }}"
        class="{% if admin_tab == 'approvals' %}active{% endif %}"
        {% if admin_tab == 'approvals' %}aria-current="page"{% endif %}>Freigaben</a>
