@@ -914,7 +914,7 @@ git commit -m "feat(platform): RemoteController client that calls as the signed-
 - Test: `tests/test_web_admin_ingestion.py`
 
 **Interfaces:**
-- Consumes: `run_guarded`, `_require_roles` (Approvals plan); `IngestionProfileRepository` (Task 2); `RemoteControllerClient` (Task 3); `compile_profile`, `ProfileError`, `redact_for_support`, `IngestionProfile`, `SourceFolder`; the presets tables in `identity/ingestion_presets.py` (`SCHEDULES`, `THROUGHPUTS`, `FILE_TYPES` — confirm the three dict names at the top of that file and use them verbatim).
+- Consumes: `run_guarded`, `_require_roles` (Approvals plan); `IngestionProfileRepository` (Task 2); `RemoteControllerClient` (Task 3); `compile_profile`, `ProfileError`, `redact_for_support`, `IngestionProfile`, `SourceFolder`; the presets tables in `identity/ingestion_presets.py`: `SCHEDULE_PRESETS`, `THROUGHPUT_PRESETS`, `FILE_TYPE_PRESETS` (verified).
 - Produces: `attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client_factory, rc_client_factory, require_ingestion)` with routes `GET /admin/ingestion`, `POST /admin/ingestion/preview`, `POST /admin/ingestion/save`, `POST /admin/ingestion/restore/<int:version>`, `POST /admin/ingestion/start`, `POST /admin/ingestion/stop`; and `apply_profile(payload, actor, *, conn, rc_client) -> dict` — the executor for `ingestion_profile_change`.
 
 Form contract (POST `/admin/ingestion/save` and `/preview`): `identifier_prefix`, `description`, `schedule` ∈ presets, `throughput` ∈ presets, `file_types` (multi), `max_document_age_days` (blank = none), up to twelve folder rows named `folder-N-path`, `folder-N-recursive` (`1`), `folder-N-groups` (multi). Blank paths are skipped. `stop` is guarded because it halts coverage; `start` and `preview` are not.
@@ -1102,9 +1102,9 @@ def profile_from_form(form: Mapping[str, str], lists: Mapping[str, list[str]]) -
     sentence a person can act on; compile_profile validates the rest."""
     schedule = str(form.get("schedule", "") or "").strip()
     throughput = str(form.get("throughput", "") or "").strip()
-    if schedule not in presets.SCHEDULES:
+    if schedule not in presets.SCHEDULE_PRESETS:
         raise ProfileError("Bitte einen der angebotenen Zeitplaene waehlen.")
-    if throughput not in presets.THROUGHPUTS:
+    if throughput not in presets.THROUGHPUT_PRESETS:
         raise ProfileError("Bitte eine der angebotenen Geschwindigkeiten waehlen.")
     sources: list[SourceFolder] = []
     for n in range(MAX_FOLDER_ROWS):
@@ -1192,9 +1192,9 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             active_nav="admin",
             **page_context(),
             form=form if form is not None else form_from_profile(current.profile if current else None),
-            schedules=_labelled(presets.SCHEDULES),
-            throughputs=_labelled(presets.THROUGHPUTS),
-            file_types=_labelled(presets.FILE_TYPES),
+            schedules=_labelled(presets.SCHEDULE_PRESETS),
+            throughputs=_labelled(presets.THROUGHPUT_PRESETS),
+            file_types=_labelled(presets.FILE_TYPE_PRESETS),
             groups=groups,
             status=rc_status,
             current=current,
@@ -1568,6 +1568,6 @@ git commit -m "docs(admin): ingestion administration — key sharing with Remote
 
 **Spec coverage.** KC-IN-1 → Task 1 (`require_operator_or_tenant_admin`, role `ingestion_manager` or `admin` in `rol`, beside the employee path, each route declares it). KC-IN-2 → Task 2 (versioned row, author, approver column carried, timestamp). KC-IN-3 → Task 4. KC-IN-5 → the client targets `remote-controller:5001` on `knovas-internal`; no port is published (Task 5 adds none). KC-IN-7 → preview via `/discover` (Task 4 `preview`), every save a new version, restore re-compiles and re-pushes (Task 4 `restore` → `apply_profile`). KC-IN-4/6 already landed. SS-391 AC 1 (no host edits) → Tasks 1, 3, 4; AC 2 (one write path) → `compile_profile` + `push` only, asserted by `test_the_compiler_is_the_only_writer`; AC 3 (per-source groups reach the upload) → `SourceFolder.access_groups` through the compiler, already covered by RemoteController's `test_sync_access_groups.py`; AC 4 → gate/CSRF/audit on every route; AC 5 German copy; AC 6 tests in CI. The spec's folder *browser* backed by `/discover` is reduced to a typed path plus a preview per folder — stated here rather than silently dropped; the browser is a UI iteration once the write path is real.
 
-**Placeholder scan.** The three preset dict names (`SCHEDULES`, `THROUGHPUTS`, `FILE_TYPES`) are cited with an instruction to confirm against `ingestion_presets.py`; everything else is concrete.
+**Placeholder scan.** None. The preset dict names were verified against `ingestion_presets.py`.
 
 **Type consistency.** `apply_profile(payload, actor, *, conn, rc_client)` — Task 4 definition, executor registration, `save`/`restore` calls. `RemoteControllerClient(base_url, *, principal_broker, session=None, timeout)` — Task 3 tests and `app.py`. `profile_to_json`/`profile_from_json` — Tasks 2 and 4. `IngestionProfileRepository.save_new_version(profile, *, name, by, approved_by)` — Tasks 2 and 4. `verify_platform_principal(token, *, public_pem, expected_tenant, replay, now)` — Task 1 tests and gate.
