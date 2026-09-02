@@ -886,6 +886,13 @@ def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, An
     return []
 
 
+# The field that carries a person across the mTLS boundary. KnowledgeBase reads
+# this exact name from the JSON body (services/rbac/assertion.py, ASSERTION_FIELD).
+# A cross-repo wire contract with no shared import: renaming either side is a
+# silent break that surfaces as "search returns nothing" on a BROKERED tenant.
+ASSERTION_FIELD = "principal_assertion"
+
+
 class KnovasAPIClient:
     """Client for Knovas API operations."""
     
@@ -897,6 +904,9 @@ class KnovasAPIClient:
             config_loader: ConfigLoader instance. If None, uses global config.
         """
         self.config = config_loader or get_config()
+        # Set by attach_principal_broker() once the identity gate exists. None
+        # means a legacy shared-login deployment: bodies go out unsigned.
+        self._principal_broker = None
         
         self.base_url = self.config.get('api.base_url', 'http://localhost:5000')
         self.auth_type = self.config.get('api.auth_type', 'bearer')
@@ -1251,6 +1261,43 @@ class KnovasAPIClient:
                 )
                 self._attempt_certificate_renewal()
     
+    def attach_principal_broker(self, broker) -> None:
+        """Bind the broker that signs the current user into every outbound body.
+
+        ``broker`` offers ``current_user()`` and ``assertion_for(user)``. It is
+        attached after construction because create_app() builds the identity
+        gate after the client; the client itself stays ignorant of Flask.
+        """
+        self._principal_broker = broker
+
+    def _with_principal(self, data):
+        """Attach the caller's assertion to an outgoing body.
+
+        Fail closed when there is no authenticated user. An unsigned call
+        resolves to asserted=False at the Secure API -- "unrestricted
+        documents only" -- and returns *more* than a correctly scoped one.
+        A wall that widens under failure is not a wall.
+        """
+        if self._principal_broker is None:
+            return data
+        user = self._principal_broker.current_user()
+        if user is None:
+            raise PermissionError(
+                "No authenticated user for this request; refusing to call "
+                "Knovas without a principal assertion."
+            )
+        assertion = self._principal_broker.assertion_for(user)
+        if data is None:
+            return {ASSERTION_FIELD: assertion}
+        if not isinstance(data, dict):
+            # Every secured endpoint takes a JSON object. A non-dict body is a
+            # caller we have not accounted for; guessing how to attach the
+            # assertion is how one route would quietly lose it.
+            raise TypeError(
+                f"Cannot attach a principal assertion to a {type(data).__name__} body."
+            )
+        return {**data, ASSERTION_FIELD: assertion}
+
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""
         headers = {
@@ -1307,7 +1354,8 @@ class KnovasAPIClient:
         headers = self._get_headers()
         
         logger.debug(f"Making {method} request to {url}")
-        
+        data = self._with_principal(data)
+
         response = self._session.request(
             method=method,
             url=url,
@@ -1335,6 +1383,7 @@ class KnovasAPIClient:
         self._rate_limit()
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
+        data = self._with_principal(data)
         response = self._session.request(
             method=method,
             url=url,

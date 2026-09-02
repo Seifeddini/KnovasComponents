@@ -66,6 +66,8 @@ def identity_app(platform_db, tmp_path, monkeypatch):
     )
     monkeypatch.delenv("PLATFORM_DB_PASSWORD_FILE", raising=False)
 
+    broker_dir = (tmp_path / "broker").as_posix()
+    (tmp_path / "broker").mkdir(exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         'web:\n'
@@ -79,8 +81,10 @@ def identity_app(platform_db, tmp_path, monkeypatch):
         '    results_per_page: 20\n'
         'identity:\n'
         '  enabled: true\n'
+        f'  broker_key_dir: "{broker_dir}"\n'
         'api:\n'
         '  base_url: "http://example.test"\n'
+        '  customer_id: "tenant-a"\n'
         'open:\n'
         '  companion_enabled: false\n',
         encoding="utf-8",
@@ -130,9 +134,16 @@ class DummyKnovasClient:
     """Controllable mock. Set DummyKnovasClient.health_result before creating the app."""
 
     health_result = True
+    last_instance = None
+    customer_id = "tenant-a"
 
     def __init__(self, config):
         self.config = config
+        self.principal_broker = None
+        DummyKnovasClient.last_instance = self
+
+    def attach_principal_broker(self, broker):
+        self.principal_broker = broker
 
     def health_check(self):
         return DummyKnovasClient.health_result

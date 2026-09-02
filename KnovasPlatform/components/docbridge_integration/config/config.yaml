@@ -243,6 +243,14 @@ performance:
   # Memory limits
   max_file_size: 104857600  # 100 MB
 
+# Per-user identity (Pflichtenheft B1/B2). Off by default. When on, the shared
+# COMPANY_LOGIN_* credential must be removed, and the Platform signs each user
+# into every Knovas call with the Ed25519 key kept in broker_key_dir -- a
+# persistent volume, backed up. See docs/certificates.md.
+identity:
+  enabled: "${IDENTITY_ENABLED:-false}"
+  broker_key_dir: "${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}"
+
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Optional companion (semantix-doc:) if browser launch is blocked by policy.
 open:

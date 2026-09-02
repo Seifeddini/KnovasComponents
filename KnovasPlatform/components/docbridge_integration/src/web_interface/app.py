@@ -709,6 +709,55 @@ def create_app(config_path: Optional[str] = None):
             )
         identity_gate = IdentityGate()
         app.teardown_request(identity_gate.close)
+
+        # The broker signs the signed-in person into every Knovas call, through
+        # the one client the search path already uses. Both preconditions fail
+        # closed at startup: an unsigned call returns MORE than a signed one.
+        from pathlib import Path as _Path
+
+        from identity.broker_key import BrokerKeyUnavailableError, load_or_create_signer
+        from identity.principal import PrincipalBroker
+
+        broker_key_dir = str(config.get('identity.broker_key_dir', '') or '').strip()
+        if not broker_key_dir:
+            raise RuntimeError(
+                'identity.enabled is true but identity.broker_key_dir is not set. '
+                'The Platform signs each user into its Knovas calls with an Ed25519 '
+                'key kept in that directory; see docs/certificates.md.'
+            )
+        if not getattr(api_client, 'customer_id', ''):
+            raise RuntimeError(
+                'identity.enabled is true but api.customer_id (SEMANTIX_CUSTOMER_ID) '
+                'is empty. A principal assertion is bound to the tenant.'
+            )
+        try:
+            broker_signer = load_or_create_signer(_Path(broker_key_dir))
+        except BrokerKeyUnavailableError as exc:
+            raise RuntimeError(f'Broker signing key unavailable: {exc}') from exc
+
+        class _RequestScopedBroker:
+            """PrincipalBroker bound to whoever is signed in on *this* request.
+
+            gate.users() is a repository on the request's own connection and
+            the broker reads user_access_groups at mint time, uncached -- so a
+            revocation lands on the user's next request, not at session expiry.
+            """
+
+            def __init__(self, gate, signer, tenant_id):
+                self._gate, self._signer, self._tenant_id = gate, signer, tenant_id
+
+            def current_user(self):
+                return self._gate.current_user()
+
+            def assertion_for(self, user):
+                return PrincipalBroker(
+                    user_repo=self._gate.users(), signer=self._signer,
+                    tenant_id=self._tenant_id,
+                ).assertion_for(user)
+
+        api_client.attach_principal_broker(
+            _RequestScopedBroker(identity_gate, broker_signer, str(api_client.customer_id))
+        )
     weak_secret_values = {
         '',
         'change-me',
@@ -892,6 +941,22 @@ def create_app(config_path: Optional[str] = None):
 
     def _resolve_autodoc_path(file_path: str) -> Optional[str]:
         return _confine_to_autodoc(file_handler.autodoc_path, file_path)
+
+    @app.before_request
+    def reject_client_asserted_groups():
+        """The group list has exactly one source: user_access_groups, read
+        server-side for the signed-in user. A body that supplies its own is
+        refused with 400, not quietly overruled -- silently dropping it would
+        let a caller believe a scope applied, and would hide a merging bug."""
+        if not request.is_json:
+            return None
+        from identity.principal import ClientAssertedGroupsError, PrincipalBroker
+
+        try:
+            PrincipalBroker.reject_client_assertion(request.get_json(silent=True))
+        except ClientAssertedGroupsError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        return None
 
     @app.before_request
     def require_company_login():

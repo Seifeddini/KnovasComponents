@@ -76,6 +76,9 @@ services:
       - ./KnovasPlatform/components/docbridge_integration/config:/app/config:ro
       - docbridge_integration_logs:/app/logs
       - docbridge_integration_data:/app/data
+      # The broker signing key. Named volume, never a bind mount into the
+      # repo: recreating the container without it silently rotates the key.
+      - docbridge_broker_key:/app/secrets/broker
       - ${KNOVAS_DOCUMENTS_PATH}:/mnt/autodoc:ro
       - ./certs:/app/certs:ro
       - rc-state:/var/rc-state:ro
@@ -121,6 +124,7 @@ networks:
     driver: bridge
 
 volumes:
+  docbridge_broker_key:
   rc-config:
   rc-state:
   docbridge_integration_data:
