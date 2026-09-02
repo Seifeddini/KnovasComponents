@@ -38,7 +38,7 @@ class TestRoutesAreGated:
         assert src.count("@bp.route") == (
             src.count("@require_approver") + src.count("@require_admin")
         )
-        for fn in ("def approve(", "def reject(", "def set_bypass("):
+        for fn in ("def approve(", "def execute(", "def reject(", "def set_bypass("):
             body = src[src.index(fn):src.index(fn) + 900]
             assert body.index("csrf_ok") < body.index("_approvals()")
 
@@ -63,6 +63,11 @@ class TestTemplate:
     def test_the_strip_knows_the_tab(self):
         assert "admin.approvals" in (TEMPLATES / "_admin_tabs.html").read_text(encoding="utf-8")
 
+    def test_the_approved_section_offers_execute(self):
+        html = (TEMPLATES / "admin_approvals.html").read_text(encoding="utf-8")
+        assert "noch nicht ausgeführt" in html
+        assert "admin.execute" in html
+
     def test_it_renders_with_stub_data(self):
         import jinja2
 
@@ -78,11 +83,16 @@ class TestTemplate:
                       "target_ref": "rc-sync/a.docx", "requester_email": "x@kanzlei.ch",
                       "requested_at": "2026-09-02 10:00", "expires_at": "2026-09-03 10:00",
                       "summary": "1 Dokument -> g-lit", "mine": False, "executable": True}],
+            approved=[{"id": "def", "kind": "acl_change", "kind_label": "Zugriffsaenderung",
+                       "target_ref": "rc-sync/c.docx", "requester_email": "y@kanzlei.ch",
+                       "approved_at": "2026-09-02 11:00", "summary": "1 Dokument -> g-lit",
+                       "executable": True}],
             bypasses=[{"occurred_at": "2026-09-02 09:00", "actor_email": "chef@kanzlei.ch",
                        "target_type": "acl_change", "target_id": "rc-sync/b.docx",
                        "detail": {"result": {"changed": 1}}}],
         )
         assert "rc-sync/a.docx" in html and "chef@kanzlei.ch" in html
+        assert "rc-sync/c.docx" in html
 
 
 @pytest.mark.skipif(not platform_db_reachable(),
@@ -192,3 +202,55 @@ class TestLive:
                   pointer="rc-sync/b.docx", access_group="g-lit")
         html = identity_client.get("/admin/approvals").data.decode("utf-8")
         assert "rc-sync/b.docx" in html and "chef@kanzlei.ch" in html
+
+    def test_a_failed_execution_stays_approved_and_can_be_retried(
+        self, identity_client, people, queued, platform_db, identity_repo
+    ):
+        """An approved request a backend failure left stranded is visible and
+        retryable, not silently lost (the gap this fix round closes)."""
+        from _console import post_form, sign_in
+
+        DummyKnovasClient.last_instance.fail_next = True
+        sign_in(identity_client, "pruefer@kanzlei.ch")
+        r = post_form(identity_client, f"/admin/approvals/{queued}/approve",
+                      page="/admin/approvals")
+        assert r.status_code == 200
+        assert "Ausfuehrung ist fehlgeschlagen" in r.data.decode("utf-8")
+        assert DummyKnovasClient.last_instance.acl_calls == []
+        row = platform_db.execute(
+            "SELECT status FROM approval_requests WHERE id = %s", (queued,)
+        ).fetchone()
+        assert row[0] == "approved"
+
+        html = identity_client.get("/admin/approvals").data.decode("utf-8")
+        assert "rc-sync/a.docx" in html
+
+        r2 = post_form(identity_client, f"/admin/approvals/{queued}/execute",
+                       page="/admin/approvals")
+        assert r2.status_code == 200
+        row2 = platform_db.execute(
+            "SELECT status FROM approval_requests WHERE id = %s", (queued,)
+        ).fetchone()
+        assert row2[0] == "executed"
+        assert DummyKnovasClient.last_instance.acl_calls == [
+            ("set_document_access", "rc-sync/a.docx", ["g-lit"])
+        ]
+
+    def test_a_request_with_no_executor_appears_without_an_execute_button(
+        self, identity_client, people, platform_db, identity_repo
+    ):
+        from _console import post_form, sign_in
+        from identity.approvals import ApprovalService
+
+        req = ApprovalService(platform_db, identity_repo).request(
+            people["admin"], kind="bulk_export", target_ref="export-1", payload={}
+        )
+        sign_in(identity_client, "pruefer@kanzlei.ch")
+        r = post_form(identity_client, f"/admin/approvals/{req.id}/approve",
+                      page="/admin/approvals")
+        assert r.status_code == 200
+
+        html = identity_client.get("/admin/approvals").data.decode("utf-8")
+        assert "export-1" in html
+        assert f"/admin/approvals/{req.id}/execute" not in html
+        assert "Wird von der Konsole nicht ausgeführt." in html

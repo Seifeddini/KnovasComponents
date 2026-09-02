@@ -312,6 +312,19 @@ class ApprovalService:
         ).fetchall()
         return [self._to_request(r) for r in rows]
 
+    def approved(self) -> list[ApprovalRequest]:
+        """Confirmed but not yet carried out — newest decision first.
+
+        This is what lets an approved request that a failed execution left
+        stranded be found again and retried, instead of vanishing from every
+        page once ``approve()`` has run.
+        """
+        rows = self._conn.execute(
+            f"SELECT {', '.join(_COLUMNS)} FROM approval_requests "
+            "WHERE status = 'approved' ORDER BY approved_at DESC"
+        ).fetchall()
+        return [self._to_request(r) for r in rows]
+
     def expire_stale(self) -> int:
         """Mark timed-out requests expired. Returns how many."""
         rows = self._conn.execute(

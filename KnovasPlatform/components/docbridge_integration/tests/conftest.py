@@ -141,6 +141,7 @@ class DummyKnovasClient:
         self.config = config
         self.principal_broker = None
         self.acl_calls: list[tuple] = []
+        self.fail_next = False
         DummyKnovasClient.last_instance = self
 
     def attach_principal_broker(self, broker):
@@ -163,6 +164,9 @@ class DummyKnovasClient:
         return []
 
     def set_document_access(self, pointer, access_groups, acting_as=None):
+        if self.fail_next:
+            self.fail_next = False
+            raise RuntimeError("simulated backend failure")
         self.acl_calls.append(("set_document_access", pointer, list(access_groups)))
         return {"pointer": pointer, "access_groups": list(access_groups)}
 

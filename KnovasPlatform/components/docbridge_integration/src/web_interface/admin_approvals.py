@@ -97,6 +97,19 @@ def attach_approval_routes(
                 "mine": bool(me and str(req.requested_by) == str(me.id)),
                 "executable": req.kind in executors,
             })
+        approved = []
+        for req in service.approved():
+            requester = users.get(req.requested_by)
+            approved.append({
+                "id": str(req.id),
+                "kind": req.kind,
+                "kind_label": KIND_LABELS.get(req.kind, req.kind),
+                "target_ref": req.target_ref,
+                "requester_email": requester.email if requester else "?",
+                "approved_at": _fmt(req.approved_at),
+                "summary": _summary(req.kind, req.payload),
+                "executable": req.kind in executors,
+            })
         bypasses = [
             {**row, "occurred_at": _fmt(row["occurred_at"])}
             for row in audit.recent(gate.connection(), action="approval.bypassed", limit=25)
@@ -106,6 +119,7 @@ def attach_approval_routes(
             active_nav="admin",
             **page_context(),
             pending=pending,
+            approved=approved,
             bypasses=bypasses,
             bypass_enabled=service.admin_bypass_enabled(),
             can_toggle=bool(me and "admin" in me.roles),
@@ -114,6 +128,32 @@ def attach_approval_routes(
             notice=notice,
             csrf_token=csrf_token(),
         ), status
+
+    def _execute(req, me) -> tuple[str | None, str | None]:
+        """Run the executor for one approved request. Returns (notice, error).
+
+        Shared by ``approve()`` (execute right after confirming) and
+        ``execute()`` (a retry on a request an earlier attempt left approved
+        but not executed), so the two paths that can carry a change out
+        cannot drift.
+        """
+        execute = executors.get(req.kind)
+        if execute is None:
+            return (
+                "Freigegeben. Diese Art von Aenderung kann die Konsole noch nicht "
+                "selbst ausfuehren; sie bleibt als freigegeben vermerkt."
+            ), None
+        try:
+            result = dict(execute(req.payload, me) or {})
+        except Exception as exc:  # noqa: BLE001 - surfaced, the request stays approved
+            logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id, exc)
+            return None, (
+                "Freigegeben, aber die Ausfuehrung ist fehlgeschlagen. Unter "
+                "«Freigegeben, noch nicht ausgefuehrt» kann sie erneut "
+                "angestossen werden."
+            )
+        _approvals().mark_executed(req.id, result)
+        return "Freigegeben und ausgefuehrt.", None
 
     @bp.route("/approvals")
     @require_approver
@@ -137,22 +177,25 @@ def attach_approval_routes(
         except (RequestExpiredError, InvalidTransitionError, UnknownRequestError) as exc:
             return _page(error=f"Anfrage nicht freigebbar: {exc}", status=400)
 
-        execute = executors.get(req.kind)
-        if execute is None:
-            return _page(notice=(
-                "Freigegeben. Diese Art von Aenderung kann die Konsole noch nicht "
-                "selbst ausfuehren; sie bleibt als freigegeben vermerkt."
-            ))
-        try:
-            result = dict(execute(req.payload, me) or {})
-        except Exception as exc:  # noqa: BLE001 - surfaced, the request stays approved
-            logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id, exc)
+        notice, error = _execute(req, me)
+        return _page(notice=notice, error=error)
+
+    @bp.route("/approvals/<request_id>/execute", methods=["POST"])
+    @require_approver
+    def execute(request_id):
+        csrf_ok = _csrf_ok()
+        if not csrf_ok:
+            return _page(error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400)
+        me = gate.current_user()
+        req = next(
+            (r for r in _approvals().approved() if str(r.id) == str(request_id)), None
+        )
+        if req is None:
             return _page(error=(
-                "Freigegeben, aber die Ausfuehrung ist fehlgeschlagen. "
-                "Bitte spaeter erneut versuchen."
-            ), status=200)
-        service.mark_executed(req.id, result)
-        return _page(notice="Freigegeben und ausgefuehrt.")
+                "Diese Anfrage ist nicht freigegeben oder wurde bereits ausgefuehrt."
+            ), status=400)
+        notice, error = _execute(req, me)
+        return _page(notice=notice, error=error)
 
     @bp.route("/approvals/<request_id>/reject", methods=["POST"])
     @require_approver

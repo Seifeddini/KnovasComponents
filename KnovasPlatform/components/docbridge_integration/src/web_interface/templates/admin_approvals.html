@@ -78,6 +78,37 @@
     </section>
 
     <section class="panel">
+        <h2>Freigegeben, noch nicht ausgeführt</h2>
+        <table>
+            <thead>
+                <tr><th>Art</th><th>Ziel</th><th>Angefragt von</th><th>Freigegeben am</th><th>Aktion</th></tr>
+            </thead>
+            <tbody>
+            {% for a in approved %}
+                <tr>
+                    <td>{{ a.kind_label }}<br><span class="hint">{{ a.summary }}</span></td>
+                    <td class="ptr">{{ a.target_ref }}</td>
+                    <td>{{ a.requester_email }}</td>
+                    <td>{{ a.approved_at }}</td>
+                    <td>
+                        {% if a.executable %}
+                        <form class="inline" method="post" action="{{ url_for('admin.execute', request_id=a.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit">Ausführen</button>
+                        </form>
+                        {% else %}
+                            <span class="hint">Wird von der Konsole nicht ausgeführt.</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5" class="hint">Nichts wartet auf die Ausführung.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="panel">
         <h2>Umgehungen durch Administratoren</h2>
         {% if bypass_enabled %}
         <p class="warn">
