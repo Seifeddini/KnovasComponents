@@ -173,6 +173,31 @@ acl_folder_id : TEXT     # folder-rule UUID, or ACL_UNRESTRICTED
   today. Those are single-document operations, the existing path handles them,
   and their cost is already acceptable.
 
+**Correction (2026-09-02, found during implementation).** The first draft of
+this section ORed `ACL_UNRESTRICTED` into the folder branch and kept the
+materialised closure on folder-governed documents. Both are leaks: the former
+admits everyone to an explicitly walled document whose `acl_folder_id` is the
+sentinel, and the latter keeps a removed group's access alive through the stale
+closure after a rule is narrowed. The implemented rule is **exactly one
+governor**:
+
+- A *folder-governed* document (ingested under a non-empty rule with no explicit
+  `access_groups`) carries `acl_folder_id = rule_id` and an **empty**
+  `acl_reader_ids`. Only the folder branch can admit it, so a rule change takes
+  effect immediately in both directions with zero Weaviate writes.
+- Every other document (explicit groups at ingest, a `document_access`
+  override, the legacy backfill) carries `acl_folder_id = "__acl_folder_none__"`,
+  a sentinel that never enters a principal's terms. Only its closure can admit it.
+- The two term lists of the `any_of` filter are disjoint: group ids and
+  `ACL_UNRESTRICTED` on `acl_reader_ids`, rule ids on `acl_folder_id`.
+- `PrincipalContext.folder_rule_ids` is resolved once per request by
+  `PrincipalResolver`, so the stage-1 filter, stage-2 hydration, single-document
+  reads and graph evidence all see the same set; `is_visible` takes the
+  document's `acl_folder_id` and answers `folder_match` before the closure steps.
+
+Formalised as GI-ACCESSROLES-10 (`folder_indirection_preserves_visibility`,
+`override_is_not_widened_by_folder` in `data_plane/document_acl_filter.als`).
+
 Only two operations still pay per-chunk writes: an explicit per-document
 override, and a document physically moving between folders. Both are
 single-document. Both already work.
