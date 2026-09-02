@@ -13,6 +13,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -21,12 +23,43 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+logger = logging.getLogger(__name__)
+
 HEADER = "X-Platform-Principal"
 ALGORITHM = "EdDSA"
 TOKEN_TYPE = "knovas-principal+jws"
 MAX_LIFETIME_SECONDS = 300
 CLOCK_SKEW_SECONDS = 30
 ADMIN_ROLES = frozenset({"admin", "ingestion_manager"})
+
+#: The Platform writes all three broker files into one directory and the root
+#: compose mounts that whole directory here, so the private half is inside
+#: RemoteController's filesystem. The name is the Platform's
+#: (KnovasPlatform/.../identity/broker_key.py::_KEY_NAME).
+BROKER_PRIVATE_KEY_NAME = "broker_ed25519.pem"
+
+
+def refuse_if_broker_private_key_is_readable(pubkey_path: str) -> None:
+    """Refuse to start if the Platform's signing key is readable here.
+
+    :ro is not the protection. The protection is that docbridge-web runs as
+    root and writes the key 0600 while RemoteController runs as uid 10001,
+    which is a fact about two Dockerfiles and nothing enforces it. Whoever
+    reads this key can assert any of the firm's people to Knovas, and
+    RemoteController is the service that parses untrusted documents -- so if
+    the file is ever readable here, stopping is better than serving.
+
+    A missing sibling is the normal case for a pub-only mount and is fine.
+    """
+    if not pubkey_path:
+        return
+    private = os.path.join(os.path.dirname(pubkey_path), BROKER_PRIVATE_KEY_NAME)
+    if os.access(private, os.R_OK):
+        logger.critical(
+            "platform broker private key %s is readable by this process; refusing to start",
+            private,
+        )
+        raise SystemExit(1)
 
 
 class InvalidPrincipalError(Exception):

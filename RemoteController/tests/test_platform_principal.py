@@ -187,3 +187,52 @@ class TestTheGate:
         private, pub = unconfigured
         r = rc_client.get("/sync/status", headers={"X-Platform-Principal": mint(private, pub)})
         assert r.status_code == 403
+
+
+class TestTheMountedPrivateKey:
+    """I4: the Platform's whole broker key directory is mounted into
+    RemoteController, private half included. What keeps that key safe is not
+    the :ro flag -- it is that docbridge-web runs as root and writes the file
+    0600 while RemoteController runs as uid 10001. Nothing enforced that, so
+    a USER line added to the Platform image one day would silently make the
+    key readable to a service that parses untrusted documents."""
+
+    def test_a_readable_private_key_refuses_the_start(self, tmp_path, monkeypatch, caplog):
+        import logging
+
+        from auth.platform_principal import refuse_if_broker_private_key_is_readable
+
+        (tmp_path / "broker_ed25519.pub").write_bytes(b"pub")
+        (tmp_path / "broker_ed25519.pem").write_bytes(b"private")
+        with caplog.at_level(logging.CRITICAL):
+            with pytest.raises(SystemExit) as excinfo:
+                refuse_if_broker_private_key_is_readable(str(tmp_path / "broker_ed25519.pub"))
+        assert excinfo.value.code == 1
+        assert "readable by this process" in caplog.text
+
+    def test_a_missing_private_key_is_fine(self, tmp_path):
+        from auth.platform_principal import refuse_if_broker_private_key_is_readable
+
+        (tmp_path / "broker_ed25519.pub").write_bytes(b"pub")
+        refuse_if_broker_private_key_is_readable(str(tmp_path / "broker_ed25519.pub"))
+
+    def test_an_unset_pubkey_path_checks_nothing(self):
+        from auth.platform_principal import refuse_if_broker_private_key_is_readable
+
+        refuse_if_broker_private_key_is_readable("")
+
+    def test_the_app_refuses_to_start_with_the_private_key_in_its_mount(
+        self, tmp_path, monkeypatch, tmp_watch_root
+    ):
+        from app import create_app
+        from config import load_config, reset_config
+
+        (tmp_path / "broker_ed25519.pub").write_bytes(b"pub")
+        monkeypatch.setenv("RC_PLATFORM_BROKER_PUBKEY_PATH", str(tmp_path / "broker_ed25519.pub"))
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        assert create_app(skip_validation=True) is not None
+
+        (tmp_path / "broker_ed25519.pem").write_bytes(b"private")
+        with pytest.raises(SystemExit):
+            create_app(skip_validation=True)

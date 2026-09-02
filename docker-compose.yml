@@ -43,9 +43,14 @@ services:
       - ${KNOVAS_DOCUMENTS_PATH}:/mnt/documents:ro
       - rc-config:/app/config
       - rc-state:/var/rc-state
-      # The Platform's broker public key (read-only). The private key is in the
-      # same directory. :ro plus RemoteController never opening it is the entire
-      # protection.
+      # The Platform's broker key directory. It holds the PRIVATE key too, and
+      # :ro does not hide it -- what makes it unreadable here is that
+      # docbridge-web runs as root (KnovasPlatform/.../Dockerfile has no USER)
+      # and writes broker_ed25519.pem as root:root 0600, while RemoteController
+      # runs as uid 10001. Adding a USER to the Platform image, or running
+      # RemoteController as root, would expose the key that can assert any of
+      # the firm's people to Knovas. RemoteController refuses to start if it
+      # can read the file (auth/platform_principal.py).
       - docbridge_broker_key:/app/secrets/broker:ro
     environment:
       RC_PLATFORM_BROKER_PUBKEY_PATH: /app/secrets/broker/broker_ed25519.pub

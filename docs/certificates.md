@@ -157,6 +157,21 @@ a first start, and a new key is created: recreate the container without the
 volume and you have silently rotated your key. Losing the key means
 re-registering the public half with Knovas.
 
+**The key directory is also mounted into RemoteController, private half and all.**
+The root `docker-compose.yml` mounts the whole `docbridge_broker_key` volume at
+`/app/secrets/broker:ro` so RemoteController can read `broker_ed25519.pub` and
+verify the console's `X-Platform-Principal`. `:ro` does not hide the `.pem`. What
+keeps it unreadable is a uid difference nobody had written down: docbridge-web
+runs as **root** (`KnovasPlatform/components/docbridge_integration/Dockerfile` has
+no `USER`) and writes `broker_ed25519.pem` as `root:root` mode `0600`, while
+RemoteController runs as **uid 10001**. Add a `USER 10001` to the Platform image,
+or run RemoteController as root, and the key that can assert any of your people
+becomes readable by the service that parses untrusted documents. RemoteController
+therefore checks at startup: if it can read `broker_ed25519.pem` in that
+directory it logs `platform broker private key ... is readable by this process`
+at CRITICAL and exits rather than serving. The lasting fix is a pub-only volume;
+until then, do not change either container's user without moving the key.
+
 Also required with identity on: `SEMANTIX_CUSTOMER_ID` (`api.customer_id`).
 The assertion is bound to the tenant; without the id the Platform refuses to
 start rather than sign an unbound token.
