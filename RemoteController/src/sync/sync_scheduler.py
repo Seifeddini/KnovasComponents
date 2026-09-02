@@ -274,11 +274,33 @@ def _effective_scan_interval_seconds(cfg_doc: dict[str, Any], result: SyncRunRes
     return min(base * _idle_scan_multiplier, idle_max)
 
 
+def _reloaded_context(ctx: SyncRunContext) -> SyncRunContext:
+    """The context for the next cycle, re-read from disk.
+
+    A worker used to loop for ever on the context it was started with, so a
+    folder list or schedule saved while it ran -- by an employee POSTing
+    /sync, or by the Platform console pushing a profile -- did not take
+    effect until somebody stopped and restarted the worker. Per-source
+    access groups are part of that body, so a wall an administrator added
+    did not exist either. Re-read both at the top of every cycle; when
+    either is missing, keep what we have rather than run on half a context.
+    """
+    try:
+        cfg_doc = load_sync_config()
+        body = load_last_sync_body()
+    except Exception as exc:  # noqa: BLE001 - an unreadable file is not a reason to stop
+        logger.warning("Keeping the running sync context; reload failed: %s", exc)
+        return ctx
+    if not cfg_doc or not body:
+        return ctx
+    return SyncRunContext(sync_body=body, sync_config=cfg_doc)
+
+
 def _continuous_worker(ctx: SyncRunContext) -> None:
-    cfg_doc = ctx.sync_config
     while not _stop_event.is_set():
+        ctx = _reloaded_context(ctx)
         result = _run_once(ctx)
-        interval = _effective_scan_interval_seconds(cfg_doc, result)
+        interval = _effective_scan_interval_seconds(ctx.sync_config, result)
         for _ in range(interval):
             if _stop_event.is_set():
                 break

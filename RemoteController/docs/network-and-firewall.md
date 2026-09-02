@@ -8,7 +8,7 @@ Remote Controller runs on the **partner network**. Knovas employees reach the UR
 2. **Open inbound access** so Knovas employee clients can reach:
    - `GET /health` (admin probe + monitoring)
    - `GET /discover`
-   - `POST /sync`, `POST /sync/start`, `POST /sync/stop`, `GET /sync/status`
+   - `POST /sync`, `POST /sync/body`, `POST /sync/start`, `POST /sync/stop`, `GET /sync/status`
    - `GET`/`POST /sync/config` only if `RC_SYNC_CONFIG_API_ENABLED=true`
 3. **Provide Knovas with allowlist details** (source IPs, VPN CIDRs, or mutual TLS at edge).
 4. **Terminate HTTPS at the edge** (NGINX/Envoy); employees send `Authorization: Bearer <JWT>`.

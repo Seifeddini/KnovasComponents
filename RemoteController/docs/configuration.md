@@ -11,9 +11,13 @@ See [.env.example](../.env.example) for the complete list with defaults.
 Path to the firm's Platform's `broker_ed25519.pub`, mounted read-only. With it
 set, a signed-in user carrying the `admin` or `ingestion_manager` role in the
 Platform's `X-Platform-Principal` assertion may use `/discover`, `/sync`,
-`/sync/config`, and `/sync/start|stop|status` through the console, beside the
-existing Knovas-employee JWT path. Without it, only Knovas employees can (the
-header is refused with 403 when this path is unset).
+`/sync/body`, `/sync/config`, and `/sync/start|stop|status` through the console,
+beside the existing Knovas-employee JWT path. Without it, only Knovas employees
+can (the header is refused with 403 when this path is unset).
+
+`POST /sync/body` stores the folder list and starts nothing; a running
+continuous worker picks it up at its next cycle. Use it, not `POST /sync`,
+when the intent is to save a configuration rather than to run one now.
 
 The Platform console's *Speichern und uebertragen* writes `POST /sync/config`
 (after reading the current one with `GET /sync/config`), so the push only works
