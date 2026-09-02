@@ -11,7 +11,9 @@ Plan: docs/superpowers/plans/2026-09-02-admin-ingestion-tab.md
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any, Mapping
+from uuid import UUID
 
 from flask import render_template, request
 
@@ -38,6 +40,14 @@ logger = logging.getLogger(__name__)
 MAX_FOLDER_ROWS = 12
 KIND = "ingestion_profile_change"
 
+#: Who can actually carry an approved profile change out. RemoteController's
+#: gate admits `admin` and `ingestion_manager` only (RC/src/auth/
+#: platform_principal.py::ADMIN_ROLES), while APPROVER_ROLES is
+#: {approver, admin} -- so a pure approver can confirm the request and then
+#: cannot execute it. Say that before a version row is written, not after
+#: RemoteController answers 403.
+EXECUTOR_ROLES = frozenset({"admin", "ingestion_manager"})
+
 # German labels for the presets; the preset ids stay the compiler's.
 LABELS = {
     "continuous": ("Laufend", "Neue und geaenderte Dokumente innerhalb weniger Minuten, den ganzen Tag."),
@@ -60,6 +70,23 @@ APPLIED_CLAUSES = {
     "next_cycle": "wird beim naechsten Durchlauf wirksam.",
     "stored": "der Abgleich wird von Hand gestartet.",
 }
+
+
+def _requester(requested_by: str | None, actor) -> SimpleNamespace | None:
+    """The person who asked, as something ``save_new_version`` can take.
+
+    ``None`` when nobody else asked -- the actor requested and executed in
+    one click -- or when the id is not a UUID, in which case attributing the
+    row to the executor is the honest fallback.
+    """
+    if not requested_by or str(requested_by) == str(getattr(actor, "id", "")):
+        return None
+    try:
+        return SimpleNamespace(id=UUID(str(requested_by)))
+    except (TypeError, ValueError):
+        logger.warning("requested_by ist keine UUID (%r); Version wird dem Ausfuehrenden "
+                       "zugeschrieben.", requested_by)
+        return None
 
 
 def _applied_clause(result: Mapping[str, Any] | None) -> str:
@@ -161,10 +188,20 @@ def form_from_profile(profile: IngestionProfile | None) -> dict[str, Any]:
     }
 
 
-def apply_profile(payload: Mapping[str, Any], actor, *, conn, rc_client) -> dict:
-    """Save (or reuse) a version and push it. The executor for
-    ingestion_profile_change, used both when the actor may act alone and
-    after a second person confirms.
+def apply_profile(payload: Mapping[str, Any], actor, *, conn, rc_client,
+                  requested_by: str | None = None) -> dict:
+    """Save (or reuse) a version and push it. Reached through
+    ``execute_ingestion_change`` both when the actor may act alone and after
+    a second person confirms.
+
+    ``requested_by`` is the id of the person who asked, carried in the
+    approval payload. When it differs from ``actor`` the version records
+    both: ``created_by`` the requester, ``approved_by`` the executor. The
+    audit row keeps ``actor``, because the executor is who acted.
+
+    Never returns a ``failed`` list: every failure here raises, and
+    ``_execute`` in admin_approvals then leaves the request approved and
+    retryable.
 
     The version is saved *before* the push is attempted, on purpose: a push
     that fails still leaves a current-but-unpushed row behind, and that row
@@ -182,16 +219,55 @@ def apply_profile(payload: Mapping[str, Any], actor, *, conn, rc_client) -> dict
             and profile_to_json(current.profile) == payload["profile"]):
         version = current
     else:
-        version = repo.save_new_version(profile, by=actor)
+        requester = _requester(requested_by, actor)
+        version = repo.save_new_version(
+            profile,
+            by=actor if requester is None else requester,
+            approved_by=None if requester is None else actor,
+        )
     pushed = dict(rc_client.push(compiled) or {})
     applied = str(pushed.get("applied") or "stored")
     repo.mark_pushed(version.id)
     audit.record(conn, action="ingestion.profile_pushed", actor=actor,
                  target_type="ingestion_profile", target_id=f"default v{version.version}",
                  detail={"folders": len(profile.sources), "schedule": profile.schedule,
-                         "applied": applied})
+                         "applied": applied, "requested_by": requested_by})
     return {"version": version.version, "applied": applied,
             "start_error": pushed.get("start_error")}
+
+
+def execute_stop(actor, *, conn, rc_client) -> dict:
+    """Halt the sync and say so in the audit log. One implementation, two
+    call sites: the ``stop`` route's guarded execute and the executor
+    registry. They drifted once already -- the registry's inline lambda
+    called ``stop()`` and wrote nothing, so an approved halt appeared only
+    as ``approval.executed`` and never as ``ingestion.stopped``.
+    """
+    rc_client.stop()
+    audit.record(conn, action="ingestion.stopped", actor=actor,
+                 target_type="remote_controller", target_id="sync", detail={})
+    return {"stopped": True}
+
+
+def execute_ingestion_change(payload: Mapping[str, Any], actor, *, conn, rc_client) -> dict:
+    """The executor registered for ``ingestion_profile_change``.
+
+    One named function rather than a conditional lambda in the registry,
+    because both branches have to audit and only one of them used to.
+    """
+    if payload.get("action") == "stop":
+        return execute_stop(actor, conn=conn, rc_client=rc_client)
+    if not (set(getattr(actor, "roles", ()) or ()) & EXECUTOR_ROLES):
+        # Refuse here, before save_new_version: a pure approver would
+        # otherwise leave a current-but-unpushed row behind and learn about
+        # the role gap from RemoteController's 403.
+        raise RemoteControllerError(
+            "Die Ausfuehrung braucht die Rolle admin oder ingestion_manager; ein "
+            "reiner Pruefer kann das Profil nicht an RemoteController uebertragen.",
+            status=None,
+        )
+    return apply_profile(payload, actor, conn=conn, rc_client=rc_client,
+                         requested_by=payload.get("requested_by"))
 
 
 def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
@@ -291,13 +367,16 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         except ProfileError as exc:
             return _page(form_from_request(request.form, _lists()), error=str(exc), status=400)
         me = gate.current_user()
-        payload = {"profile": profile_to_json(profile)}
+        # requested_by rides in the payload so an approved change records
+        # the person who asked as the version author, not the approver who
+        # clicks. The direct-execute path ignores it (it is the same person).
+        payload = {"profile": profile_to_json(profile), "requested_by": str(me.id)}
         try:
             outcome = run_guarded(
                 _approvals(), me, kind=KIND, target_ref="ingestion_profile:default",
                 payload=payload,
-                execute=lambda: apply_profile(payload, me, conn=gate.connection(),
-                                              rc_client=rc_client_factory()),
+                execute=lambda: execute_ingestion_change(payload, me, conn=gate.connection(),
+                                                         rc_client=rc_client_factory()),
             )
         except (RemoteControllerError, PermissionError) as exc:
             return _page(form_from_profile(profile),
@@ -319,13 +398,13 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         if old is None:
             return _page(error=f"Version {version} gibt es nicht.", status=404)
         me = gate.current_user()
-        payload = {"profile": profile_to_json(old.profile)}
+        payload = {"profile": profile_to_json(old.profile), "requested_by": str(me.id)}
         try:
             outcome = run_guarded(
                 _approvals(), me, kind=KIND, target_ref=f"ingestion_profile:default@v{version}",
                 payload=payload,
-                execute=lambda: apply_profile(payload, me, conn=gate.connection(),
-                                              rc_client=rc_client_factory()),
+                execute=lambda: execute_ingestion_change(payload, me, conn=gate.connection(),
+                                                         rc_client=rc_client_factory()),
             )
         except (RemoteControllerError, PermissionError) as exc:
             return _page(error=f"Wiederherstellen fehlgeschlagen: {exc}", status=502)
@@ -357,16 +436,13 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         if not csrf_ok:
             return _page(error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400)
         me = gate.current_user()
-
-        def _halt():
-            rc_client_factory().stop()
-            audit.record(gate.connection(), action="ingestion.stopped", actor=me,
-                         target_type="remote_controller", target_id="sync", detail={})
-            return {"stopped": True}
-
         try:
-            outcome = run_guarded(_approvals(), me, kind=KIND, target_ref="remote_controller:stop",
-                                  payload={"action": "stop"}, execute=_halt)
+            outcome = run_guarded(
+                _approvals(), me, kind=KIND, target_ref="remote_controller:stop",
+                payload={"action": "stop"},
+                execute=lambda: execute_stop(me, conn=gate.connection(),
+                                             rc_client=rc_client_factory()),
+            )
         except (RemoteControllerError, PermissionError) as exc:
             return _page(error=f"Stopp fehlgeschlagen: {exc}", status=502)
         if outcome.queued:

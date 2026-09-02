@@ -131,6 +131,13 @@ with the folder list that was already accepted.
 
 Saving, restoring and stopping the sync are four-eyes guarded
 (`ingestion_profile_change`); see Freigaben. Starting and previewing are not.
+Approving an ingestion change is not enough to carry it out: RemoteController
+admits only `admin` and `ingestion_manager`, so a pure `approver` who confirms
+one is told that on the Freigaben row, and the request waits under *Freigegeben,
+noch nicht ausgeführt* until an admin or ingestion manager executes it. When the
+approver holds one of those roles the change runs on their click. Either way the
+version records both people -- `created_by` the requester, `approved_by` the
+executor.
 
 RemoteController accepts the administrator's own Platform-signed principal in
 `X-Platform-Principal` (`RC_PLATFORM_BROKER_PUBKEY_PATH`); nobody needs a Knovas

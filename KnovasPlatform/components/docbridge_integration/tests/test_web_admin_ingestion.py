@@ -315,3 +315,147 @@ class TestTabStripVisibility:
             admin_tab="ingestion", me=me, ingestion_enabled=True)
         assert "/admin/ingestion" in html
         assert "/admin/people" not in html
+
+
+class TestExecuteIngestionChange:
+    """I1/I2: the executor an approved request runs. The approver clicks, but
+    the profile row must name the person who asked, and a pure approver must
+    not get as far as inserting one."""
+
+    @staticmethod
+    def _profile_payload():
+        from identity.ingestion_compiler import IngestionProfile, SourceFolder
+        from identity.ingestion_profiles import profile_to_json
+
+        return profile_to_json(IngestionProfile(
+            identifier_prefix="kanzlei",
+            sources=[SourceFolder(path="/mnt/autodoc/mandate", access_groups=("g-lit",))]))
+
+    class _Version:
+        id, version, pushed_at, profile = "v1", 1, None, None
+
+    class _Repo:
+        def __init__(self):
+            self.saved = []
+
+        def current(self, name="default"):
+            return None
+
+        def save_new_version(self, profile, *, name="default", by, approved_by=None):
+            self.saved.append((by, approved_by))
+            return TestExecuteIngestionChange._Version()
+
+        def mark_pushed(self, version_id):
+            pass
+
+    class _Client:
+        def __init__(self):
+            self.calls = []
+
+        def push(self, compiled):
+            self.calls.append("push")
+            return {"applied": "started"}
+
+        def stop(self):
+            self.calls.append("stop")
+            return {"scheduler_status": "not_running"}
+
+    class _Actor:
+        def __init__(self, id_, roles):
+            self.id, self.roles = id_, roles
+
+    def test_the_version_records_the_requester_and_the_approver(self, monkeypatch):
+        import uuid
+
+        from web_interface import admin_ingestion
+
+        repo = self._Repo()
+        monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: repo)
+        monkeypatch.setattr(admin_ingestion.audit, "record", lambda conn, **kw: None)
+
+        requester_id = uuid.uuid4()
+        approver = self._Actor(uuid.uuid4(), {"admin"})
+        payload = {"profile": self._profile_payload(), "requested_by": str(requester_id)}
+        admin_ingestion.execute_ingestion_change(payload, approver, conn=None,
+                                                 rc_client=self._Client())
+        (by, approved_by), = repo.saved
+        assert str(by.id) == str(requester_id), "created_by is the person who asked"
+        assert approved_by is approver, "approved_by is the person who confirmed"
+
+    def test_acting_alone_leaves_approved_by_empty(self, monkeypatch):
+        import uuid
+
+        from web_interface import admin_ingestion
+
+        repo = self._Repo()
+        monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: repo)
+        monkeypatch.setattr(admin_ingestion.audit, "record", lambda conn, **kw: None)
+
+        me = self._Actor(uuid.uuid4(), {"admin"})
+        payload = {"profile": self._profile_payload(), "requested_by": str(me.id)}
+        admin_ingestion.execute_ingestion_change(payload, me, conn=None, rc_client=self._Client())
+        (by, approved_by), = repo.saved
+        assert by is me and approved_by is None
+
+    def test_a_pure_approver_is_refused_before_a_version_row_exists(self, monkeypatch):
+        import uuid
+
+        import pytest as _pytest
+        from remote_controller_client import RemoteControllerError
+        from web_interface import admin_ingestion
+
+        repo = self._Repo()
+        client = self._Client()
+        monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: repo)
+        monkeypatch.setattr(admin_ingestion.audit, "record", lambda conn, **kw: None)
+
+        pruefer = self._Actor(uuid.uuid4(), {"approver"})
+        payload = {"profile": self._profile_payload(), "requested_by": str(uuid.uuid4())}
+        with _pytest.raises(RemoteControllerError) as excinfo:
+            admin_ingestion.execute_ingestion_change(payload, pruefer, conn=None, rc_client=client)
+        assert "admin oder ingestion_manager" in str(excinfo.value)
+        assert repo.saved == [], "no version row for an execution that cannot happen"
+        assert client.calls == [], "and nothing reaches RemoteController"
+
+    def test_an_ingestion_manager_may_execute(self, monkeypatch):
+        import uuid
+
+        from web_interface import admin_ingestion
+
+        repo = self._Repo()
+        monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: repo)
+        monkeypatch.setattr(admin_ingestion.audit, "record", lambda conn, **kw: None)
+
+        actor = self._Actor(uuid.uuid4(), {"ingestion_manager", "approver"})
+        payload = {"profile": self._profile_payload(), "requested_by": str(uuid.uuid4())}
+        out = admin_ingestion.execute_ingestion_change(payload, actor, conn=None,
+                                                       rc_client=self._Client())
+        assert out["version"] == 1
+
+    def test_the_approved_stop_writes_the_same_audit_row_as_the_direct_one(self, monkeypatch):
+        """I2: the registry lambda called stop() and wrote nothing, so an
+        approved halt was invisible under ingestion.stopped."""
+        import uuid
+
+        from web_interface import admin_ingestion
+
+        recorded = []
+        monkeypatch.setattr(admin_ingestion.audit, "record",
+                            lambda conn, **kw: recorded.append(kw))
+        client = self._Client()
+        out = admin_ingestion.execute_ingestion_change(
+            {"action": "stop"}, self._Actor(uuid.uuid4(), {"approver"}),
+            conn=None, rc_client=client)
+        assert out == {"stopped": True}
+        assert client.calls == ["stop"]
+        assert [r["action"] for r in recorded] == ["ingestion.stopped"]
+
+    def test_the_route_and_the_registry_share_one_stop(self):
+        """Two call sites, one implementation -- what the registry exists for."""
+        import inspect
+
+        from web_interface import admin_ingestion
+
+        src = inspect.getsource(admin_ingestion)
+        assert src.count("def execute_stop(") == 1
+        assert "execute_stop(" in src[src.index("def stop("):]

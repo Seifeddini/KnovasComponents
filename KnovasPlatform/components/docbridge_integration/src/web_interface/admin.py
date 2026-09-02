@@ -275,7 +275,10 @@ def create_admin_blueprint(
     # Ingestion routes and their executor only exist when rc_client_factory
     # is given.
     if rc_client_factory is not None:
-        from web_interface.admin_ingestion import apply_profile, attach_ingestion_routes
+        from web_interface.admin_ingestion import (
+            attach_ingestion_routes,
+            execute_ingestion_change,
+        )
 
         attach_ingestion_routes(
             bp,
@@ -288,10 +291,8 @@ def create_admin_blueprint(
             require_ingestion=require_ingestion,
         )
         executors["ingestion_profile_change"] = lambda payload, actor: (
-            (rc_client_factory().stop() or {"stopped": True})
-            if payload.get("action") == "stop"
-            else apply_profile(payload, actor, conn=gate.connection(),
-                               rc_client=rc_client_factory())
+            execute_ingestion_change(payload, actor, conn=gate.connection(),
+                                     rc_client=rc_client_factory())
         )
 
     attach_approval_routes(

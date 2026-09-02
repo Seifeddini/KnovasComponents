@@ -50,6 +50,22 @@ def _summary(kind: str, payload: Mapping[str, Any]) -> str:
         return f"Ordner {payload.get('pointer_prefix') or payload.get('rule_id')} -> {groups}"
     if action == "folder_rule_delete":
         return f"Ordnerregel {payload.get('rule_id')} loeschen"
+    if kind == "ingestion_profile_change":
+        # KC-B5-4 asks for a readable diff. Without this an approver was
+        # confirming a folder list, its walls, a schedule and a throughput
+        # they could not see -- or a halt they could not tell apart from a
+        # profile change except by target_ref. The keys are the ones
+        # ``profile_to_json`` writes (identity/ingestion_profiles.py).
+        if action == "stop":
+            return "Abgleich anhalten"
+        profile = payload.get("profile")
+        if isinstance(profile, Mapping):
+            sources = profile.get("sources") or []
+            walled = sum(1 for s in sources if isinstance(s, Mapping) and s.get("access_groups"))
+            types = ", ".join(str(t) for t in (profile.get("file_types") or [])) or "keine"
+            return (f"{len(sources)} Ordner ({walled} mit Zugriffsgruppen), "
+                    f"{profile.get('schedule') or '?'}, {profile.get('throughput') or '?'}, "
+                    f"{types}")
     return KIND_LABELS.get(kind, kind)
 
 

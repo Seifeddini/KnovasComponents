@@ -68,6 +68,11 @@
                         {% if not p.executable %}
                             <br><span class="hint">Wird nach Freigabe nicht automatisch ausgeführt.</span>
                         {% endif %}
+                        {% if p.kind == 'ingestion_profile_change' %}
+                            {# RemoteController admits admin and ingestion_manager only; a
+                               pure approver can confirm this and then not carry it out. #}
+                            <br><span class="hint">Ausfuehrung durch admin oder ingestion_manager</span>
+                        {% endif %}
                     </td>
                 </tr>
             {% else %}
@@ -98,6 +103,9 @@
                         </form>
                         {% else %}
                             <span class="hint">Wird von der Konsole nicht ausgeführt.</span>
+                        {% endif %}
+                        {% if a.kind == 'ingestion_profile_change' %}
+                            <br><span class="hint">Ausfuehrung durch admin oder ingestion_manager</span>
                         {% endif %}
                     </td>
                 </tr>

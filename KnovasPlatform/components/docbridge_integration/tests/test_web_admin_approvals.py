@@ -136,6 +136,62 @@ class TestTemplate:
         assert "rc-sync/c.docx" in html
 
 
+class TestIngestionSummaries:
+    """I3: an approver confirming an ingestion change saw only the kind label
+    -- a folder list, walls, a schedule and a throughput they could not see,
+    and a halt they could not tell apart from a profile change."""
+
+    def test_a_stop_reads_as_a_stop(self):
+        from web_interface.admin_approvals import _summary
+
+        assert _summary("ingestion_profile_change", {"action": "stop"}) == "Abgleich anhalten"
+
+    def test_a_profile_summary_names_folders_walls_schedule_and_throughput(self):
+        from web_interface.admin_approvals import _summary
+
+        payload = {"profile": {
+            "sources": [{"path": "/a", "access_groups": ["g-lit"]},
+                        {"path": "/b", "access_groups": []},
+                        {"path": "/c", "access_groups": ["g-lit", "g-tax"]}],
+            "file_types": ["documents", "email"],
+            "schedule": "nightly", "throughput": "normal"}}
+        assert _summary("ingestion_profile_change", payload) == (
+            "3 Ordner (2 mit Zugriffsgruppen), nightly, normal, documents, email")
+
+    def test_the_two_never_read_the_same(self):
+        from web_interface.admin_approvals import _summary
+
+        stop = _summary("ingestion_profile_change", {"action": "stop"})
+        change = _summary("ingestion_profile_change", {"profile": {"sources": []}})
+        assert stop != change
+
+    def test_the_row_says_who_can_carry_it_out(self):
+        """An approver who is not an admin cannot execute it; the page must
+        say so rather than letting them find out from a failed execution."""
+        import jinja2
+
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(TEMPLATES)),
+                                 autoescape=True, undefined=jinja2.StrictUndefined)
+        env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
+        row = {"id": "abc", "kind": "ingestion_profile_change",
+               "kind_label": "Ingestion-Profil aendern", "target_ref": "ingestion_profile:default",
+               "requester_email": "x@kanzlei.ch", "requested_at": "2026-09-02 10:00",
+               "expires_at": "2026-09-03 10:00", "approved_at": "2026-09-02 11:00",
+               "summary": "2 Ordner (1 mit Zugriffsgruppen), nightly, normal, documents",
+               "mine": False, "executable": True}
+        acl = {**row, "id": "zzz", "kind": "acl_change", "kind_label": "Zugriffsaenderung",
+               "summary": "1 Dokument -> g-lit"}
+        html = env.get_template("admin_approvals.html").render(
+            app_title="Knovas", company_name="Kanzlei", feedback_url=None,
+            console_url="/admin/people", active_nav="admin", csrf_token="t",
+            error=None, notice=None, me=None, asset_version="1",
+            can_toggle=True, bypass_enabled=False,
+            kind_labels={"ingestion_profile_change": "Ingestion-Profil aendern"},
+            pending=[row, acl], approved=[row], bypasses=[])
+        assert html.count("Ausfuehrung durch admin oder ingestion_manager") == 2, (
+            "once on the pending row, once on the approved row, never on the ACL row")
+
+
 @pytest.mark.skipif(not platform_db_reachable(),
                     reason="No PostgreSQL at the identity test DSN")
 class TestLive:

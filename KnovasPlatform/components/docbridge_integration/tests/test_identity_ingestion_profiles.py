@@ -77,3 +77,16 @@ def test_mark_pushed_records_the_moment(platform_db, by):
     v = repo.save_new_version(_profile(), by=by)
     repo.mark_pushed(v.id)
     assert repo.current().pushed_at is not None
+
+
+@_needs_db
+def test_a_confirmed_change_records_both_people(platform_db, by, identity_repo):
+    """I1: created_by is the person who asked, approved_by the one who
+    confirmed. Before this, both were the approver and approved_by was NULL
+    although the column exists for exactly this."""
+    approver = identity_repo.create(email="pruefer@kanzlei.ch", display_name="P",
+                                    password="korrektes-pferd-batterie")
+    repo = IngestionProfileRepository(platform_db)
+    v = repo.save_new_version(_profile(), by=by, approved_by=approver)
+    assert str(v.created_by) == str(by.id)
+    assert str(v.approved_by) == str(approver.id)
