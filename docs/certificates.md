@@ -134,6 +134,34 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 `200` means certs, tenant, and network are all good. Then `./scripts/verify_deploy.sh`,
 which also checks the three filenames are present.
 
+## Broker signing key (Platform only)
+
+The mTLS bundle proves *which tenant* is calling. The broker signing key is a
+separate Ed25519 keypair the Platform uses to sign *which person* within that
+tenant is acting. Knovas holds the public half against your tenant record; the
+Platform holds the private half and must never ship it in an image or log it.
+
+| File | Purpose | Mode |
+|---|---|---|
+| `broker_ed25519.pem` | Private signing key | **0600** — owner read/write only |
+| `broker_ed25519.pub` | Public key registered with Knovas | 0644 |
+| `broker_ed25519.kid` | Key id (`kid`) sent in assertion headers | 0644 |
+
+**Directory:** `KnovasComponents/KnovasPlatform/certs/broker/` (or the path your
+deploy sets via `BROKER_KEY_DIR`). The directory must exist and be writable
+before the Platform starts; on first run the Platform creates the three files
+above.
+
+**Backup.** Treat `broker_ed25519.pem` like `client.key`: back it up off-host.
+If you lose it, assertions minted with a replacement key will be rejected by
+Knovas until you re-register the new public half. The Platform will **not**
+silently regenerate a unreadable or corrupt key — it fails closed and refuses
+to start, because a fresh key signs fine and the failure only surfaces later as
+"search returns nothing".
+
+**Rotation.** Deliberate rotation goes through the Employee Kit; do not delete
+the `.pem` and hope the Platform mints a new one on restart.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
