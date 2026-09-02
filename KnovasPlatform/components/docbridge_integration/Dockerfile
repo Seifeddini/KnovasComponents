@@ -53,8 +53,10 @@ RUN grep -v '^knovas-extract' requirements.txt > /tmp/requirements-other.txt \
 COPY src/ ./src/
 COPY config/ ./config/
 
-# Create directories for data and logs
-RUN mkdir -p /app/data /app/logs
+# Create directories for data and logs. /app/data/broker_keys is the default
+# PLATFORM_BROKER_KEY_DIR; a named volume mounted at /app/data hides this
+# layer, so the container command also mkdir's it at start.
+RUN mkdir -p /app/data /app/logs /app/data/broker_keys
 
 # Set environment variables
 ENV PYTHONPATH=/app/src

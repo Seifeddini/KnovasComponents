@@ -56,6 +56,8 @@ api:
   key_path: "${SEMANTIX_CLIENT_KEY:-}"
   ca_cert_path: "${SEMANTIX_CA_CERT:-}"
   customer_id: "${SEMANTIX_CUSTOMER_ID:-}"
+  # Tenant id signed into every principal assertion. Must match the Knovas tenant.
+  client_id: "${KNOVAS_CLIENT_ID:-}"
   cert_auto_renew_enabled: "${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}"
   cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
   cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
@@ -271,3 +273,12 @@ security:
     - "application/vnd.ms-excel"
     - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     - "text/plain"
+
+# Per-user identity (Pflichtenheft B1/B2). Off by default so cutover can be staged.
+# When enabled, the Platform signs a principal_assertion onto every Knovas call.
+identity:
+  enabled: "${IDENTITY_ENABLED:-false}"
+  # Dedicated directory for broker_ed25519.pem/.pub/.kid. Must exist before start;
+  # a missing or partial bundle fails closed rather than regenerating the key.
+  broker_key_dir: "${PLATFORM_BROKER_KEY_DIR:-/app/data/broker_keys}"
+

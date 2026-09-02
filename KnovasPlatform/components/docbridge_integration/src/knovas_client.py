@@ -32,6 +32,10 @@ from part_metadata import enrich_transmit_parts_with_location
 
 logger = logging.getLogger(__name__)
 
+# The field that carries a person across the mTLS boundary. KnowledgeBase reads
+# this exact name (services/rbac/assertion.py:65). Changing it breaks the contract.
+ASSERTION_FIELD = "principal_assertion"
+
 
 # Only transient transport failures are safe to retry. HTTPError (raised by
 # raise_for_status on 4xx/5xx) is a RequestException subclass but MUST NOT be
@@ -889,14 +893,18 @@ def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, An
 class KnovasAPIClient:
     """Client for Knovas API operations."""
     
-    def __init__(self, config_loader=None):
+    def __init__(self, config_loader=None, *, principal_broker=None):
         """
         Initialize Knovas API client.
         
         Args:
             config_loader: ConfigLoader instance. If None, uses global config.
+            principal_broker: Optional request-scoped broker that mints a
+                principal assertion for the signed-in user. None keeps
+                existing unsigned construction sites working.
         """
         self.config = config_loader or get_config()
+        self._principal_broker = principal_broker
         
         self.base_url = self.config.get('api.base_url', 'http://localhost:5000')
         self.auth_type = self.config.get('api.auth_type', 'bearer')
@@ -929,7 +937,10 @@ class KnovasAPIClient:
         self._last_cert_check_at = 0.0
         # Serialize the certificate freshness check / renewal / session swap so
         # concurrent request threads can't race on _last_cert_check_at or _session.
-        self._cert_lock = threading.Lock()
+        # RLock: CSR renew holds this lock then calls _request_no_retry, which
+        # enters _ensure_certificate_freshness again. A non-reentrant Lock
+        # deadlocks the worker for every subsequent request.
+        self._cert_lock = threading.RLock()
 
         self.encryption_matrix_path = (
             (self.config.get('api.encryption_matrix_path', '') or '').strip()
@@ -1070,7 +1081,10 @@ class KnovasAPIClient:
         Handshake/health check for a candidate cert/key pair BEFORE installing it.
 
         Builds a throwaway session using the candidate pair and calls the health
-        endpoint. Injectable: tests monkeypatch this to force success/failure.
+        endpoint. Control-plane: attach an assertion when a user is on this
+        request, otherwise send without one. Do not route through `_make_request`
+        — that re-enters `_ensure_certificate_freshness` under `_cert_lock`.
+        Injectable: tests monkeypatch this to force success/failure.
         """
         session = requests.Session()
         session.cert = (cert_path, key_path)
@@ -1078,9 +1092,11 @@ class KnovasAPIClient:
             session.verify = self.ca_cert_path
         try:
             endpoint = self.endpoints.get('health', '/secured/health')
+            data = self._with_principal(None, required=False)
             resp = session.request(
                 method='GET',
                 url=f"{self.base_url}{endpoint}",
+                json=data,
                 headers=self._get_headers(),
                 timeout=self.http_read_timeout,
                 allow_redirects=False,
@@ -1151,10 +1167,14 @@ class KnovasAPIClient:
             return False
 
         try:
+            payload = self._with_principal(
+                {'certificate_data': {'customer_id': customer_id}},
+                required=False,
+            )
             response = self._session.request(
                 method='POST',
                 url=f"{self.base_url}{endpoint}",
-                json={'certificate_data': {'customer_id': customer_id}},
+                json=payload,
                 headers=self._get_headers(),
                 timeout=self.http_read_timeout,
                 allow_redirects=False,
@@ -1251,6 +1271,44 @@ class KnovasAPIClient:
                 )
                 self._attempt_certificate_renewal()
     
+    def _with_principal(self, data, required=True):
+        """Attach the caller's assertion to an outgoing body.
+
+        Fail closed when there is no authenticated user and ``required`` is
+        true. Sending an unsigned *data-plane* call would resolve to
+        asserted=False at the Secure API — "unrestricted documents only" — so
+        the request would return *more* than a correctly scoped one. A wall
+        that widens under failure is not a wall.
+
+        Control-plane callers (cert validation, legacy generate_certificate,
+        health_check) pass ``required=False``: attach when a user exists,
+        otherwise send without an assertion. Do not use this flag on
+        `/secured/query` or other data-plane routes.
+        """
+        if self._principal_broker is None:
+            return data
+
+        user = self._principal_broker.current_user()
+        if user is None:
+            if not required:
+                return data
+            raise PermissionError(
+                "No authenticated user for this request; refusing to call "
+                "Knovas without a principal assertion."
+            )
+
+        assertion = self._principal_broker.assertion_for(user)
+        if data is None:
+            return {ASSERTION_FIELD: assertion}
+        if not isinstance(data, dict):
+            # Every secured endpoint takes a JSON object. A non-dict body here
+            # means a caller we have not accounted for, and guessing how to
+            # attach the assertion would be how one route quietly loses it.
+            raise TypeError(
+                f"Cannot attach a principal assertion to a {type(data).__name__} body."
+            )
+        return {**data, ASSERTION_FIELD: assertion}
+
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""
         headers = {
@@ -1305,6 +1363,7 @@ class KnovasAPIClient:
         
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
+        data = self._with_principal(data)
         
         logger.debug(f"Making {method} request to {url}")
         
@@ -1335,6 +1394,7 @@ class KnovasAPIClient:
         self._rate_limit()
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
+        data = self._with_principal(data)
         response = self._session.request(
             method=method,
             url=url,
@@ -1504,18 +1564,31 @@ class KnovasAPIClient:
     def health_check(self) -> bool:
         """
         Check if Knovas API is healthy.
-        
-        Returns:
-            True if API is healthy, False otherwise
+
+        Control-plane: attach an assertion when a user is on this request,
+        otherwise probe `/secured/health` without one. Do not use `_make_request`
+        — that fail-closes without a user and would report KnowledgeBase down
+        for every unauthenticated probe.
         """
         try:
             endpoint = self.endpoints.get('health', '/secured/health')
-            response = self._make_request(method='GET', endpoint=endpoint)
-            
+            self._rate_limit()
+            self._ensure_certificate_freshness()
+            data = self._with_principal(None, required=False)
+            response = self._session.request(
+                method='GET',
+                url=f"{self.base_url}{endpoint}",
+                json=data,
+                headers=self._get_headers(),
+                timeout=self.http_read_timeout,
+                allow_redirects=False,
+            )
+            response.raise_for_status()
+
             is_healthy = response.status_code == 200
             logger.info(f"Health check: {'OK' if is_healthy else 'FAILED'}")
             return is_healthy
-            
+
         except Exception as e:
             logger.warning(f"Health check failed: {e}")
             return False
