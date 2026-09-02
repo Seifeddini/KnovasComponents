@@ -28,12 +28,12 @@
                 <input type="hidden" name="next" value="{{ next_url }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-                <label for="loginName">Benutzername</label>
+                <label for="loginName">{% if identity_enabled %}E-Mail-Adresse{% else %}Benutzername{% endif %}</label>
                 <input
-                    type="text"
+                    type="{% if identity_enabled %}email{% else %}text{% endif %}"
                     id="loginName"
                     name="login_name"
-                    autocomplete="username"
+                    autocomplete="{% if identity_enabled %}email{% else %}username{% endif %}"
                     required
                     autofocus
                 >

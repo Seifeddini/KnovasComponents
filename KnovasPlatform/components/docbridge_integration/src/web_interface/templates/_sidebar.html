@@ -1,5 +1,6 @@
 {# Plattform-Seitenleiste: eine Quelle fuer alle Module.
-   Erwartet: active_nav ('suche' | 'cortex' | 'einstellungen'), company_name. #}
+   Erwartet: active_nav ('suche' | 'cortex' | 'einstellungen' | 'admin'),
+   company_name, optional console_url (nur fuer Administratoren gesetzt). #}
 <aside class="app-sidebar">
     <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
         <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
@@ -40,6 +41,17 @@
             </svg>
             Einstellungen
         </a>
+        {% if console_url %}
+        <a href="{{ console_url }}" class="app-nav-item{% if active_nav == 'admin' %} active{% endif %}"
+           {% if active_nav == 'admin' %}aria-current="page"{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            Verwaltung
+        </a>
+        {% endif %}
         {% if feedback_url %}
         <a href="{{ feedback_url }}" class="app-nav-item" target="_blank" rel="noopener noreferrer"
            title="Feedback über Jira senden">

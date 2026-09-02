@@ -1,4 +1,112 @@
+import os
+import uuid
+
 import pytest
+
+# ── identity: a real PostgreSQL per test ───────────────────────────────────
+#
+# The identity schema uses citext, uuid, jsonb, inet and CHECK constraints, so
+# these tests run against the real thing. psycopg is imported lazily inside the
+# fixture: an environment without the identity extras must still collect and
+# run the rest of the suite.
+
+PLATFORM_DB_TEST_DSN = os.environ.get(
+    "PLATFORM_DB_TEST_DSN",
+    "postgresql://platform:testpw@127.0.0.1:55433/knovas_platform_test",
+)
+
+
+def platform_db_reachable() -> bool:
+    try:
+        import psycopg
+    except ImportError:
+        return False
+    try:
+        with psycopg.connect(PLATFORM_DB_TEST_DSN, connect_timeout=3):
+            return True
+    except Exception:
+        return False
+
+
+@pytest.fixture
+def platform_db():
+    """A migrated identity database in a schema of its own, dropped after.
+
+    Per-test schema rather than a transaction rollback, because the migration
+    runner commits DDL — a rollback would not undo it.
+    """
+    import psycopg
+
+    from identity import migrate
+
+    schema = f"t{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True) as setup:
+        setup.execute(f'CREATE SCHEMA "{schema}"')
+    conn = psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True)
+    conn.execute(f'SET search_path TO "{schema}"')
+    migrate.apply(conn)
+    try:
+        yield conn
+    finally:
+        conn.close()
+        with psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True) as cleanup:
+            cleanup.execute(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+@pytest.fixture
+def identity_app(platform_db, tmp_path, monkeypatch):
+    """The real Flask app, with per-user identity on and pointed at platform_db.
+
+    The app opens its own connections, so it must reach the same schema the
+    fixture migrated — passed through as a search_path in the DSN.
+    """
+    schema = platform_db.execute("SELECT current_schema()").fetchone()[0]
+    monkeypatch.setenv(
+        "PLATFORM_DB_DSN", f"{PLATFORM_DB_TEST_DSN}?options=-csearch_path%3D{schema}"
+    )
+    monkeypatch.delenv("PLATFORM_DB_PASSWORD_FILE", raising=False)
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        'web:\n'
+        '  secret_key: "a-strong-secret-for-tests-0123456789"\n'
+        '  session_lifetime: 3600\n'
+        '  session_cookie_secure: false\n'
+        '  login:\n'
+        '    enabled: true\n'
+        '    company_name: "TestCo"\n'
+        '  search:\n'
+        '    results_per_page: 20\n'
+        'identity:\n'
+        '  enabled: true\n'
+        'api:\n'
+        '  base_url: "http://example.test"\n'
+        'open:\n'
+        '  companion_enabled: false\n',
+        encoding="utf-8",
+    )
+
+    DummyKnovasClient.health_result = True
+    from web_interface import app as web_app
+
+    monkeypatch.setattr(web_app, "KnovasAPIClient", DummyKnovasClient)
+    monkeypatch.setattr(web_app, "AutoDocFileHandler", DummyFileHandler)
+
+    flask_app = web_app.create_app(str(config_path))
+    flask_app.config.update(TESTING=True)
+    return flask_app
+
+
+@pytest.fixture
+def identity_client(identity_app):
+    return identity_app.test_client()
+
+
+@pytest.fixture
+def identity_repo(platform_db):
+    from identity import users
+
+    return users.UserRepository(platform_db)
 
 
 def pytest_addoption(parser):

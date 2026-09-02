@@ -1276,3 +1276,9 @@ mark.context-snippet-match,
     font-size: 0.8rem;
     color: var(--text-secondary);
 }
+
+/* Verwaltungskonsole: Reiterleiste (templates/_admin_tabs.html) */
+.admin .tabs { display: flex; gap: 18px; border-bottom: 1px solid #e2e8f0; margin-bottom: 18px; }
+.admin .tabs a { padding: 8px 2px; text-decoration: none; color: #475569; border-bottom: 2px solid transparent; }
+.admin .tabs a.active { color: #0f172a; border-bottom-color: #0f172a; font-weight: 600; }
+.admin .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
