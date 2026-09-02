@@ -14,7 +14,7 @@ import secrets
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, g
 from flask_cors import CORS
 import logging
 from datetime import datetime, timedelta
@@ -692,6 +692,23 @@ def create_app(config_path: Optional[str] = None):
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
     login_configured = bool(login_username and login_password)
+
+    # Per-user accounts (Pflichtenheft B1). When on, the shared company
+    # credential is not merely unused — the app refuses to start with one
+    # configured, so an upgrade cannot leave both doors open.
+    identity_enabled = config.get_bool('identity.enabled', False)
+    identity_gate = None
+    if identity_enabled:
+        from identity.webauth import IdentityGate
+
+        if login_configured:
+            raise RuntimeError(
+                'identity.enabled is true, but COMPANY_LOGIN_NAME/COMPANY_LOGIN_PASSWORD '
+                'are still set. The shared company login is superseded by per-user '
+                'accounts; remove both values before enabling identity.'
+            )
+        identity_gate = IdentityGate()
+        app.teardown_request(identity_gate.close)
     weak_secret_values = {
         '',
         'change-me',
@@ -712,7 +729,7 @@ def create_app(config_path: Optional[str] = None):
     login_failed_window = max(1, config.get_int('web.login.failed_window_seconds', 300))
     login_attempts: Dict[str, Dict[str, float]] = {}
 
-    if login_enabled and not login_configured:
+    if login_enabled and not identity_enabled and not login_configured:
         logger.warning(
             "Company login is enabled but COMPANY_LOGIN_NAME or COMPANY_LOGIN_PASSWORD is missing."
         )
@@ -720,7 +737,10 @@ def create_app(config_path: Optional[str] = None):
     # open tokens, so a weak/default secret is exploitable even with login disabled.
     if web_secret_key in weak_secret_values:
         raise RuntimeError('WEB_SECRET_KEY must be set to a strong random value.')
-    if login_enabled and login_password in weak_password_values:
+    # Only meaningful for the legacy shared credential. With per-user accounts
+    # there is no COMPANY_LOGIN_PASSWORD to be weak — the app refuses to start
+    # if one is set at all (see the identity block above).
+    if login_enabled and not identity_enabled and login_password in weak_password_values:
         raise RuntimeError('COMPANY_LOGIN_PASSWORD must be changed before login can be enabled.')
 
     open_section = config.get_dict('open', {}) or {}
@@ -875,7 +895,15 @@ def create_app(config_path: Optional[str] = None):
 
     @app.before_request
     def require_company_login():
-        """Require a shared company login before serving the search UI and APIs."""
+        """Require a login before serving the search UI and APIs.
+
+        With ``identity.enabled`` the gate is per-user and lives in
+        ``identity.webauth``; otherwise the legacy shared-credential check
+        below still applies, so an existing deployment keeps working until it
+        migrates.
+        """
+        if identity_gate is not None:
+            return identity_gate.guard()
         if not login_enabled:
             return None
         if request.endpoint in {
@@ -905,6 +933,10 @@ def create_app(config_path: Optional[str] = None):
         'static',
         'login',
         'logout',
+        # Browser form post, not XHR: it carries a hidden csrf_token field and
+        # validates it in the handler, exactly as login/logout do. Leaving it
+        # in the header gate would reject the form before it was read.
+        'account_password',
         'open_token_mint',
         'open_token_redeem',
     })
@@ -922,6 +954,11 @@ def create_app(config_path: Optional[str] = None):
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
             return None
         if request.endpoint is None or request.endpoint in _CSRF_EXEMPT_ENDPOINTS:
+            return None
+        # The admin console is server-rendered HTML forms, not XHR: each POST
+        # carries a hidden csrf_token field and every handler checks it before
+        # doing anything. This gate expects a header and would reject them all.
+        if request.endpoint.startswith('admin.'):
             return None
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
@@ -945,6 +982,9 @@ def create_app(config_path: Optional[str] = None):
         next_url = request.args.get('next') or url_for('index')
         if not _is_safe_next(next_url):
             next_url = url_for('index')
+
+        if identity_gate is not None:
+            return _identity_login(next_url)
 
         if session.get('company_login_ok') is True:
             return redirect(next_url)
@@ -993,14 +1033,108 @@ def create_app(config_path: Optional[str] = None):
             csrf_token=csrf_token,
         ), status_code
 
+    def _identity_login(next_url: str):
+        """Per-user email + password sign-in.
+
+        One message for every refusal — unknown address, wrong password,
+        disabled, locked. Distinguishing them would turn the form into a way to
+        discover who works at the firm.
+        """
+        if identity_gate.current_user() is not None:
+            return redirect(next_url)
+
+        error = None
+        status_code = 200
+        csrf_token = _ensure_csrf_token()
+        if request.method == 'POST':
+            email = str(request.form.get('login_name', '') or '').strip()
+            password = str(request.form.get('password', '') or '')
+            submitted_csrf = str(request.form.get('csrf_token', '') or '')
+            next_url = request.form.get('next') or next_url
+            if not _is_safe_next(next_url):
+                next_url = url_for('index')
+
+            client_ip = _client_ip()
+            if _login_is_locked(client_ip):
+                logger.warning('Login locked out for %s (too many failed attempts)', client_ip)
+                error = 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte später erneut versuchen.'
+                status_code = 429
+            elif not _csrf_token_is_valid(submitted_csrf):
+                error = 'Login-Formular ist abgelaufen. Bitte erneut versuchen.'
+                csrf_token = _ensure_csrf_token()
+            else:
+                user = identity_gate.users().authenticate(email, password)
+                if user is not None:
+                    _reset_login_failures(client_ip)
+                    identity_gate.sign_in(user)
+                    session['csrf_token'] = secrets.token_urlsafe(32)
+                    return redirect(next_url)
+                _record_login_failure(client_ip)
+                error = 'E-Mail-Adresse oder Passwort ist falsch.'
+
+        return render_template(
+            'login.html',
+            app_title=web_app_title,
+            brand=web_brand,
+            company_name=login_company_name,
+            error=error,
+            next_url=next_url,
+            csrf_token=csrf_token,
+            identity_enabled=True,
+        ), status_code
+
     @app.route('/logout', methods=['POST'])
     def logout():
-        """Clear the company login session."""
+        """End the session."""
         submitted_csrf = str(request.form.get('csrf_token', '') or '')
         if not _csrf_token_is_valid(submitted_csrf):
             return jsonify({'success': False, 'error': 'CSRF token ungültig'}), 400
-        session.clear()
+        if identity_gate is not None:
+            identity_gate.sign_out()
+        else:
+            session.clear()
         return redirect(url_for('login'))
+
+    @app.route('/account/password', methods=['GET', 'POST'])
+    def account_password():
+        """Change your own password. Also the gate a forced rotation lands on."""
+        if identity_gate is None:
+            return redirect(url_for('settings_page'))
+        user = identity_gate.current_user()
+        if user is None:
+            return redirect(url_for('login'))
+
+        error = None
+        done = False
+        if request.method == 'POST':
+            if not _csrf_token_is_valid(str(request.form.get('csrf_token', '') or '')):
+                error = 'Formular ist abgelaufen. Bitte erneut versuchen.'
+            else:
+                current = str(request.form.get('current_password', '') or '')
+                new_password = str(request.form.get('new_password', '') or '')
+                repo = identity_gate.users()
+                if repo.authenticate(user.email, current) is None:
+                    error = 'Das aktuelle Passwort ist falsch.'
+                else:
+                    from identity.passwords import WeakPasswordError
+                    try:
+                        repo.set_password(user.id, new_password)
+                    except WeakPasswordError as exc:
+                        error = '; '.join(exc.reasons)
+                    else:
+                        done = True
+                        g.identity_session = None
+
+        return render_template(
+            'account_password.html',
+            app_title=web_app_title,
+            brand=web_brand,
+            user=user,
+            must_change=user.must_change_password and not done,
+            error=error,
+            done=done,
+            csrf_token=_ensure_csrf_token(),
+        ), (200 if not error else 400)
 
     # Feedback-Ziel: bisher im Fuss der Suchseite, jetzt eigener
     # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
@@ -1050,17 +1184,38 @@ def create_app(config_path: Optional[str] = None):
     @app.route('/settings')
     def settings_page():
         """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
+        if identity_gate is not None:
+            signed_in_as = identity_gate.current_user()
+            display_name = f'{signed_in_as.display_name} ({signed_in_as.email})'
+        else:
+            display_name = config.get('web.login.username', '') or ''
         return render_template(
             'settings.html',
             active_nav='einstellungen',
             **_sidebar_context(),
             app_title=web_app_title,
             brand=web_brand,
-            login_name=config.get('web.login.username', '') or '',
+            identity_enabled=identity_gate is not None,
+            login_name=display_name,
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
         )
+
+    if identity_gate is not None:
+        from web_interface.admin import create_admin_blueprint
+
+        app.register_blueprint(create_admin_blueprint(
+            identity_gate,
+            csrf_valid=_csrf_token_is_valid,
+            csrf_token=_ensure_csrf_token,
+            page_context=lambda: {
+                **_sidebar_context(),
+                'app_title': web_app_title,
+                'brand': web_brand,
+                'asset_version': _static_asset_version(),
+            },
+        ))
 
     @app.route('/api/search', methods=['POST'])
     def search():
