@@ -1,7 +1,10 @@
 """The firm's administration console.
 
-One tab so far — People. The others (Access groups, Walls, Approvals,
-Ingestion) attach to the same blueprint and reuse ``require_admin``.
+Three tabs — People, Dokumente and Zugriffsgruppen. The others (Walls,
+Approvals, Ingestion) attach to the same blueprint and reuse
+``require_admin``. The document and folder-rule routes live in
+``admin_documents.py`` and are mounted here so there is one blueprint and
+one gate.
 
 Every route is authorised on the *route*, not on whether the link is drawn.
 Hiding a page is presentation; refusing the POST is the control, and the tests
@@ -27,12 +30,16 @@ logger = logging.getLogger(__name__)
 ASSIGNABLE_ROLES = ("admin", "approver", "ingestion_manager", "member")
 
 
-def create_admin_blueprint(gate, *, csrf_valid, csrf_token, page_context):
+def create_admin_blueprint(
+    gate, *, csrf_valid, csrf_token, page_context, client_factory
+):
     """Build the console blueprint.
 
     Takes the gate and the app's own CSRF helpers rather than importing them,
     so this module has no dependency on ``app.py`` and can be tested against a
-    minimal app.
+    minimal app. ``client_factory`` returns the Knovas client the console uses
+    to reach the RBAC endpoints — the same one the search path uses, so mTLS
+    material, retries and rate limiting are configured in exactly one place.
     """
     bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -230,5 +237,17 @@ def create_admin_blueprint(gate, *, csrf_valid, csrf_token, page_context):
             detail={"sessions_revoked": revoked},
         )
         return _people_page(notice=f"{revoked} Sitzung(en) beendet.")
+
+    from web_interface.admin_documents import attach_document_routes
+
+    attach_document_routes(
+        bp,
+        gate,
+        csrf_valid=csrf_valid,
+        csrf_token=csrf_token,
+        page_context=page_context,
+        client_factory=client_factory,
+        require_admin=require_admin,
+    )
 
     return bp

@@ -1209,6 +1209,10 @@ def create_app(config_path: Optional[str] = None):
             identity_gate,
             csrf_valid=_csrf_token_is_valid,
             csrf_token=_ensure_csrf_token,
+            # The console talks to Knovas through the same client the search
+            # path uses, so mTLS material, retries and rate limiting are
+            # configured in exactly one place.
+            client_factory=lambda: api_client,
             page_context=lambda: {
                 **_sidebar_context(),
                 'app_title': web_app_title,
