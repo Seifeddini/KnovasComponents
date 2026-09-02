@@ -240,6 +240,7 @@ from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 HEADER = "X-Platform-Principal"
 ALGORITHM = "EdDSA"
@@ -306,6 +307,10 @@ def verify_platform_principal(
         signature = _unb64(s64)
     except Exception as exc:  # noqa: BLE001
         raise InvalidPrincipalError("refused") from exc
+    # Task 1 review ruling: a JSON value that is not an object must refuse
+    # uniformly, not raise AttributeError into a 500 (mirrors assertion.py).
+    if not isinstance(header, dict) or not isinstance(payload, dict):
+        raise InvalidPrincipalError("refused")
 
     # alg is pinned here, never read to choose a verifier; the header's value
     # is only compared.
@@ -313,10 +318,11 @@ def verify_platform_principal(
         raise InvalidPrincipalError("refused")
     if header.get("kid") != derive_key_id(public_pem):
         raise InvalidPrincipalError("refused")
+    key = serialization.load_pem_public_key(public_pem)
+    if not isinstance(key, ed25519.Ed25519PublicKey):  # an X25519 PEM has no verify()
+        raise InvalidPrincipalError("refused")
     try:
-        serialization.load_pem_public_key(public_pem).verify(
-            signature, f"{h64}.{p64}".encode("ascii")
-        )
+        key.verify(signature, f"{h64}.{p64}".encode("ascii"))
     except (InvalidSignature, ValueError, TypeError) as exc:
         raise InvalidPrincipalError("refused") from exc
 
