@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 from config_loader import get_config
 from context_store import enrich_result_with_context
+from identity.principal import ClientAssertedGroupsError, PrincipalBroker
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from open_tokens import OpenTokenManager
@@ -1009,6 +1010,17 @@ def create_app(config_path: Optional[str] = None):
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
+        return None
+
+    @app.before_request
+    def reject_client_asserted_groups():
+        """Refuse browser JSON that tries to choose its own access groups."""
+        if not request.is_json:
+            return None
+        try:
+            PrincipalBroker.reject_client_assertion(request.get_json(silent=True))
+        except ClientAssertedGroupsError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
         return None
 
     @app.route('/favicon.ico')
