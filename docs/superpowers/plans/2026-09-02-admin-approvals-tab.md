@@ -666,14 +666,20 @@ Rewrite the three POST routes. `set_document_acl`:
 
         me = gate.current_user()
         payload = {"action": "document_acl", "pointers": pointers, "access_groups": groups}
-        outcome = run_guarded(
-            _approvals(), me, kind="acl_change",
-            target_ref=pointers[0] if len(pointers) == 1 else f"{len(pointers)} Dokumente",
-            payload=payload,
-            execute=lambda: execute_acl_change(
-                client_factory(), payload, actor=me, conn=gate.connection()
-            ),
-        )
+        try:
+            outcome = run_guarded(
+                _approvals(), me, kind="acl_change",
+                target_ref=pointers[0] if len(pointers) == 1 else f"{len(pointers)} Dokumente",
+                payload=payload,
+                execute=lambda: execute_acl_change(
+                    client_factory(), payload, actor=me, conn=gate.connection()
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Zugriffsaenderung nicht gespeichert: %s", exc)
+            return _documents_page(
+                error="Zugriffsaenderung konnte nicht gespeichert werden.", status=400
+            )
         if outcome.queued:
             return _documents_page(notice=_queued_notice(outcome.request))
         result = outcome.result or {}
