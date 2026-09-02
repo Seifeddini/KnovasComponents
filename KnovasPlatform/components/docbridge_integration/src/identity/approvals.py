@@ -348,7 +348,7 @@ class ApprovalService:
         return [self._to_request(r) for r in rows]
 
     def approved(self) -> list[ApprovalRequest]:
-        """Confirmed but not yet carried out — newest decision first.
+        """Confirmed but not yet carried out -- newest decision first.
 
         This is what lets an approved request that a failed execution left
         stranded be found again and retried, instead of vanishing from every

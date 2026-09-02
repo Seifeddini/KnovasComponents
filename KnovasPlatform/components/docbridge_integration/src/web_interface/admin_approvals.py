@@ -85,6 +85,18 @@ def attach_approval_routes(
     ``executors`` maps a guarded kind to ``fn(payload, actor) -> result``; an
     approved request of a kind with no executor stays ``approved`` and the
     page says so, rather than pretending it was carried out.
+
+    The contract an executor must honour, since a third one's author will
+    read this and not ``_execute``: return a dict. A non-empty ``failed``
+    list in it means "approved, partly done" -- the request stays
+    ``approved`` and retryable, so an executor may only put a key there when
+    retrying the whole payload is harmless (``execute_acl_change`` collects
+    per-pointer backend failures and ``set_document_access`` is idempotent).
+    Anything else -- including an empty or absent ``failed`` -- marks the
+    request executed. Raising surfaces as a failed execution and does not
+    mark it, which is the right shape for a state that must not be retried
+    blindly; do not signal that with a truthy ``failed``, because the page
+    would then invite exactly the retry you meant to prevent.
     """
 
     def _csrf_ok() -> bool:

@@ -105,7 +105,7 @@ class TestTemplate:
 
     def test_the_approved_section_offers_execute(self):
         html = (TEMPLATES / "admin_approvals.html").read_text(encoding="utf-8")
-        assert "noch nicht ausgeführt" in html
+        assert "noch nicht ausgef\u00fchrt" in html
         assert "admin.execute" in html
 
     def test_it_renders_with_stub_data(self):
@@ -350,4 +350,4 @@ class TestLive:
         html = identity_client.get("/admin/approvals").data.decode("utf-8")
         assert "export-1" in html
         assert f"/admin/approvals/{req.id}/execute" not in html
-        assert "Wird von der Konsole nicht ausgeführt." in html
+        assert "Wird von der Konsole nicht ausgef\u00fchrt." in html

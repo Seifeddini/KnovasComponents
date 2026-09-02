@@ -1,4 +1,4 @@
-"""The versioned ingestion profile — the only artifact a person edits.
+"""The versioned ingestion profile -- the only artifact a person edits.
 
 Every save is a new row; the previous current row is superseded, never
 updated. Restore copies an old version forward as a new one, so "what was

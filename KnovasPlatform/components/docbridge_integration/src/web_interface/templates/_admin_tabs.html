@@ -1,6 +1,12 @@
 {# Reiterleiste der Verwaltung: eine Quelle fuer alle Konsolenseiten (SS-387).
-   Erwartet: admin_tab ('people' | 'documents' | 'access_groups').
-   Der Link ist Darstellung; require_admin auf der Route ist die Kontrolle. #}
+   Erwartet: admin_tab ('people' | 'documents' | 'access_groups' | 'ingestion'
+   | 'approvals'), me, ingestion_enabled.
+   Zwei Sichtbarkeitsregeln, beide nur Darstellung: Personen, Dokumente und
+   Zugriffsgruppen sind fuer ein me ohne 'admin' ausgeblendet; Ingestion
+   erscheint fuer admin und ingestion_manager, wenn ingestion_enabled gilt
+   (d.h. eine RemoteController-URL konfiguriert ist). Freigaben ist immer da.
+   Die Kontrolle ist der Rollen-Gate auf der Route, nicht der gezeichnete
+   Link -- require_admin, require_ingestion, require_approver. #}
 <nav class="tabs" aria-label="Verwaltung">
     {% if not (me is defined and me and 'admin' not in me.roles) %}
     <a href="{{ url_for('admin.people') }}"

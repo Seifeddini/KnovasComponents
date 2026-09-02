@@ -196,14 +196,6 @@ class TestBothRequestPathsUseTheSeam:
         client._request_no_retry("POST", "/secured/analytics", {"event": "x"})
         assert ASSERTION_FIELD in sent[-1]
 
-    def test_before_this_change_the_same_grep_returned_nothing(self):
-        """Task 4 Step 6: the seam is visible outside identity/."""
-        import inspect
-
-        import knovas_client
-
-        assert ASSERTION_FIELD in inspect.getsource(knovas_client)
-
 
 @pytest.mark.skipif(
     not platform_db_reachable(),
