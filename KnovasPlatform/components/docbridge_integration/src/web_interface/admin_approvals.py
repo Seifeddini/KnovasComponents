@@ -181,11 +181,6 @@ def attach_approval_routes(
         enabled = str(request.form.get("enabled", "") or "") == "1"
         me = gate.current_user()
         _approvals().set_admin_bypass(enabled, by=me)
-        audit.record(
-            gate.connection(), action="approvals.admin_bypass_set", actor=me,
-            target_type="setting", target_id="approvals.admin_bypass",
-            detail={"enabled": enabled},
-        )
         return _page(notice=(
             "Administratoren handeln jetzt ohne zweite Person; jede solche Handlung wird vermerkt."
             if enabled else
