@@ -14,7 +14,7 @@
 
 - **Branch:** `feat/auth-assertion` in `E:/Knovas/KnovasComponents`. Tests run from `KnovasPlatform/components/docbridge_integration/` with `.venv/Scripts/python.exe -m pytest` (the project's `addopts` already carries `-q`; do not add another or the summary line disappears).
 - **Every state-changing POST validates CSRF via `_csrf_ok()` before doing anything, carries a role gate on the route, and writes an audit row** (REQ-A2). Hiding a link is presentation; refusing the POST is the control.
-- **UI copy is German**, matching `admin_people.html`. Python source stays ASCII (`ae`/`ue` transliteration), as the existing modules do.
+- **UI copy is German**, matching `admin_people.html` (real umlauts in templates). **No new non-ASCII characters in Python source** on this branch — German transliterated (`ae`/`oe`/`ue`/`ss`), plain ASCII quotes. Pre-existing em dashes or umlauts outside this branch's diff are out of scope (final-review ruling F4, 2026-09-02).
 - **The word `bypass` must not appear in `admin_documents.py`.** `tests/test_web_admin_documents.py::TestNoSystemPrincipal` forbids it there (it is a proxy for "no system principal"). The bypass lives in `guarded.py` and `admin_approvals.py` only.
 - **Guarded kinds are exactly `GUARDED_KINDS`** in `identity/approvals.py`: `matter_delete`, `acl_change`, `bulk_export`, `purge_all_documents`, `ingestion_profile_change`. Do not add one.
 - **The administrator bypass is a bypass, not an exemption** (decided 2026-08-14): an admin's guarded action executes *and* writes `approval.bypassed`. `set_admin_bypass(False)` makes admins queue like everyone else. The queue shows bypasses — it never hides them (SS-338, REQ-A4 clause 5).
@@ -1372,6 +1372,14 @@ kind has no executor — vanished from the page with no retry path. Implemented 
   execute share one local `_execute(req, me)` helper so the two paths cannot drift.
 - A template section *Freigegeben, noch nicht ausgeführt* listing those requests with an
   *Ausführen* button where an executor exists and a plain note where none does.
+- **Retry contract (final-review ruling F1):** `_execute` marks a request executed only
+  when the executor returned without raising *and* with no `failed` entries; a
+  `document_acl` result with failed pointers leaves the request `approved` and retryable
+  (the ACL write is idempotent, so a full retry is harmless).
+- **Concurrency (ruling F3):** `approve`/`reject` update with `WHERE status = 'pending'` and
+  `mark_executed` with `WHERE status = 'approved'`, raising `InvalidTransitionError` when no
+  row matches; `mark_executed(..., by=)` writes an `approval.executed` audit row carrying the
+  request id.
 - Tests: the route-gate/CSRF source test covers `execute`; a live test drives
   queue → approve-with-failing-backend → visible under the new section → execute → executed,
   using a `fail_next` switch on `DummyKnovasClient`; a second live test shows a kind with no
