@@ -134,6 +134,33 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 `200` means certs, tenant, and network are all good. Then `./scripts/verify_deploy.sh`,
 which also checks the three filenames are present.
 
+## KnovasPlatform: the broker signing key (per-user identity)
+
+With `identity.enabled: true` the Platform signs the signed-in person into every
+Knovas call with an **Ed25519 key it generates itself** on first start. Knovas
+holds the public half against your tenant; whoever holds the private half can
+assert any of your people. Three files live in `identity.broker_key_dir`
+(`PLATFORM_BROKER_KEY_DIR`, default `/app/secrets/broker` inside the container):
+
+| File | What it is | Handling |
+|------|------------|----------|
+| `broker_ed25519.pem` | the private key, `0600` | never leaves the host, never in an image, never in a log |
+| `broker_ed25519.pub` | the public key | register it with Knovas (Employee Kit); safe to mail |
+| `broker_ed25519.kid` | the key id, derived from the public key | Knovas selects the registered key by it |
+
+**Back the directory up, and mount it as a persistent volume.** The Platform
+refuses to start if the key file exists but cannot be read -- it will *not*
+generate a replacement, because a fresh key signs perfectly well and every
+assertion would then be rejected by a Knovas still holding the old public key,
+surfacing days later as "search returns nothing". But an *empty* directory is
+a first start, and a new key is created: recreate the container without the
+volume and you have silently rotated your key. Losing the key means
+re-registering the public half with Knovas.
+
+Also required with identity on: `SEMANTIX_CUSTOMER_ID` (`api.customer_id`).
+The assertion is bound to the tenant; without the id the Platform refuses to
+start rather than sign an unbound token.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
