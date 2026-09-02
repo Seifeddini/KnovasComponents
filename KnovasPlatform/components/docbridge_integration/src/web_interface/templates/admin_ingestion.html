@@ -44,7 +44,7 @@
         <h2>Status</h2>
         <p>Abgleich: <strong>{{ status.scheduler_state }}</strong>
             {% if status.files_synced_local is defined %}· {{ status.files_synced_local }} Dateien lokal abgeglichen{% endif %}
-            {% if current %}· Profil Version {{ current.version }}{% if current.pushed_at %}, übertragen{% endif %}{% endif %}
+            {% if current %}{% if current.pushed_at %}· Profil Version {{ current.version }}, übertragen{% else %}· Version {{ current.version }} gespeichert, noch nicht übertragen{% endif %}{% endif %}
         </p>
         <form class="inline" method="post" action="{{ url_for('admin.start') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

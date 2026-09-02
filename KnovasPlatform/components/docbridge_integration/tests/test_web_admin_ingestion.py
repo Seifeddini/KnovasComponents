@@ -65,6 +65,107 @@ class TestFormParsing:
             profile_from_form({"identifier_prefix": "k", "schedule": "whenever",
                                "throughput": "normal", "folder-0-path": "/x"}, {})
 
+    def test_a_non_numeric_age_limit_is_a_form_error_not_a_crash(self):
+        from identity.ingestion_compiler import ProfileError
+        from web_interface.admin_ingestion import profile_from_form
+
+        with pytest.raises(ProfileError):
+            profile_from_form({"identifier_prefix": "k", "schedule": "nightly",
+                               "throughput": "normal", "folder-0-path": "/x",
+                               "max_document_age_days": "dreissig"}, {})
+
+    def test_form_from_request_keeps_input_when_validation_fails(self):
+        # A ProfileError re-render must not lose what the person typed --
+        # dict(request.form) would keep only the first folder/file type.
+        from web_interface.admin_ingestion import form_from_request
+
+        form = {
+            "identifier_prefix": "kanzlei", "schedule": "whenever", "throughput": "normal",
+            "folder-0-path": "/mnt/autodoc/mandate", "folder-0-recursive": "1",
+            "folder-1-path": "/mnt/autodoc/allgemein",
+        }
+        lists = {"file_types": ["documents", "email"], "folder-0-groups": ["g-lit"]}
+        rebuilt = form_from_request(form, lists)
+        assert [f["path"] for f in rebuilt["folders"]] == [
+            "/mnt/autodoc/mandate", "/mnt/autodoc/allgemein",
+        ]
+        assert rebuilt["folders"][0]["recursive"] is True
+        assert rebuilt["folders"][0]["groups"] == ["g-lit"]
+        assert rebuilt["folders"][1]["recursive"] is False
+        assert rebuilt["file_types"] == ["documents", "email"]
+
+
+class TestApplyProfile:
+    """apply_profile must not duplicate a version when a retried push
+    follows a failed one for the same profile (a plan defect, fix round 1)."""
+
+    def test_a_failed_push_leaves_one_unpushed_version_and_a_retry_reuses_it(self, monkeypatch):
+        from identity.ingestion_compiler import IngestionProfile, SourceFolder
+        from identity.ingestion_profiles import profile_to_json
+        from remote_controller_client import RemoteControllerError
+        from web_interface import admin_ingestion
+
+        class _FakeVersion:
+            def __init__(self, id_, version, profile):
+                self.id = id_
+                self.version = version
+                self.profile = profile
+                self.pushed_at = None
+
+        class _FakeRepo:
+            def __init__(self):
+                self._current = None
+                self._next_version = 1
+                self.save_calls = 0
+                self.mark_pushed_calls = []
+
+            def current(self, name="default"):
+                return self._current
+
+            def save_new_version(self, profile, *, name="default", by, approved_by=None):
+                self.save_calls += 1
+                v = _FakeVersion(f"v{self._next_version}", self._next_version, profile)
+                self._next_version += 1
+                self._current = v
+                return v
+
+            def mark_pushed(self, version_id):
+                self.mark_pushed_calls.append(version_id)
+                if self._current is not None and self._current.id == version_id:
+                    self._current.pushed_at = "2026-09-02T00:00:00"
+
+        class _FailThenSucceedClient:
+            def __init__(self):
+                self.calls = 0
+
+            def push(self, compiled):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RemoteControllerError("RemoteController nicht erreichbar")
+                return {}
+
+        fake_repo = _FakeRepo()
+        monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: fake_repo)
+
+        profile = IngestionProfile(identifier_prefix="kanzlei",
+                                    sources=[SourceFolder(path="/mnt/autodoc/mandate")])
+        payload = {"profile": profile_to_json(profile)}
+        rc = _FailThenSucceedClient()
+
+        with pytest.raises(RemoteControllerError):
+            admin_ingestion.apply_profile(payload, actor=object(), conn=None, rc_client=rc)
+
+        assert fake_repo.save_calls == 1
+        first = fake_repo.current()
+        assert first is not None and first.pushed_at is None
+
+        result = admin_ingestion.apply_profile(payload, actor=object(), conn=None, rc_client=rc)
+
+        assert fake_repo.save_calls == 1, "the retry must not insert a second version"
+        assert rc.calls == 2
+        assert fake_repo.mark_pushed_calls[-1] == first.id
+        assert result["version"] == first.version
+
 
 class TestTemplate:
     def test_exists_and_every_post_form_has_csrf(self):
@@ -129,3 +230,22 @@ class TestTemplate:
             support_json=None,
         )
         assert "/mnt/autodoc/mandate" in html
+
+
+class TestTabStripVisibility:
+    """Fix round 1, item 3: an ingestion_manager without 'admin' must see the
+    Ingestion tab (it was wrongly nested inside the admin-only block)."""
+
+    def test_ingestion_manager_without_admin_sees_ingestion_not_people(self):
+        import types
+
+        import jinja2
+
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(TEMPLATES)),
+                                 autoescape=True, undefined=jinja2.StrictUndefined)
+        env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
+        me = types.SimpleNamespace(roles={"ingestion_manager"})
+        html = env.get_template("_admin_tabs.html").render(
+            admin_tab="ingestion", me=me, ingestion_enabled=True)
+        assert "/admin/ingestion" in html
+        assert "/admin/people" not in html

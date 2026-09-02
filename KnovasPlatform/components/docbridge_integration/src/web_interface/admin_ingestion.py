@@ -78,15 +78,48 @@ def profile_from_form(form: Mapping[str, str], lists: Mapping[str, list[str]]) -
     if not sources:
         raise ProfileError("Mindestens ein Ordner muss angegeben sein.")
     age = str(form.get("max_document_age_days", "") or "").strip()
+    if age and not age.isdigit():
+        raise ProfileError("Bitte die Altersgrenze als ganze Zahl in Tagen angeben.")
     return IngestionProfile(
         identifier_prefix=str(form.get("identifier_prefix", "") or "").strip(),
         sources=sources,
         file_types=[t for t in (lists.get("file_types") or []) if t] or ["documents"],
         schedule=schedule,
         throughput=throughput,
-        max_document_age_days=int(age) if age.isdigit() else None,
+        max_document_age_days=int(age) if age else None,
         description=str(form.get("description", "") or "").strip(),
     )
+
+
+def form_from_request(form: Mapping[str, str], lists: Mapping[str, list[str]]) -> dict[str, Any]:
+    """Rebuild the template's form structure from the raw, unvalidated request.
+
+    Used to re-render a person's own input after ``profile_from_form`` or
+    ``compile_profile`` rejects it, so a validation error does not erase the
+    folder rows and checkbox choices they were in the middle of fixing.
+    ``dict(request.form)`` cannot do this: it keeps only the first value of a
+    repeated field (``file_types``, ``folder-N-groups``), and the template
+    expects ``form.folders`` as a list of rows, which the raw form never has.
+    """
+    folders: list[dict[str, Any]] = []
+    for n in range(MAX_FOLDER_ROWS):
+        path = str(form.get(f"folder-{n}-path", "") or "").strip()
+        if not path:
+            continue
+        folders.append({
+            "path": path,
+            "recursive": str(form.get(f"folder-{n}-recursive", "") or "") == "1",
+            "groups": [g for g in (lists.get(f"folder-{n}-groups") or []) if g],
+        })
+    return {
+        "identifier_prefix": str(form.get("identifier_prefix", "") or "").strip(),
+        "description": str(form.get("description", "") or "").strip(),
+        "schedule": str(form.get("schedule", "") or "").strip(),
+        "throughput": str(form.get("throughput", "") or "").strip(),
+        "file_types": [t for t in (lists.get("file_types") or []) if t],
+        "max_document_age_days": str(form.get("max_document_age_days", "") or "").strip(),
+        "folders": folders,
+    }
 
 
 def form_from_profile(profile: IngestionProfile | None) -> dict[str, Any]:
@@ -107,12 +140,27 @@ def form_from_profile(profile: IngestionProfile | None) -> dict[str, Any]:
 
 
 def apply_profile(payload: Mapping[str, Any], actor, *, conn, rc_client) -> dict:
-    """Save a new version and push it. The executor for ingestion_profile_change,
-    used both when the actor may act alone and after a second person confirms."""
+    """Save (or reuse) a version and push it. The executor for
+    ingestion_profile_change, used both when the actor may act alone and
+    after a second person confirms.
+
+    The version is saved *before* the push is attempted, on purpose: a push
+    that fails still leaves a current-but-unpushed row behind, and that row
+    is the record of what was attempted, not a bug to route around. What
+    would be a bug is inserting a second, identical row on every retry -- so
+    a save whose payload matches the current version, while that version is
+    still unpushed, reuses it (no insert) and goes straight to push and
+    ``mark_pushed`` again, rather than saving a new one.
+    """
     profile = profile_from_json(payload["profile"])
     compiled = compile_profile(profile)
     repo = IngestionProfileRepository(conn)
-    version = repo.save_new_version(profile, by=actor)
+    current = repo.current()
+    if (current is not None and current.pushed_at is None
+            and profile_to_json(current.profile) == payload["profile"]):
+        version = current
+    else:
+        version = repo.save_new_version(profile, by=actor)
     rc_client.push(compiled)
     repo.mark_pushed(version.id)
     audit.record(conn, action="ingestion.profile_pushed", actor=actor,
@@ -185,7 +233,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             profile = profile_from_form(request.form, _lists())
             compile_profile(profile)
         except ProfileError as exc:
-            return _page(dict(request.form), error=str(exc), status=400)
+            return _page(form_from_request(request.form, _lists()), error=str(exc), status=400)
         summary = []
         rc = rc_client_factory()
         for source in profile.sources:
@@ -216,7 +264,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             profile = profile_from_form(request.form, _lists())
             compile_profile(profile)
         except ProfileError as exc:
-            return _page(dict(request.form), error=str(exc), status=400)
+            return _page(form_from_request(request.form, _lists()), error=str(exc), status=400)
         me = gate.current_user()
         payload = {"profile": profile_to_json(profile)}
         try:

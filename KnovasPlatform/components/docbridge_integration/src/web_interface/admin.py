@@ -1,7 +1,8 @@
 """The firm's administration console.
 
 Four tabs — Personen, Dokumente, Zugriffsgruppen, Freigaben. The others
-(Walls, Ingestion) attach to the same blueprint and reuse ``require_admin``.
+(Walls, Ingestion) attach to the same blueprint; Walls reuses ``require_admin``,
+Ingestion reuses ``require_ingestion`` (admin or ingestion_manager).
 The document and folder-rule routes live in ``admin_documents.py`` and the
 approvals routes in ``admin_approvals.py``; both are mounted here so there is
 one blueprint and one gate.

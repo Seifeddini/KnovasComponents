@@ -12,11 +12,11 @@
     <a href="{{ url_for('admin.access_groups') }}"
        class="{% if admin_tab == 'access_groups' %}active{% endif %}"
        {% if admin_tab == 'access_groups' %}aria-current="page"{% endif %}>Zugriffsgruppen</a>
-    {% if ingestion_enabled is defined and ingestion_enabled %}
+    {% endif %}
+    {% if ingestion_enabled is defined and ingestion_enabled and (me is not defined or not me or 'admin' in me.roles or 'ingestion_manager' in me.roles) %}
     <a href="{{ url_for('admin.ingestion') }}"
        class="{% if admin_tab == 'ingestion' %}active{% endif %}"
        {% if admin_tab == 'ingestion' %}aria-current="page"{% endif %}>Ingestion</a>
-    {% endif %}
     {% endif %}
     <a href="{{ url_for('admin.approvals') }}"
        class="{% if admin_tab == 'approvals' %}active{% endif %}"
