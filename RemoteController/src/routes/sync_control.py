@@ -34,7 +34,9 @@ def _apply_decorators(func):
 @_apply_decorators
 def sync_start():
     body = request.get_json(silent=True) if request.is_json else None
-    if body is None:
+    if not body:
+        # No body, or an empty {} -- the Platform console starts with what it
+        # stored via POST /sync/body; an employee may do the same after POST /sync.
         body = load_last_sync_body()
     if not body:
         return jsonify({"error": "No sync body available", "status": "error"}), 400

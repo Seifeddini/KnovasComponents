@@ -145,3 +145,49 @@ def test_the_worker_keeps_its_own_context_when_nothing_is_saved(tmp_path, monkey
         sync_scheduler._stop_event.clear()
 
     assert seen == [started_with]
+
+
+def test_the_worker_stops_after_a_cycle_when_the_reloaded_config_is_one_time(tmp_path, monkeypatch):
+    """D2: a one_time config (the console's "manual" preset) saved while a
+    continuous worker runs must end the loop after the cycle that ran it;
+    otherwise RC keeps indexing while the console says the run is started by hand."""
+    import time
+
+    from config import load_config, reset_config
+    from sync import sync_scheduler
+    from sync.sync_config import save_sync_config
+
+    monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+    monkeypatch.setenv("RC_SYNC_CONFIG_PATH", str(tmp_path / "config" / "sync.json"))
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    save_sync_config(_continuous_config(60))
+    save_last_sync_body(_body("alpha"))
+    started_with = SyncRunContext(sync_body=_body("alpha"), sync_config=_continuous_config(60))
+
+    seen = []
+
+    def _fake_run_once(ctx):
+        from sync.sync_executor import SyncRunResult
+
+        seen.append(ctx)
+        if len(seen) == 1:
+            one_time = dict(_continuous_config(60), mode="one_time")
+            save_sync_config(one_time)
+            save_last_sync_body(_body("beta"))
+        elif len(seen) >= 3:
+            sync_scheduler._stop_event.set()  # safety net: the loop should have ended already
+        return SyncRunResult()
+
+    monkeypatch.setattr(sync_scheduler, "_run_once", _fake_run_once)
+    sync_scheduler._stop_event.clear()
+    try:
+        sync_scheduler._continuous_worker(started_with)
+    finally:
+        sync_scheduler._stop_event.clear()
+
+    assert len(seen) == 2, "cycle 2 ran the one_time config and the worker then stopped on its own"
+    assert seen[1].sync_config["mode"] == "one_time"
+    assert seen[1].sync_body["ingestion"]["identifier_prefix"] == "beta"

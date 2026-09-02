@@ -300,6 +300,11 @@ def _continuous_worker(ctx: SyncRunContext) -> None:
     while not _stop_event.is_set():
         ctx = _reloaded_context(ctx)
         result = _run_once(ctx)
+        if (ctx.sync_config or {}).get("mode") != "continuous":
+            # A one_time config arrived (the console's "manual" preset, or an
+            # employee edit): this cycle was the run; do not keep looping on it.
+            logger.info("Sync config mode is not continuous; worker stops after this cycle")
+            break
         interval = _effective_scan_interval_seconds(ctx.sync_config, result)
         for _ in range(interval):
             if _stop_event.is_set():

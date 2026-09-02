@@ -89,6 +89,34 @@ class TestSyncBody:
     def test_it_is_gated_exactly_like_sync(self, rc_client):
         assert rc_client.post("/sync/body", json=SYNC_BODY).status_code in (401, 403, 429)
 
+    def test_start_with_an_empty_body_uses_the_stored_one(self, rc_client, auth_headers,
+                                                          as_employee, tmp_path, monkeypatch):
+        """D1: the Platform's start() posts {} after storing the body via
+        /sync/body. An empty object is "no body given", not a body."""
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        assert rc_client.post("/sync/body", json=SYNC_BODY, headers=auth_headers).status_code == 200
+        with patch("routes.sync_control.start_continuous", return_value="running") as start:
+            resp = rc_client.post("/sync/start", json={}, headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+        assert start.call_count == 1
+        assert start.call_args[0][0].sync_body == SYNC_BODY
+
+    def test_start_without_any_stored_body_is_still_a_400(self, rc_client, auth_headers,
+                                                          as_employee, tmp_path, monkeypatch):
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        with patch("routes.sync_control.start_continuous") as start:
+            resp = rc_client.post("/sync/start", json={}, headers=auth_headers)
+        assert resp.status_code == 400
+        assert start.call_count == 0
+
 
 def test_sync_body_accepts_the_platform_principal_like_sync(rc_client, tmp_path, monkeypatch):
     """The seventh route the Platform console reaches; same decorator as /sync."""

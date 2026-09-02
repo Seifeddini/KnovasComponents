@@ -200,3 +200,18 @@ def test_a_disabled_sync_config_api_names_the_variable():
     assert excinfo.value.status == 404
     assert "RC_SYNC_CONFIG_API_ENABLED=false" in str(excinfo.value)
     assert [m for m, _u, _b, _h in session.calls] == ["GET"], "nothing is written after the refusal"
+
+
+def test_every_mid_cycle_pause_reason_counts_as_running():
+    """D3: the executor reports these as the scheduler state while the worker
+    is alive; treating them as idle would try to start a second worker."""
+    for state in ("scan_limit_reached", "cycle_time_limit", "stop_requested", "rate_limited"):
+        session = _Session({("GET", "config"): _Resp(200, {"old": True}),
+                            ("POST", "config"): _Resp(200),
+                            ("POST", "body"): _Resp(200, {"status": "stored"}),
+                            ("GET", "status"): _Resp(200, {"scheduler_state": state}),
+                            ("POST", "start"): _Resp(200)})
+        client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+        out = client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
+        assert out == {"applied": "next_cycle"}, state
+        assert ("POST", "start") not in _steps(session), state

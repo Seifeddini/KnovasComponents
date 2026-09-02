@@ -33,6 +33,11 @@ SCHEDULER_RUNNING_STATES = frozenset({
     "subfolders_complete",
     "disabled",
     "error",
+    # paused_reason values the executor reports mid-cycle; the worker is alive
+    "scan_limit_reached",
+    "cycle_time_limit",
+    "stop_requested",
+    "rate_limited",
 })
 
 #: A status render happens on every page load and a preview makes one
