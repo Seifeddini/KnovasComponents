@@ -105,6 +105,23 @@ more than one is configured. Per-source `access_groups` still apply, but only
 the first source is walked, so put the walled folder in its own sync
 configuration rather than relying on a second source entry.
 
+## Ingestion
+
+The Ingestion tab (`admin` and `ingestion_manager`) edits one profile: folders
+with their access groups, file kinds, schedule, throughput, age cut-off. *Vorschau*
+asks RemoteController what each folder holds without saving anything.
+*Speichern und übertragen* compiles the profile into the two RemoteController
+documents, validates both against their schemas, saves a new version and pushes
+config-then-folders; if the folder list is refused, the previous config is put
+back. Every version stays; *Wiederherstellen* copies an old one forward.
+
+Saving, restoring and stopping the sync are four-eyes guarded
+(`ingestion_profile_change`); see Freigaben. Starting and previewing are not.
+
+RemoteController accepts the administrator's own Platform-signed principal in
+`X-Platform-Principal` (`RC_PLATFORM_BROKER_PUBKEY_PATH`); nobody needs a Knovas
+employee token, a shell on the host, or `chmod`.
+
 ## Scale
 
 The Dokumente list pages by **keyset cursor**: the backend returns

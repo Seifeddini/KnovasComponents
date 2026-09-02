@@ -25,6 +25,12 @@ Handlung, die ein Administrator allein ausgeführt hat. Da heute alle
 abgesicherten Aktionen von Administratoren ausgehen, greift das
 Vier-Augen-Prinzip erst im strikten Modus.
 
+### Ingestion in der Verwaltung
+
+Was indexiert wird, wann und hinter welcher Wand, wird jetzt in der Verwaltung
+eingestellt — mit Vorschau, Versionen und Wiederherstellung. Der RemoteController
+akzeptiert dafür die Anmeldung der Kanzlei selbst.
+
 ## RemoteController
 
 Discover and sync local text files to Knovas (employee JWT; tenant mTLS for ingestion).
