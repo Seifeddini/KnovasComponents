@@ -1517,6 +1517,21 @@ git commit -m "feat(admin): Ingestion tab — one profile, one form, one write; 
 
 ---
 
+**Amendments from the Task 4 review (2026-09-02).**
+
+- **Error re-render keeps the person's input.** `_page(dict(request.form), ...)` on a
+  `ProfileError` dropped every folder row and all but the first value of each multi-select.
+  Implemented instead: `form_from_request(form, lists) -> dict` rebuilds the template's form
+  structure from the raw request without validating; both `except ProfileError` branches use it.
+- **`apply_profile` is idempotent across a failed push.** If the current version is unpushed and
+  its profile JSON equals the payload, it is reused (push + `mark_pushed` on the same row) rather
+  than inserting another current-but-unpushed version. The saved-but-unpushed row is intentional:
+  it records what was attempted. The status line says "gespeichert, noch nicht übertragen" for it.
+- **Ruling R-I2 corrected.** The Ingestion anchor renders for `admin` OR `ingestion_manager`
+  (outside the admin-only block), guarded by `ingestion_enabled`; an `ingestion_manager` without
+  `admin` could otherwise use routes it could not navigate to.
+- A non-blank, non-digit `max_document_age_days` is a `ProfileError`, not silently "no limit".
+
 ### Task 5: Plumbing and documentation
 
 **Files:**
