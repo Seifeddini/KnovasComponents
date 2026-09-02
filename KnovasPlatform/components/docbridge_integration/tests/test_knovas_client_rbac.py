@@ -89,13 +89,15 @@ class TestDocumentInventory:
             {"documents": [], "next_after": None, "total_count": 0},
         )
         client.documents(after="rc-sync/m/a.docx", limit=250,
-                         prefix="rc-sync/m/", unrestricted=True)
+                         prefix="rc-sync/m/", unrestricted=True,
+                         conflicts=True)
         params = calls[0]["params"]
         assert calls[0]["endpoint"] == "/secured/documents"
         assert params["after"] == "rc-sync/m/a.docx"
         assert params["limit"] == 250
         assert params["prefix"] == "rc-sync/m/"
         assert params["unrestricted"] == "true"
+        assert params["conflicts"] == "true"
 
     def test_omitted_filters_are_not_sent_as_none(self, monkeypatch):
         client, calls = _client(

@@ -62,9 +62,10 @@
             nur ohne Gruppe
         </label>
         <label>
-            <input type="checkbox" name="conflicts" value="1"
-                   {% if filters.conflicts %}checked{% endif %}>
-            nur Konflikte
+            <input type="checkbox" name="conflicts" value="1" disabled
+                   {% if filters.conflicts %}checked{% endif %}
+                   title="Der Konfliktfilter wird vom Knovas-Backend noch nicht ausgewertet.">
+            nur Konflikte (folgt)
         </label>
         <button type="submit">Filtern</button>
     </form>

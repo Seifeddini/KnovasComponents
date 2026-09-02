@@ -1807,6 +1807,7 @@ class KnovasAPIClient:
         prefix: Optional[str] = None,
         group: Optional[str] = None,
         unrestricted: bool = False,
+        conflicts: bool = False,
         status: Optional[str] = None,
     ) -> Dict[str, Any]:
         """GET /secured/documents - eine Keyset-Seite des Dokumentbestands.
@@ -1829,6 +1830,10 @@ class KnovasAPIClient:
             params['status'] = str(status)
         if unrestricted:
             params['unrestricted'] = 'true'
+        if conflicts:
+            # Wire-Vertrag aus der Design-Spec (5.4). Das Backend wertet den
+            # Parameter noch nicht aus - er wird durchgereicht, nicht erfunden.
+            params['conflicts'] = 'true'
         return self._rbac_request('GET', '/secured/documents', params=params) or {}
 
     def iter_documents(
