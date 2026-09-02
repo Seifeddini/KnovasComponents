@@ -212,6 +212,29 @@ def test_brokered_export_cache_does_not_leak_across_subjects():
     assert b_ids == {"open-b"}
 
 
+def test_brokered_export_cache_evicts_expired_subject_entries():
+    """Expired per-subject slots are dropped so the cache cannot grow without bound."""
+    broker = _SwitchableBroker()
+    client = FakeGraphClient()
+    client._principal_broker = broker
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: clock["t"])
+
+    broker.user = _Subject("user-a")
+    source.summary()
+    broker.user = _Subject("user-b")
+    source.summary()
+    assert set(source._export_by_subject) == {"user-a", "user-b"}
+
+    clock["t"] = 1061.0
+    broker.user = _Subject("user-c")
+    source.summary()
+
+    assert "user-a" not in source._export_by_subject
+    assert "user-b" not in source._export_by_subject
+    assert set(source._export_by_subject) == {"user-c"}
+
+
 def test_brokered_export_cache_hits_for_the_same_subject():
     broker = _SwitchableBroker()
     broker.user = _Subject("user-a")

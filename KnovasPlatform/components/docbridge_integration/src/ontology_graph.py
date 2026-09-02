@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_SECONDS = 60
+DEFAULT_MAX_CACHE_SUBJECTS = 64
 
 
 def _first(mapping: Dict[str, Any], *keys: str, default: Any = "") -> Any:
@@ -98,10 +99,12 @@ class GraphOntologySource:
     def __init__(self, client: Any,
                  text_resolver: Any = None,
                  ttl_seconds: int = DEFAULT_TTL_SECONDS,
+                 max_cache_subjects: int = DEFAULT_MAX_CACHE_SUBJECTS,
                  now: Optional[Callable[[], float]] = None):
         self._client = client
         self._text = text_resolver
         self._ttl = max(0, int(ttl_seconds))
+        self._max_cache_subjects = max(1, int(max_cache_subjects))
         self._now = now or time.time
         # Keyed by subject id when a principal broker is present; "" is the
         # identity-off / no-broker slot (one cache for the worker, as before).
@@ -128,12 +131,27 @@ class GraphOntologySource:
             return None
         return str(user.id)
 
+    def _evict_stale_export_cache(self, now: float) -> None:
+        """Drop expired entries and enforce a small LRU cap."""
+        if not self._export_by_subject:
+            return
+        if self._ttl > 0:
+            stale = [key for key, (cached_at, _) in self._export_by_subject.items()
+                     if now - cached_at >= self._ttl]
+            for key in stale:
+                del self._export_by_subject[key]
+        while len(self._export_by_subject) > self._max_cache_subjects:
+            oldest_key = min(self._export_by_subject,
+                             key=lambda key: self._export_by_subject[key][0])
+            del self._export_by_subject[oldest_key]
+
     def _export(self) -> Dict[str, Any]:
         key = self._export_cache_key()
         now = self._now()
         if key is not None:
+            self._evict_stale_export_cache(now)
             hit = self._export_by_subject.get(key)
-            if hit is not None and now - hit[0] < self._ttl:
+            if hit is not None and (self._ttl <= 0 or now - hit[0] < self._ttl):
                 return hit[1]
         from knovas_client import _graph_payload_list
 
@@ -153,6 +171,7 @@ class GraphOntologySource:
         data = {"node_types": node_types, "nodes": nodes, "edges": edges}
         if key is not None:
             self._export_by_subject[key] = (now, data)
+            self._evict_stale_export_cache(now)
         return data
 
     def summary(self) -> Dict[str, Any]:
