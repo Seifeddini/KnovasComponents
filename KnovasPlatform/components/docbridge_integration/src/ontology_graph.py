@@ -103,16 +103,38 @@ class GraphOntologySource:
         self._text = text_resolver
         self._ttl = max(0, int(ttl_seconds))
         self._now = now or time.time
-        self._export_cache: Optional[Dict[str, Any]] = None
-        self._export_at = 0.0
+        # Keyed by subject id when a principal broker is present; "" is the
+        # identity-off / no-broker slot (one cache for the worker, as before).
+        self._export_by_subject: Dict[str, tuple[float, Dict[str, Any]]] = {}
         self.warnings: List[str] = []
 
     # -- Topologie ------------------------------------------------------
 
+    def _export_cache_key(self) -> Optional[str]:
+        """Cache slot for this request, or None to skip caching.
+
+        Identity-off / no broker keeps a single worker-wide slot (""). With a
+        broker, the slot is the authenticated subject's id so User B cannot
+        be served User A's brokered graph. A configured broker with no user
+        skips the cache entirely — there is no subject to key, and sharing
+        another user's payload would be the bug this exists to close.
+        """
+        broker = getattr(self._client, "_principal_broker", None)
+        if broker is None:
+            return ""
+        current_user = getattr(broker, "current_user", None)
+        user = current_user() if callable(current_user) else None
+        if user is None:
+            return None
+        return str(user.id)
+
     def _export(self) -> Dict[str, Any]:
-        if (self._export_cache is not None
-                and self._now() - self._export_at < self._ttl):
-            return self._export_cache
+        key = self._export_cache_key()
+        now = self._now()
+        if key is not None:
+            hit = self._export_by_subject.get(key)
+            if hit is not None and now - hit[0] < self._ttl:
+                return hit[1]
         from knovas_client import _graph_payload_list
 
         raw = self._client.graph_export() or {}
@@ -129,8 +151,8 @@ class GraphOntologySource:
         if not edges:
             edges = self._client.graph_edges()
         data = {"node_types": node_types, "nodes": nodes, "edges": edges}
-        self._export_cache = data
-        self._export_at = self._now()
+        if key is not None:
+            self._export_by_subject[key] = (now, data)
         return data
 
     def summary(self) -> Dict[str, Any]:
@@ -264,7 +286,10 @@ class GraphOntologySource:
     # Teile (Filter, Identifiers) erst auf.
 
     def _invalidate(self) -> None:
-        self._export_cache = None
+        key = self._export_cache_key()
+        if key is None:
+            return
+        self._export_by_subject.pop(key, None)
 
     def create_type(self, label: str) -> Optional[Dict[str, Any]]:
         """POST /secured/graph/node-types - Typ-Vokabular erweitern."""

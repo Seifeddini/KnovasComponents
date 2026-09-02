@@ -937,7 +937,10 @@ class KnovasAPIClient:
         self._last_cert_check_at = 0.0
         # Serialize the certificate freshness check / renewal / session swap so
         # concurrent request threads can't race on _last_cert_check_at or _session.
-        self._cert_lock = threading.Lock()
+        # RLock: CSR renew holds this lock then calls _request_no_retry, which
+        # enters _ensure_certificate_freshness again. A non-reentrant Lock
+        # deadlocks the worker for every subsequent request.
+        self._cert_lock = threading.RLock()
 
         self.encryption_matrix_path = (
             (self.config.get('api.encryption_matrix_path', '') or '').strip()

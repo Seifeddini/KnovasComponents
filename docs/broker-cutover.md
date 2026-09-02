@@ -45,7 +45,8 @@ requests continue to work while the tenant remains `DISABLED` or `ENFORCING`.
 Exercise every Platform route that calls the KnowledgeBase Secure API,
 including error and less-frequently used paths. Confirm at the Secure API
 boundary that each request body contains a valid `principal_assertion` for the
-acting user. Checking most routes is not sufficient.
+acting user. Checking most routes is not sufficient. Include GET
+`/secured/graph*` and `/secured/health`, not only POST `/secured/query`.
 
 Gate: retain route-by-route evidence. Any route without an assertion blocks
 cutover.
@@ -80,3 +81,22 @@ The cutover does not remove these accepted pilot risks:
 - MFA and OIDC are still dropped.
 - Ranking-signal leakage across walls is unverified. Authorization must be
   enforced on every read path; do not describe this as leaving “no trace.”
+
+## Known landmines
+
+These are live operator and cutover traps. They are not a reason to send
+unsigned data-plane calls, change the GET-with-JSON-body contract, or start
+SS-347 work from this runbook.
+
+- Public `/api/health` reports `semantix_api: false` with identity on
+  (fail-closed, not unsigned). Unauthenticated probes cannot mint, so the
+  Platform treats KnowledgeBase as down rather than calling without an
+  assertion. Do not “fix” this by sending unsigned `/secured/health` or
+  other data-plane requests.
+- Cert auto-renew validation and the legacy `generate_certificate` path skip
+  `_with_principal`. CSR nested lock: `_ensure_certificate_freshness` now uses
+  a reentrant `RLock` so CSR sign no longer deadlocks the worker; the
+  unsigned validation/legacy HTTP remains later work.
+- Graph GETs send `principal_assertion` in the JSON body. Cutover step 3 must
+  include `/secured/graph*` and `/secured/health`, not only POST
+  `/secured/query`. A check of search alone will miss topology and health.

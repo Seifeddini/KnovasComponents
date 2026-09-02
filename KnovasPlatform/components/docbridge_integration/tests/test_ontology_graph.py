@@ -166,6 +166,71 @@ def test_export_is_cached_within_ttl():
     assert calls["n"] == 1
 
 
+class _Subject:
+    def __init__(self, subject_id):
+        self.id = subject_id
+
+
+class _SwitchableBroker:
+    def __init__(self):
+        self.user = None
+
+    def current_user(self):
+        return self.user
+
+
+def test_brokered_export_cache_does_not_leak_across_subjects():
+    """Two users, one GraphOntologySource: B must not see A's brokered nodes."""
+    broker = _SwitchableBroker()
+
+    class SubjectGraphClient(FakeGraphClient):
+        def __init__(self):
+            super().__init__()
+            self._principal_broker = broker
+
+        def graph_export(self):
+            user = self._principal_broker.current_user()
+            if user is not None and user.id == "user-a":
+                nodes = [{"id": "walled-a", "name": "Walled Matter",
+                          "node_type_id": "t-mandant"}]
+            else:
+                nodes = [{"id": "open-b", "name": "Public File",
+                          "node_type_id": "t-mandant"}]
+            return {"status": "success", "node_types": self.node_types,
+                    "nodes": nodes, "edges": []}
+
+    client = SubjectGraphClient()
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: 1000.0)
+
+    broker.user = _Subject("user-a")
+    a_ids = {e["id"] for e in source.entities_for_type("t-mandant")["entities"]}
+    assert a_ids == {"walled-a"}
+
+    broker.user = _Subject("user-b")
+    b_ids = {e["id"] for e in source.entities_for_type("t-mandant")["entities"]}
+    assert "walled-a" not in b_ids
+    assert b_ids == {"open-b"}
+
+
+def test_brokered_export_cache_hits_for_the_same_subject():
+    broker = _SwitchableBroker()
+    broker.user = _Subject("user-a")
+    client = FakeGraphClient()
+    client._principal_broker = broker
+    calls = {"n": 0}
+    original = client.graph_export
+
+    def counting():
+        calls["n"] += 1
+        return original()
+
+    client.graph_export = counting
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: 1000.0)
+    source.summary()
+    source.summary()
+    assert calls["n"] == 1
+
+
 def test_tolerates_alternative_field_names():
     """Die Spec zeigt die Listenformen nicht - andere Schreibweisen duerfen
     nicht zum leeren Graphen fuehren."""
