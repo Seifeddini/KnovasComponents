@@ -43,20 +43,30 @@ def create_admin_blueprint(
     """
     bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-    def require_admin(view):
-        @functools.wraps(view)
-        def wrapped(*args, **kwargs):
-            user = gate.current_user()
-            if user is None:
-                return redirect(url_for("login", next=request.full_path or "/admin/people"))
-            if "admin" not in user.roles:
-                # 403, not 404: the person is authenticated and the console is
-                # not a secret. Hiding it would only make a misconfigured
-                # account harder to diagnose.
-                abort(403)
-            return view(*args, **kwargs)
+    def _require_roles(allowed: frozenset[str]):
+        """A route gate: signed in, and holding at least one of ``allowed``."""
 
-        return wrapped
+        def decorator(view):
+            @functools.wraps(view)
+            def wrapped(*args, **kwargs):
+                user = gate.current_user()
+                if user is None:
+                    return redirect(
+                        url_for("login", next=request.full_path or "/admin/people")
+                    )
+                if not (allowed & set(user.roles)):
+                    # 403, not 404: the person is authenticated and the
+                    # console is not a secret. Hiding it would only make a
+                    # misconfigured account harder to diagnose.
+                    abort(403)
+                return view(*args, **kwargs)
+
+            return wrapped
+
+        return decorator
+
+    require_admin = _require_roles(frozenset({"admin"}))
+    require_approver = _require_roles(frozenset({"admin", "approver"}))
 
     def _form_csrf_ok() -> bool:
         return csrf_valid(str(request.form.get("csrf_token", "") or ""))

@@ -54,7 +54,7 @@ class TestRouteAuthorisation:
         idx = src.index("def set_document_acl(")
         body = src[idx:idx + 1200]
         csrf_at = body.index("csrf_ok")
-        write_at = body.index("set_document_access")
+        write_at = body.index("run_guarded(")
         assert csrf_at < write_at, "CSRF must be checked before the write"
 
 
@@ -166,7 +166,7 @@ class TestAccessGroupsTab:
         idx = src.index("def save_folder_rule(")
         # Skip the def line: its own name would match "folder_rule" first.
         body = src[idx + len("def save_folder_rule("):idx + 1400]
-        assert body.index("csrf_ok") < body.index("folder_rule("), (
+        assert body.index("csrf_ok") < body.index("run_guarded("), (
             "CSRF must be checked before any folder-rule write"
         )
 
@@ -265,3 +265,78 @@ class TestTemplatesRender:
         html = self._env().get_template("admin_people.html").render(
             self._context(people=[], assignable_roles=["admin", "member"]))
         assert "Zugriffsgruppen</a>" in html
+
+
+from conftest import DummyKnovasClient, platform_db_reachable
+
+
+class TestGuardedAclRoutes:
+    """SS-392 AC 1, 2, 4 at the route: the ACL actions are four-eyes guarded."""
+
+    def test_every_acl_route_goes_through_run_guarded(self):
+        from web_interface import admin_documents
+
+        src = inspect.getsource(admin_documents)
+        for fn in ("def set_document_acl(", "def save_folder_rule(",
+                   "def delete_folder_rule("):
+            body = src[src.index(fn):src.index(fn) + 1600]
+            assert "run_guarded(" in body, f"{fn} must go through run_guarded"
+            assert body.index("csrf_ok") < body.index("run_guarded("), (
+                "CSRF before the guard, always"
+            )
+
+    def test_execution_lives_in_one_function_the_approve_path_can_reuse(self):
+        from web_interface import admin_documents
+
+        assert callable(getattr(admin_documents, "execute_acl_change", None))
+        src = inspect.getsource(admin_documents.execute_acl_change)
+        for call in ("set_document_access", "create_folder_rule",
+                     "update_folder_rule", "delete_folder_rule"):
+            assert call in src
+
+
+@pytest.mark.skipif(not platform_db_reachable(),
+                    reason="No PostgreSQL at the identity test DSN")
+class TestGuardedAclRoutesLive:
+    @pytest.fixture
+    def admin(self, identity_repo):
+        user = identity_repo.create(email="chef@kanzlei.ch", display_name="Chef",
+                                    password="korrektes-pferd-batterie")
+        identity_repo.grant_role(user.id, "admin")
+        return identity_repo.get(user.id)
+
+    @pytest.fixture
+    def as_admin(self, identity_client, admin):
+        from _console import sign_in
+        return sign_in(identity_client, "chef@kanzlei.ch")
+
+    def test_with_the_bypass_on_an_admin_acts_and_the_bypass_is_recorded(
+        self, as_admin, platform_db
+    ):
+        from _console import post_form
+        from identity import audit
+
+        r = post_form(as_admin, "/admin/documents/acl", page="/admin/documents",
+                      pointer="rc-sync/a.docx", access_group="g-lit")
+        assert r.status_code == 200
+        assert DummyKnovasClient.last_instance.acl_calls == [
+            ("set_document_access", "rc-sync/a.docx", ["g-lit"])
+        ]
+        rows = audit.recent(platform_db, action="approval.bypassed")
+        assert rows and rows[0]["target_type"] == "acl_change"
+
+    def test_with_the_bypass_off_the_same_action_is_queued_and_not_run(
+        self, as_admin, platform_db, identity_repo, admin
+    ):
+        from _console import post_form
+        from identity.approvals import ApprovalService
+
+        ApprovalService(platform_db, identity_repo).set_admin_bypass(False, by=admin)
+        r = post_form(as_admin, "/admin/documents/acl", page="/admin/documents",
+                      pointer="rc-sync/a.docx", access_group="g-lit")
+        assert r.status_code == 200
+        assert "Freigabe" in r.data.decode("utf-8")
+        assert DummyKnovasClient.last_instance.acl_calls == []
+        pending = ApprovalService(platform_db, identity_repo).pending()
+        assert len(pending) == 1 and pending[0].kind == "acl_change"
+        assert pending[0].payload["pointers"] == ["rc-sync/a.docx"]

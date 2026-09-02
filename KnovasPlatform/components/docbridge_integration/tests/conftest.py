@@ -140,6 +140,7 @@ class DummyKnovasClient:
     def __init__(self, config):
         self.config = config
         self.principal_broker = None
+        self.acl_calls: list[tuple] = []
         DummyKnovasClient.last_instance = self
 
     def attach_principal_broker(self, broker):
@@ -150,6 +151,32 @@ class DummyKnovasClient:
 
     def search_documents(self, query, limit=20, filters=None):
         return {"results": [], "total": 0}
+
+    # -- what the console's Dokumente / Zugriffsgruppen tabs call --------
+    def documents(self, **kw):
+        return {"documents": [], "next_after": None, "total_count": 0}
+
+    def access_groups(self):
+        return [{"group_id": "g-lit", "name": "Litigation", "parent_id": None}]
+
+    def folder_rules(self):
+        return []
+
+    def set_document_access(self, pointer, access_groups, acting_as=None):
+        self.acl_calls.append(("set_document_access", pointer, list(access_groups)))
+        return {"pointer": pointer, "access_groups": list(access_groups)}
+
+    def create_folder_rule(self, pointer_prefix, access_groups, acting_as=None):
+        self.acl_calls.append(("create_folder_rule", pointer_prefix, list(access_groups)))
+        return {"rule_id": "r-new", "pointer_prefix": pointer_prefix}
+
+    def update_folder_rule(self, rule_id, access_groups, acting_as=None):
+        self.acl_calls.append(("update_folder_rule", rule_id, list(access_groups)))
+        return {"rule_id": rule_id}
+
+    def delete_folder_rule(self, rule_id):
+        self.acl_calls.append(("delete_folder_rule", rule_id, []))
+        return True
 
 
 class DummyFileHandler:
