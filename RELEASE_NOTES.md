@@ -17,6 +17,12 @@ gelten auch für später eingelesene Dokumente, sodass ein erneuter Abgleich
 eine geschlossene Wand nicht wieder öffnet. Beschreibung:
 [KnovasPlatform/docs/features/document-administration.md](KnovasPlatform/docs/features/document-administration.md)
 
+### Freigaben
+
+Zugriffsänderungen in der Verwaltung folgen dem Vier-Augen-Prinzip. Ein neuer
+Reiter «Freigaben» zeigt, was auf eine zweite Person wartet, und vermerkt jede
+Handlung, die ein Administrator allein ausgeführt hat.
+
 ## RemoteController
 
 Discover and sync local text files to Knovas (employee JWT; tenant mTLS for ingestion).

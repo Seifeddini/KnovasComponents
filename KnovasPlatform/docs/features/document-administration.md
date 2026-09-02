@@ -67,6 +67,27 @@ applies. Where the two rules leave **no reader at all**, the document is
 parked as a conflict for a human decision rather than silently released or
 silently hidden. The *nur Konflikte* filter on the Dokumente tab finds those.
 
+## Freigaben (four-eyes)
+
+Access changes made in the console — per-document groups, folder rules — are
+guarded actions. Whether they run immediately depends on who acts:
+
+- **An administrator acts alone**, by decision (2026-08-14). The change runs and
+  an `approval.bypassed` row records who did what. The Freigaben tab lists these
+  under *Umgehungen durch Administratoren*; they are never hidden.
+- **Strict mode** (*Strikt* on the Freigaben tab) makes administrators queue like
+  everyone else.
+- A queued request waits for a second person holding the `approver` or `admin`
+  role. The requester cannot confirm their own. On approval the console carries
+  the change out and marks the request executed; on rejection the reason is kept.
+- An approved request whose execution failed or whose kind the console cannot
+  execute stays visible under *Freigegeben, noch nicht ausgeführt* with an
+  *Ausführen* button to retry where possible.
+- Requests expire after 24 hours.
+
+State this to a buyer as it is: with the bypass on, four-eyes covers ordinary
+users and not the most privileged account.
+
 ## RemoteController
 
 `sources[].access_groups` in the sync request assigns groups to every
