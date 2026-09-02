@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import requests
 
 from identity.ingestion_compiler import CompiledIngestion
 from remote_controller_client import RemoteControllerClient, RemoteControllerError
@@ -88,3 +89,33 @@ def test_discover_passes_root_and_depth():
     client.discover(root="/mnt/autodoc", max_depth=2)
     _, url, _, _ = session.calls[0]
     assert "root=%2Fmnt%2Fautodoc" in url and "max_depth=2" in url
+
+
+def test_a_transport_failure_on_sync_still_rolls_back_and_is_a_client_error():
+    def sync_raises(_kw):
+        raise requests.exceptions.ConnectionError("down")
+    session = _Session({("GET", "config"): _Resp(200, {"old": True}),
+                        ("POST", "config"): _Resp(200),
+                        ("POST", "sync"): sync_raises})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(RemoteControllerError) as excinfo:
+        client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
+    assert excinfo.value.status is None
+    posted_configs = [body for m, u, body, _ in session.calls if m == "POST" and u.endswith("/sync/config")]
+    assert posted_configs == [{"new": True}, {"old": True}], "rolled back to the old config"
+
+
+def test_a_failing_rollback_does_not_mask_the_original_error():
+    call_count = {"config_post": 0}
+    def config_post_raises(_kw):
+        call_count["config_post"] += 1
+        if call_count["config_post"] == 2:
+            raise RuntimeError("boom")
+        return _Resp(200)
+    session = _Session({("GET", "config"): _Resp(200, {"old": True}),
+                        ("POST", "config"): config_post_raises,
+                        ("POST", "sync"): _Resp(400, {"error": "bad body"})})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(RemoteControllerError) as excinfo:
+        client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
+    assert excinfo.value.status == 400

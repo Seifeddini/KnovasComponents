@@ -44,8 +44,11 @@ class RemoteControllerClient:
         url = f"{self._base}{path}"
         if query:
             url += "?" + urlencode({k: v for k, v in query.items() if v is not None})
-        resp = self._session.request(method, url, json=body, headers=self._headers(),
-                                     timeout=self._timeout)
+        try:
+            resp = self._session.request(method, url, json=body, headers=self._headers(),
+                                         timeout=self._timeout)
+        except requests.RequestException as exc:
+            raise RemoteControllerError(f"RemoteController nicht erreichbar: {exc}", status=None) from exc
         try:
             payload = resp.json()
         except Exception:  # noqa: BLE001
@@ -80,6 +83,6 @@ class RemoteControllerClient:
         except RemoteControllerError:
             try:
                 self._call("POST", "/sync/config", body=previous)
-            except RemoteControllerError as rollback_exc:  # noqa: BLE001
+            except Exception as rollback_exc:  # noqa: BLE001
                 logger.error("Rollback der Sync-Konfiguration fehlgeschlagen: %s", rollback_exc)
             raise
