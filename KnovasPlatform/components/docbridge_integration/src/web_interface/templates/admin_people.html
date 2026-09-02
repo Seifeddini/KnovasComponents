@@ -28,6 +28,9 @@
 {% include '_sidebar.html' %}
 
 <main class="admin">
+    {% set admin_tab = 'people' %}
+    {% include '_admin_tabs.html' %}
+
     <h1>Personen</h1>
     <p class="hint">
         Wer sich anmelden darf, was er oder sie darf, und welche Zugriffsgruppen

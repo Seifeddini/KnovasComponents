@@ -184,4 +184,116 @@ def attach_document_routes(
             )
         return _documents_page(notice=f"{changed} Dokument(e) geaendert.")
 
+
+    # ---- Zugriffsgruppen: group tree and folder rules (plan Task 6) ----
+
+    def _groups_page(error=None, notice=None, status=200):
+        client = client_factory()
+        groups, rules = [], []
+        try:
+            groups = client.access_groups()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Zugriffsgruppen nicht abrufbar: %s", exc)
+            error = error or "Zugriffsgruppen sind derzeit nicht abrufbar."
+        try:
+            rules = client.folder_rules()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Ordnerregeln nicht abrufbar: %s", exc)
+        return render_template(
+            "admin_access_groups.html",
+            active_nav="admin",
+            **page_context(),
+            groups=groups,
+            rules=rules,
+            me=gate.current_user(),
+            error=error,
+            notice=notice,
+            csrf_token=csrf_token(),
+        ), status
+
+    @bp.route("/access-groups")
+    @require_admin
+    def access_groups():
+        return _groups_page()
+
+    @bp.route("/access-groups/create", methods=["POST"])
+    @require_admin
+    def create_access_group():
+        csrf_ok = _csrf_ok()
+        if not csrf_ok:
+            return _groups_page(
+                error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400
+            )
+        name = str(request.form.get("name", "") or "").strip()
+        parent = str(request.form.get("parent", "") or "").strip() or None
+        if not name:
+            return _groups_page(error="Bitte einen Namen angeben.", status=400)
+        try:
+            client_factory().create_access_group(name, parent=parent)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Gruppe nicht angelegt: %s", exc)
+            return _groups_page(error="Gruppe konnte nicht angelegt werden.",
+                                status=400)
+        audit.record(
+            gate.connection(), action="access_group.created",
+            actor=gate.current_user(), target_type="access_group",
+            target_id=name, detail={"parent": parent},
+        )
+        return _groups_page(notice=f'Gruppe "{name}" wurde angelegt.')
+
+    @bp.route("/folder-rules/save", methods=["POST"])
+    @require_admin
+    def save_folder_rule():
+        csrf_ok = _csrf_ok()
+        if not csrf_ok:
+            return _groups_page(
+                error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400
+            )
+        rule_id = str(request.form.get("rule_id", "") or "").strip()
+        prefix = str(request.form.get("pointer_prefix", "") or "").strip()
+        groups = [g for g in request.form.getlist("access_group") if g]
+        if not rule_id and not prefix:
+            return _groups_page(error="Bitte einen Ordner angeben.", status=400)
+        client = client_factory()
+        try:
+            if rule_id:
+                client.update_folder_rule(rule_id, groups)
+            else:
+                client.create_folder_rule(prefix, groups)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Ordnerregel nicht gespeichert: %s", exc)
+            return _groups_page(
+                error="Ordnerregel konnte nicht gespeichert werden.", status=400
+            )
+        audit.record(
+            gate.connection(), action="folder_rule.saved",
+            actor=gate.current_user(), target_type="folder_rule",
+            target_id=rule_id or prefix, detail={"access_groups": groups},
+        )
+        return _groups_page(notice="Ordnerregel gespeichert.")
+
+    @bp.route("/folder-rules/delete", methods=["POST"])
+    @require_admin
+    def delete_folder_rule():
+        csrf_ok = _csrf_ok()
+        if not csrf_ok:
+            return _groups_page(
+                error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400
+            )
+        rule_id = str(request.form.get("rule_id", "") or "").strip()
+        if not rule_id:
+            return _groups_page(error="Keine Regel ausgewaehlt.", status=400)
+        try:
+            client_factory().delete_folder_rule(rule_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Ordnerregel nicht geloescht: %s", exc)
+            return _groups_page(error="Regel konnte nicht geloescht werden.",
+                                status=400)
+        audit.record(
+            gate.connection(), action="folder_rule.deleted",
+            actor=gate.current_user(), target_type="folder_rule",
+            target_id=rule_id, detail={},
+        )
+        return _groups_page(notice="Ordnerregel geloescht.")
+
     return bp

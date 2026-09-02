@@ -1140,11 +1140,30 @@ def create_app(config_path: Optional[str] = None):
     # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
     feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
 
+    def _console_url():
+        """Link zur Verwaltung -- nur fuer Administratoren, sonst None.
+
+        Der Link ist Darstellung; ``require_admin`` auf der Route bleibt die
+        Kontrolle (REQ-A1/REQ-A2). Faellt die Identitaetsdatenbank aus,
+        verschwindet der Link, statt dass die Suchseite bricht.
+        """
+        if identity_gate is None:
+            return None
+        try:
+            user = identity_gate.current_user()
+        except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
+            logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
+            return None
+        if user is None or 'admin' not in (getattr(user, 'roles', None) or ()):
+            return None
+        return url_for('admin.people')
+
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
         return {
             'company_name': login_company_name,
             'feedback_url': feedback_url,
+            'console_url': _console_url(),
         }
 
     @app.route('/')

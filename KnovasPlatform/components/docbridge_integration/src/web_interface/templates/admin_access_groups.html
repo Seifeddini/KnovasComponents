@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zugriffsgruppen · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .admin { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .admin table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .admin th, .admin td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .admin th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+        .admin form.inline { display: inline; }
+        .admin .panel { border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px 18px; margin-top: 24px; }
+        .admin .msg { padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+        .admin .msg.error { background: #fef2f2; color: #b91c1c; }
+        .admin .msg.ok { background: #f0fdf4; color: #15803d; }
+        .admin label { display: block; margin-top: 10px; font-size: 13px; }
+        .admin input[type=text] { width: 100%; max-width: 360px; padding: 6px 8px; }
+        .admin .hint { color: #64748b; font-size: 12.5px; }
+        .admin .ptr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+        .admin .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; background: #e2e8f0; font-size: 12px; margin-right: 4px; }
+        .admin .badge.open { background: #fef9c3; color: #854d0e; }
+    </style>
+</head>
+<body>
+{% include '_sidebar.html' %}
+
+<main class="admin">
+    {% set admin_tab = 'access_groups' %}
+    {% include '_admin_tabs.html' %}
+
+    <h1>Zugriffsgruppen</h1>
+    <p class="hint">
+        Gruppen entscheiden, wer welche Dokumente sieht. Eine Ordnerregel
+        ordnet einen ganzen Pfad einer Gruppe zu — auch Dokumente, die später
+        dort eingelesen werden, erben sie automatisch.
+    </p>
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+
+    <section class="panel">
+        <h2>Gruppen</h2>
+        <table>
+            <thead><tr><th>Name</th><th>Übergeordnet</th></tr></thead>
+            <tbody>
+            {% for g in groups %}
+                <tr><td>{{ g.name }}</td><td>{{ g.parent_id or '—' }}</td></tr>
+            {% else %}
+                <tr><td colspan="2" class="hint">Noch keine Gruppen angelegt.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
+        <form method="post" action="{{ url_for('admin.create_access_group') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>Name <input type="text" name="name" required></label>
+            <label>Übergeordnet
+                <select name="parent">
+                    <option value="">— keine —</option>
+                    {% for g in groups %}
+                    <option value="{{ g.group_id }}">{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <p><button type="submit">Gruppe anlegen</button></p>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>Ordnerregeln</h2>
+        <p class="hint">
+            Eine Ordnerregel wirkt <strong>sofort</strong>: geändert wird ein
+            einziger Datensatz, nicht jedes Dokument. Deshalb ist das Ändern
+            einer Regel auch bei sehr grossen Beständen unmittelbar fertig.
+            Bereits vorhandene Dokumente übernehmen die Regel erst mit einem
+            Abgleich.
+        </p>
+        <table>
+            <thead>
+                <tr><th>Ordner</th><th>Gruppen</th><th>Version</th><th></th></tr>
+            </thead>
+            <tbody>
+            {% for r in rules %}
+                <tr>
+                    <td class="ptr">{{ r.pointer_prefix }}</td>
+                    <td>
+                        {% if r.access_groups %}
+                            {% for g in r.access_groups %}<span class="badge">{{ g }}</span>{% endfor %}
+                        {% else %}<span class="badge open">offen</span>{% endif %}
+                    </td>
+                    <td>{{ r.version }}</td>
+                    <td>
+                        <form method="post" class="inline"
+                              action="{{ url_for('admin.delete_folder_rule') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="rule_id" value="{{ r.rule_id }}">
+                            <button type="submit">Löschen</button>
+                        </form>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4" class="hint">Noch keine Ordnerregeln.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
+        <form method="post" action="{{ url_for('admin.save_folder_rule') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>Ordner
+                <input type="text" name="pointer_prefix"
+                       placeholder="rc-sync/mandate/muster/" required>
+            </label>
+            {% for g in groups %}
+            <label><input type="checkbox" name="access_group" value="{{ g.group_id }}"> {{ g.name }}</label>
+            {% endfor %}
+            <p><button type="submit">Regel speichern</button></p>
+        </form>
+    </section>
+</main>
+</body>
+</html>
