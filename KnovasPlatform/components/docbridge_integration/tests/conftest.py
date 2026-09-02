@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 
@@ -66,6 +67,8 @@ def identity_app(platform_db, tmp_path, monkeypatch):
     )
     monkeypatch.delenv("PLATFORM_DB_PASSWORD_FILE", raising=False)
 
+    broker_dir = tmp_path / "broker_keys"
+    broker_dir.mkdir()
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         'web:\n'
@@ -79,8 +82,10 @@ def identity_app(platform_db, tmp_path, monkeypatch):
         '    results_per_page: 20\n'
         'identity:\n'
         '  enabled: true\n'
+        f'  broker_key_dir: {json.dumps(str(broker_dir))}\n'
         'api:\n'
         '  base_url: "http://example.test"\n'
+        '  client_id: "tenant-a"\n'
         'open:\n'
         '  companion_enabled: false\n',
         encoding="utf-8",
@@ -151,8 +156,9 @@ class DummyKnovasClient:
 
     health_result = True
 
-    def __init__(self, config):
+    def __init__(self, config, *, principal_broker=None):
         self.config = config
+        self._principal_broker = principal_broker
 
     def health_check(self):
         return DummyKnovasClient.health_result
@@ -204,3 +210,176 @@ open:
     flask_app = web_app.create_app(str(config_path))
     flask_app.config.update(TESTING=True)
     return flask_app
+
+
+# ── principal assertion on the outbound Knovas client (Task 4) ───────────
+
+_ASSERTION_PASSWORD = "korrektes-pferd-batterie"
+
+
+class _StubConfig:
+    """Minimal ConfigLoader stand-in so assertion tests need no YAML or network."""
+
+    def __init__(self, values):
+        self._v = dict(values)
+
+    def get(self, key, default=None):
+        return self._v.get(key, default)
+
+    def get_bool(self, key, default=False):
+        if key not in self._v:
+            return default
+        v = self._v[key]
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ("true", "yes", "1", "on")
+        return bool(v)
+
+    def get_int(self, key, default=0):
+        if key not in self._v:
+            return default
+        try:
+            return int(self._v[key])
+        except (TypeError, ValueError):
+            return default
+
+
+def _unsigned_client_config():
+    return {
+        "api.base_url": "http://example.test",
+        "api.auth_type": "bearer",
+        "api.api_key": "",
+        "api.use_secured_api": False,
+        "api.allow_legacy_api_fallback": True,
+        "api.cert_path": "",
+        "api.key_path": "",
+        "api.ca_cert_path": "",
+        "api.customer_id": "",
+        "api.cert_auto_renew_enabled": False,
+        "api.cert_renew_threshold_days": 30,
+        "api.cert_check_interval_seconds": 3600,
+        "api.cert_renew_method": "csr",
+        "api.encryption_matrix_path": "",
+        "api.rate_limit.requests_per_second": 0,
+        "api.rate_limit.retry_attempts": 3,
+        "api.rate_limit.retry_backoff": 2,
+        "api.http_read_timeout": 5,
+    }
+
+
+class _SearchableClient:
+    """KnovasAPIClient with the brief's `.search()` name and the minted subject."""
+
+    def __init__(self, api_client, subject=None):
+        self._client = api_client
+        self.subject = None if subject is None else str(subject)
+
+    def search(self, query):
+        return self._client.search_documents(query)
+
+
+@pytest.fixture
+def broker_keypair(tmp_path):
+    from identity.broker_key import load_or_create_signer, public_pem
+
+    key_dir = tmp_path / "assertion_broker_keys"
+    key_dir.mkdir()
+    signer = load_or_create_signer(key_dir)
+    kid = (key_dir / "broker_ed25519.kid").read_text().strip()
+    return signer, public_pem(key_dir), kid
+
+
+@pytest.fixture
+def broker_public_pem(broker_keypair):
+    return broker_keypair[1]
+
+
+@pytest.fixture
+def broker_kid(broker_keypair):
+    return broker_keypair[2]
+
+
+@pytest.fixture
+def captured_requests(monkeypatch):
+    """Every outbound call's body, in order, after `_with_principal`.
+
+    The bug this whole task fixes was that minting was well tested and never
+    called — so assert on what left the process, not on what mint() returned.
+    Production's retrying path is `_make_request` (the brief called it
+    `_request`); patch that so `.search()` hits the recorder.
+    """
+    calls = []
+
+    class _Captured:
+        def __init__(self, body, headers):
+            self.body = body or {}
+            self.headers = headers
+
+    def _record(self, method, endpoint, data=None, params=None, **kwargs):
+        body = self._with_principal(data)
+        calls.append(_Captured(body, dict(self._get_headers())))
+
+        class _Resp:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"results": [], "total": 0}
+
+        return _Resp()
+
+    from knovas_client import KnovasAPIClient
+
+    monkeypatch.setattr(KnovasAPIClient, "_make_request", _record)
+    return calls
+
+
+@pytest.fixture
+def client_with_broker(identity_repo, broker_keypair):
+    """A KnovasAPIClient whose broker mints for a signed-in user with one group."""
+    from identity.principal import PrincipalBroker
+    from knovas_client import KnovasAPIClient
+
+    signer, _, _ = broker_keypair
+    user = identity_repo.create(
+        email="anwalt@testco.example",
+        display_name="Anwalt",
+        password=_ASSERTION_PASSWORD,
+    )
+    identity_repo.set_access_groups(user.id, ["litigation"])
+    broker = PrincipalBroker(
+        user_repo=identity_repo, signer=signer, tenant_id="tenant-a"
+    )
+
+    class _FixedUserBroker:
+        def current_user(self):
+            return user
+
+        def assertion_for(self, signed_in):
+            return broker.assertion_for(signed_in)
+
+    api_client = KnovasAPIClient(
+        config_loader=_StubConfig(_unsigned_client_config()),
+        principal_broker=_FixedUserBroker(),
+    )
+    return _SearchableClient(api_client, subject=user.id)
+
+
+@pytest.fixture
+def client_with_broker_no_user():
+    from knovas_client import KnovasAPIClient
+
+    class _NoUserBroker:
+        def current_user(self):
+            return None
+
+        def assertion_for(self, user):
+            raise AssertionError("must not mint without a user")
+
+    api_client = KnovasAPIClient(
+        config_loader=_StubConfig(_unsigned_client_config()),
+        principal_broker=_NoUserBroker(),
+    )
+    return _SearchableClient(api_client)
+

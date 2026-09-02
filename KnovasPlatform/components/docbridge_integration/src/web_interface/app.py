@@ -18,6 +18,7 @@ from flask import Flask, render_template, request, jsonify, send_file, session, 
 from flask_cors import CORS
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import subprocess
 import platform
@@ -48,6 +49,32 @@ from unc_path import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _RequestScopedBroker:
+    """Binds PrincipalBroker to whoever is signed in on *this* request.
+
+    The broker reads user_access_groups at mint time with no caching, so an
+    administrator's revocation takes effect on the user's next request rather
+    than when their session happens to expire.
+    """
+
+    def __init__(self, gate, signer, tenant_id):
+        self._gate = gate
+        self._signer = signer
+        self._tenant_id = tenant_id
+
+    def current_user(self):
+        return self._gate.current_user()
+
+    def assertion_for(self, user):
+        from identity.principal import PrincipalBroker
+
+        return PrincipalBroker(
+            user_repo=self._gate.users(),
+            signer=self._signer,
+            tenant_id=self._tenant_id,
+        ).assertion_for(user)
 
 
 def _configure_logging_for_wsgi(config) -> None:
@@ -679,8 +706,6 @@ def create_app(config_path: Optional[str] = None):
             response.headers['Pragma'] = 'no-cache'
         return response
 
-    api_client = KnovasAPIClient(config)
-    file_handler = AutoDocFileHandler()
     login_enabled = config.get_bool('web.login.enabled', True)
     web_app_title = str(config.get('web.app_title', 'Knovas Document Search') or 'Knovas Document Search')
     # Kurzform der Marke fuer die Titelzeile. Die Titel liefen auseinander
@@ -698,7 +723,9 @@ def create_app(config_path: Optional[str] = None):
     # configured, so an upgrade cannot leave both doors open.
     identity_enabled = config.get_bool('identity.enabled', False)
     identity_gate = None
+    principal_broker = None
     if identity_enabled:
+        from identity.broker_key import load_or_create_signer
         from identity.webauth import IdentityGate
 
         if login_configured:
@@ -709,6 +736,25 @@ def create_app(config_path: Optional[str] = None):
             )
         identity_gate = IdentityGate()
         app.teardown_request(identity_gate.close)
+
+        key_dir = config.get("identity.broker_key_dir")
+        if not key_dir:
+            raise RuntimeError(
+                "identity.enabled is true, but identity.broker_key_dir is not set. "
+                "The Platform must have a dedicated directory for the broker signing key."
+            )
+        tenant_id = config.get("api.client_id")
+        if not tenant_id:
+            raise RuntimeError(
+                "identity.enabled is true, but api.client_id is not set. "
+                "Principal assertions must name the Knovas tenant."
+            )
+        signer = load_or_create_signer(Path(key_dir))
+        principal_broker = _RequestScopedBroker(identity_gate, signer, tenant_id)
+        api_client = KnovasAPIClient(config, principal_broker=principal_broker)
+    else:
+        api_client = KnovasAPIClient(config)
+    file_handler = AutoDocFileHandler()
     weak_secret_values = {
         '',
         'change-me',

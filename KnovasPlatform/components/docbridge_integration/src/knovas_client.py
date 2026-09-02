@@ -32,6 +32,10 @@ from part_metadata import enrich_transmit_parts_with_location
 
 logger = logging.getLogger(__name__)
 
+# The field that carries a person across the mTLS boundary. KnowledgeBase reads
+# this exact name (services/rbac/assertion.py:65). Changing it breaks the contract.
+ASSERTION_FIELD = "principal_assertion"
+
 
 # Only transient transport failures are safe to retry. HTTPError (raised by
 # raise_for_status on 4xx/5xx) is a RequestException subclass but MUST NOT be
@@ -889,14 +893,18 @@ def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, An
 class KnovasAPIClient:
     """Client for Knovas API operations."""
     
-    def __init__(self, config_loader=None):
+    def __init__(self, config_loader=None, *, principal_broker=None):
         """
         Initialize Knovas API client.
         
         Args:
             config_loader: ConfigLoader instance. If None, uses global config.
+            principal_broker: Optional request-scoped broker that mints a
+                principal assertion for the signed-in user. None keeps
+                existing unsigned construction sites working.
         """
         self.config = config_loader or get_config()
+        self._principal_broker = principal_broker
         
         self.base_url = self.config.get('api.base_url', 'http://localhost:5000')
         self.auth_type = self.config.get('api.auth_type', 'bearer')
@@ -1251,6 +1259,36 @@ class KnovasAPIClient:
                 )
                 self._attempt_certificate_renewal()
     
+    def _with_principal(self, data):
+        """Attach the caller's assertion to an outgoing body.
+
+        Fail closed when there is no authenticated user. Sending an unsigned
+        call would resolve to asserted=False at the Secure API — "unrestricted
+        documents only" — so the request would return *more* than a correctly
+        scoped one. A wall that widens under failure is not a wall.
+        """
+        if self._principal_broker is None:
+            return data
+
+        user = self._principal_broker.current_user()
+        if user is None:
+            raise PermissionError(
+                "No authenticated user for this request; refusing to call "
+                "Knovas without a principal assertion."
+            )
+
+        assertion = self._principal_broker.assertion_for(user)
+        if data is None:
+            return {ASSERTION_FIELD: assertion}
+        if not isinstance(data, dict):
+            # Every secured endpoint takes a JSON object. A non-dict body here
+            # means a caller we have not accounted for, and guessing how to
+            # attach the assertion would be how one route quietly loses it.
+            raise TypeError(
+                f"Cannot attach a principal assertion to a {type(data).__name__} body."
+            )
+        return {**data, ASSERTION_FIELD: assertion}
+
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""
         headers = {
@@ -1305,6 +1343,7 @@ class KnovasAPIClient:
         
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
+        data = self._with_principal(data)
         
         logger.debug(f"Making {method} request to {url}")
         
@@ -1335,6 +1374,7 @@ class KnovasAPIClient:
         self._rate_limit()
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
+        data = self._with_principal(data)
         response = self._session.request(
             method=method,
             url=url,
