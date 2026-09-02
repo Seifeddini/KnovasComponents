@@ -1,10 +1,10 @@
 """The firm's administration console.
 
-Three tabs — People, Dokumente and Zugriffsgruppen. The others (Walls,
-Approvals, Ingestion) attach to the same blueprint and reuse
-``require_admin``. The document and folder-rule routes live in
-``admin_documents.py`` and are mounted here so there is one blueprint and
-one gate.
+Four tabs — Personen, Dokumente, Zugriffsgruppen, Freigaben. The others
+(Walls, Ingestion) attach to the same blueprint and reuse ``require_admin``.
+The document and folder-rule routes live in ``admin_documents.py`` and the
+approvals routes in ``admin_approvals.py``; both are mounted here so there is
+one blueprint and one gate.
 
 Every route is authorised on the *route*, not on whether the link is drawn.
 Hiding a page is presentation; refusing the POST is the control, and the tests
@@ -258,6 +258,24 @@ def create_admin_blueprint(
         page_context=page_context,
         client_factory=client_factory,
         require_admin=require_admin,
+    )
+
+    from web_interface.admin_approvals import attach_approval_routes
+    from web_interface.admin_documents import execute_acl_change
+
+    attach_approval_routes(
+        bp,
+        gate,
+        csrf_valid=csrf_valid,
+        csrf_token=csrf_token,
+        page_context=page_context,
+        require_approver=require_approver,
+        require_admin=require_admin,
+        executors={
+            "acl_change": lambda payload, actor: execute_acl_change(
+                client_factory(), payload, actor=actor, conn=gate.connection()
+            ),
+        },
     )
 
     return bp

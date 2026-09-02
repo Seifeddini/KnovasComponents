@@ -11,4 +11,7 @@
     <a href="{{ url_for('admin.access_groups') }}"
        class="{% if admin_tab == 'access_groups' %}active{% endif %}"
        {% if admin_tab == 'access_groups' %}aria-current="page"{% endif %}>Zugriffsgruppen</a>
+    <a href="{{ url_for('admin.approvals') }}"
+       class="{% if admin_tab == 'approvals' %}active{% endif %}"
+       {% if admin_tab == 'approvals' %}aria-current="page"{% endif %}>Freigaben</a>
 </nav>
