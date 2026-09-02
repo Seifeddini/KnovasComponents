@@ -14,6 +14,7 @@
 | Ubuntu host notes | [platforms/ubuntu.md](platforms/ubuntu.md) |
 | Debian host notes | [platforms/debian.md](platforms/debian.md) |
 | Windows host notes | [platforms/windows.md](platforms/windows.md) |
+| Administer documents and folder access rules | [features/document-administration.md](features/document-administration.md) |
 | Open Office/UNC files from the browser | [integration/opening-documents.md](integration/opening-documents.md) |
 | Open-token HTTP API | [integration/open-tokens-api.md](integration/open-tokens-api.md) |
 | Common errors | [integration/troubleshooting.md](integration/troubleshooting.md) |
