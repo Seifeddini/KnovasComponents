@@ -166,6 +166,24 @@ def test_export_is_cached_within_ttl():
     assert calls["n"] == 1
 
 
+def test_ttl_zero_disables_export_cache():
+    """ttl_seconds=0 must never serve or retain cached exports."""
+    client = FakeGraphClient()
+    calls = {"n": 0}
+    original = client.graph_export
+
+    def counting():
+        calls["n"] += 1
+        return original()
+
+    client.graph_export = counting
+    source = GraphOntologySource(client, ttl_seconds=0, now=lambda: 1000.0)
+    source.summary()
+    source.summary()
+    assert calls["n"] == 2
+    assert source._export_by_subject == {}
+
+
 class _Subject:
     def __init__(self, subject_id):
         self.id = subject_id
@@ -252,6 +270,38 @@ def test_brokered_export_cache_hits_for_the_same_subject():
     source.summary()
     source.summary()
     assert calls["n"] == 1
+
+
+def test_brokered_export_cache_evicts_by_last_access_not_insertion():
+    """Re-accessing a subject refreshes LRU recency; eviction drops least-recently used."""
+    broker = _SwitchableBroker()
+    client = FakeGraphClient()
+    client._principal_broker = broker
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(
+        client, ttl_seconds=3600, max_cache_subjects=3, now=lambda: clock["t"],
+    )
+
+    broker.user = _Subject("user-a")
+    source.summary()                    # insert user-a @ 1000
+    clock["t"] = 1001.0
+    broker.user = _Subject("user-b")
+    source.summary()                    # insert user-b @ 1001
+    clock["t"] = 1002.0
+    broker.user = _Subject("user-c")
+    source.summary()                    # insert user-c @ 1002 — cache full
+
+    clock["t"] = 1003.0
+    broker.user = _Subject("user-a")
+    source.summary()                    # hit user-a — must refresh to 1003
+
+    clock["t"] = 1004.0
+    broker.user = _Subject("user-d")
+    source.summary()                    # insert user-d — evict LRU (user-b @ 1001)
+
+    assert set(source._export_by_subject) == {"user-a", "user-c", "user-d"}
+    assert "user-b" not in source._export_by_subject
+    assert source._export_by_subject["user-a"][0] == 1003.0
 
 
 def test_tolerates_alternative_field_names():

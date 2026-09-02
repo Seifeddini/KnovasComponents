@@ -148,10 +148,11 @@ class GraphOntologySource:
     def _export(self) -> Dict[str, Any]:
         key = self._export_cache_key()
         now = self._now()
-        if key is not None:
+        if key is not None and self._ttl > 0:
             self._evict_stale_export_cache(now)
             hit = self._export_by_subject.get(key)
-            if hit is not None and (self._ttl <= 0 or now - hit[0] < self._ttl):
+            if hit is not None and now - hit[0] < self._ttl:
+                self._export_by_subject[key] = (now, hit[1])
                 return hit[1]
         from knovas_client import _graph_payload_list
 
@@ -169,7 +170,7 @@ class GraphOntologySource:
         if not edges:
             edges = self._client.graph_edges()
         data = {"node_types": node_types, "nodes": nodes, "edges": edges}
-        if key is not None:
+        if key is not None and self._ttl > 0:
             self._export_by_subject[key] = (now, data)
             self._evict_stale_export_cache(now)
         return data
