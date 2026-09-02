@@ -60,3 +60,26 @@ def record(
         )
     except Exception:  # noqa: BLE001
         logger.exception("AUDIT WRITE FAILED action=%s target=%s", action, target_id)
+
+
+def recent(
+    conn: Any, *, action: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    """The newest rows, newest first. A read over an append-only table.
+
+    Keys: id, occurred_at, actor_user_id, actor_email, action, target_type,
+    target_id, outcome, detail. ``detail`` is the JSONB column as a dict.
+    """
+    sql = (
+        "SELECT id, occurred_at, actor_user_id, actor_email_snapshot, action, "
+        "target_type, target_id, outcome, detail FROM audit_log"
+    )
+    params: tuple[Any, ...] = ()
+    if action:
+        sql += " WHERE action = %s"
+        params = (action,)
+    sql += " ORDER BY occurred_at DESC, id DESC LIMIT %s"
+    rows = conn.execute(sql, params + (int(limit),)).fetchall()
+    keys = ("id", "occurred_at", "actor_user_id", "actor_email", "action",
+            "target_type", "target_id", "outcome", "detail")
+    return [dict(zip(keys, row)) for row in rows]
