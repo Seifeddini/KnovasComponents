@@ -15,6 +15,11 @@ Platform's `X-Platform-Principal` assertion may use `/discover`, `/sync`,
 existing Knovas-employee JWT path. Without it, only Knovas employees can (the
 header is refused with 403 when this path is unset).
 
+The Platform console's *Speichern und uebertragen* writes `POST /sync/config`
+(after reading the current one with `GET /sync/config`), so the push only works
+with `RC_SYNC_CONFIG_API_ENABLED=true`; with the default `false` the API answers
+404 and the console cannot transfer the profile at all.
+
 ### Search context sidecars
 
 Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). RemoteController writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.

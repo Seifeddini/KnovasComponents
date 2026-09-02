@@ -49,6 +49,9 @@ services:
       - docbridge_broker_key:/app/secrets/broker:ro
     environment:
       RC_PLATFORM_BROKER_PUBKEY_PATH: /app/secrets/broker/broker_ed25519.pub
+      # The console's "Speichern und uebertragen" writes GET/POST /sync/config;
+      # that API is off by default and the push fails at its first call without this.
+      RC_SYNC_CONFIG_API_ENABLED: "true"
     ports:
       - "127.0.0.1:5001:5001"
     restart: unless-stopped

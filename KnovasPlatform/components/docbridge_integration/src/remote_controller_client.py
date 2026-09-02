@@ -73,10 +73,30 @@ class RemoteControllerClient:
     def get_sync_config(self) -> dict:
         return self._call("GET", "/sync/config")
 
+    def _previous_sync_config(self) -> dict:
+        """The config a rollback would restore, or a sentence naming the switch.
+
+        RemoteController's sync-config API is off unless
+        RC_SYNC_CONFIG_API_ENABLED is true, and a disabled API answers 404
+        with "Sync config API is disabled" -- true, and useless to the
+        administrator who reads it in the console. Name the variable instead.
+        """
+        try:
+            return self.get_sync_config()
+        except RemoteControllerError as exc:
+            if exc.status == 404:
+                raise RemoteControllerError(
+                    "RemoteController hat die Sync-Konfigurations-API abgeschaltet "
+                    "(RC_SYNC_CONFIG_API_ENABLED=false); ohne sie kann das Profil "
+                    "nicht uebertragen werden.",
+                    status=404,
+                ) from exc
+            raise
+
     def push(self, compiled: CompiledIngestion) -> dict:
         """Config first, then the folder list. If RemoteController refuses the
         folder list, the previous config is put back so the two never diverge."""
-        previous = self.get_sync_config()
+        previous = self._previous_sync_config()
         self._call("POST", "/sync/config", body=compiled.sync_config)
         try:
             return self._call("POST", "/sync", body=compiled.sync_request)

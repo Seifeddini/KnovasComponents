@@ -119,3 +119,16 @@ def test_a_failing_rollback_does_not_mask_the_original_error():
     with pytest.raises(RemoteControllerError) as excinfo:
         client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
     assert excinfo.value.status == 400
+
+
+def test_a_disabled_sync_config_api_names_the_variable():
+    """C1: RC answers 404 on GET /sync/config when RC_SYNC_CONFIG_API_ENABLED
+    is false. "Sync config API is disabled" points the administrator at
+    nothing; the message must name the variable that turns it on."""
+    session = _Session({("GET", "config"): _Resp(404, {"error": "Sync config API is disabled"})})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(RemoteControllerError) as excinfo:
+        client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
+    assert excinfo.value.status == 404
+    assert "RC_SYNC_CONFIG_API_ENABLED=false" in str(excinfo.value)
+    assert [m for m, _u, _b, _h in session.calls] == ["GET"], "nothing is written after the refusal"

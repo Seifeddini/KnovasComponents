@@ -122,6 +122,10 @@ RemoteController accepts the administrator's own Platform-signed principal in
 `X-Platform-Principal` (`RC_PLATFORM_BROKER_PUBKEY_PATH`); nobody needs a Knovas
 employee token, a shell on the host, or `chmod`.
 
+RemoteController must also have `RC_SYNC_CONFIG_API_ENABLED=true`: *Speichern und
+übertragen* reads and writes `/sync/config`, and that API is off by default --
+without it the push fails at its first call. The root `docker-compose.yml` sets it.
+
 ## Scale
 
 The Dokumente list pages by **keyset cursor**: the backend returns
