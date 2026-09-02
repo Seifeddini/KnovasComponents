@@ -1031,7 +1031,7 @@ class TestTemplate:
             throughputs={"normal": {"label": "Normal", "description": "..."}},
             file_types={"documents": {"label": "Dokumente", "description": "..."}},
             groups=[{"group_id": "g-lit", "name": "Litigation"}],
-            status={"state": "idle"}, current=None, versions=[], preview=None,
+            status={"scheduler_state": "idle", "files_synced_local": 0}, current=None, versions=[], preview=None,
             support_json=None,
         )
         assert "/mnt/autodoc/mandate" in html
@@ -1191,7 +1191,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             rc_status = rc_client_factory().status()
         except Exception as exc:  # noqa: BLE001
             logger.warning("RemoteController-Status nicht abrufbar: %s", exc)
-            rc_status = {"state": "unbekannt"}
+            rc_status = {"scheduler_state": "unbekannt"}
         groups = []
         try:
             groups = client_factory().access_groups()
@@ -1242,11 +1242,17 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         for source in profile.sources:
             try:
                 found = rc.discover(root=source.path, max_depth=3)
-                summary.append({"path": source.path, "files": found.get("file_count"),
-                                "folders": len(found.get("folders") or []), "error": None})
+                entries = found.get("entries") or []
+                summary.append({
+                    "path": source.path,
+                    "files": sum(1 for e in entries if e.get("type") == "file"),
+                    "folders": sum(1 for e in entries if e.get("type") == "directory"),
+                    "truncated": bool(found.get("truncated")),
+                    "error": None,
+                })
             except (RemoteControllerError, PermissionError) as exc:
                 summary.append({"path": source.path, "files": None, "folders": None,
-                                "error": str(exc)})
+                                "truncated": False, "error": str(exc)})
         return _page(form_from_profile(profile), preview=summary,
                      support_json=redact_for_support(profile),
                      notice="Vorschau erstellt. Noch nichts gespeichert.")
@@ -1375,7 +1381,8 @@ Create `src/web_interface/templates/admin_ingestion.html` with the standard head
 
     <section class="panel">
         <h2>Status</h2>
-        <p>Abgleich: <strong>{{ status.state }}</strong>
+        <p>Abgleich: <strong>{{ status.scheduler_state }}</strong>
+            {% if status.files_synced_local is defined %}· {{ status.files_synced_local }} Dateien lokal abgeglichen{% endif %}
             {% if current %}· Profil Version {{ current.version }}{% if current.pushed_at %}, übertragen{% endif %}{% endif %}
         </p>
         <form class="inline" method="post" action="{{ url_for('admin.start') }}">
@@ -1397,7 +1404,7 @@ Create `src/web_interface/templates/admin_ingestion.html` with the standard head
             {% for p in preview %}
                 <tr><td class="ptr">{{ p.path }}</td>
                     <td>{% if p.error %}<span class="msg error">{{ p.error }}</span>{% else %}{{ p.files if p.files is not none else '—' }}{% endif %}</td>
-                    <td>{{ p.folders if p.folders is not none else '—' }}</td></tr>
+                    <td>{{ p.folders if p.folders is not none else '—' }}{% if p.truncated %} <span class="hint">(Liste gekürzt)</span>{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>
