@@ -6,6 +6,15 @@ Full environment and scheduler reference. Required variables for boot are listed
 
 See [.env.example](../.env.example) for the complete list with defaults.
 
+### RC_PLATFORM_BROKER_PUBKEY_PATH
+
+Path to the firm's Platform's `broker_ed25519.pub`, mounted read-only. With it
+set, a signed-in user carrying the `admin` or `ingestion_manager` role in the
+Platform's `X-Platform-Principal` assertion may use `/discover`, `/sync`,
+`/sync/config`, and `/sync/start|stop|status` through the console, beside the
+existing Knovas-employee JWT path. Without it, only Knovas employees can (the
+header is refused with 403 when this path is unset).
+
 ### Search context sidecars
 
 Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). RemoteController writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.

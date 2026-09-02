@@ -13,6 +13,13 @@ import requests
 from flask import g, jsonify, request
 
 from auth.jwt_identity import employee_id_from_jwt_token
+from auth.platform_principal import (
+    ADMIN_ROLES,
+    HEADER as PLATFORM_PRINCIPAL_HEADER,
+    InvalidPrincipalError,
+    ReplayGuard,
+    verify_platform_principal,
+)
 from config import get_config
 
 _cache: dict[tuple[str, str], tuple[float, str]] = {}
@@ -265,6 +272,45 @@ def require_knovas_verify(func):
             return jsonify(body), status
         g.rc_employee_id = employee_id
         g.rc_client_id = client_id
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+_platform_replay = ReplayGuard()
+
+
+def _platform_public_pem(cfg) -> bytes:
+    with open(cfg.rc_platform_broker_pubkey_path, "rb") as fh:
+        return fh.read()
+
+
+def require_operator_or_tenant_admin(func):
+    """A Knovas employee (existing path) OR the firm's own administrator,
+    presenting the Platform-signed principal in X-Platform-Principal with
+    the admin or ingestion_manager role (KC-IN-1). Each route declares which
+    principals it accepts by using this decorator."""
+    operator_path = require_internal_access(func)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        token = (request.headers.get(PLATFORM_PRINCIPAL_HEADER) or "").strip()
+        if not token:
+            return operator_path(*args, **kwargs)
+        cfg = get_config()
+        if not cfg.rc_platform_broker_pubkey_path:
+            return jsonify({"error": "Platform principals are not configured", "status": "error"}), 403
+        try:
+            principal = verify_platform_principal(
+                token, public_pem=_platform_public_pem(cfg),
+                expected_tenant=cfg.rc_client_id, replay=_platform_replay,
+            )
+        except (InvalidPrincipalError, OSError):
+            return jsonify({"error": "Not authorized", "status": "error"}), 401
+        if not (set(principal.roles) & ADMIN_ROLES):
+            return jsonify({"error": "Not authorized", "status": "error"}), 403
+        g.rc_client_id = cfg.rc_client_id
+        g.rc_principal = principal
         return func(*args, **kwargs)
 
     return wrapper
