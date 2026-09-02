@@ -31,7 +31,7 @@ def test_json_round_trip_is_lossless():
     )
 
 
-pytestmark = pytest.mark.skipif(
+_needs_db = pytest.mark.skipif(
     not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN"
 )
 
@@ -42,6 +42,7 @@ def by(identity_repo):
                                 password="korrektes-pferd-batterie")
 
 
+@_needs_db
 def test_first_save_is_version_one_and_current(platform_db, by):
     repo = IngestionProfileRepository(platform_db)
     assert repo.current() is None
@@ -50,6 +51,7 @@ def test_first_save_is_version_one_and_current(platform_db, by):
     assert repo.current().id == v.id
 
 
+@_needs_db
 def test_a_second_save_supersedes_the_first(platform_db, by):
     repo = IngestionProfileRepository(platform_db)
     repo.save_new_version(_profile(), by=by)
@@ -59,6 +61,7 @@ def test_a_second_save_supersedes_the_first(platform_db, by):
     assert repo.versions()[1].is_current is False
 
 
+@_needs_db
 def test_restore_copies_an_old_version_as_a_new_current_one(platform_db, by):
     repo = IngestionProfileRepository(platform_db)
     repo.save_new_version(_profile(schedule="nightly"), by=by)
@@ -68,6 +71,7 @@ def test_restore_copies_an_old_version_as_a_new_current_one(platform_db, by):
     assert repo.current().version == 3
 
 
+@_needs_db
 def test_mark_pushed_records_the_moment(platform_db, by):
     repo = IngestionProfileRepository(platform_db)
     v = repo.save_new_version(_profile(), by=by)
