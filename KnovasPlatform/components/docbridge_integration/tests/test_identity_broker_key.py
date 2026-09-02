@@ -47,6 +47,20 @@ def test_unreadable_key_raises_rather_than_regenerating(tmp_path: Path):
         load_or_create_signer(tmp_path)
 
 
+def test_leftover_public_key_raises_rather_than_regenerating(tmp_path: Path):
+    (tmp_path / "broker_ed25519.pub").write_bytes(b"registered public key")
+
+    with pytest.raises(BrokerKeyUnavailableError):
+        load_or_create_signer(tmp_path)
+
+
+def test_leftover_key_id_raises_rather_than_regenerating(tmp_path: Path):
+    (tmp_path / "broker_ed25519.kid").write_text("registered-key-id")
+
+    with pytest.raises(BrokerKeyUnavailableError):
+        load_or_create_signer(tmp_path)
+
+
 def test_directory_missing_raises(tmp_path: Path):
     with pytest.raises(BrokerKeyUnavailableError):
         load_or_create_signer(tmp_path / "nope" / "deeper")

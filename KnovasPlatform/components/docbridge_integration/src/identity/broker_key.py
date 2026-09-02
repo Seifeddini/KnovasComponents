@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import os
 import secrets
-import stat
 from pathlib import Path
 
 from .assertion import AssertionSigner, Keypair, generate_keypair
@@ -37,8 +36,9 @@ def _paths(key_dir: Path) -> tuple[Path, Path, Path]:
 def load_or_create_signer(key_dir: Path, *, key_id: str | None = None) -> AssertionSigner:
     key_dir = Path(key_dir)
     priv, pub, kid = _paths(key_dir)
+    existing_artifacts = [path for path in (priv, pub, kid) if path.exists()]
 
-    if priv.exists():
+    if len(existing_artifacts) == 3:
         try:
             return AssertionSigner(priv.read_bytes(), key_id=kid.read_text().strip())
         except Exception as exc:  # noqa: BLE001 - any failure here is fatal by design
@@ -50,6 +50,14 @@ def load_or_create_signer(key_dir: Path, *, key_id: str | None = None) -> Assert
                 "rotate deliberately via the Employee Kit."
             ) from exc
 
+    if existing_artifacts:
+        existing_names = ", ".join(path.name for path in existing_artifacts)
+        raise BrokerKeyUnavailableError(
+            f"Incomplete broker key bundle in {key_dir}: found {existing_names}. "
+            "Refusing to generate or overwrite key material. Restore all three "
+            "artifacts from backup, or rotate deliberately via the Employee Kit."
+        )
+
     if not key_dir.is_dir():
         raise BrokerKeyUnavailableError(
             f"{key_dir} is not a directory. The broker key directory must exist and "
@@ -58,8 +66,15 @@ def load_or_create_signer(key_dir: Path, *, key_id: str | None = None) -> Assert
 
     pair: Keypair = generate_keypair()
     resolved_key_id = key_id or secrets.token_urlsafe(16)
-    priv.write_bytes(pair.private_pem)
-    os.chmod(priv, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+    try:
+        descriptor = os.open(priv, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as exc:
+        raise BrokerKeyUnavailableError(
+            f"{priv} appeared while creating the broker key. Refusing to overwrite "
+            "key material created by another process."
+        ) from exc
+    with os.fdopen(descriptor, "wb") as private_file:
+        private_file.write(pair.private_pem)
     pub.write_bytes(pair.public_pem)
     kid.write_text(resolved_key_id)
     return AssertionSigner(pair.private_pem, key_id=resolved_key_id)
