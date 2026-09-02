@@ -159,8 +159,10 @@ silently regenerate a unreadable or corrupt key — it fails closed and refuses
 to start, because a fresh key signs fine and the failure only surfaces later as
 "search returns nothing".
 
-**Rotation.** Deliberate rotation goes through the Employee Kit; do not delete
-the `.pem` and hope the Platform mints a new one on restart.
+Before enabling brokered identity, follow the ordered
+[broker identity cutover runbook](broker-cutover.md). For deliberate rotation,
+use the approved key-registration procedure; do not delete the `.pem` and hope
+the Platform mints a new one on restart.
 
 ## Troubleshooting
 
