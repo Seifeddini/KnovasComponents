@@ -1362,6 +1362,21 @@ git commit -m "feat(admin): Freigaben tab — pending queue, approve and execute
 
 ---
 
+**Amendment from the Task 4 review (2026-09-02).** The reference code above listed only
+`service.pending()`, so a request that was approved but whose executor raised — or whose
+kind has no executor — vanished from the page with no retry path. Implemented in addition:
+
+- `ApprovalService.approved() -> list[ApprovalRequest]` (status `approved`, newest first).
+- `POST /admin/approvals/<request_id>/execute` (`@require_approver`, CSRF first): runs the
+  registered executor for an approved request and calls `mark_executed`; approve and
+  execute share one local `_execute(req, me)` helper so the two paths cannot drift.
+- A template section *Freigegeben, noch nicht ausgeführt* listing those requests with an
+  *Ausführen* button where an executor exists and a plain note where none does.
+- Tests: the route-gate/CSRF source test covers `execute`; a live test drives
+  queue → approve-with-failing-backend → visible under the new section → execute → executed,
+  using a `fail_next` switch on `DummyKnovasClient`; a second live test shows a kind with no
+  executor listed without a button.
+
 ### Task 5: Documentation
 
 **Files:**
