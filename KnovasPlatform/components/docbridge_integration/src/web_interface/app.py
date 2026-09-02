@@ -698,6 +698,7 @@ def create_app(config_path: Optional[str] = None):
     # configured, so an upgrade cannot leave both doors open.
     identity_enabled = config.get_bool('identity.enabled', False)
     identity_gate = None
+    rc_client = None
     if identity_enabled:
         from identity.webauth import IdentityGate
 
@@ -755,8 +756,14 @@ def create_app(config_path: Optional[str] = None):
                     tenant_id=self._tenant_id,
                 ).assertion_for(user)
 
-        api_client.attach_principal_broker(
-            _RequestScopedBroker(identity_gate, broker_signer, str(api_client.customer_id))
+        principal_broker = _RequestScopedBroker(identity_gate, broker_signer, str(api_client.customer_id))
+        api_client.attach_principal_broker(principal_broker)
+
+        from remote_controller_client import RemoteControllerClient
+
+        rc_client = RemoteControllerClient(
+            str(config.get('remote_controller.base_url', 'http://remote-controller:5001')),
+            principal_broker=principal_broker,
         )
     weak_secret_values = {
         '',

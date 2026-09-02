@@ -243,6 +243,10 @@ performance:
   # Memory limits
   max_file_size: 104857600  # 100 MB
 
+# The firm's own RemoteController, on knovas-internal only (never published).
+remote_controller:
+  base_url: "${RC_BASE_URL:-http://remote-controller:5001}"
+
 # Per-user identity (Pflichtenheft B1/B2). Off by default. When on, the shared
 # COMPANY_LOGIN_* credential must be removed, and the Platform signs each user
 # into every Knovas call with the Ed25519 key kept in broker_key_dir -- a
