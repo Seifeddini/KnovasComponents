@@ -55,6 +55,17 @@ def mint(private, public_pem, *, alg="EdDSA", typ="knovas-principal+jws", kid=No
     return f"{signing_input}.{_b64(sig)}"
 
 
+def _raw_token(private, header_obj, payload_obj):
+    """Build a token whose header/payload need not be JSON objects at all -
+    `[]`, `"x"`, `null`, `7` all decode cleanly as JSON but are not dicts.
+    Signed for real, so a test using this exercises the shape check itself
+    rather than an incidental signature failure."""
+    signing_input = (f"{_b64(json.dumps(header_obj).encode())}."
+                     f"{_b64(json.dumps(payload_obj).encode())}")
+    sig = private.sign(signing_input.encode("ascii"))
+    return f"{signing_input}.{_b64(sig)}"
+
+
 class TestVerify:
     def test_a_genuine_token_yields_the_principal(self, keypair):
         private, pub = keypair
@@ -91,6 +102,21 @@ class TestVerify:
         _, pub = keypair
         assert derive_key_id(pub) == "bk-" + hashlib.sha256(pub).hexdigest()[:16]
 
+    def test_a_non_dict_header_is_refused_not_crashed(self, keypair):
+        private, pub = keypair
+        token = _raw_token(private, header_obj=[], payload_obj={"sub": "user-1"})
+        with pytest.raises(InvalidPrincipalError):
+            verify_platform_principal(token, public_pem=pub, expected_tenant=TENANT,
+                                      replay=ReplayGuard())
+
+    def test_a_non_dict_payload_is_refused_not_crashed(self, keypair):
+        private, pub = keypair
+        header = {"alg": "EdDSA", "typ": "knovas-principal+jws", "kid": derive_key_id(pub)}
+        token = _raw_token(private, header_obj=header, payload_obj="x")
+        with pytest.raises(InvalidPrincipalError):
+            verify_platform_principal(token, public_pem=pub, expected_tenant=TENANT,
+                                      replay=ReplayGuard())
+
 
 class TestTheGate:
     @pytest.fixture
@@ -126,3 +152,38 @@ class TestTheGate:
 
     def test_without_the_header_the_employee_path_still_applies(self, rc_client, configured):
         assert rc_client.get("/sync/status").status_code == 401
+
+    def test_a_signed_admin_is_also_admitted(self, rc_client, configured):
+        private, pub = configured
+        r = rc_client.get("/sync/status",
+                          headers={"X-Platform-Principal": mint(private, pub, rol=["admin"])})
+        assert r.status_code == 200
+
+    def test_a_non_dict_header_through_the_app_is_401_not_500(self, rc_client, configured):
+        private, pub = configured
+        token = _raw_token(private, header_obj=[], payload_obj={"sub": "user-1"})
+        r = rc_client.get("/sync/status", headers={"X-Platform-Principal": token})
+        assert r.status_code == 401
+
+    def test_a_non_dict_payload_through_the_app_is_401_not_500(self, rc_client, configured):
+        private, pub = configured
+        header = {"alg": "EdDSA", "typ": "knovas-principal+jws", "kid": derive_key_id(pub)}
+        token = _raw_token(private, header_obj=header, payload_obj="x")
+        r = rc_client.get("/sync/status", headers={"X-Platform-Principal": token})
+        assert r.status_code == 401
+
+    @pytest.fixture
+    def unconfigured(self, keypair, monkeypatch, tmp_watch_root):
+        monkeypatch.setenv("RC_PLATFORM_BROKER_PUBKEY_PATH", "")
+        monkeypatch.setenv("RC_CLIENT_ID", TENANT)
+        monkeypatch.setenv("RC_INTERNAL_LOCAL_BYPASS", "false")
+        monkeypatch.setenv("RC_DISCOVER_LOCAL_BYPASS", "false")
+        from config import reset_config, load_config
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        return keypair
+
+    def test_with_the_feature_off_the_header_is_refused_with_403(self, rc_client, unconfigured):
+        private, pub = unconfigured
+        r = rc_client.get("/sync/status", headers={"X-Platform-Principal": mint(private, pub)})
+        assert r.status_code == 403

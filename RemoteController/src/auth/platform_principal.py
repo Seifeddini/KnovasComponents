@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 HEADER = "X-Platform-Principal"
 ALGORITHM = "EdDSA"
@@ -86,6 +87,13 @@ def verify_platform_principal(
     except Exception as exc:  # noqa: BLE001
         raise InvalidPrincipalError("refused") from exc
 
+    # A decoded JSON value need not be an object: `[]`, `null`, `"x"` and `7`
+    # all parse cleanly. Anything but a dict fails every .get() below with an
+    # AttributeError, which would surface as an unauthenticated 500 instead
+    # of a uniform refusal. Reject the shape before reading either field.
+    if not isinstance(header, dict) or not isinstance(payload, dict):
+        raise InvalidPrincipalError("refused")
+
     # alg is pinned here, never read to choose a verifier; the header's value
     # is only compared.
     if header.get("alg") != ALGORITHM or header.get("typ") != TOKEN_TYPE:
@@ -93,9 +101,10 @@ def verify_platform_principal(
     if header.get("kid") != derive_key_id(public_pem):
         raise InvalidPrincipalError("refused")
     try:
-        serialization.load_pem_public_key(public_pem).verify(
-            signature, f"{h64}.{p64}".encode("ascii")
-        )
+        key = serialization.load_pem_public_key(public_pem)
+        if not isinstance(key, ed25519.Ed25519PublicKey):
+            raise InvalidPrincipalError("refused")
+        key.verify(signature, f"{h64}.{p64}".encode("ascii"))
     except (InvalidSignature, ValueError, TypeError) as exc:
         raise InvalidPrincipalError("refused") from exc
 
