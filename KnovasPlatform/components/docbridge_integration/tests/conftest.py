@@ -65,6 +65,8 @@ def identity_app(platform_db, tmp_path, monkeypatch):
     monkeypatch.setenv(
         "PLATFORM_DB_DSN", f"{PLATFORM_DB_TEST_DSN}?options=-csearch_path%3D{schema}"
     )
+    monkeypatch.setenv("PLATFORM_ADMIN_EMAIL", "bootstrap-admin@testco.example")
+    monkeypatch.setenv("PLATFORM_ADMIN_PASSWORD", "korrektes-pferd-batterie")
     monkeypatch.delenv("PLATFORM_DB_PASSWORD_FILE", raising=False)
 
     broker_dir = tmp_path / "broker_keys"

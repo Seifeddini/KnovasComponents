@@ -18,6 +18,7 @@ plausible Schreibweisen, statt bei der ersten Abweichung zu brechen.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -110,6 +111,7 @@ class GraphOntologySource:
         # identity-off / no-broker slot (one cache for the worker, as before).
         # (cached_at, last_access, payload) — expiry uses cached_at; LRU uses last_access
         self._export_by_subject: Dict[str, tuple[float, float, Dict[str, Any]]] = {}
+        self._export_lock = threading.Lock()
         self.warnings: List[str] = []
 
     # -- Topologie ------------------------------------------------------
@@ -133,28 +135,39 @@ class GraphOntologySource:
         return str(user.id)
 
     def _evict_stale_export_cache(self, now: float) -> None:
-        """Drop expired entries and enforce a small LRU cap."""
+        """Drop expired entries and enforce a small LRU cap.
+
+        Caller holds ``_export_lock``. Snapshot ``.items()`` and ``pop(..., None)``
+        so a concurrent Cortex request cannot KeyError or raise RuntimeError
+        mid-iteration.
+        """
         if not self._export_by_subject:
             return
         if self._ttl > 0:
-            stale = [key for key, (cached_at, _, _) in self._export_by_subject.items()
-                     if now - cached_at >= self._ttl]
+            stale = [
+                key
+                for key, (cached_at, _, _) in list(self._export_by_subject.items())
+                if now - cached_at >= self._ttl
+            ]
             for key in stale:
-                del self._export_by_subject[key]
+                self._export_by_subject.pop(key, None)
         while len(self._export_by_subject) > self._max_cache_subjects:
-            oldest_key = min(self._export_by_subject,
-                             key=lambda key: self._export_by_subject[key][1])
-            del self._export_by_subject[oldest_key]
+            snapshot = list(self._export_by_subject.items())
+            if not snapshot:
+                break
+            oldest_key = min(snapshot, key=lambda item: item[1][1])[0]
+            self._export_by_subject.pop(oldest_key, None)
 
     def _export(self) -> Dict[str, Any]:
         key = self._export_cache_key()
         now = self._now()
         if key is not None and self._ttl > 0:
-            self._evict_stale_export_cache(now)
-            hit = self._export_by_subject.get(key)
-            if hit is not None and now - hit[0] < self._ttl:
-                self._export_by_subject[key] = (hit[0], now, hit[2])
-                return hit[2]
+            with self._export_lock:
+                self._evict_stale_export_cache(now)
+                hit = self._export_by_subject.get(key)
+                if hit is not None and now - hit[0] < self._ttl:
+                    self._export_by_subject[key] = (hit[0], now, hit[2])
+                    return hit[2]
         from knovas_client import _graph_payload_list
 
         raw = self._client.graph_export() or {}
@@ -172,8 +185,9 @@ class GraphOntologySource:
             edges = self._client.graph_edges()
         data = {"node_types": node_types, "nodes": nodes, "edges": edges}
         if key is not None and self._ttl > 0:
-            self._export_by_subject[key] = (now, now, data)
-            self._evict_stale_export_cache(now)
+            with self._export_lock:
+                self._export_by_subject[key] = (now, now, data)
+                self._evict_stale_export_cache(now)
         return data
 
     def summary(self) -> Dict[str, Any]:
@@ -310,7 +324,8 @@ class GraphOntologySource:
         key = self._export_cache_key()
         if key is None:
             return
-        self._export_by_subject.pop(key, None)
+        with self._export_lock:
+            self._export_by_subject.pop(key, None)
 
     def create_type(self, label: str) -> Optional[Dict[str, Any]]:
         """POST /secured/graph/node-types - Typ-Vokabular erweitern."""

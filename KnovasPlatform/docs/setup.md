@@ -35,7 +35,7 @@ Set strong values for `WEB_SECRET_KEY`, `COMPANY_LOGIN_*`, and all **Knovas API*
 When per-user identity is enabled, also set:
 
 - `PLATFORM_ADMIN_EMAIL` — the first administrator; there is no default account
-- `PLATFORM_BROKER_KEY_DIR` — directory for `broker_ed25519.pem` / `.pub` / `.kid` (must exist; the Platform will not regenerate a partial or unreadable key)
+- `PLATFORM_BROKER_KEY_DIR` — directory for `broker_ed25519.pem` / `.pub` / `.kid` (default `/app/data/broker_keys` on the writable data volume; the Platform will not regenerate a partial or unreadable key, and will not mkdir from Python)
 - `KNOVAS_CLIENT_ID` — tenant id signed into every `principal_assertion` (`api.client_id`); must match the Knovas tenant
 
 For **search only** (no UNC file open), set `OPEN_COMPANION_ENABLED=false` in `.env`.

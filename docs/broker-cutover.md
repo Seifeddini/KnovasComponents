@@ -11,9 +11,11 @@ the evidence required by each preceding step is complete.
   The ENFORCING pytest for that behavior belongs in the KnowledgeBase repo, not
   this repo. Its wire contract is the JSON body field `principal_assertion`,
   not a request header.
-- `identity.broker_key_dir` must exist before identity is enabled. Confirm its
-  ownership, permissions, backup, and persistence; do not rely on startup to
-  create the directory.
+- `identity.broker_key_dir` (env `PLATFORM_BROKER_KEY_DIR`, default
+  `/app/data/broker_keys`) is created at container start on the writable
+  `/app/data` volume. Confirm ownership, permissions, backup, and persistence.
+  Do not point this at the read-only `./certs` mount. The Platform will not
+  mkdir from Python; a custom directory you bind-mount must already exist.
 - Keep the tenant in `DISABLED` or `ENFORCING` while preparing the cutover.
   Flipping to `BROKERED` before assertions flow locks everyone out.
 - Operators must review GI-BROKER-01 through GI-BROKER-04 in
@@ -88,15 +90,20 @@ These are live operator and cutover traps. They are not a reason to send
 unsigned data-plane calls, change the GET-with-JSON-body contract, or start
 SS-347 work from this runbook.
 
-- Public `/api/health` reports `semantix_api: false` with identity on
-  (fail-closed, not unsigned). Unauthenticated probes cannot mint, so the
-  Platform treats KnowledgeBase as down rather than calling without an
-  assertion. Do not “fix” this by sending unsigned `/secured/health` or
-  other data-plane requests.
-- Cert auto-renew validation and the legacy `generate_certificate` path skip
-  `_with_principal`. CSR nested lock: `_ensure_certificate_freshness` now uses
-  a reentrant `RLock` so CSR sign no longer deadlocks the worker; the
-  unsigned validation/legacy HTTP remains later work.
+- Public `/api/health` probes `/secured/health` without a user (control-plane,
+  `_with_principal(..., required=False)`). Under `BROKERED`, KnowledgeBase may
+  401 that call, so unauthenticated probes can still report `semantix_api:
+  false`. A signed-in check attaches an assertion. Do not “fix” this by sending
+  unsigned `/secured/query` or other data-plane requests.
+- Cert auto-renew validation (`GET /secured/health` on a candidate pair) and
+  legacy `POST /secured/generate_certificate` are the same control-plane rule:
+  they attach a `principal_assertion` when a user is on the request and omit
+  one when there is not. They do not go through `_make_request`, so they cannot
+  deadlock on `_cert_lock` and cannot send unsigned `/secured/query`. Under
+  `BROKERED`, KnowledgeBase may still reject those unsigned control-plane
+  calls, so a renew triggered by an unauthenticated health probe can fail
+  until a signed-in request renews the cert, or until KB exempts those
+  routes. Do not “fix” that by sending unsigned data-plane traffic.
 - Graph GETs send `principal_assertion` in the JSON body. Cutover step 3 must
   include `/secured/graph*` and `/secured/health`, not only POST
   `/secured/query`. A check of search alone will miss topology and health.

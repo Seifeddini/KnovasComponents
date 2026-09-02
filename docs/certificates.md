@@ -147,10 +147,13 @@ Platform holds the private half and must never ship it in an image or log it.
 | `broker_ed25519.pub` | Public key registered with Knovas | 0644 |
 | `broker_ed25519.kid` | Key id (`kid`) sent in assertion headers | 0644 |
 
-**Directory:** `KnovasComponents/KnovasPlatform/certs/broker/` (or the path your
-deploy sets via `BROKER_KEY_DIR`). The directory must exist and be writable
-before the Platform starts; on first run the Platform creates the three files
-above.
+**Directory:** `/app/data/broker_keys` inside the Platform container (override
+with `PLATFORM_BROKER_KEY_DIR`). That path is on the writable
+`docbridge_integration_data` volume (`/app/data`), not the read-only `./certs`
+mount. The container creates the default directory at start. The Platform
+creates `broker_ed25519.pem` / `.pub` / `.kid` on first run if the directory is
+empty; it will **not** silently mkdir from Python or regenerate a partial
+bundle.
 
 **Backup.** Treat `broker_ed25519.pem` like `client.key`: back it up off-host.
 If you lose it, assertions minted with a replacement key will be rejected by

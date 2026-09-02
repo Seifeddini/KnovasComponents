@@ -19,7 +19,6 @@ Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-B1-6)
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Callable
 
 from flask import g, jsonify, redirect, request, session, url_for
@@ -142,17 +141,7 @@ class IdentityGate:
 
 
 def _default_connect():
-    """Open a connection from the environment.
-
-    ``PLATFORM_DB_DSN`` short-circuits the individual settings. It exists for
-    tests, which need to pin a schema, and is documented rather than hidden so
-    an operator debugging a connection has one obvious lever.
-    """
-    import psycopg
-
-    dsn = (os.environ.get("PLATFORM_DB_DSN") or "").strip()
-    if dsn:
-        return psycopg.connect(dsn, autocommit=True)
+    """Open a connection from the environment (DSN or compose settings)."""
     return db.connect()
 
 

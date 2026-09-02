@@ -1081,7 +1081,10 @@ class KnovasAPIClient:
         Handshake/health check for a candidate cert/key pair BEFORE installing it.
 
         Builds a throwaway session using the candidate pair and calls the health
-        endpoint. Injectable: tests monkeypatch this to force success/failure.
+        endpoint. Control-plane: attach an assertion when a user is on this
+        request, otherwise send without one. Do not route through `_make_request`
+        — that re-enters `_ensure_certificate_freshness` under `_cert_lock`.
+        Injectable: tests monkeypatch this to force success/failure.
         """
         session = requests.Session()
         session.cert = (cert_path, key_path)
@@ -1089,9 +1092,11 @@ class KnovasAPIClient:
             session.verify = self.ca_cert_path
         try:
             endpoint = self.endpoints.get('health', '/secured/health')
+            data = self._with_principal(None, required=False)
             resp = session.request(
                 method='GET',
                 url=f"{self.base_url}{endpoint}",
+                json=data,
                 headers=self._get_headers(),
                 timeout=self.http_read_timeout,
                 allow_redirects=False,
@@ -1162,10 +1167,14 @@ class KnovasAPIClient:
             return False
 
         try:
+            payload = self._with_principal(
+                {'certificate_data': {'customer_id': customer_id}},
+                required=False,
+            )
             response = self._session.request(
                 method='POST',
                 url=f"{self.base_url}{endpoint}",
-                json={'certificate_data': {'customer_id': customer_id}},
+                json=payload,
                 headers=self._get_headers(),
                 timeout=self.http_read_timeout,
                 allow_redirects=False,
@@ -1262,19 +1271,27 @@ class KnovasAPIClient:
                 )
                 self._attempt_certificate_renewal()
     
-    def _with_principal(self, data):
+    def _with_principal(self, data, required=True):
         """Attach the caller's assertion to an outgoing body.
 
-        Fail closed when there is no authenticated user. Sending an unsigned
-        call would resolve to asserted=False at the Secure API — "unrestricted
-        documents only" — so the request would return *more* than a correctly
-        scoped one. A wall that widens under failure is not a wall.
+        Fail closed when there is no authenticated user and ``required`` is
+        true. Sending an unsigned *data-plane* call would resolve to
+        asserted=False at the Secure API — "unrestricted documents only" — so
+        the request would return *more* than a correctly scoped one. A wall
+        that widens under failure is not a wall.
+
+        Control-plane callers (cert validation, legacy generate_certificate,
+        health_check) pass ``required=False``: attach when a user exists,
+        otherwise send without an assertion. Do not use this flag on
+        `/secured/query` or other data-plane routes.
         """
         if self._principal_broker is None:
             return data
 
         user = self._principal_broker.current_user()
         if user is None:
+            if not required:
+                return data
             raise PermissionError(
                 "No authenticated user for this request; refusing to call "
                 "Knovas without a principal assertion."
@@ -1547,18 +1564,31 @@ class KnovasAPIClient:
     def health_check(self) -> bool:
         """
         Check if Knovas API is healthy.
-        
-        Returns:
-            True if API is healthy, False otherwise
+
+        Control-plane: attach an assertion when a user is on this request,
+        otherwise probe `/secured/health` without one. Do not use `_make_request`
+        — that fail-closes without a user and would report KnowledgeBase down
+        for every unauthenticated probe.
         """
         try:
             endpoint = self.endpoints.get('health', '/secured/health')
-            response = self._make_request(method='GET', endpoint=endpoint)
-            
+            self._rate_limit()
+            self._ensure_certificate_freshness()
+            data = self._with_principal(None, required=False)
+            response = self._session.request(
+                method='GET',
+                url=f"{self.base_url}{endpoint}",
+                json=data,
+                headers=self._get_headers(),
+                timeout=self.http_read_timeout,
+                allow_redirects=False,
+            )
+            response.raise_for_status()
+
             is_healthy = response.status_code == 200
             logger.info(f"Health check: {'OK' if is_healthy else 'FAILED'}")
             return is_healthy
-            
+
         except Exception as e:
             logger.warning(f"Health check failed: {e}")
             return False

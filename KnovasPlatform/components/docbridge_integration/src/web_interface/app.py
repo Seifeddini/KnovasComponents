@@ -751,6 +751,22 @@ def create_app(config_path: Optional[str] = None):
                 "Principal assertions must name the Knovas tenant."
             )
         signer = load_or_create_signer(Path(key_dir))
+        from identity import db as identity_db
+        from identity.startup import prepare_identity
+
+        boot_conn = identity_db.connect()
+        try:
+            prepare_identity(
+                boot_conn,
+                email=os.environ.get("PLATFORM_ADMIN_EMAIL", ""),
+                password=os.environ.get("PLATFORM_ADMIN_PASSWORD") or None,
+                secret_path=os.environ.get(
+                    "PLATFORM_ADMIN_BOOTSTRAP_PATH",
+                    "/run/platform-admin-bootstrap",
+                ),
+            )
+        finally:
+            boot_conn.close()
         principal_broker = _RequestScopedBroker(identity_gate, signer, tenant_id)
         api_client = KnovasAPIClient(config, principal_broker=principal_broker)
     else:

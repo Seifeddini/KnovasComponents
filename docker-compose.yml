@@ -63,6 +63,7 @@ services:
       PLATFORM_DB_USER: ${PLATFORM_DB_USER:-platform}
       PLATFORM_DB_PASSWORD_FILE: /run/secrets/platform_db_password
       PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:?set PLATFORM_ADMIN_EMAIL in knovas.env — the Platform has no default account}
+      PLATFORM_BROKER_KEY_DIR: ${PLATFORM_BROKER_KEY_DIR:-/app/data/broker_keys}
     secrets:
       - platform_db_password
     depends_on:
@@ -80,7 +81,7 @@ services:
       - ./certs:/app/certs:ro
       - rc-state:/var/rc-state:ro
     command: >
-      sh -c "gunicorn
+      sh -c "mkdir -p $${PLATFORM_BROKER_KEY_DIR:-/app/data/broker_keys} && gunicorn
       --workers=$${DOCBRIDGE_WEB_WORKERS:-2}
       --threads=$${DOCBRIDGE_WEB_THREADS:-4}
       --timeout=$${DOCBRIDGE_WEB_TIMEOUT:-120}

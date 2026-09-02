@@ -297,6 +297,35 @@ def test_brokered_export_cache_hits_for_the_same_subject():
     assert calls["n"] == 1
 
 
+def test_concurrent_export_cache_mutations_do_not_raise():
+    """gunicorn --threads=4 shares one GraphOntologySource. Read-modify-write
+    of `_export_by_subject` must not KeyError / RuntimeError."""
+    import threading
+
+    client = FakeGraphClient()
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(
+        client, ttl_seconds=5, max_cache_subjects=2, now=lambda: clock["t"]
+    )
+    errors: list[BaseException] = []
+
+    def worker():
+        try:
+            for _ in range(200):
+                clock["t"] += 0.05
+                source.summary()
+                source._invalidate()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+
+
 def test_brokered_export_cache_evicts_by_last_access_not_insertion():
     """Re-accessing a subject refreshes LRU recency; eviction drops least-recently used."""
     broker = _SwitchableBroker()
