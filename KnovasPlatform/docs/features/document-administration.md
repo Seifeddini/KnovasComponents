@@ -80,9 +80,10 @@ guarded actions. Whether they run immediately depends on who acts:
 - A queued request waits for a second person holding the `approver` or `admin`
   role. The requester cannot confirm their own. On approval the console carries
   the change out and marks the request executed; on rejection the reason is kept.
-- An approved request whose execution failed or whose kind the console cannot
-  execute stays visible under *Freigegeben, noch nicht ausgeführt* with an
-  *Ausführen* button to retry where possible.
+- An approved request whose execution failed, or whose kind the console cannot
+  execute, stays visible on the Freigaben tab under *Freigegeben, noch nicht
+  ausgeführt*, with an *Ausführen* button to retry where the console can
+  execute it.
 - Requests expire after 24 hours.
 
 State this to a buyer as it is: with the bypass on, four-eyes covers ordinary
