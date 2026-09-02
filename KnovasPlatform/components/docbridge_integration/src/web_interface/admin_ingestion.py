@@ -51,6 +51,28 @@ LABELS = {
 }
 
 
+# What "uebertragen" actually got the firm, in the words the tab uses. A push
+# reaches RemoteController in three different states and only one of them is
+# "the new folder list is being indexed right now"; saying so is the whole
+# point of RemoteControllerClient.push returning an outcome (C2).
+APPLIED_CLAUSES = {
+    "started": "Abgleich gestartet.",
+    "next_cycle": "wird beim naechsten Durchlauf wirksam.",
+    "stored": "der Abgleich wird von Hand gestartet.",
+}
+
+
+def _applied_clause(result: Mapping[str, Any] | None) -> str:
+    """The half-sentence that follows the version number in a save notice."""
+    result = result or {}
+    applied = str(result.get("applied") or "stored")
+    text = "; " + APPLIED_CLAUSES.get(applied, APPLIED_CLAUSES["stored"])
+    start_error = result.get("start_error")
+    if start_error:
+        text += f" Start fehlgeschlagen: {start_error}"
+    return text
+
+
 def _labelled(table: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, str]]:
     return {key: {"label": LABELS.get(key, (key, ""))[0],
                   "description": LABELS.get(key, (key, ""))[1]} for key in table}
@@ -161,12 +183,15 @@ def apply_profile(payload: Mapping[str, Any], actor, *, conn, rc_client) -> dict
         version = current
     else:
         version = repo.save_new_version(profile, by=actor)
-    rc_client.push(compiled)
+    pushed = dict(rc_client.push(compiled) or {})
+    applied = str(pushed.get("applied") or "stored")
     repo.mark_pushed(version.id)
     audit.record(conn, action="ingestion.profile_pushed", actor=actor,
                  target_type="ingestion_profile", target_id=f"default v{version.version}",
-                 detail={"folders": len(profile.sources), "schedule": profile.schedule})
-    return {"version": version.version}
+                 detail={"folders": len(profile.sources), "schedule": profile.schedule,
+                         "applied": applied})
+    return {"version": version.version, "applied": applied,
+            "start_error": pushed.get("start_error")}
 
 
 def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
@@ -279,7 +304,9 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                          error=f"RemoteController hat das Profil nicht uebernommen: {exc}", status=502)
         if outcome.queued:
             return _page(form_from_profile(profile), notice=_queued_notice(outcome.request))
-        return _page(notice=f"Profil gespeichert und uebertragen (Version {outcome.result['version']}).")
+        return _page(notice=(f"Profil gespeichert und uebertragen "
+                             f"(Version {outcome.result['version']})"
+                             f"{_applied_clause(outcome.result)}"))
 
     @bp.route("/ingestion/restore/<int:version>", methods=["POST"])
     @require_ingestion
@@ -304,7 +331,9 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             return _page(error=f"Wiederherstellen fehlgeschlagen: {exc}", status=502)
         if outcome.queued:
             return _page(notice=_queued_notice(outcome.request))
-        return _page(notice=f"Version {version} wiederhergestellt als Version {outcome.result['version']}.")
+        return _page(notice=(f"Version {version} wiederhergestellt als Version "
+                             f"{outcome.result['version']}"
+                             f"{_applied_clause(outcome.result)}"))
 
     @bp.route("/ingestion/start", methods=["POST"])
     @require_ingestion

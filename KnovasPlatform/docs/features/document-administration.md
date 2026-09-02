@@ -115,6 +115,20 @@ documents, validates both against their schemas, saves a new version and pushes
 config-then-folders; if the folder list is refused, the previous config is put
 back. Every version stays; *Wiederherstellen* copies an old one forward.
 
+**What übertragen got you.** The notice names one of three outcomes, because
+reaching RemoteController and running are not the same thing. *Abgleich
+gestartet* -- the scheduler was idle and has been started, and the new folder
+list is being indexed now. *Wird beim nächsten Durchlauf wirksam* -- a worker is
+already running; it re-reads the folder list and the schedule at the top of its
+next cycle, so the change lands then, not this second. *Der Abgleich wird von
+Hand gestartet* -- the profile is stored on RemoteController but nothing is
+running: that is what the *Nur wenn ich starte* schedule means, and the
+administrator starts and stops the worker with the Start and Anhalten buttons on
+this tab. The same sentence appears with *Start fehlgeschlagen: ...* appended
+when the profile arrived but starting the worker failed -- the profile is not
+rolled back in that case, since undoing the schedule would leave it disagreeing
+with the folder list that was already accepted.
+
 Saving, restoring and stopping the sync are four-eyes guarded
 (`ingestion_profile_change`); see Freigaben. Starting and previewing are not.
 

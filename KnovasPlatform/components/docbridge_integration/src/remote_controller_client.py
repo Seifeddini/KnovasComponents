@@ -18,6 +18,30 @@ logger = logging.getLogger(__name__)
 
 PRINCIPAL_HEADER = "X-Platform-Principal"
 
+#: The scheduler states RemoteController reports while a continuous worker
+#: exists. Read off ``RC/src/sync/sync_scheduler.py::_set_status``: every
+#: status ``_run_once`` sets is set *by the worker*, so seeing one means a
+#: worker is looping and will re-read the body at its next cycle. Everything
+#: else -- ``not_running``, ``completed``, ``awaiting_initial_sync_body``,
+#: ``worker_crashed``, ``worker_stopped``, and a missing key -- is idle, and
+#: an idle scheduler has to be started for the profile to take effect.
+SCHEDULER_RUNNING_STATES = frozenset({
+    "running",
+    "paused_outside_window",
+    "idle_between_cycles",
+    "backlog_pending",
+    "subfolders_complete",
+    "disabled",
+    "error",
+})
+
+#: A status render happens on every page load and a preview makes one
+#: discover call per folder, so neither may sit on the long push timeout: a
+#: RemoteController that blackholes instead of refusing would turn the tab
+#: into a gunicorn timeout (M4).
+STATUS_TIMEOUT_SECONDS = 5.0
+DISCOVER_TIMEOUT_SECONDS = 10.0
+
 
 class RemoteControllerError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None) -> None:
@@ -40,13 +64,14 @@ class RemoteControllerClient:
         return {PRINCIPAL_HEADER: self._broker.assertion_for(user),
                 "Content-Type": "application/json"}
 
-    def _call(self, method: str, path: str, *, body: Any = None, query: dict | None = None) -> Any:
+    def _call(self, method: str, path: str, *, body: Any = None, query: dict | None = None,
+              timeout: float | None = None) -> Any:
         url = f"{self._base}{path}"
         if query:
             url += "?" + urlencode({k: v for k, v in query.items() if v is not None})
         try:
             resp = self._session.request(method, url, json=body, headers=self._headers(),
-                                         timeout=self._timeout)
+                                         timeout=self._timeout if timeout is None else timeout)
         except requests.RequestException as exc:
             raise RemoteControllerError(f"RemoteController nicht erreichbar: {exc}", status=None) from exc
         try:
@@ -59,10 +84,11 @@ class RemoteControllerClient:
         return payload
 
     def discover(self, root: str | None = None, max_depth: int = 3) -> dict:
-        return self._call("GET", "/discover", query={"root": root, "max_depth": max_depth})
+        return self._call("GET", "/discover", query={"root": root, "max_depth": max_depth},
+                          timeout=DISCOVER_TIMEOUT_SECONDS)
 
     def status(self) -> dict:
-        return self._call("GET", "/sync/status")
+        return self._call("GET", "/sync/status", timeout=STATUS_TIMEOUT_SECONDS)
 
     def start(self) -> dict:
         return self._call("POST", "/sync/start", body={})
@@ -94,15 +120,46 @@ class RemoteControllerClient:
             raise
 
     def push(self, compiled: CompiledIngestion) -> dict:
-        """Config first, then the folder list. If RemoteController refuses the
-        folder list, the previous config is put back so the two never diverge."""
+        """Config first, then the folder list, then whatever it takes to make
+        the profile actually run. Returns ``{"applied": ...}``, one of:
+
+        - ``"started"``  -- the scheduler was idle and has been started;
+        - ``"next_cycle"`` -- a worker is already running and re-reads the
+          body at the top of its next cycle;
+        - ``"stored"`` -- a one_time (``manual``) profile, which only runs
+          when a person presses Start; or a continuous one whose start
+          failed, in which case ``start_error`` carries the reason.
+
+        Never ``POST /sync``: that route answers ``already_running`` and
+        changes nothing when a worker holds the lock, and in one_time mode it
+        performs a whole scan-and-upload inside the request. ``/sync/body``
+        stores, and starting is a separate decision.
+
+        If RemoteController refuses the folder list, the previous config is
+        put back so the two never diverge. A failed *start* is not rolled
+        back: the profile is on RemoteController, and undoing the config
+        would create exactly the divergence the rollback exists to prevent.
+        """
         previous = self._previous_sync_config()
         self._call("POST", "/sync/config", body=compiled.sync_config)
         try:
-            return self._call("POST", "/sync", body=compiled.sync_request)
+            self._call("POST", "/sync/body", body=compiled.sync_request)
         except RemoteControllerError:
             try:
                 self._call("POST", "/sync/config", body=previous)
             except Exception as rollback_exc:  # noqa: BLE001
                 logger.error("Rollback der Sync-Konfiguration fehlgeschlagen: %s", rollback_exc)
             raise
+
+        if compiled.sync_config.get("mode") != "continuous":
+            return {"applied": "stored"}
+        try:
+            state = str((self.status() or {}).get("scheduler_state") or "")
+            if state in SCHEDULER_RUNNING_STATES:
+                return {"applied": "next_cycle"}
+            self.start()
+        except RemoteControllerError as exc:
+            # Reading the state or starting the worker failed. Say so; do not
+            # pretend the profile did not arrive, and do not roll it back.
+            return {"applied": "stored", "start_error": str(exc)}
+        return {"applied": "started"}

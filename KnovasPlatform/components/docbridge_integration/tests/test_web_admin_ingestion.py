@@ -142,7 +142,7 @@ class TestApplyProfile:
                 self.calls += 1
                 if self.calls == 1:
                     raise RemoteControllerError("RemoteController nicht erreichbar")
-                return {}
+                return {"applied": "started"}
 
         fake_repo = _FakeRepo()
         monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: fake_repo)
@@ -165,6 +165,72 @@ class TestApplyProfile:
         assert rc.calls == 2
         assert fake_repo.mark_pushed_calls[-1] == first.id
         assert result["version"] == first.version
+        assert result["applied"] == "started"
+
+    def test_it_carries_the_push_outcome_out_and_into_the_audit_row(self, monkeypatch):
+        """C2: "gespeichert und uebertragen" is not the same claim as
+        "running". apply_profile must hand the route what push found out."""
+        from identity.ingestion_compiler import IngestionProfile, SourceFolder
+        from identity.ingestion_profiles import profile_to_json
+        from web_interface import admin_ingestion
+
+        class _Version:
+            id, version, pushed_at = "v1", 1, None
+            profile = None
+
+        class _Repo:
+            def current(self, name="default"):
+                return None
+
+            def save_new_version(self, profile, *, name="default", by, approved_by=None):
+                return _Version()
+
+            def mark_pushed(self, version_id):
+                pass
+
+        recorded = []
+        monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: _Repo())
+        monkeypatch.setattr(admin_ingestion.audit, "record",
+                            lambda conn, **kw: recorded.append(kw))
+
+        class _Client:
+            def push(self, compiled):
+                return {"applied": "stored", "start_error": "RemoteController nicht erreichbar"}
+
+        profile = IngestionProfile(identifier_prefix="kanzlei",
+                                   sources=[SourceFolder(path="/mnt/autodoc/mandate")])
+        out = admin_ingestion.apply_profile({"profile": profile_to_json(profile)},
+                                            actor=object(), conn=None, rc_client=_Client())
+        assert out["applied"] == "stored"
+        assert out["start_error"] == "RemoteController nicht erreichbar"
+        assert recorded[-1]["detail"]["applied"] == "stored"
+
+
+class TestTheNoticeSaysWhatHappened:
+    """C2: three outcomes, three sentences. "uebertragen" alone told an
+    administrator the folder list was live when the running worker had not
+    picked it up, or when a manual profile was only stored."""
+
+    def test_started_next_cycle_and_stored_read_differently(self):
+        from web_interface.admin_ingestion import _applied_clause
+
+        assert _applied_clause({"applied": "started"}) == "; Abgleich gestartet."
+        assert _applied_clause({"applied": "next_cycle"}) == (
+            "; wird beim naechsten Durchlauf wirksam.")
+        assert _applied_clause({"applied": "stored"}) == (
+            "; der Abgleich wird von Hand gestartet.")
+
+    def test_a_failed_start_is_named_in_the_notice(self):
+        from web_interface.admin_ingestion import _applied_clause
+
+        text = _applied_clause({"applied": "stored", "start_error": "HTTP 500"})
+        assert text.endswith(" Start fehlgeschlagen: HTTP 500")
+        assert "der Abgleich wird von Hand gestartet." in text
+
+    def test_a_result_without_an_outcome_does_not_claim_a_start(self):
+        from web_interface.admin_ingestion import _applied_clause
+
+        assert _applied_clause({}) == "; der Abgleich wird von Hand gestartet."
 
 
 class TestTemplate:

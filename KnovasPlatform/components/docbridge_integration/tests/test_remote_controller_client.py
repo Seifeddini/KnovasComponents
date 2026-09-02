@@ -31,10 +31,11 @@ class _Resp:
 
 class _Session:
     def __init__(self, routes):
-        self.routes, self.calls = routes, []
+        self.routes, self.calls, self.timeouts = routes, [], []
 
     def request(self, method, url, **kw):
         self.calls.append((method, url, kw.get("json"), dict(kw.get("headers") or {})))
+        self.timeouts.append(kw.get("timeout"))
         handler = self.routes.get((method, url.rsplit("/", 1)[-1] if "?" not in url else url.rsplit("/", 1)[-1].split("?")[0]))
         return handler(kw) if callable(handler) else (handler or _Resp(200))
 
@@ -59,28 +60,95 @@ def test_no_user_means_no_call():
     assert session.calls == []
 
 
-def test_push_sends_config_then_request():
-    session = _Session({("POST", "config"): _Resp(200, {"ok": True}),
-                        ("POST", "sync"): _Resp(200, {"accepted": 3}),
-                        ("GET", "config"): _Resp(200, {"old": True})})
+def _steps(session):
+    return [(m, u.rsplit("/", 1)[-1]) for m, u, _b, _h in session.calls]
+
+
+IDLE_STATUS = _Resp(200, {"scheduler_state": "not_running"})
+RUNNING_STATUS = _Resp(200, {"scheduler_state": "idle_between_cycles"})
+
+
+def test_push_stores_the_body_and_starts_an_idle_continuous_scheduler():
+    session = _Session({("GET", "config"): _Resp(200, {"old": True}),
+                        ("POST", "config"): _Resp(200, {"ok": True}),
+                        ("POST", "body"): _Resp(200, {"status": "stored"}),
+                        ("GET", "status"): IDLE_STATUS,
+                        ("POST", "start"): _Resp(200, {"scheduler_status": "running"})})
     client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    out = client.push(CompiledIngestion(sync_config={"mode": "scheduled"},
+    out = client.push(CompiledIngestion(sync_config={"mode": "continuous"},
                                         sync_request={"mode": "incremental"}))
-    assert out == {"accepted": 3}
-    methods_urls = [(m, u.rsplit("/", 1)[-1]) for m, u, _, _ in session.calls]
-    assert methods_urls == [("GET", "config"), ("POST", "config"), ("POST", "sync")]
+    assert out == {"applied": "started"}
+    assert _steps(session) == [("GET", "config"), ("POST", "config"),
+                               ("POST", "body"), ("GET", "status"), ("POST", "start")]
 
 
-def test_a_refused_request_restores_the_previous_config():
+def test_push_leaves_a_running_scheduler_alone_and_says_next_cycle():
+    """C2: POST /sync answered already_running and the running worker kept
+    its old folder list, while the console said "uebertragen". The worker now
+    rereads the body each cycle, so the honest answer is "at the next one"."""
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): _Resp(200),
-                        ("POST", "sync"): _Resp(400, {"error": "bad body"})})
+                        ("POST", "body"): _Resp(200, {"status": "stored"}),
+                        ("GET", "status"): RUNNING_STATUS,
+                        ("POST", "start"): _Resp(200)})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    out = client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
+    assert out == {"applied": "next_cycle"}
+    assert ("POST", "start") not in _steps(session)
+
+
+def test_a_one_time_profile_is_only_stored_never_run():
+    """The `manual` preset. POST /sync in one_time mode ran a whole scan
+    inside the request against a 20 s timeout; push must not do that."""
+    session = _Session({("GET", "config"): _Resp(200, {"old": True}),
+                        ("POST", "config"): _Resp(200),
+                        ("POST", "body"): _Resp(200, {"status": "stored"})})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    out = client.push(CompiledIngestion(sync_config={"mode": "one_time"}, sync_request={}))
+    assert out == {"applied": "stored"}
+    assert _steps(session) == [("GET", "config"), ("POST", "config"), ("POST", "body")]
+
+
+def test_a_refused_body_restores_the_previous_config():
+    session = _Session({("GET", "config"): _Resp(200, {"old": True}),
+                        ("POST", "config"): _Resp(200),
+                        ("POST", "body"): _Resp(400, {"error": "bad body"})})
     client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
     with pytest.raises(RemoteControllerError) as excinfo:
-        client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
+        client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
     assert excinfo.value.status == 400
     posted_configs = [body for m, u, body, _ in session.calls if m == "POST" and u.endswith("/sync/config")]
-    assert posted_configs == [{"new": True}, {"old": True}], "rolled back to the old config"
+    assert posted_configs == [{"mode": "continuous"}, {"old": True}], "rolled back"
+
+
+def test_a_failed_start_is_reported_without_rolling_the_profile_back():
+    """The profile IS on RemoteController; only starting it failed. Undoing
+    the config here would leave the folder list and the schedule disagreeing."""
+    session = _Session({("GET", "config"): _Resp(200, {"old": True}),
+                        ("POST", "config"): _Resp(200),
+                        ("POST", "body"): _Resp(200, {"status": "stored"}),
+                        ("GET", "status"): IDLE_STATUS,
+                        ("POST", "start"): _Resp(400, {"error": "No sync body available"})})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    out = client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
+    assert out["applied"] == "stored"
+    assert "No sync body available" in out["start_error"]
+    posted_configs = [body for m, u, body, _ in session.calls if m == "POST" and u.endswith("/sync/config")]
+    assert posted_configs == [{"mode": "continuous"}], "no rollback"
+
+
+def test_status_and_discover_do_not_wait_the_full_push_timeout():
+    """M4: _page() calls status() on every render and preview() makes one
+    discover call per folder; a RemoteController that blackholes must not
+    turn the tab into a gunicorn timeout."""
+    session = _Session({("GET", "status"): _Resp(200, {}),
+                        ("GET", "discover"): _Resp(200, {}),
+                        ("POST", "stop"): _Resp(200, {})})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client.status()
+    client.discover(root="/mnt")
+    client.stop()
+    assert session.timeouts == [5.0, 10.0, 20.0]
 
 
 def test_discover_passes_root_and_depth():
@@ -91,12 +159,12 @@ def test_discover_passes_root_and_depth():
     assert "root=%2Fmnt%2Fautodoc" in url and "max_depth=2" in url
 
 
-def test_a_transport_failure_on_sync_still_rolls_back_and_is_a_client_error():
-    def sync_raises(_kw):
+def test_a_transport_failure_on_the_body_still_rolls_back_and_is_a_client_error():
+    def body_raises(_kw):
         raise requests.exceptions.ConnectionError("down")
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): _Resp(200),
-                        ("POST", "sync"): sync_raises})
+                        ("POST", "body"): body_raises})
     client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
     with pytest.raises(RemoteControllerError) as excinfo:
         client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
@@ -114,7 +182,7 @@ def test_a_failing_rollback_does_not_mask_the_original_error():
         return _Resp(200)
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): config_post_raises,
-                        ("POST", "sync"): _Resp(400, {"error": "bad body"})})
+                        ("POST", "body"): _Resp(400, {"error": "bad body"})})
     client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
     with pytest.raises(RemoteControllerError) as excinfo:
         client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
