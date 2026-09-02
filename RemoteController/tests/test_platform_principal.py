@@ -90,6 +90,16 @@ class TestVerify:
             verify_platform_principal(mint(private, pub, **kw), public_pem=pub,
                                       expected_tenant=TENANT, replay=ReplayGuard())
 
+    @pytest.mark.parametrize("sub", [None, "", 7, [], {}])
+    def test_a_token_that_names_no_subject_is_refused(self, keypair, sub):
+        """P-I1: `sub` is the only thing RemoteController records about who
+        acted. str(None) is "None" and str(7) is "7" -- both would have been
+        accepted as a subject and logged as one."""
+        private, pub = keypair
+        with pytest.raises(InvalidPrincipalError):
+            verify_platform_principal(mint(private, pub, sub=sub), public_pem=pub,
+                                      expected_tenant=TENANT, replay=ReplayGuard())
+
     def test_a_token_cannot_be_presented_twice(self, keypair):
         private, pub = keypair
         token, replay = mint(private, pub), ReplayGuard()
@@ -171,6 +181,62 @@ class TestTheGate:
         token = _raw_token(private, header_obj=header, payload_obj="x")
         r = rc_client.get("/sync/status", headers={"X-Platform-Principal": token})
         assert r.status_code == 401
+
+    def test_an_unreadable_pubkey_is_a_503_not_a_silent_401(self, rc_client, configured,
+                                                            tmp_path, monkeypatch, caplog):
+        """P-I4: an operator who mounted the wrong path got "Not authorized"
+        in the console and an empty RemoteController log -- indistinguishable
+        from a forgery. That is a misconfiguration, and it is RC's."""
+        import logging
+
+        monkeypatch.setenv("RC_PLATFORM_BROKER_PUBKEY_PATH", str(tmp_path / "gone.pub"))
+        from config import load_config, reset_config
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        private, pub = configured
+        with caplog.at_level(logging.ERROR):
+            r = rc_client.get("/sync/status", headers={"X-Platform-Principal": mint(private, pub)})
+        assert r.status_code == 503
+        assert r.get_json()["error"] == "platform principal verification unavailable"
+        assert "gone.pub" in caplog.text
+
+    def test_a_pem_that_is_not_a_key_is_also_a_503(self, rc_client, configured,
+                                                   tmp_path, monkeypatch, caplog):
+        import logging
+
+        broken = tmp_path / "broken.pub"
+        broken.write_bytes(b"-----BEGIN PUBLIC KEY-----\nnot a key\n-----END PUBLIC KEY-----\n")
+        monkeypatch.setenv("RC_PLATFORM_BROKER_PUBKEY_PATH", str(broken))
+        from config import load_config, reset_config
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        private, pub = configured
+        with caplog.at_level(logging.ERROR):
+            r = rc_client.get("/sync/status", headers={"X-Platform-Principal": mint(private, pub)})
+        assert r.status_code == 503
+
+    def test_a_forged_token_stays_a_uniform_401(self, rc_client, configured):
+        """The 503 must not become a way to tell refusals apart."""
+        private, pub = configured
+        r = rc_client.get("/sync/status",
+                          headers={"X-Platform-Principal": mint(private, pub, sign=False)})
+        assert r.status_code == 401
+        assert r.get_json()["error"] == "Not authorized"
+
+    def test_every_admitted_principal_leaves_a_log_line(self, rc_client, configured, caplog):
+        """P-I5: RemoteController recorded nothing when a tenant principal
+        rewrote its configuration. This is RC's end of the four-eyes chain."""
+        import logging
+
+        private, pub = configured
+        with caplog.at_level(logging.INFO):
+            r = rc_client.get("/sync/status",
+                              headers={"X-Platform-Principal": mint(private, pub, sub="u-42",
+                                                                    rol=["ingestion_manager", "admin"])})
+        assert r.status_code == 200
+        assert "platform principal u-42" in caplog.text
+        assert "roles=['admin', 'ingestion_manager']" in caplog.text
+        assert "GET /sync/status" in caplog.text
 
     @pytest.fixture
     def unconfigured(self, keypair, monkeypatch, tmp_watch_root):

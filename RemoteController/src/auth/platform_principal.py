@@ -152,12 +152,18 @@ def verify_platform_principal(
         raise InvalidPrincipalError("refused")
     if not expected_tenant or payload.get("tid") != expected_tenant:
         raise InvalidPrincipalError("refused")
+    # `sub` is the only thing RemoteController records about who acted, so an
+    # absent, empty or non-string one is worthless in the log line the gate
+    # writes. Mirrors the Platform's own check (identity/assertion.py).
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise InvalidPrincipalError("refused")
     jti = str(payload.get("jti") or "")
     if not jti or not replay.burn(jti, exp + CLOCK_SKEW_SECONDS):
         raise InvalidPrincipalError("refused")
 
     return PlatformPrincipal(
-        subject=str(payload.get("sub") or ""),
+        subject=subject,
         tenant=expected_tenant,
         groups=tuple(str(g) for g in (payload.get("grp") or ())),
         roles=tuple(str(r) for r in (payload.get("rol") or ())),
