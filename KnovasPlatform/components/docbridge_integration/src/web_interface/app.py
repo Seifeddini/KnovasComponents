@@ -11,6 +11,7 @@ import os
 import json
 import hmac
 import secrets
+import threading
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -1058,6 +1059,89 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
         return None
 
+    # Cache of (subject, pointer) -> readable, so a results page of thumbnails
+    # does not become one Knovas round trip per tile. The TTL is deliberately
+    # shorter than the 120 s principal-assertion lifetime, so it cannot widen
+    # the staleness bound the assertion already sets: a person whose access is
+    # revoked loses these documents within one assertion lifetime, as before.
+    _readable_cache: Dict[Tuple[str, str], Tuple[float, bool]] = {}
+    _readable_cache_ttl = 60.0
+    _readable_cache_lock = threading.Lock()
+
+    def _pointer_readable(subject: str, pointer: str) -> bool:
+        key = (subject, pointer)
+        now = time.time()
+        with _readable_cache_lock:
+            hit = _readable_cache.get(key)
+            if hit is not None and now - hit[0] < _readable_cache_ttl:
+                return hit[1]
+        try:
+            allowed = api_client.document_readable(pointer)
+        except Exception as exc:  # noqa: BLE001 - any failure closes the door
+            # The client already fails closed on transport errors; this repeats
+            # it so the property belongs to the gate rather than to whichever
+            # client is wired in. A refusal here serves no bytes; an exception
+            # would be a 500 with a stack trace instead of a plain 404.
+            logger.warning("Readability check failed for %r: %s", pointer, exc)
+            return False
+        with _readable_cache_lock:
+            if len(_readable_cache) > 4096:
+                _readable_cache.clear()
+            _readable_cache[key] = (now, allowed)
+        return allowed
+
+    @app.before_request
+    def require_readable_document():
+        """The wall, on the routes that hand over a file rather than search it.
+
+        Retrieval is filtered by Knovas, so search never lists a document the
+        signed-in person is walled out of. These routes are the other way in:
+        they take a pointer and a path and read the file off the Platform's own
+        disk, which is why they have to ask.
+
+        Written as one gate over ``doc_id`` rather than a check inside each
+        handler, so a content route added later is covered by default instead
+        of by remembering. Denial is **404**, never 403: a 403 would confirm
+        that the matter exists, which is the trace an ethical wall forbids.
+
+        With ``identity.enabled`` off there is no authenticated subject and no
+        per-user groups to enforce, so the gate stands aside and the legacy
+        shared-login deployment behaves exactly as before.
+        """
+        if identity_gate is None:
+            return None
+        doc_id = (request.view_args or {}).get('doc_id')
+        if not doc_id:
+            return None
+        user = identity_gate.current_user()
+        if user is None:
+            return None  # the login gate above already refused this request
+
+        # The path is supplied separately from the pointer, so a caller could
+        # otherwise name a document they may read and ask for the bytes of one
+        # they may not. Serve a path only when it is the one this pointer names.
+        supplied = request.args.get('path')
+        if supplied is None and request.method == 'POST':
+            supplied = (request.get_json(silent=True) or {}).get('path')
+        if supplied:
+            # Compare the *resolved* files, not the strings. Callers legitimately
+            # spell a path either way -- the raw Knovas pointer or the mapped
+            # relative path -- and both reach the same file through
+            # _resolve_autodoc_path. Resolving both sides accepts every spelling
+            # of the authorised document and no spelling of a different one.
+            given = _resolve_autodoc_path(str(supplied))
+            wanted = _resolve_autodoc_path(_rel_path_for_autodoc(str(doc_id)))
+            if given is None or wanted is None or given != wanted:
+                logger.warning(
+                    "Refusing %s: path %r does not belong to pointer %r",
+                    request.path, str(supplied), str(doc_id),
+                )
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+
+        if not _pointer_readable(str(user.id), str(doc_id)):
+            return jsonify({'success': False, 'error': 'Not found'}), 404
+        return None
+
     @app.route('/favicon.ico')
     def favicon():
         """Browser fragen /favicon.ico an der Wurzel an, unabhaengig vom <link>-Tag.
@@ -1784,7 +1868,18 @@ def create_app(config_path: Optional[str] = None):
             if not _can_open_via_companion(full_path):
                 return jsonify({'success': False, 'error': 'No open mapping for this file'}), 503
             rel = str(file_path).strip()
-            token = open_token_manager.mint(rel, doc_id)
+            # The uniform content gate keys on a doc_id in the URL; this route
+            # carries it in the body, so the wall is applied here explicitly.
+            # Minting is the moment a document leaves the session's protection.
+            subject = ''
+            if identity_gate is not None:
+                minter = identity_gate.current_user()
+                if minter is None:
+                    return jsonify({'success': False, 'error': 'Not found'}), 404
+                subject = str(minter.id)
+                if not _pointer_readable(subject, doc_id):
+                    return jsonify({'success': False, 'error': 'Not found'}), 404
+            token = open_token_manager.mint(rel, doc_id, subject=subject)
             api_base = public_base_url_config or request.url_root.rstrip('/')
             redeem_url = f"{api_base}/api/open-tokens/redeem"
             companion_href = (
@@ -1822,6 +1917,18 @@ def create_app(config_path: Optional[str] = None):
             payload = open_token_manager.verify_and_consume(token, consume=True)
             if not payload:
                 return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+            # This route is exempt from the session and CSRF gates by necessity
+            # -- the companion has no browser session -- which is exactly why it
+            # cannot also be exempt from the wall. Re-check the minting subject
+            # rather than trusting the token alone, so a person whose access was
+            # withdrawn cannot spend a token they were holding.
+            if identity_gate is not None:
+                subject = payload.get('sub') or ''
+                if not subject:
+                    logger.warning("Refusing an open token minted without a subject")
+                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+                if not _pointer_readable(subject, payload['doc']):
+                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
             full_path = _resolve_autodoc_path(payload['rel'])
             if not full_path or not os.path.exists(full_path):
                 return jsonify({'success': False, 'error': 'File no longer available'}), 410

@@ -1828,6 +1828,34 @@ class KnovasAPIClient:
         return self._rbac_request(
             'GET', '/secured/document_access', params={'pointer': str(pointer)})
 
+    def document_readable(self, pointer: str) -> bool:
+        """Whether the signed-in person may read this document. Never raises.
+
+        Knovas decides, not the Platform. The alternative -- fetching the ACL
+        and evaluating it here -- would be a second copy of a policy whose own
+        reference implementation warns that walking the tree on both sides
+        inverts the model, and a wall that disagrees with the backend about
+        who may read what is worse than no wall.
+
+        Any failure answers False. This gates files the Platform serves off its
+        own disk, so an unreachable backend must close the door, not open it.
+        """
+        try:
+            payload = self._rbac_request(
+                'GET', '/secured/document_readable',
+                params={'pointer': str(pointer)},
+            )
+        except Exception as exc:  # noqa: BLE001 - transport, TLS, HTTP, JSON
+            logger.warning(
+                "document_readable failed for %r; refusing the document: %s",
+                pointer, exc,
+            )
+            return False
+        if not isinstance(payload, dict):
+            # A 404 from _rbac_request lands here as None. Unknown is refused.
+            return False
+        return payload.get('readable') is True
+
     def set_document_access(
         self,
         pointer: str,
