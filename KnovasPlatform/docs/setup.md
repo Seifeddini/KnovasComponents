@@ -30,13 +30,18 @@ On Windows (host shell):
 Copy-Item .env.example .env
 ```
 
-Set strong values for `WEB_SECRET_KEY`, `COMPANY_LOGIN_*`, and all **Knovas API** variables (`SEMANTIX_API_URL`, mTLS paths, secured mode). Do not leave placeholder secrets.
+Set strong values for `WEB_SECRET_KEY` and all **Knovas API** variables (`SEMANTIX_API_URL`, mTLS paths, secured mode). Do not leave placeholder secrets.
 
-When per-user identity is enabled, also set:
+Per-user identity is **on by default** (`IDENTITY_ENABLED=true`), so set:
 
 - `PLATFORM_ADMIN_EMAIL` — the first administrator; there is no default account
-- `PLATFORM_BROKER_KEY_DIR` — directory for `broker_ed25519.pem` / `.pub` / `.kid` (default `/app/data/broker_keys` on the writable data volume; the Platform will not regenerate a partial or unreadable key, and will not mkdir from Python)
-- `KNOVAS_CLIENT_ID` — tenant id signed into every `principal_assertion` (`api.client_id`); must match the Knovas tenant
+- `SEMANTIX_CUSTOMER_ID` — tenant id signed into every `principal_assertion` (`api.customer_id`); must match the Knovas tenant
+- `PLATFORM_BROKER_KEY_DIR` — directory for `broker_ed25519.pem` / `.pub` / `.kid` (default `/app/secrets/broker`, the directory the image creates; the Platform will not regenerate a partial or unreadable key, and will not mkdir from Python)
+
+Do **not** set `COMPANY_LOGIN_NAME` / `COMPANY_LOGIN_PASSWORD`. The shared firm
+credential is superseded, and the Platform refuses to start with both it and
+per-user accounts configured. To stage a cutover on an existing deployment, set
+`IDENTITY_ENABLED=false` and keep the old values until you migrate.
 
 For **search only** (no UNC file open), set `OPEN_COMPANION_ENABLED=false` in `.env`.
 
@@ -67,7 +72,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 
 ### 4.1 Per-user identity: the broker signing key
 
-Only with `IDENTITY_ENABLED=true`. The Platform then generates an Ed25519 key
+On by default (`IDENTITY_ENABLED=true`). The Platform generates an Ed25519 key
 on first start in `PLATFORM_BROKER_KEY_DIR` (a persistent volume, default
 `/app/secrets/broker`) and signs each signed-in user into every Knovas call.
 Register the public half (`broker_ed25519.pub`) with Knovas, back the

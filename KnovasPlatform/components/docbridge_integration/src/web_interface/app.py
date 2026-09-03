@@ -697,7 +697,13 @@ def create_app(config_path: Optional[str] = None):
     # Per-user accounts (Pflichtenheft B1). When on, the shared company
     # credential is not merely unused — the app refuses to start with one
     # configured, so an upgrade cannot leave both doors open.
-    identity_enabled = config.get_bool('identity.enabled', False)
+    # Default true, matching config/config.yaml: per-user accounts are the
+    # product, and a deployment should not have to opt in to knowing who its
+    # users are. A config that omits the key entirely still gets identity, so
+    # the default is stated once rather than differing between the shipped
+    # configuration and the code that reads it. The legacy shared-login path
+    # is now an explicit `identity.enabled: false`.
+    identity_enabled = config.get_bool('identity.enabled', True)
     identity_gate = None
     rc_client = None
     if identity_enabled:

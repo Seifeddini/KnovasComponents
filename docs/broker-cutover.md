@@ -12,7 +12,7 @@ the evidence required by each preceding step is complete.
   this repo. Its wire contract is the JSON body field `principal_assertion`,
   not a request header.
 - `identity.broker_key_dir` (env `PLATFORM_BROKER_KEY_DIR`, default
-  `/app/data/broker_keys`) is created at container start on the writable
+  `/app/secrets/broker`) is created at container start on the writable
   `/app/data` volume. Confirm ownership, permissions, backup, and persistence.
   Do not point this at the read-only `./certs` mount. The Platform will not
   mkdir from Python; a custom directory you bind-mount must already exist.

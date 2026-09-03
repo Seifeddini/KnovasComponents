@@ -249,12 +249,18 @@ performance:
 remote_controller:
   base_url: "${RC_BASE_URL:-http://remote-controller:5001}"
 
-# Per-user identity (Pflichtenheft B1/B2). Off by default. When on, the shared
-# COMPANY_LOGIN_* credential must be removed, and the Platform signs each user
-# into every Knovas call with the Ed25519 key kept in broker_key_dir -- a
-# persistent volume, backed up. See docs/certificates.md.
+# Per-user identity (Pflichtenheft B1/B2). **On by default.** The shared
+# COMPANY_LOGIN_* credential is refused while this is on -- the app will not
+# start with both doors open -- and the Platform signs each user into every
+# Knovas call with the Ed25519 key kept in broker_key_dir, a persistent volume
+# that must be backed up. See docs/certificates.md.
+#
+# Requires, and docker-compose.yml provides: the platform-db service,
+# PLATFORM_ADMIN_EMAIL for the first administrator, and SEMANTIX_CUSTOMER_ID.
+# Set IDENTITY_ENABLED=false only to stage a cutover on an existing
+# deployment that still has COMPANY_LOGIN_* configured.
 identity:
-  enabled: "${IDENTITY_ENABLED:-false}"
+  enabled: "${IDENTITY_ENABLED:-true}"
   broker_key_dir: "${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}"
 
 # Client file open: browser launches UNC/local path on the user's PC (no install).
@@ -286,11 +292,4 @@ security:
     - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     - "text/plain"
 
-# Per-user identity (Pflichtenheft B1/B2). Off by default so cutover can be staged.
-# When enabled, the Platform signs a principal_assertion onto every Knovas call.
-identity:
-  enabled: "${IDENTITY_ENABLED:-false}"
-  # Dedicated directory for broker_ed25519.pem/.pub/.kid. Must exist before start;
-  # a missing or partial bundle fails closed rather than regenerating the key.
-  broker_key_dir: "${PLATFORM_BROKER_KEY_DIR:-/app/data/broker_keys}"
 
