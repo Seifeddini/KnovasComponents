@@ -17,14 +17,36 @@ PLATFORM_DB_TEST_DSN = os.environ.get(
 
 
 def platform_db_reachable() -> bool:
+    """Whether the identity tests can run. Skipping is a developer convenience.
+
+    In CI it is not: a database that failed to come up would turn roughly 180
+    identity and admin tests into skips and leave the run green, which is the
+    one outcome worse than a red build. PLATFORM_DB_REQUIRED (set by the
+    workflow) turns an unreachable database into a loud collection error.
+    """
+    required = os.environ.get("PLATFORM_DB_REQUIRED", "").strip().lower() in {
+        "1", "true", "yes",
+    }
     try:
         import psycopg
     except ImportError:
+        if required:
+            raise RuntimeError(
+                "PLATFORM_DB_REQUIRED is set but psycopg is not installed, so the "
+                "identity and admin tests would silently skip. Install the identity "
+                "extras from requirements.txt."
+            )
         return False
     try:
         with psycopg.connect(PLATFORM_DB_TEST_DSN, connect_timeout=3):
             return True
-    except Exception:
+    except Exception as exc:
+        if required:
+            raise RuntimeError(
+                f"PLATFORM_DB_REQUIRED is set but {PLATFORM_DB_TEST_DSN} is "
+                f"unreachable ({exc}). Refusing to skip the identity and admin "
+                "tests into a green run."
+            ) from exc
         return False
 
 
@@ -153,7 +175,15 @@ class DummyKnovasClient:
         self.principal_broker = None
         self.acl_calls: list[tuple] = []
         self.fail_next = False
+        # Pointers the content gate must refuse. Empty means "everything is
+        # readable", which keeps every test that predates the wall unchanged.
+        self.denied_pointers: set[str] = set()
+        self.readable_calls: list[str] = []
         DummyKnovasClient.last_instance = self
+
+    def document_readable(self, pointer):
+        self.readable_calls.append(str(pointer))
+        return str(pointer) not in self.denied_pointers
 
     def attach_principal_broker(self, broker):
         self.principal_broker = broker

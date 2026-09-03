@@ -299,3 +299,53 @@ def test_guarded_timeout_is_classified_unconvertible(tmp_path, monkeypatch):
         dt.extract_document_guarded(p)
 
     assert is_unconvertible_error(str(exc.value))
+
+
+def test_ocr_keywords_are_only_sent_to_an_extractor_that_takes_them(monkeypatch, caplog):
+    """The pin used to demand an unpublished release for exactly this call.
+
+    Against an extractor without OCR support the keywords must be withheld
+    rather than raising TypeError on every PDF -- and the operator has to be
+    told, because scanned PDFs then yield no text.
+    """
+    import logging
+
+    from sync import document_text
+
+    seen = {}
+
+    def extract_without_ocr(raw, *, mime=None, emit_markdown=False, emit_sentences=False):
+        seen.update(mime=mime, emit_markdown=emit_markdown)
+        raise document_text.UnsupportedFormatError("stub")
+
+    monkeypatch.setattr(document_text, "extract", extract_without_ocr)
+    monkeypatch.setattr(document_text, "pdf_ocr_enabled", lambda: True)
+    monkeypatch.setattr(document_text, "logger_ocr_warned", False)
+
+    assert document_text.extract_accepts_ocr() is False
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(document_text.ConversionError):
+            document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+
+    assert seen["mime"], "the call still happened, just without the OCR keywords"
+    assert any("OCR" in r.message for r in caplog.records)
+
+
+def test_ocr_keywords_are_sent_when_the_extractor_accepts_them(monkeypatch):
+    from sync import document_text
+
+    seen = {}
+
+    def extract_with_ocr(raw, *, mime=None, emit_markdown=False, emit_sentences=False,
+                         use_ocr=False, ocr_language="deu+eng"):
+        seen.update(use_ocr=use_ocr, ocr_language=ocr_language)
+        raise document_text.UnsupportedFormatError("stub")
+
+    monkeypatch.setattr(document_text, "extract", extract_with_ocr)
+    monkeypatch.setattr(document_text, "pdf_ocr_enabled", lambda: True)
+    monkeypatch.setattr(document_text, "tesseract_language", lambda: "deu")
+
+    assert document_text.extract_accepts_ocr() is True
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert seen == {"use_ocr": True, "ocr_language": "deu"}

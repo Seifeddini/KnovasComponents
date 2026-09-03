@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main, master]
+  # Deliberately unfiltered: this work lands through stacked pull requests
+  # whose base is another feature branch, and a base filter meant those PRs
+  # carried no checks at all. Every pull request is built, whatever it targets.
   pull_request:
-    branches: [main, master]
 
 jobs:
   knovas-platform:
@@ -44,6 +46,10 @@ jobs:
 
       - name: Pytest
         working-directory: KnovasPlatform/components/docbridge_integration
+        # The identity and admin suites skip themselves when no database is
+        # reachable. Here that must be a failure, not a quietly green run.
+        env:
+          PLATFORM_DB_REQUIRED: "true"
         run: pytest
 
       - name: Create minimal .env for compose
