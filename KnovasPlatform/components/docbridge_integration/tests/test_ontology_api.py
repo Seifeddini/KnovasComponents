@@ -255,11 +255,14 @@ def test_settings_page_requires_login_and_renders(app):
     assert "Test Company" in body    # Firmenname aus der Konfiguration
 
 
-def test_sidebar_shows_corpus_only_when_fixture_has_it(app, tmp_path, monkeypatch):
-    """Ohne corpus-Block bleibt die Zahl weg statt erfunden zu werden."""
+def test_sidebar_never_shows_corpus_count(app, tmp_path, monkeypatch):
+    """Corpus counts were removed from the sidebar; fixture data must not invent them."""
     client = app.test_client()
     _login(client)
-    assert "corpus-status" not in client.get("/ontology").data.decode("utf-8")
+    empty_body = client.get("/ontology").data.decode("utf-8")
+    assert "corpus-status" not in empty_body
+    assert "Suche" in empty_body
+    assert "Cortex" in empty_body
 
     data = json.loads(json.dumps(FIXTURE))
     data["corpus"] = {"documents": 1847}
@@ -268,8 +271,9 @@ def test_sidebar_shows_corpus_only_when_fixture_has_it(app, tmp_path, monkeypatc
     import ontology_store
     ontology_store._cache = None
     body = client.get("/ontology").data.decode("utf-8")
-    assert "corpus-status" in body
-    assert "1&#39;847" in body       # Schweizer Trennung, HTML-escaped
+    assert "corpus-status" not in body
+    assert "1&#39;847" not in body
+    assert "Dokumente gelesen" not in body
 
 
 def test_type_relation_routes_require_login_and_csrf(app):

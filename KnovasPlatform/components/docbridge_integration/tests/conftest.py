@@ -66,6 +66,17 @@ def identity_app(platform_db, tmp_path, monkeypatch):
     )
     monkeypatch.delenv("PLATFORM_DB_PASSWORD_FILE", raising=False)
 
+    # create_app() boots the identity schema and the first administrator, the
+    # way gunicorn does in production, so the fixture has to supply the same
+    # bootstrap values a deployment does. The address is deliberately not one
+    # the per-test `people` fixtures use, so a test that lists accounts sees
+    # its own cast plus this one rather than a surprising collision.
+    monkeypatch.setenv("PLATFORM_ADMIN_EMAIL", "bootstrap@kanzlei.ch")
+    monkeypatch.setenv("PLATFORM_ADMIN_PASSWORD", "bootstrap-korrektes-pferd")
+    monkeypatch.setenv(
+        "PLATFORM_ADMIN_BOOTSTRAP_PATH", (tmp_path / "admin-bootstrap").as_posix()
+    )
+
     broker_dir = (tmp_path / "broker").as_posix()
     (tmp_path / "broker").mkdir(exist_ok=True)
     config_path = tmp_path / "config.yaml"

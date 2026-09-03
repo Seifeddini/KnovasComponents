@@ -32,6 +32,12 @@ Copy-Item .env.example .env
 
 Set strong values for `WEB_SECRET_KEY`, `COMPANY_LOGIN_*`, and all **Knovas API** variables (`SEMANTIX_API_URL`, mTLS paths, secured mode). Do not leave placeholder secrets.
 
+When per-user identity is enabled, also set:
+
+- `PLATFORM_ADMIN_EMAIL` — the first administrator; there is no default account
+- `PLATFORM_BROKER_KEY_DIR` — directory for `broker_ed25519.pem` / `.pub` / `.kid` (default `/app/data/broker_keys` on the writable data volume; the Platform will not regenerate a partial or unreadable key, and will not mkdir from Python)
+- `KNOVAS_CLIENT_ID` — tenant id signed into every `principal_assertion` (`api.client_id`); must match the Knovas tenant
+
 For **search only** (no UNC file open), set `OPEN_COMPANION_ENABLED=false` in `.env`.
 
 ## 4. Certificates

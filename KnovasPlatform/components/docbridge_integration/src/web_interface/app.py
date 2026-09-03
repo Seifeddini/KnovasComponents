@@ -711,6 +711,27 @@ def create_app(config_path: Optional[str] = None):
         identity_gate = IdentityGate()
         app.teardown_request(identity_gate.close)
 
+        # Schema and first administrator, before anything serves a request.
+        # Gunicorn loads this module in every worker, so prepare_identity takes
+        # an advisory lock and is idempotent; a restart is a no-op. Without it
+        # a fresh deployment comes up with no tables and nobody who can sign
+        # in, which looks like a broken login rather than a missing step.
+        from identity import db as identity_db
+        from identity.startup import DEFAULT_SECRET_PATH, prepare_identity
+
+        boot_conn = identity_db.connect()
+        try:
+            prepare_identity(
+                boot_conn,
+                email=os.environ.get('PLATFORM_ADMIN_EMAIL', ''),
+                password=os.environ.get('PLATFORM_ADMIN_PASSWORD') or None,
+                secret_path=os.environ.get(
+                    'PLATFORM_ADMIN_BOOTSTRAP_PATH', DEFAULT_SECRET_PATH
+                ),
+            )
+        finally:
+            boot_conn.close()
+
         # The broker signs the signed-in person into every Knovas call, through
         # the one client the search path already uses. Both preconditions fail
         # closed at startup: an unsigned call returns MORE than a signed one.

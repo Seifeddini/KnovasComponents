@@ -82,3 +82,35 @@ def test_directory_missing_raises(tmp_path: Path):
 def test_public_pem_without_a_key_raises(tmp_path: Path):
     with pytest.raises(BrokerKeyUnavailableError):
         public_pem(tmp_path)
+
+
+def test_half_restored_bundle_raises_rather_than_minting_a_new_key(tmp_path: Path):
+    """The dangerous case: the private half is gone, its siblings remain.
+
+    "Create if absent" would quietly mint a key that signs perfectly while
+    Knovas still holds the old public half, so every assertion would be
+    refused days later, far from the cause.
+    """
+    load_or_create_signer(tmp_path)
+    original_pub = (tmp_path / "broker_ed25519.pub").read_bytes()
+    (tmp_path / "broker_ed25519.pem").unlink()
+
+    with pytest.raises(BrokerKeyUnavailableError) as excinfo:
+        load_or_create_signer(tmp_path)
+
+    assert "Incomplete broker key bundle" in str(excinfo.value)
+    # The surviving artifacts are untouched, so a restore is still possible.
+    assert (tmp_path / "broker_ed25519.pub").read_bytes() == original_pub
+    assert not (tmp_path / "broker_ed25519.pem").exists()
+
+
+def test_a_stray_sibling_alone_also_raises(tmp_path: Path):
+    (tmp_path / "broker_ed25519.kid").write_text("bk-leftover")
+    with pytest.raises(BrokerKeyUnavailableError):
+        load_or_create_signer(tmp_path)
+
+
+def test_private_key_is_created_readable_only_by_its_owner(tmp_path: Path):
+    load_or_create_signer(tmp_path)
+    mode = stat.S_IMODE((tmp_path / "broker_ed25519.pem").stat().st_mode)
+    assert mode == 0o600

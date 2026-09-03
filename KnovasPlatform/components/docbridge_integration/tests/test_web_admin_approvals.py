@@ -283,8 +283,14 @@ class TestLive:
         from identity.approvals import ApprovalService
 
         sign_in(identity_client, "pruefer@kanzlei.ch")
+        # The approver's own approvals page offers no toggle -- and with an
+        # empty queue it carries no form at all, so the token has to come from
+        # a page they can legitimately load. Reading it from /admin/approvals
+        # made this assertion die in the helper instead of reaching the route,
+        # which left the server-side refusal untested.
+        assert "admin-bypass" not in identity_client.get("/admin/approvals").data.decode("utf-8")
         assert post_form(identity_client, "/admin/approvals/admin-bypass",
-                         page="/admin/approvals", enabled="0").status_code == 403
+                         page="/settings", enabled="0").status_code == 403
         _logout(identity_client)
         sign_in(identity_client, "chef@kanzlei.ch")
         assert post_form(identity_client, "/admin/approvals/admin-bypass",
