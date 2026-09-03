@@ -6,7 +6,7 @@ Handles communication with Knovas knowledge base API.
 import requests
 import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple, Union
+from typing import Iterator, List, Dict, Any, Optional, Tuple, Union
 from urllib.parse import quote
 from datetime import datetime, timezone
 import time
@@ -886,6 +886,13 @@ def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, An
     return []
 
 
+# The field that carries a person across the mTLS boundary. KnowledgeBase reads
+# this exact name from the JSON body (services/rbac/assertion.py, ASSERTION_FIELD).
+# A cross-repo wire contract with no shared import: renaming either side is a
+# silent break that surfaces as "search returns nothing" on a BROKERED tenant.
+ASSERTION_FIELD = "principal_assertion"
+
+
 class KnovasAPIClient:
     """Client for Knovas API operations."""
     
@@ -897,6 +904,9 @@ class KnovasAPIClient:
             config_loader: ConfigLoader instance. If None, uses global config.
         """
         self.config = config_loader or get_config()
+        # Set by attach_principal_broker() once the identity gate exists. None
+        # means a legacy shared-login deployment: bodies go out unsigned.
+        self._principal_broker = None
         
         self.base_url = self.config.get('api.base_url', 'http://localhost:5000')
         self.auth_type = self.config.get('api.auth_type', 'bearer')
@@ -929,7 +939,12 @@ class KnovasAPIClient:
         self._last_cert_check_at = 0.0
         # Serialize the certificate freshness check / renewal / session swap so
         # concurrent request threads can't race on _last_cert_check_at or _session.
-        self._cert_lock = threading.Lock()
+        # Reentrant by necessity, not preference: _ensure_certificate_freshness
+        # holds this lock while renewing, and the renewal posts a CSR through
+        # _request_no_retry, which calls _ensure_certificate_freshness again. On
+        # a plain Lock that nested acquire never returns and the worker thread
+        # is gone for good -- at renewal time, months after deployment.
+        self._cert_lock = threading.RLock()
 
         self.encryption_matrix_path = (
             (self.config.get('api.encryption_matrix_path', '') or '').strip()
@@ -1251,6 +1266,43 @@ class KnovasAPIClient:
                 )
                 self._attempt_certificate_renewal()
     
+    def attach_principal_broker(self, broker) -> None:
+        """Bind the broker that signs the current user into every outbound body.
+
+        ``broker`` offers ``current_user()`` and ``assertion_for(user)``. It is
+        attached after construction because create_app() builds the identity
+        gate after the client; the client itself stays ignorant of Flask.
+        """
+        self._principal_broker = broker
+
+    def _with_principal(self, data):
+        """Attach the caller's assertion to an outgoing body.
+
+        Fail closed when there is no authenticated user. An unsigned call
+        resolves to asserted=False at the Secure API -- "unrestricted
+        documents only" -- and returns *more* than a correctly scoped one.
+        A wall that widens under failure is not a wall.
+        """
+        if self._principal_broker is None:
+            return data
+        user = self._principal_broker.current_user()
+        if user is None:
+            raise PermissionError(
+                "No authenticated user for this request; refusing to call "
+                "Knovas without a principal assertion."
+            )
+        assertion = self._principal_broker.assertion_for(user)
+        if data is None:
+            return {ASSERTION_FIELD: assertion}
+        if not isinstance(data, dict):
+            # Every secured endpoint takes a JSON object. A non-dict body is a
+            # caller we have not accounted for; guessing how to attach the
+            # assertion is how one route would quietly lose it.
+            raise TypeError(
+                f"Cannot attach a principal assertion to a {type(data).__name__} body."
+            )
+        return {**data, ASSERTION_FIELD: assertion}
+
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""
         headers = {
@@ -1307,7 +1359,8 @@ class KnovasAPIClient:
         headers = self._get_headers()
         
         logger.debug(f"Making {method} request to {url}")
-        
+        data = self._with_principal(data)
+
         response = self._session.request(
             method=method,
             url=url,
@@ -1335,6 +1388,7 @@ class KnovasAPIClient:
         self._rate_limit()
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
+        data = self._with_principal(data)
         response = self._session.request(
             method=method,
             url=url,
@@ -1705,6 +1759,233 @@ class KnovasAPIClient:
         """POST /secured/graph/placements/<pid>/restore - expliziter Override."""
         return self._graph_request(
             'POST', f'/placements/{quote(str(placement_id), safe="")}/restore')
+
+    # -- RBAC: Zugriffsgruppen, Dokument-ACL, Ordnerregeln ------------------
+
+    def _rbac_request(
+        self,
+        method: str,
+        path: str,
+        data: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """RBAC-Aufruf. Gibt den geparsten Body zurueck.
+
+        404 heisst 'unbekannt oder nicht deins' und liefert None - ein
+        normaler Zustand, kein Fehler. Das entspricht der 404-statt-403-Regel
+        der Secure API: keine Route verraet, dass eine Id existiert.
+        """
+        try:
+            response = self._make_request(method=method, endpoint=path,
+                                          data=data, params=params)
+        except requests.exceptions.HTTPError as exc:
+            response = exc.response
+            if response is None or response.status_code != 404:
+                raise
+            logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, path)
+            return None
+        if response.status_code == 204:
+            return {}
+        try:
+            return response.json() or {}
+        except ValueError:
+            logger.warning("RBAC-Antwort ohne JSON-Body: %s %s", method, path)
+            return {}
+
+    def access_groups(self) -> List[Dict[str, Any]]:
+        """GET /secured/access_groups - der Gruppenbaum des Mandanten."""
+        payload = self._rbac_request('GET', '/secured/access_groups') or {}
+        return list(payload.get('groups') or [])
+
+    def create_access_group(
+        self, name: str, parent: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """POST /secured/access_groups - neue Gruppe, optional unter parent."""
+        return self._rbac_request(
+            'POST', '/secured/access_groups', data={'name': name, 'parent': parent}
+        )
+
+    def rename_access_group(
+        self, identifier: str, name: str
+    ) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/access_groups/<id> - Anzeigename aendern.
+
+        Die group_id bleibt stabil, deshalb kostet ein Rename nichts: in
+        acl_reader_ids stehen Ids, keine Namen.
+        """
+        return self._rbac_request(
+            'PATCH', f'/secured/access_groups/{quote(str(identifier), safe="")}',
+            data={'name': name})
+
+    def delete_access_group(self, identifier: str) -> bool:
+        """DELETE /secured/access_groups/<id>. True, wenn geloescht."""
+        result = self._rbac_request(
+            'DELETE', f'/secured/access_groups/{quote(str(identifier), safe="")}')
+        return result is not None
+
+    def document_access(self, pointer: str) -> Optional[Dict[str, Any]]:
+        """GET /secured/document_access - die ACL genau eines Dokuments."""
+        return self._rbac_request(
+            'GET', '/secured/document_access', params={'pointer': str(pointer)})
+
+    def document_readable(self, pointer: str) -> bool:
+        """Whether the signed-in person may read this document. Never raises.
+
+        Knovas decides, not the Platform. The alternative -- fetching the ACL
+        and evaluating it here -- would be a second copy of a policy whose own
+        reference implementation warns that walking the tree on both sides
+        inverts the model, and a wall that disagrees with the backend about
+        who may read what is worse than no wall.
+
+        Any failure answers False. This gates files the Platform serves off its
+        own disk, so an unreachable backend must close the door, not open it.
+        """
+        try:
+            payload = self._rbac_request(
+                'GET', '/secured/document_readable',
+                params={'pointer': str(pointer)},
+            )
+        except Exception as exc:  # noqa: BLE001 - transport, TLS, HTTP, JSON
+            logger.warning(
+                "document_readable failed for %r; refusing the document: %s",
+                pointer, exc,
+            )
+            return False
+        if not isinstance(payload, dict):
+            # A 404 from _rbac_request lands here as None. Unknown is refused.
+            return False
+        return payload.get('readable') is True
+
+    def set_document_access(
+        self,
+        pointer: str,
+        access_groups: List[str],
+        acting_as: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """PUT /secured/document_access - ersetzt die ACL vollstaendig.
+
+        Ersetzen, nicht ergaenzen: der Client schickt die vollstaendige
+        Zielmenge, damit 'eine Gruppe entfernen' kein zweites Verb braucht.
+
+        `access_groups` ist die Zuweisung, `acting_as` die eigene Freigabe
+        des Aufrufers - zwei verschiedene Dinge. Der Server prueft damit,
+        dass niemand in eine Gruppe einordnet, die er nicht dominiert.
+
+        Ein Dokument, das so gesetzt wird, verlaesst seine Ordnerregel: ab
+        dann entscheidet nur noch die eigene Zuweisung (genau ein Governor).
+        """
+        body: Dict[str, Any] = {
+            'pointer': str(pointer),
+            'access_groups': list(access_groups),
+        }
+        if acting_as is not None:
+            body['acting_as'] = list(acting_as)
+        return self._rbac_request('PUT', '/secured/document_access', data=body)
+
+    def documents(
+        self,
+        after: Optional[str] = None,
+        limit: int = 100,
+        prefix: Optional[str] = None,
+        group: Optional[str] = None,
+        unrestricted: bool = False,
+        conflicts: bool = False,
+        status: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """GET /secured/documents - eine Keyset-Seite des Dokumentbestands.
+
+        `after` ist der `next_after` der vorigen Antwort. Die Seite wird
+        NICHT ueber einen Offset geblaettert: bei grossen Mandanten waere das
+        oberhalb von QUERY_MAXIMUM_RESULTS schlicht ein Fehler.
+
+        Gefiltert wird mit der eigenen Freigabe des Aufrufers. Wer aus einem
+        Mandat ausgeschlossen ist, sieht es auch hier nicht.
+        """
+        params: Dict[str, Any] = {'limit': int(limit)}
+        if after:
+            params['after'] = str(after)
+        if prefix:
+            params['prefix'] = str(prefix)
+        if group:
+            params['group'] = str(group)
+        if status:
+            params['status'] = str(status)
+        if unrestricted:
+            params['unrestricted'] = 'true'
+        if conflicts:
+            # Wire-Vertrag aus der Design-Spec (5.4). Das Backend wertet den
+            # Parameter noch nicht aus - er wird durchgereicht, nicht erfunden.
+            params['conflicts'] = 'true'
+        return self._rbac_request('GET', '/secured/documents', params=params) or {}
+
+    def iter_documents(
+        self, max_pages: int = 10_000, **kwargs: Any
+    ) -> Iterator[Dict[str, Any]]:
+        """Laeuft den Cursor bis zum Ende ab und liefert einzelne Dokumente.
+
+        `max_pages` ist eine Schleifenbremse, keine Fachgrenze: ein Server,
+        der denselben Cursor wiederholt, darf uns nicht endlos drehen.
+        """
+        after = kwargs.pop('after', None)
+        seen: set = set()
+        for _ in range(max(1, int(max_pages))):
+            page = self.documents(after=after, **kwargs)
+            for row in page.get('documents') or []:
+                yield row
+            after = page.get('next_after')
+            if not after or after in seen:
+                return
+            seen.add(after)
+
+    def folder_rules(self) -> List[Dict[str, Any]]:
+        """GET /secured/folder_rules - alle Ordnerregeln des Mandanten."""
+        payload = self._rbac_request('GET', '/secured/folder_rules') or {}
+        return list(payload.get('rules') or [])
+
+    def create_folder_rule(
+        self,
+        pointer_prefix: str,
+        access_groups: List[str],
+        acting_as: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """POST /secured/folder_rules - Ordner einer Gruppe zuordnen.
+
+        Dokumente, die spaeter unter diesen Pfad eingelesen werden, erben die
+        Regel beim Ingest. Genau das verhindert, dass ein erneuter Abgleich
+        eine geschlossene Wand wieder oeffnet.
+        """
+        body: Dict[str, Any] = {
+            'pointer_prefix': str(pointer_prefix),
+            'access_groups': list(access_groups),
+        }
+        if acting_as is not None:
+            body['acting_as'] = list(acting_as)
+        return self._rbac_request('POST', '/secured/folder_rules', data=body)
+
+    def update_folder_rule(
+        self,
+        rule_id: str,
+        access_groups: List[str],
+        acting_as: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/folder_rules/<id> - Gruppen einer Ordnerregel aendern.
+
+        Das ist ein einziger Datenbankschreibvorgang, egal wie viele
+        Dokumente unter dem Ordner liegen: auf den Chunks steht die Regel-Id,
+        nicht die aufgeloeste Gruppenmenge.
+        """
+        body: Dict[str, Any] = {'access_groups': list(access_groups)}
+        if acting_as is not None:
+            body['acting_as'] = list(acting_as)
+        return self._rbac_request(
+            'PATCH', f'/secured/folder_rules/{quote(str(rule_id), safe="")}',
+            data=body)
+
+    def delete_folder_rule(self, rule_id: str) -> bool:
+        """DELETE /secured/folder_rules/<id>. True, wenn geloescht."""
+        result = self._rbac_request(
+            'DELETE', f'/secured/folder_rules/{quote(str(rule_id), safe="")}')
+        return result is not None
 
     def format_document_payload(
         self,

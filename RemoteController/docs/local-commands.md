@@ -76,6 +76,7 @@ Discover and sync require:
 | `/metrics` | GET | none |
 | `/discover` | GET | Bearer JWT |
 | `/sync` | POST | Bearer JWT; JSON body |
+| `/sync/body` | POST | same; stores the folder list and starts nothing |
 | `/sync/start` | POST | same; uses last saved body if request has no JSON |
 | `/sync/stop` | POST | same |
 | `/sync/status` | GET | same |
@@ -178,7 +179,7 @@ The worker finishes the **current file** (per `pause_policy` in `remote_controll
 
 **Internal LAN** (`RC_INTERNAL_LOCAL_BYPASS=true` — no JWT):
 
-Every state-changing RC route (`/sync`, `/sync/start`, `/sync/stop`,
+Every state-changing RC route (`/sync`, `/sync/body`, `/sync/start`, `/sync/stop`,
 `/sync/config`) requires `Content-Type: application/json` **and** a body, even
 when the endpoint takes no arguments. A bare POST returns
 `400 {"error":"Request body must be JSON"}` — that is the CSRF / DNS-rebind

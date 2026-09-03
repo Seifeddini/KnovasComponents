@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dokumente · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .admin { max-width: 1280px; margin: 0 auto; padding: 24px; }
+        .admin table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .admin th, .admin td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .admin th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+        .admin .filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-top: 12px; }
+        .admin .filters label { font-size: 13px; }
+        .admin .msg { padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+        .admin .msg.error { background: #fef2f2; color: #b91c1c; }
+        .admin .msg.ok { background: #f0fdf4; color: #15803d; }
+        .admin .hint { color: #64748b; font-size: 12.5px; }
+        .admin .ptr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+        .admin .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; background: #e2e8f0; font-size: 12px; margin-right: 4px; }
+        .admin .badge.open { background: #fef9c3; color: #854d0e; }
+        .admin .bulk { border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px 16px; margin-top: 18px; }
+        .admin .more { margin-top: 18px; }
+    </style>
+</head>
+<body>
+{% include '_sidebar.html' %}
+
+<main class="admin">
+    {% set admin_tab = 'documents' %}
+    {% include '_admin_tabs.html' %}
+
+    <h1>Dokumente</h1>
+    <p class="hint">
+        Alle Dokumente dieses Mandanten, soweit Sie sie sehen dürfen.
+        Abschirmungen gelten auch für die Verwaltung: was für Sie gesperrt
+        ist, erscheint hier nicht.
+        <strong>{{ total_count }}</strong> Dokument(e) entsprechen dem Filter.
+    </p>
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+
+    <form class="filters" method="get" action="{{ url_for('admin.documents') }}">
+        <label>Ordner
+            <input type="text" name="prefix" value="{{ filters.prefix or '' }}"
+                   placeholder="rc-sync/mandate/">
+        </label>
+        <label>Gruppe
+            <select name="group">
+                <option value="">alle</option>
+                {% for g in groups %}
+                <option value="{{ g.group_id }}"
+                        {% if filters.group == g.group_id %}selected{% endif %}>{{ g.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <input type="checkbox" name="unrestricted" value="1"
+                   {% if filters.unrestricted %}checked{% endif %}>
+            nur ohne Gruppe
+        </label>
+        <label>
+            <input type="checkbox" name="conflicts" value="1" disabled
+                   {% if filters.conflicts %}checked{% endif %}
+                   title="Der Konfliktfilter wird vom Knovas-Backend noch nicht ausgewertet.">
+            nur Konflikte (folgt)
+        </label>
+        <button type="submit">Filtern</button>
+    </form>
+
+    <form method="post" action="{{ url_for('admin.set_document_acl') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <table id="doc-table">
+            <thead>
+                <tr>
+                    <th aria-label="Auswahl"></th>
+                    <th>Titel</th>
+                    <th>Pfad</th>
+                    <th>Gruppen</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="doc-rows">
+                {% for d in documents %}
+                <tr>
+                    <td><input type="checkbox" name="pointer" value="{{ d.pointer }}"></td>
+                    <td>{{ d.title or '—' }}</td>
+                    <td class="ptr">{{ d.pointer }}</td>
+                    <td>
+                        {% if d.access_groups %}
+                            {% for g in d.access_groups %}<span class="badge">{{ g }}</span>{% endfor %}
+                        {% else %}
+                            <span class="badge open">offen</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ d.status or '—' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="hint">Keine Dokumente für diesen Filter.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="more">
+            {# Keyset-Cursor: der Server liefert next_after, wir reichen ihn zurück. #}
+            <button type="button" id="load-more"
+                    data-next-after="{{ next_after or '' }}"
+                    data-endpoint="{{ url_for('admin.documents_page') }}"
+                    {% if not next_after %}hidden{% endif %}>
+                Mehr laden
+            </button>
+            <span class="hint" id="load-status" role="status"></span>
+        </div>
+
+        <div class="bulk">
+            <strong>Auswahl einer Zugriffsgruppe zuordnen</strong>
+            <p class="hint">
+                Ersetzt die Gruppen der ausgewählten Dokumente vollständig.
+                Ohne Auswahl einer Gruppe werden sie freigegeben.
+            </p>
+            {% for g in groups %}
+            <label>
+                <input type="checkbox" name="access_group" value="{{ g.group_id }}">
+                {{ g.name }}
+            </label>
+            {% endfor %}
+            <p><button type="submit">Zuordnen</button></p>
+        </div>
+    </form>
+</main>
+
+<script src="{{ url_for('static', filename='js/admin_documents.js') }}" defer></script>
+</body>
+</html>

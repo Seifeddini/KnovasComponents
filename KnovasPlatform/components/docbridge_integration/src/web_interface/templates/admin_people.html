@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personen · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .admin { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .admin table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .admin th, .admin td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .admin th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+        .admin .state-disabled { color: #b91c1c; }
+        .admin .state-locked { color: #b45309; }
+        .admin .state-active { color: #15803d; }
+        .admin form.inline { display: inline; }
+        .admin .panel { border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px 18px; margin-top: 24px; }
+        .admin .msg { padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+        .admin .msg.error { background: #fef2f2; color: #b91c1c; }
+        .admin .msg.ok { background: #f0fdf4; color: #15803d; }
+        .admin label { display: block; margin-top: 10px; font-size: 13px; }
+        .admin input[type=text], .admin input[type=email], .admin input[type=password] { width: 100%; max-width: 360px; padding: 6px 8px; }
+        .admin .hint { color: #64748b; font-size: 12.5px; }
+    </style>
+</head>
+<body>
+{% include '_sidebar.html' %}
+
+<main class="admin">
+    {% set admin_tab = 'people' %}
+    {% include '_admin_tabs.html' %}
+
+    <h1>Personen</h1>
+    <p class="hint">
+        Wer sich anmelden darf, was er oder sie darf, und welche Zugriffsgruppen
+        gelten. Zugriffsgruppen entscheiden, welche Dokumente jemand sieht;
+        Rollen entscheiden, was jemand in dieser Plattform tun darf.
+    </p>
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+
+    <table>
+        <thead>
+            <tr>
+                <th>Person</th>
+                <th>Status</th>
+                <th>Rollen</th>
+                <th>Zugriffsgruppen</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in people %}
+            {% set person = row.user %}
+            <tr>
+                <td>
+                    <strong>{{ person.display_name }}</strong><br>
+                    <span class="hint">{{ person.email }}</span>
+                </td>
+                <td>
+                    {% if not person.is_active %}
+                        <span class="state-disabled">deaktiviert</span>
+                    {% elif person.is_locked %}
+                        <span class="state-locked">gesperrt</span>
+                    {% else %}
+                        <span class="state-active">aktiv</span>
+                    {% endif %}
+                    {% if person.must_change_password %}
+                        <br><span class="hint">Passwortwechsel offen</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" action="{{ url_for('admin.set_roles') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ person.id }}">
+                        {% for role in assignable_roles %}
+                        <label>
+                            <input type="checkbox" name="roles" value="{{ role }}"
+                                   {% if role in person.roles %}checked{% endif %}>
+                            {{ role }}
+                        </label>
+                        {% endfor %}
+                        <button type="submit">Rollen speichern</button>
+                    </form>
+                </td>
+                <td>
+                    <form method="post" action="{{ url_for('admin.set_groups') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ person.id }}">
+                        <input type="text" name="access_groups"
+                               value="{{ row.access_groups|join(', ') }}"
+                               placeholder="z. B. litigation, ip">
+                        <button type="submit">Speichern</button>
+                    </form>
+                </td>
+                <td>
+                    {% if person.is_active %}
+                    <form class="inline" method="post" action="{{ url_for('admin.disable_person') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ person.id }}">
+                        <button type="submit" {% if me and person.id == me.id %}disabled title="Das eigene Konto lässt sich nicht deaktivieren."{% endif %}>Deaktivieren</button>
+                    </form>
+                    {% else %}
+                    <form class="inline" method="post" action="{{ url_for('admin.enable_person') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ person.id }}">
+                        <button type="submit">Aktivieren</button>
+                    </form>
+                    {% endif %}
+                    <form class="inline" method="post" action="{{ url_for('admin.sign_out_person') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ person.id }}">
+                        <button type="submit">Überall abmelden</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin.reset_password') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ person.id }}">
+                        <input type="password" name="password" placeholder="Neues Passwort" minlength="12">
+                        <button type="submit">Zurücksetzen</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <section class="panel">
+        <h2>Person hinzufügen</h2>
+        <p class="hint">
+            Das vergebene Passwort gilt einmalig — die Person muss es bei der
+            ersten Anmeldung ersetzen.
+        </p>
+        <form method="post" action="{{ url_for('admin.create_person') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label for="newEmail">E-Mail-Adresse</label>
+            <input type="email" id="newEmail" name="email" required>
+            <label for="newName">Name</label>
+            <input type="text" id="newName" name="display_name" required>
+            <label for="newPassword">Einmaliges Passwort</label>
+            <input type="password" id="newPassword" name="password" minlength="12" required>
+            <button type="submit">Anlegen</button>
+        </form>
+    </section>
+</main>
+</body>
+</html>

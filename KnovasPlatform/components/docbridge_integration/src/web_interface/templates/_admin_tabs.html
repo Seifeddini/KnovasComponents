@@ -1,0 +1,30 @@
+{# Reiterleiste der Verwaltung: eine Quelle fuer alle Konsolenseiten (SS-387).
+   Erwartet: admin_tab ('people' | 'documents' | 'access_groups' | 'ingestion'
+   | 'approvals'), me, ingestion_enabled.
+   Zwei Sichtbarkeitsregeln, beide nur Darstellung: Personen, Dokumente und
+   Zugriffsgruppen sind fuer ein me ohne 'admin' ausgeblendet; Ingestion
+   erscheint fuer admin und ingestion_manager, wenn ingestion_enabled gilt
+   (d.h. eine RemoteController-URL konfiguriert ist). Freigaben ist immer da.
+   Die Kontrolle ist der Rollen-Gate auf der Route, nicht der gezeichnete
+   Link -- require_admin, require_ingestion, require_approver. #}
+<nav class="tabs" aria-label="Verwaltung">
+    {% if not (me is defined and me and 'admin' not in me.roles) %}
+    <a href="{{ url_for('admin.people') }}"
+       class="{% if admin_tab == 'people' %}active{% endif %}"
+       {% if admin_tab == 'people' %}aria-current="page"{% endif %}>Personen</a>
+    <a href="{{ url_for('admin.documents') }}"
+       class="{% if admin_tab == 'documents' %}active{% endif %}"
+       {% if admin_tab == 'documents' %}aria-current="page"{% endif %}>Dokumente</a>
+    <a href="{{ url_for('admin.access_groups') }}"
+       class="{% if admin_tab == 'access_groups' %}active{% endif %}"
+       {% if admin_tab == 'access_groups' %}aria-current="page"{% endif %}>Zugriffsgruppen</a>
+    {% endif %}
+    {% if ingestion_enabled is defined and ingestion_enabled and (me is not defined or not me or 'admin' in me.roles or 'ingestion_manager' in me.roles) %}
+    <a href="{{ url_for('admin.ingestion') }}"
+       class="{% if admin_tab == 'ingestion' %}active{% endif %}"
+       {% if admin_tab == 'ingestion' %}aria-current="page"{% endif %}>Ingestion</a>
+    {% endif %}
+    <a href="{{ url_for('admin.approvals') }}"
+       class="{% if admin_tab == 'approvals' %}active{% endif %}"
+       {% if admin_tab == 'approvals' %}aria-current="page"{% endif %}>Freigaben</a>
+</nav>

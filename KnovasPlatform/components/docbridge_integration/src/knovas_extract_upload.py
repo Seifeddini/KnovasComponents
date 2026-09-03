@@ -11,6 +11,22 @@ from knovas_transmit.table_payload import map_extractor_tables
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_accepts_ocr(extract) -> bool:
+    """Whether the installed knovas-extract takes the OCR keywords.
+
+    OCR arrived after 0.2. Passing the keywords to an older extractor raises
+    TypeError, which this module's broad except turns into "no parts" -- a PDF
+    that ingests as an empty document rather than an error anyone would notice.
+    Asking the function what it accepts keeps that from happening quietly.
+    """
+    import inspect
+
+    try:
+        return "use_ocr" in inspect.signature(extract).parameters
+    except (TypeError, ValueError):
+        return True
+
 _EXT_TO_MIME = {
     ".txt": "text/plain",
     ".md": "text/plain",
@@ -73,9 +89,15 @@ def parts_from_base64(
             "emit_sentences": True,
             "emit_markdown": True,
         }
-        if dotted == ".pdf":
+        if dotted == ".pdf" and _extract_accepts_ocr(extract):
             extract_kwargs["use_ocr"] = use_ocr
             extract_kwargs["ocr_language"] = ocr_language
+        elif dotted == ".pdf" and use_ocr:
+            logger.warning(
+                "PDF OCR requested but the installed knovas-extract does not "
+                "accept it; continuing without OCR. Upgrade knovas-extract to a "
+                "release with OCR support."
+            )
         result = extract(raw, **extract_kwargs)
     except Exception as exc:
         logger.warning("knovas-extract failed for .%s: %s", normalized, exc)

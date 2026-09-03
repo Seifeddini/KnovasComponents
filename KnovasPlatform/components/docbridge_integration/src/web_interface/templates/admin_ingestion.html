@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ingestion · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .admin { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .admin table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .admin th, .admin td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .admin th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+        .admin form.inline { display: inline; }
+        .admin .panel { border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px 18px; margin-top: 24px; }
+        .admin .msg { padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+        .admin .msg.error { background: #fef2f2; color: #b91c1c; }
+        .admin .msg.ok { background: #f0fdf4; color: #15803d; }
+        .admin label { display: block; margin-top: 10px; font-size: 13px; }
+        .admin input[type=text] { width: 100%; max-width: 360px; padding: 6px 8px; }
+        .admin .hint { color: #64748b; font-size: 12.5px; }
+        .admin .ptr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+        .admin .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; background: #e2e8f0; font-size: 12px; margin-right: 4px; }
+        .admin .badge.open { background: #fef9c3; color: #854d0e; }
+    </style>
+</head>
+<body>
+{% include '_sidebar.html' %}
+
+<main class="admin">
+    {% set admin_tab = 'ingestion' %}
+    {% include '_admin_tabs.html' %}
+
+    <h1>Ingestion</h1>
+    <p class="hint">
+        Welche Ordner indexiert werden, wann, wie schnell und hinter welcher Wand.
+        Eine Vorschau zeigt, was ein Abgleich finden würde, bevor etwas gespeichert wird.
+    </p>
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+
+    <section class="panel">
+        <h2>Status</h2>
+        <p>Abgleich: <strong>{{ status.scheduler_state }}</strong>
+            {% if status.files_synced_local is defined %}· {{ status.files_synced_local }} Dateien lokal abgeglichen{% endif %}
+            {% if current %}{% if current.pushed_at %}· Profil Version {{ current.version }}, übertragen{% else %}· Version {{ current.version }} gespeichert, noch nicht übertragen{% endif %}{% endif %}
+        </p>
+        <form class="inline" method="post" action="{{ url_for('admin.start') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">Start</button>
+        </form>
+        <form class="inline" method="post" action="{{ url_for('admin.stop') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">Anhalten</button>
+        </form>
+    </section>
+
+    {% if preview %}
+    <section class="panel">
+        <h2>Vorschau</h2>
+        <table>
+            <thead><tr><th>Ordner</th><th>Dateien</th><th>Unterordner</th></tr></thead>
+            <tbody>
+            {% for p in preview %}
+                <tr><td class="ptr">{{ p.path }}</td>
+                    <td>{% if p.error %}<span class="msg error">{{ p.error }}</span>{% else %}{{ p.files if p.files is not none else '—' }}{% endif %}</td>
+                    <td>{{ p.folders if p.folders is not none else '—' }}{% if p.truncated %} <span class="hint">(Liste gekürzt)</span>{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% if support_json %}<p class="hint">Für den Support (ohne Pfade und Gruppen):</p><pre class="ptr">{{ support_json }}</pre>{% endif %}
+    </section>
+    {% endif %}
+
+    <section class="panel">
+        <h2>Profil</h2>
+        <form method="post" action="{{ url_for('admin.save') }}" id="profile-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>Kennung <input type="text" name="identifier_prefix" value="{{ form.identifier_prefix }}" required></label>
+            <label>Beschreibung <input type="text" name="description" value="{{ form.description }}"></label>
+
+            <h3>Ordner</h3>
+            <table>
+                <thead><tr><th>Pfad</th><th>Mit Unterordnern</th><th>Zugriffsgruppen</th></tr></thead>
+                <tbody>
+                {% for n in range(12) %}
+                    {% set f = form.folders[n] if n < form.folders|length else none %}
+                    <tr>
+                        <td><input type="text" name="folder-{{ n }}-path" value="{{ f.path if f else '' }}" placeholder="/mnt/autodoc/..."></td>
+                        <td><input type="checkbox" name="folder-{{ n }}-recursive" value="1" {% if not f or f.recursive %}checked{% endif %}></td>
+                        <td>
+                            {% for g in groups %}
+                            <label><input type="checkbox" name="folder-{{ n }}-groups" value="{{ g.group_id }}"
+                                {% if f and g.group_id in f.groups %}checked{% endif %}> {{ g.name }}</label>
+                            {% endfor %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+
+            <h3>Was indexiert wird</h3>
+            {% for key, t in file_types.items() %}
+            <label><input type="checkbox" name="file_types" value="{{ key }}" {% if key in form.file_types %}checked{% endif %}> {{ t.label }} <span class="hint">{{ t.description }}</span></label>
+            {% endfor %}
+
+            <h3>Wann</h3>
+            {% for key, t in schedules.items() %}
+            <label><input type="radio" name="schedule" value="{{ key }}" {% if key == form.schedule %}checked{% endif %}> {{ t.label }} <span class="hint">{{ t.description }}</span></label>
+            {% endfor %}
+
+            <h3>Wie schnell</h3>
+            {% for key, t in throughputs.items() %}
+            <label><input type="radio" name="throughput" value="{{ key }}" {% if key == form.throughput %}checked{% endif %}> {{ t.label }} <span class="hint">{{ t.description }}</span></label>
+            {% endfor %}
+
+            <label>Dokumente ignorieren, die älter sind als (Tage)
+                <input type="text" name="max_document_age_days" value="{{ form.max_document_age_days }}" placeholder="leer = kein Limit"></label>
+
+            <p>
+                <button type="submit" formaction="{{ url_for('admin.preview') }}">Vorschau</button>
+                <button type="submit">Speichern und übertragen</button>
+            </p>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>Versionen</h2>
+        <table>
+            <thead><tr><th>Version</th><th>Erstellt</th><th>Übertragen</th><th></th></tr></thead>
+            <tbody>
+            {% for v in versions %}
+                <tr>
+                    <td>{{ v.version }}{% if v.is_current %} (aktuell){% endif %}</td>
+                    <td>{{ v.created_at }}</td>
+                    <td>{{ v.pushed_at or '—' }}</td>
+                    <td>{% if not v.is_current %}
+                        <form class="inline" method="post" action="{{ url_for('admin.restore', version=v.version) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit">Wiederherstellen</button>
+                        </form>{% endif %}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4" class="hint">Noch kein Profil gespeichert.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</main>
+</body>
+</html>

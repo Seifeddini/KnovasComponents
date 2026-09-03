@@ -59,6 +59,11 @@ class _WalkTarget:
     walk_root: Path
     rel_root: Path
     recursive: bool
+    # Knovas RBAC groups for every document from this source. Empty means
+    # "unset", which lets the Secure API apply its folder rule instead -- an
+    # explicit empty list would mean "deliberately unrestricted" and would
+    # override that rule.
+    access_groups: tuple[str, ...] = ()
 
 
 def is_within_max_document_age(
@@ -231,8 +236,13 @@ def _iter_candidate_files(
     max_scan_entries: int = 0,
     budget: Optional[_WalkBudget] = None,
     initial_stacks: dict[Path, list[Path]] | None = None,
-) -> Iterator[tuple[Path, str, str, int]]:
-    """Yield in-scope files; honour directory visit budget and optional file cap."""
+) -> Iterator[tuple[Path, str, str, int, tuple[str, ...]]]:
+    """Yield in-scope files with their source's access groups.
+
+    Honours the directory visit budget and the optional file cap. The fifth
+    element is the walk target's ``access_groups`` so the upload queue can
+    hand them to the uploader without a second lookup.
+    """
     include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
     max_bytes = int(filters.get("max_file_bytes", 10_485_760))
@@ -260,7 +270,7 @@ def _iter_candidate_files(
             budget=budget,
             initial_stack=stacks.get(target.walk_root),
         ):
-            yield item
+            yield (*item, target.access_groups)
         if budget is not None and budget.truncated:
             break
 
@@ -287,7 +297,8 @@ def _should_skip_failed_upload(upload: UploadResult, mode: str) -> bool:
 @dataclass
 class _ScanPlan:
     summary: DocumentSyncSummary
-    upload_queue: list[tuple[Path, str, str, int]]
+    # (abs_path, relative_path, mtime_iso, size_bytes, access_groups)
+    upload_queue: list[tuple[Path, str, str, int, tuple[str, ...]]]
     scanned_paths: set[str] = field(default_factory=set)
     scan_truncated: bool = False
     scan_stopped: bool = False
@@ -348,6 +359,7 @@ def build_walk_targets(
                     walk_root=root,
                     rel_root=root,
                     recursive=bool(source.get("recursive", True)),
+                    access_groups=tuple(source.get("access_groups") or ()),
                 )
             )
         return targets, None
@@ -368,7 +380,12 @@ def build_walk_targets(
         return [], progress
 
     return [
-        _WalkTarget(walk_root=sub_path, rel_root=root, recursive=True),
+        _WalkTarget(
+            walk_root=sub_path,
+            rel_root=root,
+            recursive=True,
+            access_groups=tuple(source.get("access_groups") or ()),
+        ),
     ], progress
 
 
@@ -391,7 +408,7 @@ def plan_sync_cycle(
     max_age_seconds = int(max_age) if max_age is not None else None
     fingerprints = state.load_fingerprints()
     summary = DocumentSyncSummary()
-    upload_queue: list[tuple[Path, str, str, int]] = []
+    upload_queue: list[tuple[Path, str, str, int, tuple[str, ...]]] = []
     scanned_paths: set[str] = set()
     walk_targets, _ = build_walk_targets(sync_body, sync_config, queue)
     visit_cap = max_scan_entries if max_scan_entries > 0 else 0
@@ -417,7 +434,7 @@ def plan_sync_cycle(
                     )
 
     scanned = 0
-    for abs_path, rel, mtime_iso, size_bytes in _iter_candidate_files(
+    for abs_path, rel, mtime_iso, size_bytes, access_groups in _iter_candidate_files(
         walk_targets,
         should_stop=should_stop,
         filters=filters,
@@ -454,7 +471,9 @@ def plan_sync_cycle(
             )
         if _needs_upload(status, mode):
             if max_upload_files <= 0 or len(upload_queue) < max_upload_files:
-                upload_queue.append((abs_path, rel, mtime_iso, size_bytes))
+                upload_queue.append(
+                    (abs_path, rel, mtime_iso, size_bytes, access_groups)
+                )
 
     scan_truncated = budget.truncated
     # A stop/deadline interrupt is NOT the same as a completed scan: the tail is
@@ -519,7 +538,7 @@ def _collect_files(
     sync_config: dict[str, Any] | None = None,
     now: datetime | None = None,
     max_upload_files: int = 0,
-) -> list[tuple[Path, str, str, int]]:
+) -> list[tuple[Path, str, str, int, tuple[str, ...]]]:
     """Return files that need upload (pending or modified; all in-scope in full mode)."""
     state = SyncStateStore()
     try:
@@ -624,7 +643,7 @@ def run_sync_work(
             # cursor from advancing over the unscanned tail of this subfolder.
             result.paused_reason = "cycle_time_limit"
 
-        for abs_path, rel, mtime_iso, size_bytes in plan.upload_queue:
+        for abs_path, rel, mtime_iso, size_bytes, access_groups in plan.upload_queue:
             if should_stop():
                 result.paused_reason = "stop_requested"
                 break
@@ -633,7 +652,9 @@ def run_sync_work(
                 break
 
             try:
-                upload = uploader.upload_file(abs_path, rel, sync_body)
+                upload = uploader.upload_file(
+                    abs_path, rel, sync_body, access_groups=access_groups
+                )
             except requests.RequestException as exc:
                 if "rate limit" in str(exc).lower():
                     result.paused_reason = "rate_limited"

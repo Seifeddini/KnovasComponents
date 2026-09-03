@@ -223,6 +223,8 @@ web:
   search:
     results_per_page: 20
     verify_files_on_disk: false
+identity:
+  enabled: false
 api:
   base_url: "http://example.test"
 open:

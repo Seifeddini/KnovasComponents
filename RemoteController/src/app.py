@@ -6,7 +6,8 @@ import os
 
 from flask import Flask
 
-from config import load_config
+from auth.platform_principal import refuse_if_broker_private_key_is_readable
+from config import get_config, load_config
 from onedrive_mirror import start_mirror_thread_if_configured
 from routes.discover import discover_bp
 from routes.health import health_bp
@@ -21,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 def create_app(*, skip_validation: bool = False) -> Flask:
     load_config(validate=not skip_validation)
+
+    # The Platform's broker key directory is mounted here for its public half;
+    # the private half is in the same directory. If this process can read it,
+    # stop -- that key asserts any of the firm's people to Knovas, and this is
+    # the service that opens untrusted documents.
+    refuse_if_broker_private_key_is_readable(get_config().rc_platform_broker_pubkey_path)
 
     if os.environ.get("TESTING", "").strip().lower() not in ("1", "true", "yes", "on"):
         logging.basicConfig(

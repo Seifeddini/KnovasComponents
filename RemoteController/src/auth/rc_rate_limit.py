@@ -65,8 +65,13 @@ def require_rc_handled_rate_limit(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         cfg = get_config()
         if cfg.rc_rate_limit_enabled:
-            emp = getattr(g, "rc_employee_id", None) or _client_ip()
-            ident = f"rc-handled:{emp}"
+            # A Platform principal sets no rc_employee_id, so without the
+            # subject every console user in the firm shared one bucket keyed
+            # on the docbridge-web container's address -- and a preview of
+            # twelve folders spent it (M3).
+            subject = getattr(getattr(g, "rc_principal", None), "subject", None)
+            who = subject or getattr(g, "rc_employee_id", None) or _client_ip()
+            ident = f"rc-handled:{who}"
             if not _get_handled_limiter().is_allowed(ident):
                 return jsonify({"error": "Rate limit exceeded", "status": "error"}), 429
         return func(*args, **kwargs)

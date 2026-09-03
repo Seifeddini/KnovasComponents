@@ -6,6 +6,24 @@ Full environment and scheduler reference. Required variables for boot are listed
 
 See [.env.example](../.env.example) for the complete list with defaults.
 
+### RC_PLATFORM_BROKER_PUBKEY_PATH
+
+Path to the firm's Platform's `broker_ed25519.pub`, mounted read-only. With it
+set, a signed-in user carrying the `admin` or `ingestion_manager` role in the
+Platform's `X-Platform-Principal` assertion may use `/discover`, `/sync`,
+`/sync/body`, `/sync/config`, and `/sync/start|stop|status` through the console,
+beside the existing Knovas-employee JWT path. Without it, only Knovas employees
+can (the header is refused with 403 when this path is unset).
+
+`POST /sync/body` stores the folder list and starts nothing; a running
+continuous worker picks it up at its next cycle. Use it, not `POST /sync`,
+when the intent is to save a configuration rather than to run one now.
+
+The Platform console's *Speichern und uebertragen* writes `POST /sync/config`
+(after reading the current one with `GET /sync/config`), so the push only works
+with `RC_SYNC_CONFIG_API_ENABLED=true`; with the default `false` the API answers
+404 and the console cannot transfer the profile at all.
+
 ### Search context sidecars
 
 Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). RemoteController writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.
@@ -62,6 +80,22 @@ Set mode `0600` for:
 **Max document age:** Files whose `mtime` is older than the effective limit are not uploaded. They appear in `document_sync` with status `excluded_max_age` (unless already synced at the same fingerprint). Effective limit = `filters.max_document_age_seconds` in the sync body if set, else `max_document_age_seconds` in the scheduler config, else no limit.
 
 Sync request shape: [examples/sync-request.json](../examples/sync-request.json) and [contracts/sync_request.schema.json](../contracts/sync_request.schema.json).
+
+### Per-source access groups
+
+Each `sources[]` entry may carry `access_groups`. Every document ingested from
+that folder is born with those groups, so a walled folder stays walled across
+re-syncs rather than being repaired afterwards.
+
+Omit the key for unrestricted folders. An *absent* key lets the Secure API
+apply whatever folder rule covers the pointer; an explicit empty array means
+"deliberately unrestricted" and overrides that rule.
+
+**Caveat:** with `sequential_subfolders` enabled, RemoteController processes
+one source per cycle (`sync_executor.py` logs `sequential_subfolders requires
+exactly one source; using first only`). In that mode the first source's
+`access_groups` applies. Use one profile per walled folder if you need
+different groups under sequential mode.
 
 ## Supported document formats
 

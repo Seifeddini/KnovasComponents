@@ -11,10 +11,11 @@ import os
 import json
 import hmac
 import secrets
+import threading
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, g
 from flask_cors import CORS
 import logging
 from datetime import datetime, timedelta
@@ -692,6 +693,106 @@ def create_app(config_path: Optional[str] = None):
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
     login_configured = bool(login_username and login_password)
+
+    # Per-user accounts (Pflichtenheft B1). When on, the shared company
+    # credential is not merely unused — the app refuses to start with one
+    # configured, so an upgrade cannot leave both doors open.
+    # Default true, matching config/config.yaml: per-user accounts are the
+    # product, and a deployment should not have to opt in to knowing who its
+    # users are. A config that omits the key entirely still gets identity, so
+    # the default is stated once rather than differing between the shipped
+    # configuration and the code that reads it. The legacy shared-login path
+    # is now an explicit `identity.enabled: false`.
+    identity_enabled = config.get_bool('identity.enabled', True)
+    identity_gate = None
+    rc_client = None
+    if identity_enabled:
+        from identity.webauth import IdentityGate
+
+        if login_configured:
+            raise RuntimeError(
+                'identity.enabled is true, but COMPANY_LOGIN_NAME/COMPANY_LOGIN_PASSWORD '
+                'are still set. The shared company login is superseded by per-user '
+                'accounts; remove both values before enabling identity.'
+            )
+        identity_gate = IdentityGate()
+        app.teardown_request(identity_gate.close)
+
+        # Schema and first administrator, before anything serves a request.
+        # Gunicorn loads this module in every worker, so prepare_identity takes
+        # an advisory lock and is idempotent; a restart is a no-op. Without it
+        # a fresh deployment comes up with no tables and nobody who can sign
+        # in, which looks like a broken login rather than a missing step.
+        from identity import db as identity_db
+        from identity.startup import DEFAULT_SECRET_PATH, prepare_identity
+
+        boot_conn = identity_db.connect()
+        try:
+            prepare_identity(
+                boot_conn,
+                email=os.environ.get('PLATFORM_ADMIN_EMAIL', ''),
+                password=os.environ.get('PLATFORM_ADMIN_PASSWORD') or None,
+                secret_path=os.environ.get(
+                    'PLATFORM_ADMIN_BOOTSTRAP_PATH', DEFAULT_SECRET_PATH
+                ),
+            )
+        finally:
+            boot_conn.close()
+
+        # The broker signs the signed-in person into every Knovas call, through
+        # the one client the search path already uses. Both preconditions fail
+        # closed at startup: an unsigned call returns MORE than a signed one.
+        from pathlib import Path as _Path
+
+        from identity.broker_key import BrokerKeyUnavailableError, load_or_create_signer
+        from identity.principal import PrincipalBroker
+
+        broker_key_dir = str(config.get('identity.broker_key_dir', '') or '').strip()
+        if not broker_key_dir:
+            raise RuntimeError(
+                'identity.enabled is true but identity.broker_key_dir is not set. '
+                'The Platform signs each user into its Knovas calls with an Ed25519 '
+                'key kept in that directory; see docs/certificates.md.'
+            )
+        if not getattr(api_client, 'customer_id', ''):
+            raise RuntimeError(
+                'identity.enabled is true but api.customer_id (SEMANTIX_CUSTOMER_ID) '
+                'is empty. A principal assertion is bound to the tenant.'
+            )
+        try:
+            broker_signer = load_or_create_signer(_Path(broker_key_dir))
+        except BrokerKeyUnavailableError as exc:
+            raise RuntimeError(f'Broker signing key unavailable: {exc}') from exc
+
+        class _RequestScopedBroker:
+            """PrincipalBroker bound to whoever is signed in on *this* request.
+
+            gate.users() is a repository on the request's own connection and
+            the broker reads user_access_groups at mint time, uncached -- so a
+            revocation lands on the user's next request, not at session expiry.
+            """
+
+            def __init__(self, gate, signer, tenant_id):
+                self._gate, self._signer, self._tenant_id = gate, signer, tenant_id
+
+            def current_user(self):
+                return self._gate.current_user()
+
+            def assertion_for(self, user):
+                return PrincipalBroker(
+                    user_repo=self._gate.users(), signer=self._signer,
+                    tenant_id=self._tenant_id,
+                ).assertion_for(user)
+
+        principal_broker = _RequestScopedBroker(identity_gate, broker_signer, str(api_client.customer_id))
+        api_client.attach_principal_broker(principal_broker)
+
+        from remote_controller_client import RemoteControllerClient
+
+        rc_client = RemoteControllerClient(
+            str(config.get('remote_controller.base_url', 'http://remote-controller:5001')),
+            principal_broker=principal_broker,
+        )
     weak_secret_values = {
         '',
         'change-me',
@@ -712,7 +813,7 @@ def create_app(config_path: Optional[str] = None):
     login_failed_window = max(1, config.get_int('web.login.failed_window_seconds', 300))
     login_attempts: Dict[str, Dict[str, float]] = {}
 
-    if login_enabled and not login_configured:
+    if login_enabled and not identity_enabled and not login_configured:
         logger.warning(
             "Company login is enabled but COMPANY_LOGIN_NAME or COMPANY_LOGIN_PASSWORD is missing."
         )
@@ -720,7 +821,10 @@ def create_app(config_path: Optional[str] = None):
     # open tokens, so a weak/default secret is exploitable even with login disabled.
     if web_secret_key in weak_secret_values:
         raise RuntimeError('WEB_SECRET_KEY must be set to a strong random value.')
-    if login_enabled and login_password in weak_password_values:
+    # Only meaningful for the legacy shared credential. With per-user accounts
+    # there is no COMPANY_LOGIN_PASSWORD to be weak — the app refuses to start
+    # if one is set at all (see the identity block above).
+    if login_enabled and not identity_enabled and login_password in weak_password_values:
         raise RuntimeError('COMPANY_LOGIN_PASSWORD must be changed before login can be enabled.')
 
     open_section = config.get_dict('open', {}) or {}
@@ -874,8 +978,32 @@ def create_app(config_path: Optional[str] = None):
         return _confine_to_autodoc(file_handler.autodoc_path, file_path)
 
     @app.before_request
+    def reject_client_asserted_groups():
+        """The group list has exactly one source: user_access_groups, read
+        server-side for the signed-in user. A body that supplies its own is
+        refused with 400, not quietly overruled -- silently dropping it would
+        let a caller believe a scope applied, and would hide a merging bug."""
+        if not request.is_json:
+            return None
+        from identity.principal import ClientAssertedGroupsError, PrincipalBroker
+
+        try:
+            PrincipalBroker.reject_client_assertion(request.get_json(silent=True))
+        except ClientAssertedGroupsError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        return None
+
+    @app.before_request
     def require_company_login():
-        """Require a shared company login before serving the search UI and APIs."""
+        """Require a login before serving the search UI and APIs.
+
+        With ``identity.enabled`` the gate is per-user and lives in
+        ``identity.webauth``; otherwise the legacy shared-credential check
+        below still applies, so an existing deployment keeps working until it
+        migrates.
+        """
+        if identity_gate is not None:
+            return identity_gate.guard()
         if not login_enabled:
             return None
         if request.endpoint in {
@@ -905,6 +1033,10 @@ def create_app(config_path: Optional[str] = None):
         'static',
         'login',
         'logout',
+        # Browser form post, not XHR: it carries a hidden csrf_token field and
+        # validates it in the handler, exactly as login/logout do. Leaving it
+        # in the header gate would reject the form before it was read.
+        'account_password',
         'open_token_mint',
         'open_token_redeem',
     })
@@ -923,9 +1055,97 @@ def create_app(config_path: Optional[str] = None):
             return None
         if request.endpoint is None or request.endpoint in _CSRF_EXEMPT_ENDPOINTS:
             return None
+        # The admin console is server-rendered HTML forms, not XHR: each POST
+        # carries a hidden csrf_token field and every handler checks it before
+        # doing anything. This gate expects a header and would reject them all.
+        if request.endpoint.startswith('admin.'):
+            return None
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
+        return None
+
+    # Cache of (subject, pointer) -> readable, so a results page of thumbnails
+    # does not become one Knovas round trip per tile. The TTL is deliberately
+    # shorter than the 120 s principal-assertion lifetime, so it cannot widen
+    # the staleness bound the assertion already sets: a person whose access is
+    # revoked loses these documents within one assertion lifetime, as before.
+    _readable_cache: Dict[Tuple[str, str], Tuple[float, bool]] = {}
+    _readable_cache_ttl = 60.0
+    _readable_cache_lock = threading.Lock()
+
+    def _pointer_readable(subject: str, pointer: str) -> bool:
+        key = (subject, pointer)
+        now = time.time()
+        with _readable_cache_lock:
+            hit = _readable_cache.get(key)
+            if hit is not None and now - hit[0] < _readable_cache_ttl:
+                return hit[1]
+        try:
+            allowed = api_client.document_readable(pointer)
+        except Exception as exc:  # noqa: BLE001 - any failure closes the door
+            # The client already fails closed on transport errors; this repeats
+            # it so the property belongs to the gate rather than to whichever
+            # client is wired in. A refusal here serves no bytes; an exception
+            # would be a 500 with a stack trace instead of a plain 404.
+            logger.warning("Readability check failed for %r: %s", pointer, exc)
+            return False
+        with _readable_cache_lock:
+            if len(_readable_cache) > 4096:
+                _readable_cache.clear()
+            _readable_cache[key] = (now, allowed)
+        return allowed
+
+    @app.before_request
+    def require_readable_document():
+        """The wall, on the routes that hand over a file rather than search it.
+
+        Retrieval is filtered by Knovas, so search never lists a document the
+        signed-in person is walled out of. These routes are the other way in:
+        they take a pointer and a path and read the file off the Platform's own
+        disk, which is why they have to ask.
+
+        Written as one gate over ``doc_id`` rather than a check inside each
+        handler, so a content route added later is covered by default instead
+        of by remembering. Denial is **404**, never 403: a 403 would confirm
+        that the matter exists, which is the trace an ethical wall forbids.
+
+        With ``identity.enabled`` off there is no authenticated subject and no
+        per-user groups to enforce, so the gate stands aside and the legacy
+        shared-login deployment behaves exactly as before.
+        """
+        if identity_gate is None:
+            return None
+        doc_id = (request.view_args or {}).get('doc_id')
+        if not doc_id:
+            return None
+        user = identity_gate.current_user()
+        if user is None:
+            return None  # the login gate above already refused this request
+
+        # The path is supplied separately from the pointer, so a caller could
+        # otherwise name a document they may read and ask for the bytes of one
+        # they may not. Serve a path only when it is the one this pointer names.
+        supplied = request.args.get('path')
+        if supplied is None and request.method == 'POST':
+            supplied = (request.get_json(silent=True) or {}).get('path')
+        if supplied:
+            # Compare the *resolved* files, not the strings. Callers legitimately
+            # spell a path either way -- the raw Knovas pointer or the mapped
+            # relative path -- and both reach the same file through
+            # _resolve_autodoc_path. Resolving both sides accepts every spelling
+            # of the authorised document and no spelling of a different one.
+            given = _resolve_autodoc_path(str(supplied))
+            wanted = _resolve_autodoc_path(_rel_path_for_autodoc(str(doc_id)))
+            if given is None or wanted is None or given != wanted:
+                logger.warning(
+                    "Refusing %s: path %r does not belong to pointer %r",
+                    request.path, str(supplied), str(doc_id),
+                )
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+
+        if not _pointer_readable(str(user.id), str(doc_id)):
+            return jsonify({'success': False, 'error': 'Not found'}), 404
         return None
 
     @app.route('/favicon.ico')
@@ -945,6 +1165,9 @@ def create_app(config_path: Optional[str] = None):
         next_url = request.args.get('next') or url_for('index')
         if not _is_safe_next(next_url):
             next_url = url_for('index')
+
+        if identity_gate is not None:
+            return _identity_login(next_url)
 
         if session.get('company_login_ok') is True:
             return redirect(next_url)
@@ -993,24 +1216,145 @@ def create_app(config_path: Optional[str] = None):
             csrf_token=csrf_token,
         ), status_code
 
+    def _identity_login(next_url: str):
+        """Per-user email + password sign-in.
+
+        One message for every refusal — unknown address, wrong password,
+        disabled, locked. Distinguishing them would turn the form into a way to
+        discover who works at the firm.
+        """
+        if identity_gate.current_user() is not None:
+            return redirect(next_url)
+
+        error = None
+        status_code = 200
+        csrf_token = _ensure_csrf_token()
+        if request.method == 'POST':
+            email = str(request.form.get('login_name', '') or '').strip()
+            password = str(request.form.get('password', '') or '')
+            submitted_csrf = str(request.form.get('csrf_token', '') or '')
+            next_url = request.form.get('next') or next_url
+            if not _is_safe_next(next_url):
+                next_url = url_for('index')
+
+            client_ip = _client_ip()
+            if _login_is_locked(client_ip):
+                logger.warning('Login locked out for %s (too many failed attempts)', client_ip)
+                error = 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte später erneut versuchen.'
+                status_code = 429
+            elif not _csrf_token_is_valid(submitted_csrf):
+                error = 'Login-Formular ist abgelaufen. Bitte erneut versuchen.'
+                csrf_token = _ensure_csrf_token()
+            else:
+                user = identity_gate.users().authenticate(email, password)
+                if user is not None:
+                    _reset_login_failures(client_ip)
+                    identity_gate.sign_in(user)
+                    session['csrf_token'] = secrets.token_urlsafe(32)
+                    return redirect(next_url)
+                _record_login_failure(client_ip)
+                error = 'E-Mail-Adresse oder Passwort ist falsch.'
+
+        return render_template(
+            'login.html',
+            app_title=web_app_title,
+            brand=web_brand,
+            company_name=login_company_name,
+            error=error,
+            next_url=next_url,
+            csrf_token=csrf_token,
+            identity_enabled=True,
+        ), status_code
+
     @app.route('/logout', methods=['POST'])
     def logout():
-        """Clear the company login session."""
+        """End the session."""
         submitted_csrf = str(request.form.get('csrf_token', '') or '')
         if not _csrf_token_is_valid(submitted_csrf):
             return jsonify({'success': False, 'error': 'CSRF token ungültig'}), 400
-        session.clear()
+        if identity_gate is not None:
+            identity_gate.sign_out()
+        else:
+            session.clear()
         return redirect(url_for('login'))
+
+    @app.route('/account/password', methods=['GET', 'POST'])
+    def account_password():
+        """Change your own password. Also the gate a forced rotation lands on."""
+        if identity_gate is None:
+            return redirect(url_for('settings_page'))
+        user = identity_gate.current_user()
+        if user is None:
+            return redirect(url_for('login'))
+
+        error = None
+        done = False
+        if request.method == 'POST':
+            if not _csrf_token_is_valid(str(request.form.get('csrf_token', '') or '')):
+                error = 'Formular ist abgelaufen. Bitte erneut versuchen.'
+            else:
+                current = str(request.form.get('current_password', '') or '')
+                new_password = str(request.form.get('new_password', '') or '')
+                repo = identity_gate.users()
+                if repo.authenticate(user.email, current) is None:
+                    error = 'Das aktuelle Passwort ist falsch.'
+                else:
+                    from identity.passwords import WeakPasswordError
+                    try:
+                        repo.set_password(user.id, new_password)
+                    except WeakPasswordError as exc:
+                        error = '; '.join(exc.reasons)
+                    else:
+                        done = True
+                        g.identity_session = None
+
+        return render_template(
+            'account_password.html',
+            app_title=web_app_title,
+            brand=web_brand,
+            user=user,
+            must_change=user.must_change_password and not done,
+            error=error,
+            done=done,
+            csrf_token=_ensure_csrf_token(),
+        ), (200 if not error else 400)
 
     # Feedback-Ziel: bisher im Fuss der Suchseite, jetzt eigener
     # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
     feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
+
+    def _console_url():
+        """Link zur Verwaltung -- je nach Rolle, sonst None.
+
+        Der Link ist Darstellung; ``require_admin``/``require_approver`` auf
+        der jeweiligen Route bleibt die Kontrolle (REQ-A1/REQ-A2). Ein
+        Administrator landet auf Personen, ein reiner Freigeber (Rolle
+        'approver' ohne 'admin') auf Freigaben -- sonst gibt es keinen Link.
+        Faellt die Identitaetsdatenbank aus, verschwindet der Link, statt dass
+        die Suchseite bricht.
+        """
+        if identity_gate is None:
+            return None
+        try:
+            user = identity_gate.current_user()
+        except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
+            logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
+            return None
+        if user is None:
+            return None
+        roles = getattr(user, 'roles', None) or ()
+        if 'admin' in roles:
+            return url_for('admin.people')
+        if 'approver' in roles:
+            return url_for('admin.approvals')
+        return None
 
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
         return {
             'company_name': login_company_name,
             'feedback_url': feedback_url,
+            'console_url': _console_url(),
         }
 
     @app.route('/')
@@ -1050,17 +1394,44 @@ def create_app(config_path: Optional[str] = None):
     @app.route('/settings')
     def settings_page():
         """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
+        if identity_gate is not None:
+            signed_in_as = identity_gate.current_user()
+            display_name = f'{signed_in_as.display_name} ({signed_in_as.email})'
+        else:
+            display_name = config.get('web.login.username', '') or ''
         return render_template(
             'settings.html',
             active_nav='einstellungen',
             **_sidebar_context(),
             app_title=web_app_title,
             brand=web_brand,
-            login_name=config.get('web.login.username', '') or '',
+            identity_enabled=identity_gate is not None,
+            login_name=display_name,
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
         )
+
+    if identity_gate is not None:
+        from web_interface.admin import create_admin_blueprint
+
+        app.register_blueprint(create_admin_blueprint(
+            identity_gate,
+            csrf_valid=_csrf_token_is_valid,
+            csrf_token=_ensure_csrf_token,
+            # The console talks to Knovas through the same client the search
+            # path uses, so mTLS material, retries and rate limiting are
+            # configured in exactly one place.
+            client_factory=lambda: api_client,
+            rc_client_factory=(lambda: rc_client) if rc_client is not None else None,
+            page_context=lambda: {
+                **_sidebar_context(),
+                'app_title': web_app_title,
+                'brand': web_brand,
+                'asset_version': _static_asset_version(),
+                'ingestion_enabled': rc_client is not None,
+            },
+        ))
 
     @app.route('/api/search', methods=['POST'])
     def search():
@@ -1503,7 +1874,18 @@ def create_app(config_path: Optional[str] = None):
             if not _can_open_via_companion(full_path):
                 return jsonify({'success': False, 'error': 'No open mapping for this file'}), 503
             rel = str(file_path).strip()
-            token = open_token_manager.mint(rel, doc_id)
+            # The uniform content gate keys on a doc_id in the URL; this route
+            # carries it in the body, so the wall is applied here explicitly.
+            # Minting is the moment a document leaves the session's protection.
+            subject = ''
+            if identity_gate is not None:
+                minter = identity_gate.current_user()
+                if minter is None:
+                    return jsonify({'success': False, 'error': 'Not found'}), 404
+                subject = str(minter.id)
+                if not _pointer_readable(subject, doc_id):
+                    return jsonify({'success': False, 'error': 'Not found'}), 404
+            token = open_token_manager.mint(rel, doc_id, subject=subject)
             api_base = public_base_url_config or request.url_root.rstrip('/')
             redeem_url = f"{api_base}/api/open-tokens/redeem"
             companion_href = (
@@ -1541,6 +1923,18 @@ def create_app(config_path: Optional[str] = None):
             payload = open_token_manager.verify_and_consume(token, consume=True)
             if not payload:
                 return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+            # This route is exempt from the session and CSRF gates by necessity
+            # -- the companion has no browser session -- which is exactly why it
+            # cannot also be exempt from the wall. Re-check the minting subject
+            # rather than trusting the token alone, so a person whose access was
+            # withdrawn cannot spend a token they were holding.
+            if identity_gate is not None:
+                subject = payload.get('sub') or ''
+                if not subject:
+                    logger.warning("Refusing an open token minted without a subject")
+                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+                if not _pointer_readable(subject, payload['doc']):
+                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
             full_path = _resolve_autodoc_path(payload['rel'])
             if not full_path or not os.path.exists(full_path):
                 return jsonify({'success': False, 'error': 'File no longer available'}), 410

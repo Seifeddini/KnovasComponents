@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from auth.knovas_verify_client import require_internal_access
+from auth.knovas_verify_client import require_operator_or_tenant_admin
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from sync.sync_config import load_sync_config
 from sync.sync_executor import SyncRunResult
@@ -16,7 +16,7 @@ sync_bp = Blueprint("sync", __name__)
 
 _RC_DECORATORS = (
     require_rc_ip_rate_limit,
-    require_internal_access,
+    require_operator_or_tenant_admin,
     require_rc_handled_rate_limit,
 )
 
@@ -48,6 +48,40 @@ def _build_sync_response(scheduler_status: str, result) -> dict:
     if result.document_sync is not None:
         response["document_sync"] = result.document_sync.as_dict()
     return response
+
+
+def _validated_sync_body():
+    """The request's sync body, or (None, response) if it is not one."""
+    if not request.is_json:
+        return None, (jsonify({"error": "Request body must be JSON", "status": "error"}), 400)
+    body = request.get_json(silent=True)
+    if body is None or not isinstance(body, dict):
+        return None, (jsonify({"error": "JSON object required", "status": "error"}), 400)
+    errors = validate(body, "sync_request.schema.json")
+    if errors:
+        return None, (jsonify({"error": errors[0], "status": "error"}), 400)
+    return body, None
+
+
+@sync_bp.route("/sync/body", methods=["POST"])
+@_apply_decorators
+def sync_body():
+    """Store the folder list. Start nothing, run nothing.
+
+    POST /sync cannot be used to write a folder list: with a continuous
+    worker already running it answers "already_running" and the running
+    worker keeps its own body, and with the scheduler idle and the config in
+    one_time mode it performs a whole scan-and-upload inside the request.
+    Neither is what "save this profile" means. This route only persists, so
+    the caller decides separately whether to start the scheduler -- and a
+    running worker picks the body up at its next cycle
+    (sync_scheduler._reloaded_context).
+    """
+    body, refusal = _validated_sync_body()
+    if refusal is not None:
+        return refusal
+    save_last_sync_body(body)
+    return jsonify({"status": "stored"}), 200
 
 
 @sync_bp.route("/sync", methods=["POST"])

@@ -278,6 +278,25 @@ class TestC4CertRenewalSafety:
         assert leftovers == ["ca.crt", "client.crt", "client.key"], leftovers
 
 
+    def test_cert_lock_allows_nested_acquire(self):
+        """CSR renew holds _cert_lock then calls _request_no_retry.
+
+        Nested acquire(blocking=False) fails immediately on a non-reentrant
+        Lock and succeeds on RLock — no hang.
+        """
+        client = make_client()
+        lock = client._cert_lock
+        assert lock.acquire(blocking=False)
+        try:
+            nested = lock.acquire(blocking=False)
+            assert nested, (
+                "_cert_lock must be reentrant; nested CSR renew deadlocks on Lock"
+            )
+            lock.release()
+        finally:
+            lock.release()
+
+
 # ---------------------------------------------------------------------------
 # C5 — filters must not be silently dropped in secured mode
 # ---------------------------------------------------------------------------
