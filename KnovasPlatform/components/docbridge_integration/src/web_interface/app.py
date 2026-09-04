@@ -1322,6 +1322,16 @@ def create_app(config_path: Optional[str] = None):
             },
         ))
 
+        from identity.node_grants import NodeGrantStore
+        from web_interface.graph_routes import create_graph_blueprint
+
+        app.register_blueprint(create_graph_blueprint(
+            identity_gate,
+            lambda: NodeGrantStore(identity_gate.connection()),
+            lambda: api_client,
+            graph_mode=lambda: _ontology_source_is_graph(),
+        ))
+
     @app.route('/api/search', methods=['POST'])
     def search():
         """
