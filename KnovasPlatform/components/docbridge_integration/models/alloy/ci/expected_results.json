@@ -1,0 +1,96 @@
+{
+  "checks": [
+    {
+      "command": "editor_delegates_when_grant_gate_is_may_write",
+      "file": "models/alloy/mutants/node_grants__editor_delegates.als",
+      "outcome": "counterexample"
+    },
+    {
+      "command": "reader_without_a_grant_is_withheld",
+      "file": "models/alloy/mutants/node_grants__reads_narrowed.als",
+      "outcome": "counterexample"
+    },
+    {
+      "command": "owner_lost_when_revoke_ignores_role",
+      "file": "models/alloy/mutants/node_grants__revoke_ignores_role.als",
+      "outcome": "counterexample"
+    },
+    {
+      "command": "two_owners_without_the_partial_index",
+      "file": "models/alloy/mutants/node_grants__two_owners.als",
+      "outcome": "counterexample"
+    },
+    {
+      "command": "an_admin_always_writes",
+      "file": "models/alloy/node_grants.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "an_editor_cannot_delegate",
+      "file": "models/alloy/node_grants.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "grants_never_narrow_reads",
+      "file": "models/alloy/node_grants.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "who_may_delegate_is_unambiguous",
+      "file": "models/alloy/node_grants.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "write_needs_a_grant_or_admin",
+      "file": "models/alloy/node_grants.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "a_revoke_removes_only_the_named_editor",
+      "file": "models/alloy/node_grants_lifecycle.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "the_creator_owns_the_new_node",
+      "file": "models/alloy/node_grants_lifecycle.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "the_owner_survives_a_revoke",
+      "file": "models/alloy/node_grants_lifecycle.als",
+      "outcome": "no_counterexample"
+    },
+    {
+      "command": "the_table_shape_is_preserved",
+      "file": "models/alloy/node_grants_lifecycle.als",
+      "outcome": "no_counterexample"
+    }
+  ],
+  "runs": [
+    {
+      "command": "witness_breach_expressible",
+      "file": "models/alloy/node_grants.als",
+      "outcome": "satisfiable"
+    },
+    {
+      "command": "witness_mechanism_live",
+      "file": "models/alloy/node_grants.als",
+      "outcome": "satisfiable"
+    },
+    {
+      "command": "witness_breach_expressible",
+      "file": "models/alloy/node_grants_lifecycle.als",
+      "outcome": "satisfiable"
+    },
+    {
+      "command": "witness_create_makes_an_owner",
+      "file": "models/alloy/node_grants_lifecycle.als",
+      "outcome": "satisfiable"
+    },
+    {
+      "command": "witness_revoke_of_an_editor",
+      "file": "models/alloy/node_grants_lifecycle.als",
+      "outcome": "satisfiable"
+    }
+  ]
+}
