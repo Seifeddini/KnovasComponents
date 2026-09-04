@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ brand }} Arbeitsplatz</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/workbench.css') }}?v={{ asset_version }}">
+</head>
+<body>
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <div class="app-content">
+    <div class="container container-wide">
+        <header class="site-header">
+            <h1 class="site-greeting">Arbeitsplatz<br>
+                <span class="site-greeting-question">Ihre Objekte, verbunden.</span>
+            </h1>
+        </header>
+
+        {% if not graph_mode %}
+        <p class="workbench-unavailable">Wissensnetz-Modus erforderlich</p>
+        {% else %}
+        <main class="workbench" aria-label="Arbeitsplatz" data-is-admin="{{ 'true' if is_admin else 'false' }}">
+            <section class="workbench-list" aria-label="Objekte">
+                <div class="workbench-list-header">
+                    <label class="sr-only" for="nodeSearch">Suchen</label>
+                    <input type="search" id="nodeSearch" placeholder="Suchen …"
+                           autocomplete="off">
+                    <button type="button" class="btn btn-primary" id="nodeCreate">Neu</button>
+                    {% if is_admin %}
+                    <button type="button" class="btn btn-outline" id="typeWorkshop">Typ-Werkstatt</button>
+                    {% endif %}
+                </div>
+                <div class="workbench-type-filter" id="typeFilter" role="group"
+                     aria-label="Nach Typ filtern"></div>
+                <ul class="workbench-node-list" id="nodeList"></ul>
+                <p class="workbench-empty" id="nodeListEmpty" hidden></p>
+            </section>
+
+            <section class="workbench-detail">
+                <div class="workbench-graph" aria-label="Direkte Nachbarschaft">
+                    <div class="ontology-pane-header">
+                        <h2>Nachbarschaft</h2>
+                        <div class="graph-toolbar" role="toolbar" aria-label="Werkzeuge">
+                            <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
+                        </div>
+                    </div>
+                    <div id="neighbourhoodGraph" aria-hidden="true"></div>
+                </div>
+                <div class="workbench-fields" aria-label="Inhalt">
+                    <div class="ontology-pane-header">
+                        <h2 id="fieldReaderTitle">Inhalt</h2>
+                    </div>
+                    <div id="fieldReader"></div>
+                    <div id="grantsPanel"></div>
+                </div>
+            </section>
+        </main>
+        {% endif %}
+    </div>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/workbench.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>
