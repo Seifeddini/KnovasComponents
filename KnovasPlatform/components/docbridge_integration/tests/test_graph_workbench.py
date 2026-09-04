@@ -79,6 +79,20 @@ class TestNeighbourhood:
         assert client.last_neighbours == {"node_id": SEEDED_NODE_ID, "depth": 1,
                                           "include_edges": True}
 
+    def test_an_entity_ref_prefers_the_neighbour_name(self, client, grants):
+        """A second request for the label would double the Secure API cost of
+        opening a node. The neighbourhood payload already has the name."""
+        other = "22222222-2222-4222-8222-222222222222"
+        client.schema["t1"] = [{"id": "a1", "name": "Mandant", "datatype": "entity_ref",
+                                "sort_order": 0}]
+        client.facts[SEEDED_NODE_ID] = [{"id": "f1", "attribute_id": "a1",
+                                         "value": {"node_id": other}}]
+        client.neighbours[SEEDED_NODE_ID] = {
+            "neighbors": [{"id": other, "name": "Mueller AG"}],
+            "edges": []}
+        field = compose_node(client, grants, SEEDED_NODE_ID)["fields"][0]
+        assert field["display"] == "Mueller AG"
+
 
 class TestVisibilityAndGrants:
     def test_the_payload_carries_the_backend_acl(self, client, grants):

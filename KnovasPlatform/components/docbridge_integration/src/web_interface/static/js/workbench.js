@@ -155,8 +155,55 @@
     container.setAttribute('aria-hidden', neighbours.length ? 'false' : 'true');
   }
 
+  function renderFields(payload) {
+    document.getElementById('fieldReaderTitle').textContent = payload.node.name;
+    const host = document.getElementById('fieldReader');
+    host.innerHTML = '';
+
+    const fields = payload.fields || [];
+    if (!fields.length) {
+      host.innerHTML = '<p class="workbench-empty">Fuer diesen Typ sind noch keine Felder definiert.</p>';
+    } else {
+      const list = document.createElement('dl');
+      list.className = 'workbench-fieldlist';
+      fields.forEach((field) => {
+        const term = document.createElement('dt');
+        term.textContent = field.name;
+        if (field.required) { term.classList.add('is-required'); }
+
+        const value = document.createElement('dd');
+        if (field.missing) {
+          // A gap, not an error. The completeness report exists to count these,
+          // which requires the node to have been creatable without them.
+          value.className = 'is-missing';
+          value.textContent = field.required ? 'Fehlt' : '\u2014';
+        } else if (field.datatype === 'entity_ref' && field.value && field.value.node_id) {
+          const link = document.createElement('button');
+          link.type = 'button';
+          link.className = 'workbench-ref';
+          link.textContent = field.display || field.value.node_id;
+          link.addEventListener('click', () => select(field.value.node_id));
+          value.appendChild(link);
+        } else {
+          value.textContent = field.display;
+        }
+        list.appendChild(term);
+        list.appendChild(value);
+      });
+      host.appendChild(list);
+    }
+
+    const groups = (payload.visibility && payload.visibility.access_group_ids) || [];
+    const visibility = document.createElement('p');
+    visibility.className = 'workbench-visibility';
+    visibility.textContent = groups.length
+      ? 'Sichtbarkeit: ' + groups.join(', ')
+      : 'Sichtbarkeit: keine Einschraenkung';
+    host.appendChild(visibility);
+  }
+
   window.Workbench = { api, select, state,
-    renderNeighbourhood: renderNeighbourhood, renderFields() {}, renderGrants() {} };
+    renderNeighbourhood: renderNeighbourhood, renderFields: renderFields, renderGrants() {} };
 
   document.addEventListener('DOMContentLoaded', async () => {
     if (!document.getElementById('nodeList')) { return; }   // fixture mode

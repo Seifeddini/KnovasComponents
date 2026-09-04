@@ -155,6 +155,42 @@
     overflow: auto;
 }
 
+.workbench-fieldlist {
+    display: grid;
+    grid-template-columns: minmax(8rem, 32%) 1fr;
+    gap: 8px 16px;
+}
+
+.workbench-fieldlist dt {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.workbench-fieldlist dt.is-required::after {
+    content: " *";
+    color: var(--text-secondary);
+}
+
+.workbench-fieldlist dd.is-missing {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.workbench-ref {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--primary-color);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.workbench-visibility {
+    margin-top: 16px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
 @media (max-width: 900px) {
     .workbench {
         grid-template-columns: 1fr;
