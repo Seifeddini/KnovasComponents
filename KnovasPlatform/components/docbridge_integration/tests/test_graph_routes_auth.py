@@ -19,12 +19,10 @@ class TestAuthentication:
     def test_an_anonymous_caller_gets_401(self, anon_client):
         assert anon_client.get("/api/graph/node-types").status_code == 401
 
-    @_ROUTES_LATER
     def test_a_member_may_read_the_type_list(self, member_client):
         assert member_client.get("/api/graph/node-types").status_code == 200
 
 
-@_ROUTES_LATER
 class TestAdminGate:
     def test_a_member_may_not_create_a_node_type(self, member_client):
         response = member_client.post("/api/graph/node-types", json={"name": "Mandat"})
@@ -53,7 +51,6 @@ class TestNodeWriteGate:
             f"/api/graph/nodes/{node_owned_by_alice}").status_code == 200
 
 
-@_ROUTES_LATER
 class TestCsrf:
     def test_a_state_changing_request_without_the_header_is_refused(
             self, admin_client_no_csrf):
@@ -62,7 +59,6 @@ class TestCsrf:
         assert response.status_code == 403
 
 
-@_ROUTES_LATER
 class TestFixtureMode:
     def test_every_graph_route_refuses_in_fixture_mode(self, fixture_mode_client):
         response = fixture_mode_client.get("/api/graph/node-types")
