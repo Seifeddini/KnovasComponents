@@ -143,6 +143,12 @@
     min-height: 180px;
 }
 
+#neighbourhoodGraph .workbench-empty {
+    display: grid;
+    place-content: center;
+    height: 100%;
+}
+
 #fieldReader,
 #grantsPanel {
     padding: 12px 16px;

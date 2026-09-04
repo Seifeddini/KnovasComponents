@@ -99,8 +99,64 @@
     window.Workbench.renderGrants(payload);          // E4
   }
 
+  let cy = null;
+
+  function renderNeighbourhood(payload) {
+    const container = document.getElementById('neighbourhoodGraph');
+    const anchor = payload.node;
+    const neighbours = (payload.neighbourhood && payload.neighbourhood.nodes) || [];
+    const edges = (payload.neighbourhood && payload.neighbourhood.edges) || [];
+
+    if (cy) { cy.destroy(); cy = null; }
+    container.innerHTML = '';
+    if (!neighbours.length && !edges.length) {
+      container.setAttribute('aria-hidden', 'true');
+      container.innerHTML = '<p class="workbench-empty">Keine direkten Verbindungen.</p>';
+      return;
+    }
+
+    const elements = [{ data: { id: anchor.id, label: anchor.name }, classes: 'anchor' }];
+    neighbours.forEach((n) => elements.push({ data: { id: n.id, label: n.name } }));
+
+    // Only edges whose BOTH endpoints are drawn. The server already guarantees
+    // this, but an edge to a node we did not render would draw to nowhere.
+    const drawn = new Set(elements.map((e) => e.data.id));
+    edges.forEach((edge) => {
+      if (drawn.has(edge.node_lo) && drawn.has(edge.node_hi)) {
+        elements.push({ data: { id: edge.id, source: edge.node_lo,
+                                target: edge.node_hi, label: edge.relation } });
+      }
+    });
+
+    cy = cytoscape({
+      container: container,
+      elements: elements,
+      style: [
+        { selector: 'node', style: {
+            'label': 'data(label)', 'font-size': 11, 'text-valign': 'center',
+            'background-color': '#9aa7b8', 'color': '#fff',
+            'text-outline-width': 2, 'text-outline-color': '#5a6675' } },
+        { selector: 'node.anchor', style: { 'background-color': '#2f6fb0', 'width': 44, 'height': 44 } },
+        { selector: 'edge', style: {
+            'label': 'data(label)', 'font-size': 9, 'curve-style': 'bezier',
+            'width': 1.5, 'line-color': '#c3ccd8', 'target-arrow-shape': 'none',
+            'text-rotation': 'autorotate' } }
+      ],
+      layout: { name: 'concentric', concentric: (n) => (n.hasClass('anchor') ? 2 : 1),
+                minNodeSpacing: 40 }
+    });
+
+    // Walking the graph IS the navigation: clicking a neighbour selects it.
+    cy.on('tap', 'node', (event) => {
+      const id = event.target.id();
+      if (id !== anchor.id) { select(id); }
+    });
+
+    container.setAttribute('aria-hidden', neighbours.length ? 'false' : 'true');
+  }
+
   window.Workbench = { api, select, state,
-    renderNeighbourhood() {}, renderFields() {}, renderGrants() {} };
+    renderNeighbourhood: renderNeighbourhood, renderFields() {}, renderGrants() {} };
 
   document.addEventListener('DOMContentLoaded', async () => {
     if (!document.getElementById('nodeList')) { return; }   // fixture mode
@@ -108,6 +164,10 @@
       state.query = event.target.value.trim();
       loadNodes();
     }, 250));
+    const zoomFit = document.getElementById('zoomFit');
+    if (zoomFit) {
+      zoomFit.addEventListener('click', () => { if (cy) { cy.fit(); } });
+    }
     await loadTypes();
     await loadNodes();
     const initial = new URLSearchParams(location.search).get('node');
