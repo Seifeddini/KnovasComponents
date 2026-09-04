@@ -157,3 +157,39 @@ class TestGraphError:
         with pytest.raises(GraphError) as caught:
             client.graph_node("n1")
         assert caught.value.status == 500 and caught.value.error_code is None
+
+
+class TestSchemaAndFilters:
+    def test_graph_nodes_sends_the_server_side_filters(self, client, capture):
+        client.graph_nodes(node_type_id="t1", q="Müller")
+        assert capture.last.params == {"node_type_id": "t1", "q": "Müller"}
+
+    def test_graph_nodes_omits_absent_filters(self, client, capture):
+        client.graph_nodes()
+        assert capture.last.params == {}
+
+    def test_graph_schema_reads_the_attributes(self, client, requests_mock):
+        requests_mock(json={"attributes": [{"id": "a1", "name": "Frist",
+                                            "datatype": "date"}]})
+        assert client.graph_schema("t1")[0]["name"] == "Frist"
+
+    def test_graph_schema_can_include_deprecated(self, client, capture):
+        client.graph_schema("t1", include_deprecated=True)
+        assert capture.last.params == {"include_deprecated": "true"}
+
+    def test_create_attribute_sends_the_target_type(self, client, capture):
+        client.graph_create_schema_attribute(
+            "t1", "Zustaendig", datatype="entity_ref", target_node_type_id="t2")
+        assert capture.last.data["target_node_type_id"] == "t2"
+
+    def test_create_attribute_omits_a_null_target(self, client, capture):
+        client.graph_create_schema_attribute("t1", "Notiz", datatype="text")
+        assert "target_node_type_id" not in capture.last.data
+
+    def test_deprecate_is_the_name_and_delete_is_gone(self, client):
+        assert hasattr(client, "graph_deprecate_schema_attribute")
+        assert not hasattr(client, "graph_delete_schema_attribute")
+
+    def test_update_node_sends_only_the_given_fields(self, client, capture):
+        client.graph_update_node("n1", name="Neu")
+        assert capture.last.data == {"name": "Neu"}
