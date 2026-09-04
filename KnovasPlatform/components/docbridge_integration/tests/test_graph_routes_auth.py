@@ -12,8 +12,6 @@ from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
 pytestmark = pytest.mark.skipif(
     not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
 
-_ROUTES_LATER = pytest.mark.xfail(reason="routes arrive in D1-D3", strict=False)
-
 
 class TestAuthentication:
     def test_an_anonymous_caller_gets_401(self, anon_client):
@@ -33,7 +31,6 @@ class TestAdminGate:
         assert response.status_code == 201
 
 
-@_ROUTES_LATER
 class TestNodeWriteGate:
     def test_a_non_editor_may_not_patch_a_node(self, member_client, node_owned_by_alice):
         response = member_client.patch(f"/api/graph/nodes/{node_owned_by_alice}",

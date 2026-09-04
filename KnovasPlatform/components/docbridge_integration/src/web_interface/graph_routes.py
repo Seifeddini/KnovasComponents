@@ -197,4 +197,72 @@ def create_graph_blueprint(gate, grant_store, source, *, graph_mode):
             return jsonify({"success": False, "error": "Attribut nicht gefunden."}), 404
         return jsonify({"success": True, "deprecated": True})
 
+    @bp.route("/nodes", methods=["GET"])
+    @require_graph_mode
+    @require_user
+    def list_nodes():
+        try:
+            nodes = source().graph_nodes(
+                node_type_id=request.args.get("type") or None,
+                q=request.args.get("q") or None)
+        except Exception as exc:                     # noqa: BLE001
+            return _fail(exc, "Graph node list failed")
+        # Deliberately NOT filtered by node_grants: read visibility is the
+        # backend ACL's answer and it has already been applied.
+        return jsonify({"success": True, "nodes": nodes})
+
+    @bp.route("/nodes", methods=["POST"])
+    @require_graph_mode
+    @require_user
+    def create_node():
+        payload = request.get_json(silent=True) or {}
+        name = " ".join(str(payload.get("name") or "").split())
+        if not name:
+            return jsonify({"success": False, "error": "Name fehlt."}), 400
+        try:
+            created = source().graph_create_node(
+                name, node_type_id=payload.get("node_type_id") or None)
+        except Exception as exc:                     # noqa: BLE001
+            return _fail(exc, "Graph node create failed")
+        if created is None:
+            return jsonify({"success": False, "error": "Knoten nicht anlegbar."}), 400
+        node = created.get("node", created)
+        # CreateMechanism: the creator becomes the owner in the same request.
+        grant_store().set_owner(str(node["id"]), gate.current_user().id)
+        return jsonify({"success": True, "node": node}), 201
+
+    @bp.route("/nodes/<node_id>", methods=["GET"])
+    @require_graph_mode
+    @require_user
+    def node_detail(node_id):
+        from graph_workbench import compose_node
+
+        try:
+            payload = compose_node(source(), grant_store(), node_id)
+        except Exception as exc:                     # noqa: BLE001
+            return _fail(exc, "Graph node detail failed")
+        if payload is None:
+            return jsonify({"success": False, "error": "Knoten nicht gefunden."}), 404
+        payload["success"] = True
+        payload["may_write"] = grant_store().may_write(node_id, gate.current_user())
+        return jsonify(payload)
+
+    @bp.route("/nodes/<node_id>", methods=["PATCH"])
+    @require_graph_mode
+    @require_node_write
+    def update_node(node_id):
+        payload = request.get_json(silent=True) or {}
+        fields = {k: payload[k] for k in
+                  ("name", "description", "node_type_id", "required_groups")
+                  if k in payload}
+        if not fields:
+            return jsonify({"success": False, "error": "Keine Aenderung."}), 400
+        try:
+            updated = source().graph_update_node(node_id, **fields)
+        except Exception as exc:                     # noqa: BLE001
+            return _fail(exc, "Graph node update failed")
+        if updated is None:
+            return jsonify({"success": False, "error": "Knoten nicht gefunden."}), 404
+        return jsonify({"success": True, "node": updated.get("node", updated)})
+
     return bp

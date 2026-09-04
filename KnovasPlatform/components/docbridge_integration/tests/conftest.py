@@ -256,6 +256,11 @@ def pytest_runtest_makereport(item, call):
 
 PASSWORD = "korrektes-pferd-batterie"
 
+# Knowledge Graph node ids are UUIDs (kg_nodes.id; node_grants.node_id is UUID).
+# The plan's "n1" shorthand is this well-known seed so grant writes can hit Postgres.
+SEEDED_NODE_ID = "11111111-1111-4111-8111-111111111111"
+SEEDED_TYPE_ID = "t1"
+
 
 class FakeGraphApi(DummyKnovasClient):
     """The Knowledge Graph client as the workbench sees it, in memory.
@@ -270,10 +275,11 @@ class FakeGraphApi(DummyKnovasClient):
 
     def __init__(self, config):
         super().__init__(config)
-        self.node_types = [{"id": "t1", "name": "Mandat"}]
+        self.node_types = [{"id": SEEDED_TYPE_ID, "name": "Mandat"}]
         self.schema = {}
-        self.nodes = {"n1": {"id": "n1", "name": "Mueller AG", "node_type_id": "t1"}}
-        self.facts = {"n1": []}
+        self.nodes = {SEEDED_NODE_ID: {"id": SEEDED_NODE_ID, "name": "Mueller AG",
+                                       "node_type_id": SEEDED_TYPE_ID}}
+        self.facts = {SEEDED_NODE_ID: []}
         self.neighbours = {}
         self.last_attribute = self.last_node_filters = None
         self.last_fact = self.last_neighbours = None
@@ -319,7 +325,7 @@ class FakeGraphApi(DummyKnovasClient):
                 and (not q or q.lower() in n["name"].lower())]
 
     def graph_create_node(self, name, node_type_id=None):
-        node = {"id": f"n{len(self.nodes) + 1}", "name": name, "node_type_id": node_type_id}
+        node = {"id": str(uuid.uuid4()), "name": name, "node_type_id": node_type_id}
         self.nodes[node["id"]] = node
         self.facts[node["id"]] = []
         return {"node": node}
