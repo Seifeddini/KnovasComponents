@@ -864,6 +864,23 @@ class KnowledgeGraphDisabled(RuntimeError):
     """
 
 
+class GraphError(Exception):
+    """A Knowledge Graph API call failed in a way the caller can act on.
+
+    404 is deliberately NOT raised: an unknown or foreign id is the API's
+    documented answer for "not yours", and every caller already treats None as
+    that. What callers cannot currently distinguish is a 422 they should show
+    the user from a 503 that means "retry once the operator finishes", which is
+    what error_code carries.
+    """
+
+    def __init__(self, status: int, error_code: Optional[str], message: str):
+        super().__init__(f"{status} {error_code or ''}: {message}".strip())
+        self.status = status
+        self.error_code = error_code
+        self.message = message
+
+
 def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, Any]]:
     """Liste aus einer flachen Envelope ziehen.
 
@@ -1596,19 +1613,24 @@ class KnovasAPIClient:
                                           data=data, params=params)
         except requests.exceptions.HTTPError as exc:
             response = exc.response
-            if response is None or response.status_code != 404:
+            if response is None:
                 raise
-            body: Dict[str, Any] = {}
             try:
                 body = response.json() or {}
             except ValueError:
                 body = {}
-            if body.get('error_code') == 'knowledge_graph_disabled':
-                raise KnowledgeGraphDisabled(
-                    'Der Wissensgraph ist fuer dieses Deployment nicht aktiviert'
-                ) from exc
-            logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
-            return None
+            if response.status_code == 404:
+                if body.get('error_code') == 'knowledge_graph_disabled':
+                    raise KnowledgeGraphDisabled(
+                        'Der Wissensgraph ist fuer dieses Deployment nicht aktiviert'
+                    ) from exc
+                logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
+                return None
+            raise GraphError(
+                response.status_code,
+                body.get("error_code"),
+                body.get("message") or getattr(response, "reason", None) or "",
+            ) from exc
         try:
             return response.json() or {}
         except ValueError:
