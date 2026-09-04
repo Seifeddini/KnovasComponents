@@ -2,7 +2,9 @@
 
 **Date:** 2026-09-02
 **Status:** approved design — planned in
-`docs/superpowers/plans/2026-09-02-typed-node-workbench-*.md`
+`docs/superpowers/plans/2026-09-02-typed-node-workbench-*.md`. Revised
+2026-09-04: dependency state corrected (§2.3, §6.4), formal models added
+(§5.1, §5.2, §6.5, §10), dangling references removed (§2.3, §12).
 **Jira:** SS-315 *Platform Projekt und Mandantenmanagement* (Epic)
 **Covers:** admin-defined node types and their field schemas; connection fields
 between types; a schema-driven creation form; a single searchable list →
@@ -81,9 +83,9 @@ to read one back.
 
 | Branch | State | Relevance |
 | --- | --- | --- |
-| `design/matters-and-typed-nodes` | design + 3390-line plan, unimplemented | Its §5–§6 (backend additions, client and codec layers) are **reused wholesale** here. Its §7.3–§7.7 (Mandat page, intake, chronology, argument dossier) are **superseded** — see §3.2. |
-| `feat/section-b-buildout` | ~3277 lines written, unmerged | Per-user identity in the Platform: `users`, `roles`, `sessions`, `principal`, admin People console. **Hard dependency** of the editor half (§6). |
-| `feat/admin-document-rbac` | design + plan | Document-level ACL console. Adjacent, not a dependency. |
+| `design/matters-and-typed-nodes` | local only — **not on `origin`** of either repository | Its backend additions and client/codec layers were the starting point for §5 and §7.0; everything reused is restated in full in the two plans, so nothing here depends on reading it. Its Mandat page, intake, chronology and argument dossier are **superseded** — see §3.2. |
+| `feat/section-b-buildout` | **partially merged**: PR #7 landed `identity/passwords.py` and the ingestion compiler; the identity stack (`users`, `roles`, `sessions`, `principal`, `IdentityGate`, admin People console, `platform-db`) sits in 24 unmerged commits | **Hard dependency** of the editor half (§6). |
+| `feat/admin-document-rbac` | design + plan, unmerged; carries the same identity stack in its own 20 commits, diverged from section-b | Document-level ACL console. Adjacent, not a dependency — but one of the two branches must merge and the other rebase before §6 starts. |
 
 ### 2.4 Two corrections to the record
 
@@ -220,11 +222,18 @@ This is the same reasoning as the existing comment on that route ("filter the
 result, not the walk") and it is already the stated rule of
 `GraphAccessGuard.filter_edges`.
 
-**No new Golden Invariant and no new Alloy model.** GI-GRAPH-12 already reads
-"an edge is only as visible as its least visible endpoint node", is already
-Alloy-modelled (`kg_object_acl_assignment.als`) and CI-gated. This route reuses
-that rule rather than introducing one. Tests extend `test_kg_object_acl.py` and
-`test_kg_rbac_routes.py`.
+**No new Golden Invariant, one new Alloy model.** GI-GRAPH-12 already reads
+"an edge is only as visible as its least visible endpoint node" and is CI-gated
+through `test_kg_object_acl.py`. What no existing model pins is the part this
+route adds: *which node set the edges are induced on*. `kg_object_acl_assignment.als`
+proves the visibility closure and assignment dominance; it says nothing about
+induction. So the backend plan lands `mechanisms/kg_neighborhood.als` +
+`data_plane/kg_neighborhood_edges.als` (checks `no_edge_names_a_hidden_node`,
+`every_returned_edge_is_itself_visible`, `induction_is_complete`, …) with two
+mutants — one that induces on the raw walk, one that skips the edge's own
+verdict — under GI-GRAPH-12's existing row, before the route is written
+(Task A0). Tests extend `test_kg_object_acl.py` (`TestNeighborhoodEdges`) and
+carry `@pytest.mark.alloy_obligation` markers bound in `ci/obligations.yaml`.
 
 **Opt-in, not always-on.** The flag defaults to `false` so callers that only
 need neighbour identity do not pay for the second query. `graph_neighbors` in
@@ -243,6 +252,14 @@ Without it, a connection field records that "this node references some node",
 not *which kind* — so the node picker in the creation form cannot be filtered
 and a type-level expectation cannot be re-read. Requirement 3 in §4 is only
 half-delivered until this lands.
+
+The id is a client-supplied reference across the tenant wall, so it gets a
+model before the code (backend Task A3): `data_plane/kg_attribute_target_type.als`
+under GI-GRAPH-07 (schema attribute rows are tenant-scoped) and GI-GRAPH-11
+(a foreign target answers 404 exactly like an unknown one — never a distinct
+"exists but not yours"). Mutants: an unscoped lookup, and a 403 for the
+foreign case. The composite foreign key is the database's second line and is
+pinned by a DDL precondition test.
 
 ## 6 · Editor grants — KnovasComponents
 
@@ -298,11 +315,30 @@ through the product, not a cryptographic guarantee.
 
 ### 6.4 Dependency
 
-`feat/section-b-buildout` must merge before any of §6 ships. On `main` the
-Platform has a single shared company password (`app.py:939`) and therefore no
-"other users" to grant anything to. That branch is written, not merged; this is
-a review-and-merge task, not new construction, but it gates the editor half and
-nothing in §6 should start before it lands.
+The identity stack must be on the branch before any of §6 ships. On `main`
+the Platform still authenticates with one shared company login
+(`web.login.username` / `web.login.password` in `src/web_interface/app.py`,
+`create_app`) and therefore has no "other users" to grant anything to. The
+stack is written and lives, unmerged, on both `feat/section-b-buildout` and
+`feat/admin-document-rbac` (§2.3); merging one and rebasing the other is a
+review task, not new construction, but it gates the editor half. The Platform
+plan's C0 (the formal model) and B1–B4 do not wait for it.
+
+### 6.5 Formal model
+
+`node_grants` is a new permission model, so it is modelled before the store is
+written (Platform Task C0), in the same idiom as
+`KnowledgeBase/knovas-software/models/alloy/` and with the same headless
+driver and pinned lockfile — the Platform repository's first Alloy tree.
+`models/alloy/node_grants.als` pins the table of §6.2 as mechanisms and checks
+what erodes under delivery pressure: an editor never delegates
+(`an_editor_cannot_delegate`), "who may grant?" has one answer per node
+(`who_may_delegate_is_unambiguous`), a reader without any grant is still served
+a backend-visible node (`grants_never_narrow_reads` — rule 4 of §8), and an
+admin can always repair a grant-less node. `node_grants_lifecycle.als` pins
+that a revoke removes editor rows only, so the owner survives it, and that the
+creator owns the new node. Four mutants — editor delegates, two owners, reads
+narrowed by grants, revoke ignoring the role — each produce a counterexample.
 
 ## 7 · KnovasComponents slice — layers and surfaces
 
@@ -472,10 +508,21 @@ schema separately.
   method, per the matters design §9. Backend drift then fails a test instead of
   quietly producing a wrong screen.
 - **Grant enforcement**: non-editor write → 403; owner grants then revokes;
-  admin override; creator is owner; grant on a deleted node is inert.
+  admin override; creator is owner; grant on a deleted node is inert. Each test
+  names the Alloy mechanism it discharges (`mayWrite`, `mayGrant`,
+  `RevokeMechanism`, `CreateMechanism`), and `tests/test_node_grants_alloy.py`
+  pins every model command and outcome.
 - **Neighbourhood visibility** (KnowledgeBase): a restricted node adjacent to the
   anchor appears in neither `neighbors` nor `edges`; an edge with one restricted
-  endpoint is absent. Extends `test_kg_object_acl.py`.
+  endpoint is absent; an edge carrying its own restriction is absent between two
+  visible nodes; every visible edge among the returned nodes is present. Extends
+  `test_kg_object_acl.py`, bound to `mechanisms/kg_neighborhood.als` through
+  `ci/obligations.yaml`.
+- **Alloy** (both repositories): checks hold at the recorded scope, every
+  witness is satisfiable, every mutant produces a counterexample, and the
+  lockfile (`ci/expected_results.json`) matches — `run_all.sh` prints
+  `alloy-checks: ok`. KnowledgeBase additionally runs
+  `scripts/check_alloy_coverage.py` and `scripts/check_alloy_obligations.py`.
 - **CSRF** coverage for every new mutating route.
 - **Fixture-mode fallback**: every new surface renders the explicit
   "Wissensnetz-Modus erforderlich" state, never a 500.
@@ -484,7 +531,7 @@ schema separately.
 
 | Risk | Mitigation |
 | --- | --- |
-| `feat/section-b-buildout` does not merge, stranding §6 | Sequence it first; the §7 surfaces except 7.6 are independent of it and ship regardless |
+| The identity stack does not merge (two diverged branches carry it), stranding §6 | Merge one, rebase the other, first; C0 and B1–B4 are independent of it; the §7 surfaces except 7.6 ship regardless |
 | Secure API rate limit (~1 req/s) versus a three-call screen | TTL cache in `graph_workbench.py`; schema and node-type reads cached hardest |
 | Graph mode has never run against a live instance | Phase 1 verifies against the dev tenant and records the cassettes before any UI work |
 | Search is name-only and users expect field search | Named in the empty state and in §4; a backend change is scoped separately |
@@ -493,8 +540,13 @@ schema separately.
 
 ## 12 · Related
 
-- `docs/superpowers/specs/2026-08-14-matters-and-typed-nodes-design.md` — the
-  design this reuses (§5, §6) and partly supersedes (§7.3–§7.7)
+- `design/matters-and-typed-nodes` — the design this grew out of; not on
+  `origin` in either repository, so nothing here cites it as a source (§2.3)
+- `KnowledgeBase/knovas-software/models/alloy/{mechanisms/kg_neighborhood.als,
+  data_plane/kg_neighborhood_edges.als, mechanisms/kg_schema_target.als,
+  data_plane/kg_attribute_target_type.als}` — the backend models (plan A0, A3)
+- `KnovasPlatform/components/docbridge_integration/models/alloy/{node_grants.als,
+  node_grants_lifecycle.als}` — the Platform models (plan C0)
 - `docs/superpowers/specs/2026-08-04-wissensnetz-ontology-mvp-design.md` — Cortex MVP
 - `docs/superpowers/plans/2026-08-14-section-b-buildout.md` — the identity dependency
 - `KnowledgeBase/knovas-software/app/src/api/graph_api.py` — the API

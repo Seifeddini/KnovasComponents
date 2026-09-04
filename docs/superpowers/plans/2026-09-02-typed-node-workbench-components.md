@@ -4,9 +4,9 @@
 
 **Goal:** Build one schema-driven surface in KnovasPlatform where an admin defines node types and their fields, any user creates and edits entities of those types, and a searchable list opens the selected node's immediate-neighbourhood graph beside a reader for its fields — with per-user editor grants.
 
-**Architecture:** Five layers, each independently testable: datatype codecs (`graph_model.py`), a widened Knowledge Graph client, a Platform-local grant store (`node_grants.py`), a screen composer (`graph_workbench.py`), and a new `/api/graph/*` route namespace behind the existing CSRF hook. The UI is generated at runtime from `GET /node-types/<id>/schema` — no node type name appears anywhere in the code.
+**Architecture:** Five layers, each independently testable: datatype codecs (`graph_model.py`), a widened Knowledge Graph client, a Platform-local grant store (`node_grants.py`), a screen composer (`graph_workbench.py`), and a new `/api/graph/*` route namespace behind the existing CSRF hook. The UI is generated at runtime from `GET /node-types/<id>/schema` — no node type name appears anywhere in the code. The grant store is a new authorisation model, so it gets an Alloy model first (Task C0) — the Platform repo's first, run with the same headless driver and lockfile discipline as `KnowledgeBase/knovas-software/models/alloy/`.
 
-**Tech Stack:** Python 3, Flask, psycopg2, PostgreSQL (Platform-local `platform-db`), pytest, vanilla JS, cytoscape.js (already vendored).
+**Tech Stack:** Python 3, Flask, psycopg (v3, tuple rows), PostgreSQL 15 (Platform-local `platform-db`), pytest, vanilla JS, cytoscape.js (already vendored), Alloy 6.2.0 (headless CLI).
 
 **Spec:** `docs/superpowers/specs/2026-09-02-typed-node-workbench-design.md` (§6, §7)
 
@@ -18,6 +18,8 @@
 
 **Working directory for all commands:** `KnovasPlatform/components/docbridge_integration/`
 
+**Validation status of this plan (2026-09-04):** the two Alloy models and four mutants in Task C0 were run with the pinned Alloy 6.2.0 jar through a copy of KnowledgeBase's `ci/alloy_driver.py`: 9 checks hold, 5 witnesses are satisfiable, 4 mutants produce counterexamples, and `run_all.sh` prints `alloy-checks: ok`. Every code anchor below was verified against `origin/feat/section-b-buildout` (the identity stack this plan needs); where the earlier revision cited line numbers, symbols are used instead.
+
 ## Global Constraints
 
 - **No node type appears in code.** Every form, column, label and validation is generated from the schema. A change that would need code to support a new node type is wrong — stop and re-read §3.1 of the spec.
@@ -26,8 +28,10 @@
 - **One read model.** Read visibility is the backend ACL. `node_grants` controls writes only. Never filter a list by `node_grants`.
 - **Graph mode only.** Every new surface requires `ONTOLOGY_SOURCE=graph`. In fixture mode each renders the literal string `Wissensnetz-Modus erforderlich` — never a 500, never invented data.
 - **All UI copy is German**, matching the existing screens. Identifiers, code comments and commit messages are English.
-- **CSRF is already global.** `require_csrf_for_state_changing_requests` (`app.py:912`) validates `X-CSRF-Token` on every state-changing request. New routes inherit it; do not add a second check, but do assert it per route in tests.
-- **`feat/section-b-buildout` must be merged before Task C1.** Tasks B1–B4 do not depend on it and may proceed first.
+- **CSRF is already global.** The `before_request` hook `require_csrf_for_state_changing_requests` in `src/web_interface/app.py` validates `X-CSRF-Token` on every non-safe request; it exempts only `_CSRF_EXEMPT_ENDPOINTS` and endpoints whose name starts with `admin.` (server-rendered forms). The graph blueprint is JSON and must **not** be exempted. New routes inherit the hook; do not add a second check, but do assert it per route in tests.
+- **The identity stack must be on the branch before Task C1.** That means `src/identity/{db,migrate,users,sessions,webauth}.py`, `src/identity/migrations/0001_identity.sql`, `src/web_interface/admin.py`, the `platform-db` service in `docker-compose.yml`, and the `platform_db` / `identity_app` / `identity_client` / `identity_repo` fixtures in `tests/conftest.py`. On `main` today only `identity/passwords.py` and the ingestion compiler have merged (PR #7). The full stack exists, unmerged, on **both** `feat/section-b-buildout` and `feat/admin-document-rbac`; the two have diverged (24 and 20 commits apart, neither contains the other), so one merges first and the other rebases. This plan's anchors were verified against `feat/section-b-buildout`. Tasks B1–B4 and C0 do not depend on it and may proceed first.
+- **Model before code.** Task C0 lands the Alloy models for the grant rules before C1 writes the store, following `KnowledgeBase/docs/Docs/01_SYSTEM/Feature_Design_Workflow.md` and the unified-model idiom in `KnowledgeBase/knovas-software/models/alloy/README.md` (mechanism preds mirrored from code, checks as `Mechanism implies Property`, witnesses, one open-based mutant per load-bearing conjunct, a pinned lockfile). The Platform has no Golden Invariants catalog; the header cites `KC-GRANT-01 (PROPOSED)` and the pin test carries the must-agree contract.
+- **Identity rows are tuples.** `identity/db.py` opens psycopg 3 connections with the default row factory and `identity/users.py` maps columns by position. `NodeGrantStore` does the same — never `row["column"]`.
 - Run tests with `pytest` from `KnovasPlatform/components/docbridge_integration/`.
 
 ---
@@ -40,7 +44,8 @@
 | B2 | `graph_model.py` — the five datatype codecs | — |
 | B3 | Client: schema reads, type/node updates, server-side filters | B1 |
 | B4 | Client: facts CRUD, neighbours with edges | B1, backend A2 |
-| C1 | `node_grants` table and store | section-b merge |
+| C0 | Alloy: `models/alloy/node_grants.als`, `node_grants_lifecycle.als`, four mutants, driver, CI step, pins | — |
+| C1 | `node_grants` table and store | C0, identity stack on the branch |
 | C2 | `may_write` guard and the route decorator | C1 |
 | D1 | Node-type and schema routes (admin-gated) | B3, C2 |
 | D2 | `graph_workbench.py` composer + node list/detail routes | B3, B4, C2 |
@@ -48,7 +53,7 @@
 | E1 | Workbench shell and searchable list pane | D2 |
 | E2 | Neighbourhood graph pane | D2, backend A2 |
 | E3 | Field reader pane | D2 |
-| E4 | Creation form, Typ-Werkstatt, editors panel | D1, D3, backend A3 |
+| E4 | Creation form, Typ-Werkstatt, editors panel | D1, D3, backend A4 |
 
 ## File Structure
 
@@ -63,6 +68,11 @@
 | `src/web_interface/templates/workbench.html` *(new)* | Three-pane shell. |
 | `src/web_interface/static/js/workbench.js` *(new)* | List, graph pane, field reader, forms. |
 | `src/web_interface/static/css/workbench.css` *(new)* | Pane layout; reuses existing tokens. |
+| `models/alloy/node_grants.als`, `models/alloy/node_grants_lifecycle.als` *(new)* | The grant rules as mechanisms + checks (C0). |
+| `models/alloy/mutants/node_grants__*.als` *(new, 4)* | One refuting weakening per load-bearing conjunct. |
+| `models/alloy/ci/{alloy_driver.py, run_all.sh, alloy.version}` *(new, copied verbatim from KnowledgeBase)*, `ci/expected_results.json` *(generated)* | Headless runner + pinned outcomes. |
+| `tests/test_node_grants_alloy.py` *(new)* | Pins every model command and outcome (must-agree). |
+| `tests/conftest.py` *(modify)* | `FakeGraphApi`, signed-in API clients, `grants`, `node_owned_by_alice` (C2 Step 0). |
 
 `graph_routes.py` is a new module rather than more routes in `app.py` because
 that file is already ~1900 lines and every new namespace added to it makes the
@@ -484,7 +494,7 @@ git commit -m "feat(graph): datatype codecs for the five fact shapes (SS-315)"
 ### Task B3: Client — schema reads, type and node updates, server-side filters
 
 **Files:**
-- Modify: `src/knovas_client.py:1573-1645`
+- Modify: `src/knovas_client.py` (the graph section: `graph_nodes` … `graph_delete_schema_attribute`, ~lines 1573–1645)
 - Modify: `src/ontology_graph.py:312-330` (`create_type_relation`)
 - Test: `tests/test_knovas_client_secured_api.py`
 
@@ -637,7 +647,7 @@ Then delete the now-stale verification comment in `graph_create_node` — the
 
 In `src/ontology_graph.py`, `create_type_relation` currently returns `None`
 with a comment explaining that a type-level line cannot survive a reload. With
-`target_node_type_id` (backend Task A3) it can. Leave the method returning
+`target_node_type_id` (backend Task A4) it can. Leave the method returning
 `None` for now and update its docstring to point at Task E4, which supersedes
 it; do not delete it, because `ontology.js` still calls the route.
 
@@ -813,12 +823,597 @@ git commit -m "feat(client): facts CRUD and neighbours with induced edges (SS-31
 
 ---
 
+### Task C0: Alloy — the grant rules, modelled before the store
+
+`node_grants` is a permission model. Knovas lands the model before the code
+(`KnowledgeBase/docs/Docs/01_SYSTEM/Feature_Design_Workflow.md`), and the
+Platform repo has no Alloy tree yet, so this task creates one with the same
+driver, mutant and lockfile discipline as `KnowledgeBase/knovas-software/models/alloy/`.
+Nothing here needs PostgreSQL or the identity stack.
+
+**Files:**
+- Create: `models/alloy/node_grants.als`, `models/alloy/node_grants_lifecycle.als`
+- Create: `models/alloy/mutants/node_grants__editor_delegates.als`, `…__two_owners.als`, `…__reads_narrowed.als`, `…__revoke_ignores_role.als`
+- Create (copied verbatim from `KnowledgeBase/knovas-software/models/alloy/ci/`): `models/alloy/ci/alloy_driver.py`, `models/alloy/ci/run_all.sh`, `models/alloy/ci/alloy.version`
+- Generate: `models/alloy/ci/expected_results.json`
+- Create: `models/alloy/README.md`, `tests/test_node_grants_alloy.py`
+- Modify: `pyproject.toml` (markers), `.github/workflows/ci.yml` (`knovas-platform` job), repository `.gitignore`
+
+**Interfaces:**
+- Produces: checks `an_editor_cannot_delegate`, `who_may_delegate_is_unambiguous`, `grants_never_narrow_reads`, `write_needs_a_grant_or_admin`, `an_admin_always_writes` (static) and `the_owner_survives_a_revoke`, `a_revoke_removes_only_the_named_editor`, `the_creator_owns_the_new_node`, `the_table_shape_is_preserved` (lifecycle); preds `mayWrite`, `mayGrant`, `GrantTableShape`, `WriteGateMechanism`, `GrantGateMechanism`, `ReadGateMechanism`, `RevokeMechanism`, `CreateMechanism` that C1/C2/D3 mirror line for line.
+
+- [ ] **Step 1: Write the static model**
+
+Create `models/alloy/node_grants.als`:
+
+```alloy
+/*
+ * @invariant_id    KC-GRANT-01 (PROPOSED — Platform-side; no Golden Invariants
+ *                  row exists for customer-hosted Platform code, see plan C0)
+ * @plan            docs/superpowers/plans/2026-09-02-typed-node-workbench-components.md (C0, C1, C2, D3)
+ * @code_under_check
+ *   - src/identity/node_grants.py (NodeGrantStore.may_write, .for_node)
+ *   - src/identity/migrations/0002_node_grants.sql (PRIMARY KEY (node_id,
+ *     user_id); idx_node_grants_one_owner)
+ *   - src/web_interface/graph_routes.py (require_node_write, _may_grant,
+ *     list_nodes — deliberately not filtered by grants)
+ * @pytest_must_agree
+ *   - tests/test_node_grants.py
+ *   - tests/test_graph_routes_auth.py, tests/test_graph_routes_grants.py
+ *   - tests/test_node_grants_alloy.py (pins)
+ * @scope           5
+ *
+ * Who may WRITE a knowledge-graph node through the Platform. The design's
+ * one structural decision is that this is not a second read model: reads
+ * are the backend ACL's answer and nothing here narrows a listing. The
+ * checks pin the three ways that decision erodes — an editor who can hand
+ * out further editorships, a node with two owners so that "who may grant?"
+ * has two answers, and a listing quietly filtered by grants.
+ *
+ * Why this is not a tautology: the mechanisms mirror three separate code
+ * paths (may_write, _may_grant, the list route); the properties cross them
+ * (an admitted grant implies an OWNER row; a grant-less reader is still
+ * served). Each mutant breaks one path and one property falls.
+ */
+module knovas_platform/node_grants
+
+sig User {}
+sig Admin in User {}                 // platform role `admin`
+sig Node {}                          // a kg_nodes id — opaque, no FK by design
+
+abstract sig Role {}
+one sig Owner, Editor extends Role {}
+
+sig Grant {
+  gNode: one Node,
+  gUser: one User,
+  gRole: one Role
+}
+
+/* The table as 0002_node_grants.sql constrains it. */
+pred GrantTableShape[rows: set Grant] {
+  all disj a, b: rows | not (a.gNode = b.gNode and a.gUser = b.gUser)   // PRIMARY KEY
+  all n: Node | lone g: rows | g.gNode = n and g.gRole = Owner            // one owner
+}
+
+/* NodeGrantStore.may_write: the owner, an editor, or any admin. */
+pred mayWrite[u: User, n: Node] {
+  u in Admin or some g: Grant | g.gNode = n and g.gUser = u
+}
+
+/* graph_routes._may_grant: the owner or an admin — never an editor. */
+pred mayGrant[u: User, n: Node] {
+  u in Admin or some g: Grant | g.gNode = n and g.gUser = u and g.gRole = Owner
+}
+
+one sig Admitted {}
+
+sig WriteAttempt { wUser: one User, wNode: one Node, wAdmitted: lone Admitted }
+sig GrantAttempt { gaUser: one User, gaNode: one Node, gaAdmitted: lone Admitted }
+
+/* require_node_write on every mutating node/fact route. */
+pred WriteGateMechanism {
+  all w: WriteAttempt | some w.wAdmitted iff mayWrite[w.wUser, w.wNode]
+}
+
+/* add_grant / remove_grant. */
+pred GrantGateMechanism {
+  all g: GrantAttempt | some g.gaAdmitted iff mayGrant[g.gaUser, g.gaNode]
+}
+
+/* Reads: list_nodes and node_detail hand back what the backend returned.
+ * BackendVisible is GraphAccessGuard's verdict, opaque here. */
+sig BackendVisible in Node {}
+sig ReadAttempt { rUser: one User, rNode: one Node, rServed: lone Admitted }
+
+pred ReadGateMechanism {
+  all r: ReadAttempt | some r.rServed iff r.rNode in BackendVisible
+}
+
+pred Mechanisms {
+  GrantTableShape[Grant]
+  WriteGateMechanism
+  GrantGateMechanism
+  ReadGateMechanism
+}
+
+/* ── properties ─────────────────────────────────────────────────────────── */
+
+/* A non-admin who is admitted to grant holds the OWNER row — editorship
+ * never delegates. */
+pred AnEditorCannotDelegate {
+  all g: GrantAttempt | (some g.gaAdmitted and g.gaUser not in Admin) implies
+    (some r: Grant | r.gNode = g.gaNode and r.gUser = g.gaUser and r.gRole = Owner)
+}
+
+/* Per node, at most one non-admin may grant: "who decides?" has one answer. */
+pred WhoMayDelegateIsUnambiguous {
+  all n: Node | lone u: User - Admin | mayGrant[u, n]
+}
+
+/* A reader with no grant at all is still served a backend-visible node. */
+pred GrantsNeverNarrowReads {
+  all r: ReadAttempt |
+    (r.rNode in BackendVisible and no g: Grant | g.gUser = r.rUser)
+      implies some r.rServed
+}
+
+/* A write is admitted only for the owner, an editor, or an admin. */
+pred WriteNeedsAGrantOrAdmin {
+  all w: WriteAttempt | some w.wAdmitted implies
+    (w.wUser in Admin or some g: Grant | g.gNode = w.wNode and g.gUser = w.wUser)
+}
+
+/* An admin can always repair a node — including one with no grants at all. */
+pred AnAdminAlwaysWrites {
+  all w: WriteAttempt | w.wUser in Admin implies some w.wAdmitted
+}
+
+/* ── checks ─────────────────────────────────────────────────────────────── */
+
+check an_editor_cannot_delegate        { Mechanisms implies AnEditorCannotDelegate } for 5
+check who_may_delegate_is_unambiguous  { Mechanisms implies WhoMayDelegateIsUnambiguous } for 5
+check grants_never_narrow_reads        { Mechanisms implies GrantsNeverNarrowReads } for 5
+check write_needs_a_grant_or_admin     { Mechanisms implies WriteNeedsAGrantOrAdmin } for 5
+check an_admin_always_writes           { Mechanisms implies AnAdminAlwaysWrites } for 5
+
+/* ── witnesses ─────────────────────────────────────────────────────────── */
+
+/* Owner, editor and stranger on one node; the editor writes but cannot
+ * grant; the stranger reads a backend-visible node. */
+run witness_mechanism_live {
+  Mechanisms
+  some n: Node, disj owner, editor, stranger: User - Admin {
+    some g: Grant | g.gNode = n and g.gUser = owner and g.gRole = Owner
+    some g: Grant | g.gNode = n and g.gUser = editor and g.gRole = Editor
+    no g: Grant | g.gUser = stranger
+    some w: WriteAttempt | w.wUser = editor and w.wNode = n and some w.wAdmitted
+    some g: GrantAttempt | g.gaUser = editor and g.gaNode = n and no g.gaAdmitted
+    some w: WriteAttempt | w.wUser = stranger and w.wNode = n and no w.wAdmitted
+    n in BackendVisible
+    some r: ReadAttempt | r.rUser = stranger and r.rNode = n and some r.rServed
+  }
+} for 5
+
+/* The breach is representable absent the mechanism: an editor admitted to
+ * grant, and a visible node withheld from a grant-less reader. */
+run witness_breach_expressible {
+  some g: GrantAttempt | some g.gaAdmitted and g.gaUser not in Admin
+    and no r: Grant | r.gNode = g.gaNode and r.gUser = g.gaUser and r.gRole = Owner
+  some r: ReadAttempt | r.rNode in BackendVisible and no r.rServed
+} for 4
+```
+
+- [ ] **Step 2: Write the lifecycle model**
+
+Create `models/alloy/node_grants_lifecycle.als`:
+
+```alloy
+/*
+ * @invariant_id    KC-GRANT-01 (PROPOSED — see node_grants.als)
+ * @plan            docs/superpowers/plans/2026-09-02-typed-node-workbench-components.md (C0, C1)
+ * @code_under_check
+ *   - src/identity/node_grants.py (NodeGrantStore.set_owner, .revoke —
+ *     `DELETE ... AND role = 'editor'`)
+ *   - src/web_interface/graph_routes.py (create_node writes the creator as
+ *     owner in the same request)
+ * @pytest_must_agree
+ *   - tests/test_node_grants.py (TestOwnership, TestEditors)
+ * @scope           5
+ *
+ * One mutation, Pre → Post. The rule worth a model: a revoke deletes editor
+ * rows only, so the owner survives any revoke — otherwise a node can end up
+ * with nobody who may grant anything, and the "who decides?" question of
+ * node_grants.als has zero answers instead of one.
+ */
+module knovas_platform/node_grants_lifecycle
+
+open knovas_platform/node_grants
+
+abstract sig Snap { rows: set Grant }
+one sig Pre, Post extends Snap {}
+
+lone sig Revoke { rvNode: one Node, rvUser: one User }
+lone sig Create { crNode: one Node, crUser: one User }
+
+/* NodeGrantStore.revoke: DELETE ... WHERE node_id AND user_id AND role='editor'. */
+pred RevokeMechanism {
+  some Revoke implies
+    Post.rows = Pre.rows - { g: Grant |
+      g.gNode = Revoke.rvNode and g.gUser = Revoke.rvUser and g.gRole = Editor }
+}
+
+/* create_node → set_owner: the node is new (no rows yet), one owner row is
+ * inserted for the creator, and nothing else changes. */
+pred CreateMechanism {
+  some Create implies {
+    no g: Pre.rows | g.gNode = Create.crNode
+    Pre.rows in Post.rows
+    one (Post.rows - Pre.rows)
+    all g: Post.rows - Pre.rows |
+      g.gNode = Create.crNode and g.gUser = Create.crUser and g.gRole = Owner
+  }
+}
+
+pred OneMutation { lone (Revoke + Create) }
+
+pred LifecycleMechanism {
+  GrantTableShape[Pre.rows]
+  OneMutation
+  RevokeMechanism
+  CreateMechanism
+  (no Revoke and no Create) implies Post.rows = Pre.rows
+}
+
+/* ── properties ─────────────────────────────────────────────────────────── */
+
+pred TheOwnerSurvivesARevoke {
+  all g: Pre.rows | g.gRole = Owner implies g in Post.rows
+}
+
+pred ARevokeRemovesOnlyTheNamedEditor {
+  some Revoke implies
+    all g: Pre.rows - Post.rows | g.gUser = Revoke.rvUser and g.gRole = Editor
+}
+
+pred TheCreatorOwnsTheNewNode {
+  some Create implies
+    one g: Post.rows | g.gNode = Create.crNode and g.gRole = Owner
+      and g.gUser = Create.crUser
+}
+
+pred TheTableShapeIsPreserved { GrantTableShape[Post.rows] }
+
+/* ── checks ─────────────────────────────────────────────────────────────── */
+
+check the_owner_survives_a_revoke        { LifecycleMechanism implies TheOwnerSurvivesARevoke } for 5
+check a_revoke_removes_only_the_named_editor { LifecycleMechanism implies ARevokeRemovesOnlyTheNamedEditor } for 5
+check the_creator_owns_the_new_node      { LifecycleMechanism implies TheCreatorOwnsTheNewNode } for 5
+check the_table_shape_is_preserved       { LifecycleMechanism implies TheTableShapeIsPreserved } for 5
+
+/* ── witnesses ─────────────────────────────────────────────────────────── */
+
+run witness_revoke_of_an_editor {
+  LifecycleMechanism
+  some Revoke
+  some g: Pre.rows | g.gNode = Revoke.rvNode and g.gUser = Revoke.rvUser and g.gRole = Editor
+  some g: Pre.rows | g.gNode = Revoke.rvNode and g.gRole = Owner
+} for 5
+
+run witness_create_makes_an_owner {
+  LifecycleMechanism
+  some Create
+} for 5
+
+/* The breach is representable: the owner row gone after a revoke. */
+run witness_breach_expressible {
+  some Revoke
+  some g: Pre.rows | g.gRole = Owner and g.gNode = Revoke.rvNode and g not in Post.rows
+} for 4
+```
+
+- [ ] **Step 3: Write the four mutants**
+
+Create `models/alloy/mutants/node_grants__editor_delegates.als`:
+
+```alloy
+/*
+ * MUTANT — expected outcome: counterexample.
+ *
+ * Shadows: node_grants.als :: an_editor_cannot_delegate
+ * Simulated bug: graph_routes._may_grant is written over may_write — "anyone
+ * who may edit may also grant". One editorship then silently becomes the
+ * right to hand out every further one.
+ */
+module knovas_platform/mutants/node_grants__editor_delegates
+
+open knovas_platform/node_grants
+
+pred GrantGateOverMayWrite {
+  all g: GrantAttempt | some g.gaAdmitted iff mayWrite[g.gaUser, g.gaNode]
+}
+
+check editor_delegates_when_grant_gate_is_may_write {
+  (GrantTableShape[Grant] and WriteGateMechanism and GrantGateOverMayWrite and ReadGateMechanism)
+    implies AnEditorCannotDelegate
+} for 5
+```
+
+Create `models/alloy/mutants/node_grants__two_owners.als`:
+
+```alloy
+/*
+ * MUTANT — expected outcome: counterexample.
+ *
+ * Shadows: node_grants.als :: who_may_delegate_is_unambiguous
+ * Simulated bug: the partial unique index idx_node_grants_one_owner is
+ * dropped from 0002_node_grants.sql (only the primary key remains). Two
+ * owner rows on one node are then storable, and two non-admins may grant.
+ */
+module knovas_platform/mutants/node_grants__two_owners
+
+open knovas_platform/node_grants
+
+pred PrimaryKeyOnly[rows: set Grant] {
+  all disj a, b: rows | not (a.gNode = b.gNode and a.gUser = b.gUser)
+}
+
+check two_owners_without_the_partial_index {
+  (PrimaryKeyOnly[Grant] and WriteGateMechanism and GrantGateMechanism and ReadGateMechanism)
+    implies WhoMayDelegateIsUnambiguous
+} for 5
+```
+
+Create `models/alloy/mutants/node_grants__reads_narrowed.als`:
+
+```alloy
+/*
+ * MUTANT — expected outcome: counterexample.
+ *
+ * Shadows: node_grants.als :: grants_never_narrow_reads
+ * Simulated bug: list_nodes / node_detail filter by node_grants "for
+ * tidiness" — the second read model the design forbids. A member with no
+ * grant no longer sees a node the backend ACL says they may see.
+ */
+module knovas_platform/mutants/node_grants__reads_narrowed
+
+open knovas_platform/node_grants
+
+pred ReadGateNarrowedByGrants {
+  all r: ReadAttempt | some r.rServed iff
+    (r.rNode in BackendVisible and mayWrite[r.rUser, r.rNode])
+}
+
+check reader_without_a_grant_is_withheld {
+  (GrantTableShape[Grant] and WriteGateMechanism and GrantGateMechanism and ReadGateNarrowedByGrants)
+    implies GrantsNeverNarrowReads
+} for 5
+```
+
+Create `models/alloy/mutants/node_grants__revoke_ignores_role.als`:
+
+```alloy
+/*
+ * MUTANT — expected outcome: counterexample.
+ *
+ * Shadows: node_grants_lifecycle.als :: the_owner_survives_a_revoke
+ * Simulated bug: NodeGrantStore.revoke deletes by (node_id, user_id) without
+ * the `AND role = 'editor'` predicate. An owner can then be revoked — by
+ * themselves or by an admin who meant to remove an editor — leaving a node
+ * nobody may grant on.
+ */
+module knovas_platform/mutants/node_grants__revoke_ignores_role
+
+open knovas_platform/node_grants_lifecycle
+
+pred RevokeWithoutRoleFilter {
+  some Revoke implies
+    Post.rows = Pre.rows - { g: Grant | g.gNode = Revoke.rvNode and g.gUser = Revoke.rvUser }
+}
+
+check owner_lost_when_revoke_ignores_role {
+  (GrantTableShape[Pre.rows] and OneMutation and RevokeWithoutRoleFilter and CreateMechanism
+    and ((no Revoke and no Create) implies Post.rows = Pre.rows))
+    implies TheOwnerSurvivesARevoke
+} for 5
+```
+
+- [ ] **Step 4: Vendor the runner and generate the lockfile**
+
+```bash
+mkdir -p models/alloy/ci models/alloy/.cache
+KB=../../../../KnowledgeBase/knovas-software/models/alloy   # adjust to where the KnowledgeBase checkout lives
+cp "$KB/ci/alloy_driver.py" "$KB/ci/run_all.sh" "$KB/ci/alloy.version" models/alloy/ci/
+cd models/alloy
+curl -fsSL -o .cache/alloy.jar "$(sed -n 2p ci/alloy.version)"
+python3 ci/alloy_driver.py --emit-expected > ci/expected_results.json
+bash ci/run_all.sh
+```
+
+Expected: `alloy-checks: ok`. `ci/expected_results.json` holds 13 checks (9 `no_counterexample` in the two models, 4 `counterexample` under `mutants/`) and 5 `satisfiable` runs. The driver's rules apply unchanged: a check under `mutants/` must find a counterexample, every file with checks must carry a `run` witness, and results must match the lockfile byte for byte. Add `KnovasPlatform/components/docbridge_integration/models/alloy/.cache/` and `…/.out/` to the repository `.gitignore`.
+
+- [ ] **Step 5: Write the README**
+
+Create `models/alloy/README.md`:
+
+```markdown
+# Platform Alloy models
+
+Formal models for Platform-side authorisation, run exactly like
+`KnowledgeBase/knovas-software/models/alloy/` (same driver, same lockfile
+rules — `ci/alloy_driver.py` is a verbatim copy; do not edit it here, update
+it from KnowledgeBase). Idiom guide: that tree's `README.md`.
+
+| File | Pins |
+| --- | --- |
+| `node_grants.als` | who may write, who may grant, reads never narrowed |
+| `node_grants_lifecycle.als` | the owner survives a revoke; the creator owns |
+| `mutants/node_grants__*.als` | one refuting weakening per conjunct |
+
+Run: `bash ci/run_all.sh` (jar per `ci/alloy.version` into `.cache/`).
+Regenerate the lockfile after an intended change:
+`python3 ci/alloy_driver.py --emit-expected > ci/expected_results.json`.
+Pytest half of the contract: `tests/test_node_grants_alloy.py`.
+```
+
+- [ ] **Step 6: Register the markers and write the pin test**
+
+In `pyproject.toml`, `[tool.pytest.ini_options] markers`, add:
+
+```toml
+    "alloy: pins an Alloy model's commands and outcomes (the pytest half of must-agree)",
+    "precondition: verifies the implementation satisfies an Alloy mechanism pred",
+```
+
+Create `tests/test_node_grants_alloy.py`:
+
+```python
+"""Alloy pins — node grants (SS-315, plan C0).
+
+The pytest half of the must-agree contract, mirroring KnowledgeBase's
+tests/alloy_invariants/test_kg_v1_alloy_pins.py: every command in the models is
+registered in models/alloy/ci/expected_results.json with the right outcome, so a
+silently dropped check or a mutant that stopped refuting fails pytest as well as
+the Alloy CI step.
+"""
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.alloy
+
+MODELS = Path(__file__).resolve().parents[1] / "models" / "alloy"
+
+# file (relative to models/alloy) -> {command: kind}, kind in {check, run}
+COMMANDS = {
+    "node_grants.als": {
+        "an_editor_cannot_delegate": "check",
+        "who_may_delegate_is_unambiguous": "check",
+        "grants_never_narrow_reads": "check",
+        "write_needs_a_grant_or_admin": "check",
+        "an_admin_always_writes": "check",
+        "witness_mechanism_live": "run",
+        "witness_breach_expressible": "run",
+    },
+    "node_grants_lifecycle.als": {
+        "the_owner_survives_a_revoke": "check",
+        "a_revoke_removes_only_the_named_editor": "check",
+        "the_creator_owns_the_new_node": "check",
+        "the_table_shape_is_preserved": "check",
+        "witness_revoke_of_an_editor": "run",
+        "witness_create_makes_an_owner": "run",
+        "witness_breach_expressible": "run",
+    },
+}
+MUTANTS = {
+    "mutants/node_grants__editor_delegates.als": "editor_delegates_when_grant_gate_is_may_write",
+    "mutants/node_grants__two_owners.als": "two_owners_without_the_partial_index",
+    "mutants/node_grants__reads_narrowed.als": "reader_without_a_grant_is_withheld",
+    "mutants/node_grants__revoke_ignores_role.als": "owner_lost_when_revoke_ignores_role",
+}
+_CMD = re.compile(r"^\s*(run|check)\s+(\w+)\b", re.MULTILINE)
+
+
+def _expected():
+    path = MODELS / "ci" / "expected_results.json"
+    assert path.is_file(), f"missing {path}"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+class TestCommandsRegistered:
+    def test_every_command_is_pinned_with_its_outcome(self):
+        data = _expected()
+        checks = {(c["file"], c["command"]): c["outcome"] for c in data["checks"]}
+        runs = {(r["file"], r["command"]): r["outcome"] for r in data["runs"]}
+        problems = []
+        for fname, commands in COMMANDS.items():
+            for cmd, kind in commands.items():
+                table, want = (checks, "no_counterexample") if kind == "check" else (runs, "satisfiable")
+                got = table.get((f"models/alloy/{fname}", cmd))
+                if got != want:
+                    problems.append(f"{fname}::{cmd} = {got!r} (want {want!r})")
+        for fname, cmd in MUTANTS.items():
+            got = checks.get((f"models/alloy/{fname}", cmd))
+            if got != "counterexample":
+                problems.append(f"{fname}::{cmd} = {got!r} (want 'counterexample': the mutant must refute)")
+        assert not problems, problems
+
+    def test_no_command_on_disk_is_unpinned(self):
+        for fname, commands in COMMANDS.items():
+            text = (MODELS / fname).read_text(encoding="utf-8")
+            on_disk = {m.group(2) for m in _CMD.finditer(text)}
+            assert on_disk == set(commands), f"{fname}: disk {sorted(on_disk)} != pinned {sorted(commands)}"
+
+    def test_every_mutant_exists(self):
+        gone = [f for f in MUTANTS if not (MODELS / f).is_file()]
+        assert not gone, gone
+
+
+class TestHeadersTrace:
+    def test_models_name_the_plan_and_the_code(self):
+        for fname in COMMANDS:
+            text = (MODELS / fname).read_text(encoding="utf-8")
+            assert "2026-09-02-typed-node-workbench-components.md" in text, fname
+            assert "@code_under_check" in text and "node_grants.py" in text, fname
+```
+
+Run: `pytest tests/test_node_grants_alloy.py -v`
+Expected: 4 passed.
+
+- [ ] **Step 7: Add the CI step**
+
+In `.github/workflows/ci.yml`, job `knovas-platform`, after the `Pytest` step:
+
+```yaml
+      - name: Set up Java 17 (Alloy)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Alloy formal models (node grants)
+        working-directory: KnovasPlatform/components/docbridge_integration/models/alloy
+        run: |
+          set -euo pipefail
+          mkdir -p .cache
+          [[ -f .cache/alloy.jar ]] || curl -fsSL -o .cache/alloy.jar "$(sed -n 2p ci/alloy.version)"
+          bash ci/run_all.sh
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add models/alloy pyproject.toml tests/test_node_grants_alloy.py \
+        ../../../.github/workflows/ci.yml ../../../.gitignore
+git commit -m "alloy(identity): node grant rules modelled before the store (SS-315)
+
+Owner/editor/admin write gate, owner-only delegation, one owner per node,
+reads never narrowed by grants, owner survives revoke. Four mutants refute.
+First Alloy tree in this repo; driver and lockfile discipline copied from
+KnowledgeBase."
+```
+
+---
+
 ### Task C1: `node_grants` table and store
 
-**Depends on `feat/section-b-buildout` being merged.** Verify before starting:
-`ls src/identity/users.py src/identity/migrations/0001_identity.sql` must both
-exist on your branch. If they do not, stop — this task and everything after it
-have no `users` table to reference.
+**Depends on the identity stack being on the branch** (Global Constraints).
+Verify before starting:
+
+```bash
+ls src/identity/users.py src/identity/db.py src/identity/migrate.py src/identity/webauth.py \
+   src/identity/migrations/0001_identity.sql src/web_interface/admin.py
+grep -n 'def platform_db\|def identity_repo\|def identity_app' tests/conftest.py
+```
+
+All six files and all three fixtures must exist. If they do not, stop — this
+task and everything after it have no `users` table to reference.
+
+Mirrors `models/alloy/node_grants.als` (`GrantTableShape`, `mayWrite`) and
+`node_grants_lifecycle.als` (`RevokeMechanism`, `CreateMechanism`); the
+comments below name the pred each method implements.
 
 **Files:**
 - Create: `src/identity/migrations/0002_node_grants.sql`
@@ -877,36 +1472,56 @@ CREATE INDEX IF NOT EXISTS idx_node_grants_user ON node_grants (user_id);
 Create `tests/test_node_grants.py`:
 
 ```python
-"""Per-user write grants on graph nodes.
+"""Per-user write grants on graph nodes (SS-315, plan C1).
 
 The rules in one place: the creator owns; the owner grants and revokes editors;
 an admin overrides both; and nothing here decides who may READ, which is the
 backend's ACL.
+
+Alloy: models/alloy/node_grants.als (WriteGateMechanism, GrantTableShape) and
+models/alloy/node_grants_lifecycle.als (RevokeMechanism, CreateMechanism).
 """
-import sys
 import uuid
-from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
 
-from identity.node_grants import NodeGrantStore, OwnerRevokeError
+pytestmark = [
+    pytest.mark.precondition,
+    pytest.mark.skipif(not platform_db_reachable(),
+                       reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}"),
+]
+
+from identity.node_grants import NodeGrantStore, OwnerRevokeError  # noqa: E402
+
+PASSWORD = "korrektes-pferd-batterie"
 
 
 class FakeUser:
+    """A principal as may_write sees it: an id and the platform roles."""
+
     def __init__(self, roles=frozenset()):
         self.id = uuid.uuid4()
-        self.email = f"{self.id}@example.test"
         self.roles = frozenset(roles)
 
 
 @pytest.fixture
-def store(identity_conn):
-    """identity_conn comes from conftest: a migrated, transactional platform-db."""
-    return NodeGrantStore(identity_conn)
+def store(platform_db):
+    """platform_db comes from conftest: a migrated per-test schema."""
+    return NodeGrantStore(platform_db)
+
+
+@pytest.fixture
+def alice(identity_repo):
+    return identity_repo.create(email="alice@kanzlei.ch", display_name="Alice",
+                                password=PASSWORD)
+
+
+@pytest.fixture
+def bob(identity_repo):
+    return identity_repo.create(email="bob@kanzlei.ch", display_name="Bob",
+                                password=PASSWORD)
 
 
 class TestOwnership:
@@ -984,11 +1599,10 @@ class TestDeadData:
         assert store.for_node(str(uuid.uuid4())) == {"owner": None, "editors": []}
 ```
 
-Add `alice` and `bob` fixtures to `tests/conftest.py` returning persisted
-`users` rows via `UserRepository.create`, and an `identity_conn` fixture that
-runs `identity.migrate.apply` against a transactional test database, rolling
-back after each test. Follow whatever pattern `tests/test_identity_passwords.py`
-already established for reaching the identity database.
+`platform_db` (a migrated schema of its own per test, dropped afterwards)
+and `identity_repo` already exist in `tests/conftest.py`; `alice` and `bob`
+are real `users` rows created through `UserRepository.create`, and the module
+skips without PostgreSQL exactly like `tests/test_identity_users.py` does.
 
 - [ ] **Step 3: Run to verify they fail**
 
@@ -1035,7 +1649,9 @@ class NodeGrantStore:
         self._conn = conn
 
     def set_owner(self, node_id: str, user_id: UUID | str) -> None:
-        """Record the creator. Idempotent, and never demotes an existing owner."""
+        """CreateMechanism: record the creator. Idempotent; a second owner on
+        the same node hits idx_node_grants_one_owner and raises, which is the
+        right answer — transfer is an admin action, not a race."""
         self._conn.execute(
             "INSERT INTO node_grants (node_id, user_id, role, granted_by) "
             "VALUES (%s, %s, 'owner', %s) "
@@ -1055,12 +1671,14 @@ class NodeGrantStore:
         )
 
     def revoke(self, node_id: str, user_id: UUID | str) -> None:
-        rows = self._conn.execute(
+        """RevokeMechanism: DELETE ... AND role = 'editor' — the owner row is
+        never touched, so a node cannot end up with nobody who may grant."""
+        removed = self._conn.execute(
             "DELETE FROM node_grants WHERE node_id = %s AND user_id = %s "
             "AND role = 'editor' RETURNING user_id",
             (str(node_id), str(user_id)),
         ).fetchall()
-        if not rows:
+        if not removed:
             # Either they were never an editor, or they are the owner. Only the
             # second is an error worth a message: silently succeeding would let
             # an admin believe they removed access they did not.
@@ -1069,21 +1687,22 @@ class NodeGrantStore:
                     "Die Eigentümerschaft kann nur übertragen, nicht entzogen werden.")
 
     def for_node(self, node_id: str) -> dict:
+        # psycopg 3 tuple rows, indexed by position like identity/users.py.
         rows = self._conn.execute(
             "SELECT user_id, role FROM node_grants WHERE node_id = %s "
             "ORDER BY role, granted_at",
             (str(node_id),),
         ).fetchall()
-        owner = next((str(r["user_id"]) for r in rows if r["role"] == OWNER), None)
-        editors = [str(r["user_id"]) for r in rows if r["role"] == EDITOR]
+        owner = next((str(user_id) for user_id, role in rows if role == OWNER), None)
+        editors = [str(user_id) for user_id, role in rows if role == EDITOR]
         return {"owner": owner, "editors": editors}
 
     def may_write(self, node_id: str, user: Any) -> bool:
-        """The owner, an editor, or any admin.
+        """mayWrite: the owner, an editor, or any admin.
 
         An admin passes even when a node has no grants at all: nodes created
         before this feature have no owner, and somebody has to be able to
-        repair them.
+        repair them (an_admin_always_writes).
         """
         if user is None:
             return False
@@ -1097,11 +1716,10 @@ class NodeGrantStore:
         rows = self._conn.execute(
             "SELECT node_id FROM node_grants WHERE user_id = %s", (str(user_id),)
         ).fetchall()
-        return [str(r["node_id"]) for r in rows]
+        return [str(node_id) for (node_id,) in rows]
 ```
 
-Adjust the `execute`/`fetchall` calls to match whatever cursor helper
-`identity/db.py` exposes — follow `identity/users.py`, which already uses it.
+`identity/db.py` returns a plain psycopg 3 connection (autocommit); `conn.execute(...)` returns a cursor whose `fetchall()` yields tuples — the same idiom `identity/users.py` uses. Do not add a dict row factory for this store alone.
 
 - [ ] **Step 5: Run to verify they pass**
 
@@ -1110,9 +1728,8 @@ Expected: all pass.
 
 - [ ] **Step 6: Verify the migration applies**
 
-Run: `python -m identity.migrate` (or the module's documented entry point)
-against the local `platform-db`.
-Expected: `0002_node_grants.sql` applies once and is a no-op on a second run.
+Run (as CI does, with `PLATFORM_DB_DSN` pointing at the local `platform-db`): `python -m src.identity.migrate`
+Expected: `0002_node_grants.sql` applies once and is a no-op on a second run. The migration runner discovers `NNNN_slug.sql` files by name, so the number must be `0002`.
 
 - [ ] **Step 7: Commit**
 
@@ -1131,14 +1748,289 @@ git commit -m "feat(identity): per-user owner/editor grants on graph nodes (SS-3
 - Test: `tests/test_graph_routes_auth.py`
 
 **Interfaces:**
-- Consumes: `NodeGrantStore.may_write` (C1); `gate.current_user()` and `gate.users()` from `IdentityGate` (`app.py:700-711`, `app.py:1066`).
-- Produces: `create_graph_blueprint(gate, grants, source, *, graph_mode) -> Blueprint` registered at `/api/graph`, plus four decorators used by every later task:
+- Consumes: `NodeGrantStore.may_write` (C1); `IdentityGate` from `src/identity/webauth.py` — `current_user()`, `users()`, and `connection()`, the request-scoped psycopg connection that `app.teardown_request(identity_gate.close)` closes. `IdentityGate.guard` already answers 401 (JSON) for any `/api/` path without a session, so the blueprint's own `require_user` is a second, explicit line rather than the first.
+- Produces: `create_graph_blueprint(gate, grant_store, source, *, graph_mode) -> Blueprint` registered at `/api/graph` — `grant_store` is a zero-argument callable returning a `NodeGrantStore` over the **current request's** connection (a store built once at app start would hold a connection the first request's teardown closes) — plus four decorators used by every later task:
   - `@require_user` — 401 JSON for an unauthenticated caller.
   - `@require_admin` — 403 JSON when `admin` is not among the user's roles.
   - `@require_node_write(param="node_id")` — 403 JSON when `grants.may_write` is False.
   - `@require_graph_mode` — 409 JSON `{"error": "Wissensnetz-Modus erforderlich"}` in fixture mode.
 
+- [ ] **Step 0: Add the workbench fixtures to `tests/conftest.py`**
+
+Every route test in C2–E1 runs the real Flask app in identity mode with
+`ONTOLOGY_SOURCE=graph`, a fake Knowledge Graph client, real `users` rows and a
+real `node_grants` table. First, make the existing `identity_app` fixture
+reusable: move its body into a helper `_identity_app(platform_db, tmp_path, monkeypatch, *, client_cls=DummyKnovasClient)` (identical code, except `monkeypatch.setattr(web_app, "KnovasAPIClient", client_cls)`) and let `identity_app` call it. Then append:
+
+```python
+# ── typed-node workbench (SS-315): graph mode, people, grants ─────────────
+
+PASSWORD = "korrektes-pferd-batterie"
+
+
+class FakeGraphApi(DummyKnovasClient):
+    """The Knowledge Graph client as the workbench sees it, in memory.
+
+    Instance state, seeded by tests through the `fake_graph` fixture; the app
+    holds the same instance because create_app constructs exactly one client.
+    Response shapes follow Knowledge_Graph_API.md (`{"node": …}`,
+    `{"attribute": …}`, `{"neighbors": …, "edges": …}`).
+    """
+
+    current = None
+
+    def __init__(self, config, *, principal_broker=None):
+        super().__init__(config, principal_broker=principal_broker)
+        self.node_types = [{"id": "t1", "name": "Mandat"}]
+        self.schema = {}
+        self.nodes = {"n1": {"id": "n1", "name": "Müller AG", "node_type_id": "t1"}}
+        self.facts = {"n1": []}
+        self.neighbours = {}
+        self.last_attribute = self.last_node_filters = None
+        self.last_fact = self.last_neighbours = None
+        self.deprecated = []
+        FakeGraphApi.current = self
+
+    # node types + schema
+    def graph_node_types(self):
+        return list(self.node_types)
+
+    def graph_create_node_type(self, name):
+        created = {"id": f"t{len(self.node_types) + 1}", "name": name}
+        self.node_types.append(created)
+        return {"node_type": created}
+
+    def graph_update_node_type(self, type_id, **fields):
+        return {"node_type": {"id": type_id, **fields}}
+
+    def graph_schema(self, type_id, include_deprecated=False):
+        return list(self.schema.get(type_id, []))
+
+    def graph_create_schema_attribute(self, type_id, name, datatype="entity_ref",
+                                      required=False, description=None, sort_order=0,
+                                      enum_values=None, target_node_type_id=None):
+        attribute = {"id": f"a{sum(len(v) for v in self.schema.values()) + 1}",
+                     "name": name, "datatype": datatype, "required": required,
+                     "sort_order": sort_order, "enum_values": enum_values,
+                     "target_node_type_id": target_node_type_id}
+        self.schema.setdefault(type_id, []).append(attribute)
+        self.last_attribute = attribute
+        return {"attribute": attribute}
+
+    def graph_update_schema_attribute(self, type_id, attribute_id, **fields):
+        return {"attribute": {"id": attribute_id, **fields}}
+
+    def graph_deprecate_schema_attribute(self, type_id, attribute_id):
+        self.deprecated.append((type_id, attribute_id))
+        return {"status": "success"}
+
+    # nodes
+    def graph_nodes(self, node_type_id=None, q=None):
+        self.last_node_filters = {k: v for k, v in (("node_type_id", node_type_id), ("q", q)) if v}
+        return [n for n in self.nodes.values()
+                if (not node_type_id or n.get("node_type_id") == node_type_id)
+                and (not q or q.lower() in n["name"].lower())]
+
+    def graph_create_node(self, name, node_type_id=None):
+        node = {"id": f"n{len(self.nodes) + 1}", "name": name, "node_type_id": node_type_id}
+        self.nodes[node["id"]] = node
+        self.facts[node["id"]] = []
+        return {"node": node}
+
+    def graph_node(self, node_id):
+        node = self.nodes.get(node_id)
+        return None if node is None else {"node": node, "facts": self.facts.get(node_id, [])}
+
+    def graph_update_node(self, node_id, **fields):
+        if node_id not in self.nodes:
+            return None
+        self.nodes[node_id].update(fields)
+        return {"node": self.nodes[node_id]}
+
+    # facts + neighbours
+    def graph_facts(self, node_id):
+        return list(self.facts.get(node_id, []))
+
+    def graph_create_fact(self, node_id, value, attribute_id=None, label=None):
+        if node_id not in self.nodes:
+            return None
+        fact = {"id": f"f{len(self.facts[node_id]) + 1}", "attribute_id": attribute_id,
+                "label": label, "value": value}
+        self.facts[node_id].append(fact)
+        self.last_fact = fact
+        return {"fact": fact}
+
+    def graph_update_fact(self, fact_id, **fields):
+        return {"fact": {"id": fact_id, **fields}}
+
+    def graph_delete_fact(self, fact_id):
+        return {"status": "success"}
+
+    def graph_neighbors(self, node_id, depth=1, include_edges=False):
+        self.last_neighbours = {"node_id": node_id, "depth": depth,
+                                "include_edges": include_edges}
+        return self.neighbours.get(node_id, {"neighbors": [], "edges": []})
+
+
+class _ApiClient:
+    """A signed-in test client that sends the session's CSRF token on every
+    request, exactly as static/js/app.js does."""
+
+    def __init__(self, client, token):
+        self._client, self._token = client, token
+
+    def open(self, *args, **kwargs):
+        headers = dict(kwargs.pop("headers", None) or {})
+        headers.setdefault("X-CSRF-Token", self._token)
+        return self._client.open(*args, headers=headers, **kwargs)
+
+    def get(self, *a, **kw):
+        return self.open(*a, method="GET", **kw)
+
+    def post(self, *a, **kw):
+        return self.open(*a, method="POST", **kw)
+
+    def patch(self, *a, **kw):
+        return self.open(*a, method="PATCH", **kw)
+
+    def delete(self, *a, **kw):
+        return self.open(*a, method="DELETE", **kw)
+
+
+def _csrf_from(html: str) -> str:
+    marker = 'name="csrf_token" value="'
+    start = html.index(marker) + len(marker)
+    return html[start:html.index('"', start)]
+
+
+def _signed_in(app, email, *, with_csrf=True):
+    client = app.test_client()
+    page = client.get("/login")
+    client.post("/login", data={"login_name": email, "password": PASSWORD,
+                                "csrf_token": _csrf_from(page.data.decode("utf-8"))})
+    if not with_csrf:
+        return client
+    with client.session_transaction() as sess:
+        token = sess["csrf_token"]
+    return _ApiClient(client, token)
+
+
+def _person(identity_repo, email, display_name, role):
+    user = identity_repo.create(email=email, display_name=display_name, password=PASSWORD)
+    identity_repo.grant_role(user.id, role)
+    return identity_repo.get(user.id)
+
+
+@pytest.fixture
+def workbench_app(platform_db, tmp_path, monkeypatch):
+    monkeypatch.setenv("ONTOLOGY_SOURCE", "graph")
+    return _identity_app(platform_db, tmp_path, monkeypatch, client_cls=FakeGraphApi)
+
+
+@pytest.fixture
+def fixture_mode_app(platform_db, tmp_path, monkeypatch):
+    monkeypatch.delenv("ONTOLOGY_SOURCE", raising=False)
+    return _identity_app(platform_db, tmp_path, monkeypatch, client_cls=FakeGraphApi)
+
+
+@pytest.fixture
+def fake_graph(workbench_app):
+    return FakeGraphApi.current
+
+
+@pytest.fixture
+def grants(platform_db):
+    from identity.node_grants import NodeGrantStore
+
+    return NodeGrantStore(platform_db)
+
+
+@pytest.fixture
+def alice(identity_repo):
+    return _person(identity_repo, "alice@kanzlei.ch", "Alice", "member")
+
+
+@pytest.fixture
+def bob(identity_repo):
+    return _person(identity_repo, "bob@kanzlei.ch", "Bob", "member")
+
+
+@pytest.fixture
+def carol(identity_repo):
+    return _person(identity_repo, "carol@kanzlei.ch", "Carol", "member")
+
+
+@pytest.fixture
+def member(identity_repo):
+    return _person(identity_repo, "mia@kanzlei.ch", "Mia", "member")
+
+
+@pytest.fixture
+def platform_admin(identity_repo):
+    return _person(identity_repo, "chef@kanzlei.ch", "Chef", "admin")
+
+
+@pytest.fixture
+def anon_client(workbench_app):
+    return workbench_app.test_client()
+
+
+@pytest.fixture
+def member_client(workbench_app, member):
+    return _signed_in(workbench_app, member.email)
+
+
+@pytest.fixture
+def alice_client(workbench_app, alice):
+    return _signed_in(workbench_app, alice.email)
+
+
+@pytest.fixture
+def bob_client(workbench_app, bob):
+    return _signed_in(workbench_app, bob.email)
+
+
+@pytest.fixture
+def admin_client(workbench_app, platform_admin):
+    return _signed_in(workbench_app, platform_admin.email)
+
+
+@pytest.fixture
+def admin_client_no_csrf(workbench_app, platform_admin):
+    return _signed_in(workbench_app, platform_admin.email, with_csrf=False)
+
+
+@pytest.fixture
+def fixture_mode_client(fixture_mode_app, member):
+    return _signed_in(fixture_mode_app, member.email)
+
+
+@pytest.fixture
+def node_owned_by_alice(fake_graph, grants, alice):
+    node = fake_graph.graph_create_node("Alices Akte", node_type_id="t1")["node"]
+    grants.set_owner(node["id"], alice.id)
+    return node["id"]
+```
+
+`grants` and the app reach the same schema: the fixture holds its own
+connection, the app opens fresh ones through the `PLATFORM_DB_DSN` search path
+`identity_app` already sets, and both are autocommit — the same arrangement
+`identity_repo` and `identity_client` already rely on.
+
 - [ ] **Step 1: Write the failing tests**
+
+Every new route test module (`tests/test_graph_routes_*.py`,
+`tests/test_workbench_page.py`, `tests/test_graph_workbench.py`) needs
+PostgreSQL and starts with the same three lines as `tests/test_identity_users.py`:
+
+```python
+import pytest
+
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+```
 
 Create `tests/test_graph_routes_auth.py`:
 
@@ -1147,7 +2039,15 @@ Create `tests/test_graph_routes_auth.py`:
 
 Hiding a control is presentation; refusing the request is the control. Every
 test here calls the endpoint directly for that reason.
+
+Alloy: models/alloy/node_grants.als (WriteGateMechanism, ReadGateMechanism).
 """
+import pytest
+
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
 
 
 class TestAuthentication:
@@ -1234,12 +2134,13 @@ _GENERIC_ERROR = "Ein Fehler ist aufgetreten."
 _FIXTURE_MODE_ERROR = "Wissensnetz-Modus erforderlich"
 
 
-def create_graph_blueprint(gate, grants, source, *, graph_mode):
+def create_graph_blueprint(gate, grant_store, source, *, graph_mode):
     """Build the blueprint.
 
     Args:
         gate: the IdentityGate; ``gate.current_user()`` or None.
-        grants: a NodeGrantStore.
+        grant_store: zero-arg callable -> NodeGrantStore over THIS request's
+            connection (``gate.connection()`` is request-scoped).
         source: a callable returning the Knovas client for this request.
         graph_mode: a callable returning True when ONTOLOGY_SOURCE=graph.
     """
@@ -1285,7 +2186,7 @@ def create_graph_blueprint(gate, grants, source, *, graph_mode):
             if user is None:
                 return jsonify({"success": False, "error": "Nicht angemeldet."}), 401
             node_id = kwargs.get("node_id")
-            if not grants.may_write(node_id, user):
+            if not grant_store().may_write(node_id, user):
                 return jsonify({"success": False,
                                 "error": "Keine Bearbeitungsrechte für diesen Knoten."}), 403
             return view(*args, **kwargs)
@@ -1298,10 +2199,11 @@ def create_graph_blueprint(gate, grants, source, *, graph_mode):
     return bp
 ```
 
-Register it in `app.py` beside the admin blueprint. `IdentityGate` already owns
-the request-scoped connection that `gate.users()` is built on — reuse that same
-accessor rather than opening a second one, so the grant write and the node
-creation that triggers it share a transaction:
+Register it in `src/web_interface/app.py` inside the existing
+`if identity_gate is not None:` block that registers the admin blueprint
+(`create_admin_blueprint(...)`). `IdentityGate.connection()` opens this
+request's connection on first use and `app.teardown_request(identity_gate.close)`
+closes it, so the store must be built per request, never once at registration:
 
 ```python
         from identity.node_grants import NodeGrantStore
@@ -1309,18 +2211,16 @@ creation that triggers it share a transaction:
 
         app.register_blueprint(create_graph_blueprint(
             identity_gate,
-            NodeGrantStore(identity_gate.connection()),   # see note below
-            _ontology_source,
-            graph_mode=_ontology_source_is_graph,
+            lambda: NodeGrantStore(identity_gate.connection()),
+            lambda: api_client,
+            graph_mode=lambda: _ontology_source_is_graph(),
         ))
 ```
 
-**Before writing this, read `IdentityGate` in `app.py:700-711` and use its
-actual connection accessor.** `users()` returns a `UserRepository` built over
-one; whatever that repository is handed is the name to use here. If the gate
-exposes no connection directly, construct the store lazily inside the routes
-via `gate.users()`'s connection instead of holding one at registration time —
-a connection captured at app-build time would outlive the request that owns it.
+`api_client` is the `KnovasAPIClient` built a few hundred lines above (the
+one `_ontology_source()` also wraps); `_ontology_source_is_graph` is a nested
+function defined *later* in `create_app`, which is why it is wrapped in a
+lambda — naming it directly at registration time raises `UnboundLocalError`.
 
 - [ ] **Step 4: Run the auth tests that do not need routes yet**
 
@@ -1362,6 +2262,14 @@ git commit -m "feat(web): /api/graph blueprint with the four authorisation gates
 Create `tests/test_graph_routes_schema.py`:
 
 ```python
+import pytest
+
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+
+
 class TestNodeTypes:
     def test_listing_types(self, member_client, fake_graph):
         fake_graph.node_types = [{"id": "t1", "name": "Mandat"}]
@@ -1411,9 +2319,9 @@ class TestSchema:
             "/api/graph/node-types/t1/schema/a1").status_code == 403
 ```
 
-Build a `fake_graph` fixture: an object with the B3/B4 client method names,
-recording calls and returning canned payloads. It replaces the real client via
-the `source` callable the blueprint was constructed with.
+`fake_graph` is the `FakeGraphApi` instance from C2 Step 0 — the same object
+the app's `source()` returns, so seeding `fake_graph.schema["t1"]` is seen by
+the route.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -1601,6 +2509,19 @@ The join between facts and attribute definitions happens here rather than in
 the browser: the field reader must show an attribute that has NO fact (the
 visible gap), which a fact-only response cannot express.
 """
+import pytest
+
+from conftest import FakeGraphApi, PLATFORM_DB_TEST_DSN, platform_db_reachable
+from graph_workbench import compose_node
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+
+
+@pytest.fixture
+def client():
+    """The composer takes any object with the client's graph_* methods."""
+    return FakeGraphApi(config=None)
 
 
 class TestFieldJoin:
@@ -1804,6 +2725,14 @@ Expected: all pass.
 Create `tests/test_graph_routes_nodes.py`:
 
 ```python
+import pytest
+
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+
+
 class TestNodeList:
     def test_the_list_passes_the_filters_through(self, member_client, fake_graph):
         member_client.get("/api/graph/nodes?type=t1&q=M%C3%BCller")
@@ -1893,7 +2822,8 @@ Add to `create_graph_blueprint`:
         if created is None:
             return jsonify({"success": False, "error": "Knoten nicht anlegbar."}), 400
         node = created.get("node", created)
-        grants.set_owner(str(node["id"]), gate.current_user().id)
+        # CreateMechanism: the creator becomes the owner in the same request.
+        grant_store().set_owner(str(node["id"]), gate.current_user().id)
         return jsonify({"success": True, "node": node}), 201
 
     @bp.route("/nodes/<node_id>", methods=["GET"])
@@ -1903,13 +2833,13 @@ Add to `create_graph_blueprint`:
         from graph_workbench import compose_node
 
         try:
-            payload = compose_node(source(), grants, node_id)
+            payload = compose_node(source(), grant_store(), node_id)
         except Exception as exc:                     # noqa: BLE001
             return _fail(exc, "Graph node detail failed")
         if payload is None:
             return jsonify({"success": False, "error": "Knoten nicht gefunden."}), 404
         payload["success"] = True
-        payload["may_write"] = grants.may_write(node_id, gate.current_user())
+        payload["may_write"] = grant_store().may_write(node_id, gate.current_user())
         return jsonify(payload)
 
     @bp.route("/nodes/<node_id>", methods=["PATCH"])
@@ -1966,6 +2896,14 @@ git commit -m "feat(web): workbench composer and node routes (SS-315)"
 - [ ] **Step 1: Write the failing fact tests**
 
 ```python
+import pytest
+
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+
+
 class TestFactCreate:
     def test_a_date_fact_is_encoded_before_it_leaves(self, alice_client, fake_graph):
         fake_graph.schema["t1"] = [{"id": "a1", "name": "Frist", "datatype": "date",
@@ -2026,6 +2964,14 @@ class TestFactMutation:
 - [ ] **Step 2: Write the failing grant tests**
 
 ```python
+import pytest
+
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+
+
 class TestGrantRead:
     def test_grants_resolve_to_people_not_uuids(self, member_client, grants,
                                                 node_owned_by_alice, alice):
@@ -2148,7 +3094,7 @@ Expected: FAIL with 404 on every route.
         # The write gate is per node and a fact does not carry its node in the
         # URL. No node id means nothing to authorise against; defaulting to
         # allow would be the bug.
-        if not node_id or not grants.may_write(node_id, gate.current_user()):
+        if not node_id or not grant_store().may_write(node_id, gate.current_user()):
             return jsonify({"success": False,
                             "error": "Keine Bearbeitungsrechte für diesen Knoten."}), 403
         try:
@@ -2181,7 +3127,7 @@ Expected: FAIL with 404 on every route.
     @require_graph_mode
     @require_user
     def read_grants(node_id):
-        current = grants.for_node(node_id)
+        current = grant_store().for_node(node_id)
         return jsonify({
             "success": True,
             "owner": _person(current["owner"]) if current["owner"] else None,
@@ -2194,7 +3140,8 @@ Expected: FAIL with 404 on every route.
             return False
         if "admin" in user.roles:
             return True
-        return grants.for_node(node_id)["owner"] == str(user.id)
+        # mayGrant (node_grants.als): the owner or an admin, never an editor.
+        return grant_store().for_node(node_id)["owner"] == str(user.id)
 
     @bp.route("/nodes/<node_id>/grants", methods=["POST"])
     @require_graph_mode
@@ -2208,7 +3155,7 @@ Expected: FAIL with 404 on every route.
         user_id = str((request.get_json(silent=True) or {}).get("user_id") or "")
         if not user_id or gate.users().get(user_id) is None:
             return jsonify({"success": False, "error": "Konto nicht gefunden."}), 404
-        grants.grant_editor(node_id, user_id, granted_by=gate.current_user().id)
+        grant_store().grant_editor(node_id, user_id, granted_by=gate.current_user().id)
         return jsonify({"success": True, "editor": _person(user_id)}), 201
 
     @bp.route("/nodes/<node_id>/grants/<user_id>", methods=["DELETE"])
@@ -2221,7 +3168,7 @@ Expected: FAIL with 404 on every route.
             return jsonify({"success": False,
                             "error": "Nur Eigentümer oder Administrator."}), 403
         try:
-            grants.revoke(node_id, user_id)
+            grant_store().revoke(node_id, user_id)
         except OwnerRevokeError as exc:
             return jsonify({"success": False, "error": str(exc)}), 409
         return jsonify({"success": True})
@@ -2271,7 +3218,7 @@ git commit -m "feat(web): fact and grant routes with codec validation (SS-315)"
 - Create: `src/web_interface/templates/workbench.html`
 - Create: `src/web_interface/static/js/workbench.js`
 - Create: `src/web_interface/static/css/workbench.css`
-- Modify: `src/web_interface/app.py` (add the `/workbench` page route; extend `asset_version` to cover the new files, ~line 604)
+- Modify: `src/web_interface/app.py` (add the `/workbench` page route beside `ontology_page`)
 - Modify: `src/web_interface/templates/_sidebar.html`
 - Test: `tests/test_workbench_page.py`
 
@@ -2282,6 +3229,14 @@ git commit -m "feat(web): fact and grant routes with codec validation (SS-315)"
 - [ ] **Step 1: Write the failing test**
 
 ```python
+import pytest
+
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+
+pytestmark = pytest.mark.skipif(
+    not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+
+
 class TestWorkbenchPage:
     def test_the_page_requires_a_session(self, anon_client):
         assert anon_client.get("/workbench").status_code in (302, 401)
@@ -2313,20 +3268,26 @@ In `app.py`, beside `ontology_page()`:
 ```python
     @app.route('/workbench')
     def workbench_page():
+        """Arbeitsplatz: Liste -> Nachbarschaft -> Felder, typunabhängig."""
+        user = identity_gate.current_user() if identity_gate is not None else None
         return render_template(
             'workbench.html',
+            active_nav='workbench',
+            **_sidebar_context(),
             app_title=web_app_title,
             brand=web_brand,
             graph_mode=_ontology_source_is_graph(),
-            asset_version=asset_version,
+            is_admin=bool(user is not None and 'admin' in user.roles),
             csrf_token=_ensure_csrf_token(),
+            asset_version=_static_asset_version(),
         )
 ```
 
-Add `/workbench` to the authenticated-page list at `app.py:673` so the login
-gate covers it, and add `workbench.js` and `workbench.css` to the asset-version
-hash inputs at `app.py:604` — that function's own comment notes the bug where
-only `app.js` counted, and a third omission would repeat it.
+There is no gate list to extend: `IdentityGate.guard` protects every endpoint
+whose name is not in `identity.webauth.PUBLIC_ENDPOINTS`, and
+`_static_asset_version()` already hashes every `.js` and `.css` under
+`static/`. The page test asserts both (401/302 without a session; a fresh
+`?v=` after touching `workbench.js`).
 
 - [ ] **Step 4: Create the template**
 
@@ -2737,7 +3698,7 @@ git commit -m "feat(workbench): field reader with visible gaps and honest date p
 - Modify: `src/web_interface/static/css/workbench.css`
 
 **Interfaces:**
-- Consumes: D1 schema routes, D2 node create, D3 fact and grant routes; backend Task A3 for the filtered node picker.
+- Consumes: D1 schema routes, D2 node create, D3 fact and grant routes; backend Task A4 for the filtered node picker.
 - Produces: `Workbench.renderGrants(payload)`, the creation dialog, and the admin Typ-Werkstatt.
 
 - [ ] **Step 1: Add the dialogs to the template**
@@ -3008,10 +3969,11 @@ git commit -m "feat(workbench): schema-driven creation form, Typ-Werkstatt, edit
 
 ## Verification
 
-From `KnovasPlatform/components/docbridge_integration/`:
+From `KnovasPlatform/components/docbridge_integration/` (a `platform-db` must be reachable at `PLATFORM_DB_TEST_DSN`, exactly as CI provides; identity tests otherwise skip, and under `CI=true` a skip is a failure):
 
 ```bash
-pytest -q
+bash models/alloy/ci/run_all.sh          # alloy-checks: ok
+pytest -q                                # incl. tests/test_node_grants_alloy.py and the identity suite
 ```
 
 Then, against the dev tenant with `ONTOLOGY_SOURCE=graph`, walk the end-to-end
@@ -3048,10 +4010,13 @@ Finally confirm the two negative cases that are easy to regress:
 | §8.3 | Deprecate is not delete | B3, D1, E4 |
 | §8.4 | One read model | D2, C1 |
 | §3.3 | Fixture mode renders an explicit state | C2, E1 |
+| §6.5 | Grant rules modelled before the store; mutants refute; pins | C0 |
+| §10 | Grant enforcement tests mirror the mechanisms by name | C1, C2, D3 |
 
 ## Related
 
 - Design: `docs/superpowers/specs/2026-09-02-typed-node-workbench-design.md`
 - Backend plan: `docs/superpowers/plans/2026-09-02-typed-node-workbench-backend.md`
-- Identity dependency: `docs/superpowers/plans/2026-08-14-section-b-buildout.md`
+- Identity dependency: `docs/superpowers/plans/2026-08-14-section-b-buildout.md` (partially merged as PR #7; the identity stack is on `feat/section-b-buildout` and `feat/admin-document-rbac`)
+- Alloy idiom and runner: `KnowledgeBase/knovas-software/models/alloy/README.md`, `KnowledgeBase/docs/Docs/05_TESTS/Alloy_Unified_Model_Guide.md` §3
 - Superseded surfaces: `docs/superpowers/specs/2026-08-14-matters-and-typed-nodes-design.md` §7.3–§7.7
