@@ -1670,13 +1670,60 @@ class KnovasAPIClient:
         """GET /secured/graph/edges - typisierte Relationen."""
         return _graph_payload_list(self._graph_request('GET', '/edges'), 'edges')
 
-    def graph_neighbors(self, node_id: str, depth: int = 1) -> List[Dict[str, Any]]:
-        """GET /secured/graph/nodes/<id>/neighbors - Traversal, max. 3 Hops."""
-        depth = max(0, min(3, int(depth)))
+    def graph_neighbors(self, node_id: str, depth: int = 1,
+                        include_edges: bool = False) -> Dict[str, Any]:
+        """GET /secured/graph/nodes/<id>/neighbors - traversal, max 3 hops.
+
+        Returns {"neighbors": [...], "edges": [...]}. The endpoint omits the
+        edges key when include_edges is not requested; we normalise it to an
+        empty list so callers never branch on a missing key.
+        """
+        depth = max(1, min(3, int(depth)))
+        params: Dict[str, Any] = {'depth': depth}
+        if include_edges:
+            params['include_edges'] = 'true'
         payload = self._graph_request(
             'GET', f'/nodes/{quote(str(node_id), safe="")}/neighbors',
-            params={'depth': depth})
-        return _graph_payload_list(payload, 'neighbors', 'nodes')
+            params=params) or {}
+        return {
+            'neighbors': _graph_payload_list(payload, 'neighbors', 'nodes'),
+            'edges': _graph_payload_list(payload, 'edges'),
+        }
+
+    def graph_facts(self, node_id: str) -> List[Dict[str, Any]]:
+        """GET /secured/graph/nodes/<id>/facts - typed values on this node."""
+        return _graph_payload_list(
+            self._graph_request(
+                'GET', f'/nodes/{quote(str(node_id), safe="")}/facts'), 'facts')
+
+    def graph_create_fact(self, node_id: str, value: Any,
+                          attribute_id: Optional[str] = None,
+                          label: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/nodes/<id>/facts.
+
+        The server's CHECK requires attribute_id OR label; refusing here means
+        the caller sees the rule rather than a 422 from three layers away.
+        """
+        if not attribute_id and not label:
+            raise ValueError("a fact needs an attribute_id or a label")
+        data: Dict[str, Any] = {'value': value}
+        if attribute_id:
+            data['attribute_id'] = attribute_id
+        else:
+            data['label'] = label
+        return self._graph_request(
+            'POST', f'/nodes/{quote(str(node_id), safe="")}/facts', data=data)
+
+    def graph_update_fact(self, fact_id: str,
+                          **fields: Any) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/facts/<fid>."""
+        return self._graph_request(
+            'PATCH', f'/facts/{quote(str(fact_id), safe="")}', data=dict(fields))
+
+    def graph_delete_fact(self, fact_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/facts/<fid>."""
+        return self._graph_request(
+            'DELETE', f'/facts/{quote(str(fact_id), safe="")}')
 
     # -- Kuratieren (der Graph wird vom Client gepflegt, nicht abgeleitet) --
 

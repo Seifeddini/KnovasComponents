@@ -193,3 +193,44 @@ class TestSchemaAndFilters:
     def test_update_node_sends_only_the_given_fields(self, client, capture):
         client.graph_update_node("n1", name="Neu")
         assert capture.last.data == {"name": "Neu"}
+
+
+class TestFactsAndNeighbours:
+    def test_create_fact_requires_an_attribute_or_a_label(self, client):
+        with pytest.raises(ValueError):
+            client.graph_create_fact("n1", "Wert")
+
+    def test_create_fact_with_an_attribute_id(self, client, capture):
+        client.graph_create_fact("n1", {"value": "2026-03-04", "precision": "day"},
+                                 attribute_id="a1")
+        assert capture.last.data == {
+            "attribute_id": "a1",
+            "value": {"value": "2026-03-04", "precision": "day"}}
+
+    def test_create_fact_with_a_free_form_label(self, client, capture):
+        client.graph_create_fact("n1", "Wert", label="Notiz")
+        assert capture.last.data == {"label": "Notiz", "value": "Wert"}
+
+    def test_facts_reads_the_list(self, client, requests_mock):
+        requests_mock(json={"facts": [{"id": "f1", "value": "Wert"}]})
+        assert client.graph_facts("n1")[0]["id"] == "f1"
+
+    def test_neighbours_returns_a_mapping_with_both_keys(self, client, requests_mock):
+        requests_mock(json={"neighbors": [{"id": "n2"}], "edges": [{"id": "e1"}]})
+        result = client.graph_neighbors("n1", depth=1, include_edges=True)
+        assert result["neighbors"][0]["id"] == "n2"
+        assert result["edges"][0]["id"] == "e1"
+
+    def test_neighbours_sends_include_edges_only_when_asked(self, client, capture):
+        client.graph_neighbors("n1", depth=1)
+        assert capture.last.params == {"depth": 1}
+        client.graph_neighbors("n1", depth=1, include_edges=True)
+        assert capture.last.params == {"depth": 1, "include_edges": "true"}
+
+    def test_neighbours_edges_default_to_empty_not_missing(self, client, requests_mock):
+        requests_mock(json={"neighbors": []})
+        assert client.graph_neighbors("n1")["edges"] == []
+
+    def test_neighbours_depth_is_clamped_to_the_api_cap(self, client, capture):
+        client.graph_neighbors("n1", depth=9)
+        assert capture.last.params["depth"] == 3
