@@ -386,7 +386,12 @@ def create_graph_blueprint(gate, grant_store, source, *, graph_mode):
             # becomes the right to hand out every further grant.
             return jsonify({"success": False,
                             "error": "Nur Eigentuemer oder Administrator."}), 403
-        user_id = str((request.get_json(silent=True) or {}).get("user_id") or "")
+        payload = request.get_json(silent=True) or {}
+        user_id = str(payload.get("user_id") or "")
+        email = " ".join(str(payload.get("email") or "").split())
+        if not user_id and email:
+            found = gate.users().get_by_email(email)
+            user_id = str(found.id) if found else ""
         if not user_id or gate.users().get(user_id) is None:
             return jsonify({"success": False, "error": "Konto nicht gefunden."}), 404
         grant_store().grant_editor(node_id, user_id, granted_by=gate.current_user().id)

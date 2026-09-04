@@ -23,3 +23,14 @@ class TestWorkbenchPage:
     def test_fixture_mode_says_so_instead_of_rendering_panes(self, fixture_mode_client):
         html = fixture_mode_client.get("/workbench").get_data(as_text=True)
         assert "Wissensnetz-Modus erforderlich" in html
+
+    def test_an_admin_sees_the_type_workshop(self, admin_client):
+        html = admin_client.get("/workbench").get_data(as_text=True)
+        assert 'id="typeWorkshop"' in html
+        assert 'id="nodeCreateDialog"' in html
+        assert 'id="typeWorkshopDialog"' in html
+
+    def test_a_member_does_not_see_the_type_workshop_control(self, member_client):
+        html = member_client.get("/workbench").get_data(as_text=True)
+        assert 'id="typeWorkshop"' not in html
+        assert 'id="nodeCreate"' in html

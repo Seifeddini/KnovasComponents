@@ -191,6 +191,119 @@
     font-size: 0.9rem;
 }
 
+.workbench-dialog {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    max-width: 36rem;
+    width: calc(100% - 32px);
+}
+
+.workbench-dialog::backdrop {
+    background: rgba(var(--text-primary-rgb), 0.32);
+}
+
+.workbench-dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.workbench-dialog menu {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin: 12px 0 0;
+    padding: 0;
+}
+
+.workbench-dialog input,
+.workbench-dialog select {
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+}
+
+.workbench-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0;
+}
+
+.workbench-precision,
+.workbench-currency {
+    margin-left: 8px;
+}
+
+.workbench-form-errors {
+    color: var(--error-color);
+}
+
+.workbench-attr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.workbench-attr-table th,
+.workbench-attr-table td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.workbench-new-attr,
+.workbench-new-type {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.workbench-check {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.workbench-grants {
+    list-style: none;
+    margin: 8px 0;
+}
+
+.workbench-grants li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0;
+}
+
+.workbench-add-editor {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.workbench-add-editor input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+}
+
+#grantsPanel h3 {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    margin-top: 8px;
+}
+
 @media (max-width: 900px) {
     .workbench {
         grid-template-columns: 1fr;

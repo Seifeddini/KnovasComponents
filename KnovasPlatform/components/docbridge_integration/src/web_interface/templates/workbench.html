@@ -58,6 +58,68 @@
                     <div id="grantsPanel"></div>
                 </div>
             </section>
+            <dialog id="nodeCreateDialog" class="workbench-dialog">
+                <form id="nodeCreateForm">
+                    <h2>Neues Objekt</h2>
+                    <p id="nodeCreateErrors" class="workbench-form-errors" hidden></p>
+                    <label for="nodeCreateName">Name</label>
+                    <input type="text" id="nodeCreateName" autocomplete="off">
+                    <label for="nodeCreateType">Typ</label>
+                    <select id="nodeCreateType"></select>
+                    <div id="nodeCreateFields"></div>
+                    <menu>
+                        <button type="submit" class="btn btn-primary">Anlegen</button>
+                        <button type="button" class="btn btn-outline" id="nodeCreateCancel">Abbrechen</button>
+                    </menu>
+                </form>
+            </dialog>
+
+            <dialog id="typeWorkshopDialog" class="workbench-dialog">
+                <form id="typeWorkshopForm">
+                    <h2>Typ-Werkstatt</h2>
+                    <p id="typeWorkshopErrors" class="workbench-form-errors" hidden></p>
+                    <label for="typeWorkshopType">Typ</label>
+                    <select id="typeWorkshopType"></select>
+                    <table class="workbench-attr-table">
+                        <thead>
+                            <tr><th>Feld</th><th>Datentyp</th><th>Pflicht</th><th></th></tr>
+                        </thead>
+                        <tbody id="typeWorkshopAttributes"></tbody>
+                    </table>
+                    <fieldset class="workbench-new-attr">
+                        <legend>Feld hinzufuegen</legend>
+                        <label for="newAttrName">Name</label>
+                        <input type="text" id="newAttrName" autocomplete="off">
+                        <label for="newAttrDatatype">Datentyp</label>
+                        <select id="newAttrDatatype">
+                            <option value="text">Text</option>
+                            <option value="date">Datum</option>
+                            <option value="money">Betrag</option>
+                            <option value="enum">Auswahl</option>
+                            <option value="entity_ref">Verknuepfung</option>
+                        </select>
+                        <label id="newAttrEnumLabel" hidden for="newAttrEnumValues">Werte (kommagetrennt)</label>
+                        <input type="text" id="newAttrEnumValues" hidden>
+                        <label id="newAttrTargetLabel" hidden for="newAttrTargetType">Zieltyp</label>
+                        <select id="newAttrTargetType" hidden></select>
+                        <label class="workbench-check">
+                            <input type="checkbox" id="newAttrRequired"> Pflichtfeld (sichtbare Luecke, kein Schreibschutz)
+                        </label>
+                        <label for="newAttrSortOrder">Reihenfolge</label>
+                        <input type="number" id="newAttrSortOrder" value="0">
+                        <button type="button" class="btn btn-outline" id="newAttrAdd">Feld anlegen</button>
+                    </fieldset>
+                    <fieldset class="workbench-new-type">
+                        <legend>Typ anlegen</legend>
+                        <label for="newTypeName">Name</label>
+                        <input type="text" id="newTypeName" autocomplete="off">
+                        <button type="button" class="btn btn-outline" id="newTypeCreate">Typ anlegen</button>
+                    </fieldset>
+                    <menu>
+                        <button type="button" class="btn btn-outline" id="typeWorkshopClose">Schliessen</button>
+                    </menu>
+                </form>
+            </dialog>
         </main>
         {% endif %}
     </div>

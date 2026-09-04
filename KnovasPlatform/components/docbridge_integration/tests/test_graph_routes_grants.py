@@ -27,6 +27,13 @@ class TestGrantWrite:
         assert response.status_code == 201
         assert str(bob.id) in grants.for_node(node_owned_by_alice)["editors"]
 
+    def test_the_owner_may_grant_by_email(self, alice_client, grants,
+                                          node_owned_by_alice, carol):
+        response = alice_client.post(f"/api/graph/nodes/{node_owned_by_alice}/grants",
+                                     json={"email": carol.email})
+        assert response.status_code == 201
+        assert str(carol.id) in grants.for_node(node_owned_by_alice)["editors"]
+
     def test_an_editor_may_not_grant_further_editors(self, bob_client, grants,
                                                      node_owned_by_alice, bob, carol):
         grants.grant_editor(node_owned_by_alice, bob.id, granted_by=None)
