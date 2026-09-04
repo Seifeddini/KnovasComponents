@@ -265,4 +265,146 @@ def create_graph_blueprint(gate, grant_store, source, *, graph_mode):
             return jsonify({"success": False, "error": "Knoten nicht gefunden."}), 404
         return jsonify({"success": True, "node": updated.get("node", updated)})
 
+    def _attribute(type_id, attribute_id):
+        """One attribute definition, including deprecated ones.
+
+        A fact may target a deprecated attribute -- deprecation keeps facts --
+        so a lookup that hid them would make editing an existing value fail.
+        """
+        for attribute in source().graph_schema(type_id, include_deprecated=True):
+            if str(attribute.get("id")) == str(attribute_id):
+                return attribute
+        return None
+
+    def _encoded(node_id, payload):
+        """(value, attribute_id, label, error_response)."""
+        from graph_model import FactValueError, encode
+
+        attribute_id = payload.get("attribute_id")
+        label = " ".join(str(payload.get("label") or "").split())
+        raw = payload.get("value")
+        if not attribute_id:
+            if not label:
+                return None, None, None, (jsonify(
+                    {"success": False,
+                     "error": "Ein freies Feld braucht eine Bezeichnung."}), 400)
+            return raw, None, label, None
+
+        detail = source().graph_node(node_id) or {}
+        type_id = (detail.get("node", detail) or {}).get("node_type_id")
+        attribute = _attribute(type_id, attribute_id) if type_id else None
+        if attribute is None:
+            return None, None, None, (jsonify(
+                {"success": False, "error": "Attribut nicht gefunden."}), 404)
+        try:
+            value = encode(attribute.get("datatype", "text"), raw,
+                           enum_values=attribute.get("enum_values"))
+        except FactValueError as exc:
+            # The codec's message is written for a user and names the field
+            # rule; replacing it with a generic error would waste it.
+            return None, None, None, (jsonify({"success": False,
+                                               "error": str(exc)}), 400)
+        return value, str(attribute_id), None, None
+
+    @bp.route("/nodes/<node_id>/facts", methods=["POST"])
+    @require_graph_mode
+    @require_node_write
+    def create_fact(node_id):
+        payload = request.get_json(silent=True) or {}
+        value, attribute_id, label, error = _encoded(node_id, payload)
+        if error:
+            return error
+        try:
+            created = source().graph_create_fact(
+                node_id, value, attribute_id=attribute_id, label=label)
+        except Exception as exc:                     # noqa: BLE001
+            return _fail(exc, "Graph fact create failed")
+        if created is None:
+            return jsonify({"success": False, "error": "Knoten nicht gefunden."}), 404
+        return jsonify({"success": True, "fact": created.get("fact", created)}), 201
+
+    @bp.route("/facts/<fact_id>", methods=["PATCH", "DELETE"])
+    @require_graph_mode
+    @require_user
+    def mutate_fact(fact_id):
+        payload = request.get_json(silent=True) or {}
+        node_id = payload.get("node_id") or request.args.get("node_id")
+        # The write gate is per node and a fact does not carry its node in the
+        # URL. No node id means nothing to authorise against; defaulting to
+        # allow would be the bug.
+        if not node_id or not grant_store().may_write(node_id, gate.current_user()):
+            return jsonify({"success": False,
+                            "error": "Keine Bearbeitungsrechte fuer diesen Knoten."}), 403
+        try:
+            if request.method == "DELETE":
+                result = source().graph_delete_fact(fact_id)
+            else:
+                value, attribute_id, label, error = _encoded(node_id, payload)
+                if error:
+                    return error
+                result = source().graph_update_fact(fact_id, value=value)
+        except Exception as exc:                     # noqa: BLE001
+            return _fail(exc, "Graph fact mutation failed")
+        if result is None:
+            return jsonify({"success": False, "error": "Fakt nicht gefunden."}), 404
+        return jsonify({"success": True, "fact": result.get("fact", result)})
+
+    def _person(user_id):
+        user = gate.users().get(user_id)
+        if user is None:
+            return {"id": str(user_id), "email": None,
+                    "display_name": "Unbekanntes Konto"}
+        return {"id": str(user.id), "email": user.email,
+                "display_name": getattr(user, "display_name", None) or user.email}
+
+    @bp.route("/nodes/<node_id>/grants", methods=["GET"])
+    @require_graph_mode
+    @require_user
+    def read_grants(node_id):
+        current = grant_store().for_node(node_id)
+        return jsonify({
+            "success": True,
+            "owner": _person(current["owner"]) if current["owner"] else None,
+            "editors": [_person(uid) for uid in current["editors"]],
+        })
+
+    def _may_grant(node_id):
+        user = gate.current_user()
+        if user is None:
+            return False
+        if "admin" in user.roles:
+            return True
+        # mayGrant (node_grants.als): the owner or an admin, never an editor.
+        return grant_store().for_node(node_id)["owner"] == str(user.id)
+
+    @bp.route("/nodes/<node_id>/grants", methods=["POST"])
+    @require_graph_mode
+    @require_user
+    def add_grant(node_id):
+        if not _may_grant(node_id):
+            # An editor may edit, not delegate. Otherwise one grant silently
+            # becomes the right to hand out every further grant.
+            return jsonify({"success": False,
+                            "error": "Nur Eigentuemer oder Administrator."}), 403
+        user_id = str((request.get_json(silent=True) or {}).get("user_id") or "")
+        if not user_id or gate.users().get(user_id) is None:
+            return jsonify({"success": False, "error": "Konto nicht gefunden."}), 404
+        grant_store().grant_editor(node_id, user_id, granted_by=gate.current_user().id)
+        return jsonify({"success": True, "editor": _person(user_id)}), 201
+
+    @bp.route("/nodes/<node_id>/grants/<user_id>", methods=["DELETE"])
+    @require_graph_mode
+    @require_user
+    def remove_grant(node_id, user_id):
+        from identity.node_grants import OwnerRevokeError
+
+        if not _may_grant(node_id):
+            return jsonify({"success": False,
+                            "error": "Nur Eigentuemer oder Administrator."}), 403
+        try:
+            grant_store().revoke(node_id, user_id)
+        except OwnerRevokeError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 409
+        return jsonify({"success": True})
+
     return bp
