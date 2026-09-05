@@ -1,0 +1,311 @@
+/* Arbeitsplatz layout. Tokens only -- no new colours. */
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.workbench-unavailable {
+    color: var(--text-secondary);
+    padding: 24px 0;
+}
+
+.workbench {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 16px;
+    min-height: 0;
+    flex: 1;
+}
+
+.workbench-list,
+.workbench-graph,
+.workbench-fields {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    min-height: 0;
+}
+
+.workbench-list {
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+}
+
+.workbench-list-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.workbench-list-header input[type="search"] {
+    flex: 1 1 120px;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    color: var(--text-primary);
+}
+
+.workbench-type-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.workbench-chip {
+    padding: 4px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.workbench-chip.is-active {
+    border-color: var(--accent);
+    background: var(--highlight);
+}
+
+.workbench-node-list {
+    list-style: none;
+    overflow: auto;
+    flex: 1;
+}
+
+.workbench-node {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.workbench-node:hover,
+.workbench-node.is-selected {
+    background: var(--highlight);
+}
+
+.workbench-empty {
+    color: var(--text-secondary);
+    padding: 16px 8px;
+}
+
+.workbench-detail {
+    display: grid;
+    grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr);
+    gap: 16px;
+    min-height: 0;
+}
+
+.workbench-graph,
+.workbench-fields {
+    display: flex;
+    flex-direction: column;
+}
+
+.ontology-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: var(--pad-section);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ontology-pane-header h2 {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.graph-toolbar { display: flex; gap: 6px; }
+.graph-toolbar .btn { padding: 4px 10px; line-height: 1; }
+
+#neighbourhoodGraph {
+    flex: 1;
+    min-height: 180px;
+}
+
+#neighbourhoodGraph .workbench-empty {
+    display: grid;
+    place-content: center;
+    height: 100%;
+}
+
+#fieldReader,
+#grantsPanel {
+    padding: 12px 16px;
+    overflow: auto;
+}
+
+.workbench-fieldlist {
+    display: grid;
+    grid-template-columns: minmax(8rem, 32%) 1fr;
+    gap: 8px 16px;
+}
+
+.workbench-fieldlist dt {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.workbench-fieldlist dt.is-required::after {
+    content: " *";
+    color: var(--text-secondary);
+}
+
+.workbench-fieldlist dd.is-missing {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.workbench-ref {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--primary-color);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.workbench-visibility {
+    margin-top: 16px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.workbench-dialog {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    max-width: 36rem;
+    width: calc(100% - 32px);
+}
+
+.workbench-dialog::backdrop {
+    background: rgba(var(--text-primary-rgb), 0.32);
+}
+
+.workbench-dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.workbench-dialog menu {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin: 12px 0 0;
+    padding: 0;
+}
+
+.workbench-dialog input,
+.workbench-dialog select {
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+}
+
+.workbench-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0;
+}
+
+.workbench-precision,
+.workbench-currency {
+    margin-left: 8px;
+}
+
+.workbench-form-errors {
+    color: var(--error-color);
+}
+
+.workbench-attr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.workbench-attr-table th,
+.workbench-attr-table td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.workbench-new-attr,
+.workbench-new-type {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.workbench-check {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.workbench-grants {
+    list-style: none;
+    margin: 8px 0;
+}
+
+.workbench-grants li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0;
+}
+
+.workbench-add-editor {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.workbench-add-editor input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+}
+
+#grantsPanel h3 {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+    .workbench {
+        grid-template-columns: 1fr;
+    }
+}

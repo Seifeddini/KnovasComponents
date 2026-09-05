@@ -1280,6 +1280,22 @@ def create_app(config_path: Optional[str] = None):
             asset_version=_static_asset_version(),
         )
 
+    @app.route('/workbench')
+    def workbench_page():
+        """Arbeitsplatz: Liste -> Nachbarschaft -> Felder, typunabhaengig."""
+        user = identity_gate.current_user() if identity_gate is not None else None
+        return render_template(
+            'workbench.html',
+            active_nav='workbench',
+            **_sidebar_context(),
+            app_title=web_app_title,
+            brand=web_brand,
+            graph_mode=_ontology_source_is_graph(),
+            is_admin=bool(user is not None and 'admin' in user.roles),
+            csrf_token=_ensure_csrf_token(),
+            asset_version=_static_asset_version(),
+        )
+
     @app.route('/settings')
     def settings_page():
         """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
@@ -1320,6 +1336,16 @@ def create_app(config_path: Optional[str] = None):
                 'asset_version': _static_asset_version(),
                 'ingestion_enabled': rc_client is not None,
             },
+        ))
+
+        from identity.node_grants import NodeGrantStore
+        from web_interface.graph_routes import create_graph_blueprint
+
+        app.register_blueprint(create_graph_blueprint(
+            identity_gate,
+            lambda: NodeGrantStore(identity_gate.connection()),
+            lambda: api_client,
+            graph_mode=lambda: _ontology_source_is_graph(),
         ))
 
     @app.route('/api/search', methods=['POST'])

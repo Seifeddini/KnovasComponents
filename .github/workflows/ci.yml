@@ -46,6 +46,20 @@ jobs:
         working-directory: KnovasPlatform/components/docbridge_integration
         run: pytest
 
+      - name: Set up Java 17 (Alloy)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Alloy formal models (node grants)
+        working-directory: KnovasPlatform/components/docbridge_integration/models/alloy
+        run: |
+          set -euo pipefail
+          mkdir -p .cache
+          [[ -f .cache/alloy.jar ]] || curl -fsSL -o .cache/alloy.jar "$(sed -n 2p ci/alloy.version)"
+          bash ci/run_all.sh
+
       - name: Create minimal .env for compose
         run: |
           cp .env.example .env
