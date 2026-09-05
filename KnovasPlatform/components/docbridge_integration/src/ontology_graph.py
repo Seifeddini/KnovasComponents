@@ -311,21 +311,11 @@ class GraphOntologySource:
 
     def create_type_relation(self, src: str, predicate: str,
                              dst: str) -> Optional[Dict[str, Any]]:
-        """Vorgabe auf Typebene: im Graph-Modus bewusst noch nicht moeglich.
+        """Type-level relation. Still returns None until Task E4.
 
-        Die API kennt keine Kante zwischen Typen. Naheliegend waere ein
-        Schema-Attribut vom Typ entity_ref auf dem Quelltyp, doch dabei
-        faellt der Zieltyp weg, und der Antwortvertrag des Schema-Endpunkts
-        (welche Felder eine Attributliste je Typ zurueckgibt) ist ungeklaert.
-        summary() kann die Vorgabe deshalb nicht zurueckliefern: sie baut
-        relations ausschliesslich aus verdichteten Kanten, also nie mit
-        count 0. Eine Linie, die beim naechsten Laden verschwindet, waere ein
-        gebrochenes Versprechen - deshalb None, die Route antwortet mit 400
-        und die Oberflaeche zeichnet nichts.
-
-        Sobald der Schema-Endpunkt geklaert ist (Anlegen mit Zieltyp und
-        Lesen der Attribute je Typ), gehoert hier das Schreiben hin und in
-        summary() das Zurueckgeben der Vorgaben mit count 0.
+        target_node_type_id (backend Task A4) is what would let a schema
+        attribute survive a reload. Task E4 supersedes this method; ontology.js
+        still calls the route, so the stub stays.
         """
         return None
 
@@ -349,7 +339,7 @@ class GraphOntologySource:
                 attribut_id = str(_first(attribut, "id", "attribute_id"))
                 if not attribut_id:
                     return False        # keine leere Kennung an die API
-                ok = self._client.graph_delete_schema_attribute(
+                ok = self._client.graph_deprecate_schema_attribute(
                     src, attribut_id) is not None
                 if ok:
                     self._invalidate()

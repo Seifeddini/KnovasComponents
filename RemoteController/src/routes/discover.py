@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from auth.knovas_verify_client import require_internal_access, require_same_origin
+from auth.knovas_verify_client import require_operator_or_tenant_admin, require_same_origin
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from discover.filesystem import discover_filesystem
 from util.schema import validate
@@ -10,7 +10,7 @@ discover_bp = Blueprint("discover", __name__)
 _RC_DECORATORS = (
     require_rc_ip_rate_limit,
     require_same_origin,
-    require_internal_access,
+    require_operator_or_tenant_admin,
     require_rc_handled_rate_limit,
 )
 

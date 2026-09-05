@@ -190,6 +190,53 @@ class TestTheApprovalWorkflow:
             service.request(member, kind="search", target_ref="x")
 
 
+class TestApprovedQueue:
+    """approved(): what is confirmed but not yet carried out (finding 2/6)."""
+
+    def test_approved_returns_only_approved_newest_first(self, repo, service):
+        member = _user(repo, "anwalt@kanzlei.ch", "member")
+        approver = _user(repo, "partner@kanzlei.ch", "approver")
+        r1 = service.request(member, kind="matter_delete", target_ref="node:1")
+        r2 = service.request(member, kind="matter_delete", target_ref="node:2")
+        r3 = service.request(member, kind="matter_delete", target_ref="node:3")
+        service.approve(r1.id, approver)
+        service.approve(r2.id, approver)
+        service.reject(r3.id, approver, reason="nein")
+
+        approved_refs = [r.target_ref for r in service.approved()]
+        assert approved_refs == ["node:2", "node:1"]
+        assert all(r.status == "approved" for r in service.approved())
+
+    def test_a_second_approval_of_the_same_request_is_refused(self, repo, service):
+        member = _user(repo, "anwalt@kanzlei.ch", "member")
+        approver = _user(repo, "partner@kanzlei.ch", "approver")
+        third = _user(repo, "dritte@kanzlei.ch", "approver")
+        request = service.request(member, kind="matter_delete", target_ref="node:42")
+        service.approve(request.id, approver)
+        with pytest.raises(approvals.InvalidTransitionError):
+            service.approve(request.id, third)
+
+
+class TestMarkExecutedIsAudited:
+    def test_mark_executed_twice_raises_and_writes_one_audit_row(
+        self, repo, service, platform_db
+    ):
+        member = _user(repo, "anwalt@kanzlei.ch", "member")
+        approver = _user(repo, "partner@kanzlei.ch", "approver")
+        request = service.request(member, kind="matter_delete", target_ref="node:42")
+        service.approve(request.id, approver)
+
+        service.mark_executed(request.id, {"deleted": 1}, by=approver)
+        with pytest.raises(approvals.InvalidTransitionError):
+            service.mark_executed(request.id, {"deleted": 1}, by=approver)
+
+        rows = _audit(platform_db, "approval.executed")
+        assert len(rows) == 1
+        _action, email, detail = rows[0]
+        assert str(email) == "partner@kanzlei.ch"
+        assert detail["request_id"] == str(request.id)
+
+
 class TestDecisionsAreAudited:
     def test_approving_writes_an_audit_row_naming_both_people(self, repo, service, platform_db):
         member = _user(repo, "anwalt@kanzlei.ch", "member")

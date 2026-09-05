@@ -1,10 +1,12 @@
 """The firm's administration console.
 
-Three tabs — People, Dokumente and Zugriffsgruppen. The others (Walls,
-Approvals, Ingestion) attach to the same blueprint and reuse
-``require_admin``. The document and folder-rule routes live in
-``admin_documents.py`` and are mounted here so there is one blueprint and
-one gate.
+Five tabs -- Personen, Dokumente, Zugriffsgruppen, Ingestion, Freigaben. Walls
+attaches to the same blueprint without a tab of its own. The first three and
+Walls reuse ``require_admin``, Ingestion reuses ``require_ingestion`` (admin or
+ingestion_manager), Freigaben ``require_approver`` (approver or admin).
+The document and folder-rule routes live in ``admin_documents.py`` and the
+approvals routes in ``admin_approvals.py``; both are mounted here so there is
+one blueprint and one gate.
 
 Every route is authorised on the *route*, not on whether the link is drawn.
 Hiding a page is presentation; refusing the POST is the control, and the tests
@@ -31,7 +33,7 @@ ASSIGNABLE_ROLES = ("admin", "approver", "ingestion_manager", "member")
 
 
 def create_admin_blueprint(
-    gate, *, csrf_valid, csrf_token, page_context, client_factory
+    gate, *, csrf_valid, csrf_token, page_context, client_factory, rc_client_factory=None
 ):
     """Build the console blueprint.
 
@@ -43,20 +45,31 @@ def create_admin_blueprint(
     """
     bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-    def require_admin(view):
-        @functools.wraps(view)
-        def wrapped(*args, **kwargs):
-            user = gate.current_user()
-            if user is None:
-                return redirect(url_for("login", next=request.full_path or "/admin/people"))
-            if "admin" not in user.roles:
-                # 403, not 404: the person is authenticated and the console is
-                # not a secret. Hiding it would only make a misconfigured
-                # account harder to diagnose.
-                abort(403)
-            return view(*args, **kwargs)
+    def _require_roles(allowed: frozenset[str]):
+        """A route gate: signed in, and holding at least one of ``allowed``."""
 
-        return wrapped
+        def decorator(view):
+            @functools.wraps(view)
+            def wrapped(*args, **kwargs):
+                user = gate.current_user()
+                if user is None:
+                    return redirect(
+                        url_for("login", next=request.full_path or "/admin/people")
+                    )
+                if not (allowed & set(user.roles)):
+                    # 403, not 404: the person is authenticated and the
+                    # console is not a secret. Hiding it would only make a
+                    # misconfigured account harder to diagnose.
+                    abort(403)
+                return view(*args, **kwargs)
+
+            return wrapped
+
+        return decorator
+
+    require_admin = _require_roles(frozenset({"admin"}))
+    require_approver = _require_roles(frozenset({"admin", "approver"}))
+    require_ingestion = _require_roles(frozenset({"admin", "ingestion_manager"}))
 
     def _form_csrf_ok() -> bool:
         return csrf_valid(str(request.form.get("csrf_token", "") or ""))
@@ -248,6 +261,50 @@ def create_admin_blueprint(
         page_context=page_context,
         client_factory=client_factory,
         require_admin=require_admin,
+    )
+
+    from web_interface.admin_approvals import attach_approval_routes
+    from web_interface.admin_documents import execute_acl_change
+
+    executors = {
+        "acl_change": lambda payload, actor: execute_acl_change(
+            client_factory(), payload, actor=actor, conn=gate.connection()
+        ),
+    }
+
+    # A deployment without RemoteController still gets the other tabs; the
+    # Ingestion routes and their executor only exist when rc_client_factory
+    # is given.
+    if rc_client_factory is not None:
+        from web_interface.admin_ingestion import (
+            attach_ingestion_routes,
+            execute_ingestion_change,
+        )
+
+        attach_ingestion_routes(
+            bp,
+            gate,
+            csrf_valid=csrf_valid,
+            csrf_token=csrf_token,
+            page_context=page_context,
+            client_factory=client_factory,
+            rc_client_factory=rc_client_factory,
+            require_ingestion=require_ingestion,
+        )
+        executors["ingestion_profile_change"] = lambda payload, actor: (
+            execute_ingestion_change(payload, actor, conn=gate.connection(),
+                                     rc_client=rc_client_factory())
+        )
+
+    attach_approval_routes(
+        bp,
+        gate,
+        csrf_valid=csrf_valid,
+        csrf_token=csrf_token,
+        page_context=page_context,
+        require_approver=require_approver,
+        require_admin=require_admin,
+        executors=executors,
     )
 
     return bp

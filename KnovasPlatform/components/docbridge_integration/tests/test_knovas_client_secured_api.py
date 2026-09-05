@@ -5,8 +5,48 @@ These previously lived in test_engagement.py, whose name did not match most of
 its contents; they were rescued when the engagement feature was removed.
 """
 
-from knovas_client import _validate_and_normalize_tables, _secured_transmit_part_payload
+import pytest
+
+from knovas_client import GraphError, _validate_and_normalize_tables, _secured_transmit_part_payload
 from test_knovas_client_hardening import FakeResponse, FakeSession, make_client, make_secured_client
+
+
+class _Call:
+    def __init__(self, params=None, data=None):
+        self.params = params or {}
+        self.data = data
+
+
+class _Capture:
+    def __init__(self):
+        self.last = _Call()
+
+
+@pytest.fixture
+def capture():
+    return _Capture()
+
+
+@pytest.fixture
+def client(capture):
+    """Secured client whose session records the last call and serves queued responses."""
+    knovas = make_secured_client()
+    queued = {"resp": FakeResponse(200, {})}
+
+    def responder(method, url, **kw):
+        capture.last = _Call(params=kw.get("params") or {}, data=kw.get("json"))
+        return queued["resp"]
+
+    knovas._session = FakeSession(responder)
+    knovas._queued = queued
+    return knovas
+
+
+@pytest.fixture
+def requests_mock(client):
+    def _queue(*, status=200, json=None):
+        client._queued["resp"] = FakeResponse(status, json or {})
+    return _queue
 
 
 def test_delete_information_object():
@@ -90,3 +130,107 @@ def test_transmit_payload_includes_tables():
         },
     )
     assert payload["tables"][0]["headers"] == ["A"]
+
+
+class TestGraphError:
+    def test_404_still_returns_none(self, client, requests_mock):
+        requests_mock(status=404, json={"message": "Node not found"})
+        assert client.graph_node("missing") is None
+
+    def test_a_422_raises_with_its_error_code(self, client, requests_mock):
+        requests_mock(status=422, json={"error_code": "identifier_limit_exceeded",
+                                        "message": "Max 16"})
+        with pytest.raises(GraphError) as caught:
+            client.graph_node("n1")
+        assert caught.value.status == 422
+        assert caught.value.error_code == "identifier_limit_exceeded"
+
+    def test_a_503_carries_its_code_so_a_route_can_say_retry(self, client, requests_mock):
+        requests_mock(status=503, json={"error_code": "relevance_calibration_missing"})
+        with pytest.raises(GraphError) as caught:
+            client.graph_node("n1")
+        assert caught.value.status == 503
+        assert caught.value.error_code == "relevance_calibration_missing"
+
+    def test_a_body_without_an_error_code_still_raises(self, client, requests_mock):
+        requests_mock(status=500, json={})
+        with pytest.raises(GraphError) as caught:
+            client.graph_node("n1")
+        assert caught.value.status == 500 and caught.value.error_code is None
+
+
+class TestSchemaAndFilters:
+    def test_graph_nodes_sends_the_server_side_filters(self, client, capture):
+        client.graph_nodes(node_type_id="t1", q="Müller")
+        assert capture.last.params == {"node_type_id": "t1", "q": "Müller"}
+
+    def test_graph_nodes_omits_absent_filters(self, client, capture):
+        client.graph_nodes()
+        assert capture.last.params == {}
+
+    def test_graph_schema_reads_the_attributes(self, client, requests_mock):
+        requests_mock(json={"attributes": [{"id": "a1", "name": "Frist",
+                                            "datatype": "date"}]})
+        assert client.graph_schema("t1")[0]["name"] == "Frist"
+
+    def test_graph_schema_can_include_deprecated(self, client, capture):
+        client.graph_schema("t1", include_deprecated=True)
+        assert capture.last.params == {"include_deprecated": "true"}
+
+    def test_create_attribute_sends_the_target_type(self, client, capture):
+        client.graph_create_schema_attribute(
+            "t1", "Zustaendig", datatype="entity_ref", target_node_type_id="t2")
+        assert capture.last.data["target_node_type_id"] == "t2"
+
+    def test_create_attribute_omits_a_null_target(self, client, capture):
+        client.graph_create_schema_attribute("t1", "Notiz", datatype="text")
+        assert "target_node_type_id" not in capture.last.data
+
+    def test_deprecate_is_the_name_and_delete_is_gone(self, client):
+        assert hasattr(client, "graph_deprecate_schema_attribute")
+        assert not hasattr(client, "graph_delete_schema_attribute")
+
+    def test_update_node_sends_only_the_given_fields(self, client, capture):
+        client.graph_update_node("n1", name="Neu")
+        assert capture.last.data == {"name": "Neu"}
+
+
+class TestFactsAndNeighbours:
+    def test_create_fact_requires_an_attribute_or_a_label(self, client):
+        with pytest.raises(ValueError):
+            client.graph_create_fact("n1", "Wert")
+
+    def test_create_fact_with_an_attribute_id(self, client, capture):
+        client.graph_create_fact("n1", {"value": "2026-03-04", "precision": "day"},
+                                 attribute_id="a1")
+        assert capture.last.data == {
+            "attribute_id": "a1",
+            "value": {"value": "2026-03-04", "precision": "day"}}
+
+    def test_create_fact_with_a_free_form_label(self, client, capture):
+        client.graph_create_fact("n1", "Wert", label="Notiz")
+        assert capture.last.data == {"label": "Notiz", "value": "Wert"}
+
+    def test_facts_reads_the_list(self, client, requests_mock):
+        requests_mock(json={"facts": [{"id": "f1", "value": "Wert"}]})
+        assert client.graph_facts("n1")[0]["id"] == "f1"
+
+    def test_neighbours_returns_a_mapping_with_both_keys(self, client, requests_mock):
+        requests_mock(json={"neighbors": [{"id": "n2"}], "edges": [{"id": "e1"}]})
+        result = client.graph_neighbors("n1", depth=1, include_edges=True)
+        assert result["neighbors"][0]["id"] == "n2"
+        assert result["edges"][0]["id"] == "e1"
+
+    def test_neighbours_sends_include_edges_only_when_asked(self, client, capture):
+        client.graph_neighbors("n1", depth=1)
+        assert capture.last.params == {"depth": 1}
+        client.graph_neighbors("n1", depth=1, include_edges=True)
+        assert capture.last.params == {"depth": 1, "include_edges": "true"}
+
+    def test_neighbours_edges_default_to_empty_not_missing(self, client, requests_mock):
+        requests_mock(json={"neighbors": []})
+        assert client.graph_neighbors("n1")["edges"] == []
+
+    def test_neighbours_depth_is_clamped_to_the_api_cap(self, client, capture):
+        client.graph_neighbors("n1", depth=9)
+        assert capture.last.params["depth"] == 3

@@ -21,6 +21,8 @@ import logging
 from flask import jsonify, render_template, request
 
 from identity import audit
+from identity.approvals import ApprovalService
+from web_interface.guarded import run_guarded
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,60 @@ def _filters_from_request() -> dict:
     }
 
 
+def execute_acl_change(client, payload, *, actor, conn) -> dict:
+    """Carry out one ``acl_change`` payload against Knovas and audit it.
+
+    Called from the route when the actor may act alone, and from the
+    Approvals tab when someone else has confirmed. One function, so the two
+    paths cannot drift.
+    """
+    action = str(payload.get("action") or "")
+    groups = [str(g) for g in (payload.get("access_groups") or []) if g]
+
+    if action == "document_acl":
+        pointers = [str(p) for p in (payload.get("pointers") or []) if p]
+        changed, failed = 0, []
+        for pointer in pointers:
+            try:
+                client.set_document_access(pointer, groups)
+                changed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ACL nicht gesetzt fuer %s: %s", pointer, exc)
+                failed.append(pointer)
+        audit.record(
+            conn, action="document.acl_changed", actor=actor,
+            target_type="document",
+            target_id=pointers[0] if len(pointers) == 1 else f"{len(pointers)} Dokumente",
+            detail={"access_groups": groups, "changed": changed, "failed": len(failed)},
+        )
+        return {"changed": changed, "failed": failed}
+
+    if action == "folder_rule_save":
+        rule_id = str(payload.get("rule_id") or "")
+        prefix = str(payload.get("pointer_prefix") or "")
+        if rule_id:
+            result = client.update_folder_rule(rule_id, groups)
+        else:
+            result = client.create_folder_rule(prefix, groups)
+        saved_id = str((result or {}).get("rule_id") or rule_id or prefix)
+        audit.record(
+            conn, action="folder_rule.saved", actor=actor, target_type="folder_rule",
+            target_id=saved_id, detail={"access_groups": groups, "pointer_prefix": prefix},
+        )
+        return {"rule_id": saved_id}
+
+    if action == "folder_rule_delete":
+        rule_id = str(payload.get("rule_id") or "")
+        client.delete_folder_rule(rule_id)
+        audit.record(
+            conn, action="folder_rule.deleted", actor=actor, target_type="folder_rule",
+            target_id=rule_id, detail={},
+        )
+        return {"rule_id": rule_id}
+
+    raise ValueError(f"Unbekannte Aktion in der Zugriffsaenderung: {action!r}")
+
+
 def attach_document_routes(
     bp,
     gate,
@@ -91,6 +147,16 @@ def attach_document_routes(
 
     def _csrf_ok() -> bool:
         return csrf_valid(str(request.form.get("csrf_token", "") or ""))
+
+    def _approvals() -> ApprovalService:
+        return ApprovalService(gate.connection(), gate.users())
+
+    def _queued_notice(req) -> str:
+        return (
+            "Zur Freigabe eingereicht (Nr. "
+            f"{str(req.id)[:8]}). Eine zweite Person muss bestaetigen, "
+            "bevor die Aenderung wirkt."
+        )
 
     def _documents_page(error=None, notice=None, status=200):
         view = DocumentsView(client_factory())
@@ -149,8 +215,7 @@ def attach_document_routes(
         csrf_ok = _csrf_ok()
         if not csrf_ok:
             return _documents_page(
-                error="Formular ist abgelaufen. Bitte erneut versuchen.",
-                status=400,
+                error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400
             )
         pointers = [p for p in request.form.getlist("pointer") if p]
         groups = [g for g in request.form.getlist("access_group") if g]
@@ -158,31 +223,31 @@ def attach_document_routes(
             return _documents_page(error="Kein Dokument ausgewaehlt.", status=400)
 
         me = gate.current_user()
-        client = client_factory()
-        changed = 0
-        failed: list[str] = []
-        for pointer in pointers:
-            try:
-                client.set_document_access(pointer, groups)
-                changed += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("ACL nicht gesetzt fuer %s: %s", pointer, exc)
-                failed.append(pointer)
-
-        audit.record(
-            gate.connection(), action="document.acl_changed", actor=me,
-            target_type="document",
-            target_id=pointers[0] if len(pointers) == 1 else f"{len(pointers)} Dokumente",
-            detail={"access_groups": groups, "changed": changed,
-                    "failed": len(failed)},
-        )
+        payload = {"action": "document_acl", "pointers": pointers, "access_groups": groups}
+        try:
+            outcome = run_guarded(
+                _approvals(), me, kind="acl_change",
+                target_ref=pointers[0] if len(pointers) == 1 else f"{len(pointers)} Dokumente",
+                payload=payload,
+                execute=lambda: execute_acl_change(
+                    client_factory(), payload, actor=me, conn=gate.connection()
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Zugriffsaenderung nicht gespeichert: %s", exc)
+            return _documents_page(
+                error="Zugriffsaenderung konnte nicht gespeichert werden.", status=400
+            )
+        if outcome.queued:
+            return _documents_page(notice=_queued_notice(outcome.request))
+        result = outcome.result or {}
+        failed = result.get("failed") or []
         if failed:
             return _documents_page(
                 error=f"{len(failed)} Dokument(e) konnten nicht geaendert werden.",
-                notice=f"{changed} Dokument(e) geaendert.",
-                status=200,
+                notice=f"{result.get('changed', 0)} Dokument(e) geaendert.",
             )
-        return _documents_page(notice=f"{changed} Dokument(e) geaendert.")
+        return _documents_page(notice=f"{result.get('changed', 0)} Dokument(e) geaendert.")
 
 
     # ---- Zugriffsgruppen: group tree and folder rules (plan Task 6) ----
@@ -254,22 +319,25 @@ def attach_document_routes(
         groups = [g for g in request.form.getlist("access_group") if g]
         if not rule_id and not prefix:
             return _groups_page(error="Bitte einen Ordner angeben.", status=400)
-        client = client_factory()
+
+        me = gate.current_user()
+        payload = {"action": "folder_rule_save", "rule_id": rule_id or None,
+                   "pointer_prefix": prefix, "access_groups": groups}
         try:
-            if rule_id:
-                client.update_folder_rule(rule_id, groups)
-            else:
-                client.create_folder_rule(prefix, groups)
+            outcome = run_guarded(
+                _approvals(), me, kind="acl_change", target_ref=rule_id or prefix,
+                payload=payload,
+                execute=lambda: execute_acl_change(
+                    client_factory(), payload, actor=me, conn=gate.connection()
+                ),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Ordnerregel nicht gespeichert: %s", exc)
             return _groups_page(
                 error="Ordnerregel konnte nicht gespeichert werden.", status=400
             )
-        audit.record(
-            gate.connection(), action="folder_rule.saved",
-            actor=gate.current_user(), target_type="folder_rule",
-            target_id=rule_id or prefix, detail={"access_groups": groups},
-        )
+        if outcome.queued:
+            return _groups_page(notice=_queued_notice(outcome.request))
         return _groups_page(notice="Ordnerregel gespeichert.")
 
     @bp.route("/folder-rules/delete", methods=["POST"])
@@ -283,17 +351,22 @@ def attach_document_routes(
         rule_id = str(request.form.get("rule_id", "") or "").strip()
         if not rule_id:
             return _groups_page(error="Keine Regel ausgewaehlt.", status=400)
+
+        me = gate.current_user()
+        payload = {"action": "folder_rule_delete", "rule_id": rule_id}
         try:
-            client_factory().delete_folder_rule(rule_id)
+            outcome = run_guarded(
+                _approvals(), me, kind="acl_change", target_ref=rule_id,
+                payload=payload,
+                execute=lambda: execute_acl_change(
+                    client_factory(), payload, actor=me, conn=gate.connection()
+                ),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Ordnerregel nicht geloescht: %s", exc)
-            return _groups_page(error="Regel konnte nicht geloescht werden.",
-                                status=400)
-        audit.record(
-            gate.connection(), action="folder_rule.deleted",
-            actor=gate.current_user(), target_type="folder_rule",
-            target_id=rule_id, detail={},
-        )
+            return _groups_page(error="Regel konnte nicht geloescht werden.", status=400)
+        if outcome.queued:
+            return _groups_page(notice=_queued_notice(outcome.request))
         return _groups_page(notice="Ordnerregel geloescht.")
 
     return bp

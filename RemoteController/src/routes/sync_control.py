@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from auth.knovas_verify_client import require_internal_access, require_same_origin
+from auth.knovas_verify_client import require_operator_or_tenant_admin, require_same_origin
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from sync.sync_config import load_sync_config
 from sync.sync_state import SyncStateStore
@@ -19,7 +19,7 @@ sync_control_bp = Blueprint("sync_control", __name__)
 _RC_DECORATORS = (
     require_rc_ip_rate_limit,
     require_same_origin,
-    require_internal_access,
+    require_operator_or_tenant_admin,
     require_rc_handled_rate_limit,
 )
 
@@ -34,7 +34,9 @@ def _apply_decorators(func):
 @_apply_decorators
 def sync_start():
     body = request.get_json(silent=True) if request.is_json else None
-    if body is None:
+    if not body:
+        # No body, or an empty {} -- the Platform console starts with what it
+        # stored via POST /sync/body; an employee may do the same after POST /sync.
         body = load_last_sync_body()
     if not body:
         return jsonify({"error": "No sync body available", "status": "error"}), 400
