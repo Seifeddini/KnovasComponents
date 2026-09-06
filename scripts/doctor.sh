@@ -52,24 +52,43 @@ for v in PLATFORM_ADMIN_EMAIL PLATFORM_ADMIN_BOOTSTRAP_PATH IDENTITY_ACCOUNT_LOC
   echo "  $v = $(env_in_app "$v")"
 done
 ADMIN_PW="$(env_in_app PLATFORM_ADMIN_PASSWORD)"
-[[ -n "$ADMIN_PW" ]] && ok "PLATFORM_ADMIN_PASSWORD is set (nothing written to disk)" \
-                     || warn "PLATFORM_ADMIN_PASSWORD is empty — a generated password is used instead"
+if [[ -n "$ADMIN_PW" ]]; then
+  ok "PLATFORM_ADMIN_PASSWORD is set (nothing written to disk)"
+else
+  echo "  note PLATFORM_ADMIN_PASSWORD is empty — only relevant on a database with no"
+  echo "       accounts, where a password is generated into the bootstrap file instead."
+fi
 
 head_ "Cortex (Wissensgraph)"
-FIXTURE="$(env_in_app ONTOLOGY_FIXTURE_PATH)"
-if [[ -z "$FIXTURE" ]]; then
-  bad "ONTOLOGY_FIXTURE_PATH is not set — edits are kept in memory only and vanish on reload."
-  echo "       Set ONTOLOGY_FIXTURE_PATH=/mnt/ontology/ontology_fixture.json in knovas.env."
+# Branch on the source first. The fixture and its mount are simply not used in
+# graph mode, so checking them there produces a FAIL for a file that is supposed
+# to be absent — a diagnostic that invents work is worse than none.
+CORTEX_SRC="$(env_in_app ONTOLOGY_SOURCE)"
+CORTEX_SRC="$(printf '%s' "${CORTEX_SRC:-fixture}" | tr '[:upper:]' '[:lower:]')"
+echo "  ONTOLOGY_SOURCE = $CORTEX_SRC"
+if [[ "$CORTEX_SRC" == "graph" ]]; then
+  ok "types and entities are stored by Knovas, so curation persists without a local file"
+  echo "       the fixture and its /mnt/ontology mount are unused in this mode"
+  echo "       whether the graph is actually reachable is checked under 'Knovas API' below"
+  warn "type-level relations are refused in graph mode by design (ontology_graph.py:373)"
+  echo "       entity-level relations work normally"
 else
-  echo "  ONTOLOGY_FIXTURE_PATH = $FIXTURE"
-  if ! "${DC[@]}" exec -T docbridge-web test -f "$FIXTURE" 2>/dev/null; then
-    bad "that file does not exist in the container — the /mnt/ontology mount is missing."
-    echo "       git pull, then ${DC[*]} up -d --force-recreate docbridge-web"
-  elif "${DC[@]}" exec -T docbridge-web test -w "$FIXTURE" 2>/dev/null; then
-    ok "fixture exists and is writable — new types and entities will survive a reload"
+  FIXTURE="$(env_in_app ONTOLOGY_FIXTURE_PATH)"
+  if [[ -z "$FIXTURE" ]]; then
+    bad "ONTOLOGY_FIXTURE_PATH is not set — edits are kept in memory only and vanish on reload."
+    echo "       Set ONTOLOGY_FIXTURE_PATH=/mnt/ontology/ontology_fixture.json in knovas.env,"
+    echo "       or switch to the real thing with ONTOLOGY_SOURCE=graph."
   else
-    bad "fixture is NOT writable — the UI reports success and the change is lost on reload."
-    echo "       The mount must not be :ro. Check docker-compose.yml."
+    echo "  ONTOLOGY_FIXTURE_PATH = $FIXTURE"
+    if ! "${DC[@]}" exec -T docbridge-web test -f "$FIXTURE" 2>/dev/null; then
+      bad "that file does not exist in the container — the /mnt/ontology mount is missing."
+      echo "       git pull, then ${DC[*]} up -d --force-recreate docbridge-web"
+    elif "${DC[@]}" exec -T docbridge-web test -w "$FIXTURE" 2>/dev/null; then
+      ok "fixture exists and is writable — new types and entities survive a reload"
+    else
+      bad "fixture is NOT writable — the UI reports success and the change is lost on reload."
+      echo "       The mount must not be :ro. Check docker-compose.yml."
+    fi
   fi
 fi
 
