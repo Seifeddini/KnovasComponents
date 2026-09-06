@@ -114,12 +114,18 @@ services:
       # back into the fixture. On a ro mount that fails, is only logged, and
       # looks like success in the UI until the next reload.
       - ./KnovasPlatform/docbridge_test_data/ontology:/mnt/ontology
+    # --access-logfile=- puts every request on stdout. Without it the log shows
+    # only what the application chooses to say, so a 403 from a route guard, or a
+    # page that renders perfectly, are both completely silent -- and an empty
+    # `docker compose logs | grep` reads as "the request never arrived" when it
+    # means "nothing here logs requests".
     command: >
       sh -c "mkdir -p $${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker} && gunicorn
       --workers=$${DOCBRIDGE_WEB_WORKERS:-2}
       --threads=$${DOCBRIDGE_WEB_THREADS:-4}
       --timeout=$${DOCBRIDGE_WEB_TIMEOUT:-120}
       --bind=0.0.0.0:5000
+      --access-logfile=-
       web_interface.wsgi:app"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/stats', timeout=5)"]
