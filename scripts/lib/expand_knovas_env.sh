@@ -20,22 +20,56 @@ read_knovas() {
 KNOVAS_API_URL="$(read_knovas KNOVAS_API_URL)"
 KNOVAS_PLATFORM_URL="$(read_knovas KNOVAS_PLATFORM_URL)"
 KNOVAS_DOCUMENTS_PATH="$(read_knovas KNOVAS_DOCUMENTS_PATH)"
-COMPANY_LOGIN_PASSWORD="$(read_knovas COMPANY_LOGIN_PASSWORD)"
+PLATFORM_ADMIN_EMAIL="$(read_knovas PLATFORM_ADMIN_EMAIL)"
 KNOVAS_TENANT_ID="$(read_knovas KNOVAS_TENANT_ID)"
 KNOVAS_IDENTIFIER_PREFIX="$(read_knovas KNOVAS_IDENTIFIER_PREFIX tenant)"
-COMPANY_LOGIN_NAME="$(read_knovas COMPANY_LOGIN_NAME company)"
 KNOVAS_SHARE_UNC="$(read_knovas KNOVAS_SHARE_UNC)"
 WEB_SECRET_KEY="$(read_knovas WEB_SECRET_KEY)"
+
+# Per-user identity is the default. The shared company login is only read when
+# someone has explicitly staged a cutover with IDENTITY_ENABLED=false -- and it
+# is deliberately read WITHOUT a fallback, because a default of "company" here
+# used to put COMPANY_LOGIN_NAME into .env.generated on every run, which is
+# exactly the state web_interface/app.py refuses to start in.
+IDENTITY_ENABLED="$(read_knovas IDENTITY_ENABLED true)"
+COMPANY_LOGIN_NAME="$(read_knovas COMPANY_LOGIN_NAME)"
+COMPANY_LOGIN_PASSWORD="$(read_knovas COMPANY_LOGIN_PASSWORD)"
 
 missing=()
 [[ -z "$KNOVAS_API_URL" ]] && missing+=("KNOVAS_API_URL")
 [[ -z "$KNOVAS_PLATFORM_URL" ]] && missing+=("KNOVAS_PLATFORM_URL")
 [[ -z "$KNOVAS_DOCUMENTS_PATH" ]] && missing+=("KNOVAS_DOCUMENTS_PATH")
-[[ -z "$COMPANY_LOGIN_PASSWORD" ]] && missing+=("COMPANY_LOGIN_PASSWORD")
+# docker-compose.yml refuses to start without it; failing here names the file
+# to edit instead of surfacing as a compose interpolation error at `up`.
+[[ -z "$PLATFORM_ADMIN_EMAIL" ]] && missing+=("PLATFORM_ADMIN_EMAIL")
 if (( ${#missing[@]} > 0 )); then
   echo "Missing required values in $KNOVAS_ENV: ${missing[*]}" >&2
   exit 1
 fi
+
+# Both doors open is the one configuration the Platform will not start in, and
+# it is better caught here than as a container that builds for four minutes and
+# then goes unhealthy with the reason buried in `docker compose logs`.
+case "$IDENTITY_ENABLED" in
+  false|False|FALSE|0|no|No|NO)
+    IDENTITY_ON=false
+    if [[ -z "$COMPANY_LOGIN_NAME" || -z "$COMPANY_LOGIN_PASSWORD" ]]; then
+      echo "IDENTITY_ENABLED=false needs COMPANY_LOGIN_NAME and COMPANY_LOGIN_PASSWORD in $KNOVAS_ENV." >&2
+      echo "That combination is the staged cutover; leaving identity on needs neither." >&2
+      exit 1
+    fi
+    ;;
+  *)
+    IDENTITY_ON=true
+    if [[ -n "$COMPANY_LOGIN_NAME" || -n "$COMPANY_LOGIN_PASSWORD" ]]; then
+      echo "COMPANY_LOGIN_NAME/COMPANY_LOGIN_PASSWORD are set in $KNOVAS_ENV while per-user" >&2
+      echo "identity is on. The Platform refuses to start with both doors open." >&2
+      echo "Remove both values, or set IDENTITY_ENABLED=false to stage a cutover." >&2
+      echo "See RELEASE_NOTES.md." >&2
+      exit 1
+    fi
+    ;;
+esac
 
 if [[ -z "$WEB_SECRET_KEY" ]]; then
   if command -v openssl >/dev/null 2>&1; then
@@ -93,15 +127,25 @@ if [[ -n "$KNOVAS_SHARE_UNC" ]]; then
   OPEN_UNC_LINE="OPEN_UNC_ROOT=${KNOVAS_SHARE_UNC}"
 fi
 
+# Written only for a staged cutover. With identity on these keys must be absent
+# from the generated file, not merely empty: app.py treats a name AND password
+# as "configured", and an empty value read back from env_file is still a value
+# someone can fill in by hand and then wonder why the container will not boot.
+LOGIN_LINES=""
+if [[ "$IDENTITY_ON" == "false" ]]; then
+  LOGIN_LINES="IDENTITY_ENABLED=false
+COMPANY_LOGIN_ENABLED=true
+COMPANY_LOGIN_NAME=${COMPANY_LOGIN_NAME}
+COMPANY_LOGIN_PASSWORD=${COMPANY_LOGIN_PASSWORD}"
+fi
+
 cat > "$KP_ENV" <<EOF
 # Generated from knovas.env — do not edit; re-run ./scripts/setup.sh
 ENVIRONMENT=production
 WEB_SECRET_KEY=${WEB_SECRET_KEY}
 WEB_SESSION_COOKIE_SECURE=true
-COMPANY_LOGIN_ENABLED=true
 COMPANY_DISPLAY_NAME=Knovas
-COMPANY_LOGIN_NAME=${COMPANY_LOGIN_NAME}
-COMPANY_LOGIN_PASSWORD=${COMPANY_LOGIN_PASSWORD}
+${LOGIN_LINES}
 DOCBRIDGE_WEB_PORT=8081
 SEMANTIX_API_URL=${KNOVAS_API_URL}
 SEMANTIX_USE_SECURED_API=true
