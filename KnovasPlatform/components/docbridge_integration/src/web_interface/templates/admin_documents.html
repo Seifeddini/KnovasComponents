@@ -25,7 +25,9 @@
     </style>
 </head>
 <body>
+<div class="app-shell">
 {% include '_sidebar.html' %}
+<div class="app-content">
 
 <main class="admin">
     {% set admin_tab = 'documents' %}
@@ -133,5 +135,7 @@
 </main>
 
 <script src="{{ url_for('static', filename='js/admin_documents.js') }}" defer></script>
+</div>
+</div>
 </body>
 </html>
