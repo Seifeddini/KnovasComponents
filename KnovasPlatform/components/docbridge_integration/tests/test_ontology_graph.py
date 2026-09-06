@@ -577,3 +577,57 @@ def test_delete_type_relation_robust_against_corrupt_schema():
 
     # fehlender Typ
     assert source.delete_type_relation("t-unbekannt", "hat Dossier", "t-dossier") is False
+
+
+def test_a_write_in_one_worker_invalidates_the_others(tmp_path):
+    """Cortex must not disagree with itself between two reloads.
+
+    gunicorn runs several worker processes and the export cache lives inside
+    one of them, so a delete handled by worker A cleared A's cache and left B
+    serving its own copy until the TTL ran out. What an operator saw was a node
+    that was gone, then back, then gone -- depending on which worker answered.
+    The generation marker on the shared filesystem is what makes B notice.
+    """
+    marker = str(tmp_path / "generation")
+    backend = FakeGraphClient()
+
+    def worker():
+        client = FakeGraphClient()
+        client.node_types = backend.node_types      # one shared tenant
+        return GraphOntologySource(client, marker_path=marker)
+
+    a, b = worker(), worker()
+    labels = lambda src: sorted(t["label"] for t in src.summary()["types"])
+
+    assert "Mandant" in labels(a) and "Mandant" in labels(b)   # both cached
+
+    backend.node_types = [t for t in backend.node_types if t["id"] != "t-mandant"]
+    a._client.node_types = backend.node_types
+    b._client.node_types = backend.node_types
+    a._invalidate()                                            # only A knows
+
+    assert "Mandant" not in labels(a)
+    assert "Mandant" not in labels(b), "worker B served a type deleted by worker A"
+
+
+def test_the_cache_still_caches_when_nothing_is_written(tmp_path):
+    """The fix must not turn every request back into an API round trip."""
+    marker = str(tmp_path / "generation")
+    source = GraphOntologySource(FakeGraphClient(), marker_path=marker)
+
+    source.summary()
+    before = source._client.export_calls if hasattr(source._client, "export_calls") else None
+    payload_first = source._export()
+    for _ in range(4):
+        assert source._export() is payload_first, "cache returned a fresh object"
+
+
+def test_an_unwritable_marker_does_not_break_a_write(tmp_path):
+    """Losing cross-worker invalidation is a warning, not a failed deletion.
+
+    The write against Knovas has already happened by then; refusing here would
+    leave the console reporting a failure for a change that took effect.
+    """
+    source = GraphOntologySource(FakeGraphClient(), marker_path="/proc/nonexistent/gen")
+    source._invalidate()
+    assert source.summary()["types"], "source stopped working without its marker"

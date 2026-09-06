@@ -18,6 +18,7 @@ plausible Schreibweisen, statt bei der ersten Abweichung zu brechen.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -26,6 +27,23 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_SECONDS = 60
 DEFAULT_MAX_CACHE_SUBJECTS = 64
+
+#: Marker whose mtime is the graph's generation, shared by every gunicorn
+#: worker in this container.
+#:
+#: The cache below lives in one process. gunicorn runs several (--workers, 2 by
+#: default), so a delete handled by worker A cleared A's cache and left B
+#: serving its own copy for up to the TTL. The visible result was a graph that
+#: disagreed with itself between reloads: a new type missing, a deleted node
+#: still there, then gone, then back -- depending on which worker answered.
+#:
+#: The workers share a filesystem, so one file settles it without a second
+#: service. Writes touch it; reads compare the mtime they cached against the
+#: current one and refetch when it moved. One stat() per Cortex request, against
+#: an export call over mTLS.
+GENERATION_MARKER = os.environ.get(
+    "ONTOLOGY_CACHE_MARKER", "/app/data/.cortex_graph_generation"
+)
 
 
 def _first(mapping: Dict[str, Any], *keys: str, default: Any = "") -> Any:
@@ -101,7 +119,8 @@ class GraphOntologySource:
                  text_resolver: Any = None,
                  ttl_seconds: int = DEFAULT_TTL_SECONDS,
                  max_cache_subjects: int = DEFAULT_MAX_CACHE_SUBJECTS,
-                 now: Optional[Callable[[], float]] = None):
+                 now: Optional[Callable[[], float]] = None,
+                 marker_path: Optional[str] = None):
         self._client = client
         self._text = text_resolver
         self._ttl = max(0, int(ttl_seconds))
@@ -110,8 +129,10 @@ class GraphOntologySource:
         # Keyed by subject id when a principal broker is present; "" is the
         # identity-off / no-broker slot (one cache for the worker, as before).
         # (cached_at, last_access, payload) — expiry uses cached_at; LRU uses last_access
-        self._export_by_subject: Dict[str, tuple[float, float, Dict[str, Any]]] = {}
+        # (cached_at, last_access, payload, generation)
+        self._export_by_subject: Dict[str, tuple[float, float, Dict[str, Any], int]] = {}
         self._export_lock = threading.Lock()
+        self._marker = marker_path or GENERATION_MARKER
         self.warnings: List[str] = []
 
     # -- Topologie ------------------------------------------------------
@@ -134,6 +155,37 @@ class GraphOntologySource:
             return None
         return str(user.id)
 
+    def _generation(self) -> int:
+        """Current generation, or 0 when the marker does not exist yet.
+
+        Never raises: a missing or unreadable marker means "cannot tell", and
+        the honest answer to that is to refetch rather than to serve something
+        possibly stale.
+        """
+        try:
+            return os.stat(self._marker).st_mtime_ns
+        except OSError:
+            return 0
+
+    def _bump_generation(self) -> None:
+        """Announce a write to the other workers.
+
+        Best effort on purpose. If the marker cannot be written -- a read-only
+        volume, a missing directory -- the cache simply behaves as it did
+        before, which is stale for at most the TTL. That is worth a warning,
+        not a failed deletion: the write against Knovas has already happened.
+        """
+        try:
+            os.makedirs(os.path.dirname(self._marker) or ".", exist_ok=True)
+            with open(self._marker, "a"):
+                pass
+            os.utime(self._marker, None)
+        except OSError as exc:
+            logger.warning(
+                "Cortex-Cachemarke %s nicht schreibbar (%s). Andere Worker sehen "
+                "die Aenderung erst nach Ablauf der TTL.", self._marker, exc,
+            )
+
     def _evict_stale_export_cache(self, now: float) -> None:
         """Drop expired entries and enforce a small LRU cap.
 
@@ -146,8 +198,8 @@ class GraphOntologySource:
         if self._ttl > 0:
             stale = [
                 key
-                for key, (cached_at, _, _) in list(self._export_by_subject.items())
-                if now - cached_at >= self._ttl
+                for key, entry in list(self._export_by_subject.items())
+                if now - entry[0] >= self._ttl
             ]
             for key in stale:
                 self._export_by_subject.pop(key, None)
@@ -161,12 +213,16 @@ class GraphOntologySource:
     def _export(self) -> Dict[str, Any]:
         key = self._export_cache_key()
         now = self._now()
+        generation = self._generation()
         if key is not None and self._ttl > 0:
             with self._export_lock:
                 self._evict_stale_export_cache(now)
                 hit = self._export_by_subject.get(key)
-                if hit is not None and now - hit[0] < self._ttl:
-                    self._export_by_subject[key] = (hit[0], now, hit[2])
+                # Fresh enough AND from the generation still current. The second
+                # half is what another worker's write invalidates: without it
+                # this branch happily served a graph that no longer exists.
+                if hit is not None and now - hit[0] < self._ttl and hit[3] == generation:
+                    self._export_by_subject[key] = (hit[0], now, hit[2], hit[3])
                     return hit[2]
         from knovas_client import _graph_payload_list
 
@@ -186,7 +242,11 @@ class GraphOntologySource:
         data = {"node_types": node_types, "nodes": nodes, "edges": edges}
         if key is not None and self._ttl > 0:
             with self._export_lock:
-                self._export_by_subject[key] = (now, now, data)
+                # Store the generation read *before* the fetch. A write that
+                # lands while the export is in flight then bumps past it, and
+                # the next read refetches instead of trusting a payload that
+                # may predate that write.
+                self._export_by_subject[key] = (now, now, data, generation)
                 self._evict_stale_export_cache(now)
         return data
 
@@ -321,6 +381,14 @@ class GraphOntologySource:
     # Teile (Filter, Identifiers) erst auf.
 
     def _invalidate(self) -> None:
+        """Drop this worker's copy and tell the others to drop theirs.
+
+        The bump comes first and is unconditional: it must happen even when
+        this process has nothing cached (key is None for a brokered client
+        without a signed-in user), because the stale copy that matters is in
+        another worker.
+        """
+        self._bump_generation()
         key = self._export_cache_key()
         if key is None:
             return
