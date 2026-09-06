@@ -23,6 +23,8 @@ from typing import Dict, Any, List, Optional, Tuple
 import subprocess
 import platform
 import re
+
+import requests
 from urllib.parse import quote
 
 from config_loader import get_config
@@ -1546,6 +1548,22 @@ def create_app(config_path: Optional[str] = None):
 
             return jsonify(payload)
             
+        except requests.exceptions.HTTPError as e:
+            # A failure at api.knovas.ch is not a failure of this deployment,
+            # and saying "Interner Serverfehler" for it sends an operator to
+            # debug their own stack for someone else's outage. 502, because
+            # this app is a gateway here and the upstream is what broke.
+            status = getattr(getattr(e, 'response', None), 'status_code', None)
+            logger.error("Knovas API refused the search (HTTP %s): %s", status, e, exc_info=True)
+            return jsonify({
+                'success': False,
+                'error': (
+                    f'Die Knovas-API hat die Suche mit HTTP {status} abgelehnt. '
+                    'Das ist ein Fehler der API, nicht dieser Installation. '
+                    'Details stehen im Log von docbridge-web.'
+                ),
+                'upstream_status': status,
+            }), 502
         except Exception as e:
             logger.error(f"Search error: {e}", exc_info=True)
             return jsonify({

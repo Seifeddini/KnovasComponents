@@ -1371,6 +1371,20 @@ class KnovasAPIClient:
             allow_redirects=False,
         )
 
+        if response.status_code >= 400:
+            # raise_for_status discards the body, and the body is where the API
+            # says what went wrong. Without this an upstream 500 reaches the log
+            # as "500 Server Error for url ..." and nothing else, which is
+            # indistinguishable from a fault in this deployment.
+            detail = ""
+            try:
+                detail = (response.text or "")[:600]
+            except Exception:  # noqa: BLE001 - never fail while reporting a failure
+                detail = "<response body unreadable>"
+            logger.error(
+                "Knovas API %s %s -> %s. Response body: %s",
+                method, endpoint, response.status_code, detail or "<empty>",
+            )
         response.raise_for_status()
         return response
 
