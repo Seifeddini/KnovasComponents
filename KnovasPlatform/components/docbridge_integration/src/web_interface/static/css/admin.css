@@ -8,6 +8,14 @@
  * kommen aus einer Quelle, und eine Aenderung an der Marke wirkt auch hier.
  */
 
+:root {
+    /* style.css kennt Erfolg und Fehler, aber keinen Warnton. Hier definiert,
+       nicht viermal als Literal wiederholt -- so weicht die fuenfte Stelle
+       nicht irgendwann um eine Nuance ab. Kontrast auf --card-bg: 5.9:1. */
+    --admin-warn: #8a5a00;
+    --admin-warn-rgb: 138, 90, 0;
+}
+
 .admin {
     max-width: 1180px;
     margin: 0 auto;
@@ -155,7 +163,7 @@
 
 .admin .state-active   { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
 .admin .state-disabled { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
-.admin .state-locked   { color: #8a5a00;              background: rgba(138, 90, 0, 0.10); }
+.admin .state-locked   { color: var(--admin-warn);    background: rgba(var(--admin-warn-rgb), 0.10); }
 
 /* Rollen als Chips: eine Zeile mit vier Rollen liest sich sonst als Fliesstext. */
 .admin .role-chip {
@@ -313,10 +321,10 @@
 
 .admin .status-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .admin .status-ok   .status-dot { background: var(--success-color); }
-.admin .status-warn .status-dot { background: #8a5a00; }
+.admin .status-warn .status-dot { background: var(--admin-warn); }
 .admin .status-fail .status-dot { background: var(--error-color); }
 .admin .status-ok   { border-color: rgba(26, 107, 74, 0.35); }
-.admin .status-warn { border-color: rgba(138, 90, 0, 0.35); }
+.admin .status-warn { border-color: rgba(var(--admin-warn-rgb), 0.35); }
 .admin .status-fail { border-color: rgba(196, 30, 30, 0.35); }
 
 .admin .status-when { color: var(--text-secondary); font-size: 0.82rem; }
@@ -346,7 +354,7 @@
     margin-top: 6px; flex: none;
 }
 .admin .check-ok   .check-dot { background: var(--success-color); }
-.admin .check-warn .check-dot { background: #8a5a00; }
+.admin .check-warn .check-dot { background: var(--admin-warn); }
 .admin .check-fail .check-dot { background: var(--error-color); }
 .admin .check-skip .check-dot { background: var(--text-muted); }
 
@@ -382,7 +390,7 @@
     flex: none;
 }
 .admin .check-ok   .check-state { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
-.admin .check-warn .check-state { color: #8a5a00;              background: rgba(138, 90, 0, 0.10); }
+.admin .check-warn .check-state { color: var(--admin-warn);    background: rgba(var(--admin-warn-rgb), 0.10); }
 .admin .check-fail .check-state { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
 .admin .check-skip .check-state { color: var(--text-secondary); background: var(--surface-sunken); }
 
