@@ -20,9 +20,15 @@ fi
 # shellcheck source=../KnovasPlatform/scripts/lib/read_env.sh
 source "$ROOT_DIR/KnovasPlatform/scripts/lib/read_env.sh"
 
+GRANT_ONLY=false
+if [[ "${1:-}" == "--grant-admin" ]]; then
+  GRANT_ONLY=true
+  shift
+fi
+
 EMAIL="${1:-$(read_env_var PLATFORM_ADMIN_EMAIL "" "$KNOVAS_ENV")}"
 if [[ -z "$EMAIL" ]]; then
-  echo "Usage: $0 [email]" >&2
+  echo "Usage: $0 [--grant-admin] [email]" >&2
   echo "No address given and PLATFORM_ADMIN_EMAIL is not set in knovas.env." >&2
   exit 1
 fi
@@ -30,6 +36,26 @@ fi
 if ! docker compose --env-file "$KNOVAS_ENV" ps --status running docbridge-web 2>/dev/null | grep -q docbridge-web; then
   echo "docbridge-web is not running. Start the stack first: ./scripts/start.sh" >&2
   exit 1
+fi
+
+if [[ "$GRANT_ONLY" == true ]]; then
+  # Granting the console role is not a password change: an account that did not
+  # come from first-run bootstrap has no roles, so the Verwaltung link is hidden
+  # and the routes answer 403. This repairs that without touching the credential.
+  docker compose --env-file "$KNOVAS_ENV" exec -T -e ADMIN_EMAIL="$EMAIL" \
+    docbridge-web python - <<'GRANT'
+import os
+from identity import db, users
+email = os.environ["ADMIN_EMAIL"]
+conn = db.connect()
+repo = users.UserRepository(conn)
+row = conn.execute("SELECT id FROM users WHERE email = %s", (email,)).fetchone()
+if row is None:
+    raise SystemExit(f"No account for {email}. Run without --grant-admin to create one.")
+repo.grant_role(row[0], "admin")
+print(f"{email} now holds: {', '.join(sorted(repo.roles_of(row[0]))) or '-'}")
+GRANT
+  exit 0
 fi
 
 # Read it here rather than as an argument: an argument lands in the shell
@@ -76,6 +102,13 @@ try:
         # this doubles as the way out of a lockout.
         repo.set_password(row[0], password)
         print(f"Password reset for {email}. Any lockout is cleared.")
+
+    account_id = created.id if row is None else row[0]
+    roles = sorted(repo.roles_of(account_id))
+    print(f"Roles: {', '.join(roles) or '-'}")
+    if "admin" not in roles:
+        print("NOTE: no 'admin' role, so the Verwaltung console stays hidden and would 403.")
+        print(f"      Fix: ./scripts/admin-password.sh --grant-admin {email}")
 except passwords.WeakPasswordError as exc:
     raise SystemExit(f"Refused: {exc}")
 PY
