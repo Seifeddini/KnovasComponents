@@ -85,11 +85,21 @@ if [[ -z "$KNOVAS_TENANT_ID" && -f "$ORG_FILE" ]]; then
   KNOVAS_TENANT_ID="$(tr -d '[:space:]' < "$ORG_FILE")"
 fi
 if [[ -z "$KNOVAS_TENANT_ID" && -f "$CERTS_DIR/client-cert.pem" ]]; then
-  KNOVAS_TENANT_ID="$(openssl x509 -in "$CERTS_DIR/client-cert.pem" -noout -subject 2>/dev/null \
-    | sed -n 's/.*CN=\([^,/]*\).*/\1/p' | head -1 || true)"
+  # sep_multiline, not the default one-line subject. OpenSSL 3 prints that as
+  # "CN = value" -- with spaces around the equals -- which the previous "CN="
+  # pattern never matched. The fallback therefore produced nothing on every
+  # modern system, and setup.sh stopped to ask for a value it could have read
+  # off the certificate itself. sep_multiline also survives a comma inside
+  # another RDN, which the one-line form does not.
+  KNOVAS_TENANT_ID="$(openssl x509 -in "$CERTS_DIR/client-cert.pem" -noout -subject \
+    -nameopt sep_multiline,utf8 2>/dev/null | sed -n 's/^[[:space:]]*CN=//p' | head -1 || true)"
+  KNOVAS_TENANT_ID="$(printf '%s' "$KNOVAS_TENANT_ID" | tr -d '[:space:]')"
 fi
 if [[ -z "$KNOVAS_TENANT_ID" ]]; then
-  echo "Set KNOVAS_TENANT_ID in knovas.env or add certs/organisation_id.txt" >&2
+  echo "Set KNOVAS_TENANT_ID in knovas.env, or add certs/organisation_id.txt." >&2
+  echo "It is the tenant the Platform signs each user into, and it could not be" >&2
+  echo "read from the client certificate. See what the certificate carries with:" >&2
+  echo "  openssl x509 -in certs/client-cert.pem -noout -subject -nameopt sep_multiline,utf8" >&2
   exit 1
 fi
 
