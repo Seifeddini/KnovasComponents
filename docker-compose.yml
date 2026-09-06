@@ -77,6 +77,15 @@ services:
       PLATFORM_DB_USER: ${PLATFORM_DB_USER:-platform}
       PLATFORM_DB_PASSWORD_FILE: /run/secrets/platform_db_password
       PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:?set PLATFORM_ADMIN_EMAIL in knovas.env — the Platform has no default account}
+      # Set it and the first administrator gets that password, which the operator
+      # already holds so nothing is written to disk. Leave it empty and one is
+      # generated into PLATFORM_ADMIN_BOOTSTRAP_PATH -- which defaults to /run,
+      # inside the container, and therefore does not survive the next
+      # `docker compose up` that recreates docbridge-web. Bootstrap only runs on
+      # a database with no accounts at all, so losing that file before reading it
+      # means the account exists with a password nobody knows.
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
+      PLATFORM_ADMIN_BOOTSTRAP_PATH: ${PLATFORM_ADMIN_BOOTSTRAP_PATH:-/run/platform-admin-bootstrap}
       PLATFORM_BROKER_KEY_DIR: ${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}
     secrets:
       - platform_db_password
