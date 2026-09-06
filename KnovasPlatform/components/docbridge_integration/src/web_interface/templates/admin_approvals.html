@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freigaben · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .admin { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .admin table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .admin th, .admin td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .admin th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+        .admin form.inline { display: inline; }
+        .admin .panel { border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px 18px; margin-top: 24px; }
+        .admin .msg { padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+        .admin .msg.error { background: #fef2f2; color: #b91c1c; }
+        .admin .msg.ok { background: #f0fdf4; color: #15803d; }
+        .admin .hint { color: #64748b; font-size: 12.5px; }
+        .admin .ptr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+        .admin input[type=text] { width: 100%; max-width: 360px; padding: 6px 8px; }
+        .admin .warn { background: #fef9c3; color: #854d0e; padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+    </style>
+</head>
+<body>
+{% include '_sidebar.html' %}
+
+<main class="admin">
+    {% set admin_tab = 'approvals' %}
+    {% include '_admin_tabs.html' %}
+
+    <h1>Freigaben</h1>
+    <p class="hint">
+        Vier-Augen-Prinzip: Zugriffsänderungen, Löschungen und Massenexporte
+        brauchen eine zweite Person. Was hier wartet, ist noch nicht geschehen.
+    </p>
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+
+    <section class="panel">
+        <h2>Ausstehend</h2>
+        <table>
+            <thead>
+                <tr><th>Art</th><th>Ziel</th><th>Angefragt von</th><th>Gültig bis</th><th>Entscheidung</th></tr>
+            </thead>
+            <tbody>
+            {% for p in pending %}
+                <tr>
+                    <td>{{ p.kind_label }}<br><span class="hint">{{ p.summary }}</span></td>
+                    <td class="ptr">{{ p.target_ref }}</td>
+                    <td>{{ p.requester_email }}<br><span class="hint">{{ p.requested_at }}</span></td>
+                    <td>{{ p.expires_at }}</td>
+                    <td>
+                        {% if p.mine %}
+                            <span class="hint">Eigene Anfrage — eine andere Person muss entscheiden.</span>
+                        {% else %}
+                        <form class="inline" method="post" action="{{ url_for('admin.approve', request_id=p.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit">Freigeben</button>
+                        </form>
+                        <form method="post" action="{{ url_for('admin.reject', request_id=p.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="text" name="reason" placeholder="Begründung" required>
+                            <button type="submit">Ablehnen</button>
+                        </form>
+                        {% endif %}
+                        {% if not p.executable %}
+                            <br><span class="hint">Wird nach Freigabe nicht automatisch ausgeführt.</span>
+                        {% endif %}
+                        {% if p.kind == 'ingestion_profile_change' %}
+                            {# RemoteController admits admin and ingestion_manager only; a
+                               pure approver can confirm this and then not carry it out. #}
+                            <br><span class="hint">Ausfuehrung durch admin oder ingestion_manager</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5" class="hint">Nichts wartet auf eine Freigabe.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="panel">
+        <h2>Freigegeben, noch nicht ausgeführt</h2>
+        <table>
+            <thead>
+                <tr><th>Art</th><th>Ziel</th><th>Angefragt von</th><th>Freigegeben am</th><th>Aktion</th></tr>
+            </thead>
+            <tbody>
+            {% for a in approved %}
+                <tr>
+                    <td>{{ a.kind_label }}<br><span class="hint">{{ a.summary }}</span></td>
+                    <td class="ptr">{{ a.target_ref }}</td>
+                    <td>{{ a.requester_email }}</td>
+                    <td>{{ a.approved_at }}</td>
+                    <td>
+                        {% if a.executable %}
+                        <form class="inline" method="post" action="{{ url_for('admin.execute', request_id=a.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit">Ausführen</button>
+                        </form>
+                        {% else %}
+                            <span class="hint">Wird von der Konsole nicht ausgeführt.</span>
+                        {% endif %}
+                        {% if a.kind == 'ingestion_profile_change' %}
+                            <br><span class="hint">Ausfuehrung durch admin oder ingestion_manager</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5" class="hint">Nichts wartet auf die Ausführung.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="panel">
+        <h2>Umgehungen durch Administratoren</h2>
+        <p class="hint">Es werden die letzten 25 Umgehungen angezeigt.</p>
+        {% if bypass_enabled %}
+        <p class="warn">
+            Administratoren handeln ohne zweite Person. Jede solche Handlung
+            wird hier vermerkt — sie ist eine Entscheidung, keine Ausnahme.
+        </p>
+        {% else %}
+        <p class="hint">Administratoren müssen ebenfalls eine Freigabe einholen.</p>
+        {% endif %}
+        {% if can_toggle %}
+        <form method="post" action="{{ url_for('admin.set_bypass') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="enabled" value="{{ '0' if bypass_enabled else '1' }}">
+            <button type="submit">
+                {% if bypass_enabled %}Strikt: auch Administratoren brauchen eine Freigabe{% else %}Administratoren dürfen allein handeln{% endif %}
+            </button>
+        </form>
+        {% endif %}
+        <table>
+            <thead><tr><th>Wann</th><th>Wer</th><th>Was</th><th>Ziel</th></tr></thead>
+            <tbody>
+            {% for b in bypasses %}
+                <tr>
+                    <td>{{ b.occurred_at }}</td>
+                    <td>{{ b.actor_email or '?' }}</td>
+                    <td>{{ kind_labels.get(b.target_type, b.target_type) }}</td>
+                    <td class="ptr">{{ b.target_id }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4" class="hint">Keine Umgehungen vermerkt.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</main>
+</body>
+</html>

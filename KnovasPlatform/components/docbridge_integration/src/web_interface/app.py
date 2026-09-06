@@ -698,6 +698,7 @@ def create_app(config_path: Optional[str] = None):
     # configured, so an upgrade cannot leave both doors open.
     identity_enabled = config.get_bool('identity.enabled', False)
     identity_gate = None
+    rc_client = None
     if identity_enabled:
         from identity.webauth import IdentityGate
 
@@ -709,6 +710,61 @@ def create_app(config_path: Optional[str] = None):
             )
         identity_gate = IdentityGate()
         app.teardown_request(identity_gate.close)
+
+        # The broker signs the signed-in person into every Knovas call, through
+        # the one client the search path already uses. Both preconditions fail
+        # closed at startup: an unsigned call returns MORE than a signed one.
+        from pathlib import Path as _Path
+
+        from identity.broker_key import BrokerKeyUnavailableError, load_or_create_signer
+        from identity.principal import PrincipalBroker
+
+        broker_key_dir = str(config.get('identity.broker_key_dir', '') or '').strip()
+        if not broker_key_dir:
+            raise RuntimeError(
+                'identity.enabled is true but identity.broker_key_dir is not set. '
+                'The Platform signs each user into its Knovas calls with an Ed25519 '
+                'key kept in that directory; see docs/certificates.md.'
+            )
+        if not getattr(api_client, 'customer_id', ''):
+            raise RuntimeError(
+                'identity.enabled is true but api.customer_id (SEMANTIX_CUSTOMER_ID) '
+                'is empty. A principal assertion is bound to the tenant.'
+            )
+        try:
+            broker_signer = load_or_create_signer(_Path(broker_key_dir))
+        except BrokerKeyUnavailableError as exc:
+            raise RuntimeError(f'Broker signing key unavailable: {exc}') from exc
+
+        class _RequestScopedBroker:
+            """PrincipalBroker bound to whoever is signed in on *this* request.
+
+            gate.users() is a repository on the request's own connection and
+            the broker reads user_access_groups at mint time, uncached -- so a
+            revocation lands on the user's next request, not at session expiry.
+            """
+
+            def __init__(self, gate, signer, tenant_id):
+                self._gate, self._signer, self._tenant_id = gate, signer, tenant_id
+
+            def current_user(self):
+                return self._gate.current_user()
+
+            def assertion_for(self, user):
+                return PrincipalBroker(
+                    user_repo=self._gate.users(), signer=self._signer,
+                    tenant_id=self._tenant_id,
+                ).assertion_for(user)
+
+        principal_broker = _RequestScopedBroker(identity_gate, broker_signer, str(api_client.customer_id))
+        api_client.attach_principal_broker(principal_broker)
+
+        from remote_controller_client import RemoteControllerClient
+
+        rc_client = RemoteControllerClient(
+            str(config.get('remote_controller.base_url', 'http://remote-controller:5001')),
+            principal_broker=principal_broker,
+        )
     weak_secret_values = {
         '',
         'change-me',
@@ -892,6 +948,22 @@ def create_app(config_path: Optional[str] = None):
 
     def _resolve_autodoc_path(file_path: str) -> Optional[str]:
         return _confine_to_autodoc(file_handler.autodoc_path, file_path)
+
+    @app.before_request
+    def reject_client_asserted_groups():
+        """The group list has exactly one source: user_access_groups, read
+        server-side for the signed-in user. A body that supplies its own is
+        refused with 400, not quietly overruled -- silently dropping it would
+        let a caller believe a scope applied, and would hide a merging bug."""
+        if not request.is_json:
+            return None
+        from identity.principal import ClientAssertedGroupsError, PrincipalBroker
+
+        try:
+            PrincipalBroker.reject_client_assertion(request.get_json(silent=True))
+        except ClientAssertedGroupsError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        return None
 
     @app.before_request
     def require_company_login():
@@ -1141,11 +1213,14 @@ def create_app(config_path: Optional[str] = None):
     feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
 
     def _console_url():
-        """Link zur Verwaltung -- nur fuer Administratoren, sonst None.
+        """Link zur Verwaltung -- je nach Rolle, sonst None.
 
-        Der Link ist Darstellung; ``require_admin`` auf der Route bleibt die
-        Kontrolle (REQ-A1/REQ-A2). Faellt die Identitaetsdatenbank aus,
-        verschwindet der Link, statt dass die Suchseite bricht.
+        Der Link ist Darstellung; ``require_admin``/``require_approver`` auf
+        der jeweiligen Route bleibt die Kontrolle (REQ-A1/REQ-A2). Ein
+        Administrator landet auf Personen, ein reiner Freigeber (Rolle
+        'approver' ohne 'admin') auf Freigaben -- sonst gibt es keinen Link.
+        Faellt die Identitaetsdatenbank aus, verschwindet der Link, statt dass
+        die Suchseite bricht.
         """
         if identity_gate is None:
             return None
@@ -1154,9 +1229,14 @@ def create_app(config_path: Optional[str] = None):
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
             logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
             return None
-        if user is None or 'admin' not in (getattr(user, 'roles', None) or ()):
+        if user is None:
             return None
-        return url_for('admin.people')
+        roles = getattr(user, 'roles', None) or ()
+        if 'admin' in roles:
+            return url_for('admin.people')
+        if 'approver' in roles:
+            return url_for('admin.approvals')
+        return None
 
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
@@ -1200,6 +1280,22 @@ def create_app(config_path: Optional[str] = None):
             asset_version=_static_asset_version(),
         )
 
+    @app.route('/workbench')
+    def workbench_page():
+        """Arbeitsplatz: Liste -> Nachbarschaft -> Felder, typunabhaengig."""
+        user = identity_gate.current_user() if identity_gate is not None else None
+        return render_template(
+            'workbench.html',
+            active_nav='workbench',
+            **_sidebar_context(),
+            app_title=web_app_title,
+            brand=web_brand,
+            graph_mode=_ontology_source_is_graph(),
+            is_admin=bool(user is not None and 'admin' in user.roles),
+            csrf_token=_ensure_csrf_token(),
+            asset_version=_static_asset_version(),
+        )
+
     @app.route('/settings')
     def settings_page():
         """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
@@ -1232,12 +1328,24 @@ def create_app(config_path: Optional[str] = None):
             # path uses, so mTLS material, retries and rate limiting are
             # configured in exactly one place.
             client_factory=lambda: api_client,
+            rc_client_factory=(lambda: rc_client) if rc_client is not None else None,
             page_context=lambda: {
                 **_sidebar_context(),
                 'app_title': web_app_title,
                 'brand': web_brand,
                 'asset_version': _static_asset_version(),
+                'ingestion_enabled': rc_client is not None,
             },
+        ))
+
+        from identity.node_grants import NodeGrantStore
+        from web_interface.graph_routes import create_graph_blueprint
+
+        app.register_blueprint(create_graph_blueprint(
+            identity_gate,
+            lambda: NodeGrantStore(identity_gate.connection()),
+            lambda: api_client,
+            graph_mode=lambda: _ontology_source_is_graph(),
         ))
 
     @app.route('/api/search', methods=['POST'])

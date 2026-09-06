@@ -54,7 +54,7 @@ COPY src/ ./src/
 COPY config/ ./config/
 
 # Create directories for data and logs
-RUN mkdir -p /app/data /app/logs
+RUN mkdir -p /app/data /app/logs /app/secrets/broker
 
 # Set environment variables
 ENV PYTHONPATH=/app/src

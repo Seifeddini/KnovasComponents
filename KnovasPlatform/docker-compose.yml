@@ -85,6 +85,9 @@ services:
       - ./components/docbridge_integration/config:/app/config:ro
       - docbridge_integration_logs:/app/logs
       - docbridge_integration_data:/app/data
+      # The broker signing key. Named volume, never a bind mount into the
+      # repo: recreating the container without it silently rotates the key.
+      - docbridge_broker_key:/app/secrets/broker
       - ${AUTODOC_MOUNT_PATH:-./docbridge_test_data/AutoDoc}:/mnt/autodoc:ro
       - ${SEMANTIX_CERTS_DIR:-./certs}:/app/certs:ro
       # Beschreibbar, nicht ro: der Cortex-Graph ist kundengepflegt. Typen,
@@ -128,4 +131,5 @@ services:
 
 volumes:
   docbridge_integration_data:
+  docbridge_broker_key:
   docbridge_integration_logs:

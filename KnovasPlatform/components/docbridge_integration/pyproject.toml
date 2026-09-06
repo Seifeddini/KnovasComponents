@@ -14,4 +14,6 @@ addopts = "-q --tb=short"
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "knovas_api: tests requiring real Knovas API connectivity (skipped by default)",
+    "alloy: pins an Alloy model's commands and outcomes (the pytest half of must-agree)",
+    "precondition: verifies the implementation satisfies an Alloy mechanism pred",
 ]

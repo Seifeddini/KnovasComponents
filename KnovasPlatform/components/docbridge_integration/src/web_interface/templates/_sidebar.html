@@ -28,6 +28,17 @@
             </svg>
             Cortex
         </a>
+        <a href="{{ url_for('workbench_page') }}" class="app-nav-item{% if active_nav == 'workbench' %} active{% endif %}"
+           {% if active_nav == 'workbench' %}aria-current="page"{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <rect x="3" y="3" width="7" height="18" rx="1"/>
+                <rect x="14" y="3" width="7" height="10" rx="1"/>
+                <rect x="14" y="15" width="7" height="6" rx="1"/>
+            </svg>
+            Arbeitsplatz
+        </a>
         <a href="{{ url_for('settings_page') }}" class="app-nav-item{% if active_nav == 'einstellungen' %} active{% endif %}"
            {% if active_nav == 'einstellungen' %}aria-current="page"{% endif %}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"

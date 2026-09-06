@@ -344,7 +344,7 @@ def test_delete_type_relation_needs_an_attribute_id():
     """Ohne Attribut-Kennung geht keine Anfrage an die API."""
     client = FakeGraphClient()
     aufrufe = []
-    client.graph_delete_schema_attribute = lambda type_id, attribute_id: (
+    client.graph_deprecate_schema_attribute = lambda type_id, attribute_id: (
         aufrufe.append((type_id, attribute_id)) or {"status": "success"})
     client.node_types = [
         {"id": "t-mandant", "name": "Mandant",
@@ -360,7 +360,7 @@ def test_delete_type_relation_robust_against_corrupt_schema():
     """delete_type_relation filtert nicht-Dict-Elemente in der schema-Liste."""
     client = FakeGraphClient()
     geloescht = []
-    client.graph_delete_schema_attribute = lambda type_id, attribute_id: (
+    client.graph_deprecate_schema_attribute = lambda type_id, attribute_id: (
         geloescht.append((type_id, attribute_id)) or {"status": "success"})
 
     # Knotentyp mit schema-Liste, die gueltige Attribute und kaputte Eintraege enthaelt

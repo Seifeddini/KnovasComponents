@@ -43,6 +43,20 @@ services:
       - ${KNOVAS_DOCUMENTS_PATH}:/mnt/documents:ro
       - rc-config:/app/config
       - rc-state:/var/rc-state
+      # The Platform's broker key directory. It holds the PRIVATE key too, and
+      # :ro does not hide it -- what makes it unreadable here is that
+      # docbridge-web runs as root (KnovasPlatform/.../Dockerfile has no USER)
+      # and writes broker_ed25519.pem as root:root 0600, while RemoteController
+      # runs as uid 10001. Adding a USER to the Platform image, or running
+      # RemoteController as root, would expose the key that can assert any of
+      # the firm's people to Knovas. RemoteController refuses to start if it
+      # can read the file (auth/platform_principal.py).
+      - docbridge_broker_key:/app/secrets/broker:ro
+    environment:
+      RC_PLATFORM_BROKER_PUBKEY_PATH: /app/secrets/broker/broker_ed25519.pub
+      # The console's "Speichern und uebertragen" writes GET/POST /sync/config;
+      # that API is off by default and the push fails at its first call without this.
+      RC_SYNC_CONFIG_API_ENABLED: "true"
     ports:
       - "127.0.0.1:5001:5001"
     restart: unless-stopped
@@ -76,6 +90,9 @@ services:
       - ./KnovasPlatform/components/docbridge_integration/config:/app/config:ro
       - docbridge_integration_logs:/app/logs
       - docbridge_integration_data:/app/data
+      # The broker signing key. Named volume, never a bind mount into the
+      # repo: recreating the container without it silently rotates the key.
+      - docbridge_broker_key:/app/secrets/broker
       - ${KNOVAS_DOCUMENTS_PATH}:/mnt/autodoc:ro
       - ./certs:/app/certs:ro
       - rc-state:/var/rc-state:ro
@@ -121,6 +138,7 @@ networks:
     driver: bridge
 
 volumes:
+  docbridge_broker_key:
   rc-config:
   rc-state:
   docbridge_integration_data:

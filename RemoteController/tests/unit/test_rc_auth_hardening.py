@@ -234,3 +234,43 @@ def test_health_does_not_leak_watch_root_paths(rc_client):
     raw = resp.get_data(as_text=True)
     for root in roots:
         assert root not in raw
+
+
+def test_two_platform_principals_from_one_ip_get_separate_buckets(monkeypatch):
+    """M3: the handled limiter keyed on rc_employee_id or the peer address,
+    and the platform path sets neither -- so every console user in the firm
+    shared one 10-token bucket keyed on the docbridge-web container, and a
+    preview of twelve folders spent it."""
+    import flask
+
+    import auth.rc_rate_limit as rl
+    from auth.platform_principal import PlatformPrincipal
+
+    monkeypatch.setenv("RC_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("RC_RATE_LIMIT_HANDLED_MAX_TOKENS", "2")
+    monkeypatch.setenv("RC_RATE_LIMIT_HANDLED_REFILL_PER_SEC", "0.0001")
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    rl._handled_limiter = None
+
+    app = flask.Flask(__name__)
+
+    @rl.require_rc_handled_rate_limit
+    def handler():
+        return "ok"
+
+    def _as(subject):
+        with app.test_request_context("/sync/status", environ_base={"REMOTE_ADDR": "10.0.0.9"}):
+            flask.g.rc_principal = PlatformPrincipal(
+                subject=subject, tenant="t", groups=(), roles=("admin",),
+                jti="j", expires_at=0)
+            out = handler()
+            return out if isinstance(out, str) else out[1]
+
+    assert _as("user-a") == "ok"
+    assert _as("user-a") == "ok"
+    assert _as("user-a") == 429, "the third call spends user-a's bucket"
+    assert _as("user-b") == "ok", "a second person from the same IP has their own"
+    rl._handled_limiter = None

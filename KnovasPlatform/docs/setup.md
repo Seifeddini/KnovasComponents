@@ -59,6 +59,15 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
   https://api.knovas.ch:8443/secured/health
 ```
 
+### 4.1 Per-user identity: the broker signing key
+
+Only with `IDENTITY_ENABLED=true`. The Platform then generates an Ed25519 key
+on first start in `PLATFORM_BROKER_KEY_DIR` (a persistent volume, default
+`/app/secrets/broker`) and signs each signed-in user into every Knovas call.
+Register the public half (`broker_ed25519.pub`) with Knovas, back the
+directory up, and set `SEMANTIX_CUSTOMER_ID`. Details and the failure modes:
+[../../docs/certificates.md](../../docs/certificates.md#knovasplatform-the-broker-signing-key-per-user-identity).
+
 ## 5. Run and verify
 
 ```bash

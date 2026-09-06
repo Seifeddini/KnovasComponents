@@ -186,3 +186,34 @@ def test_mint_without_csrf_still_returns_400_not_403(csrf_app):
     assert resp.status_code != 403
     # companion disabled in this config -> 503 (still proves the gate did not fire)
     assert resp.status_code in (400, 503)
+
+
+# ---------------------------------------------------------------------------
+# Graph blueprint (SS-315): mutating /api/graph/* routes inherit the global hook
+# ---------------------------------------------------------------------------
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable  # noqa: E402
+
+_GRAPH_MUTATIONS = [
+    ("POST",   "/api/graph/node-types"),
+    ("POST",   "/api/graph/node-types/t1/schema"),
+    ("PATCH",  "/api/graph/node-types/t1/schema/a1"),
+    ("DELETE", "/api/graph/node-types/t1/schema/a1"),
+    ("POST",   "/api/graph/nodes"),
+    ("PATCH",  "/api/graph/nodes/n1"),
+    ("POST",   "/api/graph/nodes/n1/facts"),
+    ("PATCH",  "/api/graph/facts/f1"),
+    ("DELETE", "/api/graph/facts/f1"),
+    ("POST",   "/api/graph/nodes/n1/grants"),
+    ("DELETE", "/api/graph/nodes/n1/grants/u1"),
+]
+
+
+@pytest.mark.skipif(not platform_db_reachable(),
+                    reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
+@pytest.mark.parametrize("method, path", _GRAPH_MUTATIONS)
+def test_graph_mutating_route_without_csrf_is_forbidden(admin_client_no_csrf,
+                                                        method, path):
+    """The graph JSON blueprint must not be CSRF-exempt. A 404 here would mean
+    the route is missing; a 401 would mean the session did not attach."""
+    response = admin_client_no_csrf.open(path, method=method, json={})
+    assert response.status_code == 403
