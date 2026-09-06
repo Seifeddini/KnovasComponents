@@ -58,6 +58,27 @@ fi
 
 env_in_app() { "${DC[@]}" exec -T docbridge-web printenv "$1" 2>/dev/null | tr -d '\r'; }
 
+head_ "Image freshness"
+# Templates, JS and Python are COPYed into the image, so `up -d --force-recreate`
+# restarts the same code and a pull appears to change nothing. Only the compose
+# file itself takes effect without a rebuild, which is the worst kind of
+# half-applied: some of what you just pulled is running and some is not.
+IMG_ID="$("${DC[@]}" images -q docbridge-web 2>/dev/null | head -1)"
+if [[ -n "$IMG_ID" ]]; then
+  IMG_TS="$(docker inspect -f '{{.Created}}' "$IMG_ID" 2>/dev/null | cut -c1-19)"
+  IMG_EPOCH="$(date -d "${IMG_TS/T/ }" +%s 2>/dev/null || echo 0)"
+  SRC_DIR="$ROOT_DIR/KnovasPlatform/components/docbridge_integration/src"
+  NEWEST="$(find "$SRC_DIR" -type f -newermt "@$IMG_EPOCH" 2>/dev/null | head -5)"
+  if [[ "$IMG_EPOCH" != "0" && -n "$NEWEST" ]]; then
+    bad "the running image is older than files in src/ — those changes are NOT running."
+    echo "       Rebuild: ./scripts/start.sh   (--force-recreate alone reuses the old image)"
+    echo "       Newer than the image, for example:"
+    printf '       %s\n' $(echo "$NEWEST" | sed "s|$ROOT_DIR/||") | head -5
+  else
+    ok "image built $IMG_TS — no source file is newer"
+  fi
+fi
+
 head_ "Settings as the app actually sees them"
 BIND="$("${DC[@]}" ps --format '{{.Ports}}' docbridge-web-nginx 2>/dev/null | head -1)"
 echo "  published: ${BIND:-<none>}"
