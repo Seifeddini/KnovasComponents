@@ -287,10 +287,18 @@ def create_admin_blueprint(
     )
 
     from web_interface.admin_approvals import attach_approval_routes
-    from web_interface.admin_documents import execute_acl_change
+    from web_interface.admin_documents import execute_acl_change, execute_corpus_purge
 
     executors = {
         "acl_change": lambda payload, actor: execute_acl_change(
+            client_factory(), payload, actor=actor, conn=gate.connection()
+        ),
+        # Registered so a queued purge can actually be carried out once a second
+        # person confirms. Without an executor the Approvals tab records the
+        # approval and tells the approver the console cannot perform it — which
+        # for this action would leave the firm believing a wipe had been
+        # authorised and not knowing whether it ran.
+        "purge_all_documents": lambda payload, actor: execute_corpus_purge(
             client_factory(), payload, actor=actor, conn=gate.connection()
         ),
     }

@@ -1415,6 +1415,50 @@ class KnovasAPIClient:
         response.raise_for_status()
         return response
 
+    def delete_all_documents(self, confirm_client_id: str) -> Dict[str, Any]:
+        """DELETE /secured/delete_all_documents — erase the whole corpus.
+
+        There is no undo. Knovas cannot restore the documents afterwards and
+        nobody else can without uploading them again.
+
+        ``confirm_client_id`` must equal this tenant's own id. Per Secure_API.md
+        it is a typo guard rather than a second credential — the server takes the
+        tenant from the certificate either way and rejects a body naming anyone
+        else, so there is no way to point this at another tenant. It is compared
+        locally as well, so a mismatched confirmation never leaves the process.
+
+        Uses ``_request_no_retry``: tenacity would repeat the call on a timeout,
+        and a destructive request is the one kind that must not be replayed
+        because the caller could not read the answer.
+
+        Raises:
+            ValueError: the confirmation is missing or does not match. Nothing
+                was sent.
+        """
+        confirm = str(confirm_client_id or '').strip()
+        own = str(getattr(self, 'customer_id', '') or '').strip()
+        if not confirm:
+            raise ValueError('Ohne Bestaetigung der Mandanten-Id wird nichts geloescht.')
+        if not own:
+            raise ValueError(
+                'Die eigene Mandanten-Id ist nicht bekannt (SEMANTIX_CUSTOMER_ID); '
+                'ohne sie laesst sich die Bestaetigung nicht pruefen.'
+            )
+        if confirm != own:
+            raise ValueError(
+                'Die Bestaetigung entspricht nicht der Mandanten-Id dieses Zertifikats.'
+            )
+        logger.warning(
+            'Loesche den gesamten Dokumentbestand des Mandanten %s. Nicht umkehrbar.',
+            own,
+        )
+        response = self._request_no_retry(
+            'DELETE',
+            '/secured/delete_all_documents',
+            data={'confirm_client_id': own},
+        )
+        return response.json() if response.content else {}
+
     def delete_information_object(self, pointer: str) -> Dict[str, Any]:
         """DELETE /secured/delete_information_object — remove document by pointer."""
         if not pointer or not str(pointer).strip():

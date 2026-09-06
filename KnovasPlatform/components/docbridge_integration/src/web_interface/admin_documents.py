@@ -79,6 +79,38 @@ def _filters_from_request() -> dict:
     }
 
 
+def execute_corpus_purge(client, payload, *, actor, conn) -> dict:
+    """Erase the tenant's whole corpus, and record who caused it.
+
+    Called from the route when the actor may act alone, and from the Approvals
+    tab once a second person has confirmed — one function, so the guarded and
+    the unguarded path cannot drift.
+
+    The audit entry is written *after* the call returns. A record of a deletion
+    that did not happen is worse than a missing one: this is the only trace that
+    the corpus is gone, and it has to mean what it says.
+    """
+    confirm = str(payload.get("confirm_client_id") or "")
+    result = client.delete_all_documents(confirm)
+    audit.record(
+        conn,
+        action="documents.purged_all",
+        actor=actor,
+        target_type="tenant",
+        target_id=confirm,
+        detail={
+            "message": str(result.get("message") or ""),
+            "weaviate_tenant_reset": bool(result.get("weaviate_tenant_reset")),
+            "postgres_rows_deleted": result.get("postgres_rows_deleted") or {},
+        },
+    )
+    logger.warning(
+        "Dokumentbestand des Mandanten %s geloescht durch %s.",
+        confirm, getattr(actor, "email", "?"),
+    )
+    return {"purged": True, "message": str(result.get("message") or "")}
+
+
 def execute_acl_change(client, payload, *, actor, conn) -> dict:
     """Carry out one ``acl_change`` payload against Knovas and audit it.
 
@@ -177,7 +209,11 @@ def attach_document_routes(
             first = view.page(**filters)
         except Exception as exc:  # noqa: BLE001 - surfaced, not swallowed
             logger.warning("Dokumentliste nicht abrufbar: %s", exc)
-            first = {"documents": [], "next_after": None, "total_count": 0}
+            # Every key the template reads must be here: the fallback is what
+            # renders when the fetch failed, and a missing one turns a handled
+            # error into a KeyError 500 on the page meant to report it.
+            first = {"documents": [], "next_after": None, "total_count": 0,
+                     "unavailable": False}
             error = error or (
                 "Die Dokumentliste ist derzeit nicht abrufbar. "
                 "Bitte spaeter erneut versuchen."
@@ -197,6 +233,10 @@ def attach_document_routes(
             unavailable=first["unavailable"],
             filters=filters,
             groups=groups,
+            # Shown next to the purge form so the confirmation can be read off
+            # the page. It is a typo guard, not a secret: the API derives the
+            # tenant from the certificate regardless.
+            tenant_id=str(getattr(client_factory(), "customer_id", "") or ""),
             me=gate.current_user(),
             error=error,
             notice=notice,
@@ -262,6 +302,67 @@ def attach_document_routes(
             )
         return _documents_page(notice=f"{result.get('changed', 0)} Dokument(e) geaendert.")
 
+
+    @bp.route("/documents/purge", methods=["POST"])
+    @require_admin
+    def purge_documents():
+        """Erase the tenant's entire corpus.
+
+        Four things stand between a stray click and an empty tenant, and each
+        stops a different mistake:
+
+        - ``require_admin`` and the CSRF token, as everywhere in the console;
+        - the typed tenant id, which is the API's own typo guard and cannot be
+          produced by clicking;
+        - ``run_guarded``: ``purge_all_documents`` is a guarded kind, so unless
+          admin-bypass is on, this is queued for a second person rather than
+          carried out;
+        - the audit record in ``execute_corpus_purge``, written after the call
+          returns, because this is the only trace left afterwards.
+
+        There is no undo. Knovas cannot restore the documents and neither can
+        the firm without ingesting them again.
+        """
+        if not _csrf_ok():
+            return _documents_page(
+                error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400
+            )
+        confirm = str(request.form.get("confirm_client_id", "") or "").strip()
+        expected = str(getattr(client_factory(), "customer_id", "") or "").strip()
+        if not confirm or confirm != expected:
+            # Deliberately before anything else runs: a mistyped confirmation
+            # must not reach the API, and must not read as a system failure.
+            return _documents_page(
+                error=(
+                    "Die eingegebene Mandanten-Id stimmt nicht. Es wurde nichts "
+                    "geloescht."
+                ),
+                status=400,
+            )
+        me = gate.current_user()
+        payload = {"action": "purge_all_documents", "confirm_client_id": confirm}
+        try:
+            outcome = run_guarded(
+                _approvals(), me, kind="purge_all_documents",
+                target_ref=confirm, payload=payload,
+                execute=lambda: execute_corpus_purge(
+                    client_factory(), payload, actor=me, conn=gate.connection()
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Bestand nicht geloescht: %s", exc, exc_info=True)
+            return _documents_page(
+                error=(
+                    "Der Bestand wurde NICHT geloescht — die Knovas-API hat den "
+                    "Aufruf abgelehnt. Das Log von docbridge-web nennt den Grund."
+                ),
+                status=502,
+            )
+        if outcome.queued:
+            return _documents_page(notice=_queued_notice(outcome.request))
+        return _documents_page(
+            notice="Der gesamte Dokumentbestand dieses Mandanten wurde geloescht."
+        )
 
     # ---- Zugriffsgruppen: group tree and folder rules (plan Task 6) ----
 

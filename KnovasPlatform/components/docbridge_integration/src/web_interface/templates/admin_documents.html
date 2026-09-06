@@ -128,6 +128,30 @@
             <p><button type="submit">Zuordnen</button></p>
         </div>
     </form>
+
+    {# Bewusst am Ende der Seite, optisch abgesetzt und ohne Vorauswahl: die
+       Bestaetigung muss abgetippt werden, ein Klick allein erzeugt sie nicht. #}
+    <div class="panel danger-zone">
+        <h2>Gesamten Bestand löschen</h2>
+        <p class="hint">
+            Löscht <strong>alle Dokumente dieses Mandanten</strong> bei Knovas —
+            Texte, Sätze, Versionen und Bewertungen. Das ist
+            <strong>nicht umkehrbar</strong>: Knovas kann nichts davon
+            wiederherstellen, und ohne erneutes Einlesen niemand sonst. Der
+            Wissensgraph und die Konten dieser Plattform bleiben bestehen.
+        </p>
+        <p class="hint">
+            Zum Bestätigen die Mandanten-Id dieses Zertifikats eintippen:
+            <code>{{ tenant_id or 'unbekannt' }}</code>
+        </p>
+        <form method="post" action="{{ url_for('admin.purge_documents') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label for="confirm_client_id">Mandanten-Id</label>
+            <input type="text" id="confirm_client_id" name="confirm_client_id"
+                   autocomplete="off" spellcheck="false" placeholder="{{ tenant_id or '' }}">
+            <p><button type="submit" class="danger">Alle Dokumente unwiderruflich löschen</button></p>
+        </form>
+    </div>
 </main>
 
 <script src="{{ url_for('static', filename='js/admin_documents.js') }}" defer></script>

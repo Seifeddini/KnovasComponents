@@ -404,3 +404,35 @@
     overflow-x: auto;
     margin: 10px 0;
 }
+
+/* ── Gefahrenzone ──────────────────────────────────────────────────────── */
+
+/* Optisch abgesetzt, weil hier eine nicht umkehrbare Aktion steht. Die Farbe
+   traegt die Warnung nicht allein: Ueberschrift, Text und Beschriftung des
+   Knopfes sagen dasselbe. */
+.admin .danger-zone {
+    border-color: rgba(196, 30, 30, 0.35);
+    background: rgba(196, 30, 30, 0.03);
+    margin-top: 48px;
+}
+
+.admin .danger-zone > h2 { color: var(--error-color); }
+
+.admin .danger-zone input[type=text] {
+    border-color: rgba(196, 30, 30, 0.35);
+    background: var(--card-bg);
+    font-family: var(--font-heading);
+}
+
+.admin .danger-zone input[type=text]:focus {
+    border-color: var(--error-color);
+    box-shadow: 0 0 0 3px rgba(196, 30, 30, 0.15);
+}
+
+.admin .danger-zone code {
+    font-family: var(--font-heading);
+    font-size: 0.82rem;
+    background: var(--surface-sunken);
+    padding: 2px 6px;
+    border-radius: var(--radius);
+}

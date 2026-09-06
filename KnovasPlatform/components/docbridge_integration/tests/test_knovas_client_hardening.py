@@ -438,3 +438,70 @@ class TestGuardsDoNotWeaken:
         sess = client._build_session()
         assert sess.verify == "/certs/ca.crt"  # verify NEVER set to False
         assert sess.cert == ("/certs/client.crt", "/certs/client.key")
+
+
+class _PurgeProbe:
+    """Records whether a destructive request actually left the process."""
+
+    def __init__(self, tenant):
+        self.customer_id = tenant
+        self.sent = []
+
+    def _request_no_retry(self, method, endpoint, data=None, **kw):
+        self.sent.append((method, endpoint, data))
+
+        class _Response:
+            content = b'{"status": "success"}'
+
+            def json(self):
+                return {"status": "success"}
+
+        return _Response()
+
+
+def _purge(tenant, confirm):
+    from knovas_client import KnovasAPIClient
+
+    probe = _PurgeProbe(tenant)
+    return probe, KnovasAPIClient.delete_all_documents(probe, confirm)
+
+
+TENANT = "3136bc47-db86-4d8c-aa16-6cef3a244c15"
+
+
+@pytest.mark.parametrize(
+    "confirm",
+    ["", "   ", "00000000-0000-0000-0000-000000000000", TENANT[:-1] + "0", TENANT.upper()],
+)
+def test_corpus_purge_refuses_a_confirmation_that_does_not_match(confirm):
+    """A mistyped confirmation must not reach the API at all.
+
+    The server has its own guard, but a request that goes out and is rejected
+    still depends on the server getting it right. The cheaper and stricter
+    place to stop it is before it leaves.
+    """
+    probe = _PurgeProbe(TENANT)
+    from knovas_client import KnovasAPIClient
+
+    with pytest.raises(ValueError):
+        KnovasAPIClient.delete_all_documents(probe, confirm)
+    assert probe.sent == [], "a destructive request was sent despite a bad confirmation"
+
+
+def test_corpus_purge_refuses_when_its_own_tenant_is_unknown():
+    """Without SEMANTIX_CUSTOMER_ID there is nothing to compare against."""
+    probe = _PurgeProbe("")
+    from knovas_client import KnovasAPIClient
+
+    with pytest.raises(ValueError):
+        KnovasAPIClient.delete_all_documents(probe, TENANT)
+    assert probe.sent == []
+
+
+def test_corpus_purge_sends_the_tenant_from_the_certificate():
+    """The body carries the client's own id, never the typed string."""
+    probe, result = _purge(TENANT, TENANT)
+    method, endpoint, body = probe.sent[0]
+    assert (method, endpoint) == ("DELETE", "/secured/delete_all_documents")
+    assert body == {"confirm_client_id": TENANT}
+    assert result["status"] == "success"
