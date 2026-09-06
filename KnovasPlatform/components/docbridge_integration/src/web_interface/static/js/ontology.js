@@ -439,6 +439,21 @@ class CortexApp {
         }).run();
     }
 
+    /** Breite, die wirklich frei ist. Der Drawer verdeckt rechts — aber nur,
+        wenn er offen ist. Vorher standen hier zwei fest verdrahtete 432er:
+        bei geschlossenem Drawer schob deshalb jeder Klick den Graphen um gut
+        200px nach links, obwohl nichts verdeckt war, und zoomFit rechnete
+        umgekehrt mit der vollen Breite und schob den Inhalt bei offenem
+        Drawer darunter. Einmal messen statt zweimal raten. */
+    visibleWidth() {
+        const w = this.cy.width();
+        const pane = document.querySelector('.ontology-drawer.open');
+        if (!pane) return w;
+        const rect = pane.getBoundingClientRect();
+        const occluded = Math.min(rect.width || 432, w * 0.55);
+        return Math.max(w - occluded, w * 0.45);
+    }
+
     bindZoomControls() {
         // Buttons gleiten statt zu springen; cy.stop() bricht eine laufende
         // Fahrt ab, damit schnelle Klickfolgen sich nicht stapeln.
@@ -462,10 +477,29 @@ class CortexApp {
             this.cy.animate({ zoom: level, pan },
                             { duration: 220, easing: 'ease-out-quart' });
         };
+        // cy.fit() zentriert in der vollen Flaeche und kennt den Drawer nicht.
+        // Deshalb Zoom und Schwenk selbst rechnen, gegen dieselbe sichtbare
+        // Breite, die zoomToNode und frameGroup benutzen.
         const fitAll = () => {
-            if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
+            const els = this.cy.elements();
+            const bb = els.length ? els.boundingBox() : null;
+            const usable = bb && isFinite(bb.w) && isFinite(bb.h);
+            if (!usable) { this.cy.fit(undefined, 60); return; }
+            const pad = 60;
+            const vw = this.visibleWidth();
+            const vh = this.cy.height();
+            // Ein einzelner Knoten hat Breite 0 - dann nicht durch 0 teilen,
+            // sondern beim aktuellen Zoom bleiben und nur schwenken.
+            const fitX = bb.w > 1 ? (vw - 2 * pad) / bb.w : this.cy.zoom();
+            const fitY = bb.h > 1 ? (vh - 2 * pad) / bb.h : this.cy.zoom();
+            const level = Math.min(this.cy.maxZoom(),
+                                   Math.max(this.cy.minZoom(), Math.min(fitX, fitY)));
+            const cx = bb.x1 + bb.w / 2;
+            const cyM = bb.y1 + bb.h / 2;
+            const pan = { x: vw / 2 - cx * level, y: vh / 2 - cyM * level };
+            if (CortexApp.reducedMotion()) { this.cy.viewport({ zoom: level, pan }); return; }
             this.cy.stop();
-            this.cy.animate({ fit: { padding: 60 } },
+            this.cy.animate({ zoom: level, pan },
                             { duration: 350, easing: 'ease-out-quart' });
         };
         document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.25));
@@ -517,7 +551,7 @@ class CortexApp {
         // Nur fahren, wenn es etwas bringt: liegt der Knoten schon gut im
         // sichtbaren Bereich links vom Drawer, bleibt die Kamera stehen.
         // Sonst wirkt jeder Klick, als verschöbe sich der ganze Graph.
-        const visible = Math.max(this.cy.width() - 432, this.cy.width() * 0.45);
+        const visible = this.visibleWidth();
         const r = node.renderedPosition();
         const margin = 80;
         const bereitsGut = this.cy.zoom() >= 0.85
@@ -548,7 +582,7 @@ class CortexApp {
     frameGroup(punkte) {
         if (!punkte.length) return;
         const pad = 40;
-        const sichtbar = Math.max(this.cy.width() - 432, this.cy.width() * 0.45);
+        const sichtbar = this.visibleWidth();
         const zoom = this.cy.zoom();
         const pan = this.cy.pan();
         const gerendert = punkte.map((q) => ({
