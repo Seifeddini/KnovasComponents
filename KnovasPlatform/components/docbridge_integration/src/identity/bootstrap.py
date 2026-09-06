@@ -32,6 +32,11 @@ from identity import audit, passwords, users
 
 logger = logging.getLogger(__name__)
 
+#: Kept in step with identity.startup.DEFAULT_SECRET_PATH, which is the value
+#: callers actually pass. Defined here too rather than imported, because
+#: startup imports this module and the reverse would be a cycle.
+DEFAULT_SECRET_PATH = "/app/data/platform-admin-bootstrap"
+
 #: Long enough that the generated value is not the weak link, short enough to
 #: be retyped from a terminal once.
 _GENERATED_PASSWORD_BYTES = 24
@@ -78,7 +83,7 @@ def ensure_admin(
     *,
     email: str,
     password: str | None = None,
-    secret_path: str | Path = "/run/platform-admin-bootstrap",
+    secret_path: str | Path = DEFAULT_SECRET_PATH,
 ) -> bool:
     """Create the first administrator if this database has no accounts.
 

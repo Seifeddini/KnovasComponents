@@ -24,10 +24,11 @@ cp knovas.env.example knovas.env   # fill 5 values, add certs to certs/
 Unified stack (RC + Platform): one `knovas.env`, shared document mount, RC on `127.0.0.1:5001` only.
 
 The fifth value is `PLATFORM_ADMIN_EMAIL`. There is no default account: first start creates
-that administrator and writes a one-time password to `/run/platform-admin-bootstrap` inside
+that administrator and writes a one-time password to `/app/data/platform-admin-bootstrap` inside
 the `docbridge-web` container — read it with
-`docker compose exec docbridge-web cat /run/platform-admin-bootstrap`, sign in, change it,
-and delete the file.
+`docker compose --env-file knovas.env exec docbridge-web cat /app/data/platform-admin-bootstrap`,
+sign in, change it, and delete the file. Set `PLATFORM_ADMIN_PASSWORD` in `knovas.env` to choose
+it yourself instead, and `./scripts/admin-password.sh` resets it at any time.
 
 See each folder’s README for component-only dev. **Hosting partners:** [docs/hosting-requirements.md](docs/hosting-requirements.md). To stop Docker or dev web servers: [docs/stopping-web-servers.md](docs/stopping-web-servers.md).
 

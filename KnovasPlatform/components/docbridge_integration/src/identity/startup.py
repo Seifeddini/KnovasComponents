@@ -16,7 +16,16 @@ from identity import bootstrap, migrate
 BOOT_LOCK_CLASS = 0x4B4E4F56
 BOOT_LOCK_OBJECT = 0x49445459
 
-DEFAULT_SECRET_PATH = "/run/platform-admin-bootstrap"
+#: Where a *generated* first-run password is left for the operator to read.
+#:
+#: /app/data, not /run: /run is tmpfs inside the container, so the file died with
+#: the first `docker compose up` that recreated docbridge-web -- and because
+#: ensure_admin only runs against a database with no accounts, it was never
+#: reissued. The account existed, its password was unknowable, and the documented
+#: way out was dropping the identity volume. /app/data is a named volume, so the
+#: file survives a recreate and stays readable until the operator deletes it, as
+#: the sign-in instructions tell them to.
+DEFAULT_SECRET_PATH = "/app/data/platform-admin-bootstrap"
 
 
 def prepare_identity(

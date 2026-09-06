@@ -131,10 +131,17 @@ baked into the image. `start.sh` passes `--build`, so re-running it is enough:
 `PLATFORM_ADMIN_EMAIL` and writes a one-time password inside the container:
 
 ```bash
-docker compose exec docbridge-web cat /run/platform-admin-bootstrap
+docker compose --env-file knovas.env exec docbridge-web cat /app/data/platform-admin-bootstrap
 ```
 
-Sign in with it, change the password, then delete the file.
+Sign in with it, change the password, then delete the file. The path is on a
+named volume, so it survives a container recreate.
+
+Prefer not to depend on that file at all? Set `PLATFORM_ADMIN_PASSWORD` in
+`knovas.env` and the account gets that password with nothing written to disk.
+Either way, `./scripts/admin-password.sh` sets or resets an account's password
+later — it creates the account as an administrator if it does not exist, and
+clears any lockout.
 
 - Browser: `http://127.0.0.1:8081` on the server (`DOCBRIDGE_WEB_PORT`), or
   `https://<fqdn>` once nginx is in front of it

@@ -21,6 +21,7 @@ Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-B1-1, B1-5)
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Sequence
@@ -34,8 +35,42 @@ logger = logging.getLogger(__name__)
 #: from the per-IP throttle already in app.py:708 — that one bounds an address,
 #: this one bounds an account, and an attacker with many addresses defeats the
 #: first without touching the second.
+#:
+#: Both are defaults, not policy: IDENTITY_ACCOUNT_LOCKOUT_ATTEMPTS and
+#: IDENTITY_ACCOUNT_LOCKOUT_MINUTES override them, and 0 attempts switches
+#: account locking off. A deployment on a trusted LAN may decide a locked-out
+#: colleague costs more than the protection buys — but with it off, an online
+#: password guess is bounded only by the per-IP throttle.
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_DURATION = timedelta(minutes=15)
+
+
+def _lockout_policy() -> tuple[int, timedelta]:
+    """Attempts before an account locks, and for how long.
+
+    Read per call rather than at import, so changing it is a restart of the
+    container and not a rebuild of the image.
+    """
+    raw_attempts = (os.environ.get("IDENTITY_ACCOUNT_LOCKOUT_ATTEMPTS") or "").strip()
+    raw_minutes = (os.environ.get("IDENTITY_ACCOUNT_LOCKOUT_MINUTES") or "").strip()
+    default_minutes = int(LOCKOUT_DURATION.total_seconds() // 60)
+    try:
+        attempts = int(raw_attempts) if raw_attempts else MAX_FAILED_ATTEMPTS
+    except ValueError:
+        logger.warning(
+            "IDENTITY_ACCOUNT_LOCKOUT_ATTEMPTS=%r is not a number; using %d",
+            raw_attempts, MAX_FAILED_ATTEMPTS,
+        )
+        attempts = MAX_FAILED_ATTEMPTS
+    try:
+        minutes = int(raw_minutes) if raw_minutes else default_minutes
+    except ValueError:
+        logger.warning(
+            "IDENTITY_ACCOUNT_LOCKOUT_MINUTES=%r is not a number; using %d",
+            raw_minutes, default_minutes,
+        )
+        minutes = default_minutes
+    return max(0, attempts), timedelta(minutes=max(1, minutes))
 
 
 class UserError(Exception):
@@ -274,7 +309,12 @@ class UserRepository:
 
     def _record_failure(self, row: Mapping[str, Any]) -> None:
         attempts = int(row["failed_attempts"]) + 1
-        locked_until = _now() + LOCKOUT_DURATION if attempts >= MAX_FAILED_ATTEMPTS else None
+        max_attempts, duration = _lockout_policy()
+        # 0 disables locking. Failures are still counted, so an operator can see
+        # what has been tried and switching locking back on takes effect at once.
+        locked_until = (
+            _now() + duration if max_attempts > 0 and attempts >= max_attempts else None
+        )
         self._conn.execute(
             "UPDATE users SET failed_attempts = %s, locked_until = %s WHERE id = %s",
             (attempts, locked_until, str(row["id"])),

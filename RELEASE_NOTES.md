@@ -25,8 +25,13 @@ Migration:
 3. `./scripts/setup.sh` ausfuehren — legt `secrets/platform_db_password` (0600)
    an und mountet es als Docker-Secret.
 4. `./scripts/start.sh`. Beim ersten Start entsteht das Administratorkonto; das
-   Einmalpasswort steht in `/run/platform-admin-bootstrap` im Container
-   `docbridge-web`. Danach anmelden, Passwort aendern, Datei loeschen.
+   Einmalpasswort steht in `/app/data/platform-admin-bootstrap` im Container
+   `docbridge-web` -- auf einem benannten Volume, es ueberlebt also ein
+   Neuerstellen des Containers. Danach anmelden, Passwort aendern, Datei
+   loeschen. Wer das Passwort lieber selbst setzt, traegt
+   `PLATFORM_ADMIN_PASSWORD` in `knovas.env` ein; dann wird nichts auf Platte
+   geschrieben. `./scripts/admin-password.sh` setzt es jederzeit neu und hebt
+   dabei eine Sperre auf.
 5. **Die Identitaetsdatenbank sichern.** Sie haelt alle Konten, Rollen und
    Gruppenzuordnungen der Kanzlei. Ohne Backup sind sie verloren.
 
