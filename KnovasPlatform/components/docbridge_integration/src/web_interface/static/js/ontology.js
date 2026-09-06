@@ -399,10 +399,7 @@ class CortexApp {
         });
         this.cy.on('dbltap', (evt) => {
             if (evt.target !== this.cy) return;
-            if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
-            this.cy.stop();
-            this.cy.animate({ fit: { padding: 60 } },
-                            { duration: 350, easing: 'ease-out-quart' });
+            this.fitToVisible();
         });
         this.cy.on('mouseover', 'node', (evt) => evt.target.addClass('hovered'));
         this.cy.on('mouseout', 'node', (evt) => evt.target.removeClass('hovered'));
@@ -425,18 +422,29 @@ class CortexApp {
             name: 'cose',
             animate: false,
             randomize: false,
-            fit: true,
+            // fit: false, weil cose in die volle Leinwand einpasst und den
+            // Drawer nicht kennt. Gerahmt wird danach mit fitToVisible().
+            fit: false,
             padding: 60,
             // Feste Layout-Fläche statt Container-Pixelmasse: sonst hängt das
             // Ergebnis von der Fenstergrösse beim Laden ab (Spec: deterministisch).
-            boundingBox: { x1: 0, y1: 0, w: 1200, h: 800 },
+            // Kleiner als früher (war 1200x800): auf der grossen Fläche trieben
+            // schwach verbundene Typen so weit auseinander, dass die Startansicht
+            // fast nur Zwischenraum zeigte.
+            boundingBox: { x1: 0, y1: 0, w: 820, h: 560 },
             nodeDimensionsIncludeLabels: true,
-            idealEdgeLength: () => 130,
-            nodeRepulsion: () => 150000,
-            edgeElasticity: () => 150,
-            gravity: 2.2,
+            // Enger gestellt als zuvor (130 / 150000 / 2.2). Die Abstossung
+            // dominierte die Federn, deshalb lag der Graph als dünner Schleier
+            // über der Fläche statt als lesbare Gruppe.
+            idealEdgeLength: () => 85,
+            nodeRepulsion: () => 42000,
+            edgeElasticity: () => 190,
+            gravity: 4.5,
             numIter: 3000,
         }).run();
+        // Erst rahmen, wenn die Positionen stehen: sonst rechnet fitToVisible
+        // gegen die Startkoordinaten des Kreis-Seeds.
+        this.fitToVisible(0);
     }
 
     /** Breite, die wirklich frei ist. Der Drawer verdeckt rechts — aber nur,
@@ -452,6 +460,33 @@ class CortexApp {
         const rect = pane.getBoundingClientRect();
         const occluded = Math.min(rect.width || 432, w * 0.55);
         return Math.max(w - occluded, w * 0.45);
+    }
+
+    /** Alles einrahmen, aber in der Flaeche, die der Anwender wirklich sieht.
+        cy.fit() zentriert in der vollen Leinwand und kennt den Drawer nicht,
+        deshalb Zoom und Schwenk selbst rechnen — gegen dieselbe Breite, die
+        zoomToNode und frameGroup benutzen. */
+    fitToVisible(duration = 350) {
+        const els = this.cy.elements();
+        const bb = els.length ? els.boundingBox() : null;
+        if (!bb || !isFinite(bb.w) || !isFinite(bb.h)) { this.cy.fit(undefined, 60); return; }
+        const pad = 60;
+        const vw = this.visibleWidth();
+        const vh = this.cy.height();
+        // Ein einzelner Knoten hat Breite 0 — dann nicht durch 0 teilen,
+        // sondern beim aktuellen Zoom bleiben und nur schwenken.
+        const fitX = bb.w > 1 ? (vw - 2 * pad) / bb.w : this.cy.zoom();
+        const fitY = bb.h > 1 ? (vh - 2 * pad) / bb.h : this.cy.zoom();
+        const level = Math.min(this.cy.maxZoom(),
+                               Math.max(this.cy.minZoom(), Math.min(fitX, fitY)));
+        const pan = { x: vw / 2 - (bb.x1 + bb.w / 2) * level,
+                      y: vh / 2 - (bb.y1 + bb.h / 2) * level };
+        if (duration === 0 || CortexApp.reducedMotion()) {
+            this.cy.viewport({ zoom: level, pan });
+            return;
+        }
+        this.cy.stop();
+        this.cy.animate({ zoom: level, pan }, { duration, easing: 'ease-out-quart' });
     }
 
     bindZoomControls() {
@@ -477,31 +512,7 @@ class CortexApp {
             this.cy.animate({ zoom: level, pan },
                             { duration: 220, easing: 'ease-out-quart' });
         };
-        // cy.fit() zentriert in der vollen Flaeche und kennt den Drawer nicht.
-        // Deshalb Zoom und Schwenk selbst rechnen, gegen dieselbe sichtbare
-        // Breite, die zoomToNode und frameGroup benutzen.
-        const fitAll = () => {
-            const els = this.cy.elements();
-            const bb = els.length ? els.boundingBox() : null;
-            const usable = bb && isFinite(bb.w) && isFinite(bb.h);
-            if (!usable) { this.cy.fit(undefined, 60); return; }
-            const pad = 60;
-            const vw = this.visibleWidth();
-            const vh = this.cy.height();
-            // Ein einzelner Knoten hat Breite 0 - dann nicht durch 0 teilen,
-            // sondern beim aktuellen Zoom bleiben und nur schwenken.
-            const fitX = bb.w > 1 ? (vw - 2 * pad) / bb.w : this.cy.zoom();
-            const fitY = bb.h > 1 ? (vh - 2 * pad) / bb.h : this.cy.zoom();
-            const level = Math.min(this.cy.maxZoom(),
-                                   Math.max(this.cy.minZoom(), Math.min(fitX, fitY)));
-            const cx = bb.x1 + bb.w / 2;
-            const cyM = bb.y1 + bb.h / 2;
-            const pan = { x: vw / 2 - cx * level, y: vh / 2 - cyM * level };
-            if (CortexApp.reducedMotion()) { this.cy.viewport({ zoom: level, pan }); return; }
-            this.cy.stop();
-            this.cy.animate({ zoom: level, pan },
-                            { duration: 350, easing: 'ease-out-quart' });
-        };
+        const fitAll = () => this.fitToVisible();
         document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.25));
         document.getElementById('zoomOut').addEventListener('click', () => zoomBy(0.8));
         document.getElementById('zoomFit').addEventListener('click', fitAll);
@@ -610,9 +621,7 @@ class CortexApp {
 
     /** Zurück zur Gesamtansicht (nach dem Einklappen). */
     animateFit() {
-        if (CortexApp.reducedMotion()) { this.cy.fit(undefined, 60); return; }
-        this.cy.animate({ fit: { padding: 60 } },
-                        { duration: 480, easing: 'ease-out-quart' });
+        this.fitToVisible(480);
     }
 
     /** Entitäten eines Typs als Satelliten-Knoten am Typ-Knoten auffächern.
@@ -1235,9 +1244,7 @@ class CortexApp {
         const outside = p.x < 60 || p.y < 60
             || p.x > this.cy.width() - 60 || p.y > this.cy.height() - 60;
         if (outside) {
-            if (CortexApp.reducedMotion()) this.cy.fit(undefined, 60);
-            else this.cy.animate({ fit: { padding: 60 } },
-                                 { duration: 350, easing: 'ease-out-quart' });
+            this.fitToVisible();
         }
         return node;
     }
