@@ -1343,12 +1343,23 @@ def create_app(config_path: Optional[str] = None):
             logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
             return None
         if user is None:
+            # Rendering a sidebar for nobody. Worth a line: it is the difference
+            # between "you lack the role" and "this page does not think you are
+            # signed in", and the two look identical from the browser.
+            logger.info('Verwaltungslink: keine angemeldete Person in dieser Anfrage')
             return None
         roles = getattr(user, 'roles', None) or ()
         if 'admin' in roles:
             return url_for('admin.people')
         if 'approver' in roles:
             return url_for('admin.approvals')
+        # The link simply is not drawn, which from the outside is
+        # indistinguishable from a broken menu. Say whose roles were read and
+        # what they were, so one page load settles it.
+        logger.info(
+            'Verwaltungslink ausgeblendet: %s hat die Rollen %s',
+            getattr(user, 'email', '?'), sorted(roles) or ['-'],
+        )
         return None
 
     def _sidebar_context() -> Dict[str, Any]:
