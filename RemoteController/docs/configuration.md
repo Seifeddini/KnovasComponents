@@ -63,6 +63,22 @@ Set mode `0600` for:
 
 Sync request shape: [examples/sync-request.json](../examples/sync-request.json) and [contracts/sync_request.schema.json](../contracts/sync_request.schema.json).
 
+### Per-source access groups
+
+Each `sources[]` entry may carry `access_groups`. Every document ingested from
+that folder is born with those groups, so a walled folder stays walled across
+re-syncs rather than being repaired afterwards.
+
+Omit the key for unrestricted folders. An *absent* key lets the Secure API
+apply whatever folder rule covers the pointer; an explicit empty array means
+"deliberately unrestricted" and overrides that rule.
+
+**Caveat:** with `sequential_subfolders` enabled, RemoteController processes
+one source per cycle (`sync_executor.py` logs `sequential_subfolders requires
+exactly one source; using first only`). In that mode the first source's
+`access_groups` applies. Use one profile per walled folder if you need
+different groups under sequential mode.
+
 ## Supported document formats
 
 RemoteController converts the following extensions to text (with per-sentence citations) before chunking and upload. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):

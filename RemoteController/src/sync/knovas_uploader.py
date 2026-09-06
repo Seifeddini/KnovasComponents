@@ -133,7 +133,11 @@ class SemantixUploader:
         raise last_exc or RuntimeError("request failed")
 
     def upload_file(
-        self, file_path: Path, relative_path: str, sync_body: dict[str, Any]
+        self,
+        file_path: Path,
+        relative_path: str,
+        sync_body: dict[str, Any],
+        access_groups: tuple[str, ...] = (),
     ) -> UploadResult:
         ingestion = sync_body.get("ingestion") or {}
         prefix = ingestion.get("identifier_prefix", "rc-sync")
@@ -185,6 +189,11 @@ class SemantixUploader:
         description = (sync_body.get("ingestion") or {}).get("description") or doc.description
         if description:
             init_body["description"] = str(description).strip()[:2000]
+        if access_groups:
+            # Only when set. An absent key lets the Secure API apply the
+            # folder rule for this pointer; an explicit [] would mean
+            # "deliberately unrestricted" and would override it.
+            init_body["access_groups"] = list(access_groups)
 
         init_resp = self._request(
             "POST",

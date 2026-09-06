@@ -9,6 +9,14 @@ Docker search UI for an indexed Knovas tenant. Requires mTLS client certificates
 - Deploy: [KnovasPlatform/docs/setup.md](KnovasPlatform/docs/setup.md)
 - API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)
 
+### Dokumentverwaltung und Ordner-Zugriffsrechte
+
+Die Verwaltung zeigt jetzt alle hochgeladenen Dokumente des Mandanten und
+erlaubt, Zugriffsrechte je Dokument oder je Ordner zu setzen. Ordnerregeln
+gelten auch für später eingelesene Dokumente, sodass ein erneuter Abgleich
+eine geschlossene Wand nicht wieder öffnet. Beschreibung:
+[KnovasPlatform/docs/features/document-administration.md](KnovasPlatform/docs/features/document-administration.md)
+
 ## RemoteController
 
 Discover and sync local text files to Knovas (employee JWT; tenant mTLS for ingestion).
