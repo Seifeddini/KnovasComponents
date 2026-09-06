@@ -119,6 +119,35 @@ for email, status, must_change, fails, locked, roles in rows:
         print("       Fix: ./scripts/admin-password.sh --grant-admin " + email)
 PY
 
+head_ "Search result snippets"
+# The text under a result title does not come from the API: /secured/query
+# returns match locations without chunk text (knovas_client.py:738). It is read
+# from a sidecar in the context store, and context_store.load_context returns
+# None when that directory is absent — silently, so results render with a title
+# and nothing beneath it and no error anywhere.
+STORE="$(env_in_app SEARCH_CONTEXT_STORE_PATH)"
+if [[ -z "$STORE" ]]; then
+  warn "SEARCH_CONTEXT_STORE_PATH is unset — snippets fall back to /mnt/autodoc/.search_context"
+  STORE="/mnt/autodoc/.search_context"
+fi
+echo "  SEARCH_CONTEXT_STORE_PATH = $STORE"
+if ! "${DC[@]}" exec -T docbridge-web test -d "$STORE" 2>/dev/null; then
+  bad "that directory does not exist in the container — every result will show a title and no text."
+  echo "       Sidecars are written during ingestion. Either point this at an existing store,"
+  echo "       e.g. SEARCH_CONTEXT_STORE_PATH=/mnt/autodoc/preview_storage in knovas.env,"
+  echo "       or re-run ingestion so RemoteController fills the current one."
+else
+  COUNT="$("${DC[@]}" exec -T docbridge-web sh -c "find '$STORE' -type f 2>/dev/null | head -1000 | wc -l" 2>/dev/null | tr -d '[:space:]')"
+  if [[ "${COUNT:-0}" -gt 0 ]]; then
+    ok "context store holds ${COUNT} sidecar file(s) — snippets available"
+  else
+    bad "context store exists but is EMPTY — results will show a title and no text."
+    echo "       A freshly created rc-state volume starts empty; the sidecars from an earlier"
+    echo "       deployment are wherever that one wrote them. Point SEARCH_CONTEXT_STORE_PATH"
+    echo "       at them, or re-run ingestion to repopulate this one."
+  fi
+fi
+
 head_ "Knovas API (mTLS)"
 # Probed from inside the container, with the same certificates the app uses, so
 # a pass here means the app's own calls can get out. Search and graph-mode Cortex
