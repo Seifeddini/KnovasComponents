@@ -5,24 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Personen · {{ app_title }}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <style>
-        .admin { max-width: 1100px; margin: 0 auto; padding: 24px; }
-        .admin table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-        .admin th, .admin td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-        .admin th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
-        .admin .state-disabled { color: #b91c1c; }
-        .admin .state-locked { color: #b45309; }
-        .admin .state-active { color: #15803d; }
-        .admin form.inline { display: inline; }
-        .admin .panel { border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px 18px; margin-top: 24px; }
-        .admin .msg { padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
-        .admin .msg.error { background: #fef2f2; color: #b91c1c; }
-        .admin .msg.ok { background: #f0fdf4; color: #15803d; }
-        .admin label { display: block; margin-top: 10px; font-size: 13px; }
-        .admin input[type=text], .admin input[type=email], .admin input[type=password] { width: 100%; max-width: 360px; padding: 6px 8px; }
-        .admin .hint { color: #64748b; font-size: 12.5px; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
 <body>
 <div class="app-shell">

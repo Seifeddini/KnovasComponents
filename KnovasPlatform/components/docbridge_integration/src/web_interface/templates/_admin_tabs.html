@@ -24,6 +24,11 @@
        class="{% if admin_tab == 'ingestion' %}active{% endif %}"
        {% if admin_tab == 'ingestion' %}aria-current="page"{% endif %}>Ingestion</a>
     {% endif %}
+    {% if not (me is defined and me and 'admin' not in me.roles) %}
+    <a href="{{ url_for('admin.system') }}"
+       class="{% if admin_tab == 'system' %}active{% endif %}"
+       {% if admin_tab == 'system' %}aria-current="page"{% endif %}>System</a>
+    {% endif %}
     <a href="{{ url_for('admin.approvals') }}"
        class="{% if admin_tab == 'approvals' %}active{% endif %}"
        {% if admin_tab == 'approvals' %}aria-current="page"{% endif %}>Freigaben</a>

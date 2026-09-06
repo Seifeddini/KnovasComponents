@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
+</head>
+<body>
+<div class="app-shell">
+{% include '_sidebar.html' %}
+<div class="app-content">
+
+<main class="admin">
+    {% set admin_tab = 'system' %}
+    {% include '_admin_tabs.html' %}
+
+    <h1>System</h1>
+    <p class="hint">
+        Jede Zeile ist ein echter Aufruf — durch denselben Client, mit denselben
+        Zertifikaten und mit Ihrer Anmeldung. Ein grüner Punkt heißt deshalb:
+        genau dieser Aufruf funktioniert, mit genau diesen Rechten. Es wird
+        nichts geändert; gelesen wird der Wissensgraph, gesucht wird nach einem
+        einzelnen Wort.
+    </p>
+
+    <div class="status-banner status-{{ summary.state }}">
+        <span class="status-dot" aria-hidden="true"></span>
+        <strong>{{ summary.text }}</strong>
+        <span class="status-when">geprüft {{ checked_at }}</span>
+        <a class="btn-outline status-again" href="{{ url_for('admin.system') }}">Erneut prüfen</a>
+    </div>
+
+    <div class="checks">
+        {% for c in checks %}
+        <div class="check check-{{ c.state }}">
+            <span class="check-dot" aria-hidden="true"></span>
+            <div class="check-body">
+                <div class="check-head">
+                    <span class="check-label">{{ c.label }}</span>
+                    {% if c.ms is not none %}<span class="check-ms">{{ c.ms }} ms</span>{% endif %}
+                </div>
+                <div class="check-detail">{{ c.detail }}</div>
+                {% if c.hint %}<div class="check-hint">{{ c.hint }}</div>{% endif %}
+            </div>
+            <span class="check-state">
+                {%- if c.state == 'ok' %}OK
+                {%- elif c.state == 'warn' %}Hinweis
+                {%- elif c.state == 'fail' %}Fehler
+                {%- else %}übersprungen{% endif -%}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="panel">
+        <h2>Wenn etwas rot ist</h2>
+        <p class="hint">
+            Die Antwort der Knovas-API steht vollständig im Log — dort, wo hier
+            nur die Kurzfassung steht:
+        </p>
+        <pre class="admin-pre">docker compose --env-file knovas.env logs --tail 50 docbridge-web</pre>
+        <p class="hint">
+            Dieselben Prüfungen plus Container, Ports und Rollen liefert
+            <code>./scripts/doctor.sh</code> auf dem Server.
+        </p>
+    </div>
+</main>
+</div>
+</div>
+</body>
+</html>

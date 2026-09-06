@@ -1,0 +1,398 @@
+/* Verwaltung — eine Quelle fuer alle Konsolenseiten.
+ *
+ * Vorher trug jede Konsolenseite ihren eigenen <style>-Block mit fest
+ * verdrahteten Grautoenen (#e2e8f0, #64748b, #b91c1c). Die stammen aus einer
+ * fremden Palette: neben dem Royal Blue und dem Ice Blue der Suche wirkte die
+ * Verwaltung wie ein anderes Produkt. Hier steht dieselbe Gestaltung noch
+ * einmal, aber ueber den Tokens aus style.css — Farben, Radien und Schriften
+ * kommen aus einer Quelle, und eine Aenderung an der Marke wirkt auch hier.
+ */
+
+.admin {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px var(--gutter) 64px;
+    color: var(--text-primary);
+}
+
+.admin > h1 {
+    font-family: var(--font-heading);
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 24px 0 6px;
+    letter-spacing: -0.01em;
+}
+
+.admin .hint {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.55;
+    max-width: 68ch;
+    margin: 0 0 20px;
+}
+
+/* ── Reiterleiste ──────────────────────────────────────────────────────── */
+
+.admin .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+}
+
+.admin .tabs a {
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+}
+
+.admin .tabs a:hover {
+    color: var(--text-primary);
+    background: rgba(var(--accent-rgb), 0.07);
+}
+
+.admin .tabs a.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    font-weight: 600;
+}
+
+.admin .tabs a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* ── Tabellen ──────────────────────────────────────────────────────────── */
+
+.admin .table-wrap {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    margin-top: 18px;
+    background: var(--card-bg);
+}
+
+/* Die Konsolenseiten schreiben ein blankes <table>. Damit sie nicht alle
+   angefasst werden mussten, traegt die Tabelle den Rahmen selbst; .table-wrap
+   bleibt fuer den Fall, dass eine Seite horizontal scrollen soll. */
+.admin table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 18px 0 0;
+    font-size: 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--card-bg);
+}
+
+.admin .table-wrap table { border: none; border-radius: 0; margin-top: 0; }
+
+.admin thead th:first-child { border-top-left-radius: var(--radius-lg); }
+.admin thead th:last-child  { border-top-right-radius: var(--radius-lg); }
+
+.admin thead th {
+    text-align: left;
+    padding: 11px 14px;
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.admin tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: top;
+    line-height: 1.5;
+}
+
+.admin tbody tr:last-child td { border-bottom: none; }
+.admin tbody tr:hover { background: rgba(var(--accent-rgb), 0.04); }
+
+.admin td .sub {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 2px;
+}
+
+/* ── Zustaende ─────────────────────────────────────────────────────────── */
+
+.admin .state-active,
+.admin .state-disabled,
+.admin .state-locked {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.admin .state-active::before,
+.admin .state-disabled::before,
+.admin .state-locked::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.admin .state-active   { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
+.admin .state-disabled { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
+.admin .state-locked   { color: #8a5a00;              background: rgba(138, 90, 0, 0.10); }
+
+/* Rollen als Chips: eine Zeile mit vier Rollen liest sich sonst als Fliesstext. */
+.admin .role-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    margin: 0 4px 4px 0;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--primary-color);
+    background: var(--highlight);
+    white-space: nowrap;
+}
+
+/* ── Panels und Formulare ──────────────────────────────────────────────── */
+
+.admin .panel {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px;
+    margin-top: 28px;
+    background: var(--card-bg);
+}
+
+.admin .panel > h2 {
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0 0 4px;
+}
+
+.admin .panel > .hint { margin-bottom: 16px; }
+
+.admin label {
+    display: block;
+    margin-top: 14px;
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.admin input[type=text],
+.admin input[type=email],
+.admin input[type=password],
+.admin select {
+    width: 100%;
+    max-width: 380px;
+    margin-top: 5px;
+    padding: 8px 11px;
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.admin input:focus,
+.admin select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+}
+
+.admin form.inline { display: inline; }
+
+.admin button,
+.admin .btn {
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 8px 15px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    background: var(--primary-color);
+    color: #fff;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.admin button:hover, .admin .btn:hover { background: var(--primary-hover); }
+.admin button:focus-visible, .admin .btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.admin button.secondary,
+.admin .btn-outline {
+    background: transparent;
+    color: var(--primary-color);
+    border-color: var(--border-color);
+}
+.admin button.secondary:hover,
+.admin .btn-outline:hover {
+    background: rgba(var(--accent-rgb), 0.08);
+    border-color: var(--accent);
+}
+
+.admin button.danger {
+    background: transparent;
+    color: var(--error-color);
+    border-color: rgba(196, 30, 30, 0.35);
+}
+.admin button.danger:hover { background: rgba(196, 30, 30, 0.08); }
+
+/* ── Meldungen ─────────────────────────────────────────────────────────── */
+
+.admin .msg {
+    padding: 11px 15px;
+    border-radius: var(--radius);
+    margin-top: 16px;
+    font-size: 0.885rem;
+    border: 1px solid transparent;
+}
+
+.admin .msg.error {
+    background: rgba(196, 30, 30, 0.07);
+    border-color: rgba(196, 30, 30, 0.28);
+    color: var(--error-color);
+}
+
+.admin .msg.ok {
+    background: rgba(26, 107, 74, 0.08);
+    border-color: rgba(26, 107, 74, 0.28);
+    color: var(--success-color);
+}
+
+.admin .empty {
+    padding: 34px 20px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+@media (max-width: 720px) {
+    .admin { padding: 20px 14px 48px; }
+    .admin .table-wrap { overflow-x: auto; }
+    .admin table { min-width: 640px; }
+}
+
+/* ── Systemstatus ──────────────────────────────────────────────────────── */
+
+.admin .status-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+    margin: 18px 0 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--surface-sunken);
+    font-size: 0.92rem;
+}
+
+.admin .status-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.admin .status-ok   .status-dot { background: var(--success-color); }
+.admin .status-warn .status-dot { background: #8a5a00; }
+.admin .status-fail .status-dot { background: var(--error-color); }
+.admin .status-ok   { border-color: rgba(26, 107, 74, 0.35); }
+.admin .status-warn { border-color: rgba(138, 90, 0, 0.35); }
+.admin .status-fail { border-color: rgba(196, 30, 30, 0.35); }
+
+.admin .status-when { color: var(--text-secondary); font-size: 0.82rem; }
+.admin .status-again { margin-left: auto; text-decoration: none; display: inline-block; }
+
+.admin .checks {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    margin-top: 14px;
+    background: var(--card-bg);
+}
+
+.admin .check {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+.admin .check:last-child { border-bottom: none; }
+
+/* Der Punkt traegt nie allein die Bedeutung: rechts steht dasselbe als Wort,
+   damit die Seite auch ohne Farbunterscheidung lesbar bleibt. */
+.admin .check-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    margin-top: 6px; flex: none;
+}
+.admin .check-ok   .check-dot { background: var(--success-color); }
+.admin .check-warn .check-dot { background: #8a5a00; }
+.admin .check-fail .check-dot { background: var(--error-color); }
+.admin .check-skip .check-dot { background: var(--text-muted); }
+
+.admin .check-body { flex: 1; min-width: 0; }
+.admin .check-head { display: flex; align-items: baseline; gap: 9px; }
+.admin .check-label { font-weight: 600; font-size: 0.92rem; }
+.admin .check-ms {
+    font-family: var(--font-heading);
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+}
+.admin .check-detail {
+    font-size: 0.865rem;
+    color: var(--text-primary);
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+}
+.admin .check-hint {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
+}
+
+.admin .check-state {
+    font-size: 0.74rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex: none;
+}
+.admin .check-ok   .check-state { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
+.admin .check-warn .check-state { color: #8a5a00;              background: rgba(138, 90, 0, 0.10); }
+.admin .check-fail .check-state { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
+.admin .check-skip .check-state { color: var(--text-secondary); background: var(--surface-sunken); }
+
+.admin .admin-pre {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 11px 13px;
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    overflow-x: auto;
+    margin: 10px 0;
+}

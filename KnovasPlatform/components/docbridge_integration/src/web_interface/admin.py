@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import functools
 import logging
+from datetime import datetime
 
 from flask import (
     Blueprint, abort, current_app, redirect, render_template, request, session, url_for
@@ -104,6 +105,28 @@ def create_admin_blueprint(
     @require_admin
     def people():
         return _people_page()
+
+    @bp.route("/system")
+    @require_admin
+    def system():
+        """Ob die Aussenverbindungen wirklich tragen — als Seite, nicht als Log.
+
+        Bewusst hinter require_admin: die Pruefungen nennen Basis-URL, Mandant
+        und Pfade, und ein Fehlertext der API gehoert nicht auf eine Seite, die
+        jede angemeldete Person sehen kann.
+        """
+        from web_interface import admin_system
+
+        checks = admin_system.collect(
+            client_factory, gate=gate, rc_client_factory=rc_client_factory
+        )
+        return render_template(
+            "admin_system.html",
+            checks=checks,
+            summary=admin_system.summarise(checks),
+            checked_at=datetime.now().strftime("%H:%M:%S"),
+            **page_context(),
+        )
 
     @bp.route("/people/create", methods=["POST"])
     @require_admin
