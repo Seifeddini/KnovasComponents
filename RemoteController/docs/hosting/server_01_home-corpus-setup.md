@@ -153,8 +153,7 @@ Docker Compose mounts **`../certs`** (monorepo root) → **`/certs`** in the con
 
 ```bash
 cd /home/master/KnovasInternal/RemoteController
-chmod +x scripts/install_tenant_certs.sh
-./scripts/install_tenant_certs.sh
+./scripts/install_tenant_certs.sh   # asks for sudo only if ownership needs changing
 ```
 
 If Knovas shipped `client-key.password.txt`, the key is encrypted with that password (not one you set at install). The install script writes `client-key.plain.pem` for Docker. The certs directory must be traversable by uid **10001** (`chmod 711 ~/KnovasInternal/certs` after `chown` on the key files).
@@ -396,7 +395,6 @@ files. Run `fetch_demo_corpus.py build` first if `corpus/` is empty or outdated.
 
 ```bash
 cd /home/master/KnovasInternal/RemoteController
-chmod +x scripts/setup_server_corpus.sh
 ./scripts/setup_server_corpus.sh
 ```
 
