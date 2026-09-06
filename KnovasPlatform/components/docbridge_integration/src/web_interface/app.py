@@ -2166,14 +2166,37 @@ def create_app(config_path: Optional[str] = None):
     # ihn nicht ab. Beide Quellen koennen schreiben - die Fixture in ihre
     # Datei, die Graph-Quelle ueber POST /secured/graph/nodes bzw. /edges.
 
+    def _ontology_write_refused_message(what: str) -> str:
+        """Why a curation write did not stick, in terms of the source in use."""
+        if _ontology_source_is_graph():
+            return (
+                f'Die Knovas-API hat den {what} nicht angelegt. Cortex schreibt in '
+                'den Wissensgraphen des Mandanten (ONTOLOGY_SOURCE=graph); das Log '
+                'von docbridge-web nennt die Antwort der API.'
+            )
+        return (
+            f'Der {what} konnte nicht gespeichert werden. Die Fixture unter '
+            'ONTOLOGY_FIXTURE_PATH ist nicht beschreibbar - siehe Log von docbridge-web.'
+        )
+
     @app.route('/api/ontology/types', methods=['POST'])
     def ontology_type_create():
         try:
             payload = request.get_json(silent=True) or {}
             label = str(payload.get('label') or '').strip()
+            if not label:
+                return jsonify({'success': False, 'error': 'Name fehlt'}), 400
             created = _ontology_source().create_type(label)
             if created is None:
-                return jsonify({'success': False, 'error': 'Name fehlt'}), 400
+                # The label was fine, so this is the source refusing the write.
+                # In graph mode a 404 from /secured/graph is read as "unknown
+                # id" and becomes None here; answering "Name fehlt" blamed the
+                # operator's input for an API that declined, and the type then
+                # vanished on the next reload with no explanation anywhere.
+                return jsonify({
+                    'success': False,
+                    'error': _ontology_write_refused_message('Typ'),
+                }), 502
             return jsonify({'success': True, 'type': created}), 201
         except Exception:
             logger.error("Ontology type create error", exc_info=True)
@@ -2185,11 +2208,18 @@ def create_app(config_path: Optional[str] = None):
             payload = request.get_json(silent=True) or {}
             label = str(payload.get('label') or '').strip()
             type_id = str(payload.get('type') or '').strip()
+            if not label or not type_id:
+                return jsonify({'success': False,
+                                'error': 'Name oder Typ fehlt'}), 400
             store = _ontology_source()
             created = store.create_entity(label, type_id)
             if created is None:
-                return jsonify({'success': False,
-                                'error': 'Name oder Typ fehlt'}), 400
+                # Same distinction as the type route: the input was complete, so
+                # this is the source declining, not the operator's mistake.
+                return jsonify({
+                    'success': False,
+                    'error': _ontology_write_refused_message('Eintrag'),
+                }), 502
             return jsonify({'success': True, 'entity': created}), 201
         except Exception:
             logger.error("Ontology entity create error", exc_info=True)
