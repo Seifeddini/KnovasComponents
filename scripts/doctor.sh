@@ -100,6 +100,72 @@ for email, status, must_change, fails, locked, roles in rows:
         print("       Fix: ./scripts/admin-password.sh --grant-admin " + email)
 PY
 
+head_ "Knovas API (mTLS)"
+# Probed from inside the container, with the same certificates the app uses, so
+# a pass here means the app's own calls can get out. Search and graph-mode Cortex
+# both ride this path, which is why one broken cert looks like two broken
+# features.
+"${DC[@]}" exec -T docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
+import json, os, ssl, urllib.error, urllib.request
+
+base = (os.environ.get("SEMANTIX_API_URL") or "").rstrip("/")
+cert = os.environ.get("SEMANTIX_CLIENT_CERT", "")
+key = os.environ.get("SEMANTIX_CLIENT_KEY", "")
+ca = os.environ.get("SEMANTIX_CA_CERT", "")
+
+if not base.startswith("http"):
+    raise SystemExit("FAIL SEMANTIX_API_URL is not set — nothing to reach.")
+print(f"base = {base}")
+for label, path in (("certificate", cert), ("key", key), ("CA", ca)):
+    mark = "ok" if path and os.path.isfile(path) else "MISSING"
+    print(f"{mark:>7}  {label}: {path or '<unset>'}")
+
+ctx = ssl.create_default_context(cafile=ca or None)
+if cert and key and os.path.isfile(cert) and os.path.isfile(key):
+    ctx.load_cert_chain(cert, key)
+
+def probe(path):
+    try:
+        with urllib.request.urlopen(base + path, context=ctx, timeout=15) as r:
+            return r.status, r.read(400)
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(400)
+    except Exception as exc:
+        return None, str(exc).encode()
+
+code, body = probe("/secured/health")
+if code == 200:
+    print("     OK  /secured/health — mTLS works, the tenant answers")
+else:
+    print(f"   FAIL  /secured/health -> {code}: {body[:200]!r}")
+    print("         Search cannot work until this does. Check the certs above and SEMANTIX_API_URL.")
+
+code, body = probe("/secured/graph")
+if code == 200:
+    print("     OK  /secured/graph — Knowledge Graph is enabled; ONTOLOGY_SOURCE=graph will work")
+elif code == 404:
+    try:
+        detail = json.loads(body or b"{}")
+    except ValueError:
+        detail = {}
+    if detail.get("error_code") == "knowledge_graph_disabled":
+        print("   FAIL  Knowledge Graph is NOT enabled for this tenant "
+              "(error_code knowledge_graph_disabled).")
+        print("         ONTOLOGY_SOURCE=graph cannot work — ask Knovas to enable it.")
+    else:
+        print(f"   WARN  /secured/graph -> 404: {body[:200]!r}")
+else:
+    print(f"   WARN  /secured/graph -> {code}: {body[:200]!r}")
+
+src = (os.environ.get("ONTOLOGY_SOURCE") or "fixture").strip().lower()
+print(f"ONTOLOGY_SOURCE = {src}"
+      + ("  (entities live in Knovas; the fixture mount is unused)" if src == "graph"
+         else "  (local JSON fixture)"))
+if src == "graph":
+    print("     note  type-level relations are refused in graph mode by design "
+          "(ontology_graph.py:373) — entity-level relations work")
+PY
+
 head_ "Reachable"
 PORT="$(grep -E '^[[:space:]]*DOCBRIDGE_WEB_PORT=' "$KNOVAS_ENV" | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
 PORT="${PORT:-8081}"
