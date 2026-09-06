@@ -108,6 +108,40 @@ if [[ -f "$CERTS_DIR/client-key.plain.pem" ]]; then
   KEY_PATH="/certs/client-key.plain.pem"
 fi
 
+# Keys the expander interprets itself. Everything else in knovas.env is an
+# override passed straight through to the component it names: RC_* reaches
+# RemoteController, the rest reaches the Platform. Without this, knovas.env
+# could express five values and a deployment that needed a sixth -- a plain-HTTP
+# session cookie, a Cortex fixture path, a tuned worker count -- had nowhere to
+# put it, because .env.generated is rewritten on every setup.sh.
+CONSUMED_KEYS="
+KNOVAS_API_URL KNOVAS_PLATFORM_URL KNOVAS_DOCUMENTS_PATH KNOVAS_TENANT_ID
+KNOVAS_IDENTIFIER_PREFIX KNOVAS_SHARE_UNC WEB_SECRET_KEY IDENTITY_ENABLED
+COMPANY_LOGIN_NAME COMPANY_LOGIN_PASSWORD PLATFORM_ADMIN_EMAIL
+PLATFORM_ADMIN_PASSWORD PLATFORM_ADMIN_BOOTSTRAP_PATH PLATFORM_DB_NAME
+PLATFORM_DB_USER PLATFORM_BROKER_KEY_DIR
+"
+
+# $1: "rc" for RC_* keys, "platform" for the rest.
+passthrough_overrides() {
+  local want="$1" line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    case " $(echo $CONSUMED_KEYS) " in *" $key "*) continue ;; esac
+    if [[ "$want" == "rc" ]]; then
+      [[ "$key" == RC_* ]] || continue
+    else
+      [[ "$key" == RC_* ]] && continue
+    fi
+    printf '%s=%s\n' "$key" "$value"
+  done < "$KNOVAS_ENV"
+}
+
 RC_ENV="$ROOT_DIR/RemoteController/.env.generated"
 KP_ENV="$ROOT_DIR/KnovasPlatform/.env.generated"
 
@@ -131,6 +165,8 @@ RC_SYNC_DEFAULT_WINDOW_END=23:59
 SEARCH_CONTEXT_STORE_PATH=/var/rc-state/search_context
 KNOVAS_IDENTIFIER_PREFIX=${KNOVAS_IDENTIFIER_PREFIX}
 EOF
+
+passthrough_overrides rc >> "$RC_ENV"
 
 OPEN_UNC_LINE=""
 if [[ -n "$KNOVAS_SHARE_UNC" ]]; then
@@ -176,6 +212,8 @@ AUTODOC_IDENTIFIER_PREFIX=${KNOVAS_IDENTIFIER_PREFIX}
 SEARCH_CONTEXT_STORE_PATH=/var/rc-state/search_context
 ${OPEN_UNC_LINE}
 EOF
+
+passthrough_overrides platform >> "$KP_ENV"
 
 echo "Wrote $RC_ENV"
 echo "Wrote $KP_ENV"

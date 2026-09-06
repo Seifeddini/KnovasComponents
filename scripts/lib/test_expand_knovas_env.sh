@@ -49,4 +49,25 @@ if bash scripts/lib/expand_knovas_env.sh "$MISSING_ADMIN" 2>/dev/null; then
 fi
 rm -f "$MISSING_ADMIN"
 
+# --- Overrides: knovas.env carries more than the orchestration values ------
+bash scripts/lib/expand_knovas_env.sh "$FIXTURES/knovas.env.overrides.fixture"
+
+# The generated file states a default first and the override after it. Compose
+# resolves a duplicate key in an env_file to the LAST occurrence, so the check
+# that matters is the last value, not merely that the key appears.
+last_value() { grep -E "^$1=" "$2" | tail -1 | cut -d= -f2-; }
+
+[[ "$(last_value WEB_SESSION_COOKIE_SECURE "$KP_ENV")" == "false" ]] \
+  || fail "plain-HTTP override lost — the session cookie would be dropped and login would not stick"
+[[ "$(last_value ENVIRONMENT "$KP_ENV")" == "local" ]] || fail "ENVIRONMENT override lost"
+[[ "$(last_value ONTOLOGY_FIXTURE_PATH "$KP_ENV")" == "/mnt/ontology/ontology_fixture.json" ]] \
+  || fail "Cortex fixture path override lost"
+
+# An RC_* key belongs to RemoteController and must not leak into the Platform.
+[[ "$(last_value RC_SYNC_AUTO_START_CONTINUOUS "$RC_ENV")" == "false" ]] || fail "RC override lost"
+grep -q '^RC_SYNC_AUTO_START_CONTINUOUS=' "$KP_ENV" && fail "RC key leaked into the Platform env"
+
+# A consumed key must not be echoed back as an override.
+[[ "$(grep -c '^KNOVAS_API_URL=' "$KP_ENV")" == "0" ]] || fail "orchestration key passed through verbatim"
+
 echo "expand_knovas_env smoke OK"
