@@ -149,3 +149,58 @@ def test_enhance_search_results_attaches_context(monkeypatch, tmp_path: Path):
     hit = enhanced["results"][0]
     assert hit.get("first_page_preview")
     assert hit.get("context_snippet", {}).get("match")
+
+
+def test_sidecar_shapes_never_break_the_search_response(tmp_path):
+    """A sidecar from an older ingest must cost a snippet, never the response.
+
+    context_window read every sentence as ``sent["t"]``. A store written when
+    sentences were plain strings, or keyed "text", raised AttributeError or
+    KeyError inside the search route, and the user saw "Fehler bei der Suche:
+    Interner Serverfehler" for a query whose results were perfectly good.
+    """
+    import hashlib
+    import json as _json
+
+    from context_store import enrich_result_with_context
+
+    shapes = {
+        "current": [{"i": 0, "t": "Erster Satz."}, {"i": 1, "t": "Zweiter Satz."}],
+        "plain_strings": ["Erster Satz.", "Zweiter Satz."],
+        "text_key": [{"i": 0, "text": "Erster Satz."}, {"i": 1, "text": "Zweiter Satz."}],
+        "mixed": ["Erster Satz.", {"i": 1, "t": "Zweiter Satz."}, None],
+        "nonsense": [1, 2, 3],
+        "empty": [],
+    }
+    for name, sentences in shapes.items():
+        pointer = f"ptr-{name}"
+        digest = hashlib.sha256(pointer.encode("utf-8")).hexdigest()
+        (tmp_path / f"{digest}.json").write_text(
+            _json.dumps({"sentences": sentences}), encoding="utf-8"
+        )
+        result = {"sentence_number": 1}
+        # The assertion is that this returns at all.
+        enrich_result_with_context(result, str(tmp_path), [pointer])
+
+    # The shapes that carry readable sentences still produce a snippet, so the
+    # tolerance is not just swallowing everything.
+    for name in ("current", "plain_strings", "text_key", "mixed"):
+        pointer = f"ptr-{name}"
+        result = {"sentence_number": 1}
+        enrich_result_with_context(result, str(tmp_path), [pointer])
+        assert result.get("context_snippet"), f"{name} should still yield a snippet"
+
+
+def test_unreadable_sidecar_is_skipped_not_raised(tmp_path):
+    """Corrupt JSON is a reason to show no snippet, not to fail the search."""
+    import hashlib
+
+    from context_store import enrich_result_with_context
+
+    pointer = "ptr-corrupt"
+    digest = hashlib.sha256(pointer.encode("utf-8")).hexdigest()
+    (tmp_path / f"{digest}.json").write_text("{not json", encoding="utf-8")
+
+    result = {"sentence_number": 1}
+    assert enrich_result_with_context(result, str(tmp_path), [pointer]) is False
+    assert "context_snippet" not in result

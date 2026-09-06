@@ -62,12 +62,49 @@ def build_sentence_records_from_dicts(
     return records
 
 
-def build_first_page_payload(sentences: List[Dict[str, Any]]) -> Dict[str, Any]:
-    page_one = [s["t"] for s in sentences if s.get("p") == 1]
+def _sentence_text(sent: Any) -> str:
+    """The text of one sentence record, whatever shape it is stored in.
+
+    Sidecars are written by whichever version of the ingest was current, so a
+    sentence may be {"t": ...}, {"text": ...} or a bare string. This is
+    decoration on a search result: an unfamiliar shape must degrade to no
+    snippet, never raise. It used to raise -- `sent.get("t")` on a plain string
+    is an AttributeError, which surfaced as "Fehler bei der Suche: Interner
+    Serverfehler" for a query that was otherwise perfectly good.
+    """
+    if isinstance(sent, str):
+        return sent.strip()
+    if isinstance(sent, dict):
+        for key in ("t", "text", "sentence", "s"):
+            value = sent.get(key)
+            if value:
+                return str(value).strip()
+    return ""
+
+
+def build_first_page_payload(sentences: Sequence[Any]) -> Dict[str, Any]:
+    """First-page text from sentence records, whatever shape they are in.
+
+    Reads through _sentence_text for the same reason context_window does: this
+    also runs over sidecars written by an older ingest, where `s["t"]` is a
+    KeyError or an AttributeError rather than a sentence.
+    """
+    page_one = [
+        _sentence_text(s)
+        for s in sentences
+        if isinstance(s, dict) and s.get("p") == 1
+    ]
+    page_one = [text for text in page_one if text]
     if page_one:
         body = " ".join(page_one)
     elif sentences:
-        body = " ".join(s["t"] for s in sentences[:FIRST_PAGE_FALLBACK_SENTENCES])
+        body = " ".join(
+            text
+            for text in (
+                _sentence_text(s) for s in sentences[:FIRST_PAGE_FALLBACK_SENTENCES]
+            )
+            if text
+        )
     else:
         body = ""
     return {"page": 1, "text": _truncate(body, MAX_FIRST_PAGE_CHARS)}
@@ -182,7 +219,14 @@ def _anchor_sentence_index(
 ) -> int:
     if not sentences:
         return 0
-    by_i = {int(s["i"]): idx for idx, s in enumerate(sentences) if "i" in s}
+    by_i: Dict[int, int] = {}
+    for idx, sent in enumerate(sentences):
+        if not isinstance(sent, dict) or "i" not in sent:
+            continue
+        try:
+            by_i[int(sent["i"])] = idx
+        except (TypeError, ValueError):
+            continue
     if sentence_number is not None:
         try:
             target = int(sentence_number)
@@ -211,7 +255,7 @@ def context_window(
     after_parts: List[str] = []
     for idx, sent in enumerate(window):
         global_idx = start + idx
-        text = str(sent.get("t") or "").strip()
+        text = _sentence_text(sent)
         if not text:
             continue
         if global_idx < anchor_idx:
@@ -221,7 +265,7 @@ def context_window(
         else:
             after_parts.append(text)
     if not match_text and anchor_idx < len(sentences):
-        match_text = str(sentences[anchor_idx].get("t") or "").strip()
+        match_text = _sentence_text(sentences[anchor_idx])
     return {
         "before": " ".join(before_parts).strip(),
         "match": match_text,
@@ -259,14 +303,27 @@ def enrich_result_with_context(
     """Attach first_page_preview and context_snippet when a sidecar exists."""
     if result.get("first_page_preview") or result.get("context_snippet"):
         return True
-    entry = load_context(store_dir, pointer_candidates)
-    if not entry:
+    # A sidecar written by another version can be shaped in ways this code does
+    # not expect. That is a reason to show no snippet, never a reason to fail
+    # the search: the results are correct and complete without it, and a 500
+    # here reads to the user as "search is broken".
+    try:
+        entry = load_context(store_dir, pointer_candidates)
+        if not entry:
+            return False
+        first = first_page_text(entry)
+        sentences = entry.get("sentences")
+        snippet = None
+        if isinstance(sentences, list):
+            snippet = context_window(
+                sentences, resolve_sentence_number(result), radius=context_radius
+            )
+    except Exception as exc:  # noqa: BLE001 - decoration must not break the result
+        logger.warning(
+            "Context enrichment skipped for %s: %s",
+            (list(pointer_candidates) or ["<no pointer>"])[0], exc,
+        )
         return False
-    first = first_page_text(entry)
-    sentences = entry.get("sentences")
-    snippet = None
-    if isinstance(sentences, list):
-        snippet = context_window(sentences, resolve_sentence_number(result), radius=context_radius)
     if first:
         result["first_page_preview"] = first
     if snippet:

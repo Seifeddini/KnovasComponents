@@ -26,6 +26,30 @@ head_ "Containers"
   || bad "docker compose ps failed"
 
 running() { "${DC[@]}" ps --status running "$1" 2>/dev/null | grep -q "$1"; }
+
+# "unhealthy" on its own says nothing about why. Docker keeps the last few
+# probe outputs; print them rather than making the operator go find them.
+for svc in docbridge-web docbridge-web-nginx platform-db; do
+  cid="$("${DC[@]}" ps -q "$svc" 2>/dev/null | head -1)"
+  [[ -n "$cid" ]] || continue
+  state="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid" 2>/dev/null)"
+  [[ "$state" == "unhealthy" ]] || continue
+  bad "$svc is unhealthy — last probe output:"
+  docker inspect -f '{{range .State.Health.Log}}{{.ExitCode}}|{{.Output}}{{end}}' "$cid" 2>/dev/null \
+    | tail -c 600 | sed 's/^/       /'
+done
+
+# nginx resolves the app once at startup unless it is running the config with a
+# resolver directive. A recreate of docbridge-web alone leaves an older nginx
+# pointing at an address nothing answers on, which reads as "search broke".
+web_started="$(docker inspect -f '{{.State.StartedAt}}' "$("${DC[@]}" ps -q docbridge-web 2>/dev/null | head -1)" 2>/dev/null)"
+ngx_started="$(docker inspect -f '{{.State.StartedAt}}' "$("${DC[@]}" ps -q docbridge-web-nginx 2>/dev/null | head -1)" 2>/dev/null)"
+if [[ -n "$web_started" && -n "$ngx_started" && "$ngx_started" < "$web_started" ]]; then
+  warn "nginx started BEFORE docbridge-web, so it may hold a stale address for it."
+  echo "       Recreate it too: ${DC[*]} up -d --force-recreate docbridge-web-nginx"
+fi
+
+
 if ! running docbridge-web; then
   bad "docbridge-web is not running — the rest of this report needs it."
   echo "       ${DC[*]} logs --tail 50 docbridge-web"
