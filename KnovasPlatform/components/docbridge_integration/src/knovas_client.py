@@ -1626,13 +1626,40 @@ class KnovasAPIClient:
                 raise KnowledgeGraphDisabled(
                     'Der Wissensgraph ist fuer dieses Deployment nicht aktiviert'
                 ) from exc
-            logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
+            if method.upper() != 'GET':
+                # For a GET, "unknown or not yours" is ordinary. For a write it
+                # means the write did not happen, and the caller can only see
+                # None -- which is why a refused curation looked like a missing
+                # name in the console.
+                logger.error(
+                    "Knovas API %s /secured/graph%s -> 404, so nothing was written. "
+                    "Response body: %s",
+                    method, endpoint, (response.text or "")[:600] or "<empty>",
+                )
+            else:
+                logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
             return None
         try:
-            return response.json() or {}
+            payload = response.json()
         except ValueError:
-            logger.warning("Graph-Antwort ohne JSON-Body: %s %s", method, endpoint)
+            logger.warning(
+                "Graph-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
+                method, endpoint, response.status_code, (response.text or "")[:300] or "<empty>",
+            )
             return {}
+        if method.upper() != 'GET' and not payload:
+            # A 2xx with an empty body. The status says the call was accepted and
+            # the body says nothing was created, and the caller reads the falsy
+            # payload as failure. Neither _make_request (no error status) nor the
+            # branch above (valid JSON) says a word, so without this the write
+            # fails in complete silence.
+            logger.error(
+                "Knovas API %s /secured/graph%s -> %s with an empty body; treating "
+                "the write as failed. Body: %s",
+                method, endpoint, response.status_code,
+                (response.text or "")[:300] or "<empty>",
+            )
+        return payload or {}
 
     def graph_export(self) -> Dict[str, Any]:
         """GET /secured/graph - vollstaendiger Topologie-Export."""
