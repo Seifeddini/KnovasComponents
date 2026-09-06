@@ -165,6 +165,33 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
                 hint="" if anzahl else "Erreichbar und leer — der erste Typ kann angelegt werden.",
             ))
 
+    # ── Dokumentbestand ────────────────────────────────────────────────────
+    # Eigener Punkt, weil die Verwaltung ihn braucht und Suche und Cortex nicht:
+    # /secured/documents kann fehlen, waehrend alles andere laeuft.
+    if not api_up:
+        checks.append(Check("documents", "Dokumentbestand", SKIP,
+                            "Uebersprungen: API nicht erreichbar"))
+    else:
+        payload, ms, exc = _timed(lambda: client.documents(limit=1))
+        if exc is not None:
+            checks.append(Check("documents", "Dokumentbestand", FAIL, _short(exc), ms=ms))
+        elif (payload or {}).get("unavailable"):
+            checks.append(Check(
+                "documents", "Dokumentbestand", WARN,
+                "GET /secured/documents antwortet 404", ms=ms,
+                hint="Der Reiter Dokumente bleibt leer. Suche und Cortex sind nicht betroffen; "
+                     "Knovas muss den Endpunkt fuer diesen Mandanten freischalten.",
+            ))
+        else:
+            gesamt = int((payload or {}).get("total_count") or 0)
+            checks.append(Check(
+                "documents", "Dokumentbestand", OK,
+                f"{gesamt} Dokument(e) sichtbar", ms=ms,
+                hint="" if gesamt else
+                     "Endpunkt vorhanden und leer — fuer Sie ist nichts freigegeben, "
+                     "oder es wurde noch nichts eingelesen.",
+            ))
+
     # ── Identitaet ─────────────────────────────────────────────────────────
     def _count_users():
         from identity import db

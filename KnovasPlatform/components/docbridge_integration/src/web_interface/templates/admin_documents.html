@@ -85,7 +85,19 @@
                     <td>{{ d.status or '—' }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="hint">Keine Dokumente für diesen Filter.</td></tr>
+                {% if unavailable %}
+                <tr><td colspan="5" class="empty">
+                    <strong>Die Knovas-API kennt diese Auflistung nicht.</strong><br>
+                    <span class="hint">
+                        <code>GET /secured/documents</code> antwortet mit 404 — das ist etwas
+                        anderes als „keine Dokumente“. Der Bestand kann hier erst angezeigt
+                        werden, wenn Knovas den Endpunkt für diesen Mandanten freischaltet.
+                        Suche und Cortex sind davon nicht betroffen.
+                    </span>
+                </td></tr>
+                {% else %}
+                <tr><td colspan="5" class="empty">Keine Dokumente für diesen Filter.</td></tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>

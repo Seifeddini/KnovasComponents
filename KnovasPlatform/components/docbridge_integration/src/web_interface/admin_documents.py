@@ -62,6 +62,10 @@ class DocumentsView:
             "documents": list(payload.get("documents") or []),
             "next_after": payload.get("next_after"),
             "total_count": int(payload.get("total_count") or 0),
+            # True when the endpoint answered 404. The screen must not present
+            # that as an empty inventory: one is a tenant with no documents, the
+            # other is a feature this tenant does not have.
+            "unavailable": bool(payload.get("unavailable")),
         }
 
 
@@ -182,6 +186,7 @@ def attach_document_routes(
             documents=first["documents"],
             next_after=first["next_after"],
             total_count=first["total_count"],
+            unavailable=first["unavailable"],
             filters=filters,
             groups=groups,
             me=gate.current_user(),

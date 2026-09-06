@@ -1957,7 +1957,19 @@ class KnovasAPIClient:
             # Wire-Vertrag aus der Design-Spec (5.4). Das Backend wertet den
             # Parameter noch nicht aus - er wird durchgereicht, nicht erfunden.
             params['conflicts'] = 'true'
-        return self._rbac_request('GET', '/secured/documents', params=params) or {}
+        payload = self._rbac_request('GET', '/secured/documents', params=params)
+        if payload is None:
+            # 404 on a *collection* is not "no documents" — it is the endpoint
+            # not being there. Flattening it to {} produced an inventory page
+            # reading "0 Dokument(e)", which is what a correctly empty tenant
+            # looks like, with the difference recorded only at INFO.
+            logger.error(
+                "Knovas API GET /secured/documents -> 404. The document inventory "
+                "endpoint is not available for this tenant; the console cannot "
+                "distinguish that from an empty result without this."
+            )
+            return {'documents': [], 'total_count': 0, 'unavailable': True}
+        return payload
 
     def iter_documents(
         self, max_pages: int = 10_000, **kwargs: Any
