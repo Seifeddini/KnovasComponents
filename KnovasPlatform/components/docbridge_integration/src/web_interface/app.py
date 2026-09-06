@@ -11,6 +11,7 @@ import os
 import json
 import hmac
 import secrets
+import threading
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -696,8 +697,15 @@ def create_app(config_path: Optional[str] = None):
     # Per-user accounts (Pflichtenheft B1). When on, the shared company
     # credential is not merely unused — the app refuses to start with one
     # configured, so an upgrade cannot leave both doors open.
-    identity_enabled = config.get_bool('identity.enabled', False)
+    # Default true, matching config/config.yaml: per-user accounts are the
+    # product, and a deployment should not have to opt in to knowing who its
+    # users are. A config that omits the key entirely still gets identity, so
+    # the default is stated once rather than differing between the shipped
+    # configuration and the code that reads it. The legacy shared-login path
+    # is now an explicit `identity.enabled: false`.
+    identity_enabled = config.get_bool('identity.enabled', True)
     identity_gate = None
+    rc_client = None
     if identity_enabled:
         from identity.webauth import IdentityGate
 
@@ -709,6 +717,82 @@ def create_app(config_path: Optional[str] = None):
             )
         identity_gate = IdentityGate()
         app.teardown_request(identity_gate.close)
+
+        # Schema and first administrator, before anything serves a request.
+        # Gunicorn loads this module in every worker, so prepare_identity takes
+        # an advisory lock and is idempotent; a restart is a no-op. Without it
+        # a fresh deployment comes up with no tables and nobody who can sign
+        # in, which looks like a broken login rather than a missing step.
+        from identity import db as identity_db
+        from identity.startup import DEFAULT_SECRET_PATH, prepare_identity
+
+        boot_conn = identity_db.connect()
+        try:
+            prepare_identity(
+                boot_conn,
+                email=os.environ.get('PLATFORM_ADMIN_EMAIL', ''),
+                password=os.environ.get('PLATFORM_ADMIN_PASSWORD') or None,
+                secret_path=os.environ.get(
+                    'PLATFORM_ADMIN_BOOTSTRAP_PATH', DEFAULT_SECRET_PATH
+                ),
+            )
+        finally:
+            boot_conn.close()
+
+        # The broker signs the signed-in person into every Knovas call, through
+        # the one client the search path already uses. Both preconditions fail
+        # closed at startup: an unsigned call returns MORE than a signed one.
+        from pathlib import Path as _Path
+
+        from identity.broker_key import BrokerKeyUnavailableError, load_or_create_signer
+        from identity.principal import PrincipalBroker
+
+        broker_key_dir = str(config.get('identity.broker_key_dir', '') or '').strip()
+        if not broker_key_dir:
+            raise RuntimeError(
+                'identity.enabled is true but identity.broker_key_dir is not set. '
+                'The Platform signs each user into its Knovas calls with an Ed25519 '
+                'key kept in that directory; see docs/certificates.md.'
+            )
+        if not getattr(api_client, 'customer_id', ''):
+            raise RuntimeError(
+                'identity.enabled is true but api.customer_id (SEMANTIX_CUSTOMER_ID) '
+                'is empty. A principal assertion is bound to the tenant.'
+            )
+        try:
+            broker_signer = load_or_create_signer(_Path(broker_key_dir))
+        except BrokerKeyUnavailableError as exc:
+            raise RuntimeError(f'Broker signing key unavailable: {exc}') from exc
+
+        class _RequestScopedBroker:
+            """PrincipalBroker bound to whoever is signed in on *this* request.
+
+            gate.users() is a repository on the request's own connection and
+            the broker reads user_access_groups at mint time, uncached -- so a
+            revocation lands on the user's next request, not at session expiry.
+            """
+
+            def __init__(self, gate, signer, tenant_id):
+                self._gate, self._signer, self._tenant_id = gate, signer, tenant_id
+
+            def current_user(self):
+                return self._gate.current_user()
+
+            def assertion_for(self, user):
+                return PrincipalBroker(
+                    user_repo=self._gate.users(), signer=self._signer,
+                    tenant_id=self._tenant_id,
+                ).assertion_for(user)
+
+        principal_broker = _RequestScopedBroker(identity_gate, broker_signer, str(api_client.customer_id))
+        api_client.attach_principal_broker(principal_broker)
+
+        from remote_controller_client import RemoteControllerClient
+
+        rc_client = RemoteControllerClient(
+            str(config.get('remote_controller.base_url', 'http://remote-controller:5001')),
+            principal_broker=principal_broker,
+        )
     weak_secret_values = {
         '',
         'change-me',
@@ -894,6 +978,22 @@ def create_app(config_path: Optional[str] = None):
         return _confine_to_autodoc(file_handler.autodoc_path, file_path)
 
     @app.before_request
+    def reject_client_asserted_groups():
+        """The group list has exactly one source: user_access_groups, read
+        server-side for the signed-in user. A body that supplies its own is
+        refused with 400, not quietly overruled -- silently dropping it would
+        let a caller believe a scope applied, and would hide a merging bug."""
+        if not request.is_json:
+            return None
+        from identity.principal import ClientAssertedGroupsError, PrincipalBroker
+
+        try:
+            PrincipalBroker.reject_client_assertion(request.get_json(silent=True))
+        except ClientAssertedGroupsError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        return None
+
+    @app.before_request
     def require_company_login():
         """Require a login before serving the search UI and APIs.
 
@@ -963,6 +1063,89 @@ def create_app(config_path: Optional[str] = None):
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
+        return None
+
+    # Cache of (subject, pointer) -> readable, so a results page of thumbnails
+    # does not become one Knovas round trip per tile. The TTL is deliberately
+    # shorter than the 120 s principal-assertion lifetime, so it cannot widen
+    # the staleness bound the assertion already sets: a person whose access is
+    # revoked loses these documents within one assertion lifetime, as before.
+    _readable_cache: Dict[Tuple[str, str], Tuple[float, bool]] = {}
+    _readable_cache_ttl = 60.0
+    _readable_cache_lock = threading.Lock()
+
+    def _pointer_readable(subject: str, pointer: str) -> bool:
+        key = (subject, pointer)
+        now = time.time()
+        with _readable_cache_lock:
+            hit = _readable_cache.get(key)
+            if hit is not None and now - hit[0] < _readable_cache_ttl:
+                return hit[1]
+        try:
+            allowed = api_client.document_readable(pointer)
+        except Exception as exc:  # noqa: BLE001 - any failure closes the door
+            # The client already fails closed on transport errors; this repeats
+            # it so the property belongs to the gate rather than to whichever
+            # client is wired in. A refusal here serves no bytes; an exception
+            # would be a 500 with a stack trace instead of a plain 404.
+            logger.warning("Readability check failed for %r: %s", pointer, exc)
+            return False
+        with _readable_cache_lock:
+            if len(_readable_cache) > 4096:
+                _readable_cache.clear()
+            _readable_cache[key] = (now, allowed)
+        return allowed
+
+    @app.before_request
+    def require_readable_document():
+        """The wall, on the routes that hand over a file rather than search it.
+
+        Retrieval is filtered by Knovas, so search never lists a document the
+        signed-in person is walled out of. These routes are the other way in:
+        they take a pointer and a path and read the file off the Platform's own
+        disk, which is why they have to ask.
+
+        Written as one gate over ``doc_id`` rather than a check inside each
+        handler, so a content route added later is covered by default instead
+        of by remembering. Denial is **404**, never 403: a 403 would confirm
+        that the matter exists, which is the trace an ethical wall forbids.
+
+        With ``identity.enabled`` off there is no authenticated subject and no
+        per-user groups to enforce, so the gate stands aside and the legacy
+        shared-login deployment behaves exactly as before.
+        """
+        if identity_gate is None:
+            return None
+        doc_id = (request.view_args or {}).get('doc_id')
+        if not doc_id:
+            return None
+        user = identity_gate.current_user()
+        if user is None:
+            return None  # the login gate above already refused this request
+
+        # The path is supplied separately from the pointer, so a caller could
+        # otherwise name a document they may read and ask for the bytes of one
+        # they may not. Serve a path only when it is the one this pointer names.
+        supplied = request.args.get('path')
+        if supplied is None and request.method == 'POST':
+            supplied = (request.get_json(silent=True) or {}).get('path')
+        if supplied:
+            # Compare the *resolved* files, not the strings. Callers legitimately
+            # spell a path either way -- the raw Knovas pointer or the mapped
+            # relative path -- and both reach the same file through
+            # _resolve_autodoc_path. Resolving both sides accepts every spelling
+            # of the authorised document and no spelling of a different one.
+            given = _resolve_autodoc_path(str(supplied))
+            wanted = _resolve_autodoc_path(_rel_path_for_autodoc(str(doc_id)))
+            if given is None or wanted is None or given != wanted:
+                logger.warning(
+                    "Refusing %s: path %r does not belong to pointer %r",
+                    request.path, str(supplied), str(doc_id),
+                )
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+
+        if not _pointer_readable(str(user.id), str(doc_id)):
+            return jsonify({'success': False, 'error': 'Not found'}), 404
         return None
 
     @app.route('/favicon.ico')
@@ -1141,11 +1324,14 @@ def create_app(config_path: Optional[str] = None):
     feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
 
     def _console_url():
-        """Link zur Verwaltung -- nur fuer Administratoren, sonst None.
+        """Link zur Verwaltung -- je nach Rolle, sonst None.
 
-        Der Link ist Darstellung; ``require_admin`` auf der Route bleibt die
-        Kontrolle (REQ-A1/REQ-A2). Faellt die Identitaetsdatenbank aus,
-        verschwindet der Link, statt dass die Suchseite bricht.
+        Der Link ist Darstellung; ``require_admin``/``require_approver`` auf
+        der jeweiligen Route bleibt die Kontrolle (REQ-A1/REQ-A2). Ein
+        Administrator landet auf Personen, ein reiner Freigeber (Rolle
+        'approver' ohne 'admin') auf Freigaben -- sonst gibt es keinen Link.
+        Faellt die Identitaetsdatenbank aus, verschwindet der Link, statt dass
+        die Suchseite bricht.
         """
         if identity_gate is None:
             return None
@@ -1154,9 +1340,14 @@ def create_app(config_path: Optional[str] = None):
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
             logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
             return None
-        if user is None or 'admin' not in (getattr(user, 'roles', None) or ()):
+        if user is None:
             return None
-        return url_for('admin.people')
+        roles = getattr(user, 'roles', None) or ()
+        if 'admin' in roles:
+            return url_for('admin.people')
+        if 'approver' in roles:
+            return url_for('admin.approvals')
+        return None
 
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
@@ -1232,11 +1423,13 @@ def create_app(config_path: Optional[str] = None):
             # path uses, so mTLS material, retries and rate limiting are
             # configured in exactly one place.
             client_factory=lambda: api_client,
+            rc_client_factory=(lambda: rc_client) if rc_client is not None else None,
             page_context=lambda: {
                 **_sidebar_context(),
                 'app_title': web_app_title,
                 'brand': web_brand,
                 'asset_version': _static_asset_version(),
+                'ingestion_enabled': rc_client is not None,
             },
         ))
 
@@ -1681,7 +1874,18 @@ def create_app(config_path: Optional[str] = None):
             if not _can_open_via_companion(full_path):
                 return jsonify({'success': False, 'error': 'No open mapping for this file'}), 503
             rel = str(file_path).strip()
-            token = open_token_manager.mint(rel, doc_id)
+            # The uniform content gate keys on a doc_id in the URL; this route
+            # carries it in the body, so the wall is applied here explicitly.
+            # Minting is the moment a document leaves the session's protection.
+            subject = ''
+            if identity_gate is not None:
+                minter = identity_gate.current_user()
+                if minter is None:
+                    return jsonify({'success': False, 'error': 'Not found'}), 404
+                subject = str(minter.id)
+                if not _pointer_readable(subject, doc_id):
+                    return jsonify({'success': False, 'error': 'Not found'}), 404
+            token = open_token_manager.mint(rel, doc_id, subject=subject)
             api_base = public_base_url_config or request.url_root.rstrip('/')
             redeem_url = f"{api_base}/api/open-tokens/redeem"
             companion_href = (
@@ -1719,6 +1923,18 @@ def create_app(config_path: Optional[str] = None):
             payload = open_token_manager.verify_and_consume(token, consume=True)
             if not payload:
                 return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+            # This route is exempt from the session and CSRF gates by necessity
+            # -- the companion has no browser session -- which is exactly why it
+            # cannot also be exempt from the wall. Re-check the minting subject
+            # rather than trusting the token alone, so a person whose access was
+            # withdrawn cannot spend a token they were holding.
+            if identity_gate is not None:
+                subject = payload.get('sub') or ''
+                if not subject:
+                    logger.warning("Refusing an open token minted without a subject")
+                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+                if not _pointer_readable(subject, payload['doc']):
+                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
             full_path = _resolve_autodoc_path(payload['rel'])
             if not full_path or not os.path.exists(full_path):
                 return jsonify({'success': False, 'error': 'File no longer available'}), 410

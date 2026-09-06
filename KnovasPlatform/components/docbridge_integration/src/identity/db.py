@@ -103,10 +103,17 @@ def settings_from_env() -> DatabaseSettings:
 def connect(settings: DatabaseSettings | None = None, *, autocommit: bool = True):
     """Open one connection to the identity database.
 
+    ``PLATFORM_DB_DSN`` short-circuits the individual settings. Tests pin a
+    schema that way; an operator debugging a connection has one obvious lever.
+
     Imported lazily so that reading settings — and the whole test suite — does
     not require the driver to be installed.
     """
     import psycopg
 
+    if settings is None:
+        dsn = (os.environ.get("PLATFORM_DB_DSN") or "").strip()
+        if dsn:
+            return psycopg.connect(dsn, autocommit=autocommit)
     resolved = settings or settings_from_env()
     return psycopg.connect(resolved.dsn, autocommit=autocommit)

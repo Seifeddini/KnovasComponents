@@ -54,6 +54,8 @@ web:
     password: "${{COMPANY_LOGIN_PASSWORD}}"
   search:
     results_per_page: 20
+identity:
+  enabled: false
 api:
   base_url: "http://example.test"
 open:
@@ -164,6 +166,8 @@ web:
     password: "${{COMPANY_LOGIN_PASSWORD}}"
   search:
     results_per_page: 20
+identity:
+  enabled: false
 api:
   base_url: "http://example.test"
 open:
@@ -217,6 +221,8 @@ web:
     password: "${{COMPANY_LOGIN_PASSWORD}}"
   search:
     results_per_page: 20
+identity:
+  enabled: false
 api:
   base_url: "http://example.test"
 open:

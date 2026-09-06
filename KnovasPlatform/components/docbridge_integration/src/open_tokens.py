@@ -87,16 +87,29 @@ class OpenTokenManager:
             self._backend = "memory"
 
     # -- public API --------------------------------------------------------
-    def mint(self, rel_path: str, doc_id: str) -> str:
+    def mint(self, rel_path: str, doc_id: str, subject: str = "") -> str:
+        """Mint a single-use token for one document.
+
+        ``subject`` is the opaque id of the person who asked for it. It is
+        carried so the redeem path can re-check *their* access rather than
+        serving whoever presents the token: redeem is exempt from the session
+        and CSRF gates by necessity (the companion has no browser session), so
+        without a subject the token is the one door into a document that no
+        longer consults the wall.
+        """
         import secrets
 
         jti = secrets.token_urlsafe(16)
         payload: Dict[str, Any] = {"rel": rel_path, "doc": doc_id, "jti": jti}
+        if subject:
+            payload["sub"] = str(subject)
         return self._serializer.dumps(payload)
 
     def verify_and_consume(self, token: str, consume: bool = True) -> Optional[Dict[str, str]]:
         """
-        Returns {'rel': str, 'doc': str} on success, None on failure.
+        Returns {'rel': str, 'doc': str, 'sub': str} on success, None on failure.
+        ``sub`` is the empty string for tokens minted before subjects existed
+        and for shared-login deployments, where there is no subject to bind.
         If consume=True, records jti to reject replay (across all workers sharing
         the store).
         """
@@ -117,7 +130,7 @@ class OpenTokenManager:
         elif self._jti_seen(jti):
             return None
 
-        return {"rel": rel, "doc": doc}
+        return {"rel": rel, "doc": doc, "sub": (data.get("sub") or "").strip()}
 
     # -- jti store ---------------------------------------------------------
     def _consume_jti(self, jti: str) -> bool:

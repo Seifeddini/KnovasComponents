@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import logging
 import threading
 import time
 from functools import wraps
@@ -10,10 +11,20 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import requests
+from cryptography.hazmat.primitives import serialization
 from flask import g, jsonify, request
 
 from auth.jwt_identity import employee_id_from_jwt_token
+from auth.platform_principal import (
+    ADMIN_ROLES,
+    HEADER as PLATFORM_PRINCIPAL_HEADER,
+    InvalidPrincipalError,
+    ReplayGuard,
+    verify_platform_principal,
+)
 from config import get_config
+
+logger = logging.getLogger(__name__)
 
 _cache: dict[tuple[str, str], tuple[float, str]] = {}
 _cache_lock = threading.Lock()
@@ -265,6 +276,72 @@ def require_knovas_verify(func):
             return jsonify(body), status
         g.rc_employee_id = employee_id
         g.rc_client_id = client_id
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+_platform_replay = ReplayGuard()
+
+
+def _platform_public_pem(cfg) -> bytes:
+    """The mounted key, proven to parse.
+
+    Parsing here rather than only inside verify_platform_principal is
+    what lets the gate tell "this deployment is misconfigured" from
+    "this token is a forgery": the first is a 503 with a log line, the
+    second stays a uniform 401 (P-I4). Raises OSError or ValueError.
+    """
+    with open(cfg.rc_platform_broker_pubkey_path, "rb") as fh:
+        pem = fh.read()
+    serialization.load_pem_public_key(pem)
+    return pem
+
+
+def require_operator_or_tenant_admin(func):
+    """A Knovas employee (existing path) OR the firm's own administrator,
+    presenting the Platform-signed principal in X-Platform-Principal with
+    the admin or ingestion_manager role (KC-IN-1). Each route declares which
+    principals it accepts by using this decorator."""
+    operator_path = require_internal_access(func)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        token = (request.headers.get(PLATFORM_PRINCIPAL_HEADER) or "").strip()
+        if not token:
+            return operator_path(*args, **kwargs)
+        cfg = get_config()
+        if not cfg.rc_platform_broker_pubkey_path:
+            return jsonify({"error": "Platform principals are not configured", "status": "error"}), 403
+        try:
+            public_pem = _platform_public_pem(cfg)
+        except (OSError, ValueError):
+            # RemoteController is misconfigured, not the caller. Folding
+            # this into the uniform 401 gave an operator who mounted the
+            # wrong path "Not authorized" in the console and an empty RC
+            # log; the 403 "not configured" branch already reveals as much.
+            logger.error(
+                "platform broker public key %s could not be read or parsed",
+                cfg.rc_platform_broker_pubkey_path, exc_info=True,
+            )
+            return jsonify({"error": "platform principal verification unavailable",
+                            "status": "error"}), 503
+        try:
+            principal = verify_platform_principal(
+                token, public_pem=public_pem,
+                expected_tenant=cfg.rc_client_id, replay=_platform_replay,
+            )
+        except InvalidPrincipalError:
+            return jsonify({"error": "Not authorized", "status": "error"}), 401
+        if not (set(principal.roles) & ADMIN_ROLES):
+            return jsonify({"error": "Not authorized", "status": "error"}), 403
+        g.rc_client_id = cfg.rc_client_id
+        g.rc_principal = principal
+        # The RC end of the four-eyes chain: without this, nothing here
+        # records that a tenant principal rewrote the configuration or
+        # started the scheduler (P-I5).
+        logger.info("platform principal %s roles=%s %s %s", principal.subject,
+                    sorted(principal.roles), request.method, request.path)
         return func(*args, **kwargs)
 
     return wrapper

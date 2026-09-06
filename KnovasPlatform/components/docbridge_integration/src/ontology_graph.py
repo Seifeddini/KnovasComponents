@@ -18,12 +18,14 @@ plausible Schreibweisen, statt bei der ersten Abweichung zu brechen.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_SECONDS = 60
+DEFAULT_MAX_CACHE_SUBJECTS = 64
 
 
 def _first(mapping: Dict[str, Any], *keys: str, default: Any = "") -> Any:
@@ -98,21 +100,74 @@ class GraphOntologySource:
     def __init__(self, client: Any,
                  text_resolver: Any = None,
                  ttl_seconds: int = DEFAULT_TTL_SECONDS,
+                 max_cache_subjects: int = DEFAULT_MAX_CACHE_SUBJECTS,
                  now: Optional[Callable[[], float]] = None):
         self._client = client
         self._text = text_resolver
         self._ttl = max(0, int(ttl_seconds))
+        self._max_cache_subjects = max(1, int(max_cache_subjects))
         self._now = now or time.time
-        self._export_cache: Optional[Dict[str, Any]] = None
-        self._export_at = 0.0
+        # Keyed by subject id when a principal broker is present; "" is the
+        # identity-off / no-broker slot (one cache for the worker, as before).
+        # (cached_at, last_access, payload) — expiry uses cached_at; LRU uses last_access
+        self._export_by_subject: Dict[str, tuple[float, float, Dict[str, Any]]] = {}
+        self._export_lock = threading.Lock()
         self.warnings: List[str] = []
 
     # -- Topologie ------------------------------------------------------
 
+    def _export_cache_key(self) -> Optional[str]:
+        """Cache slot for this request, or None to skip caching.
+
+        Identity-off / no broker keeps a single worker-wide slot (""). With a
+        broker, the slot is the authenticated subject's id so User B cannot
+        be served User A's brokered graph. A configured broker with no user
+        skips the cache entirely — there is no subject to key, and sharing
+        another user's payload would be the bug this exists to close.
+        """
+        broker = getattr(self._client, "_principal_broker", None)
+        if broker is None:
+            return ""
+        current_user = getattr(broker, "current_user", None)
+        user = current_user() if callable(current_user) else None
+        if user is None:
+            return None
+        return str(user.id)
+
+    def _evict_stale_export_cache(self, now: float) -> None:
+        """Drop expired entries and enforce a small LRU cap.
+
+        Caller holds ``_export_lock``. Snapshot ``.items()`` and ``pop(..., None)``
+        so a concurrent Cortex request cannot KeyError or raise RuntimeError
+        mid-iteration.
+        """
+        if not self._export_by_subject:
+            return
+        if self._ttl > 0:
+            stale = [
+                key
+                for key, (cached_at, _, _) in list(self._export_by_subject.items())
+                if now - cached_at >= self._ttl
+            ]
+            for key in stale:
+                self._export_by_subject.pop(key, None)
+        while len(self._export_by_subject) > self._max_cache_subjects:
+            snapshot = list(self._export_by_subject.items())
+            if not snapshot:
+                break
+            oldest_key = min(snapshot, key=lambda item: item[1][1])[0]
+            self._export_by_subject.pop(oldest_key, None)
+
     def _export(self) -> Dict[str, Any]:
-        if (self._export_cache is not None
-                and self._now() - self._export_at < self._ttl):
-            return self._export_cache
+        key = self._export_cache_key()
+        now = self._now()
+        if key is not None and self._ttl > 0:
+            with self._export_lock:
+                self._evict_stale_export_cache(now)
+                hit = self._export_by_subject.get(key)
+                if hit is not None and now - hit[0] < self._ttl:
+                    self._export_by_subject[key] = (hit[0], now, hit[2])
+                    return hit[2]
         from knovas_client import _graph_payload_list
 
         raw = self._client.graph_export() or {}
@@ -129,8 +184,10 @@ class GraphOntologySource:
         if not edges:
             edges = self._client.graph_edges()
         data = {"node_types": node_types, "nodes": nodes, "edges": edges}
-        self._export_cache = data
-        self._export_at = self._now()
+        if key is not None and self._ttl > 0:
+            with self._export_lock:
+                self._export_by_subject[key] = (now, now, data)
+                self._evict_stale_export_cache(now)
         return data
 
     def summary(self) -> Dict[str, Any]:
@@ -264,7 +321,11 @@ class GraphOntologySource:
     # Teile (Filter, Identifiers) erst auf.
 
     def _invalidate(self) -> None:
-        self._export_cache = None
+        key = self._export_cache_key()
+        if key is None:
+            return
+        with self._export_lock:
+            self._export_by_subject.pop(key, None)
 
     def create_type(self, label: str) -> Optional[Dict[str, Any]]:
         """POST /secured/graph/node-types - Typ-Vokabular erweitern."""

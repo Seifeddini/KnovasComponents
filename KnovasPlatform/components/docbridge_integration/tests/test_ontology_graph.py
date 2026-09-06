@@ -166,6 +166,198 @@ def test_export_is_cached_within_ttl():
     assert calls["n"] == 1
 
 
+def test_export_cache_ttl_is_fixed_not_sliding_on_repeated_hits():
+    """Repeated hits within TTL must not extend expiry; cache expires at cached_at + ttl."""
+    client = FakeGraphClient()
+    calls = {"n": 0}
+    original = client.graph_export
+
+    def counting():
+        calls["n"] += 1
+        return original()
+
+    client.graph_export = counting
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: clock["t"])
+
+    source.summary()                    # cached_at = 1000
+    for _ in range(5):
+        clock["t"] += 10                # 1010 … 1050 — hits refresh LRU only
+        source.summary()
+    assert calls["n"] == 1
+
+    clock["t"] = 1060.0                 # cached_at + ttl — must expire despite hits at 1050
+    source.summary()
+    assert calls["n"] == 2
+
+
+def test_ttl_zero_disables_export_cache():
+    """ttl_seconds=0 must never serve or retain cached exports."""
+    client = FakeGraphClient()
+    calls = {"n": 0}
+    original = client.graph_export
+
+    def counting():
+        calls["n"] += 1
+        return original()
+
+    client.graph_export = counting
+    source = GraphOntologySource(client, ttl_seconds=0, now=lambda: 1000.0)
+    source.summary()
+    source.summary()
+    assert calls["n"] == 2
+    assert source._export_by_subject == {}
+
+
+class _Subject:
+    def __init__(self, subject_id):
+        self.id = subject_id
+
+
+class _SwitchableBroker:
+    def __init__(self):
+        self.user = None
+
+    def current_user(self):
+        return self.user
+
+
+def test_brokered_export_cache_does_not_leak_across_subjects():
+    """Two users, one GraphOntologySource: B must not see A's brokered nodes."""
+    broker = _SwitchableBroker()
+
+    class SubjectGraphClient(FakeGraphClient):
+        def __init__(self):
+            super().__init__()
+            self._principal_broker = broker
+
+        def graph_export(self):
+            user = self._principal_broker.current_user()
+            if user is not None and user.id == "user-a":
+                nodes = [{"id": "walled-a", "name": "Walled Matter",
+                          "node_type_id": "t-mandant"}]
+            else:
+                nodes = [{"id": "open-b", "name": "Public File",
+                          "node_type_id": "t-mandant"}]
+            return {"status": "success", "node_types": self.node_types,
+                    "nodes": nodes, "edges": []}
+
+    client = SubjectGraphClient()
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: 1000.0)
+
+    broker.user = _Subject("user-a")
+    a_ids = {e["id"] for e in source.entities_for_type("t-mandant")["entities"]}
+    assert a_ids == {"walled-a"}
+
+    broker.user = _Subject("user-b")
+    b_ids = {e["id"] for e in source.entities_for_type("t-mandant")["entities"]}
+    assert "walled-a" not in b_ids
+    assert b_ids == {"open-b"}
+
+
+def test_brokered_export_cache_evicts_expired_subject_entries():
+    """Expired per-subject slots are dropped so the cache cannot grow without bound."""
+    broker = _SwitchableBroker()
+    client = FakeGraphClient()
+    client._principal_broker = broker
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: clock["t"])
+
+    broker.user = _Subject("user-a")
+    source.summary()
+    broker.user = _Subject("user-b")
+    source.summary()
+    assert set(source._export_by_subject) == {"user-a", "user-b"}
+
+    clock["t"] = 1061.0
+    broker.user = _Subject("user-c")
+    source.summary()
+
+    assert "user-a" not in source._export_by_subject
+    assert "user-b" not in source._export_by_subject
+    assert set(source._export_by_subject) == {"user-c"}
+
+
+def test_brokered_export_cache_hits_for_the_same_subject():
+    broker = _SwitchableBroker()
+    broker.user = _Subject("user-a")
+    client = FakeGraphClient()
+    client._principal_broker = broker
+    calls = {"n": 0}
+    original = client.graph_export
+
+    def counting():
+        calls["n"] += 1
+        return original()
+
+    client.graph_export = counting
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: 1000.0)
+    source.summary()
+    source.summary()
+    assert calls["n"] == 1
+
+
+def test_concurrent_export_cache_mutations_do_not_raise():
+    """gunicorn --threads=4 shares one GraphOntologySource. Read-modify-write
+    of `_export_by_subject` must not KeyError / RuntimeError."""
+    import threading
+
+    client = FakeGraphClient()
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(
+        client, ttl_seconds=5, max_cache_subjects=2, now=lambda: clock["t"]
+    )
+    errors: list[BaseException] = []
+
+    def worker():
+        try:
+            for _ in range(200):
+                clock["t"] += 0.05
+                source.summary()
+                source._invalidate()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+
+
+def test_brokered_export_cache_evicts_by_last_access_not_insertion():
+    """Re-accessing a subject refreshes LRU recency; eviction drops least-recently used."""
+    broker = _SwitchableBroker()
+    client = FakeGraphClient()
+    client._principal_broker = broker
+    clock = {"t": 1000.0}
+    source = GraphOntologySource(
+        client, ttl_seconds=3600, max_cache_subjects=3, now=lambda: clock["t"],
+    )
+
+    broker.user = _Subject("user-a")
+    source.summary()                    # insert user-a @ 1000
+    clock["t"] = 1001.0
+    broker.user = _Subject("user-b")
+    source.summary()                    # insert user-b @ 1001
+    clock["t"] = 1002.0
+    broker.user = _Subject("user-c")
+    source.summary()                    # insert user-c @ 1002 — cache full
+
+    clock["t"] = 1003.0
+    broker.user = _Subject("user-a")
+    source.summary()                    # hit user-a — must refresh to 1003
+
+    clock["t"] = 1004.0
+    broker.user = _Subject("user-d")
+    source.summary()                    # insert user-d — evict LRU (user-b @ 1001)
+
+    assert set(source._export_by_subject) == {"user-a", "user-c", "user-d"}
+    assert "user-b" not in source._export_by_subject
+    assert source._export_by_subject["user-a"][1] == 1003.0
+
+
 def test_tolerates_alternative_field_names():
     """Die Spec zeigt die Listenformen nicht - andere Schreibweisen duerfen
     nicht zum leeren Graphen fuehren."""

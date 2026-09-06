@@ -44,6 +44,28 @@ from knovas_extract.result import Page, Section, Sentence
 
 from sync.extract_content import description_from_metadata, payload_from_extraction_result
 
+logger_ocr_warned = False
+
+
+def extract_accepts_ocr() -> bool:
+    """Whether the installed knovas-extract takes the OCR keywords.
+
+    OCR arrived after 0.2. Passing the keywords to an older extractor is a
+    TypeError on every PDF, so the pin used to demand a version that was never
+    published to PyPI and no CI job could install. Asking the function what it
+    accepts costs one introspection and lets the same source run against both.
+
+    A version that cannot be introspected is treated as accepting them: dropping
+    OCR silently would ingest scanned PDFs as empty documents, and a loud
+    TypeError is the better failure.
+    """
+    import inspect
+
+    try:
+        return "use_ocr" in inspect.signature(extract).parameters
+    except (TypeError, ValueError):
+        return True
+
 logger = logging.getLogger(__name__)
 
 SYNCABLE_EXTENSIONS = frozenset({".md", ".txt", ".docx", ".pdf", ".eml", ".msg"})
@@ -234,8 +256,18 @@ def _extract_bytes(raw: bytes, ext: str) -> ExtractedDocument:
         "emit_markdown": True,
     }
     if ext == ".pdf":
-        extract_kwargs["use_ocr"] = pdf_ocr_enabled()
-        extract_kwargs["ocr_language"] = tesseract_language()
+        if extract_accepts_ocr():
+            extract_kwargs["use_ocr"] = pdf_ocr_enabled()
+            extract_kwargs["ocr_language"] = tesseract_language()
+        elif pdf_ocr_enabled():
+            global logger_ocr_warned
+            if not logger_ocr_warned:
+                logger_ocr_warned = True
+                logger.warning(
+                    "PDF OCR is enabled but the installed knovas-extract does not "
+                    "support it; scanned PDFs will yield no text. Upgrade "
+                    "knovas-extract to a release with OCR support."
+                )
 
     try:
         result = extract(raw, **extract_kwargs)

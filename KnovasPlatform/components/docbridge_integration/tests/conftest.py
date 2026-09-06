@@ -17,14 +17,36 @@ PLATFORM_DB_TEST_DSN = os.environ.get(
 
 
 def platform_db_reachable() -> bool:
+    """Whether the identity tests can run. Skipping is a developer convenience.
+
+    In CI it is not: a database that failed to come up would turn roughly 180
+    identity and admin tests into skips and leave the run green, which is the
+    one outcome worse than a red build. PLATFORM_DB_REQUIRED (set by the
+    workflow) turns an unreachable database into a loud collection error.
+    """
+    required = os.environ.get("PLATFORM_DB_REQUIRED", "").strip().lower() in {
+        "1", "true", "yes",
+    }
     try:
         import psycopg
     except ImportError:
+        if required:
+            raise RuntimeError(
+                "PLATFORM_DB_REQUIRED is set but psycopg is not installed, so the "
+                "identity and admin tests would silently skip. Install the identity "
+                "extras from requirements.txt."
+            )
         return False
     try:
         with psycopg.connect(PLATFORM_DB_TEST_DSN, connect_timeout=3):
             return True
-    except Exception:
+    except Exception as exc:
+        if required:
+            raise RuntimeError(
+                f"PLATFORM_DB_REQUIRED is set but {PLATFORM_DB_TEST_DSN} is "
+                f"unreachable ({exc}). Refusing to skip the identity and admin "
+                "tests into a green run."
+            ) from exc
         return False
 
 
@@ -66,6 +88,19 @@ def identity_app(platform_db, tmp_path, monkeypatch):
     )
     monkeypatch.delenv("PLATFORM_DB_PASSWORD_FILE", raising=False)
 
+    # create_app() boots the identity schema and the first administrator, the
+    # way gunicorn does in production, so the fixture has to supply the same
+    # bootstrap values a deployment does. The address is deliberately not one
+    # the per-test `people` fixtures use, so a test that lists accounts sees
+    # its own cast plus this one rather than a surprising collision.
+    monkeypatch.setenv("PLATFORM_ADMIN_EMAIL", "bootstrap@kanzlei.ch")
+    monkeypatch.setenv("PLATFORM_ADMIN_PASSWORD", "bootstrap-korrektes-pferd")
+    monkeypatch.setenv(
+        "PLATFORM_ADMIN_BOOTSTRAP_PATH", (tmp_path / "admin-bootstrap").as_posix()
+    )
+
+    broker_dir = (tmp_path / "broker").as_posix()
+    (tmp_path / "broker").mkdir(exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         'web:\n'
@@ -79,8 +114,10 @@ def identity_app(platform_db, tmp_path, monkeypatch):
         '    results_per_page: 20\n'
         'identity:\n'
         '  enabled: true\n'
+        f'  broker_key_dir: "{broker_dir}"\n'
         'api:\n'
         '  base_url: "http://example.test"\n'
+        '  customer_id: "tenant-a"\n'
         'open:\n'
         '  companion_enabled: false\n',
         encoding="utf-8",
@@ -130,15 +167,61 @@ class DummyKnovasClient:
     """Controllable mock. Set DummyKnovasClient.health_result before creating the app."""
 
     health_result = True
+    last_instance = None
+    customer_id = "tenant-a"
 
     def __init__(self, config):
         self.config = config
+        self.principal_broker = None
+        self.acl_calls: list[tuple] = []
+        self.fail_next = False
+        # Pointers the content gate must refuse. Empty means "everything is
+        # readable", which keeps every test that predates the wall unchanged.
+        self.denied_pointers: set[str] = set()
+        self.readable_calls: list[str] = []
+        DummyKnovasClient.last_instance = self
+
+    def document_readable(self, pointer):
+        self.readable_calls.append(str(pointer))
+        return str(pointer) not in self.denied_pointers
+
+    def attach_principal_broker(self, broker):
+        self.principal_broker = broker
 
     def health_check(self):
         return DummyKnovasClient.health_result
 
     def search_documents(self, query, limit=20, filters=None):
         return {"results": [], "total": 0}
+
+    # -- what the console's Dokumente / Zugriffsgruppen tabs call --------
+    def documents(self, **kw):
+        return {"documents": [], "next_after": None, "total_count": 0}
+
+    def access_groups(self):
+        return [{"group_id": "g-lit", "name": "Litigation", "parent_id": None}]
+
+    def folder_rules(self):
+        return []
+
+    def set_document_access(self, pointer, access_groups, acting_as=None):
+        if self.fail_next:
+            self.fail_next = False
+            raise RuntimeError("simulated backend failure")
+        self.acl_calls.append(("set_document_access", pointer, list(access_groups)))
+        return {"pointer": pointer, "access_groups": list(access_groups)}
+
+    def create_folder_rule(self, pointer_prefix, access_groups, acting_as=None):
+        self.acl_calls.append(("create_folder_rule", pointer_prefix, list(access_groups)))
+        return {"rule_id": "r-new", "pointer_prefix": pointer_prefix}
+
+    def update_folder_rule(self, rule_id, access_groups, acting_as=None):
+        self.acl_calls.append(("update_folder_rule", rule_id, list(access_groups)))
+        return {"rule_id": rule_id}
+
+    def delete_folder_rule(self, rule_id):
+        self.acl_calls.append(("delete_folder_rule", rule_id, []))
+        return True
 
 
 class DummyFileHandler:
@@ -166,6 +249,8 @@ web:
     password: "${COMPANY_LOGIN_PASSWORD}"
   search:
     results_per_page: 20
+identity:
+  enabled: false
 api:
   base_url: "http://example.test"
 open:
@@ -184,3 +269,23 @@ open:
     flask_app = web_app.create_app(str(config_path))
     flask_app.config.update(TESTING=True)
     return flask_app
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Under CI a PostgreSQL skip is a failure, not a pass.
+
+    151 identity tests skipped silently for weeks because an unreachable
+    database looked exactly like a green run. In CI we would rather be
+    loudly broken than quietly untested. Locally the skip stays a skip.
+    """
+    outcome = yield
+    report = outcome.get_result()
+    if os.environ.get("CI") != "true":
+        return
+    if report.skipped and "No PostgreSQL" in str(report.longrepr):
+        report.outcome = "failed"
+        report.longrepr = (
+            "PostgreSQL was unreachable in CI. Identity tests must execute, "
+            "not skip -- a skipped security test is a test that does not exist."
+        )

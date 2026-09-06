@@ -52,6 +52,7 @@ class AppConfig:
     rc_sync_default_scan_interval_seconds: int
     rc_internal_local_bypass: bool
     rc_local_bypass_trusted_networks: tuple
+    rc_platform_broker_pubkey_path: str
     testing: bool
 
 
@@ -169,6 +170,7 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         ),
         rc_internal_local_bypass=_internal_local_bypass_enabled(),
         rc_local_bypass_trusted_networks=_parse_cidrs("RC_LOCAL_BYPASS_TRUSTED_CIDRS"),
+        rc_platform_broker_pubkey_path=(os.environ.get("RC_PLATFORM_BROKER_PUBKEY_PATH") or "").strip(),
         testing=_env_bool("TESTING", False),
     )
     return _config

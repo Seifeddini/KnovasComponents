@@ -66,6 +66,8 @@ def _std_config(
         '    password: "${COMPANY_LOGIN_PASSWORD}"\n'
         "  search:\n"
         "    results_per_page: 20\n"
+        "identity:\n"
+        "  enabled: false\n"
         "api:\n"
         '  base_url: "http://example.test"\n'
         "open:\n"

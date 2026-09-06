@@ -89,14 +89,19 @@ def ensure_admin(
         BootstrapError: the address is missing or malformed, or the supplied
             password fails the policy. Nothing is created.
     """
-    address = _validate_email(email)
     repo = users.UserRepository(conn)
 
+    # Whether anyone exists is asked before the address is validated, because
+    # PLATFORM_ADMIN_EMAIL is a *bootstrap* value: the operator is told to treat
+    # the first-boot secret as one-time and remove it. Validating first would
+    # make that instruction fatal — the Platform would refuse to restart once
+    # the variable was gone, long after it had any work left to do.
     existing = conn.execute("SELECT count(*) FROM users").fetchone()[0]
     if existing:
         logger.debug("Bootstrap skipped: %s account(s) already exist", existing)
         return False
 
+    address = _validate_email(email)
     generated = password is None
     secret = password or _generate_password()
     try:

@@ -67,6 +67,30 @@ applies. Where the two rules leave **no reader at all**, the document is
 parked as a conflict for a human decision rather than silently released or
 silently hidden. The *nur Konflikte* filter on the Dokumente tab finds those.
 
+## Freigaben (four-eyes)
+
+Access changes made in the console — per-document groups, folder rules — are
+guarded actions. Whether they run immediately depends on who acts:
+
+- **An administrator acts alone**, by decision (2026-08-14). The change runs and
+  an `approval.bypassed` row records who did what. The Freigaben tab lists these
+  under *Umgehungen durch Administratoren*; they are never hidden.
+- **Strict mode** (*Strikt* on the Freigaben tab) makes administrators queue like
+  everyone else.
+- A queued request waits for a second person holding the `approver` or `admin`
+  role. The requester cannot confirm their own. On approval the console carries
+  the change out and marks the request executed; on rejection the reason is kept.
+- An approved request whose execution failed, or whose kind the console cannot
+  execute, stays visible on the Freigaben tab under *Freigegeben, noch nicht
+  ausgeführt*, with an *Ausführen* button to retry where the console can
+  execute it.
+- Requests expire after 24 hours.
+
+Every guarded action the console offers today is administrator-only, so with
+the bypass on nothing ever queues; the control is effective only in strict
+mode (*Strikt* on the Freigaben tab). Say that to a buyer rather than letting
+the word four-eyes imply more.
+
 ## RemoteController
 
 `sources[].access_groups` in the sync request assigns groups to every
@@ -80,6 +104,48 @@ RemoteController processes exactly one source per cycle and logs a warning if
 more than one is configured. Per-source `access_groups` still apply, but only
 the first source is walked, so put the walled folder in its own sync
 configuration rather than relying on a second source entry.
+
+## Ingestion
+
+The Ingestion tab (`admin` and `ingestion_manager`) edits one profile: folders
+with their access groups, file kinds, schedule, throughput, age cut-off. *Vorschau*
+asks RemoteController what each folder holds without saving anything.
+*Speichern und übertragen* compiles the profile into the two RemoteController
+documents, validates both against their schemas, saves a new version and pushes
+config-then-folders; if the folder list is refused, the previous config is put
+back. Every version stays; *Wiederherstellen* copies an old one forward.
+
+**What übertragen got you.** The notice names one of three outcomes, because
+reaching RemoteController and running are not the same thing. *Abgleich
+gestartet* -- the scheduler was idle and has been started, and the new folder
+list is being indexed now. *Wird beim nächsten Durchlauf wirksam* -- a worker is
+already running; it re-reads the folder list and the schedule at the top of its
+next cycle, so the change lands then, not this second. *Der Abgleich wird von
+Hand gestartet* -- the profile is stored on RemoteController but nothing is
+running: that is what the *Nur wenn ich starte* schedule means, and the
+administrator starts and stops the worker with the Start and Anhalten buttons on
+this tab. The same sentence appears with *Start fehlgeschlagen: ...* appended
+when the profile arrived but starting the worker failed -- the profile is not
+rolled back in that case, since undoing the schedule would leave it disagreeing
+with the folder list that was already accepted.
+
+Saving, restoring and stopping the sync are four-eyes guarded
+(`ingestion_profile_change`); see Freigaben. Starting and previewing are not.
+Approving an ingestion change is not enough to carry it out: RemoteController
+admits only `admin` and `ingestion_manager`, so a pure `approver` who confirms
+one is told that on the Freigaben row, and the request waits under *Freigegeben,
+noch nicht ausgeführt* until an admin or ingestion manager executes it. When the
+approver holds one of those roles the change runs on their click. Either way the
+version records both people -- `created_by` the requester, `approved_by` the
+executor.
+
+RemoteController accepts the administrator's own Platform-signed principal in
+`X-Platform-Principal` (`RC_PLATFORM_BROKER_PUBKEY_PATH`); nobody needs a Knovas
+employee token, a shell on the host, or `chmod`.
+
+RemoteController must also have `RC_SYNC_CONFIG_API_ENABLED=true`: *Speichern und
+übertragen* reads and writes `/sync/config`, and that API is off by default --
+without it the push fails at its first call. The root `docker-compose.yml` sets it.
 
 ## Scale
 

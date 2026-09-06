@@ -56,6 +56,8 @@ api:
   key_path: "${SEMANTIX_CLIENT_KEY:-}"
   ca_cert_path: "${SEMANTIX_CA_CERT:-}"
   customer_id: "${SEMANTIX_CUSTOMER_ID:-}"
+  # Tenant id signed into every principal assertion. Must match the Knovas tenant.
+  client_id: "${KNOVAS_CLIENT_ID:-}"
   cert_auto_renew_enabled: "${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}"
   cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
   cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
@@ -243,6 +245,24 @@ performance:
   # Memory limits
   max_file_size: 104857600  # 100 MB
 
+# The firm's own RemoteController, on knovas-internal only (never published).
+remote_controller:
+  base_url: "${RC_BASE_URL:-http://remote-controller:5001}"
+
+# Per-user identity (Pflichtenheft B1/B2). **On by default.** The shared
+# COMPANY_LOGIN_* credential is refused while this is on -- the app will not
+# start with both doors open -- and the Platform signs each user into every
+# Knovas call with the Ed25519 key kept in broker_key_dir, a persistent volume
+# that must be backed up. See docs/certificates.md.
+#
+# Requires, and docker-compose.yml provides: the platform-db service,
+# PLATFORM_ADMIN_EMAIL for the first administrator, and SEMANTIX_CUSTOMER_ID.
+# Set IDENTITY_ENABLED=false only to stage a cutover on an existing
+# deployment that still has COMPANY_LOGIN_* configured.
+identity:
+  enabled: "${IDENTITY_ENABLED:-true}"
+  broker_key_dir: "${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}"
+
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Optional companion (semantix-doc:) if browser launch is blocked by policy.
 open:
@@ -271,3 +291,5 @@ security:
     - "application/vnd.ms-excel"
     - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     - "text/plain"
+
+
