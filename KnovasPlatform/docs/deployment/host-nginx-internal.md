@@ -28,37 +28,40 @@ Clients do **not** connect to port 8081 on the network.
 | Internal DNS | `<fqdn>` → IP of this server on the vnet/LAN |
 | Internal CA | Server cert in nginx; CA trusted on client PCs |
 | Docker + Compose | On Debian/Ubuntu — see [platforms/debian.md](../platforms/debian.md) |
-| Knovas mTLS | `certs/client.crt`, `client.key`, `ca.crt` — [certs/README.md](../../certs/README.md) |
+| Knovas mTLS | Repo root `certs/` — [certs/README.md](../../certs/README.md) |
 | Indexed documents | Ingest with [RemoteController](../../../RemoteController/) first |
 | Outbound HTTPS | From container to Knovas API (often port 8443) |
 
-## 1. Configure `.env`
+## 1. Configure `knovas.env`
 
 ```bash
-cd KnovasPlatform
-cp .env.example .env
+cd KnovasComponents
+cp knovas.env.example knovas.env
 ```
 
 Set at minimum:
 
 | Variable | Example |
 |----------|---------|
-| `ENVIRONMENT` | `production` |
-| `WEB_SECRET_KEY` | `openssl rand -hex 32` |
-| `COMPANY_LOGIN_NAME` / `COMPANY_LOGIN_PASSWORD` | Strong UI login |
-| `SEMANTIX_API_URL` | `https://<knovas-api-host>:8443` reachable **from inside** the container |
-| `OPEN_PUBLIC_BASE_URL` | `https://<your-fqdn>` — required if users use **Öffnen** / open-tokens |
+| `KNOVAS_API_URL` | `https://<knovas-api-host>:8443` reachable **from inside** the container |
+| `KNOVAS_PLATFORM_URL` | `https://<your-fqdn>` — the address users type; also drives open-tokens |
+| `KNOVAS_DOCUMENTS_PATH` | Host path of the document share |
+| `PLATFORM_ADMIN_EMAIL` | The firm's first administrator |
 
-Do not use placeholder secrets. See [setup.md](../setup.md) for all variables.
+Leave `COMPANY_LOGIN_*` unset: per-user identity is on by default and the
+Platform refuses to start with both doors open. See [setup.md](../setup.md) for
+all variables.
 
 ## 2. Start Docker (localhost bind)
 
 ```bash
-chmod +x scripts/start_stack_host_nginx.sh scripts/verify_deploy.sh stop_stack.sh
-./scripts/start_stack_host_nginx.sh
+./scripts/setup.sh
+./scripts/start.sh
 ```
 
-This uses [docker-compose.host-nginx.yml](../../docker-compose.host-nginx.yml) so the app listens on **`127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}`** only.
+The stack binds **`127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}`** by default — there is
+no separate host-nginx mode to select, and nothing is reachable from another
+machine until nginx is in front of it.
 
 Verify on the server:
 
@@ -143,9 +146,9 @@ curl -fsS http://127.0.0.1:8081/health
 ### B. Stop, then start host-nginx mode
 
 ```bash
-./stop_stack.sh
+./scripts/stop.sh
 ss -tlnp | grep 8081 || true
-./scripts/start_stack_host_nginx.sh
+./scripts/start.sh
 ```
 
 ### C. Stale container
@@ -153,29 +156,34 @@ ss -tlnp | grep 8081 || true
 ```bash
 docker ps -a --filter name=docbridge
 docker rm -f docbridge-web-nginx docbridge-web 2>/dev/null || true
-./scripts/start_stack_host_nginx.sh
+./scripts/start.sh
 ```
 
 ### D. Another service uses 8081
 
-1. Set `DOCBRIDGE_WEB_PORT=18081` in `.env`
+1. Set `DOCBRIDGE_WEB_PORT=18081` in `knovas.env`
 2. Update host nginx `proxy_pass http://127.0.0.1:18081;`
-3. `./stop_stack.sh && ./scripts/start_stack_host_nginx.sh`
+3. `./scripts/stop.sh && ./scripts/setup.sh && ./scripts/start.sh`
 
-### E. Leftover `docker-compose.override.yml`
+### E. Leftover per-component stack
 
-If you previously created `docker-compose.override.yml` by hand, remove or merge it — use **`docker-compose.host-nginx.yml`** via `start_stack_host_nginx.sh` instead to avoid conflicting port bindings.
+Older checkouts had a second Compose project under `KnovasPlatform/`
+(`docker-compose.yml`, `start_stack.sh`, `docker-compose.host-nginx.yml`). It is
+gone. If containers from it are still running, stop them from that directory on
+the old checkout, or `docker rm -f docbridge-web docbridge-web-nginx`, then start
+from the repo root — otherwise two projects fight over port 8081 and the broker
+key volume.
 
 More symptoms: [integration/troubleshooting.md](../integration/troubleshooting.md).
 
 ## Stop the stack
 
 ```bash
-./stop_stack.sh
+./scripts/stop.sh
 ```
 
 ## Related docs
 
 - Base setup: [setup.md](../setup.md)
 - Ubuntu/Debian notes: [platforms/ubuntu.md](../platforms/ubuntu.md), [platforms/debian.md](../platforms/debian.md)
-- Direct HTTP on `:8081` (dev/demo): `./start_stack.sh` — not for production TLS
+- The stack never binds a public interface itself; a reverse proxy is the only way in

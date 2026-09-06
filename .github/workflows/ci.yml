@@ -52,14 +52,24 @@ jobs:
           PLATFORM_DB_REQUIRED: "true"
         run: pytest
 
-      - name: Create minimal .env for compose
+      # The per-component stack under KnovasPlatform/ is gone; there is one
+      # Compose project at the repo root, so these steps run from there.
+      - name: Env expansion contract
+        working-directory: .
+        run: bash scripts/lib/test_expand_knovas_env.sh
+
+      - name: Generate compose inputs
+        working-directory: .
         run: |
-          cp .env.example .env
-          sed -i 's/^WEB_SECRET_KEY=.*/WEB_SECRET_KEY=ci-test-secret-key-not-for-production/' .env
-          sed -i 's/^COMPANY_LOGIN_PASSWORD=.*/COMPANY_LOGIN_PASSWORD=ci-test-password-not-for-production/' .env
+          bash scripts/lib/expand_knovas_env.sh scripts/lib/fixtures/knovas.env.fixture
+          mkdir -p secrets
+          echo ci-not-for-production > secrets/platform_db_password
 
       - name: Docker compose build
-        run: docker compose build docbridge-web docbridge-web-nginx
+        working-directory: .
+        run: |
+          docker compose --env-file scripts/lib/fixtures/knovas.env.fixture config --quiet
+          docker compose --env-file scripts/lib/fixtures/knovas.env.fixture build docbridge-web
 
   remote-controller:
     runs-on: ubuntu-latest

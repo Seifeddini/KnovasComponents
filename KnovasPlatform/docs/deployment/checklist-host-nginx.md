@@ -5,14 +5,16 @@ Full guide: [host-nginx-internal.md](host-nginx-internal.md).
 ## Before deploy
 
 - [ ] Documents indexed in Knovas ([RemoteController](../../../RemoteController/))
-- [ ] mTLS files in `KnovasPlatform/certs/` (`client.crt`, `client.key`, `ca.crt`)
+- [ ] mTLS files in the repo root `certs/` (`client-cert.pem`, `client-key.pem`, `ca-root.pem`)
 - [ ] Internal DNS: `<fqdn>` → server IP on vnet/LAN
 - [ ] Internal TLS cert issued and trusted on client PCs
 
 ## Server configuration
 
-- [ ] `cp .env.example .env` — secrets, `SEMANTIX_API_URL`, `OPEN_PUBLIC_BASE_URL=https://<fqdn>`
-- [ ] `./scripts/start_stack_host_nginx.sh`
+- [ ] `cp knovas.env.example knovas.env` — `KNOVAS_API_URL`, `KNOVAS_PLATFORM_URL=https://<fqdn>`, `KNOVAS_DOCUMENTS_PATH`, `PLATFORM_ADMIN_EMAIL`
+- [ ] No `COMPANY_LOGIN_*` in `knovas.env` (per-user identity is on by default)
+- [ ] `./scripts/setup.sh && ./scripts/start.sh` (binds `127.0.0.1` only)
+- [ ] First admin password: `docker compose exec docbridge-web cat /run/platform-admin-bootstrap`
 - [ ] `curl -fsS http://127.0.0.1:8081/health` → `ok`
 
 ## Host nginx
@@ -32,7 +34,7 @@ Full guide: [host-nginx-internal.md](host-nginx-internal.md).
 - [ ] `nslookup <fqdn>` → correct IP
 - [ ] Browser `https://<fqdn>` — no cert warning (if CA deployed)
 - [ ] Login and search work
-- [ ] `VERIFY_BASE_URL=https://<fqdn> ./scripts/verify_deploy.sh` (on server)
+- [ ] `VERIFY_BASE_URL=https://<fqdn> ./KnovasPlatform/scripts/verify_deploy.sh` (on server)
 
 ## Optional
 

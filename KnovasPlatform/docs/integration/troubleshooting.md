@@ -3,15 +3,17 @@
 | Symptom | Fix |
 |---------|-----|
 | `docbridge-web` unhealthy / restart loop | `docker compose logs docbridge-web --tail 50` — see rows below |
-| `ModuleNotFoundError: semantix_client` | Pull latest `main` (uses `knovas_client`); rebuild with `./start_stack.sh` |
+| `ModuleNotFoundError: semantix_client` | Pull latest `main` (uses `knovas_client`); rebuild with `./scripts/start.sh` from the repo root |
 | `RuntimeError: WEB_SECRET_KEY` | In `.env`, set `WEB_SECRET_KEY` to random hex (not `replace-with-random-hex`): `openssl rand -hex 32` |
-| `RuntimeError: COMPANY_LOGIN_PASSWORD` | Set a real `COMPANY_LOGIN_PASSWORD` (not `replace-with-strong-company-password`) |
-| No login page / open search UI | `COMPANY_LOGIN_ENABLED=false` in `.env`, or placeholder secrets caused old image to skip login; fix secrets and rebuild |
-| `./start_stack.sh: Permission denied` | `chmod +x start_stack.sh stop_stack.sh scripts/start_stack_host_nginx.sh scripts/verify_deploy.sh` |
-| `127.0.0.1:8081` / port 8081 already in use | Stack may already be up: `curl http://127.0.0.1:8081/health`. Else `./stop_stack.sh`, check `ss -tlnp` for 8081, remove stale `docbridge-*` containers. See [host-nginx-internal.md](../deployment/host-nginx-internal.md#troubleshooting-port-8081-already-in-use) |
-| nginx 502 / bad gateway | Docker not on 127.0.0.1:8081: run `./scripts/start_stack_host_nginx.sh`; match `proxy_pass` port to `DOCBRIDGE_WEB_PORT` in `.env` |
+| `identity.enabled is true, but COMPANY_LOGIN_NAME/COMPANY_LOGIN_PASSWORD are still set` | Remove both from `knovas.env` and re-run `./scripts/setup.sh`. Per-user accounts supersede the shared firm login; the Platform will not start with both doors open. Staging a cutover instead? Set `IDENTITY_ENABLED=false` **and** keep both values. See [RELEASE_NOTES.md](../../../RELEASE_NOTES.md) |
+| `could not connect to server` / identity DB errors at boot | The Platform needs `platform-db`. Start the whole stack from the repo root with `./scripts/start.sh`, not one service by hand |
+| `dependency failed to start: container docbridge-web is unhealthy` | The app died during import; the health check never had anything to probe. `docker compose logs docbridge-web` shows the real `RuntimeError` — usually one of the two rows above |
+| No login page / open search UI | Placeholder secrets caused an old image to skip login; fix `knovas.env`, re-run `./scripts/setup.sh && ./scripts/start.sh` |
+| `Permission denied` running a script | `chmod +x scripts/*.sh KnovasPlatform/scripts/verify_deploy.sh`, or run it as `bash <script>` |
+| `127.0.0.1:8081` / port 8081 already in use | Stack may already be up: `curl http://127.0.0.1:8081/health`. Else `./scripts/stop.sh`, check `ss -tlnp` for 8081, remove stale `docbridge-*` containers. See [host-nginx-internal.md](../deployment/host-nginx-internal.md#troubleshooting-port-8081-already-in-use) |
+| nginx 502 / bad gateway | Docker not on 127.0.0.1:8081: `./scripts/start.sh`; match `proxy_pass` port to `DOCBRIDGE_WEB_PORT` |
 | Öffnen / open-token wrong host | Set `OPEN_PUBLIC_BASE_URL=https://<fqdn>` in `.env`; recreate `docbridge-web` |
-| UI unchanged after `docker compose build` | Run `./scripts/verify_deploy.sh` on **`DOCBRIDGE_WEB_PORT`** from `.env` (not 8081). Expect `enrichment.loaded: true` and `build_id` **onedrive-locations-v3**. Fix `.env`: `SEARCH_ENRICHMENT_PATH=/mnt/autodoc/.search_enrichment.jsonl` (not `/app/sync_meta/...`). Host nginx `proxy_pass` must match `DOCBRIDGE_WEB_PORT`. |
+| UI unchanged after `docker compose build` | Run `./KnovasPlatform/scripts/verify_deploy.sh` on **`DOCBRIDGE_WEB_PORT`** (not necessarily 8081). Expect `enrichment.loaded: true` and `build_id` **onedrive-locations-v3**. Fix `.env`: `SEARCH_ENRICHMENT_PATH=/mnt/autodoc/.search_enrichment.jsonl` (not `/app/sync_meta/...`). Host nginx `proxy_pass` must match `DOCBRIDGE_WEB_PORT`. |
 | Öffnen does nothing | Client must reach the share; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT`; browser may block `file:`/UNC from HTTPS — intranet zone or Edge policy; try optional companion |
 | client-path 503 | Set `OPEN_UNC_ROOT` and/or `OPEN_CLIENT_LOCAL_ROOT` + `OPEN_LOCAL_ROOT`; check `OPEN_BROWSER_CLIENT_PATH` and AutoDoc mount |
 | Mint 503 (companion) | Set `OPEN_COMPANION_ENABLED=true` and path mapping; only needed for companion fallback |

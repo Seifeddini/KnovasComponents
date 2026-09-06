@@ -295,16 +295,22 @@ Customer-hosted Flask search application with a bundled web frontend, Knovas API
 ### 2.2 Services (Docker Compose)
 
 
-| Service               | Role                         | Published port                          |
-| --------------------- | ---------------------------- | --------------------------------------- |
-| `docbridge-web`       | Flask application + Gunicorn | Internal only (`5000`)                  |
-| `docbridge-web-nginx` | In-compose reverse proxy     | `${DOCBRIDGE_WEB_PORT:-8081}`           |
-| `semantix-mock`       | Offline demo API             | Internal only — **profile `mock` only** |
+One Compose project at the repo root covers every component.
+
+| Service               | Role                          | Published port                                |
+| --------------------- | ----------------------------- | --------------------------------------------- |
+| `platform-db`         | Identity store (PostgreSQL)   | Internal only — `knovas-internal`             |
+| `docbridge-web`       | Flask application + Gunicorn  | Internal only (`5000`)                        |
+| `docbridge-web-nginx` | In-compose reverse proxy      | `127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}`       |
+| `remote-controller`   | Discovery and sync API        | `127.0.0.1:5001`                              |
+| `knovas-mock`         | Offline demo API              | Internal only — **profile `mock` only**       |
 
 
 > Docker service names retain legacy `docbridge` identifiers; they refer to the KnovasPlatform application.
 
-The `docker-compose.host-nginx.yml` overlay rebinds the web proxy to `127.0.0.1:8081` for production host-NGINX deployment (see §2.7).
+Every published port binds `127.0.0.1`, so a reverse proxy on the host is the
+only route in from another machine (see §2.7) — there is no overlay to select
+and no mode that binds `0.0.0.0`.
 
 ### 2.3 Network
 
@@ -341,12 +347,18 @@ Certificate files under `${SEMANTIX_CERTS_DIR:-./certs}` are mounted read-only t
 
 ### 2.5 Environment variables
 
-Copy `KnovasPlatform/.env.example` to `.env`.
+Copy `knovas.env.example` (repo root) to `knovas.env`; `./scripts/setup.sh`
+expands it into the per-component `.env.generated` files, which are overwritten
+on every run.
 
 **Required**
 
-- `WEB_SECRET_KEY` — Flask session signing (generate with `openssl rand -hex 32`)
-- `COMPANY_LOGIN_NAME`, `COMPANY_LOGIN_PASSWORD` — UI login (single shared credential)
+- `KNOVAS_API_URL`, `KNOVAS_PLATFORM_URL`, `KNOVAS_DOCUMENTS_PATH`
+- `PLATFORM_ADMIN_EMAIL` — the firm's first administrator; there is no default account
+- `WEB_SECRET_KEY` — Flask session signing; generated when left empty
+- `COMPANY_LOGIN_NAME`, `COMPANY_LOGIN_PASSWORD` — **superseded** by per-user
+  accounts. The Platform refuses to start with these set while identity is on;
+  they belong only to a staged cutover with `IDENTITY_ENABLED=false`
 - `SEMANTIX_API_URL`
 - `SEMANTIX_CLIENT_CERT`, `SEMANTIX_CLIENT_KEY`, `SEMANTIX_CA_CERT` (defaults provided; certificate files must exist)
 
@@ -385,11 +397,11 @@ All modes assume an internal (intranet / VPN / virtual network) environment. The
 
 **A. Direct HTTP — evaluation / trusted LAN**
 
-- Web UI at `http://<host>:8081` on all interfaces
-- No TLS — acceptable for short-lived demos or a trusted LAN only
-- **Not for production**
+- Web UI at `http://127.0.0.1:8081` on the server itself
+- No TLS — acceptable for short-lived demos on the machine itself
+- **Not for production**, and not reachable from the network without a proxy
 
-Start: `start_stack.sh` or `start_stack.ps1`. Guide: `KnovasPlatform/docs/setup.md`.
+Start: `./scripts/setup.sh && ./scripts/start.sh`. Guide: `KnovasPlatform/docs/setup.md`.
 
 **B. Internal HTTPS via host NGINX — production intranet**
 
@@ -403,7 +415,8 @@ Reference NGINX config: `KnovasPlatform/deploy/host-nginx/knovas-platform.conf.e
 
 Optional systemd unit: `KnovasPlatform/deploy/systemd/knovas-platform.service.example`
 
-Start: `scripts/start_stack_host_nginx.sh`. Guide: `KnovasPlatform/docs/deployment/host-nginx-internal.md`.
+Start: `./scripts/setup.sh && ./scripts/start.sh` — the localhost bind is the
+default, not a separate mode. Guide: `KnovasPlatform/docs/deployment/host-nginx-internal.md`.
 
 **C. Localhost-only (single workstation)**
 
@@ -441,10 +454,15 @@ Guide: `KnovasPlatform/docs/integration/opening-documents.md`.
 
 For evaluation without a Knovas tenant. **Not for production.**
 
-In `.env`:
+In `knovas.env`, point the API at the mock service name:
 
 ```env
-SEMANTIX_API_URL=http://semantix-mock:5000
+KNOVAS_API_URL=http://knovas-mock:5000
+```
+
+then, after `./scripts/setup.sh`, in the generated `KnovasPlatform/.env.generated`:
+
+```env
 SEMANTIX_USE_SECURED_API=false
 SEMANTIX_ALLOW_LEGACY_API_FALLBACK=true
 ```
@@ -452,7 +470,7 @@ SEMANTIX_ALLOW_LEGACY_API_FALLBACK=true
 Start with the `mock` profile:
 
 ```bash
-docker compose --profile mock up -d --build
+docker compose --env-file knovas.env --profile mock up -d --build
 ```
 
 The mock API requires no tenant and no mTLS. Do not expose mock services on production networks.
@@ -528,11 +546,11 @@ Full guides: `RemoteController/docs/onboarding-checklist.md` (remote-operator), 
 ### KnovasPlatform (production intranet)
 
 - [ ] Documents indexed in Knovas (RemoteController ingestion complete)
-- [ ] mTLS files in `KnovasPlatform/certs/` (`client.crt`, `client.key`, `ca.crt`)
+- [ ] mTLS files in the repo root `certs/` (`client-cert.pem`, `client-key.pem`, `ca-root.pem`)
 - [ ] Internal DNS: FQDN → server IP
 - [ ] Internal TLS certificate issued and trusted on client PCs
-- [ ] `.env` completed — strong secrets, `SEMANTIX_API_URL`, `OPEN_PUBLIC_BASE_URL`
-- [ ] Stack started with `scripts/start_stack_host_nginx.sh`
+- [ ] `knovas.env` completed — `KNOVAS_API_URL`, `KNOVAS_PLATFORM_URL`, `PLATFORM_ADMIN_EMAIL`, no `COMPANY_LOGIN_*`
+- [ ] Stack started with `./scripts/setup.sh && ./scripts/start.sh`
 - [ ] `curl http://127.0.0.1:8081/health` → ok
 - [ ] Host NGINX configured; `curl https://<fqdn>/health` → ok
 - [ ] Firewall: **443** from client subnets; **8081** not exposed externally
@@ -579,9 +597,9 @@ Guide: `RemoteController/docs/operations.md`.
 
 | Symptom                    | Likely cause / fix                                                                                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Container restart loop     | Check `docker compose logs docbridge-web` — often missing `WEB_SECRET_KEY` or `COMPANY_LOGIN_PASSWORD`                                                              |
-| NGINX 502 bad gateway      | Stack not bound to `127.0.0.1:8081`; run `scripts/start_stack_host_nginx.sh`; match `proxy_pass` port to `DOCBRIDGE_WEB_PORT`                                       |
-| Login page missing         | Set real secrets in `.env` and rebuild                                                                                                                              |
+| Container restart loop     | Check `docker compose logs docbridge-web` — often a missing `WEB_SECRET_KEY`, or `COMPANY_LOGIN_*` still set while per-user identity is on                          |
+| NGINX 502 bad gateway      | Stack not running or on another port; `./scripts/start.sh`; match `proxy_pass` port to `DOCBRIDGE_WEB_PORT`                                                        |
+| Login page missing         | Set real secrets in `knovas.env`, re-run `./scripts/setup.sh && ./scripts/start.sh`                                                                                |
 | Open / Öffnen does nothing | Share not mounted on client PC; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT` / `OPEN_LOCAL_ROOT`; browser may block `file:` links from HTTPS — try companion mode |
 | Open-token wrong host      | Set `OPEN_PUBLIC_BASE_URL=https://<fqdn>` and recreate `docbridge-web`                                                                                              |
 | Search returns no results  | Confirm RemoteController ingestion completed; verify `SEMANTIX_API_URL` and mTLS certs                                                                              |

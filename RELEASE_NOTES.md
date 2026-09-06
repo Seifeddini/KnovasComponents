@@ -24,14 +24,45 @@ Migration:
 2. `COMPANY_LOGIN_NAME` und `COMPANY_LOGIN_PASSWORD` aus `knovas.env` entfernen.
 3. `./scripts/setup.sh` ausfuehren — legt `secrets/platform_db_password` (0600)
    an und mountet es als Docker-Secret.
-4. Stack starten. Beim ersten Start entsteht das Administratorkonto; das
+4. `./scripts/start.sh`. Beim ersten Start entsteht das Administratorkonto; das
    Einmalpasswort steht in `/run/platform-admin-bootstrap` im Container
    `docbridge-web`. Danach anmelden, Passwort aendern, Datei loeschen.
 5. **Die Identitaetsdatenbank sichern.** Sie haelt alle Konten, Rollen und
    Gruppenzuordnungen der Kanzlei. Ohne Backup sind sie verloren.
 
-Wer die Umstellung staffeln will, setzt `IDENTITY_ENABLED=false` und behaelt
-den bisherigen Zustand — als bewusste Entscheidung, nicht als Vorgabe.
+Wer die Umstellung staffeln will, setzt `IDENTITY_ENABLED=false` **und** behaelt
+`COMPANY_LOGIN_NAME` / `COMPANY_LOGIN_PASSWORD` — als bewusste Entscheidung,
+nicht als Vorgabe. `setup.sh` weist beide Haelften dieser Wahl zurueck, wenn sie
+sich widersprechen, statt den Fehler erst im Container auftauchen zu lassen.
+
+### Ein Stack statt zwei
+
+Der eigene Compose-Stack unter `KnovasPlatform/` ist entfernt:
+`docker-compose.yml`, `docker-compose.host-nginx.yml`, `start_stack.sh` /
+`.ps1`, `stop_stack.sh` / `.ps1`, `scripts/start_stack_host_nginx.sh` und
+`.env.example`. Er kannte weder `platform-db` noch `PLATFORM_ADMIN_EMAIL` und
+konnte diese Version daher nicht starten — der Container lief los und wurde
+`unhealthy`.
+
+Alles laeuft ab sofort aus dem Repository-Wurzelverzeichnis:
+
+```bash
+cd KnovasComponents
+cp knovas.env.example knovas.env   # ausfuellen
+./scripts/setup.sh && ./scripts/start.sh
+```
+
+- Der Stack bindet ausschliesslich `127.0.0.1` — die Overlay-Datei fuer den
+  Host-NGINX-Betrieb entfaellt, weil das jetzt die Vorgabe ist.
+- Zertifikate liegen im **Wurzelverzeichnis** `certs/`, unter den Namen, die
+  Knovas ausliefert. `setup.sh` legt die vom Platform erwarteten Namen als
+  Symlinks daneben; nichts muss mehr von Hand umbenannt werden.
+- Die Demo-API (`knovas-mock`) ist in den Wurzel-Stack uebernommen und bleibt
+  profilgebunden: `docker compose --env-file knovas.env --profile mock up -d`.
+
+Laufen noch Container aus dem alten Stack, vorher `docker rm -f docbridge-web
+docbridge-web-nginx` — sonst streiten sich zwei Projekte um Port 8081 und um
+das Volume mit dem Broker-Schluessel.
 
 - Deploy: [KnovasPlatform/docs/setup.md](KnovasPlatform/docs/setup.md)
 - API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)

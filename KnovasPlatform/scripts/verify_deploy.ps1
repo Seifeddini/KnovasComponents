@@ -1,9 +1,15 @@
 $ErrorActionPreference = "Stop"
-Set-Location (Join-Path $PSScriptRoot "..")
+# The compose project lives at the repo root, not in KnovasPlatform: the
+# per-component stack is gone, and `docker compose` below has to run where
+# docker-compose.yml actually is.
+$platformDir = (Join-Path $PSScriptRoot "..")
+Set-Location (Join-Path $platformDir "..")
 
+# Written by scripts/setup.sh from knovas.env; there is no hand-edited .env.
+$platformEnv = (Join-Path $platformDir ".env.generated")
 $port = 8081
-if (Test-Path ".env") {
-    Get-Content ".env" | ForEach-Object {
+if (Test-Path $platformEnv) {
+    Get-Content $platformEnv | ForEach-Object {
         if ($_ -match '^\s*DOCBRIDGE_WEB_PORT\s*=\s*(.+)\s*$') {
             $port = $Matches[1].Trim()
         }

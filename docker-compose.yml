@@ -134,6 +134,28 @@ services:
     networks:
       - knovas-internal
 
+  # Offline demo API, so the search UI can be shown without a Knovas tenant.
+  # Profile-gated: `docker compose --profile mock up -d --build`, never part of
+  # a default start. See KnovasPlatform/docs/demo.md.
+  knovas-mock:
+    build:
+      context: ./KnovasPlatform/mock_knovas_api
+      dockerfile: Dockerfile
+    container_name: knovas-mock
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      timeout: 10s
+      interval: 20s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    profiles:
+      - mock
+    networks:
+      - knovas-internal
+
 networks:
   knovas-internal:
     driver: bridge

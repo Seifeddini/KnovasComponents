@@ -2,55 +2,54 @@
 
 How to shut down Knovas Platform and Remote Controller HTTP services (Docker and local dev).
 
-## Knovas Platform (search UI)
+## Knovas stack (search UI, RemoteController, identity DB)
 
-From `KnovasComponents/KnovasPlatform/`:
+One Compose project at the repo root covers all of it. From `KnovasComponents/`:
 
-**Recommended (Linux/macOS or Git Bash):**
-
-```bash
-./stop_stack.sh
-```
-
-**Windows (PowerShell):**
-
-```powershell
-.\stop_stack.ps1
-```
-
-**Manual — production stack** (`docbridge-web`, `docbridge-web-nginx`):
+**Recommended:**
 
 ```bash
-docker compose down
+./scripts/stop.sh
 ```
 
-**Manual — demo stack** (includes the Knovas mock API container):
+**Manual:**
 
 ```bash
-docker compose --profile mock down
+docker compose --env-file knovas.env down
 ```
 
-The helper scripts run `docker compose --profile mock down` so both the search UI and an active mock API are stopped.
-
-**Full rebuild before start** (from `KnovasPlatform/`):
+**Demo stack** (adds the profile-gated mock API container):
 
 ```bash
-./start_stack.sh
+docker compose --env-file knovas.env --profile mock down
 ```
 
-Runs `docker compose build --no-cache docbridge-web` then `up --force-recreate` (see [setup.md](../KnovasPlatform/docs/setup.md)).
+`stop.sh` does not pass `--profile mock`, so stop a demo run with the command
+above rather than the script.
+
+**Rebuild and start again:**
+
+```bash
+./scripts/start.sh
+```
 
 Confirm nothing is listening on your web port (default `8081` from `DOCBRIDGE_WEB_PORT`):
 
 ```bash
-docker compose ps
+docker compose --env-file knovas.env ps
 ```
+
+> Older checkouts had a second Compose project under `KnovasPlatform/` with its
+> own `start_stack.sh` / `stop_stack.sh`. Those are gone. If containers from one
+> are still running, `docker rm -f docbridge-web docbridge-web-nginx`.
 
 ---
 
-## Remote Controller (sync API)
+## Remote Controller on its own
 
-From `KnovasComponents/RemoteController/`:
+RemoteController is part of the root stack above, so `./scripts/stop.sh` already
+stops it. Only a **standalone** RC checkout (its own Compose project, for
+component development) needs this, from `KnovasComponents/RemoteController/`:
 
 ```bash
 docker compose down
@@ -89,19 +88,20 @@ Then stop the matching process in Task Manager or `Stop-Process -Id <pid>`.
 
 ## Stop everything in the monorepo
 
-Run from each product folder (order does not matter):
+One command, from the repo root:
 
 ```bash
-cd KnovasComponents/KnovasPlatform && ./stop_stack.sh
-cd ../RemoteController && docker compose down
+cd KnovasComponents && ./scripts/stop.sh
 ```
 
-On Windows:
+On Windows (Git Bash or WSL):
 
-```powershell
-cd KnovasComponents\KnovasPlatform; .\stop_stack.ps1
-cd ..\RemoteController; docker compose down
+```bash
+cd KnovasComponents && bash ./scripts/stop.sh
 ```
+
+That is the whole stack. Add `cd RemoteController && docker compose down` only if
+you also started a standalone RC project for component development.
 
 ---
 

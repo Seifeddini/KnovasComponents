@@ -3,13 +3,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PLATFORM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# The compose project lives at the repo root, not in KnovasPlatform: the
+# per-component stack is gone, and `docker compose` below has to run where
+# docker-compose.yml actually is.
+ROOT_DIR="$(cd "$PLATFORM_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/read_env.sh"
 
-PORT="$(read_env_var DOCBRIDGE_WEB_PORT 8081)"
+# Written by scripts/setup.sh from knovas.env; there is no hand-edited .env.
+PORT="$(read_env_var DOCBRIDGE_WEB_PORT 8081 "$PLATFORM_DIR/.env.generated")"
 
 BASE_URL="${VERIFY_BASE_URL:-http://localhost:${PORT}}"
 PROBE_MTLS="${VERIFY_MTLS:-false}"
@@ -87,9 +92,9 @@ if [[ "$PROBE_MTLS" == "true" || "$PROBE_MTLS" == "1" ]]; then
   if ! docker compose ps --status running docbridge-web 2>/dev/null | grep -q docbridge-web; then
     echo "  SKIP docbridge-web is not running"
   else
-  SEMANTIX_URL="$(read_env_var SEMANTIX_API_URL "")"
+  SEMANTIX_URL="$(read_env_var SEMANTIX_API_URL "" "$PLATFORM_DIR/.env.generated")"
   if [[ -z "$SEMANTIX_URL" ]]; then
-    echo "  SKIP SEMANTIX_API_URL not set in .env"
+    echo "  SKIP SEMANTIX_API_URL not set — run ./scripts/setup.sh"
   else
     docker compose exec -T docbridge-web python -c "
 import os, ssl, urllib.request

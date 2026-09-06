@@ -3,10 +3,10 @@
 Follow [setup.md](../setup.md) first. Ubuntu-specific notes:
 
 ```bash
-git clone <repo-url> ~/KnovasPlatform && cd ~/KnovasPlatform
-cp .env.example .env   # edit
-chmod +x start_stack.sh scripts/verify_deploy.sh
-./start_stack.sh
+git clone <repo-url> ~/KnovasComponents && cd ~/KnovasComponents
+cp knovas.env.example knovas.env   # edit
+./scripts/setup.sh
+./scripts/start.sh
 ```
 
 **Knovas API URL:** Prefer a LAN IP or hostname reachable from containers (e.g. `https://192.168.1.50:8443`). Compose maps `host.docker.internal` to the host gateway on Linux.
@@ -15,10 +15,10 @@ chmod +x start_stack.sh scripts/verify_deploy.sh
 
 **Clients:** Same share access as today; no Knovas package. Optional companion only if browser open is blocked.
 
-**LAN access (HTTP):** Open `DOCBRIDGE_WEB_PORT` (default 8081) in ufw if needed — `./start_stack.sh` only.
+**LAN access:** the stack binds `127.0.0.1` only, so opening `DOCBRIDGE_WEB_PORT` in ufw achieves nothing on its own — put nginx in front of it instead.
 
-**Production HTTPS (internal DNS + host nginx):** `./scripts/start_stack_host_nginx.sh` and [deployment/host-nginx-internal.md](../deployment/host-nginx-internal.md). Users use `https://<fqdn>`; do not expose 8081 to the vnet.
+**Production HTTPS (internal DNS + host nginx):** [deployment/host-nginx-internal.md](../deployment/host-nginx-internal.md). Users use `https://<fqdn>`; 8081 stays off the vnet.
 
 **Reboot:** Optional systemd — [deploy/systemd/knovas-platform.service.example](../../deploy/systemd/knovas-platform.service.example) (host-nginx mode).
 
-**Stop:** `./stop_stack.sh` — [stopping web servers](../../../docs/stopping-web-servers.md).
+**Stop:** `./scripts/stop.sh` — [stopping web servers](../../../docs/stopping-web-servers.md).
