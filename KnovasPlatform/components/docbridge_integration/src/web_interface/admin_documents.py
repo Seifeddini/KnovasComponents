@@ -114,6 +114,14 @@ def execute_acl_change(client, payload, *, actor, conn) -> dict:
             result = client.update_folder_rule(rule_id, groups)
         else:
             result = client.create_folder_rule(prefix, groups)
+        if result is None:
+            # 404 from the RBAC endpoint: nothing was stored. Raising here is
+            # what keeps the audit line and the "gespeichert" notice honest --
+            # both are below this point, and both would otherwise describe a
+            # rule that does not exist.
+            raise RuntimeError(
+                "Die Knovas-API hat die Ordnerregel nicht gespeichert (HTTP 404)."
+            )
         saved_id = str((result or {}).get("rule_id") or rule_id or prefix)
         audit.record(
             conn, action="folder_rule.saved", actor=actor, target_type="folder_rule",
@@ -299,11 +307,25 @@ def attach_document_routes(
         if not name:
             return _groups_page(error="Bitte einen Namen angeben.", status=400)
         try:
-            client_factory().create_access_group(name, parent=parent)
+            created = client_factory().create_access_group(name, parent=parent)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Gruppe nicht angelegt: %s", exc)
             return _groups_page(error="Gruppe konnte nicht angelegt werden.",
                                 status=400)
+        # None heisst: die API hat mit 404 geantwortet und nichts angelegt. Das
+        # ist kein Fehler, den ein except faengt -- und ohne diese Pruefung
+        # meldete die Seite den Erfolg, waehrend die Liste darunter die neue
+        # Gruppe nicht enthielt. Ein leeres dict (204) ist dagegen ein Erfolg.
+        if created is None:
+            logger.error("Gruppe %r wurde von der Knovas-API nicht angelegt (404).", name)
+            return _groups_page(
+                error=(
+                    "Die Knovas-API hat die Gruppe nicht angelegt — sie kennt "
+                    "diesen Endpunkt nicht (HTTP 404). Das Log von docbridge-web "
+                    "nennt die Antwort im Wortlaut."
+                ),
+                status=502,
+            )
         audit.record(
             gate.connection(), action="access_group.created",
             actor=gate.current_user(), target_type="access_group",

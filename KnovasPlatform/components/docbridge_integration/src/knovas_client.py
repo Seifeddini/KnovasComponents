@@ -1823,14 +1823,30 @@ class KnovasAPIClient:
             response = exc.response
             if response is None or response.status_code != 404:
                 raise
-            logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, path)
+            if method.upper() != 'GET':
+                # Fuer ein GET ist "unbekannt oder nicht deins" eine normale
+                # Antwort. Fuer einen Schreibzugriff heisst dasselbe 404, dass
+                # nichts geschrieben wurde -- und der Aufrufer sieht nur None.
+                # Genau so meldete die Konsole 'Gruppe wurde angelegt' fuer eine
+                # Gruppe, die es nie gab.
+                logger.error(
+                    "Knovas API %s %s -> 404, es wurde nichts geschrieben. "
+                    "Antwort: %s",
+                    method, path, (response.text or "")[:600] or "<leer>",
+                )
+            else:
+                logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, path)
             return None
         if response.status_code == 204:
             return {}
         try:
             return response.json() or {}
         except ValueError:
-            logger.warning("RBAC-Antwort ohne JSON-Body: %s %s", method, path)
+            logger.warning(
+                "RBAC-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
+                method, path, response.status_code,
+                (response.text or "")[:300] or "<leer>",
+            )
             return {}
 
     def access_groups(self) -> List[Dict[str, Any]]:
