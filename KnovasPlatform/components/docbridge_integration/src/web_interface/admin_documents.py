@@ -315,8 +315,8 @@ def attach_document_routes(
         - the typed tenant id, which is the API's own typo guard and cannot be
           produced by clicking;
         - ``run_guarded``: ``purge_all_documents`` is a guarded kind, so unless
-          admin-bypass is on, this is queued for a second person rather than
-          carried out;
+          the approvals policy lets an administrator act alone, this is queued
+          for a second person rather than carried out;
         - the audit record in ``execute_corpus_purge``, written after the call
           returns, because this is the only trace left afterwards.
 

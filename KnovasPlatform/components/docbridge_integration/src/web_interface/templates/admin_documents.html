@@ -142,13 +142,13 @@
         </p>
         <p class="hint">
             Zum Bestätigen die Mandanten-Id dieses Zertifikats eintippen:
-            <code>{{ tenant_id or 'unbekannt' }}</code>
+            <code>{{ tenant_id | default('unbekannt', true) }}</code>
         </p>
         <form method="post" action="{{ url_for('admin.purge_documents') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label for="confirm_client_id">Mandanten-Id</label>
             <input type="text" id="confirm_client_id" name="confirm_client_id"
-                   autocomplete="off" spellcheck="false" placeholder="{{ tenant_id or '' }}">
+                   autocomplete="off" spellcheck="false" placeholder="{{ tenant_id | default('', true) }}">
             <p><button type="submit" class="danger">Alle Dokumente unwiderruflich löschen</button></p>
         </form>
     </div>
