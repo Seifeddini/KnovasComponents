@@ -29,3 +29,33 @@ def test_pilot_pipeline_writes_all_four_formats(tmp_path: Path):
     assert (work / "ground_truth" / "world.json").exists()
     assert not (out / "world.json").exists()
     assert (work / "stages" / "verify.ok").exists()
+
+
+def test_pilot_tree_is_a_numbered_aktenplan(tmp_path: Path):
+    out = tmp_path / "corpus"
+    rc = run_pipeline(
+        cfg_path=CONFIG,
+        out_root=out,
+        work_root=tmp_path / "work",
+        pilot=True,
+        skip_zefix=True,
+    )
+    assert rc == 0
+    mandanten = out / "Mandanten"
+    assert mandanten.is_dir()
+    matter_dirs = [p for p in mandanten.glob("*/*") if p.is_dir()]
+    assert matter_dirs
+    registers = sorted(p.name for p in matter_dirs[0].iterdir() if p.is_dir())
+    assert registers[0].startswith("01-")
+    assert "Eroeffnung" in registers[0]
+    assert any(name.endswith("Korrespondenz") for name in registers)
+    assert any(name.endswith("Finanzen") for name in registers)
+    eroeffnung = matter_dirs[0] / registers[0]
+    slots = sorted(p.name for p in eroeffnung.iterdir() if p.is_dir())
+    assert slots, "each document lives in a numbered date slot"
+    assert slots == sorted(slots)
+    assert slots[0].startswith("01-20")
+    files = list(eroeffnung.rglob("*.*"))
+    assert files
+    # AutoDoc filename still has exactly two separator underscores
+    assert files[0].name.count("_") == 2

@@ -9,10 +9,12 @@ from demo_kanzlei.catalog import (
     COMPANY_NAMES,
     REGULAR_MATTER_SEEDS,
     bind_staff,
+    events_for_mandate,
     hero_meierhans,
 )
-from demo_kanzlei.models import Event, Firm, Matter, World, world_from_dict, world_to_dict
+from demo_kanzlei.models import Firm, Matter, World, world_from_dict, world_to_dict
 from demo_kanzlei.screen_names import screen_names
+from demo_kanzlei.stories import story_for
 
 
 def load_config(path: Path) -> dict:
@@ -51,24 +53,34 @@ def build_world(cfg: dict, *, pilot: bool, skip_zefix: bool) -> World:
         for index, seed in enumerate(REGULAR_MATTER_SEEDS):
             az, client_id, area, title, in_sachen, status = seed
             opened = f"{az.split('-')[0]}-03-01"
+            story = story_for(
+                aktenzeichen=az,
+                practice_area=area,
+                seed=int(cfg["seed"]),
+                client_name=next(c.name for c in clients if c.id == client_id),
+            )
             matters.append(
                 Matter(
                     aktenzeichen=az,
-                    title=title,
+                    title=story.title,
                     practice_area=area,
                     status=status,
                     client_id=client_id,
-                    opposing=in_sachen.split(" ./. ")[-1] if " ./. " in in_sachen else "",
+                    opposing=story.opposing,
                     in_sachen=in_sachen,
                     counsel_id=counsel_ids[index % len(counsel_ids)],
                     assistant_id=assistant_id,
                     opened=opened,
                     closed=f"{az.split('-')[0]}-11-30" if status == "abgeschlossen" else None,
                     hero=index < 7,
-                    events=_generic_events(opened),
+                    story=story,
+                    events=events_for_mandate(
+                        story=story, practice_area=area, status=status, opened=opened
+                    ),
                 )
             )
         target = int(cfg["matters"]["count"])
+        remaining = _remaining_statuses(cfg, matters)
         year = 2019
         seq = 1
         while len(matters) < target:
@@ -80,20 +92,35 @@ def build_world(cfg: dict, *, pilot: bool, skip_zefix: bool) -> World:
                     seq = 1
                 continue
             client = clients[(len(matters)) % len(clients)]
+            status = remaining.pop(0) if remaining else "laufend"
+            opened = f"{year}-04-15"
+            story = story_for(
+                aktenzeichen=az,
+                practice_area=client.sector,
+                seed=int(cfg["seed"]),
+                client_name=client.name,
+            )
             matters.append(
                 Matter(
                     aktenzeichen=az,
-                    title=f"Mandat {az} {client.sector}",
+                    title=story.title,
                     practice_area=client.sector,
-                    status="laufend" if len(matters) % 3 else "abgeschlossen",
+                    status=status,
                     client_id=client.id,
-                    opposing="Gegenpartei Demo",
-                    in_sachen=f"{client.name} ./. Gegenpartei Demo",
+                    opposing=story.opposing,
+                    in_sachen=f"{client.name} ./. {story.opposing}",
                     counsel_id=counsel_ids[len(matters) % len(counsel_ids)],
                     assistant_id=assistant_id,
-                    opened=f"{year}-04-15",
+                    opened=opened,
+                    closed=f"{year}-11-30" if status == "abgeschlossen" else None,
                     hero=False,
-                    events=_generic_events(f"{year}-04-15"),
+                    story=story,
+                    events=events_for_mandate(
+                        story=story,
+                        practice_area=client.sector,
+                        status=status,
+                        opened=opened,
+                    ),
                 )
             )
             seq += 1
@@ -114,18 +141,19 @@ def build_world(cfg: dict, *, pilot: bool, skip_zefix: bool) -> World:
     )
 
 
-def _generic_events(opened: str) -> list[Event]:
-    year = opened[:4]
-    return [
-        Event("e01", opened, "mandatsannahme", "Mandatsannahme."),
-        Event("e02", f"{year}-04-20", "vollmacht", "Vollmacht."),
-        Event("e03", f"{year}-05-02", "aktennotiz", "Interne Notiz."),
-        Event("e04", f"{year}-05-15", "email", "E-Mail an Mandant."),
-        Event("e05", f"{year}-06-01", "brief", "Brief an Gegenpartei."),
-        Event("e06", f"{year}-07-10", "klage", "Rechtsschrift."),
-        Event("e07", f"{year}-08-01", "email", "E-Mail-Thread."),
-        Event("e08", f"{year}-09-12", "honorarnote", "Honorarnote."),
-    ]
+def _remaining_statuses(cfg: dict, matters: list[Matter]) -> list[str]:
+    wanted = {
+        "laufend": int(cfg["matters"]["open"]),
+        "abgeschlossen": int(cfg["matters"]["closed"]),
+        "sistiert": int(cfg["matters"]["stayed"]),
+    }
+    for matter in matters:
+        if matter.status in wanted:
+            wanted[matter.status] -= 1
+    leftover: list[str] = []
+    for status, count in wanted.items():
+        leftover.extend([status] * max(0, count))
+    return leftover
 
 
 def write_world(world: World, path: Path) -> None:

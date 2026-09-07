@@ -4,8 +4,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import sys
 import time
 from pathlib import Path
+
+_RC_SRC = Path(__file__).resolve().parents[2] / "src"
+if str(_RC_SRC) not in sys.path:
+    sys.path.insert(0, str(_RC_SRC))
 
 log = logging.getLogger("demo-kanzlei")
 

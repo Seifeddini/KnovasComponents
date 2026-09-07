@@ -35,9 +35,9 @@ def file_corpus(
     for row in rows:
         guid = str(uuid.uuid5(uuid.NAMESPACE_URL, row.id))
         ext = "pdf" if row.fmt == "scan_pdf" else row.fmt
-        name = make_filename(guid, row.matter_aktenzeichen or "ohne-akte", row.doc_type, ext)
+        name = make_filename(guid, row.matter_aktenzeichen or "Kanzlei", row.doc_type, ext)
         validate_generated_filename(name)
-        folder = out_root / "05_akten" / (row.matter_aktenzeichen or "kanzlei")
+        folder = out_root / row.rel_dir
         path = folder / name
         body = bodies[row.id]
         sent = datetime.fromisoformat(row.date).replace(tzinfo=timezone.utc)

@@ -9,8 +9,7 @@ from demo_kanzlei.filenames import broken_filename, make_filename, parse_autodoc
 
 def apply_mess(out_root: Path, *, pilot: bool) -> dict[str, int]:
     """Small, checkable mess in pilot; full rates belong to --full."""
-    akten = out_root / "05_akten"
-    files = [p for p in akten.rglob("*") if p.is_file()]
+    files = [p for p in out_root.rglob("*") if p.is_file() and p.suffix.lower() in {".docx", ".pdf", ".txt", ".msg"}]
     stats = {"versions": 0, "broken": 0, "empty": 0, "latin1": 0}
     if not files:
         return stats

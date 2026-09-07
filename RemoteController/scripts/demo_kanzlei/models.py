@@ -37,6 +37,26 @@ class Event:
 
 
 @dataclass
+class Story:
+    """Canonical plot for one mandate. Every document in the Akte reads this."""
+
+    plot_id: str
+    title: str
+    hook: str
+    place: str
+    opposing: str
+    streitwert: str
+    frist: str
+    beilage: str
+    trigger: str
+    statute: str
+    honorar_ansatz: str
+    honorar_total: str
+    vorschuss: str
+    outcome: str = ""
+
+
+@dataclass
 class Matter:
     aktenzeichen: str
     title: str
@@ -52,6 +72,7 @@ class Matter:
     closed: str | None = None
     hero: bool = False
     events: list[Event] = field(default_factory=list)
+    story: Story | None = None
 
 
 @dataclass
@@ -91,6 +112,9 @@ class PlanRow:
     hero: bool = False
     email_to: list[list[str]] | None = None
     email_from: list[str] | None = None
+    seq: int = 0
+    register: str = ""
+    rel_dir: str = ""
 
     def cache_payload(self) -> dict[str, Any]:
         return {
@@ -128,5 +152,7 @@ def world_from_dict(data: dict[str, Any]) -> World:
     matters = []
     for raw in data["matters"]:
         events = [Event(**event) for event in raw.pop("events", [])]
-        matters.append(Matter(**raw, events=events))
+        story_raw = raw.pop("story", None)
+        story = Story(**story_raw) if story_raw else None
+        matters.append(Matter(**raw, events=events, story=story))
     return World(seed=data["seed"], firm=firm, clients=clients, matters=matters)

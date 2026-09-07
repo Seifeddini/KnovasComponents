@@ -26,8 +26,27 @@ python scripts/demo_kanzlei/cli.py build --out ../corpus/kanzlei --skip-zefix
 python scripts/demo_kanzlei/cli.py verify --out ../corpus/kanzlei
 ```
 
-Default is **pilot**: one hero matter (`2024-017`), ~20 documents, all four
-formats. `--full` expands to the counts in `world.toml`.
+Default is **pilot**: one hero matter (`2024-017`) plus a small Kanzlei
+register. `--full` builds every mandate in `world.toml` with a mix that
+follows the mandate (opening, correspondence, work product, fees; lawsuits
+only where the practice area and status warrant it).
+
+On disk the tree is a numbered Aktenplan, so Explorer sorts like a real
+file base:
+
+```
+Mandanten/{Mandant}/{Aktenzeichen}-{Titel}/
+  01-Eroeffnung/01-2024-01-15-Mandatsvereinbarung/...
+  02-Korrespondenz/...
+  03-Interna/...
+  04-Beilagen/...
+  05-Rechtsschriften/...
+  06-Gerichtliches/...
+  07-Finanzen/...
+Kanzlei/01-Vorlagen|02-Organisation|03-Compliance/...
+```
+
+Each file still uses the AutoDoc name `{GUID}_{AkteID}_{Typ}.{ext}`.
 
 `--until-stage world|plan|write|file|mess|ground_truth|verify` stops after that
 gate. Work files (world, plan, prose cache, ground truth) go to `--work`
