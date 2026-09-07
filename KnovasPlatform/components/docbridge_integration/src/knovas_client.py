@@ -881,12 +881,17 @@ class GraphError(Exception):
         self.message = message
 
 
-def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, Any]]:
+def _graph_payload_list(payload: Any, *candidate_keys: str,
+                        strict: bool = False) -> List[Dict[str, Any]]:
     """Liste aus einer flachen Envelope ziehen.
 
     Die Graph-Spezifikation nennt die Schluesselnamen der Listen-Antworten
     nicht. Deshalb erst die plausiblen Namen probieren, dann auf die erste
     Liste im Objekt zurueckfallen - tolerant statt zu raten und zu brechen.
+
+    strict=True schaltet den Rueckfall ab. Fuer eine Antwort, die mehr als eine
+    Liste enthalten kann, ist Raten kein Entgegenkommen: gaebe eine Antwort mit
+    nur "edges" ihre Kanten als Nachbarn aus, waeren das erfundene Knoten.
     """
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -896,6 +901,8 @@ def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, An
         value = payload.get(key)
         if isinstance(value, list):
             return [item for item in value if isinstance(item, dict)]
+    if strict:
+        return []
     for key, value in payload.items():
         if key in ('status', 'message') or not isinstance(value, list):
             continue
@@ -1705,13 +1712,18 @@ class KnovasAPIClient:
                 # None -- which is why a refused curation looked like a missing
                 # name in the console.
                 logger.error(
-                    "Knovas API %s /secured/graph%s -> 404, so nothing was written. "
+                    "Knovas API %s %s -> 404, so nothing was written. "
                     "Response body: %s",
                     method, endpoint, (response.text or "")[:600] or "<empty>",
                 )
             else:
                 logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
             return None
+        if response.status_code in (204, 205):
+            # Documented "done, nothing to say". Parsing it fails, and the {}
+            # that came back was read by every caller as a failed write -- a
+            # successful delete reported as an error.
+            return {'status': 'success'}
         try:
             payload = response.json()
         except ValueError:
@@ -1727,7 +1739,7 @@ class KnovasAPIClient:
             # branch above (valid JSON) says a word, so without this the write
             # fails in complete silence.
             logger.error(
-                "Knovas API %s /secured/graph%s -> %s with an empty body; treating "
+                "Knovas API %s %s -> %s with an empty body; treating "
                 "the write as failed. Body: %s",
                 method, endpoint, response.status_code,
                 (response.text or "")[:300] or "<empty>",
@@ -1791,7 +1803,8 @@ class KnovasAPIClient:
             params=params) or {}
         edges = payload.get('edges') if isinstance(payload, dict) else None
         return {
-            'neighbors': _graph_payload_list(payload, 'neighbors', 'nodes'),
+            'neighbors': _graph_payload_list(payload, 'neighbors', 'nodes',
+                                             strict=True),
             'edges': ([item for item in edges if isinstance(item, dict)]
                       if isinstance(edges, list) else []),
         }
@@ -1817,12 +1830,23 @@ class KnovasAPIClient:
             'node_lo': node_lo, 'node_hi': node_hi, 'relation': relation})
 
     def graph_schema(self, type_id: str,
-                     include_deprecated: bool = False) -> List[Dict[str, Any]]:
-        """GET /secured/graph/node-types/<id>/schema - die Felddefinitionen."""
+                     include_deprecated: bool = False
+                     ) -> Optional[List[Dict[str, Any]]]:
+        """GET /secured/graph/node-types/<id>/schema - die Felddefinitionen.
+
+        None bei 404, [] nur fuer einen bekannten Typ ohne Felder. Die ganze
+        Oberflaeche wird zur Laufzeit aus dieser Antwort erzeugt; kollabierte
+        man beides auf [], zeigte ein veralteter, geloeschter oder fremder
+        type_id ein leeres Formular und behauptete damit, der Typ habe keine
+        Felder. Genau dieses 404-als-leer hat schon dreimal in diesem Repo
+        einen fehlgeschlagenen Aufruf als Erfolg gemeldet.
+        """
         params = {'include_deprecated': 'true'} if include_deprecated else {}
         payload = self._graph_request(
             'GET', f'/node-types/{quote(str(type_id), safe="")}/schema',
             params=params)
+        if payload is None:
+            return None
         return _graph_payload_list(payload, 'attributes')
 
     def graph_create_schema_attribute(
@@ -1884,20 +1908,34 @@ class KnovasAPIClient:
         """PATCH /secured/graph/nodes/<id> - name, description, node_type_id
         und required_groups (die ACL des Backends).
 
-        Ohne Felder waere der PATCH eine leere Aenderung; dann liest die
-        Methode den Knoten, statt dem Server einen leeren Body zu schicken.
+        Ohne Felder wird nichts geschickt. Ein GET an dieser Stelle laege den
+        Knoten-Envelope zurueck, und der Aufrufer liest den wahrheitswidrig als
+        "gespeichert" - derselbe Fehler, den dieses Repo schon zweimal
+        behoben hat. Was ein unveraendert abgeschicktes Formular bedeutet,
+        entscheidet der Aufrufer, nicht der Client.
         """
+        if not fields:
+            raise ValueError(
+                "graph_update_node braucht mindestens ein Feld: ein leerer "
+                "PATCH waere ein Schreibvorgang, der nicht stattfindet.")
         return self._graph_request(
-            'GET' if not fields else 'PATCH',
-            f'/nodes/{quote(str(node_id), safe="")}', data=dict(fields))
+            'PATCH', f'/nodes/{quote(str(node_id), safe="")}', data=dict(fields))
 
     # -- Fakten (typisierte Werte an einem Knoten) -------------------------
 
-    def graph_facts(self, node_id: str) -> List[Dict[str, Any]]:
-        """GET /secured/graph/nodes/<id>/facts - typisierte Werte am Knoten."""
-        return _graph_payload_list(
-            self._graph_request(
-                'GET', f'/nodes/{quote(str(node_id), safe="")}/facts'), 'facts')
+    def graph_facts(self, node_id: str) -> Optional[List[Dict[str, Any]]]:
+        """GET /secured/graph/nodes/<id>/facts - typisierte Werte am Knoten.
+
+        None bei 404 (Knoten unbekannt oder fremd), [] fuer einen Knoten ohne
+        Fakten. Wie bei graph_schema: ein Feldleser, der beides gleich
+        behandelt, zeigt fuer einen geloeschten Knoten eine leere Akte statt zu
+        sagen, dass es sie nicht gibt.
+        """
+        payload = self._graph_request(
+            'GET', f'/nodes/{quote(str(node_id), safe="")}/facts')
+        if payload is None:
+            return None
+        return _graph_payload_list(payload, 'facts')
 
     def graph_create_fact(self, node_id: str, value: Any,
                           attribute_id: Optional[str] = None,

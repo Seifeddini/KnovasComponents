@@ -19,7 +19,8 @@ pytestmark = [
                        reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}"),
 ]
 
-from identity.node_grants import NodeGrantStore, OwnerRevokeError  # noqa: E402
+from identity.node_grants import (  # noqa: E402
+    NodeGrantStore, NodeOwnerConflict, OwnerRevokeError)
 
 PASSWORD = "korrektes-pferd-batterie"
 
@@ -66,6 +67,39 @@ class TestOwnership:
         node = str(uuid.uuid4())
         store.set_owner(node, alice.id)
         assert store.may_write(node, alice)
+
+    def test_a_second_different_owner_is_refused(self, store, alice, bob):
+        """GrantTableShape: one owner per node. Without this test the partial
+        unique index can be deleted from the migration and the suite stays
+        green — and "who may grant editors?" quietly gets two answers."""
+        node = str(uuid.uuid4())
+        store.set_owner(node, alice.id)
+        with pytest.raises(NodeOwnerConflict):
+            store.set_owner(node, bob.id)
+        assert store.for_node(node)["owner"] == str(alice.id)
+
+    def test_the_refusal_is_a_domain_error_not_a_driver_error(self, store, alice, bob):
+        """The route layer has to turn this into a 409 with a sentence, which
+        it cannot do if it has to catch psycopg by name."""
+        node = str(uuid.uuid4())
+        store.set_owner(node, alice.id)
+        try:
+            store.set_owner(node, bob.id)
+        except NodeOwnerConflict as conflict:
+            assert "Eigentümer" in str(conflict)
+        else:
+            pytest.fail("a second owner was accepted")
+
+    def test_the_store_survives_the_conflict(self, store, alice, bob):
+        """Not a formality: a driver error inside a transaction leaves the
+        connection unusable, and the next query would fail for a reason that
+        has nothing to do with ownership."""
+        node = str(uuid.uuid4())
+        store.set_owner(node, alice.id)
+        with pytest.raises(NodeOwnerConflict):
+            store.set_owner(node, bob.id)
+        store.grant_editor(node, bob.id, granted_by=alice.id)
+        assert store.may_write(node, bob)
 
 
 class TestEditors:
@@ -123,3 +157,28 @@ class TestDeadData:
         node = str(uuid.uuid4())
         store.set_owner(node, alice.id)
         assert store.for_node(str(uuid.uuid4())) == {"owner": None, "editors": []}
+
+
+class TestAMalformedNodeId:
+    """node_grants.node_id is a UUID column and node ids arrive from a URL path
+    segment. Before this, `may_write("n1", user)` raised psycopg's
+    InvalidTextRepresentation out of the authorisation guard: a 500 an operator
+    cannot read, produced by any caller who chooses the path."""
+
+    @pytest.mark.parametrize("node_id", ["n1", "", "../nodes", None, "not-a-uuid"])
+    def test_a_member_is_refused_rather_than_crashed(self, store, bob, node_id):
+        assert store.may_write(node_id, bob) is False
+
+    def test_reading_the_grants_of_an_impossible_id_is_empty_not_an_error(self, store):
+        assert store.for_node("n1") == {"owner": None, "editors": []}
+
+    @pytest.mark.parametrize("call", ["set_owner", "grant_editor", "revoke"])
+    def test_a_write_says_so_instead_of_failing_silently(self, store, alice, call):
+        with pytest.raises(ValueError):
+            getattr(store, call)("n1", alice.id)
+
+    def test_an_admin_still_passes(self, store):
+        """The admin branch never touches the database, so its answer does not
+        depend on the id being well-formed; the route answers 404 for an id no
+        node has. Asserted so the asymmetry is a decision, not an accident."""
+        assert store.may_write("n1", FakeUser(roles={"admin"})) is True

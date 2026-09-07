@@ -345,6 +345,12 @@ class FakeGraphApi(DummyKnovasClient):
         return {"node_type": {"id": type_id, **fields}}
 
     def graph_schema(self, type_id, include_deprecated=False):
+        # None for a type that does not exist, [] for a type without fields —
+        # the distinction the real client makes since it stopped folding 404
+        # into an empty list.
+        known = {t["id"] for t in self.node_types}
+        if type_id not in known:
+            return None
         return list(self.schema.get(type_id, []))
 
     def graph_create_schema_attribute(self, type_id, name, datatype="entity_ref",
@@ -387,6 +393,11 @@ class FakeGraphApi(DummyKnovasClient):
         return None if node is None else {"node": node, "facts": self.facts.get(node_id, [])}
 
     def graph_update_node(self, node_id, **fields):
+        # Mirrors the real client: a PATCH with nothing to write is a caller
+        # error, not a read. A fake that quietly answered would let a route
+        # ship the very bug the client refuses.
+        if not fields:
+            raise ValueError("graph_update_node braucht mindestens ein Feld")
         if node_id not in self.nodes:
             return None
         self.nodes[node_id].update(fields)
@@ -394,9 +405,16 @@ class FakeGraphApi(DummyKnovasClient):
 
     # facts + neighbours
     def graph_facts(self, node_id):
+        # None for a node that does not exist, [] for a node without facts.
+        if node_id not in self.nodes:
+            return None
         return list(self.facts.get(node_id, []))
 
     def graph_create_fact(self, node_id, value, attribute_id=None, label=None):
+        # The server's CHECK, mirrored: a fake that accepted a fact with
+        # neither would let a route ship what the real client refuses.
+        if not attribute_id and not label:
+            raise ValueError("a fact needs an attribute_id or a label")
         if node_id not in self.nodes:
             return None
         fact = {"id": f"f{len(self.facts[node_id]) + 1}", "attribute_id": attribute_id,

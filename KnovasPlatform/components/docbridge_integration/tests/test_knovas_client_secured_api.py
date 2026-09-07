@@ -227,6 +227,76 @@ class TestSchemaAndFilters:
         client.graph_update_node("n1", name="Neu")
         assert capture.last.data == {"name": "Neu"}
 
+    # -- what the wrapper is actually for: the verb and the endpoint --------
+    #
+    # Every assertion above reads the body or the params, which a method
+    # POSTing to the wrong path would still satisfy. These read the two things
+    # only the wrapper decides.
+
+    def test_schema_read_is_a_get_on_the_type_s_schema(self, client, capture):
+        client.graph_schema("t1")
+        assert capture.last.method == "GET"
+        assert capture.last.url.endswith("/secured/graph/node-types/t1/schema")
+
+    def test_creating_an_attribute_posts_to_the_same_path(self, client, capture):
+        client.graph_create_schema_attribute("t1", "Notiz", datatype="text")
+        assert capture.last.method == "POST"
+        assert capture.last.url.endswith("/secured/graph/node-types/t1/schema")
+
+    def test_updating_an_attribute_patches_the_attribute(self, client, capture):
+        client.graph_update_schema_attribute("t1", "a1", name="Frist", required=True)
+        assert capture.last.method == "PATCH"
+        assert capture.last.url.endswith("/secured/graph/node-types/t1/schema/a1")
+        assert capture.last.data == {"name": "Frist", "required": True}
+
+    def test_deprecating_an_attribute_deletes_the_attribute(self, client, capture):
+        """The server only marks it deprecated; the verb it wants is still
+        DELETE, and nothing but this test says so."""
+        client.graph_deprecate_schema_attribute("t1", "a1")
+        assert capture.last.method == "DELETE"
+        assert capture.last.url.endswith("/secured/graph/node-types/t1/schema/a1")
+
+    def test_updating_a_node_type_patches_the_type_not_its_schema(self, client, capture):
+        client.graph_update_node_type("t1", name="Mandat")
+        assert capture.last.method == "PATCH"
+        assert capture.last.url.endswith("/secured/graph/node-types/t1")
+        assert capture.last.data == {"name": "Mandat"}
+
+    def test_updating_a_node_patches_the_node(self, client, capture):
+        client.graph_update_node("n1", name="Neu")
+        assert capture.last.method == "PATCH"
+        assert capture.last.url.endswith("/secured/graph/nodes/n1")
+
+    def test_an_id_with_a_slash_cannot_escape_its_path_segment(self, client, capture):
+        """quote(safe="") is load-bearing: an unquoted id would address a
+        different endpoint entirely."""
+        client.graph_schema("t1/../nodes")
+        assert capture.last.url.endswith(
+            "/secured/graph/node-types/t1%2F..%2Fnodes/schema")
+
+    # -- 404 is not "empty" ------------------------------------------------
+
+    def test_an_unknown_type_reads_as_none_not_as_a_type_without_fields(
+            self, client, requests_mock):
+        """The whole UI is generated from this answer. [] would draw an empty
+        form and tell the user their type has no fields."""
+        requests_mock(json={"message": "Node type not found"}, status=404)
+        assert client.graph_schema("weg") is None
+
+    def test_a_known_type_without_fields_still_reads_as_an_empty_list(
+            self, client, requests_mock):
+        requests_mock(json={"attributes": []})
+        assert client.graph_schema("t1") == []
+
+    # -- a write with nothing to write is not a read -----------------------
+
+    def test_updating_a_node_with_no_fields_is_refused(self, client, capture):
+        """It used to issue a GET and hand back the node envelope, which every
+        caller reads as "gespeichert"."""
+        with pytest.raises(ValueError):
+            client.graph_update_node("n1")
+        assert capture.calls == []
+
 
 # ---------------------------------------------------------------------------
 # Graph client: facts CRUD and neighbours with induced edges
@@ -279,3 +349,58 @@ class TestFactsAndNeighbours:
     def test_neighbours_depth_is_clamped_to_the_api_cap(self, client, capture):
         client.graph_neighbors("n1", depth=9)
         assert capture.last.params["depth"] == 3
+
+    def test_neighbours_never_reports_the_edges_as_the_nodes(self, client, requests_mock):
+        """The mirror of the test above. _graph_payload_list falls back to "the
+        first list in the object", so an edges-only answer used to come back as
+        two invented neighbours."""
+        requests_mock(json={"edges": [{"id": "e1"}, {"id": "e2"}]})
+        result = client.graph_neighbors("n1", include_edges=True)
+        assert result["neighbors"] == []
+        assert [e["id"] for e in result["edges"]] == ["e1", "e2"]
+
+    # -- verb and endpoint, for the fact methods too ------------------------
+
+    def test_facts_is_a_get_on_the_node_s_facts(self, client, capture):
+        client.graph_facts("n1")
+        assert capture.last.method == "GET"
+        assert capture.last.url.endswith("/secured/graph/nodes/n1/facts")
+
+    def test_creating_a_fact_posts_to_the_same_path(self, client, capture):
+        client.graph_create_fact("n1", "Wert", label="Notiz")
+        assert capture.last.method == "POST"
+        assert capture.last.url.endswith("/secured/graph/nodes/n1/facts")
+
+    def test_updating_a_fact_patches_the_fact_not_the_node(self, client, capture):
+        client.graph_update_fact("f1", value="Neu")
+        assert capture.last.method == "PATCH"
+        assert capture.last.url.endswith("/secured/graph/facts/f1")
+        assert capture.last.data == {"value": "Neu"}
+
+    def test_deleting_a_fact_deletes_the_fact(self, client, capture):
+        client.graph_delete_fact("f1")
+        assert capture.last.method == "DELETE"
+        assert capture.last.url.endswith("/secured/graph/facts/f1")
+
+    def test_neighbours_is_a_get_on_the_node_s_neighbours(self, client, capture):
+        client.graph_neighbors("n1")
+        assert capture.last.method == "GET"
+        assert capture.last.url.endswith("/secured/graph/nodes/n1/neighbors")
+
+    # -- 404 and 204 are not "empty" ---------------------------------------
+
+    def test_an_unknown_node_reads_as_none_not_as_a_node_without_facts(
+            self, client, requests_mock):
+        requests_mock(json={"message": "Node not found"}, status=404)
+        assert client.graph_facts("weg") is None
+
+    def test_a_known_node_without_facts_still_reads_as_an_empty_list(
+            self, client, requests_mock):
+        requests_mock(json={"facts": []})
+        assert client.graph_facts("n1") == []
+
+    def test_a_204_delete_is_a_success_not_a_failed_write(self, client, requests_mock):
+        """204 No Content has no body to parse. It used to come back as {},
+        which every caller reads as "the write did not happen"."""
+        requests_mock(json=None, status=204)
+        assert client.graph_delete_fact("f1")

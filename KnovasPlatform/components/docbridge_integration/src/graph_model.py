@@ -21,6 +21,9 @@ PRECISIONS = ("day", "month", "year")
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ISO_CURRENCY = re.compile(r"^[A-Z]{3}$")
+# float() accepts "nan", "Infinity" and "1_000". A money fact is a number in a
+# document, so the grammar is spelled out rather than delegated.
+_MONEY_AMOUNT = re.compile(r"^-?\d+(\.\d+)?$")
 
 # German month names: the UI is German and a date is rendered, never localised
 # at read time by a library the tests would then have to pin.
@@ -63,24 +66,49 @@ def decode(datatype: str, value: Any) -> Any:
 def format_date(value: Any) -> str:
     """Render honouring precision. A month-precision fact must never appear as
     a specific day — that is a fabricated detail in a document a court may see.
+
+    Never raises and never renders a day it was not given. This is the read
+    side of decode()'s tolerance: anything it cannot render faithfully — an
+    unknown precision, a shape-valid date that is not a real one — comes back
+    as the stored ISO string, which is both true and visibly unusual.
     """
+    if value is None:
+        # An absent fact renders as nothing. "None" on the screen is a Python
+        # repr leaking into a document.
+        return ""
     decoded = decode("date", value)
     if not isinstance(decoded, dict):
         return str(value)
     raw = str(decoded.get("value") or "")
-    precision = decoded.get("precision") or "day"
+    # Case and padding are tolerated on the way in; the day fallback is not.
+    precision = str(decoded.get("precision") or "day").strip().lower()
     if not _ISO_DATE.match(raw):
         return raw
-    year, month, day = raw.split("-")
+    try:
+        parsed = _date.fromisoformat(raw)
+    except ValueError:
+        # 2026-13-04, 2026-02-31: the digits fit, the calendar does not.
+        # _MONTHS[12] would raise and _MONTHS[-1] would invent "Dezember".
+        return raw
     if precision == "year":
-        return year
+        return f"{parsed.year:04d}"
     if precision == "month":
-        return f"{_MONTHS[int(month) - 1]} {year}"
-    return f"{day}.{month}.{year}"
+        return f"{_MONTHS[parsed.month - 1]} {parsed.year:04d}"
+    if precision == "day":
+        return f"{parsed.day:02d}.{parsed.month:02d}.{parsed.year:04d}"
+    # An unrecognised precision ("quarter", "hour", a typo) is emphatically not
+    # a day. encode() refuses those, but decode() exists to accept payloads
+    # written elsewhere, so this branch is reachable — and rendering it as an
+    # exact day is the one thing this function must never do.
+    return raw
 
 
 def _text(raw: Any) -> str:
-    text = " ".join(str(raw or "").split())
+    # Runs of spaces within a line are tidied; the line breaks are not. A
+    # multi-line note folded into one line at write time cannot be recovered,
+    # and the user typed the breaks on purpose.
+    lines = [" ".join(line.split()) for line in str(raw if raw is not None else "").splitlines()]
+    text = "\n".join(lines).strip("\n")
     if not text:
         raise FactValueError("Text darf nicht leer sein.")
     return text
@@ -107,12 +135,15 @@ def _date_value(raw: Any) -> dict:
 def _money(raw: Any) -> dict:
     if not isinstance(raw, dict):
         raise FactValueError("Betrag erwartet {amount, currency}.")
-    amount = str(raw.get("amount") or "").strip().replace("'", "")
+    given = raw.get("amount")
+    # Not `or ""`: a Betrag of 0 is a number, and falsiness would refuse it.
+    # A bool is not one, though Python would happily format it as 1.
+    if given is None or isinstance(given, bool):
+        raise FactValueError("Betrag muss eine Zahl sein.")
+    amount = str(given).strip().replace("'", "").replace("\u2019", "")
     currency = str(raw.get("currency") or "").strip().upper()
-    try:
-        float(amount)
-    except ValueError as exc:
-        raise FactValueError("Betrag muss eine Zahl sein.") from exc
+    if not _MONEY_AMOUNT.match(amount):
+        raise FactValueError("Betrag muss eine Zahl sein.")
     if not _ISO_CURRENCY.match(currency):
         raise FactValueError("Währung muss ein ISO-4217-Code sein, z. B. CHF.")
     return {"amount": amount, "currency": currency}
@@ -128,7 +159,20 @@ def _enum(raw: Any, enum_values: Optional[Sequence[str]]) -> str:
 
 
 def _entity_ref(raw: Any) -> dict:
-    node_id = raw if isinstance(raw, str) else (raw or {}).get("node_id")
+    if isinstance(raw, str):
+        node_id: Any = raw
+    elif isinstance(raw, dict):
+        node_id = raw.get("node_id")
+    elif raw is None:
+        node_id = None
+    else:
+        # A list or a number here is a malformed body, not a missing value.
+        # Without the guard `.get` raises AttributeError, and the routes in D3
+        # surface FactValueError's message verbatim — an AttributeError would
+        # be a 500 where the user should read one German sentence.
+        raise FactValueError("Verknüpfung erwartet eine Knoten-Id.")
+    if node_id is not None and not isinstance(node_id, str):
+        raise FactValueError("Verknüpfung erwartet eine Knoten-Id.")
     node_id = str(node_id or "").strip()
     if not node_id:
         raise FactValueError("Verknüpfung braucht einen Knoten.")
