@@ -130,3 +130,11 @@ Credits-Zeile im Demo-Deck erfüllt die Auflage. Schweizer Entscheide sind von d
 Gerichten bezüglich natürlicher Personen anonymisiert, Firmennamen bleiben
 regelmässig sichtbar. In der Demo also „gerichtsanonymisiert" sagen, nicht
 „vollständig anonym".
+
+## 30-day freshness trap
+
+The Remote Controller default incremental sync body sets
+`max_document_age_seconds` to 30 days **on file mtime**, not on dates inside
+the documents. A corpus built more than 30 days before the demo syncs nothing
+on that default body. Refresh mtimes (`demo_kanzlei` `touch`, or `touch` the
+tree) or override the filter at demo setup.
