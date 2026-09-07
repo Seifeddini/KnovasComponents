@@ -73,12 +73,27 @@ def verify_manifest(root: Path) -> tuple[int, int, int]:
     return ok, missing, bad
 
 
+def _manifest_relpaths(root: Path) -> set[str] | None:
+    manifest_path = root / "manifest.jsonl"
+    if not manifest_path.exists():
+        return None
+    listed: set[str] = set()
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            listed.add(json.loads(line)["path"])
+    return listed
+
+
 def _is_image_only_pdf(path: Path) -> bool:
     if path.suffix.lower() != ".pdf":
         return False
     import fitz
 
-    doc = fitz.open(path)
+    try:
+        doc = fitz.open(path)
+    except Exception:
+        # Engineered mess (truncated / wrong-bytes "PDF") is not a scan.
+        return False
     try:
         return not any((page.get_text() or "").strip() for page in doc)
     finally:
@@ -88,9 +103,13 @@ def _is_image_only_pdf(path: Path) -> bool:
 def verify_extraction(root: Path, *, skip_scan_ocr: bool = False) -> list[str]:
     from sync.document_text import ConversionError, extract_document
 
+    listed = _manifest_relpaths(root)
     problems: list[str] = []
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
         if path.name in {"manifest.jsonl", "LICENSES.md"}:
+            continue
+        rel = path.relative_to(root).as_posix()
+        if listed is not None and rel not in listed:
             continue
         if path.suffix.lower() not in EXTRACTABLE:
             continue
