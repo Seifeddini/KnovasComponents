@@ -1,0 +1,64 @@
+seed = 20260906
+seat = "Zürich"
+founded = 1998
+
+[firm]
+name_candidates = [
+  "Quarzfels Advokatur",
+  "Lärchenrain Partner",
+  "Nebelmeer Rechtsanwälte",
+  "Torfmoos Widmer Kolleginnen",
+  "Gletscherbach Advokatur",
+]
+street = "Rämistrasse 14"
+zip_code = "8001"
+phone = "+41 44 210 17 00"
+email_domain = "quarzfels.example"
+
+[staff]
+partners = 2
+associates = 3
+substituten = 1
+sekretariat = 1
+
+[clients]
+count = 10
+
+[matters]
+count = 40
+open = 24
+closed = 10
+stayed = 6
+hero_count = 8
+docs_per_matter_min = 12
+docs_per_matter_max = 25
+
+[formats]
+# Long firm-authored documents rotate through these. Emails are always .msg.
+long = ["docx", "pdf", "txt"]
+email = "msg"
+
+[tiers]
+firm_authored = 1560
+email = 1300
+scans = 420
+versions_duplicates = 600
+real_material = 1200
+kanzlei_wide = 250
+
+[mess]
+exact_duplicates = 180
+version_chains = 420
+wrong_akte_rate = 0.02
+broken_filenames = 60
+empty_files = 25
+latin1 = 40
+
+[llm]
+model = "claude-opus-5"
+effort_bulk = "medium"
+effort_hero = "high"
+
+[verify]
+freshness_warn_days = 25
+scan_min_chars = 200
