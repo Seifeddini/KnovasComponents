@@ -52,6 +52,11 @@ else
   echo "    Generated $DB_SECRET (mode 0600)."
 fi
 
+# shellcheck source=lib/stack_identity.sh
+source "$ROOT_DIR/scripts/lib/stack_identity.sh"
+echo "==> Stack identity (project name and host ports)"
+knovas_prepare_stack "$KNOVAS_ENV" "$ROOT_DIR"
+
 echo "==> Expanding knovas.env"
 bash "$ROOT_DIR/scripts/lib/expand_knovas_env.sh" "$KNOVAS_ENV"
 
@@ -60,6 +65,9 @@ source "$ROOT_DIR/KnovasPlatform/scripts/lib/read_env.sh"
 PLATFORM_URL="$(read_env_var KNOVAS_PLATFORM_URL "" "$KNOVAS_ENV")"
 DOCS_PATH="$(read_env_var KNOVAS_DOCUMENTS_PATH "" "$KNOVAS_ENV")"
 ADMIN_EMAIL="$(read_env_var PLATFORM_ADMIN_EMAIL "" "$KNOVAS_ENV")"
+WEB_PORT="$(read_env_var DOCBRIDGE_WEB_PORT 8081 "$KNOVAS_ENV")"
+RC_PORT="$(read_env_var RC_HOST_PORT 5001 "$KNOVAS_ENV")"
+PROJECT="$(read_env_var COMPOSE_PROJECT_NAME "" "$KNOVAS_ENV")"
 
 if [[ ! -d "$DOCS_PATH" ]]; then
   echo "WARNING: KNOVAS_DOCUMENTS_PATH does not exist yet: $DOCS_PATH"
@@ -78,6 +86,8 @@ echo "Setup complete."
 echo "  Platform URL: $PLATFORM_URL"
 echo "  Documents:    $DOCS_PATH"
 echo "  Administrator: $ADMIN_EMAIL"
+echo "  Compose project: ${PROJECT:-$(basename "$ROOT_DIR")}"
+echo "  Host ports:   UI ${WEB_PORT}, RemoteController ${RC_PORT}"
 echo ""
 echo "On first start the Platform writes a one-time password for that account to"
 echo "the docbridge-web container at /app/data/platform-admin-bootstrap (a named"
@@ -90,4 +100,4 @@ echo ""
 echo "Back up the platform_db_data volume. It holds every account and every"
 echo "access-group grant; without it nobody can sign in."
 echo "Next: ./scripts/start.sh"
-echo "Then configure host nginx for $PLATFORM_URL → 127.0.0.1:8081"
+echo "Then configure host nginx for $PLATFORM_URL → 127.0.0.1:${WEB_PORT}"

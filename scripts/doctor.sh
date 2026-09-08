@@ -12,6 +12,9 @@ set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 KNOVAS_ENV="$ROOT_DIR/knovas.env"
+# shellcheck source=lib/stack_identity.sh
+source "$ROOT_DIR/scripts/lib/stack_identity.sh"
+knovas_load_compose_project "$KNOVAS_ENV" "$ROOT_DIR"
 DC=(docker compose --env-file "$KNOVAS_ENV")
 
 ok()   { printf '  \033[32mOK\033[0m   %s\n' "$*"; }

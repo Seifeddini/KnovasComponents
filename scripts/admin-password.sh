@@ -19,6 +19,9 @@ fi
 
 # shellcheck source=../KnovasPlatform/scripts/lib/read_env.sh
 source "$ROOT_DIR/KnovasPlatform/scripts/lib/read_env.sh"
+# shellcheck source=lib/stack_identity.sh
+source "$ROOT_DIR/scripts/lib/stack_identity.sh"
+knovas_load_compose_project "$KNOVAS_ENV" "$ROOT_DIR"
 
 GRANT_ONLY=false
 if [[ "${1:-}" == "--grant-admin" ]]; then

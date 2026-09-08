@@ -1,5 +1,10 @@
 # Unified Knovas stack: RemoteController (localhost) + KnovasPlatform (localhost → host nginx HTTPS).
 # Usage: ./scripts/setup.sh && ./scripts/start.sh
+#
+# No container_name on any service: Compose prefixes containers, volumes and
+# the network with the checkout directory (KnovasDemo → knovasdemo-platform-db-1),
+# so a second copy on the same host can start. Host ports are
+# DOCBRIDGE_WEB_PORT / RC_HOST_PORT; start.sh picks the next free ones.
 
 services:
   # The firm's own identity store: accounts, roles, access-group grants,
@@ -8,13 +13,12 @@ services:
   #
   # No `ports:` on purpose. Reachable only on knovas-internal, so the admin
   # console is the single firm-facing surface. To inspect it by hand:
-  #   docker compose exec platform-db psql -U platform -d knovas_platform
+  #   docker compose --env-file knovas.env exec platform-db psql -U platform -d knovas_platform
   #
   # BACK THIS UP. It holds every account and every access-group grant; losing
   # it means the firm cannot log in and cannot prove who could see what.
   platform-db:
     image: postgres:15-alpine
-    container_name: platform-db
     environment:
       POSTGRES_USER: ${PLATFORM_DB_USER:-platform}
       POSTGRES_DB: ${PLATFORM_DB_NAME:-knovas_platform}
@@ -58,7 +62,7 @@ services:
       # that API is off by default and the push fails at its first call without this.
       RC_SYNC_CONFIG_API_ENABLED: "true"
     ports:
-      - "127.0.0.1:5001:5001"
+      - "127.0.0.1:${RC_HOST_PORT:-5001}:5001"
     restart: unless-stopped
     networks:
       - knovas-internal
@@ -68,7 +72,6 @@ services:
     build:
       context: ./KnovasPlatform/components/docbridge_integration
       dockerfile: Dockerfile
-    container_name: docbridge-web
     env_file:
       - ./KnovasPlatform/.env.generated
     environment:
@@ -139,7 +142,6 @@ services:
 
   docbridge-web-nginx:
     image: nginx:alpine
-    container_name: docbridge-web-nginx
     depends_on:
       docbridge-web:
         condition: service_healthy
@@ -169,7 +171,6 @@ services:
     build:
       context: ./KnovasPlatform/mock_knovas_api
       dockerfile: Dockerfile
-    container_name: knovas-mock
     expose:
       - "5000"
     healthcheck:

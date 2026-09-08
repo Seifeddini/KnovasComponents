@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# shellcheck source=lib/stack_identity.sh
+source "$ROOT_DIR/scripts/lib/stack_identity.sh"
+
 KNOVAS_ENV="$ROOT_DIR/knovas.env"
 if [[ ! -f "$KNOVAS_ENV" ]]; then
   echo "Run ./scripts/setup.sh first." >&2
@@ -14,23 +17,29 @@ if [[ ! -f "$ROOT_DIR/RemoteController/.env.generated" ]]; then
   exit 1
 fi
 
+knovas_prepare_stack "$KNOVAS_ENV" "$ROOT_DIR"
+knovas_load_compose_project "$KNOVAS_ENV" "$ROOT_DIR"
+
 docker compose --env-file "$KNOVAS_ENV" up -d --build
 
 echo "==> Health checks"
 sleep 3
-BIND="$(grep -E '^[[:space:]]*DOCBRIDGE_WEB_BIND=' "$KNOVAS_ENV" | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
-PORT="$(grep -E '^[[:space:]]*DOCBRIDGE_WEB_PORT=' "$KNOVAS_ENV" | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
+BIND="$(read_env_var DOCBRIDGE_WEB_BIND "" "$KNOVAS_ENV")"
+PORT="$(read_env_var DOCBRIDGE_WEB_PORT 8081 "$KNOVAS_ENV")"
+RC_PORT="$(read_env_var RC_HOST_PORT 5001 "$KNOVAS_ENV")"
 PROBE_HOST="127.0.0.1"
 [[ -n "${BIND:-}" && "$BIND" != "0.0.0.0" ]] && PROBE_HOST="$BIND"
 
-curl -fsS http://127.0.0.1:5001/health || echo "RC health: not ready yet"
+echo "    project ${COMPOSE_PROJECT_NAME}  UI http://${PROBE_HOST}:${PORT}  RC http://127.0.0.1:${RC_PORT}"
+
+curl -fsS "http://127.0.0.1:${RC_PORT}/health" || echo "RC health: not ready yet"
 # nginx serves /health itself, so it answers even when the app behind it does
 # not. Probing only that reported a healthy stack while every actual page 502'd,
 # so the app is probed through the proxy as well -- that is the one that means
 # the Platform is up.
-curl -fsS "http://${PROBE_HOST}:${PORT:-8081}/health" >/dev/null \
+curl -fsS "http://${PROBE_HOST}:${PORT}/health" >/dev/null \
   && echo "nginx: ok" || echo "nginx: not ready yet"
-curl -fsS "http://${PROBE_HOST}:${PORT:-8081}/api/stats" >/dev/null \
+curl -fsS "http://${PROBE_HOST}:${PORT}/api/stats" >/dev/null \
   && echo "Platform (through nginx): ok" \
   || echo "Platform (through nginx): NOT reachable — docker compose logs docbridge-web docbridge-web-nginx"
 docker compose --env-file "$KNOVAS_ENV" ps

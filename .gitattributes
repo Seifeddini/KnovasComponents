@@ -1,0 +1,2 @@
+# Shell scripts must use LF so Linux shebangs work (avoid bash\r errors).
+scripts/**/*.sh text eol=lf

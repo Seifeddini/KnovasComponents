@@ -18,6 +18,8 @@ grep -q 'SEMANTIX_SECURE_BASE_URL=https://api.test:8443' "$RC_ENV" \
   || fail "RC env missing SEMANTIX_SECURE_BASE_URL"
 grep -q 'OPEN_PUBLIC_BASE_URL=https://knovas.test.internal' "$KP_ENV" \
   || fail "Platform env missing OPEN_PUBLIC_BASE_URL"
+grep -q '^DOCBRIDGE_WEB_PORT=8081$' "$KP_ENV" \
+  || fail "default DOCBRIDGE_WEB_PORT should be 8081 when knovas.env does not set it"
 
 # The regression this test exists for: the expander used to write
 # COMPANY_LOGIN_NAME=company and a password into every generated file, which is
@@ -62,6 +64,8 @@ last_value() { grep -E "^$1=" "$2" | tail -1 | cut -d= -f2-; }
 [[ "$(last_value ENVIRONMENT "$KP_ENV")" == "local" ]] || fail "ENVIRONMENT override lost"
 [[ "$(last_value ONTOLOGY_FIXTURE_PATH "$KP_ENV")" == "/mnt/ontology/ontology_fixture.json" ]] \
   || fail "Cortex fixture path override lost"
+[[ "$(last_value DOCBRIDGE_WEB_PORT "$KP_ENV")" == "18081" ]] \
+  || fail "DOCBRIDGE_WEB_PORT override lost — a second stack on 8081 would still bind 8081"
 
 # An RC_* key belongs to RemoteController and must not leak into the Platform.
 [[ "$(last_value RC_SYNC_AUTO_START_CONTINUOUS "$RC_ENV")" == "false" ]] || fail "RC override lost"

@@ -64,7 +64,9 @@ docker compose --env-file knovas.env exec docbridge-web \
   cat /app/data/platform-admin-bootstrap
 ```
 
-Open `http://127.0.0.1:8081`. Use `PLATFORM_ADMIN_EMAIL` and that one-time password. Change it after login.
+Open the URL `./scripts/start.sh` printed (default `http://127.0.0.1:8081`). Use `PLATFORM_ADMIN_EMAIL` and that one-time password. Change it after login.
+
+A second copy of this repo on the same server is fine: containers are named after the folder (`KnovasDemo` → `knovasdemo-…`) and start.sh moves 8081/5001 if they are already taken.
 
 Try: **Schaffhauserstrasse**, **Meierhans**, **2024-017**.
 
@@ -75,6 +77,7 @@ Ingest of ~640 files is rate-limited; the first hits appear before the full set 
 | What you see | What to do |
 |--------------|------------|
 | `Missing certs/…` | Step 1 — filenames must match exactly |
+| `The container name "/platform-db" is already in use` | Pull this version — names are per-folder now; then `./scripts/start.sh` |
 | `KNOVAS_DOCUMENTS_PATH does not exist` | Step 3, then the same absolute path in `knovas.env` |
 | Login form comes back immediately | `WEB_SESSION_COOKIE_SECURE=false` in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh` |
 | Health `watch_roots` not ok | Path must be the `kanzlei` folder, not its parent; then setup + start again |

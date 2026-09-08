@@ -58,6 +58,10 @@ jobs:
         working-directory: .
         run: bash scripts/lib/test_expand_knovas_env.sh
 
+      - name: Multi-stack identity contract
+        working-directory: .
+        run: bash scripts/lib/test_stack_identity.sh
+
       - name: Generate compose inputs
         working-directory: .
         run: |
