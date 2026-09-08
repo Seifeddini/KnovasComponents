@@ -67,24 +67,52 @@
             <label>Beschreibung <input type="text" name="description" value="{{ form.description }}"></label>
 
             <h3>Ordner</h3>
-            <table>
-                <thead><tr><th>Pfad</th><th>Mit Unterordnern</th><th>Zugriffsgruppen</th></tr></thead>
-                <tbody>
-                {% for n in range(12) %}
-                    {% set f = form.folders[n] if n < form.folders|length else none %}
-                    <tr>
-                        <td><input type="text" name="folder-{{ n }}-path" value="{{ f.path if f else '' }}" placeholder="/mnt/autodoc/..."></td>
-                        <td><input type="checkbox" name="folder-{{ n }}-recursive" value="1" {% if not f or f.recursive %}checked{% endif %}></td>
-                        <td>
-                            {% for g in groups %}
-                            <label><input type="checkbox" name="folder-{{ n }}-groups" value="{{ g.group_id }}"
-                                {% if f and g.group_id in f.groups %}checked{% endif %}> {{ g.name }}</label>
-                            {% endfor %}
-                        </td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
+            <p class="hint">
+                Aufklappen zeigt Unterordner. Hinzufügen setzt den Ordner auf das Profil;
+                Zugriffsgruppen und Unterordner wählen Sie in der Tabelle.
+            </p>
+            <div class="folder-picker">
+                <div id="folder-tree" class="folder-tree"
+                     data-endpoint="{{ url_for('admin.folders') }}"
+                     data-max-folders="12">
+                    <p class="hint" id="folder-tree-status">Wird geladen …</p>
+                </div>
+                <div class="folder-chosen">
+                    <p class="hint" id="folder-empty"{% if form.folders %} hidden{% endif %}>
+                        Noch kein Ordner auf dem Profil.
+                    </p>
+                    <table>
+                        <thead><tr><th>Pfad</th><th>Mit Unterordnern</th><th>Zugriffsgruppen</th><th></th></tr></thead>
+                        <tbody id="folder-rows">
+                        {% for f in form.folders %}
+                            <tr>
+                                <td><input type="text" class="folder-path" name="folder-{{ loop.index0 }}-path" value="{{ f.path }}" readonly></td>
+                                <td><input type="checkbox" name="folder-{{ loop.index0 }}-recursive" value="1" {% if f.recursive %}checked{% endif %}></td>
+                                <td>
+                                    {% for g in groups %}
+                                    <label><input type="checkbox" name="folder-{{ loop.index0 }}-groups" value="{{ g.group_id }}"
+                                        {% if g.group_id in f.groups %}checked{% endif %}> {{ g.name }}</label>
+                                    {% endfor %}
+                                </td>
+                                <td><button type="button" class="danger folder-remove">Entfernen</button></td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <template id="folder-row-template">
+                <tr>
+                    <td><input type="text" class="folder-path" name="folder-__n__-path" value="" readonly></td>
+                    <td><input type="checkbox" name="folder-__n__-recursive" value="1" checked></td>
+                    <td>
+                        {% for g in groups %}
+                        <label><input type="checkbox" name="folder-__n__-groups" value="{{ g.group_id }}"> {{ g.name }}</label>
+                        {% endfor %}
+                    </td>
+                    <td><button type="button" class="danger folder-remove">Entfernen</button></td>
+                </tr>
+            </template>
 
             <h3>Was indexiert wird</h3>
             {% for key, t in file_types.items() %}
@@ -136,5 +164,6 @@
 </main>
 </div>
 </div>
+<script src="{{ url_for('static', filename='js/admin_ingestion.js') }}?v={{ asset_version }}" defer></script>
 </body>
 </html>

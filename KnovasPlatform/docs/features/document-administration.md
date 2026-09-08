@@ -108,7 +108,9 @@ configuration rather than relying on a second source entry.
 ## Ingestion
 
 The Ingestion tab (`admin` and `ingestion_manager`) edits one profile: folders
-with their access groups, file kinds, schedule, throughput, age cut-off. *Vorschau*
+with their access groups, file kinds, schedule, throughput, age cut-off. Folders
+are picked from a tree of the watch root (expand for children, *Hinzufügen* to
+put a path on the profile); paths are not typed. *Vorschau*
 asks RemoteController what each folder holds without saving anything.
 *Speichern und übertragen* compiles the profile into the two RemoteController
 documents, validates both against their schemas, saves a new version and pushes

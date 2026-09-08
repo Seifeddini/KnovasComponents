@@ -24,14 +24,9 @@ knovas_compose_project_from_dir() {
 
 knovas_localhost_url_with_port() {
   local url="$1" port="$2"
-  case "$url" in
-    http://127.0.0.1:*|http://localhost:*|http://[::1]:*)
-      printf '%s' "$url" | sed -E "s#(https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])):[0-9]+#\\1:${port}#"
-      ;;
-    *)
-      printf '%s' "$url"
-      ;;
-  esac
+  # Any URL that already names a port (LAN IP, loopback). A host-nginx URL
+  # has no :port and is left alone.
+  printf '%s' "$url" | sed -E "s#(https?://(\\[[0-9a-fA-F:]+\\]|[^/:[:space:]]+)):[0-9]+#\\1:${port}#"
 }
 
 knovas_host_port_in_use() {

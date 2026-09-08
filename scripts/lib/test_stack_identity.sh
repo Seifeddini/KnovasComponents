@@ -28,6 +28,8 @@ source "$ROOT_DIR/scripts/lib/stack_identity.sh"
   || fail "loopback platform URL should follow the chosen web port"
 [[ "$(knovas_localhost_url_with_port 'http://localhost:8081/' 8082)" == "http://localhost:8082/" ]] \
   || fail "localhost URL with trailing slash should keep the path"
+[[ "$(knovas_localhost_url_with_port 'http://192.168.1.15:8081/login' 8082)" == "http://192.168.1.15:8082/login" ]] \
+  || fail "LAN platform URL should follow the chosen web port"
 [[ "$(knovas_localhost_url_with_port 'https://knovas.example.internal' 8082)" == "https://knovas.example.internal" ]] \
   || fail "a real hostname (host nginx) must not be rewritten to a loopback port"
 

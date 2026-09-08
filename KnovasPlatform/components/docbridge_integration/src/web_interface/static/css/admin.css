@@ -436,3 +436,110 @@
     padding: 2px 6px;
     border-radius: var(--radius);
 }
+
+/* ── Ingestion: Ordnerbaum ─────────────────────────────────────────────── */
+
+.admin .folder-picker {
+    display: grid;
+    grid-template-columns: minmax(16rem, 1fr) minmax(20rem, 1.2fr);
+    gap: 18px;
+    align-items: start;
+    margin-top: 12px;
+}
+
+.admin .folder-tree {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--surface-sunken);
+    padding: 10px 12px;
+    min-height: 12rem;
+    max-height: 28rem;
+    overflow: auto;
+}
+
+.admin .folder-tree-list,
+.admin .folder-tree-list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.admin .folder-tree-list ul {
+    margin-left: 1.1rem;
+    border-left: 1px solid var(--border-color);
+    padding-left: 8px;
+}
+
+.admin .folder-node {
+    display: grid;
+    grid-template-columns: 1.6rem 1fr auto;
+    gap: 4px 8px;
+    align-items: center;
+    padding: 3px 0;
+}
+
+.admin .folder-toggle {
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    line-height: 1;
+}
+
+.admin .folder-toggle:hover {
+    background: rgba(var(--accent-rgb), 0.08);
+    color: var(--text-primary);
+}
+
+.admin .folder-toggle[aria-expanded="true"] {
+    color: var(--primary-color);
+}
+
+.admin .folder-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.88rem;
+}
+
+.admin .folder-add {
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 4px 9px;
+    background: transparent;
+    color: var(--primary-color);
+    border: 1px solid var(--border-color);
+}
+
+.admin .folder-add:hover {
+    background: rgba(var(--accent-rgb), 0.08);
+    border-color: var(--accent);
+}
+
+.admin .folder-add:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.admin .folder-chosen table { margin-top: 0; }
+
+.admin input[type=text].folder-path {
+    max-width: none;
+    background: transparent;
+    border-color: transparent;
+    padding-left: 0;
+    font-family: var(--font-heading);
+    font-size: 0.82rem;
+}
+
+.admin input[type=text].folder-path:focus {
+    border-color: var(--accent);
+    background: var(--surface-sunken);
+}
+
+@media (max-width: 720px) {
+    .admin .folder-picker {
+        grid-template-columns: 1fr;
+    }
+}

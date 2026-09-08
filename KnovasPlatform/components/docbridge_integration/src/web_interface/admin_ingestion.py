@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from typing import Any, Mapping
 from uuid import UUID
 
-from flask import render_template, request
+from flask import jsonify, render_template, request
 
 from identity import audit
 from identity.approvals import ApprovalService
@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 MAX_FOLDER_ROWS = 12
 KIND = "ingestion_profile_change"
+FOLDER_DISCOVER_DEPTH = 1
 
 #: Who can actually carry an approved profile change out. RemoteController's
 #: gate admits `admin` and `ingestion_manager` only (RC/src/auth/
@@ -169,6 +170,39 @@ def form_from_request(form: Mapping[str, str], lists: Mapping[str, list[str]]) -
         "max_document_age_days": str(form.get("max_document_age_days", "") or "").strip(),
         "folders": folders,
     }
+
+
+def folders_from_discover(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Immediate child directories of one discover scan, as the tree picker
+    needs them: a display name and the absolute path the profile stores.
+
+    Files are dropped. Nested relative paths are dropped so one expand is
+    always one level, even if the scan was deeper than we asked for.
+    """
+    root = str(payload.get("root") or "").replace("\\", "/").rstrip("/")
+    folders: list[dict[str, str]] = []
+    for entry in payload.get("entries") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        if entry.get("type") != "directory":
+            continue
+        rel = str(entry.get("path") or "").replace("\\", "/").strip("/")
+        if not rel or "/" in rel:
+            continue
+        name = str(entry.get("name") or "") or rel
+        path = f"{root}/{rel}" if root else rel
+        folders.append({"name": name, "path": path})
+    return {
+        "root": root,
+        "folders": folders,
+        "truncated": bool(payload.get("truncated")),
+    }
+
+
+def child_folders(rc_client, root: str | None = None) -> dict[str, Any]:
+    """One level of folders under ``root`` (or the default watch root)."""
+    found = rc_client.discover(root=root, max_depth=FOLDER_DISCOVER_DEPTH)
+    return folders_from_discover(found)
 
 
 def form_from_profile(profile: IngestionProfile | None) -> dict[str, Any]:
@@ -323,6 +357,16 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
     @require_ingestion
     def ingestion():
         return _page()
+
+    @bp.route("/ingestion/folders")
+    @require_ingestion
+    def folders():
+        root = str(request.args.get("root") or "").strip() or None
+        try:
+            payload = child_folders(rc_client_factory(), root)
+        except (RemoteControllerError, PermissionError) as exc:
+            return jsonify({"root": root or "", "folders": [], "error": str(exc)}), 502
+        return jsonify(payload)
 
     @bp.route("/ingestion/preview", methods=["POST"])
     @require_ingestion

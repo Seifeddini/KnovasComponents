@@ -26,6 +26,8 @@ class FakeRemoteControllerClient:
         self.principal_broker = principal_broker
         self.calls: list[str] = []
         self.pushed: list = []
+        self.discover_args: list[dict] = []
+        self.discover_error = None
         FakeRemoteControllerClient.last_instance = self
 
     def count(self, name: str) -> int:
@@ -33,7 +35,26 @@ class FakeRemoteControllerClient:
 
     def discover(self, root=None, max_depth=3):
         self.calls.append("discover")
-        return {"entries": [{"type": "file", "path": "a.docx"}], "truncated": False}
+        self.discover_args.append({"root": root, "max_depth": max_depth})
+        if self.discover_error:
+            from remote_controller_client import RemoteControllerError
+            raise RemoteControllerError(self.discover_error)
+        scan_root = root or "/data/corpus"
+        by_root = {
+            "/data/corpus": [
+                {"type": "directory", "name": "Mandate", "path": "Mandate"},
+                {"type": "file", "name": "a.docx", "path": "a.docx"},
+                {"type": "directory", "name": "Allgemein", "path": "Allgemein"},
+            ],
+            "/data/corpus/Mandate": [
+                {"type": "directory", "name": "2024-017", "path": "2024-017"},
+            ],
+        }
+        return {
+            "root": scan_root,
+            "truncated": False,
+            "entries": by_root.get(scan_root, []),
+        }
 
     def status(self):
         self.calls.append("status")
@@ -110,6 +131,17 @@ class TestShape:
         assert "compile_profile(" in src
         assert "sync_request.schema" not in src and "remote_controller_sync" not in src
 
+    def test_the_folder_tree_is_a_get_under_the_same_gate(self):
+        from web_interface import admin_ingestion
+
+        src = inspect.getsource(admin_ingestion)
+        assert '@bp.route("/ingestion/folders")' in src
+        start = src.index("def folders(")
+        end = src.find("@bp.route", start)
+        body = src[start:end if end != -1 else len(src)]
+        assert "csrf_ok" not in body
+        assert "child_folders(" in body
+
 
 class TestFormParsing:
     def test_folders_rows_become_source_folders(self):
@@ -165,6 +197,74 @@ class TestFormParsing:
         assert rebuilt["folders"][0]["groups"] == ["g-lit"]
         assert rebuilt["folders"][1]["recursive"] is False
         assert rebuilt["file_types"] == ["documents", "email"]
+
+
+class TestFoldersFromDiscover:
+    """The tree picker lists immediate child folders, never files, and never
+    a typed path. RemoteController /discover returns both; the console
+    keeps only directories and joins them onto the scanned root."""
+
+    def test_keeps_directories_and_drops_files(self):
+        from web_interface.admin_ingestion import folders_from_discover
+
+        out = folders_from_discover({
+            "root": "/data/corpus",
+            "truncated": False,
+            "entries": [
+                {"type": "directory", "name": "Mandate", "path": "Mandate"},
+                {"type": "file", "name": "readme.txt", "path": "readme.txt"},
+                {"type": "directory", "name": "Allgemein", "path": "Allgemein"},
+            ],
+        })
+        assert out["root"] == "/data/corpus"
+        assert out["folders"] == [
+            {"name": "Mandate", "path": "/data/corpus/Mandate"},
+            {"name": "Allgemein", "path": "/data/corpus/Allgemein"},
+        ]
+        assert out["truncated"] is False
+
+    def test_skips_nested_paths_so_expand_is_one_level(self):
+        from web_interface.admin_ingestion import folders_from_discover
+
+        out = folders_from_discover({
+            "root": "/data/corpus",
+            "entries": [
+                {"type": "directory", "name": "2024-017", "path": "Mandate/2024-017"},
+                {"type": "directory", "name": "Mandate", "path": "Mandate"},
+            ],
+        })
+        assert [f["path"] for f in out["folders"]] == ["/data/corpus/Mandate"]
+
+    def test_joins_under_a_nested_root(self):
+        from web_interface.admin_ingestion import folders_from_discover
+
+        out = folders_from_discover({
+            "root": "/data/corpus/Mandate",
+            "entries": [
+                {"type": "directory", "name": "2024-017", "path": "2024-017"},
+            ],
+        })
+        assert out["folders"] == [
+            {"name": "2024-017", "path": "/data/corpus/Mandate/2024-017"},
+        ]
+
+    def test_child_folders_asks_discover_for_one_level(self):
+        from web_interface.admin_ingestion import child_folders
+
+        class RC:
+            def __init__(self):
+                self.kwargs = None
+
+            def discover(self, root=None, max_depth=3):
+                self.kwargs = {"root": root, "max_depth": max_depth}
+                return {"root": "/data/corpus", "entries": [
+                    {"type": "directory", "name": "Mandate", "path": "Mandate"},
+                ]}
+
+        rc = RC()
+        out = child_folders(rc, root=None)
+        assert rc.kwargs == {"root": None, "max_depth": 1}
+        assert out["folders"][0]["path"] == "/data/corpus/Mandate"
 
 
 class TestApplyProfile:
@@ -368,6 +468,38 @@ class TestTemplate:
             support_json=None,
         )
         assert "/mnt/autodoc/mandate" in html
+
+    def test_the_page_picks_folders_from_a_tree_not_typed_paths(self):
+        import jinja2
+
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(TEMPLATES)),
+                                 autoescape=True, undefined=jinja2.StrictUndefined)
+        env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
+        html = env.get_template("admin_ingestion.html").render(
+            app_title="Knovas", company_name="Kanzlei", feedback_url=None,
+            console_url="/admin/people", active_nav="admin", csrf_token="t",
+            error=None, notice=None, me=None, asset_version="1",
+            ingestion_enabled=True,
+            form={"identifier_prefix": "kanzlei", "description": "", "schedule": "nightly",
+                  "throughput": "normal", "file_types": ["documents"], "max_document_age_days": "",
+                  "folders": [{"path": "/mnt/autodoc/mandate", "recursive": True, "groups": ["g-lit"]}]},
+            schedules={"nightly": {"label": "Nachts", "description": "..."}},
+            throughputs={"normal": {"label": "Normal", "description": "..."}},
+            file_types={"documents": {"label": "Dokumente", "description": "..."}},
+            groups=[{"group_id": "g-lit", "name": "Litigation"}],
+            status={"scheduler_state": "idle", "files_synced_local": 0}, current=None, versions=[], preview=None,
+            support_json=None,
+        )
+        assert 'id="folder-tree"' in html
+        assert 'id="folder-rows"' in html
+        assert 'id="folder-row-template"' in html
+        assert "Hinzuf" in html
+        assert "Entfernen" in html
+        assert 'name="folder-0-path"' in html
+        assert "readonly" in html
+        assert 'placeholder="/mnt/autodoc' not in html
+        source = (TEMPLATES / "admin_ingestion.html").read_text(encoding="utf-8")
+        assert "admin_ingestion.js" in source
 
 
 class TestTabStripVisibility:
@@ -687,3 +819,49 @@ class TestLive:
         assert rc.last_instance.count("push") == 0
         assert platform_db.execute(
             "SELECT count(*) FROM ingestion_profiles").fetchone()[0] == 0
+
+    def test_folders_lists_child_directories_under_the_watch_root(self, client, people, rc):
+        from _console import sign_in
+
+        sign_in(client, "ingest@kanzlei.ch")
+        r = client.get("/admin/ingestion/folders")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["root"] == "/data/corpus"
+        assert body["folders"] == [
+            {"name": "Mandate", "path": "/data/corpus/Mandate"},
+            {"name": "Allgemein", "path": "/data/corpus/Allgemein"},
+        ]
+        assert rc.last_instance.discover_args[-1] == {"root": None, "max_depth": 1}
+
+    def test_folders_passes_the_expanded_root(self, client, people, rc):
+        from _console import sign_in
+
+        sign_in(client, "chef@kanzlei.ch")
+        r = client.get("/admin/ingestion/folders",
+                       query_string={"root": "/data/corpus/Mandate"})
+        assert r.status_code == 200
+        assert r.get_json()["folders"] == [
+            {"name": "2024-017", "path": "/data/corpus/Mandate/2024-017"},
+        ]
+        assert rc.last_instance.discover_args[-1] == {
+            "root": "/data/corpus/Mandate", "max_depth": 1,
+        }
+
+    def test_a_member_cannot_list_folders(self, client, people, rc):
+        from _console import sign_in
+
+        sign_in(client, "anwalt@kanzlei.ch")
+        assert client.get("/admin/ingestion/folders").status_code == 403
+        assert rc.last_instance.count("discover") == 0
+
+    def test_folders_names_a_remote_controller_failure(self, client, people, rc):
+        from _console import sign_in
+
+        sign_in(client, "chef@kanzlei.ch")
+        rc.last_instance.discover_error = "RemoteController nicht erreichbar"
+        r = client.get("/admin/ingestion/folders")
+        assert r.status_code == 502
+        body = r.get_json()
+        assert body["folders"] == []
+        assert "nicht erreichbar" in body["error"]
