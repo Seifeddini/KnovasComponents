@@ -254,3 +254,38 @@ class TestRedactionForSupport:
         text = ic.redact_for_support(a_profile())
         assert "/mnt/mandate/litigation" not in text
         assert "nightly" in text
+
+
+_BUNDLED_SCHEMA_NAMES = (
+    "sync_request.schema.json",
+    "remote_controller_sync_config.schema.json",
+)
+
+
+class TestContractsAreAvailableWithoutAMonorepoCheckout:
+    """The Platform image copies only docbridge_integration/src (Dockerfile).
+
+    Walking up from /app/src/identity never finds RemoteController/contracts,
+    which is how 'Speichern' on the Ingestion tab fails in Docker. The
+    compiler must ship the two schemas it validates against, and keep them
+    byte-identical to the checkout when that checkout is present.
+    """
+
+    def test_the_compiler_ships_the_two_schemas_it_validates_against(self):
+        bundled = Path(ic.__file__).resolve().parent / "rc_contracts"
+        for name in _BUNDLED_SCHEMA_NAMES:
+            assert (bundled / name).is_file(), name
+
+    def test_bundled_schemas_match_the_checkout_when_present(self):
+        checkout = Path(__file__).resolve().parents[4] / "RemoteController" / "contracts"
+        if not checkout.is_dir():
+            pytest.skip("RemoteController is not in this checkout")
+        bundled = Path(ic.__file__).resolve().parent / "rc_contracts"
+        for name in _BUNDLED_SCHEMA_NAMES:
+            assert (bundled / name).read_bytes() == (checkout / name).read_bytes(), name
+
+    def test_compile_still_validates_when_the_walk_finds_no_checkout(self, monkeypatch):
+        monkeypatch.setattr(ic, "_checkout_contracts_dir", lambda: None)
+        ic._validator.cache_clear()
+        compiled = ic.compile_profile(a_profile())
+        assert compiled.sync_request["ingestion"]["identifier_prefix"] == "kanzlei"

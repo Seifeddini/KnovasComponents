@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "enabled",
+    "mode",
+    "window",
+    "rate_limit",
+    "pause_policy"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "enabled": { "type": "boolean" },
+    "mode": { "type": "string", "enum": ["one_time", "continuous"] },
+    "window": {
+      "type": "object",
+      "required": ["start_local", "end_local"],
+      "additionalProperties": false,
+      "properties": {
+        "start_local": { "type": "string", "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" },
+        "end_local": { "type": "string", "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "required": ["max_ingestion_requests_per_minute", "burst"],
+      "additionalProperties": false,
+      "properties": {
+        "max_ingestion_chars_per_minute": { "type": "integer", "minimum": 1 },
+        "burst_chars": { "type": "integer", "minimum": 1 },
+        "max_ingestion_requests_per_minute": { "type": "integer", "minimum": 1 },
+        "burst": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "scan_interval_seconds": { "type": "integer", "minimum": 5 },
+    "max_sync_duration_minutes": { "type": "integer", "minimum": 1 },
+    "max_files_per_cycle": { "type": "integer", "minimum": 0 },
+    "max_scan_entries_per_cycle": { "type": "integer", "minimum": 0 },
+    "sequential_subfolders": { "type": "boolean" },
+    "scan_interval_idle_max_seconds": { "type": "integer", "minimum": 5 },
+    "max_document_age_seconds": { "type": "integer", "minimum": 1 },
+    "pause_policy": {
+      "type": "string",
+      "const": "finish_current_unit_then_pause"
+    }
+  }
+}

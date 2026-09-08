@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["mode", "sources", "filters", "ingestion"],
+  "additionalProperties": false,
+  "properties": {
+    "mode": { "type": "string", "enum": ["incremental", "full"] },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "recursive": { "type": "boolean", "default": true },
+          "access_groups": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true,
+            "description": "Knovas RBAC access-group identifiers assigned to every document ingested from this source. Passed through to /secured/init_document_transmission, which materialises the ACL at ingest, so documents from a walled folder are born walled rather than repaired afterwards. Omit for unrestricted folders; an empty array is treated as omitted. Identifiers are resolved by the Secure API inside the caller's own tenant and fail the request closed if unknown (GI-ACCESSROLES-04)."
+          }
+        }
+      }
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include_globs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Glob patterns for files to sync. Default (when omitted) includes .md, .txt, .docx, .pdf, .eml, .msg. Binary types are converted to Markdown for ingest; identifiers keep the original path/extension for open/download in KnovasPlatform."
+        },
+        "exclude_globs": { "type": "array", "items": { "type": "string" } },
+        "max_file_bytes": { "type": "integer", "minimum": 1 },
+        "max_document_age_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ingestion": {
+      "type": "object",
+      "required": ["identifier_prefix"],
+      "additionalProperties": false,
+      "properties": {
+        "identifier_prefix": { "type": "string", "minLength": 1 },
+        "part_max_chars": { "type": "integer", "minimum": 1, "maximum": 500000 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "delete_on_remove": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

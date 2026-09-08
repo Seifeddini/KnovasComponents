@@ -30,10 +30,11 @@ Design decisions worth knowing
     - ``paused`` is a separate flag from ``schedule``, because
       ``sync_scheduler._run_once`` treats ``enabled: false`` as "do nothing"
       even for a hand-started run. Pausing is not a schedule.
-    - Compilation validates against the schemas RemoteController ships, read
-      from ``RemoteController/contracts/`` rather than copied. A copy would
-      drift, and the first symptom of drift is a rejected write the
-      administrator cannot diagnose.
+    - Compilation validates against the schemas RemoteController ships. The
+      checkout copy at ``RemoteController/contracts/`` is preferred; the
+      Docker image never contains that tree (build context is
+      ``docbridge_integration`` only), so ``rc_contracts/`` beside this
+      module is the install fallback. A test keeps the two byte-identical.
     - Errors are ``ProfileError`` with a sentence, not a schema traceback.
 
 Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-IN-6, KC-IN-4)
@@ -115,16 +116,45 @@ class CompiledIngestion:
     sync_request: dict[str, Any]
 
 
-def _contracts_dir() -> Path:
-    """Locate RemoteController's shipped contracts.
+_REQUIRED_SCHEMA_FILES = (
+    "sync_request.schema.json",
+    "remote_controller_sync_config.schema.json",
+)
 
-    Both components live in one checkout; this walks up from
-    ``.../docbridge_integration/src/identity/`` to the repository root.
-    """
+
+def _is_contracts_dir(path: Path) -> bool:
+    return path.is_dir() and all(
+        (path / name).is_file() for name in _REQUIRED_SCHEMA_FILES
+    )
+
+
+def _checkout_contracts_dir() -> Path | None:
+    """``RemoteController/contracts`` walking up from this file, or None."""
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "RemoteController" / "contracts"
-        if candidate.is_dir():
+        if _is_contracts_dir(candidate):
             return candidate
+    return None
+
+
+def _bundled_contracts_dir() -> Path:
+    return Path(__file__).resolve().parent / "rc_contracts"
+
+
+def _contracts_dir() -> Path:
+    """Locate the schemas compile_profile validates against.
+
+    The monorepo checkout wins so a schema change in RemoteController is
+    picked up without a second edit. The Platform image has no such
+    checkout — only ``src/`` — so the bundled copy beside this module is
+    what Docker uses.
+    """
+    found = _checkout_contracts_dir()
+    if found is not None:
+        return found
+    bundled = _bundled_contracts_dir()
+    if _is_contracts_dir(bundled):
+        return bundled
     raise ProfileError(
         "RemoteController/contracts was not found in this checkout, so the "
         "compiled configuration cannot be validated before it is sent."

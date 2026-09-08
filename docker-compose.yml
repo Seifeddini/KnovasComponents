@@ -112,6 +112,9 @@ services:
       - ${KNOVAS_DOCUMENTS_PATH}:/mnt/autodoc:ro
       - ./certs:/app/certs:ro
       - rc-state:/var/rc-state:ro
+      # The profile compiler validates against these schemas. The image also
+      # ships a copy beside the compiler; this mount lets the checkout win.
+      - ./RemoteController/contracts:/app/RemoteController/contracts:ro
       # Writable, not ro: the Cortex graph is customer-maintained. Types,
       # entities and links are created by the user and the store writes them
       # back into the fixture. On a ro mount that fails, is only logged, and
