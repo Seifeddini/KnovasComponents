@@ -60,3 +60,10 @@ older than 30 days. `verify` warns at 25 days. Before a demo:
 ```bash
 python scripts/demo_kanzlei/cli.py touch --out ../corpus/kanzlei
 ```
+
+## Wire the platform to these files
+
+After the files exist, do **not** mount a second corpus path. Set
+`KNOVAS_DOCUMENTS_PATH` to the `--out` folder and start the unified stack:
+
+[docs/client/](../../../docs/client/)

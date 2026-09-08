@@ -7,6 +7,8 @@ Customer-hosted components for the Knovas platform.
 | [KnovasPlatform/](KnovasPlatform/) | Search web app (Docker) — query indexed documents |
 | [RemoteController/](RemoteController/) | Discover and sync local files into Knovas |
 
+**Send to clients:** [docs/client/](docs/client/) — one page, Demo-Kanzlei from files to search.
+
 **Typical setup:** ingest with RemoteController, then deploy KnovasPlatform for search. Both need credentials from Knovas (mTLS, tokens).
 
 Both components use the **same** mTLS bundle but expect different filenames in

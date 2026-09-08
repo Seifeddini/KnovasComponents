@@ -1,5 +1,7 @@
 # Demo (mock API)
 
+This is the **offline mock API**, not the lawyer file corpus. Client pack for the generated Kanzlei: [../../docs/client/](../../docs/client/).
+
 Use this only when you do not have a Knovas tenant yet. Do not expose mock services on production networks.
 
 Run everything from the repo root. Point `knovas.env` at the mock and expand it:

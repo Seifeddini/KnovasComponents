@@ -2,6 +2,8 @@
 
 **New here?** Follow [setup.md](setup.md) end to end for a working search UI.
 
+**Demo-Kanzlei (what we send clients):** [../../docs/client/](../../docs/client/).
+
 ## Paths
 
 | Goal | Doc |

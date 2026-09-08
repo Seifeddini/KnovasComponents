@@ -1,5 +1,7 @@
 # Setup guide
 
+**Demo-Kanzlei (client pack):** [../../docs/client/](../../docs/client/). This page is the full production path.
+
 Monorepo path: `KnovasComponents/`. The Platform has no stack of its own any
 more: RemoteController, the identity database and the search UI come up together
 from the repo root, driven by one `knovas.env`. Run every command below from
