@@ -33,7 +33,7 @@
             <thead><tr><th>Name</th><th>Übergeordnet</th></tr></thead>
             <tbody>
             {% for g in groups %}
-                <tr><td>{{ g.name }}</td><td>{{ g.parent_id or '—' }}</td></tr>
+                <tr><td>{{ g.name }}</td><td>{{ g.get('parent_name') or '—' }}</td></tr>
             {% else %}
                 <tr><td colspan="2" class="hint">Noch keine Gruppen angelegt.</td></tr>
             {% endfor %}

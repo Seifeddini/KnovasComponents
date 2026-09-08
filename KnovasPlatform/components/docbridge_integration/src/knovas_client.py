@@ -893,6 +893,40 @@ def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, An
 ASSERTION_FIELD = "principal_assertion"
 
 
+def flatten_access_groups(nodes: List[Any]) -> List[Dict[str, Any]]:
+    """Lift nested ``children`` into a flat list the console can iterate.
+
+    GET /secured/access_groups returns the tenant group *tree*. Creating a
+    group with a parent stores it under that node. Every screen that does
+    ``for g in groups`` would otherwise show only the roots.
+    """
+
+    def walk(items: List[Any], parent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for node in items or []:
+            if not isinstance(node, dict):
+                continue
+            item = dict(node)
+            children = item.pop("children", None) or []
+            gid = item.get("group_id")
+            if parent_id and not item.get("parent_id"):
+                item["parent_id"] = parent_id
+            out.append(item)
+            out.extend(walk(children, str(gid) if gid else parent_id))
+        return out
+
+    flat = walk(nodes)
+    names = {
+        str(g.get("group_id")): g.get("name")
+        for g in flat if g.get("group_id")
+    }
+    for group in flat:
+        pid = group.get("parent_id")
+        if pid and names.get(str(pid)):
+            group["parent_name"] = names[str(pid)]
+    return flat
+
+
 class KnovasAPIClient:
     """Client for Knovas API operations."""
     
@@ -1894,9 +1928,9 @@ class KnovasAPIClient:
             return {}
 
     def access_groups(self) -> List[Dict[str, Any]]:
-        """GET /secured/access_groups - der Gruppenbaum des Mandanten."""
+        """GET /secured/access_groups - der Gruppenbaum des Mandanten, flach."""
         payload = self._rbac_request('GET', '/secured/access_groups') or {}
-        return list(payload.get('groups') or [])
+        return flatten_access_groups(list(payload.get('groups') or []))
 
     def create_access_group(
         self, name: str, parent: Optional[str] = None

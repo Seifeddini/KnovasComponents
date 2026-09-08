@@ -262,6 +262,19 @@ class TestTemplatesRender:
             ))
         assert "rc-sync/m/" in html
 
+    def test_child_groups_are_listed_with_their_parent_name(self):
+        html = self._env().get_template("admin_access_groups.html").render(
+            self._context(
+                groups=[
+                    {"group_id": "g-ra", "name": "Rechtsanwalt", "parent_id": None},
+                    {"group_id": "g-bo", "name": "Backoffice", "parent_id": "g-ra",
+                     "parent_name": "Rechtsanwalt"},
+                ],
+                rules=[],
+            ))
+        assert "Backoffice" in html
+        assert "Rechtsanwalt" in html
+
     def test_people_page_still_renders_with_the_strip(self):
         html = self._env().get_template("admin_people.html").render(
             self._context(people=[], assignable_roles=["admin", "member"]))

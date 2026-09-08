@@ -43,6 +43,32 @@ class TestAccessGroups:
         assert calls[0]["method"] == "GET"
         assert groups == [{"group_id": "g1"}]
 
+    def test_access_groups_includes_nested_children(self, monkeypatch):
+        """GET /secured/access_groups returns a tree. The console iterates a
+        flat list, so a child created with a parent never appeared on
+        Zugriffsgruppen even though POST succeeded."""
+        client, _ = _client(monkeypatch, {"groups": [
+            {"group_id": "g-ra", "name": "Rechtsanwalt", "parent_id": None,
+             "children": [
+                 {"group_id": "g-bo", "name": "Backoffice",
+                  "parent_id": "g-ra", "children": []},
+             ]},
+        ]})
+        groups = client.access_groups()
+        by_name = {g["name"]: g for g in groups}
+        assert "Rechtsanwalt" in by_name and "Backoffice" in by_name
+        assert by_name["Backoffice"]["parent_id"] == "g-ra"
+        assert by_name["Backoffice"].get("parent_name") == "Rechtsanwalt"
+
+    def test_a_flat_list_is_left_alone(self, monkeypatch):
+        client, _ = _client(monkeypatch, {"groups": [
+            {"group_id": "g1", "name": "A", "parent_id": None},
+            {"group_id": "g2", "name": "B", "parent_id": "g1"},
+        ]})
+        groups = client.access_groups()
+        assert [g["name"] for g in groups] == ["A", "B"]
+        assert groups[1]["parent_name"] == "A"
+
     def test_create_access_group_posts_name_and_parent(self, monkeypatch):
         client, calls = _client(monkeypatch, {"group_id": "g2"}, 201)
         client.create_access_group("Litigation", parent="g1")
