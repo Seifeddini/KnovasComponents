@@ -440,21 +440,21 @@ class GraphOntologySource:
 
     def create_type_relation(self, src: str, predicate: str,
                              dst: str) -> Optional[Dict[str, Any]]:
-        """Vorgabe auf Typebene: im Graph-Modus bewusst noch nicht moeglich.
+        """Vorgabe auf Typebene: in dieser Ansicht bewusst weiterhin nicht.
 
         Die API kennt keine Kante zwischen Typen. Naheliegend waere ein
-        Schema-Attribut vom Typ entity_ref auf dem Quelltyp, doch dabei
-        faellt der Zieltyp weg, und der Antwortvertrag des Schema-Endpunkts
-        (welche Felder eine Attributliste je Typ zurueckgibt) ist ungeklaert.
-        summary() kann die Vorgabe deshalb nicht zurueckliefern: sie baut
-        relations ausschliesslich aus verdichteten Kanten, also nie mit
-        count 0. Eine Linie, die beim naechsten Laden verschwindet, waere ein
-        gebrochenes Versprechen - deshalb None, die Route antwortet mit 400
-        und die Oberflaeche zeichnet nichts.
+        Schema-Attribut vom Typ entity_ref auf dem Quelltyp; mit
+        target_node_type_id traegt es inzwischen auch den Zieltyp - dieses
+        Feld ist serverseitig aber noch nicht ausgerollt. summary() baut
+        relations ausserdem ausschliesslich aus verdichteten Kanten, also nie
+        mit count 0. Eine Linie, die beim naechsten Laden verschwindet, waere
+        ein gebrochenes Versprechen - deshalb None, die Route antwortet mit
+        400 und die Oberflaeche zeichnet nichts.
 
-        Sobald der Schema-Endpunkt geklaert ist (Anlegen mit Zieltyp und
-        Lesen der Attribute je Typ), gehoert hier das Schreiben hin und in
-        summary() das Zurueckgeben der Vorgaben mit count 0.
+        Abgeloest wird das nicht hier, sondern von der Typ-Werkstatt der
+        Werkbank (Task E4): sie legt die Vorgabe ueber den Schema-Endpunkt an
+        und zeigt sie auch an. Diese Methode bleibt nur bestehen, weil
+        ontology.js die Route noch aufruft.
         """
         return None
 
@@ -478,7 +478,7 @@ class GraphOntologySource:
                 attribut_id = str(_first(attribut, "id", "attribute_id"))
                 if not attribut_id:
                     return False        # keine leere Kennung an die API
-                ok = self._client.graph_delete_schema_attribute(
+                ok = self._client.graph_deprecate_schema_attribute(
                     src, attribut_id) is not None
                 if ok:
                     self._invalidate()

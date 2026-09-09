@@ -864,12 +864,34 @@ class KnowledgeGraphDisabled(RuntimeError):
     """
 
 
-def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, Any]]:
+class GraphError(Exception):
+    """A Knowledge Graph API call failed in a way the caller can act on.
+
+    404 is deliberately NOT raised: an unknown or foreign id is the API's
+    documented answer for "not yours", and every caller already treats None as
+    that. What callers cannot currently distinguish is a 422 they should show
+    the user from a 503 that means "retry once the operator finishes", which is
+    what error_code carries.
+    """
+
+    def __init__(self, status: int, error_code: Optional[str], message: str):
+        super().__init__(f"{status} {error_code or ''}: {message}".strip())
+        self.status = status
+        self.error_code = error_code
+        self.message = message
+
+
+def _graph_payload_list(payload: Any, *candidate_keys: str,
+                        strict: bool = False) -> List[Dict[str, Any]]:
     """Liste aus einer flachen Envelope ziehen.
 
     Die Graph-Spezifikation nennt die Schluesselnamen der Listen-Antworten
     nicht. Deshalb erst die plausiblen Namen probieren, dann auf die erste
     Liste im Objekt zurueckfallen - tolerant statt zu raten und zu brechen.
+
+    strict=True schaltet den Rueckfall ab. Fuer eine Antwort, die mehr als eine
+    Liste enthalten kann, ist Raten kein Entgegenkommen: gaebe eine Antwort mit
+    nur "edges" ihre Kanten als Nachbarn aus, waeren das erfundene Knoten.
     """
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -879,6 +901,8 @@ def _graph_payload_list(payload: Any, *candidate_keys: str) -> List[Dict[str, An
         value = payload.get(key)
         if isinstance(value, list):
             return [item for item in value if isinstance(item, dict)]
+    if strict:
+        return []
     for key, value in payload.items():
         if key in ('status', 'message') or not isinstance(value, list):
             continue
@@ -1693,8 +1717,20 @@ class KnovasAPIClient:
                                           data=data, params=params)
         except requests.exceptions.HTTPError as exc:
             response = exc.response
-            if response is None or response.status_code != 404:
+            if response is None:
                 raise
+            if response.status_code != 404:
+                try:
+                    failure = response.json() or {}
+                except ValueError:
+                    failure = {}
+                raise GraphError(
+                    response.status_code,
+                    failure.get('error_code'),
+                    # getattr, because a response double in the tests carries no
+                    # reason and an AttributeError here would hide the real status.
+                    failure.get('message') or getattr(response, 'reason', '') or '',
+                ) from exc
             body: Dict[str, Any] = {}
             try:
                 body = response.json() or {}
@@ -1710,13 +1746,18 @@ class KnovasAPIClient:
                 # None -- which is why a refused curation looked like a missing
                 # name in the console.
                 logger.error(
-                    "Knovas API %s /secured/graph%s -> 404, so nothing was written. "
+                    "Knovas API %s %s -> 404, so nothing was written. "
                     "Response body: %s",
                     method, endpoint, (response.text or "")[:600] or "<empty>",
                 )
             else:
                 logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
             return None
+        if response.status_code in (204, 205):
+            # Documented "done, nothing to say". Parsing it fails, and the {}
+            # that came back was read by every caller as a failed write -- a
+            # successful delete reported as an error.
+            return {'status': 'success'}
         try:
             payload = response.json()
         except ValueError:
@@ -1732,7 +1773,7 @@ class KnovasAPIClient:
             # branch above (valid JSON) says a word, so without this the write
             # fails in complete silence.
             logger.error(
-                "Knovas API %s /secured/graph%s -> %s with an empty body; treating "
+                "Knovas API %s %s -> %s with an empty body; treating "
                 "the write as failed. Body: %s",
                 method, endpoint, response.status_code,
                 (response.text or "")[:300] or "<empty>",
@@ -1748,9 +1789,22 @@ class KnovasAPIClient:
         return _graph_payload_list(self._graph_request('GET', '/node-types'),
                                    'node_types', 'nodeTypes', 'types')
 
-    def graph_nodes(self) -> List[Dict[str, Any]]:
-        """GET /secured/graph/nodes - alle Knoten des Mandanten."""
-        return _graph_payload_list(self._graph_request('GET', '/nodes'), 'nodes')
+    def graph_nodes(self, node_type_id: Optional[str] = None,
+                    q: Optional[str] = None) -> List[Dict[str, Any]]:
+        """GET /secured/graph/nodes - serverseitig gefiltert.
+
+        Der Endpunkt kennt node_type_id und q (ILIKE auf name). Die ganze
+        Topologie zu ziehen und in Python zu filtern kostet eine Anfrage, die
+        mit dem Mandanten waechst, fuer eine Antwort, die die Datenbank
+        bereits hat.
+        """
+        params: Dict[str, Any] = {}
+        if node_type_id:
+            params['node_type_id'] = node_type_id
+        if q:
+            params['q'] = q
+        return _graph_payload_list(
+            self._graph_request('GET', '/nodes', params=params), 'nodes')
 
     def graph_node(self, node_id: str) -> Optional[Dict[str, Any]]:
         """GET /secured/graph/nodes/<id> - Detail inkl. Zuordnungen und Fakten."""
@@ -1760,13 +1814,34 @@ class KnovasAPIClient:
         """GET /secured/graph/edges - typisierte Relationen."""
         return _graph_payload_list(self._graph_request('GET', '/edges'), 'edges')
 
-    def graph_neighbors(self, node_id: str, depth: int = 1) -> List[Dict[str, Any]]:
-        """GET /secured/graph/nodes/<id>/neighbors - Traversal, max. 3 Hops."""
-        depth = max(0, min(3, int(depth)))
+    def graph_neighbors(self, node_id: str, depth: int = 1,
+                        include_edges: bool = False) -> Dict[str, Any]:
+        """GET /secured/graph/nodes/<id>/neighbors - Traversal, max. 3 Hops.
+
+        Liefert {"neighbors": [...], "edges": [...]}. Der Endpunkt laesst den
+        edges-Schluessel weg, wenn include_edges nicht verlangt wird; hier auf
+        eine leere Liste normalisiert, damit Aufrufer nie auf einen fehlenden
+        Schluessel verzweigen muessen.
+
+        include_edges ist Backend-Task A2 und noch nicht ausgerollt. Ein Server
+        ohne diesen Parameter antwortet weiterhin nur mit den Nachbarn: dann
+        bleibt edges leer, statt die Knotenliste als Kanten auszugeben - erfundene
+        Relationen waeren schlimmer als gar keine.
+        """
+        depth = max(1, min(3, int(depth)))
+        params: Dict[str, Any] = {'depth': depth}
+        if include_edges:
+            params['include_edges'] = 'true'
         payload = self._graph_request(
             'GET', f'/nodes/{quote(str(node_id), safe="")}/neighbors',
-            params={'depth': depth})
-        return _graph_payload_list(payload, 'neighbors', 'nodes')
+            params=params) or {}
+        edges = payload.get('edges') if isinstance(payload, dict) else None
+        return {
+            'neighbors': _graph_payload_list(payload, 'neighbors', 'nodes',
+                                             strict=True),
+            'edges': ([item for item in edges if isinstance(item, dict)]
+                      if isinstance(edges, list) else []),
+        }
 
     # -- Kuratieren (der Graph wird vom Client gepflegt, nicht abgeleitet) --
 
@@ -1776,13 +1851,7 @@ class KnovasAPIClient:
 
     def graph_create_node(self, name: str,
                           node_type_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/nodes - Entitaet anlegen.
-
-        Achtung: Die Spezifikation zeigt als Body nur name (plus die
-        Zugriffsfelder); wie ein Knoten seinen Typ bekommt, ist dort nicht
-        beschrieben. Wir senden node_type_id - beim ersten Lauf gegen eine
-        echte Instanz pruefen, ob der Typ wirklich gesetzt wird.
-        """
+        """POST /secured/graph/nodes - Entitaet anlegen."""
         payload: Dict[str, Any] = {'name': name}
         if node_type_id:
             payload['node_type_id'] = node_type_id
@@ -1794,27 +1863,143 @@ class KnovasAPIClient:
         return self._graph_request('POST', '/edges', data={
             'node_lo': node_lo, 'node_hi': node_hi, 'relation': relation})
 
-    def graph_create_schema_attribute(self, type_id: str, name: str,
-                                      datatype: str = 'entity_ref'
-                                      ) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/node-types/<id>/schema - Attributdefinition.
+    def graph_schema(self, type_id: str,
+                     include_deprecated: bool = False
+                     ) -> Optional[List[Dict[str, Any]]]:
+        """GET /secured/graph/node-types/<id>/schema - die Felddefinitionen.
 
-        Fuer Vorgaben auf Typebene nutzen wir datatype entity_ref; laut
-        Datentyp-Tabelle materialisiert der eine typisierte Kante. Der Body
-        des Endpunkts ist in der Spezifikation nicht gezeigt, deshalb beim
-        ersten Lauf gegen eine echte Instanz pruefen (Task 17).
+        None bei 404, [] nur fuer einen bekannten Typ ohne Felder. Die ganze
+        Oberflaeche wird zur Laufzeit aus dieser Antwort erzeugt; kollabierte
+        man beides auf [], zeigte ein veralteter, geloeschter oder fremder
+        type_id ein leeres Formular und behauptete damit, der Typ habe keine
+        Felder. Genau dieses 404-als-leer hat schon dreimal in diesem Repo
+        einen fehlgeschlagenen Aufruf als Erfolg gemeldet.
         """
-        return self._graph_request(
-            'POST', f'/node-types/{quote(str(type_id), safe="")}/schema',
-            data={'name': name, 'datatype': datatype})
+        params = {'include_deprecated': 'true'} if include_deprecated else {}
+        payload = self._graph_request(
+            'GET', f'/node-types/{quote(str(type_id), safe="")}/schema',
+            params=params)
+        if payload is None:
+            return None
+        return _graph_payload_list(payload, 'attributes')
 
-    def graph_delete_schema_attribute(self, type_id: str,
-                                      attribute_id: str) -> Optional[Dict[str, Any]]:
-        """DELETE /secured/graph/node-types/<id>/schema/<aid>."""
+    def graph_create_schema_attribute(
+            self, type_id: str, name: str, datatype: str = 'entity_ref',
+            required: bool = False, description: Optional[str] = None,
+            sort_order: int = 0, enum_values: Optional[List[str]] = None,
+            target_node_type_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/node-types/<id>/schema - eine Felddefinition.
+
+        target_node_type_id gehoert zu entity_ref und wird nur mitgeschickt,
+        wenn ein Zieltyp gesetzt ist: die Serverseite dafuer ist noch nicht
+        ausgerollt, und ein leeres Feld waere fuer eine aeltere API ein
+        unbekannter Schluessel.
+        """
+        data: Dict[str, Any] = {
+            'name': name, 'datatype': datatype,
+            'required': bool(required), 'sort_order': int(sort_order),
+        }
+        if description:
+            data['description'] = description
+        if enum_values is not None:
+            data['enum_values'] = list(enum_values)
+        if target_node_type_id:
+            data['target_node_type_id'] = target_node_type_id
+        return self._graph_request(
+            'POST', f'/node-types/{quote(str(type_id), safe="")}/schema', data=data)
+
+    def graph_update_schema_attribute(self, type_id: str, attribute_id: str,
+                                      **fields: Any) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/node-types/<id>/schema/<aid>."""
+        return self._graph_request(
+            'PATCH',
+            f'/node-types/{quote(str(type_id), safe="")}'
+            f'/schema/{quote(str(attribute_id), safe="")}',
+            data=dict(fields))
+
+    def graph_deprecate_schema_attribute(self, type_id: str,
+                                         attribute_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/node-types/<id>/schema/<aid>.
+
+        Benannt nach dem, was der Server tut: er setzt das Attribut nur auf
+        deprecated, vorhandene Fakten behalten ihre attribute_id. Eine Methode
+        namens "delete" beschriebe eine Operation, die die API nicht ausfuehrt,
+        und eine darauf gebaute Oberflaeche verspraeche dem Nutzer Unwahres.
+        """
         return self._graph_request(
             'DELETE',
             f'/node-types/{quote(str(type_id), safe="")}'
             f'/schema/{quote(str(attribute_id), safe="")}')
+
+    def graph_update_node_type(self, type_id: str,
+                               **fields: Any) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/node-types/<id>."""
+        return self._graph_request(
+            'PATCH', f'/node-types/{quote(str(type_id), safe="")}', data=dict(fields))
+
+    def graph_update_node(self, node_id: str,
+                          **fields: Any) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/nodes/<id> - name, description, node_type_id
+        und required_groups (die ACL des Backends).
+
+        Ohne Felder wird nichts geschickt. Ein GET an dieser Stelle laege den
+        Knoten-Envelope zurueck, und der Aufrufer liest den wahrheitswidrig als
+        "gespeichert" - derselbe Fehler, den dieses Repo schon zweimal
+        behoben hat. Was ein unveraendert abgeschicktes Formular bedeutet,
+        entscheidet der Aufrufer, nicht der Client.
+        """
+        if not fields:
+            raise ValueError(
+                "graph_update_node braucht mindestens ein Feld: ein leerer "
+                "PATCH waere ein Schreibvorgang, der nicht stattfindet.")
+        return self._graph_request(
+            'PATCH', f'/nodes/{quote(str(node_id), safe="")}', data=dict(fields))
+
+    # -- Fakten (typisierte Werte an einem Knoten) -------------------------
+
+    def graph_facts(self, node_id: str) -> Optional[List[Dict[str, Any]]]:
+        """GET /secured/graph/nodes/<id>/facts - typisierte Werte am Knoten.
+
+        None bei 404 (Knoten unbekannt oder fremd), [] fuer einen Knoten ohne
+        Fakten. Wie bei graph_schema: ein Feldleser, der beides gleich
+        behandelt, zeigt fuer einen geloeschten Knoten eine leere Akte statt zu
+        sagen, dass es sie nicht gibt.
+        """
+        payload = self._graph_request(
+            'GET', f'/nodes/{quote(str(node_id), safe="")}/facts')
+        if payload is None:
+            return None
+        return _graph_payload_list(payload, 'facts')
+
+    def graph_create_fact(self, node_id: str, value: Any,
+                          attribute_id: Optional[str] = None,
+                          label: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/nodes/<id>/facts.
+
+        Der CHECK des Servers verlangt attribute_id ODER label. Hier abzulehnen
+        heisst, der Aufrufer sieht die Regel - statt eines 422 aus drei Schichten
+        Entfernung.
+        """
+        if not attribute_id and not label:
+            raise ValueError("a fact needs an attribute_id or a label")
+        data: Dict[str, Any] = {'value': value}
+        if attribute_id:
+            data['attribute_id'] = attribute_id
+        else:
+            data['label'] = label
+        return self._graph_request(
+            'POST', f'/nodes/{quote(str(node_id), safe="")}/facts', data=data)
+
+    def graph_update_fact(self, fact_id: str,
+                          **fields: Any) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/facts/<fid>."""
+        return self._graph_request(
+            'PATCH', f'/facts/{quote(str(fact_id), safe="")}', data=dict(fields))
+
+    def graph_delete_fact(self, fact_id: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/facts/<fid>."""
+        return self._graph_request(
+            'DELETE', f'/facts/{quote(str(fact_id), safe="")}')
 
     def graph_delete_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
         """DELETE /secured/graph/edges/<id> - nur manuelle Kanten."""

@@ -1440,6 +1440,22 @@ def create_app(config_path: Optional[str] = None):
             },
         ))
 
+        from identity.node_grants import NodeGrantStore
+        from web_interface.graph_routes import create_graph_blueprint
+
+        # The grant store is built per request: identity_gate.connection() is
+        # request-scoped and teardown_request closes it, so a store made once
+        # here would hold a connection the first request already closed.
+        app.register_blueprint(create_graph_blueprint(
+            identity_gate,
+            lambda: NodeGrantStore(identity_gate.connection()),
+            lambda: api_client,
+            # _ontology_source_is_graph is defined further down create_app;
+            # naming it here rather than calling it through a lambda would read
+            # it before it is bound.
+            graph_mode=lambda: _ontology_source_is_graph(),
+        ))
+
     @app.route('/api/search', methods=['POST'])
     def search():
         """
