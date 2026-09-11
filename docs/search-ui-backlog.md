@@ -7,6 +7,17 @@ Entscheidung braucht, weil es Messung an echten Daten voraussetzt, oder weil es
 nach dem aktuellen Zweig kommt. Jeder Punkt trägt die Begründung mit, damit
 niemand sie neu herleiten muss.
 
+**Nachtrag 2026-09-11:** Die Punkte 2 (Caching), 3 (eigener PDF-Viewer), 4
+(Seitenvorschau nur für PDF, `escapeJsString`, woff2) und 6 (Icon-Kästen,
+Kartendichte) sind in
+`docs/superpowers/plans/2026-09-11-trefferliste-und-dokumentvorschau.md`
+zu einem angebotsreifen Plan zusammengefasst — samt der Dokumentvorschau nach
+dem Entwurf vom 2026-09-07, Fundstellen-Leiste, Aufwand und Abnahme. Neu
+festgehalten ist dort auch, dass EML und MD heute gar keine Vorschau haben
+(`preview-content` antwortet 415) und dass die Datei-Endpunkte nur die
+Anmeldung prüfen, nicht die Zugriffsgruppen. Punkt 5 (Facetten, Sortierung,
+Pagination) bleibt API-gebunden und ausserhalb dieses Plans.
+
 ## 1. ~~Klick auf den Treffer öffnet direkt das ganze Dokument~~ — erledigt
 
 Umgesetzt am 2026-07-30. Der Klick öffnet das Dokument direkt in einem nativen
