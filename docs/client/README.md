@@ -100,4 +100,16 @@ Both go in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
 | `CORTEX_ENABLED=false` | Takes Cortex out of the navigation and refuses its routes. For a firm that only wants the search. |
 | `IDENTITY_ENABLED=false` plus `COMPANY_LOGIN_NAME=` / `COMPANY_LOGIN_PASSWORD=` | One shared login for the whole firm instead of per-person accounts. Simpler to run; the audit record then says "the company" rather than who, and everyone who signs in can open every document. |
 
+## When a search looks wrong
+
+```bash
+./scripts/search-probe.sh "Sophie Keller"
+```
+
+Asks Knovas the query with the same certificates the app uses, then checks what
+is actually indexed for the same words. It answers the only question worth
+asking first: **coverage** (the documents exist on disk but the sync has not
+reached them, so no tuning will help — let it finish) or **ranking** (they are
+indexed and still did not come back, which is worth reporting).
+
 Stop: `./scripts/stop.sh`. Reset admin password: `./scripts/admin-password.sh`.
