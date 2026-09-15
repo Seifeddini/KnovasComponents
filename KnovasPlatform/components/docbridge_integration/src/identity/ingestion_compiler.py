@@ -236,7 +236,16 @@ def _compile_sync_request(profile: IngestionProfile) -> dict[str, Any]:
             "path": source.path,
             "recursive": bool(source.recursive),
         }
-        groups = [g for g in (source.access_groups or ()) if str(g).strip()]
+        # Order-preserving de-duplication. Assigning a folder to the same group
+        # twice says exactly what assigning it once says, but the sync-request
+        # schema declares uniqueItems and refuses the whole profile over it --
+        # which stopped an ingest with a message about JSON rather than about
+        # anything the administrator did. Deduplicating here covers every
+        # producer, including a profile that was saved with duplicates before
+        # the console stopped offering them.
+        groups = list(dict.fromkeys(
+            str(g).strip() for g in (source.access_groups or ()) if str(g).strip()
+        ))
         if groups:
             entry["access_groups"] = list(groups)
         sources.append(entry)

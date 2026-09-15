@@ -181,3 +181,41 @@ class TestFolderRules:
         client.update_folder_rule("r1", [])
         assert calls[0]["method"] == "PATCH"
         assert calls[0]["endpoint"] == "/secured/folder_rules/r1"
+
+
+class TestOneGroupIsOneEntry:
+    """A group reachable at more than one place in the returned tree came back
+    two or three times: identical checkboxes in the console, and a repeated id
+    in the posted form that the sync-request schema then refused."""
+
+    def test_a_group_reachable_twice_is_listed_once(self):
+        from knovas_client import flatten_access_groups
+
+        shared = {"group_id": "g-shared", "name": "Litigation"}
+        flat = flatten_access_groups([
+            {"group_id": "g-a", "name": "A", "children": [dict(shared)]},
+            {"group_id": "g-b", "name": "B", "children": [dict(shared)]},
+        ])
+        assert [g["group_id"] for g in flat].count("g-shared") == 1
+
+    def test_the_whole_tree_is_still_flattened(self):
+        from knovas_client import flatten_access_groups
+
+        flat = flatten_access_groups([
+            {"group_id": "g-a", "name": "A", "children": [
+                {"group_id": "g-a1", "name": "A1"},
+            ]},
+        ])
+        assert {g["group_id"] for g in flat} == {"g-a", "g-a1"}
+
+    def test_nested_groups_still_learn_their_parent(self):
+        from knovas_client import flatten_access_groups
+
+        flat = flatten_access_groups([
+            {"group_id": "g-a", "name": "A", "children": [
+                {"group_id": "g-a1", "name": "A1"},
+            ]},
+        ])
+        child = next(g for g in flat if g["group_id"] == "g-a1")
+        assert child["parent_id"] == "g-a"
+        assert child["parent_name"] == "A"

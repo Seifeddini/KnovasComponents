@@ -123,7 +123,9 @@ def profile_from_form(form: Mapping[str, str], lists: Mapping[str, list[str]]) -
         sources.append(SourceFolder(
             path=path,
             recursive=str(form.get(f"folder-{n}-recursive", "") or "") == "1",
-            access_groups=tuple(g for g in (lists.get(f"folder-{n}-groups") or []) if g),
+            access_groups=tuple(dict.fromkeys(
+                g for g in (lists.get(f"folder-{n}-groups") or []) if g
+            )),
         ))
     if not sources:
         raise ProfileError("Mindestens ein Ordner muss angegeben sein.")

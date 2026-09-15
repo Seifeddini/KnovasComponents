@@ -939,7 +939,21 @@ def flatten_access_groups(nodes: List[Any]) -> List[Dict[str, Any]]:
             out.extend(walk(children, str(gid) if gid else parent_id))
         return out
 
-    flat = walk(nodes)
+    # One entry per group. The walk appends every node it reaches, so a group
+    # reachable at more than one place in the returned tree came back two or
+    # three times -- as two or three identical checkboxes in the console, and
+    # then as a repeated id in the posted form, which the sync-request schema
+    # rejects outright ("access_groups ... has non-unique elements"). The first
+    # occurrence is the shallowest, which is where it reads best in a flat list.
+    seen: set = set()
+    flat = []
+    for item in walk(nodes):
+        gid = str(item.get("group_id") or "")
+        if gid and gid in seen:
+            continue
+        if gid:
+            seen.add(gid)
+        flat.append(item)
     names = {
         str(g.get("group_id")): g.get("name")
         for g in flat if g.get("group_id")

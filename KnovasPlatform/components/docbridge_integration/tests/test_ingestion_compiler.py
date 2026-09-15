@@ -289,3 +289,38 @@ class TestContractsAreAvailableWithoutAMonorepoCheckout:
         ic._validator.cache_clear()
         compiled = ic.compile_profile(a_profile())
         assert compiled.sync_request["ingestion"]["identifier_prefix"] == "kanzlei"
+
+
+class TestAFolderAssignedToOneGroupTwice:
+    """A group list that repeats an id stopped the ingest with a schema error.
+
+    The sync-request schema declares uniqueItems on access_groups, so a folder
+    carrying the same group twice failed compilation entirely — and the message
+    an administrator saw was about JSON, not about anything they had done.
+    Assigning a folder to a group twice says what assigning it once says.
+    """
+
+    def test_duplicates_compile_instead_of_failing(self, sync_request_validator):
+        compiled = ic.compile_profile(a_profile(sources=[
+            ic.SourceFolder(path="/mnt/documents", access_groups=["g-1", "g-1", "g-1"]),
+        ]))
+        sync_request_validator.validate(compiled.sync_request)
+
+    def test_the_group_survives_exactly_once(self):
+        compiled = ic.compile_profile(a_profile(sources=[
+            ic.SourceFolder(path="/mnt/documents", access_groups=["g-1", "g-1"]),
+        ]))
+        assert compiled.sync_request["sources"][0]["access_groups"] == ["g-1"]
+
+    def test_order_is_kept_for_the_rest(self):
+        compiled = ic.compile_profile(a_profile(sources=[
+            ic.SourceFolder(path="/mnt/documents",
+                            access_groups=["litigation", "hr", "litigation"]),
+        ]))
+        assert compiled.sync_request["sources"][0]["access_groups"] == ["litigation", "hr"]
+
+    def test_blank_entries_still_disappear(self):
+        compiled = ic.compile_profile(a_profile(sources=[
+            ic.SourceFolder(path="/mnt/documents", access_groups=["g-1", "  ", ""]),
+        ]))
+        assert compiled.sync_request["sources"][0]["access_groups"] == ["g-1"]
