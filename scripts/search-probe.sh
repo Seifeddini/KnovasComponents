@@ -126,8 +126,16 @@ else:
         print(f"   e.g. {example}")
     if returned:
         print("   FAIL  RANKING: those documents are indexed and did not come back.")
-        print("         That is a retrieval problem, not coverage — worth reporting")
-        print("         with this output.")
+        print("         Not coverage — a retrieval problem on the Knovas side.")
+        print("         Bisect it there, both reversible config, no rebuild:")
+        print("           1. QUERY_COLBERT_STAGE2_ENABLED=false — if the query then")
+        print("              works, Stage-2 rerank is discarding Stage-1's keyword")
+        print("              evidence (BLEND_STAGE1_WEIGHT=0.0 means the final order")
+        print("              is purely Stage-2, so a bad reranker erases BM25).")
+        print("           2. If it does NOT improve, the words never reached the")
+        print("              candidate set: Stage 1 is the suspect, not the reranker.")
+        print("         And check knovas_stage2_reranker_backend_total{outcome=} in")
+        print("         Prometheus — it says which backend ran and how it ended.")
     else:
         print("   WARN  indexed, and the query returned nothing at all.")
 PY
