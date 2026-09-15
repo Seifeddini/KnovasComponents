@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
-# Ask Knovas one query, and say whether a disappointing answer is coverage or ranking.
+# Ask Knovas one query and say why a disappointing answer is disappointing.
 #
-# "The results are nonsense" has two completely different causes and they need
-# opposite responses:
+# Three causes, three different responses, and they are not guessable from the
+# result list:
 #
-#   coverage — the documents that contain the words were never ingested, so no
-#              amount of tuning will surface them. Wait for the sync, or re-run it.
-#   ranking  — they ARE indexed and still did not come back, which is a
-#              retrieval problem worth escalating with evidence.
+#   not extracted — RemoteController never read the file. Nothing downstream
+#                   can help; fix the sync's folders or filters.
+#   not indexed   — RemoteController read it and Knovas does not have it. The
+#                   upload failed, silently, per document. Re-sync.
+#   ranking       — Knovas has the words and still did not return the document.
+#                   A retrieval problem, worth escalating with this output.
 #
-# Telling them apart by hand took a round trip each time. This asks the API with
-# the same certificates the app uses, then checks the local context sidecars —
-# which hold the text of everything actually indexed — for the same words.
+# How the last two are told apart without access to Weaviate: a ONE-WORD query
+# is routed to pure BM25 (resolve_effective_alpha returns 0.0 below
+# BM25_PURE_MIN_SEARCH_TERMS), so a single distinctive term is effectively a
+# keyword probe of the index. If that returns nothing while the local context
+# sidecars hold the word, the text never reached Knovas.
+#
+# The sidecars are what RemoteController extracted, NOT what Knovas stored:
+# write_context_sidecar runs before init_document_transmission, so a sidecar
+# exists even when every upload for it failed. Counting them as "indexed" is
+# how this script once reported a ranking problem that was an upload problem.
 #
 # Read-only. Usage: ./scripts/search-probe.sh "Sophie Keller"
 set -uo pipefail
@@ -26,117 +35,114 @@ knovas_load_compose_project "$KNOVAS_ENV" "$ROOT_DIR"
 DC=(docker compose --env-file "$KNOVAS_ENV")
 
 QUERY="${*:-}"
-if [[ -z "$QUERY" ]]; then
-  echo "Usage: $0 \"search words\"" >&2
-  exit 2
-fi
+[[ -n "$QUERY" ]] || { echo "Usage: $0 \"search words\"" >&2; exit 2; }
 
-printf '\n\033[1mWhat Knovas returns for %s\033[0m\n' "\"$QUERY\""
 KNOVAS_QUERY="$QUERY" "${DC[@]}" exec -T -e KNOVAS_QUERY docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
-import json, os, ssl, urllib.error, urllib.request
+import json, os, pathlib, ssl, urllib.error, urllib.request
 
 query = os.environ.get("KNOVAS_QUERY", "")
+terms = [t for t in query.lower().split() if t]
 base = (os.environ.get("SEMANTIX_API_URL") or "").rstrip("/")
 ctx = ssl.create_default_context(cafile=os.environ.get("SEMANTIX_CA_CERT") or None)
 cert, key = os.environ.get("SEMANTIX_CLIENT_CERT"), os.environ.get("SEMANTIX_CLIENT_KEY")
 if cert and key:
     ctx.load_cert_chain(cert, key)
 
-body = json.dumps({"Input": query, "limit": 10, "top_k": 10}).encode()
-request = urllib.request.Request(
-    base + "/secured/query", data=body,
-    headers={"Content-Type": "application/json"}, method="POST",
-)
-try:
-    with urllib.request.urlopen(request, context=ctx, timeout=60) as response:
-        payload = json.loads(response.read() or b"{}")
-except urllib.error.HTTPError as exc:
-    raise SystemExit(f"FAIL /secured/query -> {exc.code}: {(exc.read() or b'')[:300]!r}")
-except Exception as exc:
-    raise SystemExit(f"FAIL /secured/query unreachable: {exc}")
 
-rows = payload.get("results")
-if rows is None and isinstance(payload.get("data"), dict):
-    rows = payload["data"].get("results")
-rows = rows or []
-print(f"{len(rows)} hit(s)")
-terms = [t for t in query.lower().split() if t]
-for row in rows[:10]:
-    pointer = str(row.get("pointer") or row.get("identifier") or "?")
-    score = row.get("final_score")
-    if score is None:
-        score = row.get("cosine_similarity")
-    mark = "  "
-    print(f"{mark} {score if score is not None else '—'}  {pointer}")
-# Stash the pointers so the shell half can compare against them.
-with open("/tmp/probe-pointers.txt", "w", encoding="utf-8") as handle:
-    for row in rows:
-        handle.write(str(row.get("pointer") or row.get("identifier") or "") + "\n")
-PY
+def ask(text, limit=10):
+    """One /secured/query. Returns (pointers, error)."""
+    body = json.dumps({"Input": text, "limit": limit, "top_k": limit}).encode()
+    request = urllib.request.Request(
+        base + "/secured/query", data=body,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, context=ctx, timeout=60) as response:
+            payload = json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        return [], f"HTTP {exc.code}: {(exc.read() or b'')[:200]!r}"
+    except Exception as exc:
+        return [], str(exc)
+    rows = payload.get("results")
+    if rows is None and isinstance(payload.get("data"), dict):
+        rows = payload["data"].get("results")
+    return [str(r.get("pointer") or r.get("identifier") or "") for r in (rows or [])], None
 
-printf '\n\033[1mWhat is actually indexed\033[0m\n'
-# The sidecars hold the text of every document the sync has put into Knovas, so
-# they answer "is it even in there" without asking the API a second time.
-KNOVAS_QUERY="$QUERY" "${DC[@]}" exec -T -e KNOVAS_QUERY docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
-import json, os, pathlib
 
-query = os.environ.get("KNOVAS_QUERY", "")
-terms = [t for t in query.lower().split() if t]
+print(f"\nWhat Knovas returns for {query!r}")
+pointers, err = ask(query)
+if err:
+    raise SystemExit(f"   FAIL  /secured/query — {err}")
+print(f"  {len(pointers)} hit(s)")
+for pointer in pointers[:5]:
+    print(f"    {pointer}")
+
+# What RemoteController extracted locally. Says nothing about what Knovas holds.
 store = pathlib.Path(os.environ.get("SEARCH_CONTEXT_STORE_PATH")
                      or "/var/rc-state/search_context")
-if not store.is_dir():
-    raise SystemExit(f"   no context store at {store} — cannot tell coverage from ranking")
+local_total = 0
+local_with_terms = 0
+per_term = {t: 0 for t in terms}
+if store.is_dir():
+    for path in store.iterdir():
+        if path.suffix != ".json":
+            continue
+        local_total += 1
+        try:
+            entry = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        text = " ".join(
+            str(s.get("t") or s.get("text") or "") if isinstance(s, dict) else str(s)
+            for s in (entry.get("sentences") or [])
+        ).lower()
+        for term in terms:
+            if term in text:
+                per_term[term] += 1
+        if terms and all(term in text for term in terms):
+            local_with_terms += 1
 
-try:
-    returned = set(
-        line.strip() for line in open("/tmp/probe-pointers.txt", encoding="utf-8")
-        if line.strip()
-    )
-except OSError:
-    returned = set()
+print(f"\nWhat RemoteController extracted locally")
+print(f"  {local_total} document(s) extracted   ({local_with_terms} contain every word)")
+print("  NOTE: extracted, not indexed — the sidecar is written before the upload,")
+print("        so it survives an upload that failed.")
 
-total = matched = 0
-examples = []
-for path in store.iterdir():
-    if path.suffix != ".json":
-        continue
-    total += 1
-    try:
-        entry = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        continue
-    text = " ".join(
-        str(s.get("t") or s.get("text") or "") if isinstance(s, dict) else str(s)
-        for s in (entry.get("sentences") or [])
-    ).lower()
-    if terms and all(term in text for term in terms):
-        matched += 1
-        if len(examples) < 5:
-            examples.append(entry.get("pointer") or path.name)
+# A one-word query is pure BM25, so it is a keyword probe of the index itself.
+print(f"\nIs the word in the Knovas index at all? (one-word query = pure BM25)")
+indexed = {}
+for term in terms:
+    hits, term_err = ask(term, limit=5)
+    indexed[term] = None if term_err else len(hits)
+    shown = term_err if term_err else f"{len(hits)} hit(s)"
+    print(f"  {term:24s} {shown:16s} locally extracted: {per_term[term]}")
 
-print(f"{total} document(s) indexed")
-print(f"{matched} of them contain every word of the query")
-if matched == 0:
-    print("   FAIL  COVERAGE: nothing indexed contains these words. The documents")
-    print("         exist on disk but the sync has not reached them yet, so no")
-    print("         amount of search tuning will surface them. Let the ingest")
-    print("         finish, or re-run it, and try again.")
+print()
+missing = [t for t in terms if indexed.get(t) == 0 and per_term[t] > 0]
+never = [t for t in terms if per_term[t] == 0]
+if never and not local_total:
+    print("  FAIL  NOT EXTRACTED: no context store — RemoteController has read nothing.")
+elif never:
+    print(f"  FAIL  NOT EXTRACTED: {', '.join(never)} appears in nothing RemoteController")
+    print("        read. Check the sync's folders and filters; nothing downstream helps.")
+elif missing:
+    print(f"  FAIL  NOT INDEXED: {', '.join(missing)} — RemoteController extracted files")
+    print("        containing it, and a pure-BM25 query finds none of them. The text")
+    print("        never reached Knovas: uploads failed, per document and silently.")
+    print("        Look for them:")
+    print("          docker compose --env-file knovas.env logs remote-controller \\")
+    print("            | grep -iE 'init failed|transmit|error'")
+    print("        Then re-run the sync. This is NOT a search-tuning problem.")
+elif local_with_terms and not any(
+    all(t in p.lower() for t in terms) for p in pointers
+):
+    print("  WARN  RANKING: the words are in the index and the documents holding them")
+    print("        did not come back. Bisect on the Knovas side, reversible config:")
+    print("          1. QUERY_COLBERT_STAGE2_ENABLED=false — if the query then works,")
+    print("             Stage-2 rerank is discarding Stage-1's keyword evidence")
+    print("             (BLEND_STAGE1_WEIGHT=0.0 makes the final order purely Stage-2).")
+    print("          2. If it does not improve, Stage 1 is the suspect, not the reranker.")
+    print("        And check knovas_stage2_reranker_backend_total{outcome=} in Prometheus.")
 else:
-    for example in examples:
-        print(f"   e.g. {example}")
-    if returned:
-        print("   FAIL  RANKING: those documents are indexed and did not come back.")
-        print("         Not coverage — a retrieval problem on the Knovas side.")
-        print("         Bisect it there, both reversible config, no rebuild:")
-        print("           1. QUERY_COLBERT_STAGE2_ENABLED=false — if the query then")
-        print("              works, Stage-2 rerank is discarding Stage-1's keyword")
-        print("              evidence (BLEND_STAGE1_WEIGHT=0.0 means the final order")
-        print("              is purely Stage-2, so a bad reranker erases BM25).")
-        print("           2. If it does NOT improve, the words never reached the")
-        print("              candidate set: Stage 1 is the suspect, not the reranker.")
-        print("         And check knovas_stage2_reranker_backend_total{outcome=} in")
-        print("         Prometheus — it says which backend ran and how it ended.")
-    else:
-        print("   WARN  indexed, and the query returned nothing at all.")
+    print("  OK    the words are indexed and the query returns documents holding them.")
+print()
 PY
-printf '\n'
