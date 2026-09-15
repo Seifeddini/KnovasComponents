@@ -157,6 +157,12 @@ web:
   # Browser tab and page heading (rebuild docbridge-web image after changing)
   app_title: "${WEB_APP_TITLE:-Knovas Document Search}"
 
+  # Cortex (Wissensgraph). Off removes it from the navigation AND refuses its
+  # routes -- a hidden link that still answers is not switched off. A firm that
+  # only searches does not want a half-curated graph in the sidebar, and a
+  # tenant without the Knowledge Graph enabled has nothing to show there at all.
+  cortex_enabled: "${CORTEX_ENABLED:-true}"
+
   # Company login gate
   login:
     enabled: "${COMPANY_LOGIN_ENABLED:-true}"

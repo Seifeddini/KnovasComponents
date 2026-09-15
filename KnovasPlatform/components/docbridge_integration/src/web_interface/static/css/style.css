@@ -820,16 +820,176 @@ mark.context-snippet-match,
 
 /* Eigene Regel, weil der `*`-Reset sonst alles auf 0 setzt: der Button
    braucht Abstand zur Trennlinie oben und zum Inhalt darunter. */
-.preview-actions {
+.preview-actionbar {
     flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px var(--dialog-pad-x);
+}
+
+.preview-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    padding: 14px var(--dialog-pad-x);
 }
 
 .preview-actions:empty {
     display: none;
+}
+
+.preview-findings-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.preview-findings-position {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Lesefläche und Fundstellen nebeneinander. min-height 0 aus demselben Grund
+   wie beim Body: sonst wächst die Zeile mit ihrem Inhalt aus dem Dialog. */
+.preview-content {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    align-items: stretch;
+}
+
+.preview-sidebar {
+    flex: 0 0 272px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--dialog-pad-x) var(--dialog-pad-x);
+    border-left: 1px solid var(--border-color);
+    background: var(--surface-sunken);
+}
+
+.preview-sidebar[hidden] {
+    display: none;
+}
+
+.preview-sidebar-section + .preview-sidebar-section {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color);
+}
+
+.preview-sidebar-title {
+    position: sticky;
+    top: 0;
+    margin: 0 0 10px;
+    padding: 16px 0 8px;
+    background: var(--surface-sunken);
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+/* Die Fundstellen selbst. Eine pro Zeile, Seitenzahl zuerst: in einem
+   60-seitigen Vertrag ist sie die Angabe, nach der gesucht wird. */
+.preview-findings-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.preview-finding {
+    width: 100%;
+    display: block;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.preview-finding:hover {
+    border-color: var(--accent);
+}
+
+.preview-finding:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.preview-finding.is-active {
+    border-color: var(--accent);
+    background: var(--highlight);
+}
+
+.preview-finding-where {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.preview-finding-active-flag {
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+.preview-finding-text {
+    display: block;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--text-primary);
+}
+
+.preview-finding-text mark {
+    background: transparent;
+    font-weight: 600;
+    color: inherit;
+}
+
+/* Dokumentdaten: Bezeichnung und Wert fluchten, wie im Mailkopf. */
+.preview-docdata {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 0.82rem;
+}
+
+.preview-docdata dt {
+    color: var(--text-secondary);
+}
+
+.preview-docdata dd {
+    margin: 0;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+/* Schmale Fenster: die Fundstellen unter die Lesefläche statt daneben, sonst
+   bleibt für keins von beiden genug Breite. */
+@media (max-width: 860px) {
+    .preview-content {
+        flex-direction: column;
+    }
+
+    .preview-sidebar {
+        flex: 0 0 auto;
+        max-height: 40%;
+        border-left: 0;
+        border-top: 1px solid var(--border-color);
+    }
 }
 
 .preview-dialog-heading {

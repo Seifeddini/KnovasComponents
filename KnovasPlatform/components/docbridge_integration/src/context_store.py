@@ -293,6 +293,78 @@ def resolve_sentence_number(result: Dict[str, Any]) -> Optional[int]:
     return None
 
 
+# Wie viele Fundstellen der Dialog auflistet. Knovas liefert oft mehr, aber eine
+# Liste, durch die man scrollen muss, hilft beim Lesen nicht mehr.
+MAX_MATCH_LOCATIONS = 8
+
+# Enger als das Kartensnippet: in der Fundstellenliste steht eine Zeile pro
+# Treffer, kein Absatz.
+MATCH_LOCATION_RADIUS = 1
+
+
+def _location_page(chunk: Dict[str, Any]) -> Optional[int]:
+    raw = chunk.get("page_number")
+    if raw is None:
+        raw = chunk.get("page")
+    try:
+        page = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return page if page >= 1 else None
+
+
+def build_match_locations(
+    sentences: List[Dict[str, Any]],
+    top_chunks: Any,
+    *,
+    radius: int = MATCH_LOCATION_RADIUS,
+    limit: int = MAX_MATCH_LOCATIONS,
+) -> List[Dict[str, Any]]:
+    """Every place in this document the query matched, with its page and text.
+
+    Knovas reports the locations (``top_chunks`` carries page and sentence
+    numbers); the sidecar holds the sentences. Neither alone can answer "where
+    in this document, and what does it say there" -- which is the question a
+    lawyer opens a 60-page contract with. Until now the two were combined for
+    the first hit only, to make one snippet on the card, and the rest were
+    dropped on the floor.
+
+    Duplicate sentence numbers collapse: several chunks of one long sentence are
+    one place to look, not three.
+    """
+    if not sentences or not isinstance(top_chunks, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    for chunk in top_chunks:
+        if len(out) >= limit:
+            break
+        if not isinstance(chunk, dict):
+            continue
+        raw = chunk.get("sentence_number")
+        try:
+            sentence_number = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if sentence_number in seen:
+            continue
+        seen.add(sentence_number)
+        window = context_window(sentences, sentence_number, radius=radius)
+        if not window or not (window.get("match") or "").strip():
+            continue
+        entry: Dict[str, Any] = {
+            "sentence_number": sentence_number,
+            "before": window.get("before", ""),
+            "match": window.get("match", ""),
+            "after": window.get("after", ""),
+        }
+        page = _location_page(chunk)
+        if page is not None:
+            entry["page"] = page
+        out.append(entry)
+    return out
+
+
 def enrich_result_with_context(
     result: Dict[str, Any],
     store_dir: Optional[str],
@@ -301,7 +373,9 @@ def enrich_result_with_context(
     context_radius: int = DEFAULT_CONTEXT_RADIUS,
 ) -> bool:
     """Attach first_page_preview and context_snippet when a sidecar exists."""
-    if result.get("first_page_preview") or result.get("context_snippet"):
+    if result.get("match_locations") or (
+        result.get("first_page_preview") and result.get("context_snippet")
+    ):
         return True
     # A sidecar written by another version can be shaped in ways this code does
     # not expect. That is a reason to show no snippet, never a reason to fail
@@ -314,10 +388,12 @@ def enrich_result_with_context(
         first = first_page_text(entry)
         sentences = entry.get("sentences")
         snippet = None
+        locations: List[Dict[str, Any]] = []
         if isinstance(sentences, list):
             snippet = context_window(
                 sentences, resolve_sentence_number(result), radius=context_radius
             )
+            locations = build_match_locations(sentences, result.get("top_chunks"))
     except Exception as exc:  # noqa: BLE001 - decoration must not break the result
         logger.warning(
             "Context enrichment skipped for %s: %s",
@@ -328,4 +404,6 @@ def enrich_result_with_context(
         result["first_page_preview"] = first
     if snippet:
         result["context_snippet"] = snippet
+    if locations:
+        result["match_locations"] = locations
     return bool(first or snippet)

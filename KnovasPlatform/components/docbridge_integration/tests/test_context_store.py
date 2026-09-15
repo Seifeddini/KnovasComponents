@@ -204,3 +204,73 @@ def test_unreadable_sidecar_is_skipped_not_raised(tmp_path):
     result = {"sentence_number": 1}
     assert enrich_result_with_context(result, str(tmp_path), [pointer]) is False
     assert "context_snippet" not in result
+
+
+# --- Fundstellen ------------------------------------------------------------
+#
+# Knovas sagt, WO ein Dokument getroffen wurde (top_chunks tragen Seite und
+# Satznummer); der Sidecar hat den Text. Beides zusammen beantwortet die Frage,
+# mit der eine Anwältin einen 60-seitigen Vertrag öffnet: an welcher Stelle,
+# und was steht dort. Bisher wurden die beiden nur für den ersten Treffer
+# zusammengeführt, für das Snippet auf der Karte.
+
+from context_store import MAX_MATCH_LOCATIONS, build_match_locations  # noqa: E402
+
+SENTENCES = [
+    {"i": 1, "t": "Einleitung.", "p": 1},
+    {"i": 2, "t": "Die Reaktionszeit beträgt vier Stunden.", "p": 7},
+    {"i": 3, "t": "Sie wird ab Eingang gemessen.", "p": 7},
+    {"i": 4, "t": "Wird die Reaktionszeit überschritten, eskaliert der Auftragnehmer.", "p": 7},
+    {"i": 5, "t": "Schlussbestimmungen.", "p": 18},
+]
+
+
+def test_every_reported_location_becomes_an_entry():
+    found = build_match_locations(
+        SENTENCES, [{"sentence_number": 2, "page_number": 7},
+                    {"sentence_number": 4, "page_number": 7}]
+    )
+    assert [f["sentence_number"] for f in found] == [2, 4]
+    assert "vier Stunden" in found[0]["match"]
+
+
+def test_each_entry_carries_its_page():
+    """Ohne Seitenzahl ist eine Fundstelle in einem langen Vertrag wertlos."""
+    found = build_match_locations(SENTENCES, [{"sentence_number": 2, "page_number": 7}])
+    assert found[0]["page"] == 7
+
+
+def test_a_location_without_a_page_still_lists():
+    """TXT und E-Mail haben keine Seiten; die Fundstelle gibt es trotzdem."""
+    found = build_match_locations(SENTENCES, [{"sentence_number": 2}])
+    assert found and "page" not in found[0]
+
+
+def test_the_same_sentence_twice_is_one_place_to_look():
+    found = build_match_locations(
+        SENTENCES, [{"sentence_number": 2}, {"sentence_number": 2}]
+    )
+    assert len(found) == 1
+
+
+def test_surrounding_sentences_come_along():
+    found = build_match_locations(SENTENCES, [{"sentence_number": 3}])
+    assert "Reaktionszeit beträgt" in found[0]["before"]
+    assert "eskaliert" in found[0]["after"]
+
+
+def test_the_list_is_capped():
+    chunks = [{"sentence_number": n} for n in range(1, 40)]
+    assert len(build_match_locations(SENTENCES * 10, chunks)) <= MAX_MATCH_LOCATIONS
+
+
+def test_nonsense_locations_are_skipped_not_fatal():
+    found = build_match_locations(
+        SENTENCES, [None, "x", {"sentence_number": "nicht-zahl"}, {"sentence_number": 2}]
+    )
+    assert [f["sentence_number"] for f in found] == [2]
+
+
+def test_no_sidecar_means_no_locations():
+    assert build_match_locations([], [{"sentence_number": 2}]) == []
+    assert build_match_locations(SENTENCES, None) == []

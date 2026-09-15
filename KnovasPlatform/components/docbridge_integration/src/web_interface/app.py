@@ -211,6 +211,38 @@ def _demo_context_snippet(
     }
 
 
+def _demo_match_locations(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Fundstellen fuer die lokale UI-Entwicklung.
+
+    Im Betrieb baut ``context_store.build_match_locations`` sie aus den
+    Trefferorten von Knovas und dem Kontext-Sidecar. Ohne beides zeigte die
+    Fundstellenliste beim lokalen Entwickeln nichts, und genau dafuer sind
+    diese Attrappen da.
+    """
+    saetze = [
+        ('Der Hauptmietzins ist die periodisch zu entrichtende Gegenleistung.',
+         'Die Reaktionszeit bei Stoerungen der Prioritaetsstufe 1 betraegt vier Stunden.',
+         'Sie wird ab Eingang der Meldung gemessen, nicht ab Eintritt des Fehlers.'),
+        ('Fuer Wohnungen gilt das MRG mit besonderen Kuendigungsschutzbestimmungen.',
+         'Wird die Reaktionszeit ueberschritten, eskaliert der Auftragnehmer selbsttaetig.',
+         'Die Ansprechperson des Auftraggebers ist im Anhang benannt.'),
+        ('Mietzinsanpassungen beduerfen einer gesetzlichen Grundlage.',
+         'Die Messung der Reaktionszeit erfolgt ueber das Ticketsystem des Auftragnehmers.',
+         'Abweichende Fristen sind in Anlage 4 abschliessend geregelt.'),
+    ]
+    out: List[Dict[str, Any]] = []
+    for i, chunk in enumerate(chunks[:8]):
+        before, match, after = saetze[i % len(saetze)]
+        out.append({
+            'page': chunk.get('page_number'),
+            'sentence_number': chunk.get('sentence_number'),
+            'before': before,
+            'match': match,
+            'after': after,
+        })
+    return out
+
+
 _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
     {
         'doc_id': 'corpus/demo/Mietrecht_Kommentar.pdf',
@@ -225,6 +257,7 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         'sentence_number': _demo_primary['sentence_number'],
         'document_date': '2024-08-10T09:00:00',
         'top_chunks': _demo_top_chunks,
+        'match_locations': _demo_match_locations(_demo_top_chunks),
         'first_page_preview': (
             'Kommentar zum österreichischen Mietrecht (MRG). Dieses Werk erläutert die '
             'Hauptmietzinsregelung, Kündigungsgründe, Mietzinsanpassung und die '
@@ -693,6 +726,7 @@ def create_app(config_path: Optional[str] = None):
     # Search"); einheitlich ist "Knovas Cortex", "Knovas Suche" und so fort.
     web_brand = (str(config.get('web.brand', '') or '').strip()
                  or (web_app_title.split() or ['Knovas'])[0])
+    cortex_enabled = config.get_bool('web.cortex_enabled', True)
     login_company_name = config.get('web.login.company_name', 'Knovas')
     login_username = str(config.get('web.login.username', '') or '')
     login_password = str(config.get('web.login.password', '') or '')
@@ -1391,6 +1425,7 @@ def create_app(config_path: Optional[str] = None):
             'company_name': login_company_name,
             'feedback_url': feedback_url,
             'console_url': _console_url(),
+            'cortex_enabled': cortex_enabled,
         }
 
     @app.route('/')
@@ -1414,6 +1449,24 @@ def create_app(config_path: Optional[str] = None):
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
         )
+
+    @app.before_request
+    def refuse_cortex_when_switched_off():
+        """One gate over every Cortex route, page and API alike.
+
+        Hiding the navigation link is not switching a feature off: the page is
+        still there for anyone who kept the URL, and its API still answers. So
+        the switch is enforced here, once, rather than remembered at each of
+        the eleven /api/ontology routes.
+        """
+        if cortex_enabled:
+            return None
+        path = request.path or ''
+        if path == '/ontology' or path.startswith('/api/ontology'):
+            if path.startswith('/api/'):
+                return jsonify({'success': False, 'error': 'Cortex ist deaktiviert.'}), 404
+            return redirect(url_for('index'))
+        return None
 
     @app.route('/ontology')
     def ontology_page():

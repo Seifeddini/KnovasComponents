@@ -92,8 +92,47 @@
                     </button>
                 </div>
             </header>
-            <div class="preview-actions" id="previewActions"></div>
-            <div class="preview-body" id="previewBody" tabindex="0"></div>
+            <div class="preview-actionbar">
+                <div class="preview-actions" id="previewActions"></div>
+                <!-- Fundstellen-Navigation: nur sichtbar, wenn es mehr als eine
+                     gibt. Bei einem einzigen Treffer waere "1 von 1" mit zwei
+                     toten Pfeilen daneben nur Ballast. -->
+                <div class="preview-findings-nav" id="previewFindingsNav" hidden>
+                    <span class="preview-findings-position" id="previewFindingsPosition"
+                          aria-live="polite"></span>
+                    <button type="button" class="preview-icon-button" id="previewFindingPrev"
+                            aria-label="Vorherige Fundstelle" title="Vorherige Fundstelle">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <path d="m18 15-6-6-6 6"/>
+                        </svg>
+                    </button>
+                    <button type="button" class="preview-icon-button" id="previewFindingNext"
+                            aria-label="Nächste Fundstelle" title="Nächste Fundstelle">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <path d="m6 9 6 6 6-6"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="preview-content">
+                <div class="preview-body" id="previewBody" tabindex="0"></div>
+                <aside class="preview-sidebar" id="previewSidebar" hidden>
+                    <section class="preview-sidebar-section" id="previewFindingsSection" hidden>
+                        <h3 class="preview-sidebar-title">
+                            Fundstellen<span id="previewFindingsCount"></span>
+                        </h3>
+                        <ol class="preview-findings-list" id="previewFindings"></ol>
+                    </section>
+                    <section class="preview-sidebar-section" id="previewDocDataSection" hidden>
+                        <h3 class="preview-sidebar-title">Dokumentdaten</h3>
+                        <dl class="preview-docdata" id="previewDocData"></dl>
+                    </section>
+                </aside>
+            </div>
         </dialog>
 
         </div>

@@ -146,6 +146,31 @@ else
   fi
 fi
 
+head_ "Sign-in and Cortex"
+# Two switches an operator sets in knovas.env and then cannot see the effect of
+# without opening the app. Both are read from the container so what is reported
+# is what the app actually got, not what the file says.
+CORTEX="$(env_in_app CORTEX_ENABLED)"
+case "$(printf '%s' "${CORTEX:-true}" | tr '[:upper:]' '[:lower:]')" in
+  false|0|no) ok "Cortex is switched off — not in the navigation, and its routes refuse" ;;
+  *) echo "  Cortex is on (CORTEX_ENABLED=false takes it out of the navigation)" ;;
+esac
+IDENT="$(env_in_app IDENTITY_ENABLED)"
+case "$(printf '%s' "${IDENT:-true}" | tr '[:upper:]' '[:lower:]')" in
+  false|0|no)
+    SHARED="$(env_in_app COMPANY_LOGIN_NAME)"
+    if [[ -n "$SHARED" ]]; then
+      ok "one shared company login ($SHARED) — per-user accounts are off"
+      echo "       The audit record says \"the company\", not who, and everyone who"
+      echo "       signs in can open every document the tenant holds."
+    else
+      bad "IDENTITY_ENABLED=false but no COMPANY_LOGIN_NAME reached the app — nobody can sign in."
+      echo "       Set COMPANY_LOGIN_NAME and COMPANY_LOGIN_PASSWORD in knovas.env, or"
+      echo "       drop IDENTITY_ENABLED to go back to per-user accounts."
+    fi ;;
+  *) ok "per-user accounts" ;;
+esac
+
 head_ "Accounts"
 "${DC[@]}" exec -T docbridge-web python - <<'PY' 2>/dev/null || bad "could not query the identity database"
 from identity import db

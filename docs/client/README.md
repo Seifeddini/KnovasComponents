@@ -91,4 +91,13 @@ Ingest of ~640 files is rate-limited; the first hits appear before the full set 
 | Results look right, but **Öffnen** fails and there is no preview | The files are not where the Platform looks. `./scripts/doctor.sh` names which of the two it is: a `KNOVAS_DOCUMENTS_PATH` that is not the ingested folder, or a Kennung on the Übernahme profile that is not `KNOVAS_IDENTIFIER_PREFIX` |
 | **Öffnen** says `Open mapping not configured` | Expected when the documents live only on this server. **Öffnen** starts the file on the *user's* PC, so that PC needs its own path to it: `KNOVAS_SHARE_UNC=\\fileserver\share`, or `OPEN_CLIENT_LOCAL_ROOT=` the path they mount it at. No share at all? Put `OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN=true` in `knovas.env` for a Download button instead |
 
+## Two switches you may want
+
+Both go in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
+
+| Setting | What it does |
+|---------|--------------|
+| `CORTEX_ENABLED=false` | Takes Cortex out of the navigation and refuses its routes. For a firm that only wants the search. |
+| `IDENTITY_ENABLED=false` plus `COMPANY_LOGIN_NAME=` / `COMPANY_LOGIN_PASSWORD=` | One shared login for the whole firm instead of per-person accounts. Simpler to run; the audit record then says "the company" rather than who, and everyone who signs in can open every document. |
+
 Stop: `./scripts/stop.sh`. Reset admin password: `./scripts/admin-password.sh`.

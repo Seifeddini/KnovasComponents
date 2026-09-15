@@ -35,6 +35,19 @@ class DocumentSearchApp {
         this.previewMeta = document.getElementById('previewMeta');
         this.previewBody = document.getElementById('previewBody');
         this.previewActions = document.getElementById('previewActions');
+        this.previewSidebar = document.getElementById('previewSidebar');
+        this.previewFindingsSection = document.getElementById('previewFindingsSection');
+        this.previewFindings = document.getElementById('previewFindings');
+        this.previewFindingsCount = document.getElementById('previewFindingsCount');
+        this.previewFindingsNav = document.getElementById('previewFindingsNav');
+        this.previewFindingsPosition = document.getElementById('previewFindingsPosition');
+        this.previewFindingPrev = document.getElementById('previewFindingPrev');
+        this.previewFindingNext = document.getElementById('previewFindingNext');
+        this.previewDocDataSection = document.getElementById('previewDocDataSection');
+        this.previewDocData = document.getElementById('previewDocData');
+        this._findings = [];
+        this._findingIndex = -1;
+        this._pdfBaseSrc = '';
         this.previewClose = document.getElementById('previewClose');
         this.previewPrev = document.getElementById('previewPrev');
         this.previewNext = document.getElementById('previewNext');
@@ -119,6 +132,13 @@ class DocumentSearchApp {
         this.previewClose.addEventListener('click', () => this.closePreview());
         this.previewPrev.addEventListener('click', () => this.stepPreview(-1));
         this.previewNext.addEventListener('click', () => this.stepPreview(1));
+        this.previewFindingPrev.addEventListener('click', () => this.stepFinding(-1));
+        this.previewFindingNext.addEventListener('click', () => this.stepFinding(1));
+        this.previewFindings.addEventListener('click', (e) => {
+            const button = e.target.closest('.preview-finding');
+            if (!button) return;
+            this.selectFinding(Number(button.getAttribute('data-finding')));
+        });
 
         // <dialog> feuert 'close' bei Escape und bei close() gleichermassen --
         // ein Ort fuer das Aufraeumen statt einer eigenen Escape-Behandlung.
@@ -221,7 +241,14 @@ class DocumentSearchApp {
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
         if (externalUrl) {
             const href = this.externalOpenHref(docId, path || docId);
-            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${lucide('external-link')}In OneDrive öffnen</a>`;
+            // Auch hier der Download: die Datei liegt gespiegelt auf dem Server,
+            // und nicht jeder Arbeitsplatz hat OneDrive eingerichtet.
+            const cfgExternal = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+            const alsoDownload = cfgExternal.allowDegradedDownloadOpen
+                ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Download</button>`
+                : '';
+            const copyExternal = `<button type="button" class="btn btn-secondary" onclick="app.copyDocumentPath('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Pfad kopieren</button>`;
+            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${lucide('external-link')}In OneDrive öffnen</a>${alsoDownload}${copyExternal}`;
         }
         // Der degradierte Download hing frueher als dritter Knopf an der Karte.
         // Mit den Karten-Aktionen waere er ersatzlos entfallen und
@@ -232,7 +259,136 @@ class DocumentSearchApp {
         const download = cfg.allowDegradedDownloadOpen
             ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Download</button>`
             : '';
-        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">${lucide('external-link')}Öffnen</button>${download}`;
+        // Pfad kopieren: fuer alle, die das Dokument lieber selbst im Explorer
+        // oeffnen, und fuer den Fall, dass der Browser das Starten verweigert.
+        const copy = `<button type="button" class="btn btn-secondary" onclick="app.copyDocumentPath('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Pfad kopieren</button>`;
+        return `<button type="button" class="btn btn-success" onclick="app.openDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">${lucide('external-link')}Öffnen</button>${download}${copy}`;
+    }
+
+    /**
+     * Die Fundstellen dieses Dokuments: wo die Suche getroffen hat, mit
+     * Seitenzahl und dem Satz drumherum. Das ist die Frage, mit der jemand
+     * einen 60-seitigen Vertrag oeffnet -- "an welcher Stelle steht das".
+     */
+    _renderFindings(doc) {
+        const findings = Array.isArray(doc.match_locations) ? doc.match_locations : [];
+        this._findings = findings;
+        this._findingIndex = findings.length ? 0 : -1;
+
+        this.previewFindings.innerHTML = findings.map((f, i) => {
+            const where = f.page ? `Seite ${this.escapeHtml(String(f.page))}` : `Fundstelle ${i + 1}`;
+            const before = this.escapeHtml(String(f.before || '').trim());
+            const match = this.escapeHtml(String(f.match || '').trim());
+            const after = this.escapeHtml(String(f.after || '').trim());
+            const text = `${before ? before + ' ' : ''}<mark>${match}</mark>${after ? ' ' + after : ''}`;
+            return `<li><button type="button" class="preview-finding" data-finding="${i}">`
+                + `<span class="preview-finding-where">${where}`
+                + `<span class="preview-finding-active-flag" data-active-flag></span></span>`
+                + `<span class="preview-finding-text">${text}</span></button></li>`;
+        }).join('');
+
+        this.previewFindingsCount.textContent = findings.length ? ` · ${findings.length}` : '';
+        this.previewFindingsSection.hidden = findings.length === 0;
+        // Bei genau einer Fundstelle waere "1 von 1" mit zwei toten Pfeilen
+        // daneben nur Ballast -- die Liste zeigt sie ohnehin.
+        this.previewFindingsNav.hidden = findings.length < 2;
+        if (findings.length) this._markActiveFinding(0);
+    }
+
+    _markActiveFinding(index) {
+        this._findingIndex = index;
+        const buttons = this.previewFindings.querySelectorAll('.preview-finding');
+        buttons.forEach((el, i) => {
+            const active = i === index;
+            el.classList.toggle('is-active', active);
+            const flag = el.querySelector('[data-active-flag]');
+            if (flag) flag.textContent = active ? ' · aktiv' : '';
+        });
+        const total = this._findings.length;
+        this.previewFindingsPosition.textContent =
+            total ? `Fundstelle ${index + 1} von ${total}` : '';
+        this.previewFindingPrev.disabled = index <= 0;
+        this.previewFindingNext.disabled = index >= total - 1;
+        const current = buttons[index];
+        if (current) current.scrollIntoView({ block: 'nearest' });
+    }
+
+    /**
+     * Das Fragment fuer den browsereigenen PDF-Viewer.
+     *
+     * toolbar=0 und navpanes=0 nehmen ihm die eigene dunkle Leiste und die
+     * Seitenminiaturen: beide sind eine zweite Oberflaeche mit eigenen Knoepfen
+     * mitten im Dialog, und die Miniaturen kosten die halbe Lesebreite. Nicht
+     * jeder Browser befolgt sie -- dann sieht es aus wie bisher, nichts bricht.
+     */
+    _pdfFragment(page) {
+        const parts = [];
+        if (page) parts.push(`page=${page}`);
+        parts.push('toolbar=0', 'navpanes=0', 'view=FitH');
+        return `#${parts.join('&')}`;
+    }
+
+    /** Fundstelle waehlen: markieren und, bei PDF, auf ihre Seite springen. */
+    selectFinding(index) {
+        if (!Number.isInteger(index) || index < 0 || index >= this._findings.length) return;
+        this._markActiveFinding(index);
+        const page = this._findings[index].page;
+        if (!page || !this._pdfBaseSrc) return;
+        // Der browsereigene Viewer nimmt die Seite aus dem Fragment. Ein blosses
+        // Setzen des Hash am bestehenden iframe laedt nicht zuverlaessig neu,
+        // deshalb die ganze src.
+        const frame = this.previewBody.querySelector('iframe');
+        if (frame) frame.src = this._pdfBaseSrc + this._pdfFragment(page);
+    }
+
+    stepFinding(delta) {
+        this.selectFinding(this._findingIndex + delta);
+    }
+
+    /**
+     * Dokumentdaten. Nur Felder, die wirklich vorliegen -- eine Zeile
+     * "Eigentuemer: --" ist keine Information, sondern eine Frage mehr.
+     */
+    _renderDocData(doc) {
+        const rows = [];
+        const external = doc.external_url || doc.open_mode === 'external';
+        rows.push(['Quelle', external ? 'OneDrive' : 'Dateiablage']);
+        const changed = doc.modified_at || doc.document_date || doc.date;
+        if (changed) rows.push(['Geändert', this._formatDateShort(changed)]);
+        if (doc.akten_id) rows.push(['Akte', String(doc.akten_id)]);
+        const fmt = this._formatLabel(doc.path || '');
+        if (fmt) rows.push(['Format', fmt]);
+        if (doc.file_size) rows.push(['Grösse', this._formatBytes(doc.file_size)]);
+        const groups = doc.access_groups;
+        if (Array.isArray(groups) && groups.length) {
+            rows.push(['Zugriff', groups.join(', ')]);
+        }
+        this.previewDocData.innerHTML = rows.map(([label, value]) =>
+            `<dt>${this.escapeHtml(label)}</dt><dd>${this.escapeHtml(String(value))}</dd>`
+        ).join('');
+        this.previewDocDataSection.hidden = rows.length === 0;
+    }
+
+    _formatBytes(bytes) {
+        const n = Number(bytes);
+        if (!Number.isFinite(n) || n <= 0) return '';
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+        return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    /** Den Pfad in die Zwischenablage, fuer alle, die ihn selbst oeffnen wollen. */
+    async copyDocumentPath(docId, path) {
+        const doc = this.currentResults[this._previewIndex] || {};
+        // Bei einem OneDrive-Dokument ist der Link die Adresse, die ein Kollege
+        // brauchen kann -- nicht der Pfad auf einer Freigabe, die es dort nicht gibt.
+        const text = doc.external_url
+            || doc.client_open_unc || doc.client_open_path || path || docId;
+        const copied = await this._copyTextOptional(text);
+        this.showToast(
+            copied ? `Pfad kopiert: ${text}` : `Pfad: ${text}`,
+            copied ? 'success' : 'info',
+        );
     }
 
     closePreview() {
@@ -255,6 +411,13 @@ class DocumentSearchApp {
         this.previewBody.innerHTML = '';
         this.previewActions.innerHTML = '';
         this.previewPosition.textContent = '';
+        this._findings = [];
+        this._findingIndex = -1;
+        this._pdfBaseSrc = '';
+        this.previewFindings.innerHTML = '';
+        this.previewDocData.innerHTML = '';
+        this.previewSidebar.hidden = true;
+        this.previewFindingsNav.hidden = true;
     }
 
     /** Blaettert relativ zum aktuellen Treffer, ohne ueber die Enden zu laufen. */
@@ -305,6 +468,10 @@ class DocumentSearchApp {
         this.previewTitle.textContent = title;
         this.previewMeta.textContent = '';
         this.previewActions.innerHTML = this._previewActionsHtml(doc);
+        this._renderFindings(doc);
+        this._renderDocData(doc);
+        this.previewSidebar.hidden =
+            this.previewFindingsSection.hidden && this.previewDocDataSection.hidden;
         this.previewBody.classList.remove('is-pdf');
         this.previewBody.innerHTML =
             '<div class="preview-skeleton"><span></span><span></span><span></span><span></span></div>';
@@ -319,6 +486,7 @@ class DocumentSearchApp {
                 return;
             }
             const src = `/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}`;
+            this._pdfBaseSrc = src;
             try {
                 const probe = await fetch(src, { method: 'GET', headers: { Range: 'bytes=0-0' },
                                                  credentials: 'same-origin', signal: controller.signal });
@@ -329,8 +497,10 @@ class DocumentSearchApp {
                 }
                 this.previewMeta.textContent = 'PDF';
                 this.previewBody.classList.add('is-pdf');
+                const firstPage = (this._findings[0] || {}).page;
+                const initial = src + this._pdfFragment(firstPage);
                 this.previewBody.innerHTML =
-                    `<iframe src="${this.escapeAttr(src)}" title="PDF-Vorschau"></iframe>`;
+                    `<iframe src="${this.escapeAttr(initial)}" title="PDF-Vorschau"></iframe>`;
             } catch (error) {
                 if (error.name === 'AbortError') return;
                 this.previewBody.innerHTML =

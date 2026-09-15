@@ -17,6 +17,11 @@
             </svg>
             Suche
         </a>
+        {# 'nicht gesetzt' heisst hier 'an': eine Seite, die die Variable
+           vergisst, soll die Navigation nicht stillschweigend verlieren. Der
+           Schalter wirkt ohnehin serverseitig -- refuse_cortex_when_switched_off
+           weist die Route ab, ob der Link nun sichtbar ist oder nicht. #}
+        {% if cortex_enabled is not defined or cortex_enabled %}
         <a href="{{ url_for('ontology_page') }}" class="app-nav-item{% if active_nav == 'cortex' %} active{% endif %}"
            {% if active_nav == 'cortex' %}aria-current="page"{% endif %}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
@@ -28,6 +33,7 @@
             </svg>
             Cortex
         </a>
+        {% endif %}
         <a href="{{ url_for('settings_page') }}" class="app-nav-item{% if active_nav == 'einstellungen' %} active{% endif %}"
            {% if active_nav == 'einstellungen' %}aria-current="page"{% endif %}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
