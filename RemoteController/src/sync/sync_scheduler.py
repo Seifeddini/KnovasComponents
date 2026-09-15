@@ -33,6 +33,11 @@ _files_processed = 0
 _last_document_sync: Optional[dict[str, Any]] = None
 _last_worker_error: Optional[str] = None
 _idle_scan_multiplier: int = 1
+# Set when a new folder list is stored, so the worker stops waiting and looks
+# now. Without it, saving a profile took effect at the top of the next cycle --
+# and the idle backoff below stretches that to an hour, during which the
+# console says the sync is running and nothing at all happens.
+_wake_event = threading.Event()
 
 
 @dataclass
@@ -306,11 +311,39 @@ def _continuous_worker(ctx: SyncRunContext) -> None:
             logger.info("Sync config mode is not continuous; worker stops after this cycle")
             break
         interval = _effective_scan_interval_seconds(ctx.sync_config, result)
-        for _ in range(interval):
-            if _stop_event.is_set():
-                break
-            time.sleep(1)
+        _wait_between_cycles(interval)
     _set_status("not_running")
+
+
+def _wait_between_cycles(interval: int) -> None:
+    """Sleep until the next cycle, a stop, or a newly stored folder list.
+
+    The wait used to be ``time.sleep(1)`` in a loop over the interval, which
+    nothing could shorten. Combined with the idle backoff that is up to an hour
+    of an administrator watching a profile they just saved do nothing -- the
+    exact shape of "I started a sync but 0 ingestions so far". A stored body
+    also clears the backoff: the reason it grew was that there was nothing to
+    do, and a new folder list is a reason to think there might be.
+    """
+    global _idle_scan_multiplier
+
+    _wake_event.clear()
+    remaining = max(0, int(interval))
+    while remaining > 0 and not _stop_event.is_set():
+        if _wake_event.wait(timeout=1.0):
+            logger.info("New folder list stored; starting the next cycle now")
+            _idle_scan_multiplier = 1
+            return
+        remaining -= 1
+
+
+def request_cycle_now() -> None:
+    """Ask a running worker to stop waiting and start its next cycle.
+
+    Called when a folder list is stored. Safe when no worker is running: the
+    flag is cleared at the start of each wait.
+    """
+    _wake_event.set()
 
 
 def start_continuous(ctx: SyncRunContext) -> str:

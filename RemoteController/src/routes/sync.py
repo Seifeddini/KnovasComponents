@@ -6,6 +6,7 @@ from sync.sync_config import load_sync_config
 from sync.sync_executor import SyncRunResult
 from sync.sync_scheduler import (
     SyncRunContext,
+    request_cycle_now,
     run_one_time,
     save_last_sync_body,
     start_continuous,
@@ -81,6 +82,10 @@ def sync_body():
     if refusal is not None:
         return refusal
     save_last_sync_body(body)
+    # A running worker re-reads the body at the top of its next cycle, which the
+    # idle backoff can put an hour away. Wake it so "save this profile" means
+    # something an administrator can observe.
+    request_cycle_now()
     return jsonify({"status": "stored"}), 200
 
 
