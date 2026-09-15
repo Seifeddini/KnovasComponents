@@ -34,6 +34,7 @@ class DocumentSearchApp {
         this.previewTitle = document.getElementById('previewTitle');
         this.previewMeta = document.getElementById('previewMeta');
         this.previewBody = document.getElementById('previewBody');
+        this.exactMatch = document.getElementById('exactMatch');
         this.previewActions = document.getElementById('previewActions');
         this.previewSidebar = document.getElementById('previewSidebar');
         this.previewFindingsSection = document.getElementById('previewFindingsSection');
@@ -563,7 +564,7 @@ class DocumentSearchApp {
                 body: JSON.stringify({
                     query: query,
                     limit: this._searchLimit,
-                    filters: {}
+                    filters: { exact_match: this.exactMatch ? this.exactMatch.checked : false }
                 })
             });
             if (this._redirectIfLoginRequired(response)) return;

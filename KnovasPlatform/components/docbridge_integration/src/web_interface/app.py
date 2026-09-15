@@ -604,8 +604,42 @@ def _confine_to_autodoc(autodoc_path: str, file_path: str) -> Optional[str]:
 
     Returns the abspath (NOT the realpath) so downstream UNC / client-local
     mapping behaviour for legitimate files is unchanged.
+
+    When the pointer carries a prefix this deployment was not told about, the
+    first candidate lands nowhere and a second is tried with one leading segment
+    removed. That prefix is free text an administrator types into the Übernahme
+    profile ("Mandanten Sync"), while the Platform only strips what
+    AUTODOC_IDENTIFIER_PREFIX names -- and when the two disagree, nothing says
+    so: search works, the snippets work (their sidecars are keyed by the pointer
+    itself, not by a path), and every preview, thumbnail and Öffnen answers 404.
+    A whole deployment can sit in that state looking healthy.
+
+    The fallback is safe because it only ever *shortens* the path, so both
+    confinement checks still apply to what is returned, and because the caller
+    has already had to hold a grant for this exact pointer. It logs what would
+    settle it properly, so the guess does not quietly become the configuration.
     """
     rel = _rel_path_for_autodoc(file_path)
+    candidate = _autodoc_candidate(autodoc_path, rel)
+    if candidate is None or os.path.exists(candidate):
+        return candidate
+    head, _, tail = rel.partition("/")
+    if not tail or not head:
+        return candidate
+    shortened = _autodoc_candidate(autodoc_path, tail)
+    if shortened is None or not os.path.exists(shortened):
+        return candidate
+    logger.warning(
+        "Pointer %r did not resolve under the configured prefix, but does "
+        "without its leading %r. Set KNOVAS_IDENTIFIER_PREFIX=%s in knovas.env "
+        "(or match the Kennung on the Übernahme profile) to stop guessing.",
+        file_path, head, head,
+    )
+    return shortened
+
+
+def _autodoc_candidate(autodoc_path: str, rel: str) -> Optional[str]:
+    """One confined candidate path, or None if it escapes the AutoDoc root."""
     if os.path.isabs(rel):
         return None
     base_abs = os.path.abspath(autodoc_path)
@@ -2528,7 +2562,15 @@ def _effective_cosine_distance(result: Dict[str, Any]) -> Optional[float]:
 
 
 def _search_result_haystack(result: Dict[str, Any]) -> str:
-    """Lowercased text used for strict / exact-style matching."""
+    """Lowercased text used for strict / exact-style matching.
+
+    Includes the text from the context sidecar -- the matched sentences and the
+    first page -- and not only the title and the path. Without it "exact match"
+    asked whether both words appear in a *filename*, which for a corpus of
+    Aktenzeichen is almost never, so the option looked broken rather than
+    strict. The sidecar is already loaded for the snippet at this point, so this
+    costs nothing.
+    """
     parts = [
         result.get('title'),
         result.get('snippet'),
@@ -2539,7 +2581,14 @@ def _search_result_haystack(result: Dict[str, Any]) -> str:
         result.get('doc_id'),
         result.get('page_number'),
         result.get('sentence_number'),
+        result.get('first_page_preview'),
     ]
+    snippet = result.get('context_snippet')
+    if isinstance(snippet, dict):
+        parts.extend([snippet.get('before'), snippet.get('match'), snippet.get('after')])
+    for location in (result.get('match_locations') or []):
+        if isinstance(location, dict):
+            parts.extend([location.get('before'), location.get('match'), location.get('after')])
     return ' '.join(str(p) for p in parts if p is not None and str(p).strip()).lower()
 
 

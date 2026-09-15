@@ -38,6 +38,15 @@
                         Suchen
                     </button>
                 </div>
+                <!-- Die semantische Suche findet Verwandtes, auch wenn das Wort
+                     nicht vorkommt. Bei zwei Begriffen ist das oft nicht, was
+                     gemeint war: "Reaktionszeit Störung" soll Dokumente
+                     bringen, in denen beides steht. Der Schalter dafür war in
+                     config.yaml beschrieben, aber nie gebaut. -->
+                <label class="search-option">
+                    <input type="checkbox" id="exactMatch">
+                    <span>Alle Wörter müssen vorkommen</span>
+                </label>
             </section>
 
             <section class="results-section" id="resultsSection" style="display: none;">

@@ -1442,3 +1442,21 @@ mark.context-snippet-match,
 .admin .tabs a { padding: 8px 2px; text-decoration: none; color: #475569; border-bottom: 2px solid transparent; }
 .admin .tabs a.active { color: #0f172a; border-bottom-color: #0f172a; font-weight: 600; }
 .admin .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+
+/* Der Schalter unter dem Suchfeld. Bewusst unaufdringlich: die semantische
+   Suche bleibt der Normalfall, das hier ist die Verschärfung für den Fall,
+   dass wirklich beide Wörter im Dokument stehen sollen. */
+.search-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.search-option input {
+    accent-color: var(--primary-color);
+}
