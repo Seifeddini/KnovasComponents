@@ -15,11 +15,21 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
+# Jede Endung, die RemoteController standardmaessig aufnimmt
+# (sync/default_sync_body.py::_DEFAULT_INCLUDE_GLOBS), hat hier einen Eintrag.
+# Fehlt einer, antwortet ``preview-content`` 415 und der Dialog zeigt
+# "Vorschau nicht verfuegbar (HTTP 415)" -- fuer ein Format, das die Suche
+# sehr wohl findet. Bei einer Kanzlei war das die Haelfte des Bestands: EML
+# und MD wurden aufgenommen und hatten gar keine Vorschau, obwohl
+# ``knovas_extract`` beide laengst kann (Extras ``markdown`` und der
+# message/rfc822-Pfad, siehe Dockerfile).
 PREVIEW_KIND_BY_SUFFIX: Dict[str, str] = {
     ".pdf": "pdf",
     ".docx": "docx",
     ".txt": "txt",
     ".msg": "msg",
+    ".eml": "eml",
+    ".md": "md",
 }
 
 # Obergrenzen fuer die Extraktion. Bewusst konservativ: die Vorschau ist eine
@@ -75,9 +85,12 @@ def extract_markdown(path: str) -> Dict[str, Any]:
         "created": metadata.created,
         "modified": metadata.modified,
     }
-    # MSG legt Absender, Empfaenger und Body-Quelle unter msg:* in extra ab.
+    # MSG legt Absender, Empfaenger und Body-Quelle unter msg:* ab, EML unter
+    # eml:* -- gleiche Felder, anderes Praefix. Nur msg:* zu uebernehmen hiess,
+    # dass eine E-Mail als .eml ihren Kopf verliert und als blosser Fliesstext
+    # erscheint, waehrend dieselbe Mail als .msg Von und An zeigt.
     for key, value in (metadata.extra or {}).items():
-        if key.startswith("msg:"):
+        if key.startswith("msg:") or key.startswith("eml:"):
             meta[key] = value
 
     return {

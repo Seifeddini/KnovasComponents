@@ -200,9 +200,11 @@ class DocumentSearchApp {
      */
     _mailHeaderHtml(meta) {
         if (!meta) return '';
+        // MSG und EML tragen dieselben Kopffelder unter verschiedenen
+        // Praefixen. Beide lesen, sonst zeigt eine .eml keinen Absender.
         const rows = [
-            ['Von', meta['msg:from']],
-            ['An', meta['msg:to']],
+            ['Von', meta['msg:from'] || meta['eml:from']],
+            ['An', meta['msg:to'] || meta['eml:to']],
         ].filter(([, v]) => v);
         if (!rows.length) return '';
         const body = rows.map(([label, value]) =>
@@ -225,6 +227,8 @@ class DocumentSearchApp {
         // Mit den Karten-Aktionen waere er ersatzlos entfallen und
         // allowDegradedDownloadOpen ein Schalter ohne Wirkung geworden.
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
+        // Ob der Download angeboten wird, entscheidet der Server: nur dort ist
+        // zu sehen, ob ein "false" die Vorgabe oder die Wahl des Betreibers ist.
         const download = cfg.allowDegradedDownloadOpen
             ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Download</button>`
             : '';
@@ -638,11 +642,14 @@ class DocumentSearchApp {
         const path = doc.path || '';
         const extRaw = doc.external_url ? String(doc.external_url).trim() : '';
         const externalUrl = /^https?:\/\//i.test(extRaw) ? extRaw : '';
+        // Nur ein Dokument mit echtem webUrl ist in OneDrive zu oeffnen. Frueher
+        // genuegte es, dass die *Installation* eine Enrichment-Datei hat -- dann
+        // trug jede Karte "In OneDrive oeffnen", auch die gespiegelten Dateien
+        // ohne Link, und verdeckte das lokale Oeffnen, das funktioniert haette.
         const hasOneDrive =
             Boolean(externalUrl) ||
             doc.open_mode === 'external' ||
-            !!doc.onedrive_open_available ||
-            (this.onedriveEnrichmentLoaded && path);
+            !!doc.onedrive_open_available;
         const localAvailable =
             path &&
             !hasOneDrive &&
@@ -745,6 +752,13 @@ class DocumentSearchApp {
             if (this._redirectIfLoginRequired(response)) return;
             const data = await response.json().catch(() => ({}));
             if (!response.ok || !data.success) {
+                // Kein Pfad auf dem Client-PC -- aber die Datei liegt auf dem
+                // Server. Dann ist der Download nicht die schlechtere Variante,
+                // sondern die einzige: ohne ihn endet "Oeffnen" in einer
+                // Fehlermeldung und der Nutzer kommt gar nicht an das Dokument.
+                if (data.fallback === 'download') {
+                    return this.downloadDocument(docId, path);
+                }
                 throw new Error(data.error || `HTTP ${response.status}`);
             }
             const pathHint = data.unc ? String(data.unc) : data.path ? String(data.path) : '';

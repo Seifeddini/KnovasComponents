@@ -31,6 +31,8 @@ from config_loader import get_config
 from context_store import enrich_result_with_context
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
+from document_grants import DEFAULT_TTL_SECONDS as GRANT_TTL_DEFAULT
+from document_grants import DocumentGrantStore
 from open_tokens import OpenTokenManager
 from ontology_filters import get_filter_engine
 from ontology_store import get_ontology
@@ -846,6 +848,19 @@ def create_app(config_path: Optional[str] = None):
         max_age_seconds=open_token_ttl,
         store_path=open_token_store_path,
     )
+    # Same shape and the same reason as the open-token store above: several
+    # gunicorn workers, and a grant written while serving the search has to be
+    # visible to the worker that serves the thumbnail.
+    document_grant_store_path = str(open_section.get('grant_store_path') or '').strip()
+    if not document_grant_store_path:
+        document_grant_store_path = os.path.join(
+            os.path.dirname(open_token_store_path) or '/app/data',
+            'document_grants.sqlite3',
+        )
+    document_grants = DocumentGrantStore(
+        document_grant_store_path,
+        ttl_seconds=config.get_int('open.grant_ttl_seconds', GRANT_TTL_DEFAULT),
+    )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
     allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
@@ -890,6 +905,27 @@ def create_app(config_path: Optional[str] = None):
         if _open_unc_root_pairs():
             return True
         return bool(client_local_root and _open_server_local_roots())
+
+    def _download_open_enabled() -> bool:
+        """Whether the browser may be offered the file itself.
+
+        ``Öffnen`` starts the document on the *user's* PC, so it needs a path
+        that PC can reach. A deployment whose documents live only on this
+        server has none, and then the download is not a degraded extra -- it is
+        the only route to the document, and without it every Öffnen ends in an
+        error message.
+
+        So: on when the operator asked for it, and on when there is no client
+        path to offer instead -- unless they set the variable to false
+        themselves, which is a decision and is respected. A bare default false
+        is not, because nobody chose it for this deployment. Reading the
+        environment rather than the config value is what tells those apart:
+        config.yaml always carries the key with a default interpolated in.
+        """
+        if allow_degraded_download_open:
+            return True
+        chosen = os.getenv('OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN')
+        return chosen is None and not _open_mapping_configured()
 
     def _unc_for_resolved_path(full_path: str) -> Optional[str]:
         roots = _open_unc_root_pairs()
@@ -1072,32 +1108,6 @@ def create_app(config_path: Optional[str] = None):
     # shorter than the 120 s principal-assertion lifetime, so it cannot widen
     # the staleness bound the assertion already sets: a person whose access is
     # revoked loses these documents within one assertion lifetime, as before.
-    _readable_cache: Dict[Tuple[str, str], Tuple[float, bool]] = {}
-    _readable_cache_ttl = 60.0
-    _readable_cache_lock = threading.Lock()
-
-    def _pointer_readable(subject: str, pointer: str) -> bool:
-        key = (subject, pointer)
-        now = time.time()
-        with _readable_cache_lock:
-            hit = _readable_cache.get(key)
-            if hit is not None and now - hit[0] < _readable_cache_ttl:
-                return hit[1]
-        try:
-            allowed = api_client.document_readable(pointer)
-        except Exception as exc:  # noqa: BLE001 - any failure closes the door
-            # The client already fails closed on transport errors; this repeats
-            # it so the property belongs to the gate rather than to whichever
-            # client is wired in. A refusal here serves no bytes; an exception
-            # would be a 500 with a stack trace instead of a plain 404.
-            logger.warning("Readability check failed for %r: %s", pointer, exc)
-            return False
-        with _readable_cache_lock:
-            if len(_readable_cache) > 4096:
-                _readable_cache.clear()
-            _readable_cache[key] = (now, allowed)
-        return allowed
-
     @app.before_request
     def require_readable_document():
         """The wall, on the routes that hand over a file rather than search it.
@@ -1107,14 +1117,24 @@ def create_app(config_path: Optional[str] = None):
         they take a pointer and a path and read the file off the Platform's own
         disk, which is why they have to ask.
 
+        They ask ``document_grants`` — "did this person's own retrieval return
+        this pointer?" — and not the Secure API. The API route this used to
+        call, ``GET /secured/document_readable``, does not exist in any
+        deployed version, so every call 404'd, this guard failed closed exactly
+        as written, and every document answered "Not found" for every user
+        while search went on working. See ``document_grants`` for what the
+        capability does and does not promise; the short version is that it
+        never grants more than retrieval did, so it tracks the backend instead
+        of second-guessing it.
+
         Written as one gate over ``doc_id`` rather than a check inside each
         handler, so a content route added later is covered by default instead
         of by remembering. Denial is **404**, never 403: a 403 would confirm
         that the matter exists, which is the trace an ethical wall forbids.
 
-        With ``identity.enabled`` off there is no authenticated subject and no
-        per-user groups to enforce, so the gate stands aside and the legacy
-        shared-login deployment behaves exactly as before.
+        With ``identity.enabled`` off there is no authenticated subject to hold
+        a grant, so the gate stands aside and the legacy shared-login
+        deployment behaves exactly as before.
         """
         if identity_gate is None:
             return None
@@ -1146,7 +1166,16 @@ def create_app(config_path: Optional[str] = None):
                 )
                 return jsonify({'success': False, 'error': 'Not found'}), 404
 
-        if not _pointer_readable(str(user.id), str(doc_id)):
+        # Both spellings: search grants the raw Knovas pointer, while a caller
+        # may name the same document by its path under the mount.
+        if not document_grants.granted(
+            str(user.id), str(doc_id), _rel_path_for_autodoc(str(doc_id))
+        ):
+            logger.info(
+                "Refusing %s: no live grant for %r. The document was not in "
+                "this person's search results, or the grant has aged out.",
+                request.path, str(doc_id),
+            )
             return jsonify({'success': False, 'error': 'Not found'}), 404
         return None
 
@@ -1377,7 +1406,8 @@ def create_app(config_path: Optional[str] = None):
             csrf_token=_ensure_csrf_token(),
             companion_enabled=companion_enabled,
             browser_client_open_enabled=browser_client_open_enabled,
-            allow_degraded_download_open=allow_degraded_download_open,
+            allow_degraded_download_open=_download_open_enabled(),
+            open_mapping_configured=_open_mapping_configured(),
             pdf_inline_in_browser=pdf_inline_in_browser,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
             results_per_page=config.get_int('web.search.results_per_page', 20),
@@ -1507,12 +1537,12 @@ def create_app(config_path: Optional[str] = None):
             enrichment_loaded = bool(_unique_enrichment_records())
             for result in enhanced_results.get('results') or []:
                 fp = (result.get('path') or '').strip()
-                if (
-                    fp
-                    and result.get('can_open')
-                    and not result.get('external_url')
-                    and not enrichment_loaded
-                ):
+                # Not "and not enrichment_loaded": a mirrored OneDrive corpus
+                # has an enrichment file and still holds documents with no
+                # webUrl, which are opened locally like any other. Rows that do
+                # resolve a URL have these hints removed again below, by
+                # _apply_external_open_mode.
+                if fp and result.get('can_open') and not result.get('external_url'):
                     full = _resolve_autodoc_path(fp)
                     if full:
                         targets = _client_open_targets(full)
@@ -1543,7 +1573,6 @@ def create_app(config_path: Optional[str] = None):
 
             if enrichment_loaded:
                 for result in final_results:
-                    result['onedrive_open_available'] = True
                     if not result.get('external_url'):
                         url = _resolve_onedrive_url(
                             str(result.get('doc_id') or ''),
@@ -1552,6 +1581,28 @@ def create_app(config_path: Optional[str] = None):
                         )
                         if url:
                             _apply_external_open_mode(result, url)
+                    # Only a document that actually resolved to a webUrl can be
+                    # opened in OneDrive. Marking every hit available because
+                    # the deployment *has* an enrichment file put an "In
+                    # OneDrive öffnen" on mirrored-but-unlinked documents, where
+                    # it 404s, and hid the local Öffnen that would have worked.
+                    result['onedrive_open_available'] = bool(result.get('external_url'))
+
+            # Retrieval has decided; record what it handed this person so the
+            # file routes can serve those documents and only those. This is the
+            # only route that gives the browser document pointers, so it is the
+            # only place a grant is created.
+            if identity_gate is not None:
+                searcher = identity_gate.current_user()
+                if searcher is not None:
+                    spellings: List[str] = []
+                    for result in final_results:
+                        for field in ('doc_id', 'path', 'pointer'):
+                            raw = result.get(field)
+                            if raw:
+                                spellings.append(str(raw))
+                                spellings.append(_rel_path_for_autodoc(str(raw)))
+                    document_grants.grant(str(searcher.id), spellings)
 
             payload: Dict[str, Any] = {
                 'success': True,
@@ -1847,9 +1898,18 @@ def create_app(config_path: Optional[str] = None):
         if not browser_client_open_enabled:
             return jsonify({'success': False, 'error': 'Browser client-path open disabled'}), 503
         if not _open_mapping_configured():
+            # No share means there is no path this PC could open -- but the
+            # bytes are right here, so refusing outright leaves the person with
+            # no way to the document at all. Name the way out; the browser
+            # downloads instead. Deployments that want the refusal to stand can
+            # set OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN=false.
             return jsonify({
                 'success': False,
-                'error': 'Open mapping not configured (OPEN_UNC_ROOT / OPEN_CLIENT_LOCAL_ROOT)',
+                'error': (
+                    'Für dieses Dokument ist kein Pfad auf Ihrem PC hinterlegt '
+                    '(keine Freigabe konfiguriert).'
+                ),
+                'fallback': 'download' if _download_open_enabled() else None,
             }), 503
         file_path = str(request.args.get('path') or '').strip()
         if not file_path:
@@ -1922,7 +1982,9 @@ def create_app(config_path: Optional[str] = None):
                 if minter is None:
                     return jsonify({'success': False, 'error': 'Not found'}), 404
                 subject = str(minter.id)
-                if not _pointer_readable(subject, doc_id):
+                if not document_grants.granted(
+                    subject, doc_id, _rel_path_for_autodoc(str(doc_id))
+                ):
                     return jsonify({'success': False, 'error': 'Not found'}), 404
             token = open_token_manager.mint(rel, doc_id, subject=subject)
             api_base = public_base_url_config or request.url_root.rstrip('/')
@@ -1972,7 +2034,9 @@ def create_app(config_path: Optional[str] = None):
                 if not subject:
                     logger.warning("Refusing an open token minted without a subject")
                     return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-                if not _pointer_readable(subject, payload['doc']):
+                if not document_grants.granted(
+                    subject, payload['doc'], _rel_path_for_autodoc(str(payload['doc']))
+                ):
                     return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
             full_path = _resolve_autodoc_path(payload['rel'])
             if not full_path or not os.path.exists(full_path):

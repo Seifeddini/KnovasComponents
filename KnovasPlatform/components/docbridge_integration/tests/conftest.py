@@ -123,7 +123,8 @@ def _identity_app(platform_db, tmp_path, monkeypatch, *, client_cls=None):
         '  base_url: "http://example.test"\n'
         '  customer_id: "tenant-a"\n'
         'open:\n'
-        '  companion_enabled: false\n',
+        '  companion_enabled: false\n'
+        f'  grant_store_path: "{(tmp_path / "grants.sqlite3").as_posix()}"\n',
         encoding="utf-8",
     )
 
@@ -188,6 +189,11 @@ class DummyKnovasClient:
         # readable", which keeps every test that predates the wall unchanged.
         self.denied_pointers: set[str] = set()
         self.readable_calls: list[str] = []
+        # What retrieval hands back. The file routes serve what a person's own
+        # search returned, so a test that wants a document reachable puts its
+        # pointer here and searches for it -- the same way the browser does.
+        self.search_results: list[dict] = []
+        self.search_calls: list[str] = []
         DummyKnovasClient.last_instance = self
 
     def document_readable(self, pointer):
@@ -201,7 +207,12 @@ class DummyKnovasClient:
         return DummyKnovasClient.health_result
 
     def search_documents(self, query, limit=20, filters=None):
-        return {"results": [], "total": 0}
+        self.search_calls.append(str(query))
+        rows = [
+            row for row in self.search_results
+            if str(row.get("doc_id") or "") not in self.denied_pointers
+        ]
+        return {"results": [dict(row) for row in rows], "total": len(rows)}
 
     # -- what the console's Dokumente / Zugriffsgruppen tabs call --------
     def documents(self, **kw):

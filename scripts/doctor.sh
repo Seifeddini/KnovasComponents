@@ -318,17 +318,44 @@ else
       warn "no share mapping — Öffnen answers 503, but the Download button is available."
       echo "       The preview dialog offers Download instead, which streams the file"
       echo "       through the browser and needs nothing on the user's PC." ;;
-    *)
-      bad "no way to open a document at all. Every Öffnen answers HTTP 503"
-      echo "       (\"Open mapping not configured\"), for every document."
+    "false"|"False"|"0"|"no")
+      bad "no way to open a document at all: no share to point at, and the"
+      echo "       download refused by OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN=$DEGRADED."
       echo "       Öffnen launches the file on the USER'S PC, so it needs a path that PC has:"
       echo "         KNOVAS_SHARE_UNC=\\\\fileserver\\share    (Windows clients on a share), or"
       echo "         OPEN_CLIENT_LOCAL_ROOT=/mnt/kanzlei      (the path the CLIENT PC mounts it at)"
-      echo "       Documents only on this server, users on other PCs? Neither applies — add"
-      echo "         OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN=true"
-      echo "       to knovas.env for a Download button in the preview dialog. Then setup + start." ;;
+      echo "       Or drop OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN and the download comes back." ;;
+    *)
+      ok "no share configured, so Öffnen hands over the file itself (download)."
+      echo "       That is the default where documents live only on this server: the"
+      echo "       browser downloads instead of starting the file from a share."
+      echo "       A share would open it in place instead — KNOVAS_SHARE_UNC (Windows)"
+      echo "       or OPEN_CLIENT_LOCAL_ROOT (clients that mount it themselves)." ;;
   esac
 fi
+
+# The wall on those same routes. It is decided here, from what each person's own
+# search returned -- not by asking the Secure API, whose document_readable route
+# does not exist in any deployed version and answered 404 for every document.
+GRANTS="$("${DC[@]}" exec -T docbridge-web sh -c '
+  python - <<PYEOF 2>/dev/null
+import os, sqlite3
+path = os.environ.get("OPEN_GRANT_STORE_PATH") or "/app/data/document_grants.sqlite3"
+if not os.path.exists(path):
+    print("none"); raise SystemExit
+conn = sqlite3.connect(path)
+print(conn.execute("SELECT count(*) FROM document_grants").fetchone()[0])
+PYEOF' 2>/dev/null | tr -d "[:space:]")"
+case "$GRANTS" in
+  ""|none)
+    warn "no document grants recorded yet — nobody has searched since the last start."
+    echo "       A preview or Öffnen before the first search answers 404 by design:"
+    echo "       the file routes serve what that person's own search returned." ;;
+  0)
+    warn "the grant store is empty. Previews will 404 until someone searches." ;;
+  *)
+    ok "$GRANTS document grant(s) recorded — previews and Öffnen have something to serve" ;;
+esac
 
 head_ "Knovas API (mTLS)"
 # Probed from inside the container, with the same certificates the app uses, so

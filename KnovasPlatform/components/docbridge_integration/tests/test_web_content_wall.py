@@ -6,13 +6,24 @@ and read the file off the Platform's own disk, without the query pipeline. Until
 this gate existed, any signed-in person could fetch any document under the share
 by naming its path -- which made the wall a property of search, not of access.
 
-Two things are asserted here that are easy to get subtly wrong:
+**What the gate consults changed.** It used to ask the Secure API
+(``GET /secured/document_readable``). No deployed version of that API has ever
+implemented the route, so every call answered 404, the guard failed closed
+exactly as written, and every document became "Not found" for every user --
+while search kept working, because the text under a result comes from the
+context sidecars and not from the file. It now asks ``document_grants``: did
+this person's own retrieval return this pointer? That never grants more than
+retrieval did, so the wall tracks the backend instead of second-guessing it.
+
+Three things are asserted here that are easy to get subtly wrong:
 
     * refusal is 404, never 403. A 403 confirms the matter exists, and its
       existence is itself the trace an ethical wall forbids;
     * the path is checked against the pointer. The two arrive as separate
       request fields, so a caller could otherwise name a document they may read
-      and ask for the bytes of one they may not.
+      and ask for the bytes of one they may not;
+    * a grant belongs to one person. Another member's search must not open a
+      door for me, or the wall is back to being a property of the corpus.
 """
 
 from __future__ import annotations
@@ -32,13 +43,28 @@ READABLE = "rc-sync/open.docx"
 WALLED = "rc-sync/mandat-meier.docx"
 
 
+def _search(client, query="meier"):
+    """Run a search the way the browser does, so its grants are recorded."""
+    from _console import csrf_from
+
+    token = csrf_from(client.get("/settings").data.decode("utf-8"))
+    return client.post(
+        "/api/search",
+        json={"query": query, "limit": 20},
+        headers={"X-CSRF-Token": token},
+    )
+
+
 @pytest.fixture
 def signed_in(identity_client, identity_repo, monkeypatch):
-    """One ordinary member, signed in, with the wall closed around one matter.
+    """One ordinary member, signed in, having searched and found one document.
 
     The identifier prefix is set the way a synced deployment has it, so the
     ``path`` the browser sends is the mapped relative path and not the raw
     pointer -- the shape the gate has to accept.
+
+    Retrieval returns READABLE and withholds WALLED, which is the whole of what
+    makes one reachable and the other not.
     """
     from _console import PASSWORD, sign_in
 
@@ -47,8 +73,14 @@ def signed_in(identity_client, identity_repo, monkeypatch):
         email="anwalt@kanzlei.ch", display_name="anwalt", password=PASSWORD
     )
     identity_repo.grant_role(user.id, "member")
-    DummyKnovasClient.last_instance.denied_pointers = {WALLED}
+    knovas = DummyKnovasClient.last_instance
+    knovas.search_results = [
+        {"doc_id": READABLE, "path": READABLE, "title": "Offen"},
+        {"doc_id": WALLED, "path": WALLED, "title": "Mandat Meier"},
+    ]
+    knovas.denied_pointers = {WALLED}
     sign_in(identity_client, "anwalt@kanzlei.ch")
+    _search(identity_client)
     return identity_client
 
 
@@ -75,14 +107,62 @@ class TestTheWallHolds:
         )
         assert response.status_code in (403, 404)
 
-    def test_a_readable_document_still_reaches_its_handler(self, signed_in):
-        """The gate must not become a wall around everything."""
+    def test_a_document_nobody_searched_for_is_refused(self, signed_in):
+        """The enumeration hole these routes are: naming a pointer is not
+        permission to read it, even when it is not walled off from anyone."""
+        response = signed_in.get(
+            "/api/document/rc-sync/never-searched.docx/download"
+            "?path=never-searched.docx"
+        )
+        assert response.status_code == 404
+
+
+class TestAGrantReachesItsHandler:
+    def test_a_found_document_is_not_refused_by_the_gate(self, signed_in):
+        """The gate must not become a wall around everything -- which is exactly
+        what it was while it asked an endpoint that does not exist."""
         response = signed_in.get(
             f"/api/document/{READABLE}/download?path=open.docx"
         )
-        # 404 here would mean the gate refused it; the handler's own "file not
-        # on disk" answer is what we expect, and it is not the gate's 404.
-        assert DummyKnovasClient.last_instance.readable_calls[-1] == READABLE
+        body = response.get_json() or {}
+        # The handler's own "file not on disk" answer is what we expect here;
+        # the gate's refusal says "Not found" and is what must NOT appear.
+        assert body.get("error") != "Not found"
+
+    def test_the_gate_asks_no_backend_at_all(self, signed_in):
+        """A round trip per thumbnail is twenty per search. The decision is
+        local, and nothing here may reintroduce the call."""
+        knovas = DummyKnovasClient.last_instance
+        before = len(knovas.readable_calls)
+        signed_in.get(f"/api/document/{READABLE}/download?path=open.docx")
+        assert len(knovas.readable_calls) == before
+
+
+class TestAGrantBelongsToOnePerson:
+    def test_another_members_search_opens_no_door(
+        self, identity_app, identity_repo, monkeypatch
+    ):
+        from _console import PASSWORD, sign_in
+
+        monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "rc-sync")
+        for email in ("erste@kanzlei.ch", "zweite@kanzlei.ch"):
+            user = identity_repo.create(
+                email=email, display_name=email, password=PASSWORD
+            )
+            identity_repo.grant_role(user.id, "member")
+        knovas = DummyKnovasClient.last_instance
+        knovas.search_results = [{"doc_id": READABLE, "path": READABLE}]
+        knovas.denied_pointers = set()
+
+        finder = identity_app.test_client()
+        sign_in(finder, "erste@kanzlei.ch")
+        _search(finder)
+
+        other = identity_app.test_client()
+        sign_in(other, "zweite@kanzlei.ch")
+        response = other.get(f"/api/document/{READABLE}/download?path=open.docx")
+        assert response.status_code == 404
+        assert (response.get_json() or {}).get("error") == "Not found"
 
 
 class TestThePathMustBelongToThePointer:
@@ -99,21 +179,6 @@ class TestThePathMustBelongToThePointer:
                 f"/api/document/{READABLE}/download?path={given}"
             )
             assert response.status_code == 404, given
-
-
-class TestWhenTheBackendCannotAnswer:
-    def test_an_unreachable_backend_refuses_rather_than_serves(self, signed_in):
-        """Fail closed: these routes serve bytes off local disk."""
-        client = DummyKnovasClient.last_instance
-
-        def explode(pointer):
-            raise RuntimeError("backend down")
-
-        client.document_readable = explode
-        response = signed_in.get(
-            "/api/document/rc-sync/other.docx/download?path=other.docx"
-        )
-        assert response.status_code == 404
 
 
 class TestOpenTokensCarryTheirSubject:

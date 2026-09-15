@@ -269,6 +269,12 @@ open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
   companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"
   token_ttl_seconds: "${OPEN_TOKEN_TTL_SECONDS:-120}"
+  # How long a document stays reachable after a person's search returned it.
+  # The file routes serve only what that person's own retrieval handed them;
+  # see src/document_grants.py. Shorter means a withdrawn access takes effect
+  # sooner and a long reading session has to search again.
+  grant_ttl_seconds: "${OPEN_GRANT_TTL_SECONDS:-3600}"
+  grant_store_path: "${OPEN_GRANT_STORE_PATH:-}"
   public_base_url: "${OPEN_PUBLIC_BASE_URL:-}"
   companion_uri_scheme: "${OPEN_COMPANION_URI_SCHEME:-semantix-doc}"
   unc_root: "${OPEN_UNC_ROOT:-}"
