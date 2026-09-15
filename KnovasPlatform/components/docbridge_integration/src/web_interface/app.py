@@ -28,7 +28,8 @@ import requests
 from urllib.parse import quote
 
 from config_loader import get_config
-from context_store import enrich_result_with_context
+from context_store import enrich_result_with_context, indexed_text, load_context
+from context_store import query_terms as context_query_terms
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
 from document_grants import DEFAULT_TTL_SECONDS as GRANT_TTL_DEFAULT
@@ -1613,14 +1614,22 @@ def create_app(config_path: Optional[str] = None):
                 logger.info("Search using local test fixtures (SEARCH_USE_TEST_RESULTS=true)")
                 results = _build_test_search_results(query=query, limit=limit)
             else:
-                results = api_client.search_documents(query=query, limit=limit, filters=filters)
+                # exact_match is decided here, after Knovas answers -- it is not
+                # something /secured/query knows about. Forwarding it would put
+                # an unknown key in the request body and a warning in the log on
+                # every single search.
+                results = api_client.search_documents(
+                    query=query, limit=limit,
+                    filters={k: v for k, v in (filters or {}).items()
+                             if k not in _LOCAL_ONLY_FILTERS},
+                )
 
             is_test_data = use_test_results or (
                 isinstance(results.get('semantix'), dict)
                 and results['semantix'].get('status') == 'test_data'
             )
 
-            enhanced_results = _enhance_search_results(results, file_handler, config)
+            enhanced_results = _enhance_search_results(results, file_handler, config, query)
             enrichment_loaded = bool(_unique_enrichment_records())
             for result in enhanced_results.get('results') or []:
                 fp = (result.get('path') or '').strip()
@@ -1691,10 +1700,30 @@ def create_app(config_path: Optional[str] = None):
                                 spellings.append(_rel_path_for_autodoc(str(raw)))
                     document_grants.grant(str(searcher.id), spellings)
 
+            # Whether the words the person typed actually occur in anything we
+            # are about to show them. A vector search answers "related to", and
+            # for a person's name that is often nothing of the sort -- the
+            # honest thing is to say so rather than let the list look like a
+            # failure of the product.
+            literal_hits = sum(
+                1 for r in final_results
+                if any(loc.get('literal') for loc in (r.get('match_locations') or []))
+                or (
+                    context_query_terms(query, config.get_int(
+                        'web.search.strict_match_min_term_length', 2))
+                    and all(
+                        term in _search_result_haystack(r)
+                        for term in context_query_terms(query, config.get_int(
+                            'web.search.strict_match_min_term_length', 2))
+                    )
+                )
+            )
+
             payload: Dict[str, Any] = {
                 'success': True,
                 'query': query,
                 'results': final_results,
+                'literal_query_matches': literal_hits,
                 'total': len(final_results),
                 'timestamp': datetime.now().isoformat(),
                 'onedrive_enrichment_loaded': enrichment_loaded,
@@ -1950,11 +1979,36 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': False, 'error': 'Document path not allowed'}), 400
 
         kind = preview_kind(file_path)
-        if kind is None or kind == 'pdf':
-            return jsonify({'success': False, 'error': 'Preview not supported for this format'}), 415
 
         if not os.path.exists(full_path):
+            # Die Datei ist weg -- der Text nicht. Der Kontext-Sidecar hält jeden
+            # Satz, der beim Indexieren gelesen wurde, und das ist immer noch das
+            # Dokument. Ein Treffer, den man nur anschauen und nicht lesen kann,
+            # ist für die Anwältin keiner; das passiert bei jedem umbenannten
+            # oder neu erzeugten Korpus, dessen alte Einträge noch im Index
+            # stehen. Gilt auch für PDF: dort gibt es keine Seiten mehr zu
+            # rendern, aber lesen kann man es.
+            indexed = indexed_text(
+                load_context(_context_store_path_from_config(config), [str(doc_id), file_path])
+            )
+            if indexed:
+                logger.info(
+                    "Serving %s from the search index: the file is not on the mount",
+                    file_path,
+                )
+                return jsonify({
+                    'success': True,
+                    'doc_id': doc_id,
+                    'kind': kind or 'txt',
+                    'markdown': indexed,
+                    'meta': {},
+                    'warnings': [],
+                    'from_index': True,
+                })
             return jsonify({'success': False, 'error': 'Document file not found'}), 404
+
+        if kind is None or kind == 'pdf':
+            return jsonify({'success': False, 'error': 'Preview not supported for this format'}), 415
 
         try:
             extracted = extract_markdown(full_path)
@@ -2561,6 +2615,12 @@ def _effective_cosine_distance(result: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+# Filters the Platform applies to what came back, rather than asking the API
+# for. /secured/query reads Input, query_prompt, scope and limit and nothing
+# else, so anything here would only be noise in the request body.
+_LOCAL_ONLY_FILTERS = frozenset({'exact_match'})
+
+
 def _search_result_haystack(result: Dict[str, Any]) -> str:
     """Lowercased text used for strict / exact-style matching.
 
@@ -3048,6 +3108,7 @@ def _enhance_search_results(
     results: Dict[str, Any],
     file_handler: AutoDocFileHandler,
     config=None,
+    query: str = '',
 ) -> Dict[str, Any]:
     """
     Enhance search results with additional metadata.
@@ -3065,6 +3126,10 @@ def _enhance_search_results(
         verify_disk = config.get_bool("web.search.verify_files_on_disk", True)
     enrichment = _load_search_enrichment(config)
     context_store_path = _context_store_path_from_config(config)
+    min_term = 2
+    if config is not None:
+        min_term = config.get_int('web.search.strict_match_min_term_length', 2)
+    terms = context_query_terms(query, min_term)
     context_radius = 10
     if config is not None:
         context_radius = config.get_int("web.search.context_sentences", 10)
@@ -3148,6 +3213,7 @@ def _enhance_search_results(
                 context_store_path,
                 pointer_keys,
                 context_radius=context_radius,
+                terms=terms,
             )
 
     return enhanced_results

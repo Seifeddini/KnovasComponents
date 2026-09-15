@@ -35,11 +35,14 @@ class DocumentSearchApp {
         this.previewMeta = document.getElementById('previewMeta');
         this.previewBody = document.getElementById('previewBody');
         this.exactMatch = document.getElementById('exactMatch');
+        this.resultsNotice = document.getElementById('resultsNotice');
         this.previewActions = document.getElementById('previewActions');
         this.previewSidebar = document.getElementById('previewSidebar');
         this.previewFindingsSection = document.getElementById('previewFindingsSection');
         this.previewFindings = document.getElementById('previewFindings');
         this.previewFindingsCount = document.getElementById('previewFindingsCount');
+        this.previewFindingsTitle = document.getElementById('previewFindingsTitle');
+        this.previewFindingsNote = document.getElementById('previewFindingsNote');
         this.previewFindingsNav = document.getElementById('previewFindingsNav');
         this.previewFindingsPosition = document.getElementById('previewFindingsPosition');
         this.previewFindingPrev = document.getElementById('previewFindingPrev');
@@ -276,24 +279,48 @@ class DocumentSearchApp {
         this._findings = findings;
         this._findingIndex = findings.length ? 0 : -1;
 
+        const literal = findings.some((f) => f.literal);
         this.previewFindings.innerHTML = findings.map((f, i) => {
             const where = f.page ? `Seite ${this.escapeHtml(String(f.page))}` : `Fundstelle ${i + 1}`;
-            const before = this.escapeHtml(String(f.before || '').trim());
-            const match = this.escapeHtml(String(f.match || '').trim());
-            const after = this.escapeHtml(String(f.after || '').trim());
-            const text = `${before ? before + ' ' : ''}<mark>${match}</mark>${after ? ' ' + after : ''}`;
+            const parts = [f.before, f.match, f.after]
+                .map((s) => String(s || '').trim()).filter(Boolean);
             return `<li><button type="button" class="preview-finding" data-finding="${i}">`
                 + `<span class="preview-finding-where">${where}`
                 + `<span class="preview-finding-active-flag" data-active-flag></span></span>`
-                + `<span class="preview-finding-text">${text}</span></button></li>`;
+                + `<span class="preview-finding-text">${this._highlightTerms(parts.join(' '))}</span>`
+                + `</button></li>`;
         }).join('');
 
+        // Wenn keine einzige Stelle die gesuchten Wörter enthält, sind das
+        // nicht die Fundstellen -- es sind die inhaltlich nächsten Absätze
+        // eines Dokuments, das die Vektorsuche gewählt hat. Das so zu nennen
+        // ist der Unterschied zwischen "unbrauchbar" und "verständlich".
+        this.previewFindingsTitle.textContent = literal ? 'Fundstellen' : 'Ähnliche Stellen';
+        this.previewFindingsNote.hidden = literal || findings.length === 0;
         this.previewFindingsCount.textContent = findings.length ? ` · ${findings.length}` : '';
         this.previewFindingsSection.hidden = findings.length === 0;
         // Bei genau einer Fundstelle waere "1 von 1" mit zwei toten Pfeilen
         // daneben nur Ballast -- die Liste zeigt sie ohnehin.
         this.previewFindingsNav.hidden = findings.length < 2;
         if (findings.length) this._markActiveFinding(0);
+    }
+
+    /**
+     * Hebt die gesuchten Wörter hervor. Vorher war das <mark> um den
+     * Ankersatz gelegt -- also um irgendeinen Satz, der mit der Suche nichts
+     * zu tun haben musste. Fett gedruckte Willkür liest sich als Fehler.
+     */
+    _highlightTerms(text) {
+        const safe = this.escapeHtml(String(text || ''));
+        const terms = String(this.currentQuery || '')
+            .split(/\W+/)
+            .filter((term) => term.length >= 2)
+            .sort((a, b) => b.length - a.length);
+        if (!terms.length) return safe;
+        const pattern = terms
+            .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('|');
+        return safe.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
     }
 
     _markActiveFinding(index) {
@@ -390,6 +417,38 @@ class DocumentSearchApp {
             copied ? `Pfad kopiert: ${text}` : `Pfad: ${text}`,
             copied ? 'success' : 'info',
         );
+    }
+
+    /** Hinweis über der Lesefassung, wenn die Datei selbst nicht mehr da ist. */
+    _indexNoticeHtml(fromIndex) {
+        if (!fromIndex) return '';
+        return '<p class="preview-index-notice">Die Datei liegt nicht mehr auf dem '
+            + 'Dokumentenspeicher. Gezeigt wird der Text, wie er bei der Aufnahme '
+            + 'gelesen wurde — Öffnen und Download stehen dafür nicht zur Verfügung.</p>';
+    }
+
+    /**
+     * Holt die Lesefassung aus dem Suchindex. Rückgabe sagt, ob etwas kam --
+     * der Aufrufer zeigt sonst seine eigene Fehlermeldung.
+     */
+    async _renderIndexedText(docId, path, index, controller) {
+        try {
+            const url = `/api/document/${encodeURIComponent(docId)}/preview-content`
+                + `?path=${encodeURIComponent(path)}`;
+            const response = await fetch(url, {
+                credentials: 'same-origin', signal: controller.signal,
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success || !data.from_index) return false;
+            if (this._previewIndex !== index) return true;
+            this.previewBody.classList.remove('is-pdf');
+            this.previewMeta.textContent = 'Lesefassung aus dem Suchindex';
+            this.previewBody.innerHTML = this._indexNoticeHtml(true)
+                + window.KnovasMarkdown.render(data.markdown);
+            return true;
+        } catch (error) {
+            return false;
+        }
     }
 
     closePreview() {
@@ -504,6 +563,10 @@ class DocumentSearchApp {
                     `<iframe src="${this.escapeAttr(initial)}" title="PDF-Vorschau"></iframe>`;
             } catch (error) {
                 if (error.name === 'AbortError') return;
+                // Die Datei ist nicht da -- der Text aus dem Suchindex schon.
+                // Für ein PDF gibt es dann keine Seiten mehr, aber lesen kann
+                // man es, und das ist der Zweck der Vorschau.
+                if (await this._renderIndexedText(docId, path, index, controller)) return;
                 this.previewBody.innerHTML =
                     `<p class="preview-error">Vorschau nicht verfügbar (${this.escapeHtml(error.message)}). Nutzen Sie „Öffnen“.</p>`;
             } finally {
@@ -527,8 +590,11 @@ class DocumentSearchApp {
                 throw new Error(data.error || `HTTP ${response.status}`);
             }
 
-            this.previewMeta.textContent = this._previewMetaText(data.kind, data.meta);
-            this.previewBody.innerHTML = this._mailHeaderHtml(data.meta)
+            this.previewMeta.textContent = data.from_index
+                ? 'Lesefassung aus dem Suchindex'
+                : this._previewMetaText(data.kind, data.meta);
+            this.previewBody.innerHTML = this._indexNoticeHtml(data.from_index)
+                + this._mailHeaderHtml(data.meta)
                 + window.KnovasMarkdown.render(data.markdown);
         } catch (error) {
             if (error.name === 'AbortError') return;
@@ -581,6 +647,7 @@ class DocumentSearchApp {
                     this.onedriveEnrichmentLoaded = !!data.onedrive_enrichment_loaded;
                 }
                 this.currentResults = data.results || [];
+                this._literalMatches = Number(data.literal_query_matches || 0);
                 this.displayResults(data.results, data.total, data.semantix);
             } else {
                 throw new Error(data.error || 'Suche fehlgeschlagen');
@@ -631,6 +698,28 @@ class DocumentSearchApp {
         return out;
     }
 
+    /**
+     * Sagt es einmal oben, wenn kein Treffer die gesuchten Wörter enthält.
+     *
+     * Die Vektorsuche antwortet auf "ähnlich zu", nicht auf "enthält". Bei
+     * einem Personennamen ist das oft gar nichts Verwandtes -- ohne diesen
+     * Satz liest sich die Liste als kaputtes Produkt, mit ihm als das, was
+     * sie ist, samt dem Schalter, der es enger macht.
+     */
+    _renderLiteralNotice(shown) {
+        const box = this.resultsNotice;
+        if (!box) return;
+        const exact = this.exactMatch && this.exactMatch.checked;
+        if (!shown || this._literalMatches > 0 || exact || !this.currentQuery) {
+            box.hidden = true;
+            return;
+        }
+        box.innerHTML = `„${this.escapeHtml(this.currentQuery)}" kommt in keinem der `
+            + `Treffer wörtlich vor. Angezeigt werden inhaltlich ähnliche Dokumente — `
+            + `mit <strong>„Alle Wörter müssen vorkommen"</strong> lässt sich das einschränken.`;
+        box.hidden = false;
+    }
+
     displayResults(results, total, semantix) {
         this.closePreview();
         this.resultsSection.style.display = 'block';
@@ -643,6 +732,7 @@ class DocumentSearchApp {
 
         this.resultsQuery.textContent = this.currentQuery ? ` für „${this.currentQuery}“` : '';
         this.resultsCount.textContent = `${results.length} von ${total || results.length} Ergebnissen`;
+        this._renderLiteralNotice(results.length);
 
         const groups = this._groupByAkte(results);
         // Eine einzige Gruppe braucht keine Zwischenueberschrift -- die waere
@@ -832,9 +922,20 @@ class DocumentSearchApp {
         // tiefer. Knoepfe hier haben ihn verdeckt: _onResultsClick ueberspringt
         // Klicks auf a und button, sie konkurrierten also mit genau der Geste,
         // die der Nutzer lernen soll.
+        // Fehlt die Datei, aber der Index hält ihren Text, ist der Treffer nicht
+        // wertlos -- er ist nur nicht mehr zu öffnen. Das rote "nicht verfügbar"
+        // liest sich als Fehler und hält Leute von einer Karte ab, die sie noch
+        // lesen könnten.
+        const readable = Boolean(
+            doc.context_snippet || doc.first_page_preview
+            || (doc.match_locations && doc.match_locations.length)
+        );
         const actionsHtml = localAvailable || hasOneDrive
             ? ''
-            : '<span class="badge badge-error">Datei nicht verf\u00fcgbar</span>';
+            : (readable
+                ? '<span class="badge badge-muted" title="Die Datei liegt nicht mehr auf dem '
+                  + 'Dokumentenspeicher. Der Text ist weiterhin lesbar.">Nur Lesefassung</span>'
+                : '<span class="badge badge-error">Datei nicht verf\u00fcgbar</span>');
 
         const documentDate = doc.document_date || doc.date || doc.timestamp || doc.created_at || null;
         // Nur Format und Datum: die Dokumentart steht meist schon im Titel,

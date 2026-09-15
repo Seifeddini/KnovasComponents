@@ -274,3 +274,30 @@ def test_nonsense_locations_are_skipped_not_fatal():
 def test_no_sidecar_means_no_locations():
     assert build_match_locations([], [{"sentence_number": 2}]) == []
     assert build_match_locations(SENTENCES, None) == []
+
+
+def test_locations_that_contain_the_query_words_are_marked_and_come_first():
+    """Ohne diese Unterscheidung ist die Liste nur „die acht ähnlichsten
+    Absätze" -- was bei einer Namenssuche wie Willkür aussieht."""
+    found = build_match_locations(
+        SENTENCES,
+        [{"sentence_number": 1}, {"sentence_number": 2}],
+        terms=["reaktionszeit"],
+    )
+    assert found[0]["sentence_number"] == 2
+    assert found[0]["literal"] is True
+    assert found[1]["literal"] is False
+
+
+def test_without_query_words_nothing_is_marked_or_reordered():
+    found = build_match_locations(
+        SENTENCES, [{"sentence_number": 1}, {"sentence_number": 2}]
+    )
+    assert [f["sentence_number"] for f in found] == [1, 2]
+    assert "literal" not in found[0]
+
+
+def test_query_terms_skips_punctuation_and_single_letters():
+    from context_store import query_terms
+
+    assert query_terms("Sophie Keller, ./. X") == ["sophie", "keller"]

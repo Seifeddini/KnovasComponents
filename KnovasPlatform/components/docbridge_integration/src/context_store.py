@@ -313,12 +313,23 @@ def _location_page(chunk: Dict[str, Any]) -> Optional[int]:
     return page if page >= 1 else None
 
 
+def query_terms(query: str, min_length: int = 2) -> List[str]:
+    """The words a reader expects to find again, lowercased."""
+    import re as _re
+
+    return [
+        term for term in _re.split(r"\W+", str(query or "").lower())
+        if len(term) >= min_length
+    ]
+
+
 def build_match_locations(
     sentences: List[Dict[str, Any]],
     top_chunks: Any,
     *,
     radius: int = MATCH_LOCATION_RADIUS,
     limit: int = MAX_MATCH_LOCATIONS,
+    terms: Sequence[str] = (),
 ) -> List[Dict[str, Any]]:
     """Every place in this document the query matched, with its page and text.
 
@@ -331,6 +342,13 @@ def build_match_locations(
 
     Duplicate sentence numbers collapse: several chunks of one long sentence are
     one place to look, not three.
+
+    ``terms`` are the words of the query. A location carries ``literal: True``
+    when one of them actually appears in it, and those sort first. Without this
+    the list is simply the highest-scoring passages of a document the vector
+    search liked -- which, when someone searched for a person's name that occurs
+    nowhere, is eight arbitrary sentences presented as "Fundstellen". The panel
+    has to be able to tell the caller which it is holding.
     """
     if not sentences or not isinstance(top_chunks, list):
         return []
@@ -361,8 +379,55 @@ def build_match_locations(
         page = _location_page(chunk)
         if page is not None:
             entry["page"] = page
+        if terms:
+            # Nur der Trefferatz selbst entscheidet, nicht sein Umfeld: mit
+            # Radius 1 steht der Nachbarsatz mit im Fenster, und dann waere
+            # jeder Satz neben einem Treffer selbst einer.
+            anchor = str(entry["match"]).lower()
+            entry["literal"] = any(term in anchor for term in terms)
         out.append(entry)
+    # Stable: the backend's ordering is kept inside each group, so the best
+    # scoring literal hit still comes before a weaker one.
+    if terms:
+        out.sort(key=lambda e: not e.get("literal"))
     return out
+
+
+# Obergrenze für den Text, den die Vorschau aus dem Suchindex zeigt. Grosszügig:
+# hier ist es das ganze Dokument oder nichts, die Datei gibt es ja nicht mehr.
+MAX_INDEX_TEXT_CHARS = 200_000
+
+
+def indexed_text(entry: Optional[Dict[str, Any]], max_chars: int = MAX_INDEX_TEXT_CHARS) -> str:
+    """Der ganze Text eines Dokuments, so wie er beim Indexieren gelesen wurde.
+
+    Der Sidecar hält jeden Satz -- er ist geschrieben worden, damit die Treffer
+    Kontext haben. Ist die Datei selbst nicht mehr auf dem Dokumentenspeicher
+    (umbenannt, verschoben, ein neu erzeugtes Korpus mit neuen Namen), dann ist
+    das hier das Einzige, was von ihr übrig ist, und immer noch lesbar. Ein
+    Treffer, den man nur anschauen und nicht lesen kann, ist für die Anwältin
+    keiner.
+
+    Absätze statt einer Textwand: ein Satz je Zeile liest sich in der Vorschau
+    wie ein Dokument und nicht wie ein Log.
+    """
+    if not entry:
+        return ""
+    sentences = entry.get("sentences")
+    if not isinstance(sentences, list):
+        return ""
+    parts: List[str] = []
+    size = 0
+    for sent in sentences:
+        text = _sentence_text(sent)
+        if not text:
+            continue
+        size += len(text) + 1
+        if size > max_chars:
+            parts.append("…")
+            break
+        parts.append(text)
+    return "\n\n".join(parts).strip()
 
 
 def enrich_result_with_context(
@@ -371,6 +436,7 @@ def enrich_result_with_context(
     pointer_candidates: Sequence[str],
     *,
     context_radius: int = DEFAULT_CONTEXT_RADIUS,
+    terms: Sequence[str] = (),
 ) -> bool:
     """Attach first_page_preview and context_snippet when a sidecar exists."""
     if result.get("match_locations") or (
@@ -393,7 +459,9 @@ def enrich_result_with_context(
             snippet = context_window(
                 sentences, resolve_sentence_number(result), radius=context_radius
             )
-            locations = build_match_locations(sentences, result.get("top_chunks"))
+            locations = build_match_locations(
+                sentences, result.get("top_chunks"), terms=terms
+            )
     except Exception as exc:  # noqa: BLE001 - decoration must not break the result
         logger.warning(
             "Context enrichment skipped for %s: %s",

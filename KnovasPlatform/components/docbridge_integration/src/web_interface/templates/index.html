@@ -54,6 +54,7 @@
                     <h2>Suchergebnisse<span id="resultsQuery" class="results-query"></span></h2>
                     <span id="resultsCount" class="results-count"></span>
                 </div>
+                <p class="results-notice" id="resultsNotice" hidden></p>
                 <div id="resultsContainer" class="results-container">
                     <!-- Results will be dynamically inserted here -->
                 </div>
@@ -132,8 +133,12 @@
                 <aside class="preview-sidebar" id="previewSidebar" hidden>
                     <section class="preview-sidebar-section" id="previewFindingsSection" hidden>
                         <h3 class="preview-sidebar-title">
-                            Fundstellen<span id="previewFindingsCount"></span>
+                            <span id="previewFindingsTitle">Fundstellen</span><span id="previewFindingsCount"></span>
                         </h3>
+                        <p class="preview-findings-note" id="previewFindingsNote" hidden>
+                            Die gesuchten Wörter kommen in diesem Dokument nicht vor.
+                            Angezeigt werden die inhaltlich nächsten Stellen.
+                        </p>
                         <ol class="preview-findings-list" id="previewFindings"></ol>
                     </section>
                     <section class="preview-sidebar-section" id="previewDocDataSection" hidden>

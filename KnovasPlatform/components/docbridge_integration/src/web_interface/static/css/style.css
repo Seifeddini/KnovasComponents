@@ -1460,3 +1460,46 @@ mark.context-snippet-match,
 .search-option input {
     accent-color: var(--primary-color);
 }
+
+
+/* Der Hinweis über der Trefferliste und der in der Fundstellenspalte. Beide
+   erklären dasselbe: die Suche hat Ähnliches gefunden, nicht das Wort. */
+.results-notice {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--callout);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.preview-findings-note {
+    margin: 0 0 10px;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+
+/* Lesefassung: der Treffer ist nicht kaputt, nur nicht mehr zu öffnen. Grau
+   statt rot, weil Rot "Fehler" heisst und Leute von einer Karte abhält, die
+   sie noch lesen können. */
+.badge-muted {
+    background: var(--surface-sunken);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.preview-index-notice {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--callout);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}

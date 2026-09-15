@@ -112,3 +112,69 @@ class TestTheOptionIsReachable:
             headers={"X-CSRF-Token": _csrf(logged_in)},
         )
         assert len(response.get_json()["results"]) == 2
+
+
+# --- „Sophie Keller" ---------------------------------------------------------
+#
+# Eine Vektorsuche antwortet auf „ähnlich zu", nicht auf „enthält". Bei einem
+# Personennamen ist das oft gar nichts Verwandtes: das Dokument, das zurückkam,
+# enthielt den Namen nirgends. Die Liste sah dann aus wie ein kaputtes Produkt.
+# Die Platform kann das nicht besser finden -- sie kann aber sagen, was sie
+# gerade zeigt, statt es „Fundstellen" zu nennen.
+
+class TestSayingWhenTheWordsDoNotOccur:
+    def test_the_payload_counts_literal_matches(self, logged_in):
+        from conftest import DummyKnovasClient
+
+        DummyKnovasClient.last_instance.search_results = [
+            {"doc_id": "a.pdf", "path": "a.pdf", "title": "Klage",
+             "first_page_preview": "Tannenfels Holzbau GmbH gegen Gerüstbau Suter"},
+        ]
+        body = logged_in.post(
+            "/api/search",
+            json={"query": "Sophie Keller", "limit": 20},
+            headers={"X-CSRF-Token": _csrf(logged_in)},
+        ).get_json()
+        assert body["literal_query_matches"] == 0
+
+    def test_a_document_that_does_contain_them_is_counted(self, logged_in):
+        from conftest import DummyKnovasClient
+
+        DummyKnovasClient.last_instance.search_results = [
+            {"doc_id": "a.pdf", "path": "a.pdf", "title": "Vollmacht",
+             "first_page_preview": "Vollmacht erteilt durch Sophie Keller"},
+        ]
+        body = logged_in.post(
+            "/api/search",
+            json={"query": "Sophie Keller", "limit": 20},
+            headers={"X-CSRF-Token": _csrf(logged_in)},
+        ).get_json()
+        assert body["literal_query_matches"] == 1
+
+    def test_the_page_has_somewhere_to_say_it(self, logged_in):
+        assert 'id="resultsNotice"' in logged_in.get("/").data.decode("utf-8")
+
+
+class TestLocalOptionsAreNotSentUpstream:
+    def test_exact_match_never_reaches_the_query_endpoint(self, logged_in):
+        """/secured/query reads Input, query_prompt, scope and limit. An extra
+        key is noise in the body and a warning in the log on every search."""
+        from conftest import DummyKnovasClient
+
+        client = DummyKnovasClient.last_instance
+        client.search_results = []
+        seen = {}
+        original = client.search_documents
+
+        def spy(query, limit=20, filters=None):
+            seen["filters"] = filters
+            return original(query, limit=limit, filters=filters)
+
+        client.search_documents = spy
+        logged_in.post(
+            "/api/search",
+            json={"query": "Reaktionszeit", "limit": 20,
+                  "filters": {"exact_match": True}},
+            headers={"X-CSRF-Token": _csrf(logged_in)},
+        )
+        assert "exact_match" not in (seen["filters"] or {})
