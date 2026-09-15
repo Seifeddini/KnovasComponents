@@ -73,6 +73,8 @@ Or, without a second name, in `knovas.env`: `DOCBRIDGE_WEB_BIND=0.0.0.0`, `WEB_S
 
 Try: **Schaffhauserstrasse**, **Meierhans**, **2024-017**.
 
+A hit opens its preview when you click the card. A card marked «Datei nicht verfügbar», or a preview that says «Vorschau nicht verfügbar (HTTP 404)», means the text was ingested but the file itself is not on the mount — the first row of the table below.
+
 Ingest of ~640 files is rate-limited; the first hits appear before the full set is up.
 
 ## If it fails
@@ -86,5 +88,7 @@ Ingest of ~640 files is rate-limited; the first hits appear before the full set 
 | Login form comes back immediately | `WEB_SESSION_COOKIE_SECURE=false` in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh` |
 | Health `watch_roots` not ok | Path must be the `kanzlei` folder, not its parent; then setup + start again |
 | Search is empty | Run `touch` (end of step 3), wait for ingest |
+| Results look right, but **Öffnen** fails and there is no preview | The files are not where the Platform looks. `./scripts/doctor.sh` names which of the two it is: a `KNOVAS_DOCUMENTS_PATH` that is not the ingested folder, or a Kennung on the Übernahme profile that is not `KNOVAS_IDENTIFIER_PREFIX` |
+| **Öffnen** says `Open mapping not configured` | Expected when the documents live only on this server. **Öffnen** starts the file on the *user's* PC, so that PC needs its own path to it: `KNOVAS_SHARE_UNC=\\fileserver\share`, or `OPEN_CLIENT_LOCAL_ROOT=` the path they mount it at. No share at all? Put `OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN=true` in `knovas.env` for a Download button instead |
 
 Stop: `./scripts/stop.sh`. Reset admin password: `./scripts/admin-password.sh`.

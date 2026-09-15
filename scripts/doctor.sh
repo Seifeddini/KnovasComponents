@@ -196,6 +196,134 @@ else
   fi
 fi
 
+head_ "Documents, preview and opening"
+# Search can work perfectly while every file-backed feature is dead, and the UI
+# says nothing useful about why. The snippets under a result come from the
+# context sidecars, keyed by the Knovas pointer; the thumbnail, the preview, the
+# download and "Oeffnen" all come from the file itself, found by stripping the
+# pointer prefix and joining the rest onto /mnt/autodoc. So a prefix that does
+# not match, or a mount that holds a different corpus than the one that was
+# ingested, leaves results that read correctly and cannot be opened or
+# previewed. That pair of symptoms is what this section is for.
+"${DC[@]}" exec -T docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
+import json
+import os
+
+from web_interface.app import (
+    _autodoc_identifier_prefixes,
+    _confine_to_autodoc,
+    _rel_path_for_autodoc,
+)
+
+root = os.environ.get("AUTODOC_PATH") or "/mnt/autodoc"
+print(f"mount = {root}")
+
+if not os.path.isdir(root):
+    raise SystemExit(
+        "   FAIL  that directory does not exist in the container.\n"
+        "         KNOVAS_DOCUMENTS_PATH is not mounted. Check it in knovas.env,\n"
+        "         then ./scripts/setup.sh && ./scripts/start.sh"
+    )
+
+sample = None
+files = 0
+for current, dirs, names in os.walk(root):
+    dirs[:] = [d for d in dirs if not d.startswith(".")]
+    for name in names:
+        if name.startswith("."):
+            continue
+        files += 1
+        if sample is None:
+            sample = os.path.relpath(os.path.join(current, name), root)
+    if files >= 200:
+        break
+
+if not files:
+    print("   FAIL  the mount is EMPTY — no thumbnail, no preview, no open, for any result.")
+    print("         KNOVAS_DOCUMENTS_PATH points at the wrong folder, or the corpus was")
+    print("         never generated there. It must be the same folder the documents were")
+    print("         ingested from, not its parent and not a sibling.")
+else:
+    print(f"     OK  the mount holds documents (counted {files}, stopped early)")
+
+# What the app strips, against what RemoteController actually sent. The saved
+# request body is the ground truth: the console's "Kennung" field is free text
+# with no default, so a profile saved with anything other than
+# AUTODOC_IDENTIFIER_PREFIX silently breaks every file lookup.
+app_prefixes = _autodoc_identifier_prefixes()
+print(f"AUTODOC_IDENTIFIER_PREFIX = {','.join(app_prefixes) or '<unset>'}")
+
+rc_prefix = ""
+body_path = "/var/rc-state/.rc-sync-last-request.json"
+try:
+    with open(body_path, encoding="utf-8") as handle:
+        body = json.load(handle)
+    rc_prefix = str((body.get("ingestion") or {}).get("identifier_prefix") or "").strip("/")
+except (OSError, ValueError, AttributeError):
+    rc_prefix = ""
+
+if not rc_prefix:
+    print("   WARN  no saved sync request yet — RemoteController has not run an ingestion")
+    print(f"         from this deployment ({body_path} is missing or unreadable), so the")
+    print("         prefix cannot be compared. Run one from Verwaltung -> Übernahme.")
+elif not app_prefixes:
+    print(f"   FAIL  RemoteController ingests as '{rc_prefix}/…' and the app strips nothing.")
+    print(f"         Every pointer resolves to {root}/{rc_prefix}/… which does not exist.")
+    print(f"         Set KNOVAS_IDENTIFIER_PREFIX={rc_prefix} in knovas.env, then setup + start.")
+elif not any(p.lower() == rc_prefix.lower() for p in app_prefixes):
+    print(f"   FAIL  prefix mismatch: RemoteController ingests as '{rc_prefix}/…', the app")
+    print(f"         strips '{','.join(app_prefixes)}'. Results still carry text, because the")
+    print("         snippets come from the sidecars — but no file is ever found, so the")
+    print("         thumbnail, the preview and Öffnen all fail on every hit.")
+    print(f"         Set KNOVAS_IDENTIFIER_PREFIX={rc_prefix} in knovas.env, then setup + start,")
+    print("         or change the Kennung on the profile in Verwaltung -> Übernahme to")
+    print(f"         '{app_prefixes[0]}' and re-ingest.")
+else:
+    print(f"     OK  the app strips the prefix RemoteController ingests with ('{rc_prefix}')")
+
+# The decisive check: one real file, through the code the endpoints use.
+if sample:
+    pointer = f"{rc_prefix}/{sample}" if rc_prefix else sample
+    resolved = _confine_to_autodoc(root, pointer)
+    if resolved and os.path.exists(resolved):
+        print(f"     OK  a pointer resolves to a file on disk ({_rel_path_for_autodoc(pointer)})")
+    else:
+        print(f"   FAIL  the pointer '{pointer}' does not resolve to a file.")
+        print(f"         The app looks for {resolved or '<refused>'}.")
+        print("         /preview, /thumbnail, /download and /client-path all answer 404 for it.")
+PY
+
+# Öffnen is a client-side launch: the browser asks for the path THIS PC should
+# use for the same file. Without a mapping there is no such path and the
+# endpoint answers 503 — on every click, for every document, whether or not the
+# file is on the mount. A deployment whose documents live only on this server's
+# local disk has nothing to map, and needs the download fallback instead.
+UNC_ROOT="$(env_in_app OPEN_UNC_ROOT)"
+CLIENT_ROOT="$(env_in_app OPEN_CLIENT_LOCAL_ROOT)"
+DEGRADED="$(env_in_app OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN)"
+echo "  OPEN_UNC_ROOT = ${UNC_ROOT:-<unset>}"
+echo "  OPEN_CLIENT_LOCAL_ROOT = ${CLIENT_ROOT:-<unset>}"
+if [[ -n "$UNC_ROOT" || -n "$CLIENT_ROOT" ]]; then
+  ok "Öffnen has a client path to hand out"
+  echo "       It still only works if the user's own PC can reach that path."
+else
+  case "${DEGRADED:-false}" in
+    true|True|1|yes|Yes)
+      warn "no share mapping — Öffnen answers 503, but the Download button is available."
+      echo "       The preview dialog offers Download instead, which streams the file"
+      echo "       through the browser and needs nothing on the user's PC." ;;
+    *)
+      bad "no way to open a document at all. Every Öffnen answers HTTP 503"
+      echo "       (\"Open mapping not configured\"), for every document."
+      echo "       Öffnen launches the file on the USER'S PC, so it needs a path that PC has:"
+      echo "         KNOVAS_SHARE_UNC=\\\\fileserver\\share    (Windows clients on a share), or"
+      echo "         OPEN_CLIENT_LOCAL_ROOT=/mnt/kanzlei      (the path the CLIENT PC mounts it at)"
+      echo "       Documents only on this server, users on other PCs? Neither applies — add"
+      echo "         OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN=true"
+      echo "       to knovas.env for a Download button in the preview dialog. Then setup + start." ;;
+  esac
+fi
+
 head_ "Knovas API (mTLS)"
 # Probed from inside the container, with the same certificates the app uses, so
 # a pass here means the app's own calls can get out. Search and graph-mode Cortex
