@@ -47,7 +47,13 @@ done
 # pointing at an address nothing answers on, which reads as "search broke".
 web_started="$(docker inspect -f '{{.State.StartedAt}}' "$("${DC[@]}" ps -q docbridge-web 2>/dev/null | head -1)" 2>/dev/null)"
 ngx_started="$(docker inspect -f '{{.State.StartedAt}}' "$("${DC[@]}" ps -q docbridge-web-nginx 2>/dev/null | head -1)" 2>/dev/null)"
-if [[ -n "$web_started" && -n "$ngx_started" && "$ngx_started" < "$web_started" ]]; then
+# ...unless its config carries a `resolver` directive, which is exactly what the
+# shipped one does: the upstream sits in a variable so nginx re-resolves per
+# request. Warning there sends an operator to recreate a container that is
+# already correct, which costs a round trip and buys nothing.
+if [[ -n "$web_started" && -n "$ngx_started" && "$ngx_started" < "$web_started" ]] \
+   && ! "${DC[@]}" exec -T docbridge-web-nginx \
+        grep -qs resolver /etc/nginx/conf.d/default.conf; then
   warn "nginx started BEFORE docbridge-web, so it may hold a stale address for it."
   echo "       Recreate it too: ${DC[*]} up -d --force-recreate docbridge-web-nginx"
 fi
