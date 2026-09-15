@@ -138,6 +138,15 @@ def profile_from_form(form: Mapping[str, str], lists: Mapping[str, list[str]]) -
         throughput=throughput,
         max_document_age_days=int(age) if age else None,
         description=str(form.get("description", "") or "").strip(),
+        # Ohne diesen Schalter gab es keinen Weg, eine Übernahme zu wiederholen.
+        # RemoteController überspringt im Normalbetrieb alles, was sein
+        # Zustandsspeicher als übertragen führt -- richtig, solange beide Seiten
+        # dasselbe glauben. Wurde der Bestand bei Knovas neu aufgesetzt, stehen
+        # die Dateien dort weiter als "synced", der Zyklus meldet
+        # "uploaded=0 errors=0" und lädt nie wieder etwas hoch. Von aussen sieht
+        # das aus wie eine Übernahme, die läuft, und wie eine Suche, die nichts
+        # findet.
+        full_rescan=str(form.get("full_rescan", "") or "") == "1",
     )
 
 
@@ -168,6 +177,7 @@ def form_from_request(form: Mapping[str, str], lists: Mapping[str, list[str]]) -
         "throughput": str(form.get("throughput", "") or "").strip(),
         "file_types": [t for t in (lists.get("file_types") or []) if t],
         "max_document_age_days": str(form.get("max_document_age_days", "") or "").strip(),
+        "full_rescan": str(form.get("full_rescan", "") or "") == "1",
         "folders": folders,
     }
 
@@ -209,7 +219,7 @@ def form_from_profile(profile: IngestionProfile | None) -> dict[str, Any]:
     if profile is None:
         return {"identifier_prefix": "", "description": "", "schedule": "nightly",
                 "throughput": "normal", "file_types": ["documents"],
-                "max_document_age_days": "", "folders": []}
+                "max_document_age_days": "", "full_rescan": False, "folders": []}
     return {
         "identifier_prefix": profile.identifier_prefix,
         "description": profile.description,
@@ -217,6 +227,7 @@ def form_from_profile(profile: IngestionProfile | None) -> dict[str, Any]:
         "throughput": profile.throughput,
         "file_types": list(profile.file_types),
         "max_document_age_days": "" if profile.max_document_age_days is None else str(profile.max_document_age_days),
+        "full_rescan": bool(profile.full_rescan),
         "folders": [{"path": s.path, "recursive": bool(s.recursive),
                      "groups": list(s.access_groups)} for s in profile.sources],
     }

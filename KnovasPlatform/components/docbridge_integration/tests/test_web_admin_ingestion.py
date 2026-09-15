@@ -865,3 +865,65 @@ class TestLive:
         body = r.get_json()
         assert body["folders"] == []
         assert "nicht erreichbar" in body["error"]
+
+
+# --- Erneute Übernahme -------------------------------------------------------
+#
+# RemoteController überspringt, was sein Zustandsspeicher als übertragen führt.
+# Das ist richtig, solange beide Seiten dasselbe glauben. Wurde der Bestand bei
+# Knovas neu aufgesetzt, stehen die Dateien dort weiter als "synced", der Zyklus
+# meldet "uploaded=0 scanned=207 errors=0" und lädt nie wieder etwas hoch --
+# von aussen eine Übernahme, die läuft, und eine Suche, die nichts findet.
+#
+# IngestionProfile.full_rescan kompiliert zu "mode": "full", das genau das löst.
+# Nur setzen konnte es niemand: das Formular kannte das Feld nicht.
+
+class TestFullRescanIsReachable:
+    def test_the_form_offers_it(self):
+        html = (TEMPLATES / "admin_ingestion.html").read_text(encoding="utf-8")
+        assert 'name="full_rescan"' in html
+
+    def test_a_ticked_box_becomes_a_full_profile(self):
+        from web_interface.admin_ingestion import profile_from_form
+
+        profile = profile_from_form(
+            {"identifier_prefix": "Mandanten Sync", "schedule": "nightly",
+             "throughput": "normal", "folder-0-path": "/mnt/documents",
+             "full_rescan": "1"},
+            {"file_types": ["documents"]},
+        )
+        assert profile.full_rescan is True
+
+    def test_an_unticked_box_stays_incremental(self):
+        """Der Normalbetrieb bleibt der Normalbetrieb."""
+        from web_interface.admin_ingestion import profile_from_form
+
+        profile = profile_from_form(
+            {"identifier_prefix": "Mandanten Sync", "schedule": "nightly",
+             "throughput": "normal", "folder-0-path": "/mnt/documents"},
+            {"file_types": ["documents"]},
+        )
+        assert profile.full_rescan is False
+
+    def test_it_reaches_the_sync_request_as_full_mode(self):
+        from identity.ingestion_compiler import IngestionProfile, SourceFolder, compile_profile
+
+        compiled = compile_profile(IngestionProfile(
+            identifier_prefix="Mandanten Sync",
+            sources=[SourceFolder(path="/mnt/documents")],
+            file_types=["documents"], schedule="nightly", throughput="normal",
+            full_rescan=True,
+        ))
+        assert compiled.sync_request["mode"] == "full"
+
+    def test_a_saved_profile_shows_the_box_still_ticked(self):
+        """Sonst verliert ein Bearbeiten des Profils die Einstellung stillschweigend."""
+        from identity.ingestion_compiler import IngestionProfile, SourceFolder
+        from web_interface.admin_ingestion import form_from_profile
+
+        form = form_from_profile(IngestionProfile(
+            identifier_prefix="p", sources=[SourceFolder(path="/mnt/documents")],
+            file_types=["documents"], schedule="nightly", throughput="normal",
+            full_rescan=True,
+        ))
+        assert form["full_rescan"] is True

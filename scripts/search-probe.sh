@@ -127,11 +127,18 @@ elif never:
 elif missing:
     print(f"  FAIL  NOT INDEXED: {', '.join(missing)} — RemoteController extracted files")
     print("        containing it, and a pure-BM25 query finds none of them. The text")
-    print("        never reached Knovas: uploads failed, per document and silently.")
-    print("        Look for them:")
-    print("          docker compose --env-file knovas.env logs remote-controller \\")
-    print("            | grep -iE 'init failed|transmit|error'")
-    print("        Then re-run the sync. This is NOT a search-tuning problem.")
+    print("        is not in Knovas. Two ways that happens:")
+    print("          a) the uploads failed. Then the log says so:")
+    print("               docker compose --env-file knovas.env logs remote-controller \\")
+    print("                 | grep -iE 'init failed|transmit|error'")
+    print("          b) they were uploaded once and the tenant was rebuilt since.")
+    print("             RemoteController still holds them as sent, so every cycle")
+    print("             reports 'uploaded=0 errors=0' and nothing is ever re-sent:")
+    print("               curl -s localhost:${RC_HOST_PORT:-5001}/sync/status?live=1")
+    print("             pending=0 with an empty index is exactly this case. Fix it in")
+    print("             Verwaltung -> Übernahme: tick 'Alle Dokumente neu übertragen',")
+    print("             save, and let one cycle run.")
+    print("        Either way this is NOT a search-tuning problem.")
 elif local_with_terms and not any(
     all(t in p.lower() for t in terms) for p in pointers
 ):

@@ -66,6 +66,22 @@
             <label>Kennung <input type="text" name="identifier_prefix" value="{{ form.identifier_prefix }}" required></label>
             <label>Beschreibung <input type="text" name="description" value="{{ form.description }}"></label>
 
+            <label class="checkbox-row">
+                <input type="checkbox" name="full_rescan" value="1"
+                       {# Nicht gesetzt heisst hier ausdrücklich "aus": dieser Schalter
+                          löst eine vollständige Neuübertragung aus, und die darf
+                          niemals aus einem fehlenden Wert entstehen. #}
+                       {% if form.full_rescan is defined and form.full_rescan %}checked{% endif %}>
+                <span>
+                    Alle Dokumente neu übertragen
+                    <small>Normalerweise überträgt die Übernahme nur neue und geänderte
+                    Dateien. Wurde der Bestand bei Knovas neu aufgesetzt, hält
+                    RemoteController sie weiterhin für übertragen und lädt nichts mehr
+                    hoch — der Zyklus meldet dann „uploaded=0, errors=0“ und die Suche
+                    findet nichts. Dies überträgt einmal den ganzen Bestand erneut.</small>
+                </span>
+            </label>
+
             <h3>Ordner</h3>
             <p class="hint">
                 Aufklappen zeigt Unterordner. Hinzufügen setzt den Ordner auf das Profil;

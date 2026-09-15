@@ -543,3 +543,26 @@
         grid-template-columns: 1fr;
     }
 }
+
+
+/* Ein Schalter mit Erklärung darunter. Die Formularzeilen sind sonst
+   label-über-input; eine Checkbox gehört neben ihren Text, nicht darüber. */
+.checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.checkbox-row input[type="checkbox"] {
+    width: auto;
+    margin-top: 3px;
+    flex: 0 0 auto;
+}
+
+.checkbox-row small {
+    display: block;
+    margin-top: 4px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--text-secondary, #5A6B80);
+}
