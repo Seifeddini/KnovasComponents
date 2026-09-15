@@ -14,4 +14,9 @@ addopts = "-q --tb=short"
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "knovas_api: tests requiring real Knovas API connectivity (skipped by default)",
+    # Registered here rather than in Task C0 as the plan intended: C0 lands the
+    # Alloy models and this marker together, and it could not run (no Alloy jar).
+    # The marker is already in use by test_node_grants.py, so leaving it
+    # unregistered means a warning on every run and no way to select the tests.
+    "precondition: verifies the implementation satisfies an Alloy mechanism pred",
 ]
