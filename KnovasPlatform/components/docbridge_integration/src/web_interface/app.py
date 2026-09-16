@@ -210,6 +210,24 @@ def _demo_hit_locations(count: int = 15) -> Tuple[Dict[str, Any], List[Dict[str,
 _demo_primary, _demo_top_chunks = _demo_hit_locations(15)
 
 
+def _demo_card_snippet(locations: List[Dict[str, Any]]) -> Optional[Dict[str, str]]:
+    """Der Kartenausschnitt: die beste Fundstelle, ohne Vorlauf.
+
+    So wie ``context_store.enrich_result_with_context`` ihn im Betrieb baut.
+    Vorher trug jede Attrappe ihren eigenen, festen Ausschnitt -- und dann
+    zeigte die Karte lokal einen anderen Satz als der Dialog, also genau den
+    Zustand, den die Aenderung beseitigt.
+    """
+    if not locations:
+        return None
+    best = locations[0]
+    return {
+        'before': '',
+        'match': str(best.get('match') or '').strip(),
+        'after': str(best.get('after') or '').strip(),
+    }
+
+
 def _demo_context_snippet(
     before: str,
     match: str,
@@ -537,6 +555,15 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         'file_size': 45056,
     },
 ]
+
+# Karte und Dialog zeigen dieselbe Stelle -- im Betrieb, weil beide aus der
+# besten Fundstelle kommen, hier, weil die Attrappe es nachzieht. Sonst wuerde
+# lokal wieder auseinanderlaufen, was die Aenderung zusammengebracht hat.
+for _fixture in _TEST_SEARCH_FIXTURES:
+    _card = _demo_card_snippet(_fixture.get('match_locations') or [])
+    if _card:
+        _fixture['context_snippet'] = _card
+del _fixture, _card
 
 
 def _search_use_test_results() -> bool:

@@ -274,6 +274,30 @@ def context_window(
     }
 
 
+# Wie viel Text auf der Trefferkarte vor dem Treffersatz stehen darf. Die Karte
+# klemmt bei drei Zeilen ab, und was davor steht, verdraengt den Treffer nach
+# hinten: bei einer Mandatsvereinbarung waren das zehn Saetze Briefkopf, und
+# gelesen hat man "Quarzfels Advokatur, Raemistrasse 14, 8001 Zuerich". Der
+# Treffersatz fuehrt die Karte an, der Text danach gibt den Zusammenhang -- man
+# liest vorwaerts, nicht rueckwaerts. Im Dialog steht der Vorlauf weiterhin.
+CARD_LEADING_CONTEXT_CHARS = 0
+
+
+def _trim_leading_context(before: str, max_chars: int = CARD_LEADING_CONTEXT_CHARS) -> str:
+    """Der Vorlauf, auf sein Ende gekuerzt -- der Teil direkt vor dem Treffer."""
+    if max_chars <= 0:
+        return ""
+    text = " ".join(str(before or "").split())
+    if len(text) <= max_chars:
+        return text
+    tail = text[-max_chars:]
+    space = tail.find(" ")
+    if space >= 0:
+        tail = tail[space + 1:]
+    return f"… {tail}"
+
+
+
 def resolve_sentence_number(result: Dict[str, Any]) -> Optional[int]:
     raw = result.get("sentence_number")
     if raw is not None and str(raw).strip() != "":
@@ -798,12 +822,23 @@ def enrich_result_with_context(
         snippet = None
         locations: List[Dict[str, Any]] = []
         if isinstance(sentences, list):
-            snippet = context_window(
-                sentences, resolve_sentence_number(result), radius=context_radius
-            )
             locations = build_match_locations(
                 sentences, result.get("top_chunks"), terms=terms
             )
+            # Der Ausschnitt auf der Trefferkarte ist die beste Fundstelle --
+            # dieselbe, die die Vorschau oben anzeigt. Vorher war es das Fenster
+            # um die gemeldete Satznummer, und das ist der ANFANG des bewerteten
+            # Chunks: bei einer Mandatsvereinbarung der Briefkopf. Auf der Karte
+            # stand dann "Quarzfels Advokatur, Raemistrasse 14, 8001 Zuerich",
+            # waehrend der Satz mit der Antwort zwei Zeilen weiter unten im
+            # abgeschnittenen Text verschwand.
+            anchor = (
+                locations[0]["sentence_number"] if locations
+                else resolve_sentence_number(result)
+            )
+            snippet = context_window(sentences, anchor, radius=context_radius)
+            if snippet:
+                snippet["before"] = _trim_leading_context(snippet.get("before", ""))
     except Exception as exc:  # noqa: BLE001 - decoration must not break the result
         logger.warning(
             "Context enrichment skipped for %s: %s",

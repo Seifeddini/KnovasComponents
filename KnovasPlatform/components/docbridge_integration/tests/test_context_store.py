@@ -644,3 +644,76 @@ def test_the_passage_text_is_capped():
         terms=["kuendigungsfrist"],
     )
     assert len(found[0]["chunk_text"]) <= MAX_CHUNK_TEXT_CHARS
+
+
+# --- Der Ausschnitt auf der Trefferkarte -------------------------------------
+#
+# Die Karte klemmt bei drei Zeilen ab. Stand davor der Briefkopf, las man
+# "Quarzfels Advokatur, Raemistrasse 14, 8001 Zuerich" -- und der Satz mit der
+# Antwort verschwand hinter dem Abschnitt.
+
+def _mandat_sidecar(tmp_path):
+    from context_store import write_context_sidecar
+
+    texts = [
+        "MANDATSVEREINBARUNG", "Quarzfels Advokatur", "Raemistrasse 14, 8001 Zuerich",
+        "Unser Zeichen: 2019-031 / SK-lz", "Aktenzeichen: 2019-031",
+        "In Sachen: Alpenblick Gastro GmbH gegen Seebraeu AG", "1. Gegenstand.",
+        "Die Mandantin Alpenblick Gastro GmbH beauftragt die Kanzlei.",
+        "Die Brauerei stoppte die Lieferung nach einem Streit um Pfandgebinde.",
+        "Streitort ist Seestrasse 40, Waedenswil.",
+    ]
+    offset, sentences = 0, []
+    for index, text in enumerate(texts):
+        sentences.append(_FakeSentence(index, offset, page_number=1))
+        offset += len(text) + 1
+    pointer = "corpus/2019-031/Mandatsvereinbarung.docx"
+    write_context_sidecar(str(tmp_path), pointer, pointer, " ".join(texts), sentences)
+    return pointer, texts
+
+
+def test_the_card_snippet_leads_with_the_best_location(tmp_path: Path):
+    from context_store import query_terms
+
+    pointer, texts = _mandat_sidecar(tmp_path)
+    result = {
+        "doc_id": pointer,
+        "path": pointer,
+        "sentence_number": 1,
+        "top_chunks": [{"sentence_number": 1, "sentence_number_end": 10, "page_number": 1}],
+    }
+    assert enrich_result_with_context(
+        result, str(tmp_path), [pointer], context_radius=10,
+        terms=query_terms("Womit hat die Alpenblick Gastro beauftragt?"),
+    )
+    snippet = result["context_snippet"]
+    assert "beauftragt die Kanzlei" in snippet["match"]
+    # Kein Briefkopf davor: der Treffer fuehrt die Karte an.
+    assert snippet["before"] == ""
+    assert "Raemistrasse" not in snippet["match"]
+
+
+def test_the_card_snippet_matches_the_first_finding(tmp_path: Path):
+    """Karte und Dialog zeigen dieselbe Stelle. Sonst klickt man auf eine Karte
+    wegen eines Satzes und findet ihn im Dialog nicht wieder."""
+    from context_store import query_terms
+
+    pointer, _ = _mandat_sidecar(tmp_path)
+    result = {
+        "doc_id": pointer,
+        "path": pointer,
+        "sentence_number": 1,
+        "top_chunks": [{"sentence_number": 1, "sentence_number_end": 10, "page_number": 1}],
+    }
+    enrich_result_with_context(
+        result, str(tmp_path), [pointer], context_radius=10,
+        terms=query_terms("Alpenblick Gastro beauftragt"),
+    )
+    assert result["context_snippet"]["match"] == result["match_locations"][0]["match"]
+
+
+def test_without_any_location_the_reported_sentence_still_gives_a_snippet(tmp_path: Path):
+    pointer, _ = _mandat_sidecar(tmp_path)
+    result = {"doc_id": pointer, "path": pointer, "sentence_number": 3}
+    assert enrich_result_with_context(result, str(tmp_path), [pointer], context_radius=1)
+    assert result["context_snippet"]["match"]
