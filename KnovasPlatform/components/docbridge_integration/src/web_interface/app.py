@@ -197,7 +197,11 @@ def _demo_hit_locations(count: int = 15) -> Tuple[Dict[str, Any], List[Dict[str,
     for i in range(count):
         locations.append({
             'page_number': (i // 5) + 1,
-            'sentence_number': (i % 5) + 1,
+            # Durchlaufend ueber das ganze Dokument, so wie Knovas sie meldet --
+            # nicht je Seite von vorne. Sonst fallen die Stellen auf Seite 2 mit
+            # denen auf Seite 1 zusammen, und die Attrappe zeigt etwas, das es
+            # im Betrieb nicht gibt.
+            'sentence_number': i + 1,
             'cosine_similarity': round(max(0.55, 0.93 - i * 0.025), 2),
         })
     return locations[0], locations
@@ -218,43 +222,52 @@ def _demo_context_snippet(
     }
 
 
+# Ein Demo-Dokument, Satz fuer Satz, so wie ein Kontext-Sidecar es haelt. Mit
+# Briefkopf und Ueberschrift darin: an denen zeigt sich lokal, dass die
+# Fundstellenliste sie weglaesst.
+_DEMO_SENTENCE_TEXTS = [
+    'Muster Rechtsanwaelte AG, Raemistrasse 14, 8001 Zuerich',
+    'KOMMENTAR ZUM MIETRECHT',
+    'Das Mietrecht regelt das entgeltliche Ueberlassen von Raeumen an den Mieter.',
+    'Der Hauptmietzins ist die periodisch zu entrichtende Gegenleistung.',
+    'Die Reaktionszeit bei Stoerungen der Prioritaetsstufe 1 betraegt vier Stunden.',
+    'Sie wird ab Eingang der Meldung gemessen, nicht ab Eintritt des Fehlers.',
+    'Fuer Wohnungen gilt das MRG mit besonderen Kuendigungsschutzbestimmungen.',
+    'Wird die Reaktionszeit ueberschritten, eskaliert der Auftragnehmer selbsttaetig.',
+    'Die Ansprechperson des Auftraggebers ist im Anhang benannt.',
+    'Aktenzeichen: 2024-050',
+    'Mietzinsanpassungen beduerfen einer gesetzlichen oder vertraglichen Grundlage.',
+    'Die Messung der Reaktionszeit erfolgt ueber das Ticketsystem des Auftragnehmers.',
+    'Abweichende Fristen sind in Anlage 4 abschliessend geregelt.',
+    'Der Mieter haftet fuer Schaeden, die er zu vertreten hat.',
+    'Die Abgrenzung zum Werkvertrag richtet sich nach dem geschuldeten Erfolg.',
+]
+
+_DEMO_SENTENCES = [
+    {'i': n + 1, 'p': (n // 5) + 1, 't': text}
+    for n, text in enumerate(_DEMO_SENTENCE_TEXTS)
+]
+
+
 def _demo_match_locations(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Fundstellen fuer die lokale UI-Entwicklung.
 
-    Im Betrieb baut ``context_store.build_match_locations`` sie aus den
-    Trefferorten von Knovas und dem Kontext-Sidecar. Ohne beides zeigte die
-    Fundstellenliste beim lokalen Entwickeln nichts, und genau dafuer sind
-    diese Attrappen da.
+    Ueber denselben Code wie im Betrieb: ``build_match_locations`` entscheidet,
+    welche der gemeldeten Stellen eine Fundstelle wird. Vorher baute diese
+    Attrappe die Liste selbst, und dann zeigte die lokale Oberflaeche acht
+    Eintraege, wo die echte zwei je Seite zeigt -- eine Aenderung an der Auswahl
+    war lokal gar nicht zu sehen.
     """
-    saetze = [
-        ('Der Hauptmietzins ist die periodisch zu entrichtende Gegenleistung.',
-         'Die Reaktionszeit bei Stoerungen der Prioritaetsstufe 1 betraegt vier Stunden.',
-         'Sie wird ab Eingang der Meldung gemessen, nicht ab Eintritt des Fehlers.'),
-        ('Fuer Wohnungen gilt das MRG mit besonderen Kuendigungsschutzbestimmungen.',
-         'Wird die Reaktionszeit ueberschritten, eskaliert der Auftragnehmer selbsttaetig.',
-         'Die Ansprechperson des Auftraggebers ist im Anhang benannt.'),
-        ('Mietzinsanpassungen beduerfen einer gesetzlichen Grundlage.',
-         'Die Messung der Reaktionszeit erfolgt ueber das Ticketsystem des Auftragnehmers.',
-         'Abweichende Fristen sind in Anlage 4 abschliessend geregelt.'),
-    ]
-    out: List[Dict[str, Any]] = []
-    for i, chunk in enumerate(chunks[:8]):
-        before, match, after = saetze[i % len(saetze)]
-        out.append({
-            'page': chunk.get('page_number'),
-            'sentence_number': chunk.get('sentence_number'),
-            'before': before,
-            'match': match,
-            'after': after,
-        })
-    return out
+    from context_store import build_match_locations
+
+    return build_match_locations(_DEMO_SENTENCES, chunks)
 
 
 _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
     {
         'doc_id': 'corpus/demo/Mietrecht_Kommentar.pdf',
         'path': 'corpus/demo/Mietrecht_Kommentar.pdf',
-        'title': 'Mietrecht Kommentar (Demo: 15 Trefferstellen)',
+        'title': 'Mietrecht Kommentar (Demo: 15 Trefferorte, 2 je Seite)',
         'akten_id': '2024-050',
         'type': 'Kommentar',
         'score': _demo_primary['cosine_similarity'],
@@ -280,7 +293,8 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
             'Bei wesentlichen Mängeln kann der Mieter eine angemessene Minderung verlangen.',
         ),
         'ingested_summary': (
-            'Demo-Dokument mit 15 Trefferstellen in einem Suchergebnis. '
+            'Demo-Dokument, zu dem Knovas 15 Trefferorte meldet. Die Liste zeigt '
+            'davon zwei je Seite; Briefkopf und Ueberschriften fallen weg. '
             'Suche lokal mit „Mietrecht“ oder „Multitreffer“.'
         ),
         'file_size': 1048576,

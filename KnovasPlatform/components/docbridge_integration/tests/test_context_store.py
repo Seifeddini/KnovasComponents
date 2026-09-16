@@ -217,7 +217,7 @@ def test_unreadable_sidecar_is_skipped_not_raised(tmp_path):
 from context_store import MAX_MATCH_LOCATIONS, build_match_locations  # noqa: E402
 
 SENTENCES = [
-    {"i": 1, "t": "Einleitung.", "p": 1},
+    {"i": 1, "t": "Diese Vereinbarung regelt die Zusammenarbeit der Parteien.", "p": 1},
     {"i": 2, "t": "Die Reaktionszeit beträgt vier Stunden.", "p": 7},
     {"i": 3, "t": "Sie wird ab Eingang gemessen.", "p": 7},
     {"i": 4, "t": "Wird die Reaktionszeit überschritten, eskaliert der Auftragnehmer.", "p": 7},
@@ -281,19 +281,19 @@ def test_locations_that_contain_the_query_words_are_marked_and_come_first():
     Absätze" -- was bei einer Namenssuche wie Willkür aussieht."""
     found = build_match_locations(
         SENTENCES,
-        [{"sentence_number": 1}, {"sentence_number": 2}],
+        [{"sentence_number": 1}, {"sentence_number": 4}],
         terms=["reaktionszeit"],
     )
-    assert found[0]["sentence_number"] == 2
+    assert found[0]["sentence_number"] == 4
     assert found[0]["literal"] is True
     assert found[1]["literal"] is False
 
 
 def test_without_query_words_nothing_is_marked_or_reordered():
     found = build_match_locations(
-        SENTENCES, [{"sentence_number": 1}, {"sentence_number": 2}]
+        SENTENCES, [{"sentence_number": 1}, {"sentence_number": 4}]
     )
-    assert [f["sentence_number"] for f in found] == [1, 2]
+    assert [f["sentence_number"] for f in found] == [1, 4]
     assert "literal" not in found[0]
 
 
@@ -318,9 +318,9 @@ def test_a_location_with_only_stopwords_is_not_a_literal_hit():
     from context_store import query_terms
 
     found = build_match_locations(
-        SENTENCES, [{"sentence_number": 1}], terms=query_terms("die Einleitung"),
+        SENTENCES, [{"sentence_number": 1}], terms=query_terms("die Zusammenarbeit"),
     )
-    assert found[0]["literal"] is True  # "einleitung" trägt den Treffer
+    assert found[0]["literal"] is True  # "zusammenarbeit" trägt den Treffer
 
     only_stop = build_match_locations(
         SENTENCES, [{"sentence_number": 1}], terms=query_terms("die der das"),
@@ -346,3 +346,112 @@ def test_sentences_by_number_skips_what_it_cannot_find():
     assert sentences_by_number({"sentences": SENTENCES}, [999]) == []
     assert sentences_by_number(None, [1]) == []
     assert sentences_by_number({"sentences": SENTENCES}, []) == []
+
+
+# --- Welche Fundstellen die Liste weglaesst ----------------------------------
+#
+# Knovas liefert die bestbewerteten Chunks, und die liegen auf einer
+# Vertragsseite oft dicht beieinander. Ungefiltert standen acht Eintraege in der
+# Liste, von denen mehrere auf dieselbe Stelle zeigten und einer auf den
+# Briefkopf. Das beantwortet "wo steht das" nicht besser als zwei gute.
+
+from context_store import MAX_MATCH_LOCATIONS_PER_PAGE  # noqa: E402
+
+LONG_PAGE = [
+    {"i": n, "t": f"Der Auftragnehmer schuldet die Leistung nach Ziffer {n} dieses Vertrags.",
+     "p": 3}
+    for n in range(1, 21)
+]
+
+
+def test_at_most_two_locations_per_page():
+    found = build_match_locations(
+        LONG_PAGE, [{"sentence_number": n, "page_number": 3} for n in range(1, 20, 3)]
+    )
+    assert len(found) == MAX_MATCH_LOCATIONS_PER_PAGE
+
+
+def test_the_per_page_cap_counts_each_page_separately():
+    sentences = LONG_PAGE + [
+        {"i": n + 100, "p": 9,
+         "t": f"Die Verguetung fuer Ziffer {n} ist in Anlage {n} abschliessend geregelt."}
+        for n in range(1, 21)
+    ]
+    chunks = (
+        [{"sentence_number": n, "page_number": 3} for n in (1, 4, 7)]
+        + [{"sentence_number": n + 100, "page_number": 9} for n in (1, 4, 7)]
+    )
+    found = build_match_locations(sentences, chunks)
+    assert [f["page"] for f in found] == [3, 3, 9, 9]
+
+
+def test_neighbouring_sentences_are_one_location():
+    """Bei Radius 1 teilen sich zwei Nachbarn ihr Fenster: zwei Eintraege,
+    die fast denselben Text zeigen, und ein Klick, der kaum woandershin
+    springt."""
+    found = build_match_locations(
+        LONG_PAGE, [{"sentence_number": 5}, {"sentence_number": 6}]
+    )
+    assert [f["sentence_number"] for f in found] == [5]
+
+
+def test_the_same_wording_on_two_pages_is_listed_once():
+    """Kopf- und Fusszeilen stehen auf jeder Seite -- andere Satznummer,
+    gleicher Wortlaut."""
+    sentences = [
+        {"i": 1, "t": "Die Parteien vereinbaren die folgenden Bedingungen.", "p": 1},
+        {"i": 2, "t": "Ein trennender Satz ohne Bedeutung fuer diesen Test.", "p": 1},
+        {"i": 3, "t": "Die Parteien vereinbaren die folgenden Bedingungen.", "p": 2},
+    ]
+    found = build_match_locations(
+        sentences,
+        [{"sentence_number": 1, "page_number": 1}, {"sentence_number": 3, "page_number": 2}],
+    )
+    assert len(found) == 1
+
+
+def test_a_letterhead_line_is_not_a_location():
+    sentences = [
+        {"i": 1, "t": "Muster Rechtsanwaelte AG, Raemistrasse 14, 8001 Zuerich", "p": 1},
+        {"i": 2, "t": "Aktenzeichen: 2019-021", "p": 1},
+        {"i": 3, "t": "Die Mandantin wird nach dem vereinbarten Zeitaufwand abgerechnet.", "p": 1},
+    ]
+    found = build_match_locations(
+        sentences, [{"sentence_number": n, "page_number": 1} for n in (1, 2, 3)]
+    )
+    assert [f["sentence_number"] for f in found] == [3]
+
+
+def test_a_short_line_stays_when_it_holds_a_searched_word():
+    """Wer nach der Adresse sucht, meint die Adresszeile."""
+    sentences = [
+        {"i": 1, "t": "Muster Rechtsanwaelte AG, Raemistrasse 14, 8001 Zuerich", "p": 1},
+        {"i": 2, "t": "Ein Satz, der mit der Suche nichts zu tun hat.", "p": 1},
+    ]
+    found = build_match_locations(
+        sentences, [{"sentence_number": 1, "page_number": 1}], terms=["raemistrasse"]
+    )
+    assert [f["sentence_number"] for f in found] == [1]
+
+
+def test_a_document_of_only_short_lines_still_has_locations():
+    """Lieber duenne Fundstellen als eine leere Liste unter einem Treffer."""
+    sentences = [
+        {"i": 1, "t": "Pos. 1: 4000.00", "p": 1},
+        {"i": 2, "t": "Pos. 2: 250.00", "p": 1},
+    ]
+    found = build_match_locations(
+        sentences, [{"sentence_number": 1, "page_number": 1}]
+    )
+    assert len(found) == 1
+
+
+def test_the_best_hit_keeps_its_place_on_a_crowded_page():
+    """Die zwei Plaetze einer Seite gehoeren dem literalen Treffer, auch wenn
+    er erst an vierter Stelle gemeldet wird."""
+    chunks = [{"sentence_number": n, "page_number": 3} for n in (1, 4, 7, 10)]
+    sentences = list(LONG_PAGE)
+    sentences[9] = dict(sentences[9], t="Die Verguetung richtet sich nach dem Stundenansatz.")
+    found = build_match_locations(sentences, chunks, terms=["stundenansatz"])
+    assert found[0]["sentence_number"] == 10
+    assert found[0]["literal"] is True

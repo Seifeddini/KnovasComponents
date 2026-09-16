@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import re as _re_module
 import tempfile
 from functools import lru_cache
 from pathlib import Path
@@ -301,6 +302,45 @@ MAX_MATCH_LOCATIONS = 8
 # Treffer, kein Absatz.
 MATCH_LOCATION_RADIUS = 1
 
+# Wie viele Fundstellen je Seite. Knovas gibt die bestbewerteten Chunks zurueck,
+# und auf einer Vertragsseite liegen die oft dicht beieinander -- acht Eintraege,
+# die alle auf denselben Absatz zeigen, beantworten die Frage "wo steht das"
+# nicht besser als zwei, sie machen sie nur unuebersichtlich.
+MAX_MATCH_LOCATIONS_PER_PAGE = 2
+
+# Ab wie vielen Woertern ein Satz als Fundstelle taugt. Darunter sind es
+# Briefkopfzeilen, Ueberschriften und Aktenzeichen: "Raemistrasse 14, 8001
+# Zuerich", "MANDATSVEREINBARUNG", "Aktenzeichen: 2019-021". Die Vektorsuche
+# bewertet solche Zeilen mit, weil sie im Dokument stehen; als Antwort auf eine
+# Frage taugen sie nicht.
+MIN_LOCATION_CONTENT_WORDS = 4
+
+# Ein Buchstabenwort. Ziffern und Unterstriche zaehlen nicht mit, damit
+# "2019-021" oder "+41 44 123 45 67" keine Woerter ergeben.
+_CONTENT_WORD = _re_module.compile(r"[^\W\d_]{2,}", _re_module.UNICODE)
+
+# Eine Anschrift: Strasse mit Hausnummer und irgendwo dahinter Postleitzahl und
+# Ort. Beide Haelften zusammen, sonst faellt "Der Restwerklohn betraegt 4000
+# Franken" darunter -- und die Strassennennung allein steht auch in Saetzen, um
+# die es wirklich geht ("Neubau Schaffhauserstrasse 41").
+_ADDRESS_LINE = _re_module.compile(
+    r"(?:stra(?:ss|\u00df)e|str\.|gasse|weg|platz|allee)\s*\d+.*?\b\d{4,5}\s+[^\W\d_]{3,}",
+    _re_module.IGNORECASE | _re_module.DOTALL,
+)
+
+# Telefon-, Fax- und Zahlungszeilen eines Briefkopfs.
+_CONTACT_LINE = _re_module.compile(
+    r"\b(?:tel|telefon|fax|iban|mwst|uid)\b\.?\s*:?\s*\+?\d",
+    _re_module.IGNORECASE,
+)
+
+
+def _is_thin_location(text: str) -> bool:
+    """Ob dieser Satz zu wenig Inhalt hat, um als Fundstelle zu zaehlen."""
+    if _ADDRESS_LINE.search(text) or _CONTACT_LINE.search(text):
+        return True
+    return len(_CONTENT_WORD.findall(text)) < MIN_LOCATION_CONTENT_WORDS
+
 
 def _location_page(chunk: Dict[str, Any]) -> Optional[int]:
     raw = chunk.get("page_number")
@@ -355,6 +395,7 @@ def build_match_locations(
     *,
     radius: int = MATCH_LOCATION_RADIUS,
     limit: int = MAX_MATCH_LOCATIONS,
+    per_page: int = MAX_MATCH_LOCATIONS_PER_PAGE,
     terms: Sequence[str] = (),
 ) -> List[Dict[str, Any]]:
     """Every place in this document the query matched, with its page and text.
@@ -366,8 +407,10 @@ def build_match_locations(
     the first hit only, to make one snippet on the card, and the rest were
     dropped on the floor.
 
-    Duplicate sentence numbers collapse: several chunks of one long sentence are
-    one place to look, not three.
+    Nicht jede gemeldete Stelle wird eine Fundstelle. Welche wegfallen und
+    warum, steht bei ``_select_locations``; kurz: was die Leserin zweimal an
+    dieselbe Stelle schickt, und Briefkopfzeilen, die die Vektorsuche
+    mitbewertet hat, weil sie nun einmal im Dokument stehen.
 
     ``terms`` are the words of the query. A location carries ``literal: True``
     when one of them actually appears in it, and those sort first. Without this
@@ -378,11 +421,9 @@ def build_match_locations(
     """
     if not sentences or not isinstance(top_chunks, list):
         return []
-    out: List[Dict[str, Any]] = []
+    candidates: List[Dict[str, Any]] = []
     seen: set = set()
     for chunk in top_chunks:
-        if len(out) >= limit:
-            break
         if not isinstance(chunk, dict):
             continue
         raw = chunk.get("sentence_number")
@@ -411,12 +452,72 @@ def build_match_locations(
             # jeder Satz neben einem Treffer selbst einer.
             anchor = str(entry["match"]).lower()
             entry["literal"] = any(term in anchor for term in terms)
-        out.append(entry)
+        candidates.append(entry)
+
     # Stable: the backend's ordering is kept inside each group, so the best
-    # scoring literal hit still comes before a weaker one.
+    # scoring literal hit still comes before a weaker one. Muss vor der Auswahl
+    # stehen: die zwei Plaetze einer Seite gehoeren dem besten Treffer, nicht
+    # dem, der zufaellig zuerst kam.
     if terms:
-        out.sort(key=lambda e: not e.get("literal"))
-    return out
+        candidates.sort(key=lambda e: not e.get("literal"))
+
+    chosen = _select_locations(
+        candidates, radius=radius, limit=limit, per_page=per_page, drop_thin=True
+    )
+    if not chosen:
+        # Ein Dokument, das nur aus Kurzzeilen besteht -- eine Tabelle, eine
+        # Adressliste -- haette sonst gar keine Fundstellen. Dann lieber die
+        # duennen zeigen als eine leere Liste unter einem Treffer.
+        chosen = _select_locations(
+            candidates, radius=radius, limit=limit, per_page=per_page, drop_thin=False
+        )
+    return chosen
+
+
+def _select_locations(
+    candidates: List[Dict[str, Any]],
+    *,
+    radius: int,
+    limit: int,
+    per_page: int,
+    drop_thin: bool,
+) -> List[Dict[str, Any]]:
+    """Aus den Kandidaten die Stellen, die einander nicht doppeln.
+
+    Drei Gruende, eine Fundstelle wegzulassen, und alle drei sind dasselbe aus
+    Sicht der Leserin: sie schickt sie dorthin, wo sie schon war.
+
+    * Nachbarsaetze. Zwei Anker, die hoechstens ``radius`` auseinanderliegen,
+      teilen sich ihr Fenster -- zwei Eintraege, die fast denselben Text zeigen.
+    * Gleicher Text. Kopf- und Fusszeilen stehen auf jeder Seite, mit
+      verschiedener Satznummer und identischem Wortlaut.
+    * Mehr als ``per_page`` auf einer Seite.
+    """
+    chosen: List[Dict[str, Any]] = []
+    anchors: List[int] = []
+    texts: set = set()
+    per_page_used: Dict[Optional[int], int] = {}
+    for entry in candidates:
+        if len(chosen) >= limit:
+            break
+        number = entry["sentence_number"]
+        if any(abs(number - taken) <= radius for taken in anchors):
+            continue
+        key = " ".join(str(entry.get("match") or "").split()).lower()
+        if key in texts:
+            continue
+        # Ein Treffer, in dem ein gesuchtes Wort steht, bleibt immer. Wer nach
+        # "Raemistrasse" sucht, meint die Adresszeile.
+        if drop_thin and not entry.get("literal") and _is_thin_location(entry["match"]):
+            continue
+        page = entry.get("page")
+        if per_page_used.get(page, 0) >= per_page:
+            continue
+        chosen.append(entry)
+        anchors.append(number)
+        texts.add(key)
+        per_page_used[page] = per_page_used.get(page, 0) + 1
+    return chosen
 
 
 # Obergrenze für den Text, den die Vorschau aus dem Suchindex zeigt. Grosszügig:
