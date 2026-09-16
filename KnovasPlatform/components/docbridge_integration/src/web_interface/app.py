@@ -222,25 +222,25 @@ def _demo_context_snippet(
     }
 
 
-# Ein Demo-Dokument, Satz fuer Satz, so wie ein Kontext-Sidecar es haelt. Mit
-# Briefkopf und Ueberschrift darin: an denen zeigt sich lokal, dass die
-# Fundstellenliste sie weglaesst.
+# Ein Demo-Dokument, Satz fuer Satz, so wie ein Kontext-Sidecar es haelt.
+# Wortgleich mit dem Text, den die lokale Vorschau anzeigt: nur dann findet die
+# Oberflaeche die Fundstelle im dargestellten Text wieder, und nur dann zeigt
+# das lokale Entwickeln, was der Betrieb zeigt. Ueberschrift und Aktenzeichen
+# stehen absichtlich mit drin -- an ihnen sieht man, dass die Liste sie weglaesst.
 _DEMO_SENTENCE_TEXTS = [
-    'Muster Rechtsanwaelte AG, Raemistrasse 14, 8001 Zuerich',
-    'KOMMENTAR ZUM MIETRECHT',
-    'Das Mietrecht regelt das entgeltliche Ueberlassen von Raeumen an den Mieter.',
+    'MANDATSVEREINBARUNG',
+    'Aktenzeichen: 2019-021',
+    'In Sachen: Alpenblick Gastro GmbH ./. Paechterkollektiv',
     'Der Hauptmietzins ist die periodisch zu entrichtende Gegenleistung.',
     'Die Reaktionszeit bei Stoerungen der Prioritaetsstufe 1 betraegt vier Stunden.',
     'Sie wird ab Eingang der Meldung gemessen, nicht ab Eintritt des Fehlers.',
     'Fuer Wohnungen gilt das MRG mit besonderen Kuendigungsschutzbestimmungen.',
     'Wird die Reaktionszeit ueberschritten, eskaliert der Auftragnehmer selbsttaetig.',
     'Die Ansprechperson des Auftraggebers ist im Anhang benannt.',
-    'Aktenzeichen: 2024-050',
-    'Mietzinsanpassungen beduerfen einer gesetzlichen oder vertraglichen Grundlage.',
+    'Mietzinsanpassungen beduerfen einer gesetzlichen Grundlage.',
     'Die Messung der Reaktionszeit erfolgt ueber das Ticketsystem des Auftragnehmers.',
     'Abweichende Fristen sind in Anlage 4 abschliessend geregelt.',
-    'Der Mieter haftet fuer Schaeden, die er zu vertreten hat.',
-    'Die Abgrenzung zum Werkvertrag richtet sich nach dem geschuldeten Erfolg.',
+    'Die Mandantin Alpenblick Gastro GmbH wird nach Zeitaufwand abgerechnet.',
 ]
 
 _DEMO_SENTENCES = [
@@ -341,7 +341,14 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
     {
         'doc_id': 'corpus/2024-001/Aktennotiz.txt',
         'path': 'corpus/2024-001/Aktennotiz.txt',
-        'match_locations': _demo_match_locations(_demo_top_chunks[:3]),
+        # Ueber das Dokument verteilt, damit die Fundstellenliste lokal mehr als
+        # einen Eintrag zeigt. Satz 1 und 2 sind Ueberschrift und Aktenzeichen --
+        # sie werden gemeldet und fallen weg, genau darum stehen sie hier.
+        'match_locations': _demo_match_locations([
+            {'page_number': 1, 'sentence_number': n, 'cosine_similarity': c}
+            for n, c in ((1, 0.88), (2, 0.86), (3, 0.84), (5, 0.82), (8, 0.80),
+                         (11, 0.78), (13, 0.76))
+        ]),
         'title': 'Aktennotiz Übergabetermin',
         'akten_id': '2024-001',
         'type': 'Aktennotiz',

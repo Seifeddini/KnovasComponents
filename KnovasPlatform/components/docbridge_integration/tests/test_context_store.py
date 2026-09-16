@@ -455,3 +455,97 @@ def test_the_best_hit_keeps_its_place_on_a_crowded_page():
     found = build_match_locations(sentences, chunks, terms=["stundenansatz"])
     assert found[0]["sentence_number"] == 10
     assert found[0]["literal"] is True
+
+
+# --- Der Satz mit der Antwort ------------------------------------------------
+#
+# "Womit hat die Alpenblick Gastro beauftragt?" auf eine Mandatsvereinbarung:
+# gemeldet wurden die Kopfzeile "In Sachen: Alpenblick Gastro GmbH" und ein
+# Nebensatz ueber den Lieferstopp. Der Satz, der die Frage beantwortet --
+# "Die Mandantin Alpenblick Gastro GmbH beauftragt die Kanzlei" -- stand nicht
+# in der Liste, obwohl er im Dokument steht und seine Woerter markiert waren.
+
+MANDAT = [
+    {"i": 7, "p": 1, "t": "Aktenzeichen: 2019-031"},
+    {"i": 8, "p": 1, "t": "In Sachen: Alpenblick Gastro GmbH ./."},
+    {"i": 9, "p": 1, "t": "Seebräu AG"},
+    {"i": 10, "p": 1, "t": "2019-04-15"},
+    {"i": 11, "p": 1, "t": "1. Gegenstand."},
+    {"i": 12, "p": 1, "t": "Die Mandantin Alpenblick Gastro GmbH beauftragt die "
+                           "Kanzlei in Sachen Alpenblick Gastro GmbH ./."},
+    {"i": 13, "p": 1, "t": "Seebräu AG."},
+    {"i": 14, "p": 1, "t": "Die Brauerei stoppte die Lieferung nach einem Streit "
+                           "um Pfandgebinde."},
+    {"i": 15, "p": 1, "t": "Streitort ist Seestrasse 40, Wädenswil."},
+]
+
+
+def test_the_sentence_that_answers_the_question_is_listed():
+    from context_store import query_terms
+
+    found = build_match_locations(
+        MANDAT,
+        [{"sentence_number": 8, "page_number": 1}, {"sentence_number": 14, "page_number": 1}],
+        terms=query_terms("Womit hat die Alpenblick Gastro beauftragt?"),
+    )
+    assert found[0]["sentence_number"] == 12
+    assert "beauftragt die Kanzlei" in found[0]["match"]
+
+
+def test_more_of_the_searched_words_beats_being_reported_first():
+    """Die Kopfzeile traegt zwei gesuchte Woerter, der Antwortsatz drei. Bei
+    zwei Plaetzen je Seite darf nicht die Meldereihenfolge entscheiden."""
+    from context_store import query_terms
+
+    found = build_match_locations(
+        MANDAT,
+        [{"sentence_number": 8, "page_number": 1}, {"sentence_number": 12, "page_number": 1}],
+        terms=query_terms("Alpenblick Gastro beauftragt"),
+    )
+    assert [f["sentence_number"] for f in found] == [12, 8]
+
+
+def test_nothing_is_added_when_the_report_already_holds_the_best_sentence():
+    from context_store import query_terms
+
+    found = build_match_locations(
+        MANDAT,
+        [{"sentence_number": 12, "page_number": 1}],
+        terms=query_terms("Alpenblick Gastro beauftragt"),
+    )
+    assert [f["sentence_number"] for f in found] == [12]
+
+
+def test_the_internal_coverage_key_does_not_reach_the_interface():
+    from context_store import query_terms
+
+    found = build_match_locations(
+        MANDAT, [{"sentence_number": 12}], terms=query_terms("Alpenblick"),
+    )
+    assert all(not k.startswith("_") for k in found[0])
+
+
+def test_question_words_are_not_searched_for():
+    from context_store import query_terms
+
+    assert query_terms("Womit hat die Alpenblick Gastro beauftragt?") == [
+        "alpenblick", "gastro", "beauftragt",
+    ]
+
+
+def test_the_local_search_does_not_read_a_whole_huge_sidecar():
+    """Sie laeuft je Treffer einmal; ein Sidecar darf 50'000 Saetze halten."""
+    from context_store import LOCAL_SCAN_MAX_SENTENCES, query_terms
+
+    sentences = [
+        {"i": n, "p": 1, "t": "Ein Satz ohne jede Bedeutung fuer diese Suche."}
+        for n in range(1, LOCAL_SCAN_MAX_SENTENCES + 200)
+    ]
+    sentences[-1] = {"i": len(sentences), "p": 1,
+                     "t": "Hier steht Alpenblick Gastro und wird beauftragt."}
+    found = build_match_locations(
+        sentences, [{"sentence_number": 5, "page_number": 1}],
+        terms=query_terms("Alpenblick Gastro beauftragt"),
+    )
+    # Jenseits der Lesegrenze, also nicht gefunden -- und vor allem: kein Fehler.
+    assert all(f["sentence_number"] != len(sentences) for f in found)

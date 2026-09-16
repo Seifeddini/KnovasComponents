@@ -435,7 +435,7 @@ class DocumentSearchApp {
             // nicht mehr wörtlich vorkommt -- dann ein kürzeres versuchen,
             // bevor die Fundstelle als nicht auffindbar gilt.
             for (const length of [needle.length, 40, 24]) {
-                const probe = needle.slice(0, length);
+                const probe = DocumentSearchApp.clipToWord(needle, length);
                 if (probe.length < 8) break;
                 if (this._wrapPassage(probe, index)) return;
             }
@@ -515,10 +515,20 @@ class DocumentSearchApp {
         if (!finding) return '';
         const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
         const match = norm(finding.match);
-        if (match.length >= 8) return match.slice(0, 60);
+        // Der ganze Satz. Vorher standen hier 60 Zeichen, und dann endete die
+        // Markierung im Dokument mitten im Wort ("... Streit um Pfan").
+        if (match.length >= 8) return match;
         const longest = [norm(finding.after), norm(finding.before)]
             .sort((a, b) => b.length - a.length)[0] || '';
-        return longest.length >= 8 ? longest.slice(0, 60) : match;
+        return longest.length >= 8 ? longest : match;
+    }
+
+    /** `text` auf hoechstens `length` Zeichen, aber nie mitten im Wort. */
+    static clipToWord(text, length) {
+        if (text.length <= length) return text;
+        const cut = text.slice(0, length);
+        const lastSpace = cut.lastIndexOf(' ');
+        return lastSpace > 8 ? cut.slice(0, lastSpace) : cut;
     }
 
     /**

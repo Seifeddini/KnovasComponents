@@ -335,6 +335,97 @@ _CONTACT_LINE = _re_module.compile(
 )
 
 
+# Nur intern: die Zahl der gesuchten Woerter in einem Trefferatz. Wird vor der
+# Rueckgabe wieder entfernt, die Oberflaeche sieht nur ``literal``.
+_COVERAGE_KEY = "_covered_terms"
+
+# Wie viele Saetze die Vorschau hoechstens selbst beisteuert, wenn Knovas den
+# besten Satz nicht gemeldet hat.
+MAX_LOCAL_LOCATIONS = 2
+
+# Wie weit dafuer in ein Dokument hineingelesen wird. Der Sidecar darf 50'000
+# Saetze halten, und diese Suche laeuft je Treffer einmal -- bei zwanzig
+# Treffern waere das Dekorieren des Ergebnisses teurer als die Suche selbst.
+# Was in den ersten Saetzen nicht steht, findet die Liste ueber die von Knovas
+# gemeldeten Orte.
+LOCAL_SCAN_MAX_SENTENCES = 4000
+
+
+def _term_coverage(text: str, terms: Sequence[str]) -> int:
+    """Wie viele verschiedene gesuchte Woerter in diesem Satz stehen."""
+    low = str(text or "").lower()
+    return sum(1 for term in terms if term and term in low)
+
+
+def _with_uncovered_sentences(
+    candidates: List[Dict[str, Any]],
+    sentences: List[Dict[str, Any]],
+    terms: Sequence[str],
+    *,
+    radius: int,
+) -> List[Dict[str, Any]]:
+    """Ergaenzt den Satz, der die Frage beantwortet, wenn Knovas ihn nicht meldet.
+
+    Knovas meldet die bestbewerteten Chunks, und ein Chunk deckt mehrere Saetze
+    ab -- welcher Satz darin die gesuchten Woerter traegt, steht nicht in der
+    Antwort. Bei "Womit hat die Alpenblick Gastro beauftragt?" standen so eine
+    Kopfzeile und ein Nebensatz in der Liste, waehrend "Die Mandantin Alpenblick
+    Gastro GmbH beauftragt die Kanzlei" -- der Satz mit der Antwort -- gar nicht
+    vorkam, obwohl er im Dokument steht und seine Woerter markiert waren.
+
+    Der Sidecar haelt jeden Satz. Ist im Dokument einer besser gedeckt als alles
+    Gemeldete, kommt er dazu. Ausgewaehlt wird er danach wie jeder andere, mit
+    Seitenobergrenze und Dopplungspruefung.
+    """
+    best_reported = max(
+        (int(c.get(_COVERAGE_KEY) or 0) for c in candidates), default=0
+    )
+    known = {int(c["sentence_number"]) for c in candidates}
+    full = len(terms)
+    extra: List[Tuple[int, Dict[str, Any]]] = []
+    for idx, sent in enumerate(sentences[:LOCAL_SCAN_MAX_SENTENCES]):
+        if len(extra) >= MAX_LOCAL_LOCATIONS and extra[0][0] >= full:
+            # Besser als "alle gesuchten Woerter" wird es nicht mehr.
+            break
+        text = _sentence_text(sent)
+        if not text:
+            continue
+        covered = _term_coverage(text, terms)
+        if covered <= best_reported:
+            continue
+        number = sent.get("i") if isinstance(sent, dict) else None
+        try:
+            number = int(number)
+        except (TypeError, ValueError):
+            number = idx + 1
+        if number in known:
+            continue
+        window = context_window(sentences, number, radius=radius)
+        if not window:
+            continue
+        entry: Dict[str, Any] = {
+            "sentence_number": number,
+            "before": window.get("before", ""),
+            "match": window.get("match", ""),
+            "after": window.get("after", ""),
+            "literal": True,
+            _COVERAGE_KEY: covered,
+        }
+        page = sent.get("p") if isinstance(sent, dict) else None
+        try:
+            page = int(page)
+        except (TypeError, ValueError):
+            page = None
+        if page is not None and page >= 1:
+            entry["page"] = page
+        extra.append((covered, entry))
+        extra.sort(key=lambda pair: -pair[0])
+        del extra[MAX_LOCAL_LOCATIONS:]
+    if not extra:
+        return candidates
+    return [entry for _, entry in extra] + candidates
+
+
 def _is_thin_location(text: str) -> bool:
     """Ob dieser Satz zu wenig Inhalt hat, um als Fundstelle zu zaehlen."""
     if _ADDRESS_LINE.search(text) or _CONTACT_LINE.search(text):
@@ -368,7 +459,9 @@ STOPWORDS: frozenset = frozenset({
     # Fragewörter: "Wie wird die Alpenblick Mandantin abgerechnet?" fragt nach
     # Alpenblick und abgerechnet, nicht nach "wie".
     "wie", "was", "wer", "wann", "wo", "warum", "wieso", "weshalb",
-    "welche", "welcher", "welches", "welchen", "the", "and", "for",
+    "welche", "welcher", "welches", "welchen",
+    "womit", "wodurch", "wofür", "wofuer", "woran", "worin", "worum", "wozu",
+    "wohin", "woher", "weswegen", "the", "and", "for",
     "with", "that", "this", "from", "are", "was", "has", "have",
 })
 
@@ -450,16 +543,23 @@ def build_match_locations(
             # Nur der Trefferatz selbst entscheidet, nicht sein Umfeld: mit
             # Radius 1 steht der Nachbarsatz mit im Fenster, und dann waere
             # jeder Satz neben einem Treffer selbst einer.
-            anchor = str(entry["match"]).lower()
-            entry["literal"] = any(term in anchor for term in terms)
+            covered = _term_coverage(entry["match"], terms)
+            entry["literal"] = covered > 0
+            entry[_COVERAGE_KEY] = covered
         candidates.append(entry)
 
-    # Stable: the backend's ordering is kept inside each group, so the best
-    # scoring literal hit still comes before a weaker one. Muss vor der Auswahl
-    # stehen: die zwei Plaetze einer Seite gehoeren dem besten Treffer, nicht
-    # dem, der zufaellig zuerst kam.
     if terms:
-        candidates.sort(key=lambda e: not e.get("literal"))
+        # Der Satz, in dem die meisten gesuchten Woerter stehen, zuerst. Ein
+        # blosses literal/nicht-literal reicht nicht: "In Sachen: Alpenblick
+        # Gastro GmbH" (zwei Woerter, eine Kopfzeile) stand damit gleichauf mit
+        # "Die Mandantin Alpenblick Gastro GmbH beauftragt die Kanzlei" (drei) --
+        # und bei zwei Plaetzen je Seite gewann die Kopfzeile, weil Knovas sie
+        # zuerst meldete. Sortiert wird vor der Auswahl, sonst entscheidet die
+        # Meldereihenfolge, wer die Plaetze bekommt.
+        candidates = _with_uncovered_sentences(
+            candidates, sentences, terms, radius=radius
+        )
+        candidates.sort(key=lambda e: -int(e.get(_COVERAGE_KEY) or 0))
 
     chosen = _select_locations(
         candidates, radius=radius, limit=limit, per_page=per_page, drop_thin=True
@@ -471,6 +571,8 @@ def build_match_locations(
         chosen = _select_locations(
             candidates, radius=radius, limit=limit, per_page=per_page, drop_thin=False
         )
+    for entry in chosen:
+        entry.pop(_COVERAGE_KEY, None)
     return chosen
 
 
