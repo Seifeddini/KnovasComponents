@@ -4,12 +4,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re as _re_module
 import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import german_text
 
 logger = logging.getLogger(__name__)
 
@@ -375,10 +378,61 @@ MAX_LOCAL_LOCATIONS = 2
 LOCAL_SCAN_MAX_SENTENCES = 4000
 
 
-def _term_coverage(text: str, terms: Sequence[str]) -> int:
-    """Wie viele verschiedene gesuchte Woerter in diesem Satz stehen."""
-    low = str(text or "").lower()
-    return sum(1 for term in terms if term and term in low)
+def _term_weights(
+    terms: Sequence[str],
+    sentences: List[Dict[str, Any]],
+) -> Dict[str, float]:
+    """Was ein gesuchtes Wort in DIESEM Dokument wert ist.
+
+    Ein Wort, das in fast jedem Satz steht, kann keinen Satz vor einem anderen
+    auszeichnen. In einer Mandatsvereinbarung sind das der Mandantenname und
+    "Mandantin" -- sie stehen ueberall, sie sind das Thema. "Abgerechnet" steht
+    in einem einzigen Satz, und das ist die Frage.
+
+    Ohne diese Gewichtung zaehlte jedes Wort gleich, und dann schlug ein Satz
+    mit zwei Namensnennungen den einen Satz, der die Frage beantwortet.
+    """
+    wanted = german_text.stems(terms)
+    if not wanted:
+        return {}
+    counts: Dict[str, int] = {value: 0 for value in wanted}
+    scanned = 0
+    for sent in sentences[:LOCAL_SCAN_MAX_SENTENCES]:
+        text = _sentence_text(sent)
+        if not text:
+            continue
+        scanned += 1
+        present = german_text.text_stems(text)
+        for value in wanted:
+            if value in present:
+                counts[value] += 1
+    if not scanned:
+        return {value: 1.0 for value in wanted}
+    return {
+        value: math.log((scanned + 1) / (counts[value] + 1)) + 1.0
+        for value in wanted
+    }
+
+
+def _term_coverage(
+    text: str,
+    terms: Sequence[str],
+    weights: Optional[Dict[str, float]] = None,
+) -> float:
+    """Was die gesuchten Woerter in diesem Satz zusammen wiegen.
+
+    Verglichen wird ueber den Wortstamm, nicht ueber die Zeichen: sonst ist
+    "abgerechnet" etwas anderes als "Abrechnung", und der Satz mit der Antwort
+    gilt als Stelle ohne jedes gesuchte Wort.
+    """
+    if not terms:
+        return 0.0
+    present = german_text.text_stems(text)
+    total = 0.0
+    for value in german_text.stems(terms):
+        if value in present:
+            total += (weights or {}).get(value, 1.0)
+    return total
 
 
 def _with_uncovered_sentences(
@@ -387,6 +441,7 @@ def _with_uncovered_sentences(
     terms: Sequence[str],
     *,
     radius: int,
+    weights: Optional[Dict[str, float]] = None,
 ) -> List[Dict[str, Any]]:
     """Ergaenzt den Satz, der die Frage beantwortet, wenn Knovas ihn nicht meldet.
 
@@ -397,25 +452,22 @@ def _with_uncovered_sentences(
     Gastro GmbH beauftragt die Kanzlei" -- der Satz mit der Antwort -- gar nicht
     vorkam, obwohl er im Dokument steht und seine Woerter markiert waren.
 
-    Der Sidecar haelt jeden Satz. Ist im Dokument einer besser gedeckt als alles
-    Gemeldete, kommt er dazu. Ausgewaehlt wird er danach wie jeder andere, mit
-    Seitenobergrenze und Dopplungspruefung.
+    Der Sidecar haelt jeden Satz. Jeder, in dem ein gesuchtes Wort steht, kommt
+    als Kandidat dazu -- ausgewaehlt wird er danach wie jeder andere, nach
+    Gewicht und mit Seitenobergrenze und Dopplungspruefung. Vorher musste er
+    besser sein als alles Gemeldete, und dann fiel er bei einem kurzen Dokument
+    weg: Knovas meldet dafuer EINEN Chunk ueber das ganze Dokument, daraus wird
+    ein Anker, und die zweite freie Stelle der Seite blieb leer, obwohl "3.
+    Honorar. Abrechnung nach Zeitaufwand" im Dokument steht.
     """
-    best_reported = max(
-        (int(c.get(_COVERAGE_KEY) or 0) for c in candidates), default=0
-    )
     known = {int(c["sentence_number"]) for c in candidates}
-    full = len(terms)
-    extra: List[Tuple[int, Dict[str, Any]]] = []
+    extra: List[Tuple[float, Dict[str, Any]]] = []
     for idx, sent in enumerate(sentences[:LOCAL_SCAN_MAX_SENTENCES]):
-        if len(extra) >= MAX_LOCAL_LOCATIONS and extra[0][0] >= full:
-            # Besser als "alle gesuchten Woerter" wird es nicht mehr.
-            break
         text = _sentence_text(sent)
         if not text:
             continue
-        covered = _term_coverage(text, terms)
-        if covered <= best_reported:
+        covered = _term_coverage(text, terms, weights)
+        if covered <= 0:
             continue
         number = sent.get("i") if isinstance(sent, dict) else None
         try:
@@ -447,7 +499,10 @@ def _with_uncovered_sentences(
         del extra[MAX_LOCAL_LOCATIONS:]
     if not extra:
         return candidates
-    return [entry for _, entry in extra] + candidates
+    # Hinten angehaengt: die Sortierung danach ist stabil, und bei gleichem
+    # Gewicht soll die von Knovas gemeldete Stelle vorne stehen. Sie beruht auf
+    # dem Ranking der Suche, die hiesige nur darauf, dass das Wort vorkommt.
+    return candidates + [entry for _, entry in extra]
 
 
 # Wie viele Saetze eines gemeldeten Chunks hoechstens durchgesehen werden. Ein
@@ -478,6 +533,7 @@ def _anchor_in_chunk(
     start: int,
     end: int,
     terms: Sequence[str],
+    weights: Optional[Dict[str, float]] = None,
 ) -> int:
     """Der Satz des Chunks, der die gesuchten Woerter traegt.
 
@@ -492,9 +548,10 @@ def _anchor_in_chunk(
     """
     if not terms or end <= start:
         return start
-    best_number, best_covered = start, _term_coverage(numbers_to_text.get(start, ""), terms)
+    best_number = start
+    best_covered = _term_coverage(numbers_to_text.get(start, ""), terms, weights)
     for number in range(start + 1, end + 1):
-        covered = _term_coverage(numbers_to_text.get(number, ""), terms)
+        covered = _term_coverage(numbers_to_text.get(number, ""), terms, weights)
         if covered > best_covered:
             best_number, best_covered = number, covered
     return best_number
@@ -591,6 +648,8 @@ def build_match_locations(
     candidates: List[Dict[str, Any]] = []
     seen: set = set()
     numbers_to_text = _sentences_by_number(sentences)
+    # Einmal je Dokument, nicht je Satz: die Gewichte haengen am Dokument.
+    weights = _term_weights(terms, sentences) if terms else {}
     for chunk in top_chunks:
         if not isinstance(chunk, dict):
             continue
@@ -601,7 +660,7 @@ def build_match_locations(
             continue
         chunk_start, chunk_end = _chunk_range(chunk, chunk_start)
         sentence_number = _anchor_in_chunk(
-            numbers_to_text, chunk_start, chunk_end, terms
+            numbers_to_text, chunk_start, chunk_end, terms, weights
         )
         if sentence_number in seen:
             continue
@@ -628,7 +687,7 @@ def build_match_locations(
             # Nur der Trefferatz selbst entscheidet, nicht sein Umfeld: mit
             # Radius 1 steht der Nachbarsatz mit im Fenster, und dann waere
             # jeder Satz neben einem Treffer selbst einer.
-            covered = _term_coverage(entry["match"], terms)
+            covered = _term_coverage(entry["match"], terms, weights)
             entry["literal"] = covered > 0
             entry[_COVERAGE_KEY] = covered
         if not entry.get("literal") and chunk_end > chunk_start:
@@ -653,9 +712,9 @@ def build_match_locations(
         # zuerst meldete. Sortiert wird vor der Auswahl, sonst entscheidet die
         # Meldereihenfolge, wer die Plaetze bekommt.
         candidates = _with_uncovered_sentences(
-            candidates, sentences, terms, radius=radius
+            candidates, sentences, terms, radius=radius, weights=weights
         )
-        candidates.sort(key=lambda e: -int(e.get(_COVERAGE_KEY) or 0))
+        candidates.sort(key=lambda e: -float(e.get(_COVERAGE_KEY) or 0.0))
 
     chosen = _select_locations(
         candidates, radius=radius, limit=limit, per_page=per_page, drop_thin=True

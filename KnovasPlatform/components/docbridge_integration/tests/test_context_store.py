@@ -286,7 +286,14 @@ def test_locations_that_contain_the_query_words_are_marked_and_come_first():
     )
     assert found[0]["sentence_number"] == 4
     assert found[0]["literal"] is True
-    assert found[1]["literal"] is False
+
+    # Und eine Stelle ohne jedes gesuchte Wort ist als solche gekennzeichnet.
+    # Getrennt geprueft: in der Liste oben steht Satz 1 neben dem hier selbst
+    # gefundenen Satz 2, und Nachbarn fallen zusammen.
+    without = build_match_locations(
+        SENTENCES, [{"sentence_number": 1}], terms=["kuendigungsfrist"],
+    )
+    assert without[0]["literal"] is False
 
 
 def test_without_query_words_nothing_is_marked_or_reordered():
@@ -505,7 +512,9 @@ def test_more_of_the_searched_words_beats_being_reported_first():
     assert [f["sentence_number"] for f in found] == [12, 8]
 
 
-def test_nothing_is_added_when_the_report_already_holds_the_best_sentence():
+def test_the_best_sentence_leads_even_when_it_was_the_one_reported():
+    """Weitere Saetze mit einem gesuchten Wort duerfen folgen -- sie sind
+    Fundstellen. Anfuehren muss der bestgewichtete."""
     from context_store import query_terms
 
     found = build_match_locations(
@@ -513,7 +522,24 @@ def test_nothing_is_added_when_the_report_already_holds_the_best_sentence():
         [{"sentence_number": 12, "page_number": 1}],
         terms=query_terms("Alpenblick Gastro beauftragt"),
     )
-    assert [f["sentence_number"] for f in found] == [12]
+    assert found[0]["sentence_number"] == 12
+
+
+def test_a_reported_location_wins_a_tie_against_one_found_here():
+    """Die gemeldete beruht auf dem Ranking der Suche, die hiesige nur darauf,
+    dass das Wort vorkommt."""
+    from context_store import query_terms
+
+    sentences = [
+        {"i": 1, "p": 1, "t": "Die Kuendigung bedarf der Schriftform."},
+        {"i": 2, "p": 1, "t": "Ein trennender Satz ohne jede Bedeutung hier."},
+        {"i": 3, "p": 1, "t": "Die Kuendigung wird per Einschreiben zugestellt."},
+    ]
+    found = build_match_locations(
+        sentences, [{"sentence_number": 3, "page_number": 1}],
+        terms=query_terms("Kuendigung"),
+    )
+    assert found[0]["sentence_number"] == 3
 
 
 def test_the_internal_coverage_key_does_not_reach_the_interface():
@@ -576,7 +602,7 @@ def test_the_anchor_is_the_sentence_in_the_chunk_that_carries_the_words():
         [{"sentence_number": 7, "sentence_number_end": 11, "page_number": 1}],
         terms=query_terms("Womit hat die Alpenblick Gastro beauftragt?"),
     )
-    assert [f["sentence_number"] for f in found] == [10]
+    assert found[0]["sentence_number"] == 10
 
 
 def test_without_a_reported_end_the_reported_sentence_stands():
@@ -717,3 +743,48 @@ def test_without_any_location_the_reported_sentence_still_gives_a_snippet(tmp_pa
     result = {"doc_id": pointer, "path": pointer, "sentence_number": 3}
     assert enrich_result_with_context(result, str(tmp_path), [pointer], context_radius=1)
     assert result["context_snippet"]["match"]
+
+
+def test_the_sentence_that_answers_is_found_through_the_word_stem():
+    """Die gemeldete Frage aus dem Betrieb: "Wie wird die Alpenblick Mandantin
+    abgerechnet?" auf eine Mandatsvereinbarung. Knovas meldet EINEN Chunk ueber
+    das ganze Dokument; der Satz mit "Abrechnung" muss trotzdem in der Liste
+    stehen, obwohl die Anfrage "abgerechnet" sagt."""
+    from context_store import query_terms
+
+    texts = [
+        "MANDATSVEREINBARUNG", "Quarzfels Advokatur", "Raemistrasse 14, 8001 Zuerich",
+        "Aktenzeichen: 2019-031", "In Sachen: Alpenblick Gastro GmbH gegen Seebraeu AG",
+        "1. Gegenstand.",
+        "Die Mandantin Alpenblick Gastro GmbH beauftragt die Kanzlei in dieser Sache.",
+        "Die Brauerei stoppte die Lieferung nach einem Streit um Pfandgebinde.",
+        "2. Umfang. Umfasst sind Korrespondenz, Strategie und Prozessfuehrung.",
+        "3. Honorar. Abrechnung nach Zeitaufwand, Ansatz CHF 350 zzgl. Auslagen und MwSt.",
+        "4. Kostenvorschuss. Ein angemessener Vorschuss ist vor Arbeitsbeginn geschuldet.",
+        "Die Mandantin bestaetigt den Auftrag mit Unterschrift.",
+    ]
+    sentences = [{"i": n + 1, "p": 1, "t": t} for n, t in enumerate(texts)]
+    found = build_match_locations(
+        sentences,
+        [{"sentence_number": 1, "sentence_number_end": 12, "page_number": 1}],
+        terms=query_terms("Wie wird die Alpenblick mandantin abgerechnet?"),
+    )
+    assert any("Abrechnung nach Zeitaufwand" in f["match"] for f in found)
+
+
+def test_a_rare_word_outweighs_a_name_that_stands_everywhere():
+    """Der Mandantenname steht in jedem zweiten Satz -- er kann keinen Satz vor
+    einem anderen auszeichnen. Ohne Gewichtung schlug ein Satz mit zwei
+    Namensnennungen den einen Satz, der die Frage beantwortet."""
+    from context_store import _term_coverage, _term_weights, query_terms
+
+    texts = ["Die Mandantin Alpenblick GmbH ist hier genannt."] * 8 + [
+        "Die Abrechnung erfolgt nach Zeitaufwand.",
+    ]
+    sentences = [{"i": n + 1, "p": 1, "t": t} for n, t in enumerate(texts)]
+    terms = query_terms("Alpenblick mandantin abgerechnet")
+    weights = _term_weights(terms, sentences)
+    assert (
+        _term_coverage("Die Abrechnung erfolgt nach Zeitaufwand.", terms, weights)
+        > _term_coverage("Die Mandantin Alpenblick GmbH ist hier genannt.", terms, weights)
+    )

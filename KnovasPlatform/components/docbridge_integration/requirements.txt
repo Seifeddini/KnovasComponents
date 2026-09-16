@@ -55,3 +55,8 @@ pytest-mock==3.12.0
 black==23.12.1
 flake8==7.0.0
 mypy==1.8.0
+
+# Deutsche Wortstaemme fuer die Trefferhervorhebung: ohne sie ist
+# "abgerechnet" etwas anderes als "Abrechnung", und der Satz mit der Antwort
+# gilt als Stelle ohne jedes gesuchte Wort. Reines Python, BSD, kein Netz.
+snowballstemmer==2.2.0

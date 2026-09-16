@@ -28,6 +28,7 @@ import requests
 from urllib.parse import quote
 
 from config_loader import get_config
+import german_text
 from context_store import (
     enrich_result_with_context,
     indexed_text,
@@ -1861,6 +1862,14 @@ def create_app(config_path: Optional[str] = None):
                 'query': query,
                 'results': final_results,
                 'literal_query_matches': literal_hits,
+                # Womit ein Wort im Dokument beginnen muss, um markiert zu
+                # werden. Die Oberflaeche kann nicht stemmen: ohne diese Liste
+                # bliebe "Abrechnung" bei der Suche nach "abgerechnet"
+                # unmarkiert, obwohl der Satz als Fundstelle gilt.
+                'highlight_prefixes': german_text.highlight_prefixes(
+                    context_query_terms(query, config.get_int(
+                        'web.search.strict_match_min_term_length', 2))
+                ),
                 'total': len(final_results),
                 'timestamp': datetime.now().isoformat(),
                 'onedrive_enrichment_loaded': enrichment_loaded,

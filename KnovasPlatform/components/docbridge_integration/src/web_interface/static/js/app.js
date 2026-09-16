@@ -327,10 +327,8 @@ class DocumentSearchApp {
         const safe = this.escapeHtml(String(text || ''));
         const terms = this._queryTerms();
         if (!terms.length) return safe;
-        const pattern = terms
-            .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-            .join('|');
-        return safe.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
+        const pattern = terms.map(DocumentSearchApp.toWholeWord).join('|');
+        return safe.replace(new RegExp(`(${pattern})`, 'giu'), '<mark>$1</mark>');
     }
 
     /**
@@ -355,8 +353,19 @@ class DocumentSearchApp {
         'with', 'that', 'this', 'from', 'are', 'was', 'has', 'have',
     ]);
 
-    /** Die Wörter der Suche, ohne die, die überall vorkommen. */
+    /**
+     * Womit ein Wort beginnen muss, um als gesuchtes Wort zu gelten.
+     *
+     * Vom Server, wenn er sie geschickt hat: er kennt den Wortstamm, und
+     * "abgerechnet" und "Abrechnung" sind dasselbe Wort in zwei Formen. Hier
+     * liesse sich das nicht entscheiden, und ungestemmt blieb der Satz
+     * "3. Honorar. Abrechnung nach Zeitaufwand" unmarkiert, obwohl er als
+     * Fundstelle gilt -- die Liste sagte "Treffer", das Dokument zeigte keinen.
+     */
     _queryTerms() {
+        if (Array.isArray(this._highlightPrefixes) && this._highlightPrefixes.length) {
+            return this._highlightPrefixes.slice().sort((a, b) => b.length - a.length);
+        }
         return String(this.currentQuery || '')
             .split(/\W+/)
             .map((term) => term.toLowerCase())
@@ -364,12 +373,17 @@ class DocumentSearchApp {
             .sort((a, b) => b.length - a.length);
     }
 
+    /** Ein Wortanfang markiert das ganze Wort, nicht nur seinen Anfang. */
+    static toWholeWord(term) {
+        return `${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^\\W\\d_]*`;
+    }
+
     _markTermsInBody() {
         const terms = this._queryTerms();
         if (!terms.length) return;
         const pattern = new RegExp(
-            `(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
-            'gi',
+            `(${terms.map(DocumentSearchApp.toWholeWord).join('|')})`,
+            'giu',
         );
         const walker = document.createTreeWalker(
             this.previewBody, NodeFilter.SHOW_TEXT, {
@@ -968,6 +982,8 @@ class DocumentSearchApp {
                 }
                 this.currentResults = data.results || [];
                 this._literalMatches = Number(data.literal_query_matches || 0);
+                this._highlightPrefixes = Array.isArray(data.highlight_prefixes)
+                    ? data.highlight_prefixes : [];
                 this.displayResults(data.results, data.total, data.semantix);
             } else {
                 throw new Error(data.error || 'Suche fehlgeschlagen');
