@@ -958,6 +958,17 @@ mark.context-snippet-match,
     color: inherit;
 }
 
+/* Der Treffersatz gegen seinen Kontext. Im Dokument leuchtet genau dieser
+   Satz auf -- steht er in der Liste gleichwertig neben dem Satz davor, sieht
+   der Sprung aus, als ginge er auf die falsche Stelle. */
+.preview-finding-hit {
+    color: var(--text-primary);
+}
+
+.preview-finding-context {
+    color: var(--text-secondary);
+}
+
 /* Dokumentdaten: Bezeichnung und Wert fluchten, wie im Mailkopf. */
 .preview-docdata {
     display: grid;
@@ -1506,14 +1517,27 @@ mark.context-snippet-match,
 /* Die Trefferstelle als Absatz. Ohne sie wäre an einem rein semantischen
    Treffer nichts markiert: er enthält die gesuchten Wörter gar nicht. */
 .preview-body .passage-hit {
-    background: rgba(var(--accent-rgb), 0.07);
-    border-left: 3px solid var(--border-color);
-    border-radius: 0 var(--radius) var(--radius) 0;
-    padding: 6px 10px;
-    margin-left: -13px;
+    background: rgba(var(--accent-rgb), 0.09);
+    border-radius: 2px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
 }
 
 .preview-body .passage-hit.is-active {
     background: var(--highlight);
-    border-left-color: var(--accent);
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Eine Fundstelle, die im dargestellten Text nicht wiederzufinden ist. Sie
+   bleibt in der Liste -- sie ist ja ein echter Treffer --, aber der Klick
+   springt nirgendwohin, und das muss man sehen. */
+.preview-finding.is-unlocatable {
+    opacity: 0.72;
+}
+
+.preview-finding.is-unlocatable .preview-finding-where::after {
+    content: " · nicht im dargestellten Text";
+    font-weight: 400;
+    color: var(--text-secondary);
 }

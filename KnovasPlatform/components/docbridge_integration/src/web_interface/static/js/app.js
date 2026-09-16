@@ -281,12 +281,26 @@ class DocumentSearchApp {
         const literal = findings.some((f) => f.literal);
         this.previewFindings.innerHTML = findings.map((f, i) => {
             const where = f.page ? `Seite ${this.escapeHtml(String(f.page))}` : `Fundstelle ${i + 1}`;
-            const parts = [f.before, f.match, f.after]
-                .map((s) => String(s || '').trim()).filter(Boolean);
+            // Der Treffersatz abgesetzt vom Kontext davor und danach. Als ein
+            // Absatz gesetzt liest sich der erste Satz als die Fundstelle, im
+            // Dokument leuchtet dann aber der mittlere auf -- und es sieht so
+            // aus, als zeige der Klick woanders hin. Bei einer semantischen
+            // Fundstelle ist kein gesuchtes Wort markiert, dort ist das die
+            // einzige Angabe, welcher Satz gemeint ist.
+            const ctx = (s) => {
+                const t = String(s || '').trim();
+                return t ? `<span class="preview-finding-context">${this._highlightTerms(t)}</span>` : '';
+            };
+            const hit = String(f.match || '').trim();
+            const text = [
+                ctx(f.before),
+                hit ? `<span class="preview-finding-hit">${this._highlightTerms(hit)}</span>` : '',
+                ctx(f.after),
+            ].filter(Boolean).join(' ');
             return `<li><button type="button" class="preview-finding" data-finding="${i}">`
                 + `<span class="preview-finding-where">${where}`
                 + `<span class="preview-finding-active-flag" data-active-flag></span></span>`
-                + `<span class="preview-finding-text">${this._highlightTerms(parts.join(' '))}</span>`
+                + `<span class="preview-finding-text">${text}</span>`
                 + `</button></li>`;
         }).join('');
 
@@ -335,7 +349,9 @@ class DocumentSearchApp {
         'über', 'ueber', 'unter', 'wird', 'werden', 'wurde', 'war', 'sind', 'sein',
         'hat', 'haben', 'kann', 'können', 'koennen', 'soll', 'sollen', 'muss',
         'müssen', 'muessen', 'es', 'er', 'sie', 'wir', 'ich', 'man', 'sich', 'dass',
-        'wenn', 'weil', 'dies', 'diese', 'dieser', 'dieses', 'the', 'and', 'for',
+        'wenn', 'weil', 'dies', 'diese', 'dieser', 'dieses',
+        'wie', 'was', 'wer', 'wann', 'wo', 'warum', 'wieso', 'weshalb',
+        'welche', 'welcher', 'welches', 'welchen', 'the', 'and', 'for',
         'with', 'that', 'this', 'from', 'are', 'was', 'has', 'have',
     ]);
 
@@ -395,18 +411,96 @@ class DocumentSearchApp {
     }
 
     /**
-     * Hebt die Absätze hervor, in denen die Trefferstellen stehen.
+     * Markiert die Trefferstellen als Text im Dokument.
      *
-     * Die Wortmarkierung allein reicht nicht: eine semantische Fundstelle
-     * enthält die gesuchten Wörter oft gar nicht, und dann steht sie in der
-     * Liste und ist im Dokument nicht zu finden. Genau dafür gibt es die
-     * semantische Suche.
+     * Vorher wurde der umgebende Absatz markiert. Das faellt in sich zusammen,
+     * sobald ein Dokument als ein einziger Absatz gerendert wird -- bei einer
+     * TXT- oder DOCX-Datei ohne Leerzeilen der Normalfall: alle Fundstellen
+     * treffen denselben Block, markiert wird einmal ganz vorne, und ein Klick
+     * auf eine andere Fundstelle aendert nichts, weil es nichts anderes gibt.
      *
-     * Markiert wird der Block, nicht der exakte Satz: der gerenderte Text
-     * bricht anders um als der indexierte, und ein Absatz, der sichtbar zur
-     * Fundstelle gehört, ist ehrlicher als eine Auswahl, die einen halben Satz
-     * danebenliegt.
+     * Also der Satz selbst. Der gerenderte Text bricht anders um als der
+     * indexierte, deshalb wird ueber eine normalisierte Fassung gesucht (Folgen
+     * von Leerraum zu einem Zeichen) und ueber eine Rueckabbildung wieder auf
+     * die echten Textknoten gelegt. Muss vor der Wortmarkierung laufen: die
+     * zerlegt die Textknoten, und dann gibt es keinen durchgehenden Satz mehr.
      */
+    _markPassagesInBody() {
+        if (!this._findings.length) return;
+        this._findings.forEach((finding, index) => {
+            const needle = this._findingNeedle(finding);
+            // Der Sidecar-Satz und der jetzt dargestellte Text stammen aus zwei
+            // Extraktionsläufen. Meist identisch, aber ein Trennstrich oder
+            // eine anders serialisierte Tabelle reicht, damit das lange Stück
+            // nicht mehr wörtlich vorkommt -- dann ein kürzeres versuchen,
+            // bevor die Fundstelle als nicht auffindbar gilt.
+            for (const length of [needle.length, 40, 24]) {
+                const probe = needle.slice(0, length);
+                if (probe.length < 8) break;
+                if (this._wrapPassage(probe, index)) return;
+            }
+        });
+    }
+
+    /** Legt ein <span class="passage-hit"> um das erste Vorkommen von `needle`. */
+    _wrapPassage(needle, index) {
+        const walker = document.createTreeWalker(
+            this.previewBody, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => (
+                    node.parentElement
+                    && node.parentElement.closest('.passage-hit, .preview-index-notice')
+                        ? NodeFilter.FILTER_REJECT
+                        : NodeFilter.FILTER_ACCEPT
+                ),
+            },
+        );
+        const pieces = [];
+        let raw = '';
+        while (walker.nextNode()) {
+            pieces.push({ node: walker.currentNode, start: raw.length });
+            raw += walker.currentNode.nodeValue;
+        }
+        if (!raw) return false;
+
+        // Normalisierte Fassung plus Rueckabbildung auf die Rohposition.
+        let norm = '';
+        const backToRaw = [];
+        for (let i = 0; i < raw.length; i += 1) {
+            const ch = raw[i];
+            if (/\s/.test(ch)) {
+                if (norm.endsWith(' ')) continue;
+                norm += ' ';
+            } else {
+                norm += ch.toLowerCase();
+            }
+            backToRaw.push(i);
+        }
+        const at = norm.indexOf(needle);
+        if (at < 0) return false;
+        const from = backToRaw[at];
+        const to = backToRaw[Math.min(at + needle.length, backToRaw.length) - 1] + 1;
+
+        // Ueber die Knoten von hinten nach vorne, damit ein Split die noch
+        // nicht bearbeiteten Offsets nicht verschiebt.
+        const touched = pieces.filter(
+            (p) => p.start < to && p.start + p.node.nodeValue.length > from,
+        );
+        for (let i = touched.length - 1; i >= 0; i -= 1) {
+            const { node, start } = touched[i];
+            const localFrom = Math.max(0, from - start);
+            const localTo = Math.min(node.nodeValue.length, to - start);
+            let target = node;
+            if (localTo < target.nodeValue.length) target.splitText(localTo);
+            if (localFrom > 0) target = target.splitText(localFrom);
+            const span = document.createElement('span');
+            span.className = 'passage-hit';
+            span.dataset.finding = String(index);
+            target.parentNode.replaceChild(span, target);
+            span.appendChild(target);
+        }
+        return touched.length > 0;
+    }
+
     /**
      * Der Text, an dem eine Fundstelle im Dokument wiederzufinden ist.
      *
@@ -425,25 +519,6 @@ class DocumentSearchApp {
         const longest = [norm(finding.after), norm(finding.before)]
             .sort((a, b) => b.length - a.length)[0] || '';
         return longest.length >= 8 ? longest.slice(0, 60) : match;
-    }
-
-    _markPassagesInBody() {
-        if (!this._findings.length) return;
-        const blocks = Array.from(
-            this.previewBody.querySelectorAll('p, li, td, blockquote, pre'),
-        );
-        if (!blocks.length) return;
-        const normalise = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
-        this._findings.forEach((finding, index) => {
-            const needle = this._findingNeedle(finding);
-            if (needle.length < 8) return;
-            const block = blocks.find((b) => normalise(b.textContent).includes(needle));
-            if (!block) return;
-            block.classList.add('passage-hit');
-            if (block.dataset.finding === undefined) {
-                block.dataset.finding = String(index);
-            }
-        });
     }
 
     /**
@@ -466,12 +541,13 @@ class DocumentSearchApp {
         // irgendwohin.
         this.previewBody.querySelectorAll('.passage-hit.is-active')
             .forEach((el) => el.classList.remove('is-active'));
-        let block = null;
-        if (needle.length >= 8) {
-            block = Array.from(this.previewBody.querySelectorAll('.passage-hit'))
+        const block = this.previewBody.querySelector(
+            `.passage-hit[data-finding="${fallbackIndex}"]`,
+        ) || (needle.length >= 8
+            ? Array.from(this.previewBody.querySelectorAll('.passage-hit'))
                 .find((b) => b.textContent.replace(/\s+/g, ' ').toLowerCase()
-                    .includes(needle)) || null;
-        }
+                    .includes(needle)) || null
+            : null);
         if (block) {
             block.classList.add('is-active');
             const inner = block.querySelector('mark.body-hit');
@@ -480,6 +556,15 @@ class DocumentSearchApp {
             return true;
         }
 
+        // Keine Markierung für diese Fundstelle: dann auch keine fremde
+        // stehen lassen. Ein Klick, der die Hervorhebung woanders lässt, liest
+        // sich als „hier ist es" und zeigt auf die vorige Fundstelle.
+        //
+        // Auf Wortmarkierungen wird nur zurückgefallen, solange gar kein Satz
+        // markiert werden konnte. Sonst gewinnt bei einem Dokument aus einem
+        // einzigen Absatz der umgebende Absatz jeden Vergleich, und jede
+        // Fundstelle landet auf demselben ersten Wort.
+        if (this.previewBody.querySelector('.passage-hit')) return false;
         let target = null;
         if (needle) {
             target = hits.find((hit) => {
@@ -488,9 +573,7 @@ class DocumentSearchApp {
                     .replace(/\s+/g, ' ').toLowerCase().includes(needle);
             }) || null;
         }
-        if (!target) {
-            target = hits[Math.min(Math.max(fallbackIndex || 0, 0), hits.length - 1)];
-        }
+        if (!target) return false;
         target.classList.add('is-active');
         target.scrollIntoView({ block: 'center', behavior: 'smooth' });
         return true;
@@ -536,7 +619,11 @@ class DocumentSearchApp {
         const page = this._findings[index].page;
         if (!this._pdfBaseSrc) {
             // Fliesstext: zur entsprechenden Markierung im Dokument scrollen.
-            this._scrollToFinding(this._findings[index], index);
+            const shown = this._scrollToFinding(this._findings[index], index);
+            const card = this.previewFindings.querySelector(
+                `.preview-finding[data-finding="${index}"]`,
+            );
+            if (card) card.classList.toggle('is-unlocatable', !shown);
             return;
         }
         if (!page) return;
@@ -623,8 +710,8 @@ class DocumentSearchApp {
             this.previewMeta.textContent = 'Lesefassung aus dem Suchindex';
             this.previewBody.innerHTML = this._indexNoticeHtml(true)
                 + window.KnovasMarkdown.render(data.markdown);
-            this._markTermsInBody();
             this._markPassagesInBody();
+            this._markTermsInBody();
             return true;
         } catch (error) {
             return false;
@@ -788,8 +875,8 @@ class DocumentSearchApp {
             this.previewBody.innerHTML = this._indexNoticeHtml(data.from_index)
                 + this._mailHeaderHtml(data.meta)
                 + window.KnovasMarkdown.render(data.markdown);
-            this._markTermsInBody();
             this._markPassagesInBody();
+            this._markTermsInBody();
             this.selectFinding(this._findingIndex >= 0 ? this._findingIndex : 0);
         } catch (error) {
             if (error.name === 'AbortError') return;

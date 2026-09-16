@@ -324,7 +324,11 @@ STOPWORDS: frozenset = frozenset({
     "über", "ueber", "unter", "wird", "werden", "wurde", "war", "sind", "sein",
     "hat", "haben", "kann", "können", "koennen", "soll", "sollen", "muss",
     "müssen", "muessen", "es", "er", "sie", "wir", "ich", "man", "sich", "dass",
-    "wenn", "weil", "dies", "diese", "dieser", "dieses", "the", "and", "for",
+    "wenn", "weil", "dies", "diese", "dieser", "dieses",
+    # Fragewörter: "Wie wird die Alpenblick Mandantin abgerechnet?" fragt nach
+    # Alpenblick und abgerechnet, nicht nach "wie".
+    "wie", "was", "wer", "wann", "wo", "warum", "wieso", "weshalb",
+    "welche", "welcher", "welches", "welchen", "the", "and", "for",
     "with", "that", "this", "from", "are", "was", "has", "have",
 })
 
