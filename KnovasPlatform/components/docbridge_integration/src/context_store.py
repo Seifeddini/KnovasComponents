@@ -830,6 +830,35 @@ def _sentences_by_number(sentences: Any) -> Dict[int, str]:
     return by_number
 
 
+def sentences_by_number_map(
+    entry: Optional[Dict[str, Any]],
+    numbers: Sequence[int],
+) -> Dict[int, str]:
+    """Wie ``sentences_by_number``, aber nach Satznummer statt nach Position.
+
+    Die Listenfassung laesst einen Satz, den der Sidecar nicht kennt, einfach
+    weg. Wer die Rueckgabe dann ueber die Position der Fundstelle anspricht,
+    greift ab dort daneben -- ein Klick auf die dritte Fundstelle markierte die
+    zweite. Ueber die Satznummer kann das nicht passieren.
+    """
+    if not entry or not numbers:
+        return {}
+    sentences = entry.get("sentences")
+    if not isinstance(sentences, list):
+        return {}
+    by_number = _sentences_by_number(sentences)
+    out: Dict[int, str] = {}
+    for number in numbers:
+        try:
+            key = int(number)
+        except (TypeError, ValueError):
+            continue
+        text = by_number.get(key, "").strip()
+        if text:
+            out[key] = text
+    return out
+
+
 def sentences_by_number(
     entry: Optional[Dict[str, Any]],
     numbers: Sequence[int],

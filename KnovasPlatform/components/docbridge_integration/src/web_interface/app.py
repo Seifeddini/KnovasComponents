@@ -34,6 +34,7 @@ from context_store import (
     indexed_text,
     load_context,
     sentences_by_number,
+    sentences_by_number_map,
 )
 from context_store import query_terms as context_query_terms
 from knovas_client import KnovasAPIClient
@@ -48,6 +49,7 @@ from web_interface.preview import (
     PreviewUnsupported,
     extract_markdown,
     highlight_pdf,
+    passage_anchors,
     preview_kind,
     render_first_page_png,
 )
@@ -2039,6 +2041,42 @@ def create_app(config_path: Optional[str] = None):
             logger.error(f"Error downloading document: {e}", exc_info=True)
             return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
 
+    @app.route('/api/document/<path:doc_id>/preview-anchors', methods=['GET'])
+    def preview_anchors(doc_id: str):
+        """Wo die Trefferstellen im PDF stehen: Seite und Hoehe je Satznummer.
+
+        Der browsereigene Viewer springt ueber ``#page=N&view=FitH,<top>``. Ohne
+        die Hoehe bleibt nur die Seite, und mehrere Fundstellen auf einer Seite
+        -- der Normalfall -- fuehren dann alle auf dieselbe Adresse: ein Klick
+        bewirkt sichtbar nichts.
+        """
+        try:
+            file_path = request.args.get('path')
+            if not file_path:
+                return jsonify({'error': 'Document path required'}), 400
+            full_path = _resolve_autodoc_path(file_path)
+            if not full_path:
+                return jsonify({'anchors': {}}), 200
+            numbers: List[int] = []
+            for raw in str(request.args.get('s') or '').split(','):
+                raw = raw.strip()
+                if raw.lstrip('-').isdigit():
+                    numbers.append(int(raw))
+            if not numbers:
+                return jsonify({'anchors': {}}), 200
+            passage_map = sentences_by_number_map(
+                load_context(
+                    _context_store_path_from_config(config), [str(doc_id), file_path]
+                ),
+                numbers[:8],
+            )
+            return jsonify({'anchors': passage_anchors(full_path, passage_map)}), 200
+        except Exception as exc:  # noqa: BLE001
+            # Springen ist Beiwerk. Ein Fehler hier darf die Vorschau nicht
+            # kosten -- ohne Anker bleibt es beim Sprung auf die Seite.
+            logger.warning("Preview anchors unavailable for %s: %s", doc_id, exc)
+            return jsonify({'anchors': {}}), 200
+
     @app.route('/api/document/<path:doc_id>/preview', methods=['GET'])
     def preview_document(doc_id: str):
         """Inline PDF preview in browser (Option A — no persisted duplicate on disk)."""
@@ -2072,14 +2110,25 @@ def create_app(config_path: Optional[str] = None):
                 raw = raw.strip()
                 if raw.lstrip('-').isdigit():
                     numbers.append(int(raw))
-            passages = sentences_by_number(
+            passage_map = sentences_by_number_map(
                 load_context(
                     _context_store_path_from_config(config), [str(doc_id), file_path]
                 ),
                 numbers[:8],
-            ) if numbers else []
+            ) if numbers else {}
+            passages = list(passage_map.values())
+            # a= ist die SATZNUMMER der angeklickten Stelle, nicht ihre Position
+            # in s=: der Sidecar kennt nicht jeden Satz, die Liste hat dann
+            # Luecken, und ueber die Position markierte ein Klick auf die dritte
+            # Fundstelle die zweite.
+            active = ''
+            raw_active = str(request.args.get('a') or '').strip()
+            if raw_active.lstrip('-').isdigit():
+                active = passage_map.get(int(raw_active), '')
             if terms or passages:
-                marked = highlight_pdf(full_path, terms, passages=passages)
+                marked = highlight_pdf(
+                    full_path, terms, passages=passages, active=active
+                )
                 if marked:
                     return send_file(
                         io.BytesIO(marked),

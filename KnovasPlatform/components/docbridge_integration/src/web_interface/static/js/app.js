@@ -51,6 +51,7 @@ class DocumentSearchApp {
         this._findings = [];
         this._findingIndex = -1;
         this._pdfBaseSrc = '';
+        this._pdfAnchors = {};
         this.previewClose = document.getElementById('previewClose');
         this.previewPrev = document.getElementById('previewPrev');
         this.previewNext = document.getElementById('previewNext');
@@ -657,10 +658,14 @@ class DocumentSearchApp {
      * mitten im Dialog, und die Miniaturen kosten die halbe Lesebreite. Nicht
      * jeder Browser befolgt sie -- dann sieht es aus wie bisher, nichts bricht.
      */
-    _pdfFragment(page) {
+    _pdfFragment(page, top) {
         const parts = [];
         if (page) parts.push(`page=${page}`);
-        parts.push('toolbar=0', 'navpanes=0', 'view=FitH');
+        parts.push('toolbar=0', 'navpanes=0');
+        // Mit Hoehe steigt der Viewer IN der Seite ein. Ohne sie landet jede
+        // Fundstelle derselben Seite am Seitenanfang -- und weil dann auch die
+        // Adresse dieselbe ist, passiert beim Klicken gar nichts.
+        parts.push(Number.isFinite(top) ? `view=FitH,${top}` : 'view=FitH');
         return `#${parts.join('&')}`;
     }
 
@@ -678,12 +683,21 @@ class DocumentSearchApp {
             if (card) card.classList.toggle('is-unlocatable', !shown);
             return;
         }
-        if (!page) return;
-        // Der browsereigene Viewer nimmt die Seite aus dem Fragment. Ein blosses
-        // Setzen des Hash am bestehenden iframe laedt nicht zuverlaessig neu,
-        // deshalb die ganze src.
+        // Der browsereigene Viewer nimmt Seite und Hoehe aus dem Fragment. Ein
+        // blosses Setzen des Hash am bestehenden iframe laedt nicht
+        // zuverlaessig neu, deshalb die ganze src.
         const frame = this.previewBody.querySelector('iframe');
-        if (frame) frame.src = this._pdfBaseSrc + this._pdfFragment(page);
+        if (!frame) return;
+        const anchor = (this._pdfAnchors || {})[this._findings[index].sentence_number];
+        const target = anchor || (page ? { page, top: undefined } : null);
+        if (!target) return;
+        // a= faerbt die angeklickte Stelle im ausgelieferten PDF kraeftiger.
+        // Nachgeladen wird ohnehin, das kostet also nichts extra -- und ohne
+        // das sind alle Stellen gleich bunt und ein Klick sieht nach nichts aus.
+        const number = this._findings[index].sentence_number;
+        const active = Number.isInteger(number) ? `&a=${number}` : '';
+        frame.src = this._pdfBaseSrc + active
+            + this._pdfFragment(target.page, target.top);
     }
 
     stepFinding(delta) {
@@ -793,6 +807,8 @@ class DocumentSearchApp {
         this._findings = [];
         this._findingIndex = -1;
         this._pdfBaseSrc = '';
+        // Sonst zeigen die Anker des vorigen Dokuments in dieses hinein.
+        this._pdfAnchors = {};
         this.previewFindings.innerHTML = '';
         this.previewDocData.innerHTML = '';
         this.previewSidebar.hidden = true;
@@ -878,6 +894,19 @@ class DocumentSearchApp {
                 + `&q=${encodeURIComponent(this.currentQuery || '')}`
                 + (sentences ? `&s=${encodeURIComponent(sentences)}` : '');
             this._pdfBaseSrc = src;
+            // Einmal je Vorschau: wo die Stellen im PDF stehen. Erst damit
+            // fuehrt ein Klick auf die zweite Fundstelle derselben Seite
+            // irgendwohin.
+            this._pdfAnchors = {};
+            if (sentences) {
+                fetch(`/api/document/${encodeURIComponent(docId)}/preview-anchors`
+                      + `?path=${encodeURIComponent(path)}`
+                      + `&s=${encodeURIComponent(sentences)}`,
+                      { credentials: 'same-origin' })
+                    .then((r) => (r.ok ? r.json() : null))
+                    .then((d) => { if (d && d.anchors) this._pdfAnchors = d.anchors; })
+                    .catch(() => {});
+            }
             try {
                 const probe = await fetch(src, { method: 'GET', headers: { Range: 'bytes=0-0' },
                                                  credentials: 'same-origin', signal: controller.signal });

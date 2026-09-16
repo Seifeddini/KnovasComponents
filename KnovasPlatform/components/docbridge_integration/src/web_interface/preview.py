@@ -107,14 +107,62 @@ HIGHLIGHT_MAX_PAGES = 200
 HIGHLIGHT_MAX_TERMS = 6
 HIGHLIGHT_MAX_PER_PAGE = 40
 HIGHLIGHT_MAX_PASSAGES = 8
+# Wie weit ueber der Trefferzeile der Viewer einsteigt, in PDF-Punkten.
+ANCHOR_MARGIN = 60
 
 # Markenfarben statt des PDF-Standardgelbs: --highlight fuer die Trefferstelle,
 # --accent abgeschwaecht fuer die gesuchten Woerter darin.
 PASSAGE_COLOUR = (0.851, 0.878, 0.969)
+# Die angeklickte Trefferstelle. Der browsereigene Viewer kann nichts
+# hervorheben, was man ihm zuruft -- also wird die aktive Stelle beim Ausliefern
+# kraeftiger eingefaerbt. Ohne das sind alle Stellen gleich bunt, und ein Klick
+# auf eine andere Fundstelle aendert im PDF sichtbar gar nichts.
+ACTIVE_PASSAGE_COLOUR = (0.996, 0.839, 0.404)
 TERM_COLOUR = (0.647, 0.757, 0.976)
 
 
-def highlight_pdf(path: str, terms, passages=None) -> Optional[bytes]:
+def passage_anchors(path: str, passages: dict) -> dict:
+    """Wo die Trefferstellen im PDF stehen: Seite und Hoehe je Satznummer.
+
+    Der Viewer springt ueber das Fragment ``#page=N&view=FitH,<top>`` an eine
+    Stelle IN der Seite. Ohne die Hoehe bleibt nur die Seite, und bei mehreren
+    Fundstellen auf derselben Seite -- der Normalfall -- passiert beim Klicken
+    schlicht nichts: dieselbe Adresse, dieselbe Ansicht.
+
+    ``top`` zaehlt im PDF von unten, PyMuPDF misst von oben; deshalb die
+    Differenz zur Seitenhoehe. Der Zuschlag setzt die Zeile etwas unter den
+    oberen Rand, sonst klebt sie daran.
+    """
+    out: dict = {}
+    if not passages or preview_kind(path) != "pdf":
+        return out
+    try:
+        import pymupdf
+    except ImportError:
+        return out
+    try:
+        with pymupdf.open(path) as doc:
+            for number, text in passages.items():
+                span = str(text or "").strip()
+                if len(span) < 12:
+                    continue
+                for index in range(min(doc.page_count, HIGHLIGHT_MAX_PAGES)):
+                    page = doc[index]
+                    rects = page.search_for(span)
+                    if not rects:
+                        continue
+                    top = page.rect.height - rects[0].y0 + ANCHOR_MARGIN
+                    out[int(number)] = {
+                        "page": index + 1,
+                        "top": round(max(0.0, min(top, page.rect.height)), 1),
+                    }
+                    break
+    except Exception:  # noqa: BLE001 - Springen ist Beiwerk, nie ein Fehlerfall
+        return out
+    return out
+
+
+def highlight_pdf(path: str, terms, passages=None, active: str = "") -> Optional[bytes]:
     """Das PDF mit echten Markierungen auf den gesuchten Woertern.
 
     Der browsereigene Viewer kann nichts hervorheben, was man ihm sagt -- aber
@@ -153,9 +201,11 @@ def highlight_pdf(path: str, terms, passages=None) -> Optional[bytes]:
                 on_page = 0
                 # Erst die Trefferstelle als Ganzes, dann die Woerter darin --
                 # in dieser Reihenfolge, damit die Wortmarkierung obenauf liegt.
+                # Die aktive Stelle zuletzt, damit ihre Farbe obenauf liegt.
                 for span, colour in (
-                    [(s, PASSAGE_COLOUR) for s in spans]
+                    [(s, PASSAGE_COLOUR) for s in spans if s != active]
                     + [(w, TERM_COLOUR) for w in wanted]
+                    + ([(active, ACTIVE_PASSAGE_COLOUR)] if active else [])
                 ):
                     if on_page >= HIGHLIGHT_MAX_PER_PAGE:
                         break
