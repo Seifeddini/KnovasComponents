@@ -41,6 +41,7 @@ from web_interface.preview import (
     PreviewFailed,
     PreviewUnsupported,
     extract_markdown,
+    highlight_pdf,
     preview_kind,
     render_first_page_png,
 )
@@ -321,6 +322,7 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
     {
         'doc_id': 'corpus/2024-001/Aktennotiz.txt',
         'path': 'corpus/2024-001/Aktennotiz.txt',
+        'match_locations': _demo_match_locations(_demo_top_chunks[:3]),
         'title': 'Aktennotiz Übergabetermin',
         'akten_id': '2024-001',
         'type': 'Aktennotiz',
@@ -624,19 +626,98 @@ def _confine_to_autodoc(autodoc_path: str, file_path: str) -> Optional[str]:
     candidate = _autodoc_candidate(autodoc_path, rel)
     if candidate is None or os.path.exists(candidate):
         return candidate
+    for found, note in _autodoc_alternatives(autodoc_path, rel):
+        if note:
+            logger.warning("%s", note)
+        return found
+    return candidate
+
+
+# The subdirectory of the mount that pointers are relative to, once we have
+# worked it out. One lookup settles it for the whole corpus, so this is learned
+# once and then costs a single stat per request.
+_autodoc_offset: Dict[str, str] = {}
+_autodoc_offset_lock = threading.Lock()
+
+# How far to look for that subdirectory, and how many directories to visit
+# doing it. Bounded because this runs on a request thread against a share.
+_AUTODOC_OFFSET_MAX_DEPTH = 4
+_AUTODOC_OFFSET_MAX_DIRS = 400
+
+
+def _autodoc_alternatives(autodoc_path: str, rel: str):
+    """Yield (resolved_path, log_note) for a pointer that did not resolve directly.
+
+    A pointer's path is relative to the **source folder of the Übernahme
+    profile** (sync_executor sets rel_root to that folder), while this side
+    mounts KNOVAS_DOCUMENTS_PATH whole. Point a profile at a subdirectory --
+    ``/mnt/documents/kanzlei/Mandanten`` -- and every pointer is missing
+    ``kanzlei/Mandanten`` from the front. Nothing says so: the search works, the
+    snippets work, and only the routes that need the file itself fail. Download
+    and Öffnen have no fallback, so they are where it shows.
+
+    Two shapes are tried. A leading segment too many (a pointer prefix this
+    deployment was not told about) and a leading segment too few (the profile
+    is rooted below the mount). The second is discovered by looking for the
+    document under the mount and is then remembered, so the walk happens once.
+    """
+    base = os.path.abspath(autodoc_path)
+
+    learned = _autodoc_offset.get(base)
+    if learned:
+        found = _autodoc_candidate(autodoc_path, f"{learned}/{rel}")
+        if found and os.path.exists(found):
+            yield found, ""
+            return
+
     head, _, tail = rel.partition("/")
-    if not tail or not head:
-        return candidate
-    shortened = _autodoc_candidate(autodoc_path, tail)
-    if shortened is None or not os.path.exists(shortened):
-        return candidate
-    logger.warning(
-        "Pointer %r did not resolve under the configured prefix, but does "
-        "without its leading %r. Set KNOVAS_IDENTIFIER_PREFIX=%s in knovas.env "
-        "(or match the Kennung on the Übernahme profile) to stop guessing.",
-        file_path, head, head,
-    )
-    return shortened
+    if head and tail:
+        found = _autodoc_candidate(autodoc_path, tail)
+        if found and os.path.exists(found):
+            yield found, (
+                f"Pointer {rel!r} resolved only without its leading {head!r}. "
+                f"Set KNOVAS_IDENTIFIER_PREFIX={head} in knovas.env (or match the "
+                f"Kennung on the Übernahme profile) to stop guessing."
+            )
+            return
+
+    offset = _discover_autodoc_offset(base, rel)
+    if offset is None:
+        return
+    with _autodoc_offset_lock:
+        _autodoc_offset[base] = offset
+    found = _autodoc_candidate(autodoc_path, f"{offset}/{rel}")
+    if found and os.path.exists(found):
+        yield found, (
+            f"Documents live under {offset!r} inside the mount, but pointers do not "
+            f"carry it: the Übernahme profile is rooted at a subdirectory of "
+            f"KNOVAS_DOCUMENTS_PATH. Resolving there from now on. Point the profile "
+            f"at the mount root, or set KNOVAS_DOCUMENTS_PATH to that subdirectory, "
+            f"to make it exact."
+        )
+
+
+def _discover_autodoc_offset(base: str, rel: str) -> Optional[str]:
+    """Find the subdirectory under the mount that ``rel`` hangs off, if any."""
+    visited = 0
+    queue: List[Tuple[str, int]] = [(base, 0)]
+    while queue and visited < _AUTODOC_OFFSET_MAX_DIRS:
+        current, depth = queue.pop(0)
+        if depth >= _AUTODOC_OFFSET_MAX_DEPTH:
+            continue
+        try:
+            with os.scandir(current) as entries:
+                children = [e for e in entries if e.is_dir(follow_symlinks=False)]
+        except OSError:
+            continue
+        for entry in children:
+            visited += 1
+            if visited > _AUTODOC_OFFSET_MAX_DIRS:
+                break
+            if os.path.exists(os.path.join(entry.path, rel)):
+                return os.path.relpath(entry.path, base).replace("\\", "/")
+            queue.append((entry.path, depth + 1))
+    return None
 
 
 def _autodoc_candidate(autodoc_path: str, rel: str) -> Optional[str]:
@@ -1909,6 +1990,23 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'error': 'Document file not found'}), 404
             if not str(full_path).lower().endswith('.pdf'):
                 return jsonify({'error': 'Preview only supported for PDF'}), 415
+            # Die Fundstellen im Dokument selbst markieren. Der browsereigene
+            # Viewer hebt nichts hervor, was man ihm sagt -- aber er zeigt
+            # Anmerkungen an, die im Dokument stehen. Nur der ausgelieferte
+            # Datenstrom traegt sie; /download bleibt das Original.
+            terms = context_query_terms(
+                request.args.get('q') or '',
+                config.get_int('web.search.strict_match_min_term_length', 2),
+            )
+            if terms:
+                marked = highlight_pdf(full_path, terms)
+                if marked:
+                    return send_file(
+                        io.BytesIO(marked),
+                        mimetype='application/pdf',
+                        as_attachment=False,
+                        download_name=os.path.basename(full_path),
+                    )
             try:
                 file_obj = _open_autodoc_fileobj(full_path)
             except OSError:

@@ -101,6 +101,58 @@ def extract_markdown(path: str) -> Dict[str, Any]:
     }
 
 
+# Obergrenzen fuer das Markieren. Eine Kanzleiakte kann Hunderte Seiten haben,
+# und die Suche laeuft auf dem Request-Thread.
+HIGHLIGHT_MAX_PAGES = 200
+HIGHLIGHT_MAX_TERMS = 6
+HIGHLIGHT_MAX_PER_PAGE = 40
+
+
+def highlight_pdf(path: str, terms) -> Optional[bytes]:
+    """Das PDF mit echten Markierungen auf den gesuchten Woertern.
+
+    Der browsereigene Viewer kann nichts hervorheben, was man ihm sagt -- aber
+    er zeigt Anmerkungen an, die im Dokument stehen. Also werden sie
+    hineingeschrieben, bevor die Bytes ausgeliefert werden: PyMuPDF ist ohnehin
+    Pflichtdependency, und der Viewer bleibt der, in dem sich gut liest.
+
+    Veraendert wird nur der ausgelieferte Datenstrom. Die Datei auf dem
+    Dokumentenspeicher wird nicht angefasst, und ``/download`` liefert weiter
+    das Original -- wer ein Dokument aus der Akte holt, soll nicht unsere
+    gelben Balken darin haben.
+
+    Gibt None zurueck, wenn nichts zu markieren war oder etwas schiefging; der
+    Aufrufer liefert dann die Originaldatei aus.
+    """
+    wanted = [t for t in (terms or []) if len(t) >= 2][:HIGHLIGHT_MAX_TERMS]
+    if not wanted or preview_kind(path) != "pdf":
+        return None
+    try:
+        import pymupdf
+    except ImportError:
+        return None
+
+    try:
+        with pymupdf.open(path) as doc:
+            marked = 0
+            for page in doc.pages(0, min(doc.page_count, HIGHLIGHT_MAX_PAGES)):
+                on_page = 0
+                for term in wanted:
+                    if on_page >= HIGHLIGHT_MAX_PER_PAGE:
+                        break
+                    for rect in page.search_for(term) or []:
+                        page.add_highlight_annot(rect)
+                        on_page += 1
+                        marked += 1
+                        if on_page >= HIGHLIGHT_MAX_PER_PAGE:
+                            break
+            if not marked:
+                return None
+            return doc.tobytes(garbage=0, deflate=True)
+    except Exception:  # noqa: BLE001 - Markieren ist Beiwerk, nie ein Fehlerfall
+        return None
+
+
 # Breite der Seitenvorschau in Pixeln. Bewusst klein: sie sitzt in einer
 # Trefferkarte, nicht im Viewer, und wird pro Treffer einmal geladen.
 THUMBNAIL_WIDTH = 480

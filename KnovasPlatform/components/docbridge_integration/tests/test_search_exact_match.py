@@ -1,13 +1,16 @@
-"""„Alle Wörter müssen vorkommen" — die Verschärfung der semantischen Suche.
+"""Was die Suche über einen Treffer weiss, und was sie darüber sagen darf.
 
-Die Vektorsuche findet Verwandtes, auch wenn das Wort nirgends steht. Bei einem
-Begriff ist das die Stärke; bei zweien meist nicht, was gemeint war: wer
-„Reaktionszeit Störung" eingibt, will Dokumente, in denen beides vorkommt.
+Es gab hier kurz eine Checkbox „Alle Wörter müssen vorkommen". Sie ist wieder
+entfernt: sie filterte nur die Treffer, die Knovas ohnehin zurückgab, und zwar
+gegen den *indexierten Ausschnitt* eines Dokuments -- erste Seite und
+Trefferstellen -- nicht gegen seinen ganzen Text. Sie konnte also Dokumente
+verwerfen, die das Wort sehr wohl enthalten, und keines finden, das die Suche
+nicht schon gebracht hatte. Das ist keine exakte Stichwortsuche, und ein Schalter
+mit diesem Namen verspricht genau die.
 
-Die Option war in config.yaml beschrieben (`strict_match_min_term_length`, der
-Kommentar verweist auf „die UI-Checkbox") und serverseitig implementiert -- es
-gab sie nur nirgends zu klicken, und der Heuhaufen, in dem sie suchte, bestand
-aus Titel und Pfad. Bei Akten, die nach Aktenzeichen heissen, traf das nie zu.
+Der Heuhaufen bleibt: `literal_query_matches` in der Antwort liest ihn, um zu
+sagen, ob die gesuchten Wörter überhaupt vorkommen. Das ist eine Aussage über
+das, was da ist -- kein Versprechen darüber, was gefunden wird.
 """
 
 from __future__ import annotations
@@ -70,48 +73,6 @@ def _csrf(client):
     marker = 'csrfToken: "'
     start = page.index(marker) + len(marker)
     return page[start:page.index('"', start)]
-
-
-class TestTheOptionIsReachable:
-    def test_the_search_page_offers_it(self, logged_in):
-        """Ohne Bedienelement ist eine implementierte Option keine Funktion."""
-        page = logged_in.get("/").data.decode("utf-8")
-        assert 'id="exactMatch"' in page
-
-    def test_both_words_required_drops_a_hit_that_has_only_one(self, logged_in):
-        from conftest import DummyKnovasClient
-
-        DummyKnovasClient.last_instance.search_results = [
-            {"doc_id": "a.pdf", "path": "a.pdf", "title": "Wartungsvertrag",
-             "first_page_preview": "Reaktionszeit bei Störung der Stufe 1"},
-            {"doc_id": "b.pdf", "path": "b.pdf", "title": "Mietvertrag",
-             "first_page_preview": "Reaktionszeit des Vermieters"},
-        ]
-        response = logged_in.post(
-            "/api/search",
-            json={"query": "Reaktionszeit Störung", "limit": 20,
-                  "filters": {"exact_match": True}},
-            headers={"X-CSRF-Token": _csrf(logged_in)},
-        )
-        ids = [r["doc_id"] for r in response.get_json()["results"]]
-        assert ids == ["a.pdf"]
-
-    def test_without_the_option_both_hits_stay(self, logged_in):
-        """Die semantische Suche bleibt der Normalfall."""
-        from conftest import DummyKnovasClient
-
-        DummyKnovasClient.last_instance.search_results = [
-            {"doc_id": "a.pdf", "path": "a.pdf", "title": "Wartungsvertrag",
-             "first_page_preview": "Reaktionszeit bei Störung der Stufe 1"},
-            {"doc_id": "b.pdf", "path": "b.pdf", "title": "Mietvertrag",
-             "first_page_preview": "Reaktionszeit des Vermieters"},
-        ]
-        response = logged_in.post(
-            "/api/search",
-            json={"query": "Reaktionszeit Störung", "limit": 20},
-            headers={"X-CSRF-Token": _csrf(logged_in)},
-        )
-        assert len(response.get_json()["results"]) == 2
 
 
 # --- „Sophie Keller" ---------------------------------------------------------

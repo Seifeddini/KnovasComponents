@@ -34,7 +34,6 @@ class DocumentSearchApp {
         this.previewTitle = document.getElementById('previewTitle');
         this.previewMeta = document.getElementById('previewMeta');
         this.previewBody = document.getElementById('previewBody');
-        this.exactMatch = document.getElementById('exactMatch');
         this.resultsNotice = document.getElementById('resultsNotice');
         this.previewActions = document.getElementById('previewActions');
         this.previewSidebar = document.getElementById('previewSidebar');
@@ -323,6 +322,93 @@ class DocumentSearchApp {
         return safe.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
     }
 
+    /**
+     * Markiert die gesuchten Woerter im dargestellten Text.
+     *
+     * Ueber Textknoten, nicht ueber innerHTML: eine Ersetzung im HTML traefe
+     * auch Attribute und Tagnamen und koennte aus fremdem Dokumenttext Markup
+     * machen. So bleibt markiert, was Text ist, und Text bleibt Text.
+     */
+    _markTermsInBody() {
+        const terms = String(this.currentQuery || '')
+            .split(/\W+/)
+            .filter((term) => term.length >= 2)
+            .sort((a, b) => b.length - a.length);
+        if (!terms.length) return;
+        const pattern = new RegExp(
+            `(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+            'gi',
+        );
+        const walker = document.createTreeWalker(
+            this.previewBody, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => (
+                    node.parentElement && node.parentElement.closest('mark, .preview-index-notice')
+                        ? NodeFilter.FILTER_REJECT
+                        : NodeFilter.FILTER_ACCEPT
+                ),
+            },
+        );
+        const targets = [];
+        while (walker.nextNode()) {
+            if (pattern.test(walker.currentNode.nodeValue)) targets.push(walker.currentNode);
+            pattern.lastIndex = 0;
+        }
+        for (const node of targets) {
+            const fragment = document.createDocumentFragment();
+            let last = 0;
+            const text = node.nodeValue;
+            let match;
+            pattern.lastIndex = 0;
+            while ((match = pattern.exec(text)) !== null) {
+                if (match.index > last) {
+                    fragment.appendChild(
+                        document.createTextNode(text.slice(last, match.index)),
+                    );
+                }
+                const mark = document.createElement('mark');
+                mark.className = 'body-hit';
+                mark.textContent = match[0];
+                fragment.appendChild(mark);
+                last = match.index + match[0].length;
+            }
+            if (last < text.length) {
+                fragment.appendChild(document.createTextNode(text.slice(last)));
+            }
+            node.parentNode.replaceChild(fragment, node);
+        }
+    }
+
+    /**
+     * Springt im dargestellten Text zu einer Fundstelle und hebt sie hervor.
+     *
+     * Gesucht wird über den Text der Fundstelle, nicht über ihre Nummer: die
+     * dritte Fundstelle ist nicht die dritte Markierung im Dokument. Ein Wort
+     * kann zehnmal vorkommen und trotzdem nur zweimal eine Fundstelle sein,
+     * und dann landet man nach dem Klick an der falschen Stelle.
+     */
+    _scrollToFinding(finding, fallbackIndex) {
+        const hits = Array.from(this.previewBody.querySelectorAll('mark.body-hit'));
+        if (!hits.length) return false;
+        hits.forEach((el) => el.classList.remove('is-active'));
+
+        const needle = String((finding && finding.match) || '')
+            .replace(/\s+/g, ' ').trim().slice(0, 40).toLowerCase();
+        let target = null;
+        if (needle) {
+            target = hits.find((hit) => {
+                const block = hit.closest('p, li, td, div') || hit.parentElement;
+                return block && block.textContent
+                    .replace(/\s+/g, ' ').toLowerCase().includes(needle);
+            }) || null;
+        }
+        if (!target) {
+            target = hits[Math.min(Math.max(fallbackIndex || 0, 0), hits.length - 1)];
+        }
+        target.classList.add('is-active');
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return true;
+    }
+
     _markActiveFinding(index) {
         this._findingIndex = index;
         const buttons = this.previewFindings.querySelectorAll('.preview-finding');
@@ -361,7 +447,12 @@ class DocumentSearchApp {
         if (!Number.isInteger(index) || index < 0 || index >= this._findings.length) return;
         this._markActiveFinding(index);
         const page = this._findings[index].page;
-        if (!page || !this._pdfBaseSrc) return;
+        if (!this._pdfBaseSrc) {
+            // Fliesstext: zur entsprechenden Markierung im Dokument scrollen.
+            this._scrollToFinding(this._findings[index], index);
+            return;
+        }
+        if (!page) return;
         // Der browsereigene Viewer nimmt die Seite aus dem Fragment. Ein blosses
         // Setzen des Hash am bestehenden iframe laedt nicht zuverlaessig neu,
         // deshalb die ganze src.
@@ -445,6 +536,7 @@ class DocumentSearchApp {
             this.previewMeta.textContent = 'Lesefassung aus dem Suchindex';
             this.previewBody.innerHTML = this._indexNoticeHtml(true)
                 + window.KnovasMarkdown.render(data.markdown);
+            this._markTermsInBody();
             return true;
         } catch (error) {
             return false;
@@ -545,7 +637,11 @@ class DocumentSearchApp {
                 this._previewAbort = null;
                 return;
             }
-            const src = `/api/document/${encodeURIComponent(docId)}/preview?path=${encodeURIComponent(path)}`;
+            // q= lässt den Server die Fundstellen als echte Anmerkungen ins
+            // ausgelieferte PDF schreiben; der Viewer zeigt sie dann von selbst.
+            const src = `/api/document/${encodeURIComponent(docId)}/preview`
+                + `?path=${encodeURIComponent(path)}`
+                + `&q=${encodeURIComponent(this.currentQuery || '')}`;
             this._pdfBaseSrc = src;
             try {
                 const probe = await fetch(src, { method: 'GET', headers: { Range: 'bytes=0-0' },
@@ -596,6 +692,8 @@ class DocumentSearchApp {
             this.previewBody.innerHTML = this._indexNoticeHtml(data.from_index)
                 + this._mailHeaderHtml(data.meta)
                 + window.KnovasMarkdown.render(data.markdown);
+            this._markTermsInBody();
+            this.selectFinding(this._findingIndex >= 0 ? this._findingIndex : 0);
         } catch (error) {
             if (error.name === 'AbortError') return;
             console.warn('Preview:', error);
@@ -630,7 +728,7 @@ class DocumentSearchApp {
                 body: JSON.stringify({
                     query: query,
                     limit: this._searchLimit,
-                    filters: { exact_match: this.exactMatch ? this.exactMatch.checked : false }
+                    filters: {}
                 })
             });
             if (this._redirectIfLoginRequired(response)) return;
@@ -709,14 +807,13 @@ class DocumentSearchApp {
     _renderLiteralNotice(shown) {
         const box = this.resultsNotice;
         if (!box) return;
-        const exact = this.exactMatch && this.exactMatch.checked;
-        if (!shown || this._literalMatches > 0 || exact || !this.currentQuery) {
+        if (!shown || this._literalMatches > 0 || !this.currentQuery) {
             box.hidden = true;
             return;
         }
         box.innerHTML = `„${this.escapeHtml(this.currentQuery)}" kommt in keinem der `
-            + `Treffer wörtlich vor. Angezeigt werden inhaltlich ähnliche Dokumente — `
-            + `mit <strong>„Alle Wörter müssen vorkommen"</strong> lässt sich das einschränken.`;
+            + `Treffer wörtlich vor. Die Suche hat inhaltlich ähnliche Dokumente `
+            + `gefunden, nicht die Wörter selbst.`;
         box.hidden = false;
     }
 

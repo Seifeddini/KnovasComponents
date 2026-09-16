@@ -88,3 +88,91 @@ class TestAPointerWithAnUnknownPrefix:
         monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "tenant")
         resolved = web_app._confine_to_autodoc(str(tmp_path), "brief.pdf")
         assert resolved == str(tmp_path / "brief.pdf")
+
+
+# --- Ein Profil, das auf einen Unterordner zeigt -----------------------------
+#
+# Der Pfad im Pointer ist relativ zum QUELLORDNER des Übernahme-Profils
+# (sync_executor setzt rel_root auf ihn), gemountet wird hier aber
+# KNOVAS_DOCUMENTS_PATH im Ganzen. Zeigt das Profil auf
+# /mnt/documents/kanzlei/Mandanten, fehlt jedem Pointer vorne "kanzlei/
+# Mandanten" -- und nichts sagt das: Suche und Snippets laufen weiter, nur
+# Download und Öffnen finden die Datei nicht mehr.
+
+class TestAProfileRootedBelowTheMount:
+    def _reset(self):
+        web_app._autodoc_offset.clear()
+
+    def test_the_document_is_found_anyway(self, tmp_path, monkeypatch):
+        self._reset()
+        monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "Mandanten Sync")
+        deep = tmp_path / "kanzlei" / "Mandanten" / "2023-041"
+        deep.mkdir(parents=True)
+        target = deep / "klage.txt"
+        target.write_text("x", encoding="utf-8")
+        resolved = web_app._confine_to_autodoc(
+            str(tmp_path), "Mandanten Sync/2023-041/klage.txt"
+        )
+        assert resolved == str(target)
+
+    def test_the_offset_is_learned_once(self, tmp_path, monkeypatch):
+        """Sonst liefe der Suchlauf bei jedem Vorschaubild erneut."""
+        self._reset()
+        monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "Mandanten Sync")
+        deep = tmp_path / "kanzlei" / "Mandanten" / "2023-041"
+        deep.mkdir(parents=True)
+        (deep / "a.txt").write_text("x", encoding="utf-8")
+        (deep / "b.txt").write_text("x", encoding="utf-8")
+        web_app._confine_to_autodoc(str(tmp_path), "Mandanten Sync/2023-041/a.txt")
+        assert web_app._autodoc_offset.get(str(tmp_path)) == "kanzlei/Mandanten"
+
+        calls = []
+        original = web_app._discover_autodoc_offset
+        monkeypatch.setattr(
+            web_app, "_discover_autodoc_offset",
+            lambda *a, **kw: (calls.append(a), original(*a, **kw))[1],
+        )
+        resolved = web_app._confine_to_autodoc(
+            str(tmp_path), "Mandanten Sync/2023-041/b.txt"
+        )
+        assert resolved == str(deep / "b.txt")
+        assert calls == [], "the offset was already known; it must not walk again"
+
+    def test_a_document_that_is_simply_absent_stays_absent(self, tmp_path, monkeypatch):
+        self._reset()
+        monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "Mandanten Sync")
+        (tmp_path / "kanzlei" / "Mandanten").mkdir(parents=True)
+        resolved = web_app._confine_to_autodoc(
+            str(tmp_path), "Mandanten Sync/2023-041/fehlt.txt"
+        )
+        assert resolved is not None
+        assert not os.path.exists(resolved)
+
+    def test_the_direct_path_still_wins(self, tmp_path, monkeypatch):
+        """Wo der Pointer stimmt, wird nichts gesucht."""
+        self._reset()
+        monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "Mandanten Sync")
+        flat = tmp_path / "2023-041"
+        flat.mkdir(parents=True)
+        target = flat / "klage.txt"
+        target.write_text("x", encoding="utf-8")
+        deep = tmp_path / "kanzlei" / "Mandanten" / "2023-041"
+        deep.mkdir(parents=True)
+        (deep / "klage.txt").write_text("anderes dokument", encoding="utf-8")
+        resolved = web_app._confine_to_autodoc(
+            str(tmp_path), "Mandanten Sync/2023-041/klage.txt"
+        )
+        assert resolved == str(target)
+
+    def test_the_search_stays_inside_the_mount(self, tmp_path, monkeypatch):
+        self._reset()
+        monkeypatch.setenv("AUTODOC_IDENTIFIER_PREFIX", "Mandanten Sync")
+        outside = tmp_path.parent / "ausserhalb"
+        outside.mkdir(exist_ok=True)
+        (outside / "geheim.txt").write_text("x", encoding="utf-8")
+        mount = tmp_path / "mount"
+        mount.mkdir()
+        resolved = web_app._confine_to_autodoc(
+            str(mount), "Mandanten Sync/../ausserhalb/geheim.txt"
+        )
+        assert resolved is None or str(mount) in resolved

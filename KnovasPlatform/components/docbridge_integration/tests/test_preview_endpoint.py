@@ -203,3 +203,72 @@ def test_a_file_that_is_present_is_not_served_from_the_index(with_index, tmp_pat
     ).get_json()
     assert not payload.get("from_index")
     assert "echte Dateiinhalt" in payload["markdown"]
+
+
+# --- Fundstellen im Dokument -------------------------------------------------
+#
+# Der browsereigene PDF-Viewer hebt nichts hervor, was man ihm sagt -- aber er
+# zeigt Anmerkungen an, die im Dokument stehen. Die schreibt der Server in den
+# ausgelieferten Datenstrom. Die Datei auf dem Dokumentenspeicher bleibt
+# unberührt, und /download liefert weiter das Original: wer ein Dokument aus der
+# Akte holt, soll nicht unsere Markierungen darin haben.
+
+def _write_pdf(path, lines):
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for i, line in enumerate(lines):
+        page.insert_text((60, 100 + i * 24), line, fontsize=11)
+    doc.save(str(path))
+    doc.close()
+
+
+def _annotation_count(data):
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    try:
+        return sum(len(list(page.annots() or [])) for page in doc)
+    finally:
+        doc.close()
+
+
+def test_the_preview_pdf_carries_the_hits_as_annotations(logged_in_client, tmp_path):
+    _write_pdf(tmp_path / "akte.pdf", ["Sophie Keller hat die Akte gefuehrt."])
+    response = logged_in_client.get(
+        "/api/document/akte.pdf/preview?path=akte.pdf&q=Sophie%20Keller"
+    )
+    assert response.status_code == 200
+    assert _annotation_count(response.data) >= 2
+
+
+def test_without_a_query_the_pdf_is_untouched(logged_in_client, tmp_path):
+    _write_pdf(tmp_path / "akte.pdf", ["Sophie Keller hat die Akte gefuehrt."])
+    response = logged_in_client.get("/api/document/akte.pdf/preview?path=akte.pdf")
+    assert response.status_code == 200
+    assert _annotation_count(response.data) == 0
+
+
+def test_a_query_that_does_not_occur_leaves_it_untouched(logged_in_client, tmp_path):
+    _write_pdf(tmp_path / "akte.pdf", ["Sophie Keller hat die Akte gefuehrt."])
+    response = logged_in_client.get(
+        "/api/document/akte.pdf/preview?path=akte.pdf&q=Reaktionszeit"
+    )
+    assert response.status_code == 200
+    assert _annotation_count(response.data) == 0
+
+
+def test_the_download_never_carries_them(logged_in_client, tmp_path):
+    """Wer ein Dokument aus der Akte holt, bekommt das Dokument."""
+    _write_pdf(tmp_path / "akte.pdf", ["Sophie Keller hat die Akte gefuehrt."])
+    logged_in_client.get("/api/document/akte.pdf/preview?path=akte.pdf&q=Sophie")
+    response = logged_in_client.get("/api/document/akte.pdf/download?path=akte.pdf")
+    assert response.status_code == 200
+    assert _annotation_count(response.data) == 0
+
+
+def test_the_file_on_disk_is_never_modified(logged_in_client, tmp_path):
+    target = tmp_path / "akte.pdf"
+    _write_pdf(target, ["Sophie Keller hat die Akte gefuehrt."])
+    before = target.read_bytes()
+    logged_in_client.get("/api/document/akte.pdf/preview?path=akte.pdf&q=Sophie%20Keller")
+    assert target.read_bytes() == before

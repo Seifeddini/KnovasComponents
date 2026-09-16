@@ -1444,24 +1444,6 @@ mark.context-snippet-match,
 .admin .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 
-/* Der Schalter unter dem Suchfeld. Bewusst unaufdringlich: die semantische
-   Suche bleibt der Normalfall, das hier ist die Verschärfung für den Fall,
-   dass wirklich beide Wörter im Dokument stehen sollen. */
-.search-option {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-}
-
-.search-option input {
-    accent-color: var(--primary-color);
-}
-
-
 /* Der Hinweis über der Trefferliste und der in der Fundstellenspalte. Beide
    erklären dasselbe: die Suche hat Ähnliches gefunden, nicht das Wort. */
 .results-notice {
@@ -1502,4 +1484,20 @@ mark.context-snippet-match,
     font-size: 0.82rem;
     line-height: 1.5;
     color: var(--text-secondary);
+}
+
+
+/* Fundstellen im dargestellten Text. --highlight ist im Markenleitfaden genau
+   dafür vorgesehen; die aktive Stelle bekommt zusätzlich einen Rahmen, damit
+   man sie nach dem Springen findet, ohne dass die übrigen verschwinden. */
+.preview-body mark.body-hit {
+    background: var(--highlight);
+    color: inherit;
+    padding: 0 1px;
+    border-radius: 2px;
+}
+
+.preview-body mark.body-hit.is-active {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
 }
