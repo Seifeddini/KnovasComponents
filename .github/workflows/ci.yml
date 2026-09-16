@@ -88,10 +88,21 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        # Der Korpusgenerator unter scripts/demo_kanzlei/ ist ein Werkzeug und
+        # steht nicht in den Paketabhaengigkeiten -- seine Tests sammelt pytest
+        # aber mit ein. Ohne diese Zeile fehlt msgforge, das Einsammeln
+        # scheitert, und ein Sammelfehler bricht den GANZEN Lauf ab: seit
+        # Einfuehrung des Generators lief kein einziger RemoteController-Test
+        # mehr durch.
+        run: |
+          pip install -e ".[dev]"
+          pip install -r scripts/demo_kanzlei/requirements.txt
 
       - name: Run pytest
         env:
+          # Fehlt hier ein Generatorpaket, sollen die Tests NICHT still
+          # uebersprungen werden -- wie PLATFORM_DB_REQUIRED in der Plattform.
+          DEMO_CORPUS_REQUIRED: "true"
           RC_SKIP_CONFIG_VALIDATION: "true"
           TESTING: "true"
           RC_RATE_LIMIT_ENABLED: "true"
