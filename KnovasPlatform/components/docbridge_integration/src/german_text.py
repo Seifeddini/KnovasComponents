@@ -18,18 +18,31 @@ dafür ist, dass "gekündigt" und "Kündigung" nicht zusammenfinden.
 """
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 from typing import Iterable, List, Sequence
+
+logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - hängt von der Installation ab, nicht vom Code
     import snowballstemmer
 
     _STEMMER = snowballstemmer.stemmer("german")
-except Exception:  # noqa: BLE001
+except Exception as exc:  # noqa: BLE001
     # Fehlt das Paket, bleibt es beim Zeichenvergleich. Eine Suche, die
     # Wortformen nicht zusammenbringt, ist schlechter -- aber sie funktioniert.
     _STEMMER = None
+    logger.warning(
+        "Kein deutscher Wortstammer (%s): die Suche vergleicht Zeichen. "
+        "'abgerechnet' und 'Abrechnung' gelten dann als verschiedene Woerter. "
+        "snowballstemmer aus requirements.txt installieren.", exc,
+    )
+
+#: Ob die Wortformen zusammengefuehrt werden. Fuer scripts/doctor.sh und die
+#: Tests: ohne diese Angabe sieht eine stillschweigend schlechtere Suche exakt
+#: so aus wie eine, in der die Aenderung nie ausgeliefert wurde.
+STEMMING_ACTIVE = _STEMMER is not None
 
 # Trennbare Präfixe, hinter denen das Partizip sein "ge" einschiebt:
 # ab|ge|rechnet, ein|ge|reicht, auf|ge|hoben.
@@ -45,6 +58,13 @@ _GE_INFIX = re.compile(
 # sonst zu Stämmen, die überall passen.
 MIN_STEM_LENGTH = 4
 
+# Die Verbendung, die nicht jede Stemmer-Fassung entfernt. snowballstemmer 2.2.0
+# macht aus "abrechnet" nichts, 3.x "abrechn" -- und "Abrechnung" wird in beiden
+# zu "abrechn". Ohne diesen Schritt haengt es an der installierten Fassung, ob
+# die beiden zusammenfinden, und das faellt niemandem auf: die Suche liefert
+# weiter Ergebnisse, nur die falschen.
+_VERB_END = re.compile(r"et$")
+
 
 @lru_cache(maxsize=8192)
 def stem(word: str) -> str:
@@ -57,6 +77,9 @@ def stem(word: str) -> str:
     # Das "ge" kann auch erst nach dem Stemmen sichtbar werden
     # ("abgerechnet" -> "abgerechn").
     stemmed = _GE_INFIX.sub(r"\1", stemmed)
+    shortened = _VERB_END.sub("", stemmed)
+    if len(shortened) >= MIN_STEM_LENGTH:
+        stemmed = shortened
     return stemmed if len(stemmed) >= MIN_STEM_LENGTH else lowered
 
 

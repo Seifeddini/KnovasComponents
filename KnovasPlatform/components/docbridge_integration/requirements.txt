@@ -59,4 +59,9 @@ mypy==1.8.0
 # Deutsche Wortstaemme fuer die Trefferhervorhebung: ohne sie ist
 # "abgerechnet" etwas anderes als "Abrechnung", und der Satz mit der Antwort
 # gilt als Stelle ohne jedes gesuchte Wort. Reines Python, BSD, kein Netz.
-snowballstemmer==2.2.0
+#
+# Mindestens 3.0: die 2.2.0 mitgelieferten Stemmer sind aelter erzeugt und
+# lassen die Verbendung stehen -- "abrechnet" bleibt "abrechnet", waehrend
+# "Abrechnung" zu "abrechn" wird. Die beiden finden dann nicht zusammen, und
+# genau der Satz, um den es geht, faellt wieder heraus.
+snowballstemmer>=3.0,<4

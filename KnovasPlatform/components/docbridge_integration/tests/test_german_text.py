@@ -78,3 +78,24 @@ def test_empty_input_is_not_an_error():
     assert stems([]) == []
     assert highlight_prefixes([]) == []
     assert contains_stem("irgendein Text", "") is False
+
+
+def test_the_stemmer_is_actually_installed():
+    """Ohne Paket vergleicht die Suche wieder Zeichen -- und das sieht in der
+    Oberflaeche genau so aus, als waere die Aenderung nie ausgeliefert worden.
+    Lieber hier ein roter Test als im Betrieb eine stille Verschlechterung."""
+    from german_text import STEMMING_ACTIVE
+
+    assert STEMMING_ACTIVE, (
+        "snowballstemmer fehlt. requirements.txt installieren -- sonst finden "
+        "'abgerechnet' und 'Abrechnung' nicht zusammen."
+    )
+
+
+def test_the_verb_ending_does_not_depend_on_the_stemmer_version():
+    """snowballstemmer 2.2.0 laesst "abrechnet" stehen, 3.x kuerzt auf
+    "abrechn" -- und "Abrechnung" wird in beiden zu "abrechn". Ohne eigenen
+    Schritt haengt es an der installierten Fassung, ob die Suche den Satz
+    findet. Genau so ist die Aenderung einmal wirkungslos ausgeliefert worden:
+    getestet gegen 3.1.1, gepinnt auf 2.2.0."""
+    assert stem("abrechnet") == stem("Abrechnung") == "abrechn"
