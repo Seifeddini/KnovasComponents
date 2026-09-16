@@ -147,7 +147,18 @@ passthrough_overrides() {
 RC_ENV="$ROOT_DIR/RemoteController/.env.generated"
 KP_ENV="$ROOT_DIR/KnovasPlatform/.env.generated"
 
-cat > "$RC_ENV" <<EOF
+# Built in a temporary file beside the destination and renamed into place, never
+# truncated with `>` on the destination itself. An install upgraded from an older
+# version can carry an .env.generated owned by root, left by a setup that was run
+# with sudo, and `>` on a file you do not own fails with "Permission denied" --
+# which under set -e ends the whole setup run. Replacing a file needs write
+# permission on the *directory*, which the operator has, not on the file, which
+# they do not.
+RC_TMP="$(mktemp "$RC_ENV.XXXXXX")"
+KP_TMP="$(mktemp "$KP_ENV.XXXXXX")"
+trap 'rm -f "${RC_TMP:-}" "${KP_TMP:-}"' EXIT
+
+cat > "$RC_TMP" <<EOF
 # Generated from knovas.env — do not edit; re-run ./scripts/setup.sh
 KNOVAS_INTERNAL_API_URL=
 RC_INSTANCE_TOKEN=
@@ -168,7 +179,7 @@ SEARCH_CONTEXT_STORE_PATH=/var/rc-state/search_context
 KNOVAS_IDENTIFIER_PREFIX=${KNOVAS_IDENTIFIER_PREFIX}
 EOF
 
-passthrough_overrides rc >> "$RC_ENV"
+passthrough_overrides rc >> "$RC_TMP"
 
 OPEN_UNC_LINE=""
 if [[ -n "$KNOVAS_SHARE_UNC" ]]; then
@@ -187,7 +198,7 @@ COMPANY_LOGIN_NAME=${COMPANY_LOGIN_NAME}
 COMPANY_LOGIN_PASSWORD=${COMPANY_LOGIN_PASSWORD}"
 fi
 
-cat > "$KP_ENV" <<EOF
+cat > "$KP_TMP" <<EOF
 # Generated from knovas.env — do not edit; re-run ./scripts/setup.sh
 ENVIRONMENT=production
 WEB_SECRET_KEY=${WEB_SECRET_KEY}
@@ -215,7 +226,15 @@ SEARCH_CONTEXT_STORE_PATH=/var/rc-state/search_context
 ${OPEN_UNC_LINE}
 EOF
 
-passthrough_overrides platform >> "$KP_ENV"
+passthrough_overrides platform >> "$KP_TMP"
+
+# mktemp creates at 0600; these files were always world-readable, and compose may
+# be invoked as another user than the one that ran setup.
+chmod 644 "$RC_TMP" "$KP_TMP"
+mv -f "$RC_TMP" "$RC_ENV"
+mv -f "$KP_TMP" "$KP_ENV"
+RC_TMP=""
+KP_TMP=""
 
 echo "Wrote $RC_ENV"
 echo "Wrote $KP_ENV"
