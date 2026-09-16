@@ -272,3 +272,29 @@ def test_the_file_on_disk_is_never_modified(logged_in_client, tmp_path):
     before = target.read_bytes()
     logged_in_client.get("/api/document/akte.pdf/preview?path=akte.pdf&q=Sophie%20Keller")
     assert target.read_bytes() == before
+
+
+def test_a_semantic_hit_is_marked_even_without_the_words(logged_in_client, tmp_path, monkeypatch):
+    """Der Fall, für den es die semantische Suche gibt: die Trefferstelle
+    enthält die gesuchten Wörter nicht. Ohne s= stünde sie in der Liste und
+    wäre im Dokument nicht zu sehen."""
+    import hashlib
+    import json
+
+    sentence = "Beim Pachtende fehlt Inventar im Wert der Kaution."
+    _write_pdf(tmp_path / "vertrag.pdf", [sentence])
+    store = tmp_path / "idx"
+    store.mkdir()
+    digest = hashlib.sha256(b"vertrag.pdf").hexdigest()
+    (store / f"{digest}.json").write_text(
+        json.dumps({"version": 1, "sentences": [{"i": 1, "t": sentence}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SEARCH_CONTEXT_STORE_PATH", str(store))
+
+    response = logged_in_client.get(
+        "/api/document/vertrag.pdf/preview?path=vertrag.pdf&q=Mietzins&s=1"
+    )
+    assert response.status_code == 200
+    # "Mietzins" kommt im Dokument nicht vor; markiert ist trotzdem die Stelle.
+    assert _annotation_count(response.data) >= 1

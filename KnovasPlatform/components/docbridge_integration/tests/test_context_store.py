@@ -301,3 +301,48 @@ def test_query_terms_skips_punctuation_and_single_letters():
     from context_store import query_terms
 
     assert query_terms("Sophie Keller, ./. X") == ["sophie", "keller"]
+
+
+def test_stopwords_are_not_search_terms():
+    """Wer „Die Mandantin Alpenblick Gastro GmbH beauftragt die Kanzlei" sucht,
+    meint Alpenblick und Gastro. „die" überall zu markieren färbt das halbe
+    Dokument ein und begräbt genau die Wörter, um die es ging."""
+    from context_store import query_terms
+
+    assert query_terms("Die Mandantin Alpenblick Gastro GmbH beauftragt die Kanzlei") == [
+        "mandantin", "alpenblick", "gastro", "gmbh", "beauftragt", "kanzlei",
+    ]
+
+
+def test_a_location_with_only_stopwords_is_not_a_literal_hit():
+    from context_store import query_terms
+
+    found = build_match_locations(
+        SENTENCES, [{"sentence_number": 1}], terms=query_terms("die Einleitung"),
+    )
+    assert found[0]["literal"] is True  # "einleitung" trägt den Treffer
+
+    only_stop = build_match_locations(
+        SENTENCES, [{"sentence_number": 1}], terms=query_terms("die der das"),
+    )
+    assert only_stop[0].get("literal") is not True
+
+
+def test_sentences_by_number_returns_the_passage_text():
+    """Die Vorschau kennt die Satznummer einer Fundstelle, nicht ihren Text --
+    sonst müssten ganze Sätze durch die Adresszeile."""
+    from context_store import sentences_by_number
+
+    entry = {"sentences": SENTENCES}
+    assert sentences_by_number(entry, [2]) == [
+        "Die Reaktionszeit beträgt vier Stunden.",
+    ]
+    assert sentences_by_number(entry, [2, 4])[1].startswith("Wird die Reaktionszeit")
+
+
+def test_sentences_by_number_skips_what_it_cannot_find():
+    from context_store import sentences_by_number
+
+    assert sentences_by_number({"sentences": SENTENCES}, [999]) == []
+    assert sentences_by_number(None, [1]) == []
+    assert sentences_by_number({"sentences": SENTENCES}, []) == []

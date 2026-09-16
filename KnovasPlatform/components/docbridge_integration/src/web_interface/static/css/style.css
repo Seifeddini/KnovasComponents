@@ -1501,3 +1501,19 @@ mark.context-snippet-match,
     outline: 2px solid var(--accent);
     outline-offset: 1px;
 }
+
+
+/* Die Trefferstelle als Absatz. Ohne sie wäre an einem rein semantischen
+   Treffer nichts markiert: er enthält die gesuchten Wörter gar nicht. */
+.preview-body .passage-hit {
+    background: rgba(var(--accent-rgb), 0.07);
+    border-left: 3px solid var(--border-color);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 6px 10px;
+    margin-left: -13px;
+}
+
+.preview-body .passage-hit.is-active {
+    background: var(--highlight);
+    border-left-color: var(--accent);
+}

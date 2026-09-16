@@ -313,13 +313,35 @@ def _location_page(chunk: Dict[str, Any]) -> Optional[int]:
     return page if page >= 1 else None
 
 
+# Woerter, die in jedem deutschen Satz stehen. Sie als Treffer zu markieren
+# faerbt das halbe Dokument ein und sagt nichts: wer "Die Mandantin Alpenblick
+# Gastro GmbH beauftragt die Kanzlei" sucht, meint Alpenblick und Gastro.
+STOPWORDS: frozenset = frozenset({
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem",
+    "einer", "eines", "und", "oder", "aber", "auch", "als", "am", "an", "auf",
+    "aus", "bei", "bis", "durch", "für", "fuer", "gegen", "im", "in", "ist",
+    "mit", "nach", "nicht", "noch", "von", "vom", "vor", "zu", "zum", "zur",
+    "über", "ueber", "unter", "wird", "werden", "wurde", "war", "sind", "sein",
+    "hat", "haben", "kann", "können", "koennen", "soll", "sollen", "muss",
+    "müssen", "muessen", "es", "er", "sie", "wir", "ich", "man", "sich", "dass",
+    "wenn", "weil", "dies", "diese", "dieser", "dieses", "the", "and", "for",
+    "with", "that", "this", "from", "are", "was", "has", "have",
+})
+
+
 def query_terms(query: str, min_length: int = 2) -> List[str]:
-    """The words a reader expects to find again, lowercased."""
+    """The words a reader expects to find again, lowercased.
+
+    Stopwords are dropped. They match everywhere, so highlighting them marks
+    half the document and buries the words that were actually searched for --
+    and a location containing only "die" is not a literal hit in any sense a
+    reader would recognise.
+    """
     import re as _re
 
     return [
         term for term in _re.split(r"\W+", str(query or "").lower())
-        if len(term) >= min_length
+        if len(term) >= min_length and term not in STOPWORDS
     ]
 
 
@@ -428,6 +450,40 @@ def indexed_text(entry: Optional[Dict[str, Any]], max_chars: int = MAX_INDEX_TEX
             break
         parts.append(text)
     return "\n\n".join(parts).strip()
+
+
+def sentences_by_number(
+    entry: Optional[Dict[str, Any]],
+    numbers: Sequence[int],
+) -> List[str]:
+    """Der Text der genannten Saetze, in der Reihenfolge der Anfrage.
+
+    Der Aufrufer kennt die Satznummern einer Trefferstelle (sie stehen in
+    ``match_locations``), aber nicht ihren Text -- der steht im Sidecar. So
+    kann die Vorschau die Stelle markieren, ohne dass ganze Saetze durch die
+    Adresszeile geschickt werden.
+    """
+    if not entry or not numbers:
+        return []
+    sentences = entry.get("sentences")
+    if not isinstance(sentences, list):
+        return []
+    by_number: Dict[int, str] = {}
+    for index, sent in enumerate(sentences):
+        if isinstance(sent, dict):
+            raw = sent.get("i")
+        else:
+            raw = index + 1
+        try:
+            by_number[int(raw)] = _sentence_text(sent)
+        except (TypeError, ValueError):
+            continue
+    out: List[str] = []
+    for number in numbers:
+        text = by_number.get(int(number), "").strip()
+        if text:
+            out.append(text)
+    return out
 
 
 def enrich_result_with_context(

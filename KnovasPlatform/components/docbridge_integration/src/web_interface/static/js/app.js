@@ -311,10 +311,7 @@ class DocumentSearchApp {
      */
     _highlightTerms(text) {
         const safe = this.escapeHtml(String(text || ''));
-        const terms = String(this.currentQuery || '')
-            .split(/\W+/)
-            .filter((term) => term.length >= 2)
-            .sort((a, b) => b.length - a.length);
+        const terms = this._queryTerms();
         if (!terms.length) return safe;
         const pattern = terms
             .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
@@ -329,11 +326,30 @@ class DocumentSearchApp {
      * auch Attribute und Tagnamen und koennte aus fremdem Dokumenttext Markup
      * machen. So bleibt markiert, was Text ist, und Text bleibt Text.
      */
-    _markTermsInBody() {
-        const terms = String(this.currentQuery || '')
+    /** Wie context_store.STOPWORDS: Wörter, die überall stehen. */
+    static STOPWORDS = new Set([
+        'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem',
+        'einer', 'eines', 'und', 'oder', 'aber', 'auch', 'als', 'am', 'an', 'auf',
+        'aus', 'bei', 'bis', 'durch', 'für', 'fuer', 'gegen', 'im', 'in', 'ist',
+        'mit', 'nach', 'nicht', 'noch', 'von', 'vom', 'vor', 'zu', 'zum', 'zur',
+        'über', 'ueber', 'unter', 'wird', 'werden', 'wurde', 'war', 'sind', 'sein',
+        'hat', 'haben', 'kann', 'können', 'koennen', 'soll', 'sollen', 'muss',
+        'müssen', 'muessen', 'es', 'er', 'sie', 'wir', 'ich', 'man', 'sich', 'dass',
+        'wenn', 'weil', 'dies', 'diese', 'dieser', 'dieses', 'the', 'and', 'for',
+        'with', 'that', 'this', 'from', 'are', 'was', 'has', 'have',
+    ]);
+
+    /** Die Wörter der Suche, ohne die, die überall vorkommen. */
+    _queryTerms() {
+        return String(this.currentQuery || '')
             .split(/\W+/)
-            .filter((term) => term.length >= 2)
+            .map((term) => term.toLowerCase())
+            .filter((term) => term.length >= 2 && !DocumentSearchApp.STOPWORDS.has(term))
             .sort((a, b) => b.length - a.length);
+    }
+
+    _markTermsInBody() {
+        const terms = this._queryTerms();
         if (!terms.length) return;
         const pattern = new RegExp(
             `(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
@@ -379,6 +395,58 @@ class DocumentSearchApp {
     }
 
     /**
+     * Hebt die Absätze hervor, in denen die Trefferstellen stehen.
+     *
+     * Die Wortmarkierung allein reicht nicht: eine semantische Fundstelle
+     * enthält die gesuchten Wörter oft gar nicht, und dann steht sie in der
+     * Liste und ist im Dokument nicht zu finden. Genau dafür gibt es die
+     * semantische Suche.
+     *
+     * Markiert wird der Block, nicht der exakte Satz: der gerenderte Text
+     * bricht anders um als der indexierte, und ein Absatz, der sichtbar zur
+     * Fundstelle gehört, ist ehrlicher als eine Auswahl, die einen halben Satz
+     * danebenliegt.
+     */
+    /**
+     * Der Text, an dem eine Fundstelle im Dokument wiederzufinden ist.
+     *
+     * Bevorzugt der Trefferatz selbst. Ist der zu kurz, um eindeutig zu sein --
+     * die Satztrennung liefert bei Dokumenten aus kurzen Zeilen auch mal
+     * "2019-04-15" --, dann das längste Stück des Fensters. Vorher wurde in dem
+     * Fall gar nicht gesucht und auf die n-te Markierung zurückgefallen, und
+     * dann leuchtete im Dokument etwas auf, das mit der angeklickten Fundstelle
+     * nichts zu tun hatte.
+     */
+    _findingNeedle(finding) {
+        if (!finding) return '';
+        const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const match = norm(finding.match);
+        if (match.length >= 8) return match.slice(0, 60);
+        const longest = [norm(finding.after), norm(finding.before)]
+            .sort((a, b) => b.length - a.length)[0] || '';
+        return longest.length >= 8 ? longest.slice(0, 60) : match;
+    }
+
+    _markPassagesInBody() {
+        if (!this._findings.length) return;
+        const blocks = Array.from(
+            this.previewBody.querySelectorAll('p, li, td, blockquote, pre'),
+        );
+        if (!blocks.length) return;
+        const normalise = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        this._findings.forEach((finding, index) => {
+            const needle = this._findingNeedle(finding);
+            if (needle.length < 8) return;
+            const block = blocks.find((b) => normalise(b.textContent).includes(needle));
+            if (!block) return;
+            block.classList.add('passage-hit');
+            if (block.dataset.finding === undefined) {
+                block.dataset.finding = String(index);
+            }
+        });
+    }
+
+    /**
      * Springt im dargestellten Text zu einer Fundstelle und hebt sie hervor.
      *
      * Gesucht wird über den Text der Fundstelle, nicht über ihre Nummer: die
@@ -388,16 +456,35 @@ class DocumentSearchApp {
      */
     _scrollToFinding(finding, fallbackIndex) {
         const hits = Array.from(this.previewBody.querySelectorAll('mark.body-hit'));
-        if (!hits.length) return false;
         hits.forEach((el) => el.classList.remove('is-active'));
+        if (!hits.length && !this.previewBody.querySelector('.passage-hit')) return false;
 
-        const needle = String((finding && finding.match) || '')
-            .replace(/\s+/g, ' ').trim().slice(0, 40).toLowerCase();
+        const needle = this._findingNeedle(finding);
+
+        // Der markierte Absatz ist das Ziel, auch wenn kein gesuchtes Wort
+        // darin steht -- sonst führt ein Klick auf eine semantische Fundstelle
+        // irgendwohin.
+        this.previewBody.querySelectorAll('.passage-hit.is-active')
+            .forEach((el) => el.classList.remove('is-active'));
+        let block = null;
+        if (needle.length >= 8) {
+            block = Array.from(this.previewBody.querySelectorAll('.passage-hit'))
+                .find((b) => b.textContent.replace(/\s+/g, ' ').toLowerCase()
+                    .includes(needle)) || null;
+        }
+        if (block) {
+            block.classList.add('is-active');
+            const inner = block.querySelector('mark.body-hit');
+            if (inner) inner.classList.add('is-active');
+            block.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return true;
+        }
+
         let target = null;
         if (needle) {
             target = hits.find((hit) => {
-                const block = hit.closest('p, li, td, div') || hit.parentElement;
-                return block && block.textContent
+                const parent = hit.closest('p, li, td, div') || hit.parentElement;
+                return parent && parent.textContent
                     .replace(/\s+/g, ' ').toLowerCase().includes(needle);
             }) || null;
         }
@@ -537,6 +624,7 @@ class DocumentSearchApp {
             this.previewBody.innerHTML = this._indexNoticeHtml(true)
                 + window.KnovasMarkdown.render(data.markdown);
             this._markTermsInBody();
+            this._markPassagesInBody();
             return true;
         } catch (error) {
             return false;
@@ -639,9 +727,17 @@ class DocumentSearchApp {
             }
             // q= lässt den Server die Fundstellen als echte Anmerkungen ins
             // ausgelieferte PDF schreiben; der Viewer zeigt sie dann von selbst.
+            // q= markiert die gesuchten Wörter, s= die Trefferstellen selbst.
+            // Ein rein semantischer Treffer enthält die Wörter nicht -- ohne s=
+            // stünde er in der Liste und wäre im Dokument nicht zu sehen.
+            const sentences = this._findings
+                .map((f) => f.sentence_number)
+                .filter((n) => Number.isInteger(n))
+                .join(',');
             const src = `/api/document/${encodeURIComponent(docId)}/preview`
                 + `?path=${encodeURIComponent(path)}`
-                + `&q=${encodeURIComponent(this.currentQuery || '')}`;
+                + `&q=${encodeURIComponent(this.currentQuery || '')}`
+                + (sentences ? `&s=${encodeURIComponent(sentences)}` : '');
             this._pdfBaseSrc = src;
             try {
                 const probe = await fetch(src, { method: 'GET', headers: { Range: 'bytes=0-0' },
@@ -693,6 +789,7 @@ class DocumentSearchApp {
                 + this._mailHeaderHtml(data.meta)
                 + window.KnovasMarkdown.render(data.markdown);
             this._markTermsInBody();
+            this._markPassagesInBody();
             this.selectFinding(this._findingIndex >= 0 ? this._findingIndex : 0);
         } catch (error) {
             if (error.name === 'AbortError') return;

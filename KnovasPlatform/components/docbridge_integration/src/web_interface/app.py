@@ -28,7 +28,12 @@ import requests
 from urllib.parse import quote
 
 from config_loader import get_config
-from context_store import enrich_result_with_context, indexed_text, load_context
+from context_store import (
+    enrich_result_with_context,
+    indexed_text,
+    load_context,
+    sentences_by_number,
+)
 from context_store import query_terms as context_query_terms
 from knovas_client import KnovasAPIClient
 from file_utils import AutoDocFileHandler
@@ -1998,8 +2003,23 @@ def create_app(config_path: Optional[str] = None):
                 request.args.get('q') or '',
                 config.get_int('web.search.strict_match_min_term_length', 2),
             )
-            if terms:
-                marked = highlight_pdf(full_path, terms)
+            # s= sind die Satznummern der Trefferstellen. Ihr Text steht im
+            # Sidecar, nicht in der Adresszeile: ein rein semantischer Treffer
+            # enthält die gesuchten Wörter gar nicht, und ohne die Stelle selbst
+            # wäre an ihm nichts markiert.
+            numbers: List[int] = []
+            for raw in str(request.args.get('s') or '').split(','):
+                raw = raw.strip()
+                if raw.lstrip('-').isdigit():
+                    numbers.append(int(raw))
+            passages = sentences_by_number(
+                load_context(
+                    _context_store_path_from_config(config), [str(doc_id), file_path]
+                ),
+                numbers[:8],
+            ) if numbers else []
+            if terms or passages:
+                marked = highlight_pdf(full_path, terms, passages=passages)
                 if marked:
                     return send_file(
                         io.BytesIO(marked),

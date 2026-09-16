@@ -106,9 +106,15 @@ def extract_markdown(path: str) -> Dict[str, Any]:
 HIGHLIGHT_MAX_PAGES = 200
 HIGHLIGHT_MAX_TERMS = 6
 HIGHLIGHT_MAX_PER_PAGE = 40
+HIGHLIGHT_MAX_PASSAGES = 8
+
+# Markenfarben statt des PDF-Standardgelbs: --highlight fuer die Trefferstelle,
+# --accent abgeschwaecht fuer die gesuchten Woerter darin.
+PASSAGE_COLOUR = (0.851, 0.878, 0.969)
+TERM_COLOUR = (0.647, 0.757, 0.976)
 
 
-def highlight_pdf(path: str, terms) -> Optional[bytes]:
+def highlight_pdf(path: str, terms, passages=None) -> Optional[bytes]:
     """Das PDF mit echten Markierungen auf den gesuchten Woertern.
 
     Der browsereigene Viewer kann nichts hervorheben, was man ihm sagt -- aber
@@ -121,11 +127,19 @@ def highlight_pdf(path: str, terms) -> Optional[bytes]:
     das Original -- wer ein Dokument aus der Akte holt, soll nicht unsere
     gelben Balken darin haben.
 
+    ``passages`` sind die Trefferstellen selbst -- die Saetze, die Knovas
+    gefunden hat. Sie werden flaechig markiert, die gesuchten Woerter darin
+    kraeftiger. Ohne sie waere bei einem rein semantischen Treffer nichts
+    hervorgehoben: die Stelle steht dann in der Liste, und im Dokument sucht
+    man sie von Hand. Genau das ist der Fall, fuer den die semantische Suche
+    ueberhaupt da ist.
+
     Gibt None zurueck, wenn nichts zu markieren war oder etwas schiefging; der
     Aufrufer liefert dann die Originaldatei aus.
     """
     wanted = [t for t in (terms or []) if len(t) >= 2][:HIGHLIGHT_MAX_TERMS]
-    if not wanted or preview_kind(path) != "pdf":
+    spans = [p for p in (passages or []) if len(p) >= 12][:HIGHLIGHT_MAX_PASSAGES]
+    if not (wanted or spans) or preview_kind(path) != "pdf":
         return None
     try:
         import pymupdf
@@ -137,11 +151,18 @@ def highlight_pdf(path: str, terms) -> Optional[bytes]:
             marked = 0
             for page in doc.pages(0, min(doc.page_count, HIGHLIGHT_MAX_PAGES)):
                 on_page = 0
-                for term in wanted:
+                # Erst die Trefferstelle als Ganzes, dann die Woerter darin --
+                # in dieser Reihenfolge, damit die Wortmarkierung obenauf liegt.
+                for span, colour in (
+                    [(s, PASSAGE_COLOUR) for s in spans]
+                    + [(w, TERM_COLOUR) for w in wanted]
+                ):
                     if on_page >= HIGHLIGHT_MAX_PER_PAGE:
                         break
-                    for rect in page.search_for(term) or []:
-                        page.add_highlight_annot(rect)
+                    for rect in page.search_for(span) or []:
+                        annot = page.add_highlight_annot(rect)
+                        annot.set_colors(stroke=colour)
+                        annot.update()
                         on_page += 1
                         marked += 1
                         if on_page >= HIGHLIGHT_MAX_PER_PAGE:
