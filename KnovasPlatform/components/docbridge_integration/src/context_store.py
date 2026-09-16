@@ -426,6 +426,56 @@ def _with_uncovered_sentences(
     return [entry for _, entry in extra] + candidates
 
 
+# Wie viele Saetze eines gemeldeten Chunks hoechstens durchgesehen werden. Ein
+# Chunk ist serverseitig auf ~1800 Zeichen begrenzt; die Grenze faengt nur einen
+# kaputten Bereich ab.
+CHUNK_SCAN_MAX_SENTENCES = 60
+
+# Obergrenze fuer den Chunktext, den eine Fundstelle mitschickt. Er geht nur an
+# Fundstellen ohne gesuchte Woerter -- bei den anderen zeigt der markierte Satz
+# schon, worum es geht, und der Bereich drumherum waere nur Flaeche.
+MAX_CHUNK_TEXT_CHARS = 1200
+
+
+def _chunk_range(chunk: Dict[str, Any], start: int) -> Tuple[int, int]:
+    """Von wo bis wo der bewertete Chunk reicht, als Satznummern."""
+    raw_end = chunk.get("sentence_number_end")
+    try:
+        end = int(raw_end)
+    except (TypeError, ValueError):
+        return start, start
+    if end < start:
+        return start, start
+    return start, min(end, start + CHUNK_SCAN_MAX_SENTENCES)
+
+
+def _anchor_in_chunk(
+    numbers_to_text: Dict[int, str],
+    start: int,
+    end: int,
+    terms: Sequence[str],
+) -> int:
+    """Der Satz des Chunks, der die gesuchten Woerter traegt.
+
+    Bewertet hat die Suche den ganzen Chunk, gemeldet wird seine erste
+    Satznummer. Welcher Satz darin die Frage beantwortet, steht nicht in der
+    Antwort -- und der erste ist es oft nicht: bei "Womit hat die Alpenblick
+    Gastro beauftragt?" war der erste Satz des Chunks die Kopfzeile und der
+    Satz mit "beauftragt" stand drei Saetze weiter.
+
+    Ohne gesuchte Woerter, oder wenn keines vorkommt, bleibt es beim ersten --
+    dann gibt es nichts, was einen anderen Satz besser machen wuerde.
+    """
+    if not terms or end <= start:
+        return start
+    best_number, best_covered = start, _term_coverage(numbers_to_text.get(start, ""), terms)
+    for number in range(start + 1, end + 1):
+        covered = _term_coverage(numbers_to_text.get(number, ""), terms)
+        if covered > best_covered:
+            best_number, best_covered = number, covered
+    return best_number
+
+
 def _is_thin_location(text: str) -> bool:
     """Ob dieser Satz zu wenig Inhalt hat, um als Fundstelle zu zaehlen."""
     if _ADDRESS_LINE.search(text) or _CONTACT_LINE.search(text):
@@ -516,14 +566,19 @@ def build_match_locations(
         return []
     candidates: List[Dict[str, Any]] = []
     seen: set = set()
+    numbers_to_text = _sentences_by_number(sentences)
     for chunk in top_chunks:
         if not isinstance(chunk, dict):
             continue
         raw = chunk.get("sentence_number")
         try:
-            sentence_number = int(raw)
+            chunk_start = int(raw)
         except (TypeError, ValueError):
             continue
+        chunk_start, chunk_end = _chunk_range(chunk, chunk_start)
+        sentence_number = _anchor_in_chunk(
+            numbers_to_text, chunk_start, chunk_end, terms
+        )
         if sentence_number in seen:
             continue
         seen.add(sentence_number)
@@ -539,6 +594,12 @@ def build_match_locations(
         page = _location_page(chunk)
         if page is not None:
             entry["page"] = page
+        if chunk_end > chunk_start:
+            # Der bewertete Bereich, nicht nur der Satz daraus. Die Oberflaeche
+            # zeigt ihn bei einer Fundstelle ohne gesuchte Woerter an: dort ist
+            # der einzelne Satz eine Auswahl, die niemand getroffen hat.
+            entry["chunk_from"] = chunk_start
+            entry["chunk_to"] = chunk_end
         if terms:
             # Nur der Trefferatz selbst entscheidet, nicht sein Umfeld: mit
             # Radius 1 steht der Nachbarsatz mit im Fenster, und dann waere
@@ -546,6 +607,17 @@ def build_match_locations(
             covered = _term_coverage(entry["match"], terms)
             entry["literal"] = covered > 0
             entry[_COVERAGE_KEY] = covered
+        if not entry.get("literal") and chunk_end > chunk_start:
+            # Steht kein gesuchtes Wort darin, ist der einzelne Satz eine
+            # Auswahl, die niemand getroffen hat -- bewertet hat die Suche den
+            # ganzen Bereich. Dann faerbt die Vorschau ihn mit ein.
+            chunk_text = " ".join(
+                text for text in (
+                    numbers_to_text.get(n, "") for n in range(chunk_start, chunk_end + 1)
+                ) if text
+            ).strip()
+            if chunk_text:
+                entry["chunk_text"] = chunk_text[:MAX_CHUNK_TEXT_CHARS]
         candidates.append(entry)
 
     if terms:
@@ -659,6 +731,22 @@ def indexed_text(entry: Optional[Dict[str, Any]], max_chars: int = MAX_INDEX_TEX
     return "\n\n".join(parts).strip()
 
 
+def _sentences_by_number(sentences: Any) -> Dict[int, str]:
+    """Satznummer -> Text. Fehlt die Nummer, zaehlt die Position."""
+    by_number: Dict[int, str] = {}
+    if not isinstance(sentences, list):
+        return by_number
+    for index, sent in enumerate(sentences):
+        raw = sent.get("i") if isinstance(sent, dict) else index + 1
+        if raw is None:
+            raw = index + 1
+        try:
+            by_number[int(raw)] = _sentence_text(sent)
+        except (TypeError, ValueError):
+            continue
+    return by_number
+
+
 def sentences_by_number(
     entry: Optional[Dict[str, Any]],
     numbers: Sequence[int],
@@ -675,16 +763,7 @@ def sentences_by_number(
     sentences = entry.get("sentences")
     if not isinstance(sentences, list):
         return []
-    by_number: Dict[int, str] = {}
-    for index, sent in enumerate(sentences):
-        if isinstance(sent, dict):
-            raw = sent.get("i")
-        else:
-            raw = index + 1
-        try:
-            by_number[int(raw)] = _sentence_text(sent)
-        except (TypeError, ValueError):
-            continue
+    by_number = _sentences_by_number(sentences)
     out: List[str] = []
     for number in numbers:
         text = by_number.get(int(number), "").strip()

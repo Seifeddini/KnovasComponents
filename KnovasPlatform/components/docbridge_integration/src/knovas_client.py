@@ -660,6 +660,18 @@ def _location_from_mapping(data: Dict[str, Any]) -> Dict[str, Any]:
         "line_number",
         "lineNumber",
     )
+    # Das Ende des Chunks, den die Suche bewertet hat. Knovas schickt es mit und
+    # garantiert es: fehlt es an einem alt geschriebenen Chunk, setzt der Server
+    # den Startsatz ein. Damit ist bekannt, ueber welche Saetze der Treffer
+    # ueberhaupt geht -- die Fundstelle steht irgendwo darin, nicht
+    # zwangslaeufig im ersten Satz.
+    sent_end_keys = (
+        "sentence_number_end",
+        "sentenceNumberEnd",
+        "SentenceNumberEnd",
+        "sentence_end",
+        "sentenceEnd",
+    )
     out: Dict[str, Any] = {}
     for src in sources:
         if out.get("page_number") is None:
@@ -673,6 +685,12 @@ def _location_from_mapping(data: Dict[str, Any]) -> Dict[str, Any]:
                 sent = _coerce_location_int(src.get(key))
                 if sent is not None:
                     out["sentence_number"] = sent
+                    break
+        if out.get("sentence_number_end") is None:
+            for key in sent_end_keys:
+                end = _coerce_location_int(src.get(key))
+                if end is not None:
+                    out["sentence_number_end"] = end
                     break
     return out
 

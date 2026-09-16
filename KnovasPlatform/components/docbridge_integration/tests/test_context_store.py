@@ -549,3 +549,98 @@ def test_the_local_search_does_not_read_a_whole_huge_sidecar():
     )
     # Jenseits der Lesegrenze, also nicht gefunden -- und vor allem: kein Fehler.
     assert all(f["sentence_number"] != len(sentences) for f in found)
+
+
+# --- Der bewertete Bereich ---------------------------------------------------
+#
+# Knovas bewertet einen Chunk, meldet aber dessen ERSTE Satznummer. Welcher Satz
+# darin die Frage beantwortet, stand nie in der Antwort -- dabei schickt der
+# Server die Ausdehnung als sentence_number_end laengst mit.
+
+CHUNKED = [
+    {"i": 7, "p": 1, "t": "Aktenzeichen: 2019-031"},
+    {"i": 8, "p": 1, "t": "In Sachen: Alpenblick Gastro GmbH ./. Paechterkollektiv"},
+    {"i": 9, "p": 1, "t": "Die Parteien haben Folgendes vereinbart."},
+    {"i": 10, "p": 1, "t": "Die Mandantin Alpenblick Gastro GmbH beauftragt die Kanzlei."},
+    {"i": 11, "p": 1, "t": "Der Umfang ergibt sich aus Ziffer 2 dieser Vereinbarung."},
+]
+
+
+def test_the_anchor_is_the_sentence_in_the_chunk_that_carries_the_words():
+    """Gemeldet wird der Anfang des Chunks -- die Kopfzeile. Der Satz mit der
+    Antwort steht zwei Saetze weiter im selben Chunk."""
+    from context_store import query_terms
+
+    found = build_match_locations(
+        CHUNKED,
+        [{"sentence_number": 7, "sentence_number_end": 11, "page_number": 1}],
+        terms=query_terms("Womit hat die Alpenblick Gastro beauftragt?"),
+    )
+    assert [f["sentence_number"] for f in found] == [10]
+
+
+def test_without_a_reported_end_the_reported_sentence_stands():
+    """Ein alt geschriebener Chunk hat kein Ende; dann gibt es im Chunk nichts
+    zu waehlen und die gemeldete Satznummer bleibt der Anker."""
+    found = build_match_locations(CHUNKED, [{"sentence_number": 7, "page_number": 1}])
+    assert [f["sentence_number"] for f in found] == [7]
+
+
+def test_without_a_reported_end_the_document_wide_search_still_helps():
+    """Der Rueckfall aus der Vorschau -- er ist genau fuer diesen Fall da."""
+    from context_store import query_terms
+
+    found = build_match_locations(
+        CHUNKED, [{"sentence_number": 7, "page_number": 1}],
+        terms=query_terms("Womit hat die Alpenblick Gastro beauftragt?"),
+    )
+    assert found[0]["sentence_number"] == 10
+
+
+def test_an_end_before_the_start_is_ignored_not_fatal():
+    found = build_match_locations(
+        CHUNKED, [{"sentence_number": 9, "sentence_number_end": 2, "page_number": 1}]
+    )
+    assert found and found[0]["sentence_number"] == 9
+
+
+def test_a_semantic_location_carries_the_scored_passage():
+    """Enthaelt die Stelle kein gesuchtes Wort, ist der einzelne Satz eine
+    Auswahl, die niemand getroffen hat -- der Bereich sagt, worauf sie beruht."""
+    from context_store import query_terms
+
+    found = build_match_locations(
+        CHUNKED,
+        [{"sentence_number": 9, "sentence_number_end": 11, "page_number": 1}],
+        terms=query_terms("Kuendigungsfrist"),
+    )
+    assert found[0]["literal"] is False
+    assert "beauftragt die Kanzlei" in found[0]["chunk_text"]
+
+
+def test_a_literal_location_carries_no_passage_text():
+    """Dort zeigt der markierte Satz schon, worum es geht; der Bereich waere
+    nur Flaeche -- und Nutzlast in jeder Suchantwort."""
+    from context_store import query_terms
+
+    found = build_match_locations(
+        CHUNKED,
+        [{"sentence_number": 9, "sentence_number_end": 11, "page_number": 1}],
+        terms=query_terms("beauftragt"),
+    )
+    assert found[0]["literal"] is True
+    assert "chunk_text" not in found[0]
+
+
+def test_the_passage_text_is_capped():
+    from context_store import MAX_CHUNK_TEXT_CHARS
+
+    long_doc = [
+        {"i": n, "p": 1, "t": "Ein hinreichend langer Satz ueber die Vereinbarung der Parteien."}
+        for n in range(1, 80)
+    ]
+    found = build_match_locations(
+        long_doc, [{"sentence_number": 1, "sentence_number_end": 79, "page_number": 1}],
+        terms=["kuendigungsfrist"],
+    )
+    assert len(found[0]["chunk_text"]) <= MAX_CHUNK_TEXT_CHARS

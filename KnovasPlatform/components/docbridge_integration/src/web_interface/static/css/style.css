@@ -1523,6 +1523,26 @@ mark.context-snippet-match,
     -webkit-box-decoration-break: clone;
 }
 
+/* Der Bereich, den die Suche bewertet hat. Deutlich schwaecher als der Satz:
+   er sagt "hier drin", nicht "hier". Nur an Fundstellen, die kein gesuchtes
+   Wort enthalten -- sonst waere es Flaeche ohne Aussage. */
+.preview-body .chunk-hit {
+    /* Unterstrichen statt hinterlegt: der Satz ist hinterlegt, und zwei
+       Flaechen uebereinander lassen sich nicht auseinanderhalten -- die
+       schwaechere verschwindet, und bei einem Chunk ueber eine halbe Seite
+       bleibt nur "hier ist alles etwas blau". Eine Linie markiert denselben
+       Bereich, ohne mit der Satzmarkierung um dieselbe Flaeche zu streiten. */
+    border-bottom: 1px dotted rgba(var(--accent-rgb), 0.45);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+.preview-body .chunk-hit.is-active {
+    border-bottom-style: solid;
+    border-bottom-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.07);
+}
+
 .preview-body .passage-hit.is-active {
     background: var(--highlight);
     outline: 2px solid var(--accent);

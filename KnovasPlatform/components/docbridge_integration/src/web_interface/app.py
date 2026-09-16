@@ -344,9 +344,12 @@ _TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
         # Ueber das Dokument verteilt, damit die Fundstellenliste lokal mehr als
         # einen Eintrag zeigt. Satz 1 und 2 sind Ueberschrift und Aktenzeichen --
         # sie werden gemeldet und fallen weg, genau darum stehen sie hier.
+        # Mit sentence_number_end, so wie Knovas meldet: ein Chunk deckt mehrere
+        # Saetze ab, und die Fundstelle wird darin gesucht.
         'match_locations': _demo_match_locations([
-            {'page_number': 1, 'sentence_number': n, 'cosine_similarity': c}
-            for n, c in ((1, 0.88), (2, 0.86), (3, 0.84), (5, 0.82), (8, 0.80),
+            {'page_number': 1, 'sentence_number': n, 'sentence_number_end': n + 2,
+             'cosine_similarity': c}
+            for n, c in ((1, 0.88), (3, 0.84), (5, 0.82), (8, 0.80),
                          (11, 0.78), (13, 0.76))
         ]),
         'title': 'Aktennotiz Übergabetermin',

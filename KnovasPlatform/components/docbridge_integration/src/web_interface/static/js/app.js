@@ -427,6 +427,20 @@ class DocumentSearchApp {
      */
     _markPassagesInBody() {
         if (!this._findings.length) return;
+
+        // Zuerst der bewertete Bereich, dann der Satz darin -- der Satz liegt
+        // im Bereich, und die Reihenfolge entscheidet, welcher <span> aussen
+        // steht. Einen Bereich gibt es nur an Fundstellen ohne gesuchte
+        // Woerter; dort ist der einzelne Satz eine Auswahl, die niemand
+        // getroffen hat, und die Flaeche sagt "der Treffer ist hier drin".
+        // Bereiche ueberlappen sich (der Server schneidet sie mit Ueberhang),
+        // deshalb wird ein Bereich uebersprungen, der schon in einem liegt.
+        this._findings.forEach((finding, index) => {
+            const chunk = String(finding && finding.chunk_text || '')
+                .replace(/\s+/g, ' ').trim().toLowerCase();
+            if (chunk.length >= 24) this._wrapPassage(chunk, index, 'chunk-hit', '.chunk-hit');
+        });
+
         this._findings.forEach((finding, index) => {
             const needle = this._findingNeedle(finding);
             // Der Sidecar-Satz und der jetzt dargestellte Text stammen aus zwei
@@ -442,13 +456,13 @@ class DocumentSearchApp {
         });
     }
 
-    /** Legt ein <span class="passage-hit"> um das erste Vorkommen von `needle`. */
-    _wrapPassage(needle, index) {
+    /** Legt ein <span> um das erste Vorkommen von `needle`. */
+    _wrapPassage(needle, index, className = 'passage-hit', skip = '.passage-hit') {
+        const reject = `${skip}, .preview-index-notice`;
         const walker = document.createTreeWalker(
             this.previewBody, NodeFilter.SHOW_TEXT, {
                 acceptNode: (node) => (
-                    node.parentElement
-                    && node.parentElement.closest('.passage-hit, .preview-index-notice')
+                    node.parentElement && node.parentElement.closest(reject)
                         ? NodeFilter.FILTER_REJECT
                         : NodeFilter.FILTER_ACCEPT
                 ),
@@ -493,7 +507,7 @@ class DocumentSearchApp {
             if (localTo < target.nodeValue.length) target.splitText(localTo);
             if (localFrom > 0) target = target.splitText(localFrom);
             const span = document.createElement('span');
-            span.className = 'passage-hit';
+            span.className = className;
             span.dataset.finding = String(index);
             target.parentNode.replaceChild(span, target);
             span.appendChild(target);
@@ -563,6 +577,20 @@ class DocumentSearchApp {
             const inner = block.querySelector('mark.body-hit');
             if (inner) inner.classList.add('is-active');
             block.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return true;
+        }
+
+        // Der Satz war im dargestellten Text nicht wiederzufinden, sein
+        // bewerteter Bereich schon: dann dorthin. "Es steht hier drin" ist
+        // weniger als "hier", aber deutlich mehr als gar kein Sprung.
+        this.previewBody.querySelectorAll('.chunk-hit.is-active')
+            .forEach((el) => el.classList.remove('is-active'));
+        const region = this.previewBody.querySelector(
+            `.chunk-hit[data-finding="${fallbackIndex}"]`,
+        );
+        if (region) {
+            region.classList.add('is-active');
+            region.scrollIntoView({ block: 'center', behavior: 'smooth' });
             return true;
         }
 
