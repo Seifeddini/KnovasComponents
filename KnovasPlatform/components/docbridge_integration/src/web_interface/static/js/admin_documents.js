@@ -15,6 +15,10 @@
   if (!button) { return; }
   var rows = document.getElementById('doc-rows');
   var status = document.getElementById('load-status');
+  var selectAll = document.getElementById('document-select-all');
+  var bulkBar = document.getElementById('document-bulk-bar');
+  var selectedCount = document.getElementById('document-selected-count');
+  var clearSelection = document.getElementById('document-clear-selection');
 
   function cell(className) {
     var td = document.createElement('td');
@@ -30,7 +34,7 @@
 
   function badge(text, open) {
     var span = document.createElement('span');
-    span.className = open ? 'badge open' : 'badge';
+    span.className = open ? 'access-chip open' : 'access-chip';
     span.textContent = text;
     return span;
   }
@@ -45,24 +49,71 @@
     return td;
   }
 
-  function checkboxCell(pointer) {
-    var td = cell();
+  function checkboxCell(pointer, label) {
+    var td = cell('select-column');
     var box = document.createElement('input');
     box.type = 'checkbox';
     box.name = 'pointer';
     box.value = String(pointer == null ? '' : pointer);
+    box.setAttribute('aria-label', String(label || pointer || 'Dokument') + ' auswählen');
     td.appendChild(box);
     return td;
   }
 
   function renderRow(doc) {
     var tr = document.createElement('tr');
-    tr.appendChild(checkboxCell(doc.pointer));
-    tr.appendChild(textCell(doc.title));
+    tr.appendChild(checkboxCell(doc.pointer, doc.title));
+    var titleCell = cell();
+    var title = document.createElement('strong');
+    title.textContent = (doc.title == null || doc.title === '') ? '—' : String(doc.title);
+    titleCell.appendChild(title);
+    tr.appendChild(titleCell);
     tr.appendChild(textCell(doc.pointer, 'ptr'));
     tr.appendChild(groupsCell(doc.access_groups));
-    tr.appendChild(textCell(doc.status));
+    var statusCell = cell();
+    var statusBadge = document.createElement('span');
+    statusBadge.className = 'document-status';
+    statusBadge.textContent = (doc.status == null || doc.status === '') ? '—' : String(doc.status);
+    statusCell.appendChild(statusBadge);
+    tr.appendChild(statusCell);
     return tr;
+  }
+
+  function pointerBoxes() {
+    return Array.prototype.slice.call(
+      rows.querySelectorAll('input[type="checkbox"][name="pointer"]')
+    );
+  }
+
+  function syncSelection() {
+    var boxes = pointerBoxes();
+    var checked = boxes.filter(function (box) { return box.checked; }).length;
+    if (selectedCount) { selectedCount.textContent = String(checked); }
+    if (bulkBar) { bulkBar.hidden = checked === 0; }
+    if (selectAll) {
+      selectAll.checked = boxes.length > 0 && checked === boxes.length;
+      selectAll.indeterminate = checked > 0 && checked < boxes.length;
+    }
+  }
+
+  rows.addEventListener('change', function (event) {
+    if (event.target.matches('input[type="checkbox"][name="pointer"]')) {
+      syncSelection();
+    }
+  });
+
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      pointerBoxes().forEach(function (box) { box.checked = selectAll.checked; });
+      syncSelection();
+    });
+  }
+
+  if (clearSelection) {
+    clearSelection.addEventListener('click', function () {
+      pointerBoxes().forEach(function (box) { box.checked = false; });
+      syncSelection();
+    });
   }
 
   button.addEventListener('click', function () {
@@ -84,6 +135,7 @@
         (page.documents || []).forEach(function (doc) {
           rows.appendChild(renderRow(doc));
         });
+        syncSelection();
         if (page.next_after) {
           button.setAttribute('data-next-after', page.next_after);
           status.textContent = '';
@@ -97,4 +149,6 @@
       })
       .finally(function () { button.disabled = false; });
   });
+
+  syncSelection();
 }());

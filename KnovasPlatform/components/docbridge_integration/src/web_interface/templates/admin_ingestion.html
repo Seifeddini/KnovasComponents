@@ -8,65 +8,82 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
-<body>
+<body class="admin-page">
 <div class="app-shell">
 {% include '_sidebar.html' %}
 <div class="app-content">
 
 <main class="admin">
+    <header class="admin-page-header">
+        <div>
+            <h1>Ingestion</h1>
+            <p class="hint">
+                Welche Ordner indexiert werden, wann, wie schnell und hinter welcher Wand.
+                Eine Vorschau zeigt, was ein Abgleich finden würde, bevor etwas gespeichert wird.
+            </p>
+        </div>
+        <a class="admin-primary-action" href="#folder-tree">Ordner hinzufügen</a>
+    </header>
+
     {% set admin_tab = 'ingestion' %}
     {% include '_admin_tabs.html' %}
-
-    <h1>Ingestion</h1>
-    <p class="hint">
-        Welche Ordner indexiert werden, wann, wie schnell und hinter welcher Wand.
-        Eine Vorschau zeigt, was ein Abgleich finden würde, bevor etwas gespeichert wird.
-    </p>
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
 
-    <section class="panel">
-        <h2>Status</h2>
-        <p>Abgleich: <strong>{{ status.scheduler_state }}</strong>
-            {% if status.files_synced_local is defined %}· {{ status.files_synced_local }} Dateien lokal abgeglichen{% endif %}
-            {% if current %}{% if current.pushed_at %}· Profil Version {{ current.version }}, übertragen{% else %}· Version {{ current.version }} gespeichert, noch nicht übertragen{% endif %}{% endif %}
+    <section class="ingestion-status-bar">
+        <span class="status-dot {% if status.scheduler_state in ('running', 'active') %}is-online{% endif %}" aria-hidden="true"></span>
+        <p>
+            <strong>Abgleich {{ status.scheduler_state }}</strong>
+            {% if status.files_synced_local is defined %}<span>· {{ status.files_synced_local }} Dateien lokal abgeglichen</span>{% endif %}
+            {% if current %}{% if current.pushed_at %}<span>· Profil Version {{ current.version }}, übertragen</span>{% else %}<span>· Version {{ current.version }} gespeichert, noch nicht übertragen</span>{% endif %}{% endif %}
         </p>
-        <form class="inline" method="post" action="{{ url_for('admin.start') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit">Start</button>
-        </form>
-        <form class="inline" method="post" action="{{ url_for('admin.stop') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit">Anhalten</button>
-        </form>
+        <div class="ingestion-status-actions">
+            <form class="inline" method="post" action="{{ url_for('admin.stop') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="secondary compact">Anhalten</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('admin.start') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="secondary compact">Jetzt abgleichen</button>
+            </form>
+        </div>
     </section>
 
     {% if preview %}
     <section class="panel">
         <h2>Vorschau</h2>
-        <table>
-            <thead><tr><th>Ordner</th><th>Dateien</th><th>Unterordner</th></tr></thead>
-            <tbody>
-            {% for p in preview %}
-                <tr><td class="ptr">{{ p.path }}</td>
-                    <td>{% if p.error %}<span class="msg error">{{ p.error }}</span>{% else %}{{ p.files if p.files is not none else '—' }}{% endif %}</td>
-                    <td>{{ p.folders if p.folders is not none else '—' }}{% if p.truncated %} <span class="hint">(Liste gekürzt)</span>{% endif %}</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Ordner</th><th>Dateien</th><th>Unterordner</th></tr></thead>
+                <tbody>
+                {% for p in preview %}
+                    <tr><td class="ptr">{{ p.path }}</td>
+                        <td>{% if p.error %}<span class="msg error">{{ p.error }}</span>{% else %}{{ p.files if p.files is not none else '—' }}{% endif %}</td>
+                        <td>{{ p.folders if p.folders is not none else '—' }}{% if p.truncated %} <span class="hint">(Liste gekürzt)</span>{% endif %}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
         {% if support_json %}<p class="hint">Für den Support (ohne Pfade und Gruppen):</p><pre class="ptr">{{ support_json }}</pre>{% endif %}
     </section>
     {% endif %}
 
     <section class="panel">
         <h2>Profil</h2>
+        <p class="hint">Die Vorschau zeigt, was ein Abgleich finden würde, bevor etwas gespeichert wird.</p>
         <form method="post" action="{{ url_for('admin.save') }}" id="profile-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label>Kennung <input type="text" name="identifier_prefix" value="{{ form.identifier_prefix }}" required></label>
-            <label>Beschreibung <input type="text" name="description" value="{{ form.description }}"></label>
+            <div class="profile-meta-grid">
+                <label>Kennung
+                    <input type="text" name="identifier_prefix" value="{{ form.identifier_prefix }}" required>
+                </label>
+                <label>Beschreibung
+                    <input type="text" name="description" value="{{ form.description }}">
+                </label>
+            </div>
 
-            <label class="checkbox-row">
+            <label class="checkbox-row full-rescan-option">
                 <input type="checkbox" name="full_rescan" value="1"
                        {# Nicht gesetzt heisst hier ausdrücklich "aus": dieser Schalter
                           löst eine vollständige Neuübertragung aus, und die darf
@@ -82,12 +99,14 @@
                 </span>
             </label>
 
-            <h3>Ordner</h3>
-            <p class="hint">
-                Aufklappen zeigt Unterordner. Hinzufügen setzt den Ordner auf das Profil;
-                Zugriffsgruppen und Unterordner wählen Sie in der Tabelle.
-            </p>
-            <div class="folder-picker">
+            <div class="form-section-heading">
+                <h3>Ordner im Profil</h3>
+                <p class="hint">
+                    Aufklappen zeigt Unterordner. Hinzufügen setzt den Ordner auf das Profil;
+                    Zugriffsgruppen und Unterordner wählen Sie in der Tabelle.
+                </p>
+            </div>
+            <div class="folder-picker" tabindex="-1">
                 <div id="folder-tree" class="folder-tree"
                      data-endpoint="{{ url_for('admin.folders') }}"
                      data-max-folders="12">
@@ -97,24 +116,26 @@
                     <p class="hint" id="folder-empty"{% if form.folders %} hidden{% endif %}>
                         Noch kein Ordner auf dem Profil.
                     </p>
-                    <table>
-                        <thead><tr><th>Pfad</th><th>Mit Unterordnern</th><th>Zugriffsgruppen</th><th></th></tr></thead>
-                        <tbody id="folder-rows">
-                        {% for f in form.folders %}
-                            <tr>
-                                <td><input type="text" class="folder-path" name="folder-{{ loop.index0 }}-path" value="{{ f.path }}" readonly></td>
-                                <td><input type="checkbox" name="folder-{{ loop.index0 }}-recursive" value="1" {% if f.recursive %}checked{% endif %}></td>
-                                <td>
-                                    {% for g in groups %}
-                                    <label><input type="checkbox" name="folder-{{ loop.index0 }}-groups" value="{{ g.group_id }}"
-                                        {% if g.group_id in f.groups %}checked{% endif %}> {{ g.name }}</label>
-                                    {% endfor %}
-                                </td>
-                                <td><button type="button" class="danger folder-remove">Entfernen</button></td>
-                            </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Pfad</th><th>Mit Unterordnern</th><th>Zugriffsgruppen</th><th></th></tr></thead>
+                            <tbody id="folder-rows">
+                            {% for f in form.folders %}
+                                <tr>
+                                    <td><input type="text" class="folder-path" name="folder-{{ loop.index0 }}-path" value="{{ f.path }}" readonly></td>
+                                    <td><input type="checkbox" name="folder-{{ loop.index0 }}-recursive" value="1" {% if f.recursive %}checked{% endif %}></td>
+                                    <td>
+                                        {% for g in groups %}
+                                        <label class="admin-check"><input type="checkbox" name="folder-{{ loop.index0 }}-groups" value="{{ g.group_id }}"
+                                            {% if g.group_id in f.groups %}checked{% endif %}> <span>{{ g.name }}</span></label>
+                                        {% endfor %}
+                                    </td>
+                                    <td><button type="button" class="danger compact folder-remove">Entfernen</button></td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <template id="folder-row-template">
@@ -123,59 +144,69 @@
                     <td><input type="checkbox" name="folder-__n__-recursive" value="1" checked></td>
                     <td>
                         {% for g in groups %}
-                        <label><input type="checkbox" name="folder-__n__-groups" value="{{ g.group_id }}"> {{ g.name }}</label>
+                        <label class="admin-check"><input type="checkbox" name="folder-__n__-groups" value="{{ g.group_id }}"> <span>{{ g.name }}</span></label>
                         {% endfor %}
                     </td>
-                    <td><button type="button" class="danger folder-remove">Entfernen</button></td>
+                    <td><button type="button" class="danger compact folder-remove">Entfernen</button></td>
                 </tr>
             </template>
 
-            <h3>Was indexiert wird</h3>
-            {% for key, t in file_types.items() %}
-            <label><input type="checkbox" name="file_types" value="{{ key }}" {% if key in form.file_types %}checked{% endif %}> {{ t.label }} <span class="hint">{{ t.description }}</span></label>
-            {% endfor %}
+            <div class="profile-options">
+                <fieldset>
+                    <legend>Was indexiert wird</legend>
+                    {% for key, t in file_types.items() %}
+                    <label class="admin-check" title="{{ t.description }}"><input type="checkbox" name="file_types" value="{{ key }}" {% if key in form.file_types %}checked{% endif %}> <span>{{ t.label }}</span></label>
+                    {% endfor %}
+                </fieldset>
 
-            <h3>Wann</h3>
-            {% for key, t in schedules.items() %}
-            <label><input type="radio" name="schedule" value="{{ key }}" {% if key == form.schedule %}checked{% endif %}> {{ t.label }} <span class="hint">{{ t.description }}</span></label>
-            {% endfor %}
+                <fieldset>
+                    <legend>Wann</legend>
+                    {% for key, t in schedules.items() %}
+                    <label class="admin-check" title="{{ t.description }}"><input type="radio" name="schedule" value="{{ key }}" {% if key == form.schedule %}checked{% endif %}> <span>{{ t.label }}</span></label>
+                    {% endfor %}
+                </fieldset>
 
-            <h3>Wie schnell</h3>
-            {% for key, t in throughputs.items() %}
-            <label><input type="radio" name="throughput" value="{{ key }}" {% if key == form.throughput %}checked{% endif %}> {{ t.label }} <span class="hint">{{ t.description }}</span></label>
-            {% endfor %}
+                <fieldset>
+                    <legend>Wie schnell</legend>
+                    {% for key, t in throughputs.items() %}
+                    <label class="admin-check" title="{{ t.description }}"><input type="radio" name="throughput" value="{{ key }}" {% if key == form.throughput %}checked{% endif %}> <span>{{ t.label }}</span></label>
+                    {% endfor %}
+                </fieldset>
+            </div>
 
-            <label>Dokumente ignorieren, die älter sind als (Tage)
-                <input type="text" name="max_document_age_days" value="{{ form.max_document_age_days }}" placeholder="leer = kein Limit"></label>
-
-            <p>
-                <button type="submit" formaction="{{ url_for('admin.preview') }}">Vorschau</button>
+            <div class="profile-form-actions">
+                <label>Dokumente ignorieren, die älter sind als (Tage)
+                    <input type="text" name="max_document_age_days" value="{{ form.max_document_age_days }}" placeholder="leer = kein Limit">
+                </label>
+                <button type="submit" class="secondary" formaction="{{ url_for('admin.preview') }}">Vorschau</button>
                 <button type="submit">Speichern und übertragen</button>
-            </p>
+            </div>
         </form>
     </section>
 
-    <section class="panel">
-        <h2>Versionen</h2>
-        <table>
-            <thead><tr><th>Version</th><th>Erstellt</th><th>Übertragen</th><th></th></tr></thead>
-            <tbody>
-            {% for v in versions %}
-                <tr>
-                    <td>{{ v.version }}{% if v.is_current %} (aktuell){% endif %}</td>
-                    <td>{{ v.created_at }}</td>
-                    <td>{{ v.pushed_at or '—' }}</td>
-                    <td>{% if not v.is_current %}
-                        <form class="inline" method="post" action="{{ url_for('admin.restore', version=v.version) }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit">Wiederherstellen</button>
-                        </form>{% endif %}</td>
-                </tr>
-            {% else %}
-                <tr><td colspan="4" class="hint">Noch kein Profil gespeichert.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
+    <section class="admin-section versions-section">
+        <h2 class="section-label">Versionen</h2>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Version</th><th>Erstellt</th><th>Übertragen</th><th></th></tr></thead>
+                <tbody>
+                {% for v in versions %}
+                    <tr>
+                        <td><strong>v{{ v.version }}</strong>{% if v.is_current %} <span class="access-chip">aktuell</span>{% endif %}</td>
+                        <td>{{ v.created_at }}</td>
+                        <td>{{ v.pushed_at or '—' }}</td>
+                        <td class="row-action">{% if not v.is_current %}
+                            <form class="inline" method="post" action="{{ url_for('admin.restore', version=v.version) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="secondary compact">Wiederherstellen</button>
+                            </form>{% endif %}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4" class="empty">Noch kein Profil gespeichert.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </section>
 </main>
 </div>
