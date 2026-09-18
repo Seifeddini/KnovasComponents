@@ -123,6 +123,17 @@ class TestTemplate:
         html = (TEMPLATES / "admin_documents.html").read_text(encoding="utf-8")
         assert "total_count" in html
 
+    def test_bulk_selection_has_one_shared_toolbar_and_select_all_control(self):
+        html = (TEMPLATES / "admin_documents.html").read_text(encoding="utf-8")
+        script = (
+            TEMPLATES.parent / "static" / "js" / "admin_documents.js"
+        ).read_text(encoding="utf-8")
+        assert 'id="document-bulk-bar"' in html
+        assert 'id="document-selected-count"' in html
+        assert 'id="document-select-all"' in html
+        assert 'id="document-clear-selection"' in html
+        assert "syncSelection" in script
+
 
 class TestConsoleShell:
     """SS-387: one tab strip, shared by every console page; a way in."""
@@ -146,6 +157,24 @@ class TestConsoleShell:
         # But a console nobody can navigate to is not a console.
         assert "console_url" in html
         assert "Verwaltung" in html
+
+    def test_every_console_page_uses_the_scoped_admin_shell(self):
+        pages = (
+            "admin_people.html", "admin_documents.html",
+            "admin_access_groups.html", "admin_ingestion.html",
+            "admin_system.html", "admin_approvals.html",
+        )
+        for page in pages:
+            html = (TEMPLATES / page).read_text(encoding="utf-8")
+            assert '<body class="admin-page">' in html, page
+            assert html.index("<h1>") < html.index("_admin_tabs.html"), page
+
+    def test_people_page_has_one_master_detail_view(self):
+        html = (TEMPLATES / "admin_people.html").read_text(encoding="utf-8")
+        assert 'id="people-table"' in html
+        assert "data-person-detail" in html
+        assert 'id="person-create-dialog"' in html
+        assert "admin_people.js" in html
 
 
 class TestAccessGroupsTab:

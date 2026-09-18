@@ -8,128 +8,230 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
-<body>
+<body class="admin-page">
 <div class="app-shell">
 {% include '_sidebar.html' %}
 <div class="app-content">
 
 <main class="admin">
+    <header class="admin-page-header">
+        <div>
+            <h1>Personen</h1>
+            <p class="hint">
+                Wer sich anmelden darf, was er oder sie darf, und welche Zugriffsgruppen
+                gelten. Zugriffsgruppen entscheiden, welche Dokumente jemand sieht;
+                Rollen entscheiden, was jemand in dieser Plattform tun darf.
+            </p>
+        </div>
+        <button type="button" class="admin-primary-action" data-person-create-open>
+            Person hinzufügen
+        </button>
+    </header>
+
     {% set admin_tab = 'people' %}
     {% include '_admin_tabs.html' %}
-
-    <h1>Personen</h1>
-    <p class="hint">
-        Wer sich anmelden darf, was er oder sie darf, und welche Zugriffsgruppen
-        gelten. Zugriffsgruppen entscheiden, welche Dokumente jemand sieht;
-        Rollen entscheiden, was jemand in dieser Plattform tun darf.
-    </p>
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
 
-    <table>
-        <thead>
-            <tr>
-                <th>Person</th>
-                <th>Status</th>
-                <th>Rollen</th>
-                <th>Zugriffsgruppen</th>
-                <th>Aktionen</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for row in people %}
-            {% set person = row.user %}
-            <tr>
-                <td>
-                    <strong>{{ person.display_name }}</strong><br>
-                    <span class="hint">{{ person.email }}</span>
-                </td>
-                <td>
+    <div class="admin-toolbar people-toolbar" aria-label="Personen filtern">
+        <label class="admin-search-control" for="people-search">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                 stroke-width="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path>
+            </svg>
+            <input id="people-search" type="search" placeholder="Person suchen">
+        </label>
+        <label class="visually-hidden" for="people-role-filter">Nach Rolle filtern</label>
+        <select id="people-role-filter">
+            <option value="">Alle Rollen</option>
+            {% for role in assignable_roles %}<option value="{{ role }}">{{ role }}</option>{% endfor %}
+        </select>
+        <label class="visually-hidden" for="people-status-filter">Nach Zustand filtern</label>
+        <select id="people-status-filter">
+            <option value="">Alle Zustände</option>
+            <option value="active">Aktiv</option>
+            <option value="locked">Gesperrt</option>
+            <option value="disabled">Deaktiviert</option>
+        </select>
+        <span class="admin-toolbar-count" aria-live="polite">
+            <span id="people-visible-count">{{ people|length }}</span> Konten
+        </span>
+    </div>
+
+    <div class="people-layout">
+        <div class="table-wrap people-table-wrap">
+            <table id="people-table">
+                <thead>
+                    <tr>
+                        <th>Person</th>
+                        <th>Status</th>
+                        <th>Rollen</th>
+                        <th>Zugriffsgruppen</th>
+                        <th><span class="visually-hidden">Aktion</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in people %}
+                    {% set person = row.user %}
                     {% if not person.is_active %}
-                        <span class="state-disabled">deaktiviert</span>
+                        {% set person_status = 'disabled' %}
                     {% elif person.is_locked %}
-                        <span class="state-locked">gesperrt</span>
+                        {% set person_status = 'locked' %}
                     {% else %}
-                        <span class="state-active">aktiv</span>
+                        {% set person_status = 'active' %}
                     {% endif %}
-                    {% if person.must_change_password %}
-                        <br><span class="hint">Passwortwechsel offen</span>
-                    {% endif %}
-                </td>
-                <td>
-                    <form method="post" action="{{ url_for('admin.set_roles') }}">
+                    <tr data-person-row
+                        data-person-id="{{ person.id }}"
+                        data-search="{{ person.display_name }} {{ person.email }} {{ person.roles|join(' ') }} {{ row.access_groups|join(' ') }}"
+                        data-role="{{ person.roles|join(' ') }}"
+                        data-status="{{ person_status }}"
+                        {% if loop.first %}class="is-selected" aria-selected="true"{% endif %}>
+                        <td>
+                            <strong>{{ person.display_name }}</strong>
+                            <span class="sub">{{ person.email }}</span>
+                        </td>
+                        <td>
+                            {% if person_status == 'disabled' %}
+                                <span class="state-disabled">deaktiviert</span>
+                            {% elif person_status == 'locked' %}
+                                <span class="state-locked">gesperrt</span>
+                            {% else %}
+                                <span class="state-active">aktiv</span>
+                            {% endif %}
+                            {% if person.must_change_password %}
+                                <span class="sub">Passwortwechsel offen</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for role in person.roles|sort %}
+                                <span class="role-chip">{{ role }}</span>
+                            {% else %}—{% endfor %}
+                        </td>
+                        <td>
+                            {% for group in row.access_groups %}
+                                <span class="access-chip">{{ group }}</span>
+                            {% else %}<span class="sub">—</span>{% endfor %}
+                        </td>
+                        <td class="people-row-action">
+                            <button type="button" class="secondary compact" data-person-select="{{ person.id }}">
+                                Verwalten
+                            </button>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="empty">Noch keine Personen angelegt.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <aside class="person-detail-panel" aria-label="Person verwalten">
+            {% for row in people %}
+                {% set person = row.user %}
+                <section class="person-detail" data-person-detail="{{ person.id }}"
+                         {% if not loop.first %}hidden{% endif %}>
+                    <header class="person-detail-header">
+                        <span class="person-avatar" aria-hidden="true">{{ person.display_name[0]|upper }}</span>
+                        <div>
+                            <h2>{{ person.display_name }}</h2>
+                            <p>{{ person.email }}</p>
+                        </div>
+                    </header>
+
+                    <form class="person-detail-form" method="post" action="{{ url_for('admin.set_roles') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="user_id" value="{{ person.id }}">
-                        {% for role in assignable_roles %}
-                        <label>
-                            <input type="checkbox" name="roles" value="{{ role }}"
-                                   {% if role in person.roles %}checked{% endif %}>
-                            {{ role }}
-                        </label>
-                        {% endfor %}
-                        <button type="submit">Rollen speichern</button>
+                        <fieldset>
+                            <legend>Rollen</legend>
+                            {% for role in assignable_roles %}
+                            <label class="admin-check">
+                                <input type="checkbox" name="roles" value="{{ role }}"
+                                       {% if role in person.roles %}checked{% endif %}>
+                                <span>{{ role }}</span>
+                            </label>
+                            {% endfor %}
+                        </fieldset>
+                        <button type="submit" class="secondary">Rollen speichern</button>
                     </form>
-                </td>
-                <td>
-                    <form method="post" action="{{ url_for('admin.set_groups') }}">
+
+                    <form class="person-detail-form" method="post" action="{{ url_for('admin.set_groups') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="user_id" value="{{ person.id }}">
-                        <input type="text" name="access_groups"
+                        <label for="groups-{{ person.id }}">Zugriffsgruppen</label>
+                        <input type="text" id="groups-{{ person.id }}" name="access_groups"
                                value="{{ row.access_groups|join(', ') }}"
                                placeholder="z. B. litigation, ip">
-                        <button type="submit">Speichern</button>
+                        <button type="submit" class="secondary">Gruppen speichern</button>
                     </form>
-                </td>
-                <td>
-                    {% if person.is_active %}
-                    <form class="inline" method="post" action="{{ url_for('admin.disable_person') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="user_id" value="{{ person.id }}">
-                        <button type="submit" {% if me and person.id == me.id %}disabled title="Das eigene Konto lässt sich nicht deaktivieren."{% endif %}>Deaktivieren</button>
-                    </form>
-                    {% else %}
-                    <form class="inline" method="post" action="{{ url_for('admin.enable_person') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="user_id" value="{{ person.id }}">
-                        <button type="submit">Aktivieren</button>
-                    </form>
-                    {% endif %}
-                    <form class="inline" method="post" action="{{ url_for('admin.sign_out_person') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="user_id" value="{{ person.id }}">
-                        <button type="submit">Überall abmelden</button>
-                    </form>
-                    <form method="post" action="{{ url_for('admin.reset_password') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="user_id" value="{{ person.id }}">
-                        <input type="password" name="password" placeholder="Neues Passwort" minlength="12">
-                        <button type="submit">Zurücksetzen</button>
-                    </form>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
 
-    <section class="panel">
-        <h2>Person hinzufügen</h2>
-        <p class="hint">
-            Das vergebene Passwort gilt einmalig — die Person muss es bei der
-            ersten Anmeldung ersetzen.
-        </p>
+                    <div class="person-account-actions">
+                        <h3>Konto</h3>
+                        <form method="post" action="{{ url_for('admin.sign_out_person') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="user_id" value="{{ person.id }}">
+                            <button type="submit" class="secondary">Überall abmelden</button>
+                        </form>
+                        <form class="password-reset-form" method="post" action="{{ url_for('admin.reset_password') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="user_id" value="{{ person.id }}">
+                            <label class="visually-hidden" for="password-{{ person.id }}">Neues Passwort</label>
+                            <input id="password-{{ person.id }}" type="password" name="password"
+                                   placeholder="Neues Passwort" minlength="12" required>
+                            <button type="submit" class="secondary">Passwort zurücksetzen</button>
+                        </form>
+                        {% if person.is_active %}
+                        <form method="post" action="{{ url_for('admin.disable_person') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="user_id" value="{{ person.id }}">
+                            <button type="submit" class="danger"
+                                    {% if me and person.id == me.id %}disabled title="Das eigene Konto lässt sich nicht deaktivieren."{% endif %}>
+                                Deaktivieren
+                            </button>
+                        </form>
+                        {% else %}
+                        <form method="post" action="{{ url_for('admin.enable_person') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="user_id" value="{{ person.id }}">
+                            <button type="submit">Aktivieren</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </section>
+            {% else %}
+                <p class="empty">Wählen Sie eine Person aus.</p>
+            {% endfor %}
+        </aside>
+    </div>
+
+    <dialog class="admin-dialog" id="person-create-dialog" aria-labelledby="person-create-title">
         <form method="post" action="{{ url_for('admin.create_person') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <header class="admin-dialog-header">
+                <div>
+                    <h2 id="person-create-title">Person hinzufügen</h2>
+                    <p class="hint">
+                        Das vergebene Passwort gilt einmalig — die Person muss es bei der
+                        ersten Anmeldung ersetzen.
+                    </p>
+                </div>
+                <button type="button" class="admin-icon-button" data-person-create-close
+                        aria-label="Dialog schließen">×</button>
+            </header>
             <label for="newEmail">E-Mail-Adresse</label>
             <input type="email" id="newEmail" name="email" required>
             <label for="newName">Name</label>
             <input type="text" id="newName" name="display_name" required>
             <label for="newPassword">Einmaliges Passwort</label>
             <input type="password" id="newPassword" name="password" minlength="12" required>
-            <button type="submit">Anlegen</button>
+            <div class="admin-dialog-actions">
+                <button type="button" class="secondary" data-person-create-close>Abbrechen</button>
+                <button type="submit">Person anlegen</button>
+            </div>
         </form>
-    </section>
+    </dialog>
 </main>
+<script src="{{ url_for('static', filename='js/admin_people.js') }}?v={{ asset_version }}" defer></script>
 </div>
 </div>
 </body>

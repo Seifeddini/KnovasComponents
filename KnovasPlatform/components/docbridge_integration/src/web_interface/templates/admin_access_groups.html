@@ -8,41 +8,56 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
-<body>
+<body class="admin-page">
 <div class="app-shell">
 {% include '_sidebar.html' %}
 <div class="app-content">
 
 <main class="admin">
+    <header class="admin-page-header">
+        <div>
+            <h1>Zugriffsgruppen</h1>
+            <p class="hint">
+                Gruppen entscheiden, wer welche Dokumente sieht. Eine Ordnerregel
+                ordnet einen ganzen Pfad einer Gruppe zu — auch Dokumente, die später
+                dort eingelesen werden, erben sie automatisch.
+            </p>
+        </div>
+        <a class="admin-primary-action" href="#create-access-group">Gruppe anlegen</a>
+    </header>
+
     {% set admin_tab = 'access_groups' %}
     {% include '_admin_tabs.html' %}
-
-    <h1>Zugriffsgruppen</h1>
-    <p class="hint">
-        Gruppen entscheiden, wer welche Dokumente sieht. Eine Ordnerregel
-        ordnet einen ganzen Pfad einer Gruppe zu — auch Dokumente, die später
-        dort eingelesen werden, erben sie automatisch.
-    </p>
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
 
-    <section class="panel">
-        <h2>Gruppen</h2>
-        <table>
-            <thead><tr><th>Name</th><th>Übergeordnet</th></tr></thead>
-            <tbody>
-            {% for g in groups %}
-                <tr><td>{{ g.name }}</td><td>{{ g.get('parent_name') or '—' }}</td></tr>
-            {% else %}
-                <tr><td colspan="2" class="hint">Noch keine Gruppen angelegt.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
+    <section class="admin-section">
+        <h2 class="section-label">Gruppen</h2>
+        <div class="table-wrap">
+            <table class="groups-table">
+                <thead><tr><th>Name</th><th>Übergeordnet</th></tr></thead>
+                <tbody>
+                {% for g in groups %}
+                    <tr>
+                        <td><strong>{{ g.name }}</strong></td>
+                        <td>{{ g.get('parent_name') or '—' }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="2" class="empty">Noch keine Gruppen angelegt.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 
-        <form method="post" action="{{ url_for('admin.create_access_group') }}">
+    <section class="panel compact-panel" id="create-access-group">
+        <h2>Gruppe anlegen</h2>
+        <form class="inline-form-grid group-create-form" method="post" action="{{ url_for('admin.create_access_group') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label>Name <input type="text" name="name" required></label>
+            <label>Name
+                <input type="text" name="name" placeholder="z. B. personal" required>
+            </label>
             <label>Übergeordnet
                 <select name="parent">
                     <option value="">— keine —</option>
@@ -51,12 +66,12 @@
                     {% endfor %}
                 </select>
             </label>
-            <p><button type="submit">Gruppe anlegen</button></p>
+            <button type="submit">Gruppe anlegen</button>
         </form>
     </section>
 
-    <section class="panel">
-        <h2>Ordnerregeln</h2>
+    <section class="admin-section folder-rules-section">
+        <h2 class="section-label">Ordnerregeln</h2>
         <p class="hint">
             Eine Ordnerregel wirkt <strong>sofort</strong>: geändert wird ein
             einziger Datensatz, nicht jedes Dokument. Deshalb ist das Ändern
@@ -64,45 +79,56 @@
             Bereits vorhandene Dokumente übernehmen die Regel erst mit einem
             Abgleich.
         </p>
-        <table>
-            <thead>
-                <tr><th>Ordner</th><th>Gruppen</th><th>Version</th><th></th></tr>
-            </thead>
-            <tbody>
-            {% for r in rules %}
-                <tr>
-                    <td class="ptr">{{ r.pointer_prefix }}</td>
-                    <td>
-                        {% if r.access_groups %}
-                            {% for g in r.access_groups %}<span class="badge">{{ g }}</span>{% endfor %}
-                        {% else %}<span class="badge open">offen</span>{% endif %}
-                    </td>
-                    <td>{{ r.version }}</td>
-                    <td>
-                        <form method="post" class="inline"
-                              action="{{ url_for('admin.delete_folder_rule') }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <input type="hidden" name="rule_id" value="{{ r.rule_id }}">
-                            <button type="submit">Löschen</button>
-                        </form>
-                    </td>
-                </tr>
-            {% else %}
-                <tr><td colspan="4" class="hint">Noch keine Ordnerregeln.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Ordner</th><th>Gruppen</th><th>Version</th><th></th></tr>
+                </thead>
+                <tbody>
+                {% for r in rules %}
+                    <tr>
+                        <td class="ptr">{{ r.pointer_prefix }}</td>
+                        <td>
+                            {% if r.access_groups %}
+                                {% for g in r.access_groups %}<span class="access-chip">{{ g }}</span>{% endfor %}
+                            {% else %}<span class="access-chip open">offen</span>{% endif %}
+                        </td>
+                        <td>v{{ r.version }}</td>
+                        <td class="row-action">
+                            <form method="post" class="inline"
+                                  action="{{ url_for('admin.delete_folder_rule') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="rule_id" value="{{ r.rule_id }}">
+                                <button type="submit" class="secondary compact">Löschen</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4" class="empty">Noch keine Ordnerregeln.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 
-        <form method="post" action="{{ url_for('admin.save_folder_rule') }}">
+    <section class="panel compact-panel">
+        <h2>Regel speichern</h2>
+        <form class="inline-form-grid folder-rule-form" method="post" action="{{ url_for('admin.save_folder_rule') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label>Ordner
                 <input type="text" name="pointer_prefix"
                        placeholder="rc-sync/mandate/muster/" required>
             </label>
-            {% for g in groups %}
-            <label><input type="checkbox" name="access_group" value="{{ g.group_id }}"> {{ g.name }}</label>
-            {% endfor %}
-            <p><button type="submit">Regel speichern</button></p>
+            <fieldset class="chip-fieldset">
+                <legend>Zugriffsgruppen</legend>
+                {% for g in groups %}
+                <label class="choice-chip">
+                    <input type="checkbox" name="access_group" value="{{ g.group_id }}">
+                    <span>{{ g.name }}</span>
+                </label>
+                {% else %}<span class="hint">Keine Gruppen verfügbar.</span>{% endfor %}
+            </fieldset>
+            <button type="submit">Regel speichern</button>
         </form>
     </section>
 </main>

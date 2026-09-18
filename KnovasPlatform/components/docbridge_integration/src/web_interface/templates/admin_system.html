@@ -8,23 +8,27 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
-<body>
+<body class="admin-page">
 <div class="app-shell">
 {% include '_sidebar.html' %}
 <div class="app-content">
 
 <main class="admin">
+    <header class="admin-page-header">
+        <div>
+            <h1>System</h1>
+            <p class="hint">
+                Jede Zeile ist ein echter Aufruf — durch denselben Client, mit denselben
+                Zertifikaten und mit Ihrer Anmeldung. Ein grüner Punkt heißt deshalb:
+                genau dieser Aufruf funktioniert, mit genau diesen Rechten. Es wird
+                nichts geändert; gelesen wird der Wissensgraph, gesucht wird nach einem
+                einzelnen Wort.
+            </p>
+        </div>
+    </header>
+
     {% set admin_tab = 'system' %}
     {% include '_admin_tabs.html' %}
-
-    <h1>System</h1>
-    <p class="hint">
-        Jede Zeile ist ein echter Aufruf — durch denselben Client, mit denselben
-        Zertifikaten und mit Ihrer Anmeldung. Ein grüner Punkt heißt deshalb:
-        genau dieser Aufruf funktioniert, mit genau diesen Rechten. Es wird
-        nichts geändert; gelesen wird der Wissensgraph, gesucht wird nach einem
-        einzelnen Wort.
-    </p>
 
     <div class="status-banner status-{{ summary.state }}">
         <span class="status-dot" aria-hidden="true"></span>

@@ -8,103 +8,132 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
-<body>
+<body class="admin-page">
 <div class="app-shell">
 {% include '_sidebar.html' %}
 <div class="app-content">
 
 <main class="admin">
+    <header class="admin-page-header">
+        <div>
+            <h1>Dokumente</h1>
+            <p class="hint">
+                Alle Dokumente dieses Mandanten, soweit Sie sie sehen dürfen.
+                Abschirmungen gelten auch für die Verwaltung: was für Sie gesperrt
+                ist, erscheint hier nicht.
+            </p>
+        </div>
+    </header>
+
     {% set admin_tab = 'documents' %}
     {% include '_admin_tabs.html' %}
-
-    <h1>Dokumente</h1>
-    <p class="hint">
-        Alle Dokumente dieses Mandanten, soweit Sie sie sehen dürfen.
-        Abschirmungen gelten auch für die Verwaltung: was für Sie gesperrt
-        ist, erscheint hier nicht.
-        <strong>{{ total_count }}</strong> Dokument(e) entsprechen dem Filter.
-    </p>
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
 
-    <form class="filters" method="get" action="{{ url_for('admin.documents') }}">
-        <label>Ordner
+    <form class="admin-toolbar filters" method="get" action="{{ url_for('admin.documents') }}">
+        <label class="admin-filter-field">
+            <span class="visually-hidden">Ordner</span>
             <input type="text" name="prefix" value="{{ filters.prefix or '' }}"
                    placeholder="rc-sync/mandate/">
         </label>
-        <label>Gruppe
+        <label class="admin-filter-field">
+            <span class="visually-hidden">Gruppe</span>
             <select name="group">
-                <option value="">alle</option>
+                <option value="">Gruppe: alle</option>
                 {% for g in groups %}
                 <option value="{{ g.group_id }}"
                         {% if filters.group == g.group_id %}selected{% endif %}>{{ g.name }}</option>
                 {% endfor %}
             </select>
         </label>
-        <label>
+        <label class="admin-check">
             <input type="checkbox" name="unrestricted" value="1"
                    {% if filters.unrestricted %}checked{% endif %}>
-            nur ohne Gruppe
+            <span>nur ohne Gruppe</span>
         </label>
-        <label>
+        <label class="admin-check">
             <input type="checkbox" name="conflicts" value="1" disabled
                    {% if filters.conflicts %}checked{% endif %}
                    title="Der Konfliktfilter wird vom Knovas-Backend noch nicht ausgewertet.">
-            nur Konflikte (folgt)
+            <span>nur Konflikte (folgt)</span>
         </label>
-        <button type="submit">Filtern</button>
+        <button type="submit" class="secondary compact">Filtern</button>
+        <span class="admin-toolbar-count">
+            <strong>{{ total_count }}</strong> Dokumente entsprechen dem Filter
+        </span>
     </form>
 
-    <form method="post" action="{{ url_for('admin.set_document_acl') }}">
+    <form class="document-selection-form" method="post" action="{{ url_for('admin.set_document_acl') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        <table id="doc-table">
-            <thead>
-                <tr>
-                    <th aria-label="Auswahl"></th>
-                    <th>Titel</th>
-                    <th>Pfad</th>
-                    <th>Gruppen</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody id="doc-rows">
-                {% for d in documents %}
-                <tr>
-                    <td><input type="checkbox" name="pointer" value="{{ d.pointer }}"></td>
-                    <td>{{ d.title or '—' }}</td>
-                    <td class="ptr">{{ d.pointer }}</td>
-                    <td>
-                        {% if d.access_groups %}
-                            {% for g in d.access_groups %}<span class="badge">{{ g }}</span>{% endfor %}
-                        {% else %}
-                            <span class="badge open">offen</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ d.status or '—' }}</td>
-                </tr>
-                {% else %}
-                {% if unavailable %}
-                <tr><td colspan="5" class="empty">
-                    <strong>Die Knovas-API kennt diese Auflistung nicht.</strong><br>
-                    <span class="hint">
-                        <code>GET /secured/documents</code> antwortet mit 404 — das ist etwas
-                        anderes als „keine Dokumente“. Der Bestand kann hier erst angezeigt
-                        werden, wenn Knovas den Endpunkt für diesen Mandanten freischaltet.
-                        Suche und Cortex sind davon nicht betroffen.
-                    </span>
-                </td></tr>
-                {% else %}
-                <tr><td colspan="5" class="empty">Keine Dokumente für diesen Filter.</td></tr>
-                {% endif %}
+        <div class="bulk document-bulk-bar" id="document-bulk-bar" hidden>
+            <strong><span id="document-selected-count">0</span> ausgewählt</strong>
+            <span class="bulk-copy">Zugriffsgruppe zuordnen — ersetzt die bestehenden Gruppen vollständig:</span>
+            <div class="bulk-groups">
+                {% for g in groups %}
+                <label class="choice-chip">
+                    <input type="checkbox" name="access_group" value="{{ g.group_id }}">
+                    <span>{{ g.name }}</span>
+                </label>
                 {% endfor %}
-            </tbody>
-        </table>
+            </div>
+            <button type="submit" class="compact">Zuordnen</button>
+            <button type="button" class="secondary compact" id="document-clear-selection">
+                Auswahl aufheben
+            </button>
+        </div>
+
+        <div class="table-wrap document-table-wrap">
+            <table id="doc-table">
+                <thead>
+                    <tr>
+                        <th class="select-column">
+                            <input type="checkbox" id="document-select-all" aria-label="Alle sichtbaren Dokumente auswählen">
+                        </th>
+                        <th>Titel</th>
+                        <th>Pfad</th>
+                        <th>Gruppen</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="doc-rows">
+                    {% for d in documents %}
+                    <tr>
+                        <td class="select-column"><input type="checkbox" name="pointer" value="{{ d.pointer }}" aria-label="{{ d.title or d.pointer }} auswählen"></td>
+                        <td><strong>{{ d.title or '—' }}</strong></td>
+                        <td class="ptr">{{ d.pointer }}</td>
+                        <td>
+                            {% if d.access_groups %}
+                                {% for g in d.access_groups %}<span class="access-chip">{{ g }}</span>{% endfor %}
+                            {% else %}
+                                <span class="access-chip open">offen</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="document-status">{{ d.status or '—' }}</span></td>
+                    </tr>
+                    {% else %}
+                    {% if unavailable %}
+                    <tr><td colspan="5" class="empty">
+                        <strong>Die Knovas-API kennt diese Auflistung nicht.</strong><br>
+                        <span class="hint">
+                            <code>GET /secured/documents</code> antwortet mit 404 — das ist etwas
+                            anderes als „keine Dokumente“. Der Bestand kann hier erst angezeigt
+                            werden, wenn Knovas den Endpunkt für diesen Mandanten freischaltet.
+                            Suche und Cortex sind davon nicht betroffen.
+                        </span>
+                    </td></tr>
+                    {% else %}
+                    <tr><td colspan="5" class="empty">Keine Dokumente für diesen Filter.</td></tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
         <div class="more">
             {# Keyset-Cursor: der Server liefert next_after, wir reichen ihn zurück. #}
-            <button type="button" id="load-more"
+            <button type="button" id="load-more" class="secondary compact"
                     data-next-after="{{ next_after or '' }}"
                     data-endpoint="{{ url_for('admin.documents_page') }}"
                     {% if not next_after %}hidden{% endif %}>
@@ -112,26 +141,11 @@
             </button>
             <span class="hint" id="load-status" role="status"></span>
         </div>
-
-        <div class="bulk">
-            <strong>Auswahl einer Zugriffsgruppe zuordnen</strong>
-            <p class="hint">
-                Ersetzt die Gruppen der ausgewählten Dokumente vollständig.
-                Ohne Auswahl einer Gruppe werden sie freigegeben.
-            </p>
-            {% for g in groups %}
-            <label>
-                <input type="checkbox" name="access_group" value="{{ g.group_id }}">
-                {{ g.name }}
-            </label>
-            {% endfor %}
-            <p><button type="submit">Zuordnen</button></p>
-        </div>
     </form>
 
     {# Bewusst am Ende der Seite, optisch abgesetzt und ohne Vorauswahl: die
        Bestaetigung muss abgetippt werden, ein Klick allein erzeugt sie nicht. #}
-    <div class="panel danger-zone">
+    <section class="panel danger-zone">
         <h2>Gesamten Bestand löschen</h2>
         <p class="hint">
             Löscht <strong>alle Dokumente dieses Mandanten</strong> bei Knovas —
@@ -146,12 +160,14 @@
         </p>
         <form method="post" action="{{ url_for('admin.purge_documents') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label for="confirm_client_id">Mandanten-Id</label>
-            <input type="text" id="confirm_client_id" name="confirm_client_id"
-                   autocomplete="off" spellcheck="false" placeholder="{{ tenant_id | default('', true) }}">
-            <p><button type="submit" class="danger">Alle Dokumente unwiderruflich löschen</button></p>
+            <div class="inline-form-row">
+                <label for="confirm_client_id">Mandanten-Id</label>
+                <input type="text" id="confirm_client_id" name="confirm_client_id"
+                       autocomplete="off" spellcheck="false" placeholder="{{ tenant_id | default('', true) }}">
+                <button type="submit" class="danger">Alle Dokumente unwiderruflich löschen</button>
+            </div>
         </form>
-    </div>
+    </section>
 </main>
 
 <script src="{{ url_for('static', filename='js/admin_documents.js') }}" defer></script>

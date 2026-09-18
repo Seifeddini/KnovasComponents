@@ -8,26 +8,31 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
-<body>
+<body class="admin-page">
 <div class="app-shell">
 {% include '_sidebar.html' %}
 <div class="app-content">
 
 <main class="admin">
+    <header class="admin-page-header">
+        <div>
+            <h1>Freigaben</h1>
+            <p class="hint">
+                Vier-Augen-Prinzip: Zugriffsänderungen, Löschungen und Massenexporte
+                brauchen eine zweite Person. Was hier wartet, ist noch nicht geschehen.
+            </p>
+        </div>
+    </header>
+
     {% set admin_tab = 'approvals' %}
     {% include '_admin_tabs.html' %}
-
-    <h1>Freigaben</h1>
-    <p class="hint">
-        Vier-Augen-Prinzip: Zugriffsänderungen, Löschungen und Massenexporte
-        brauchen eine zweite Person. Was hier wartet, ist noch nicht geschehen.
-    </p>
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
 
     <section class="panel">
         <h2>Ausstehend</h2>
+        <div class="table-wrap">
         <table>
             <thead>
                 <tr><th>Art</th><th>Ziel</th><th>Angefragt von</th><th>Gültig bis</th><th>Entscheidung</th></tr>
@@ -68,10 +73,12 @@
             {% endfor %}
             </tbody>
         </table>
+        </div>
     </section>
 
     <section class="panel">
         <h2>Freigegeben, noch nicht ausgeführt</h2>
+        <div class="table-wrap">
         <table>
             <thead>
                 <tr><th>Art</th><th>Ziel</th><th>Angefragt von</th><th>Freigegeben am</th><th>Aktion</th></tr>
@@ -102,6 +109,7 @@
             {% endfor %}
             </tbody>
         </table>
+        </div>
     </section>
 
     <section class="panel">
@@ -124,6 +132,7 @@
             </button>
         </form>
         {% endif %}
+        <div class="table-wrap">
         <table>
             <thead><tr><th>Wann</th><th>Wer</th><th>Was</th><th>Ziel</th></tr></thead>
             <tbody>
@@ -139,6 +148,7 @@
             {% endfor %}
             </tbody>
         </table>
+        </div>
     </section>
 </main>
 </div>
