@@ -6,6 +6,7 @@ import argparse
 import logging
 import multiprocessing as mp
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +14,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sync.context_sidecar import context_store_dir_from_env, write_context_sidecar  # noqa: E402
+from sync.context_sidecar import (  # noqa: E402
+    context_store_dir_from_env,
+    sidecar_path_for_pointer,
+    write_context_sidecar,
+)
 from sync.document_text import SYNCABLE_EXTENSIONS, extract_document, is_syncable_extension  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -33,7 +38,21 @@ def _process_one(file_path_str: str, store_dir_str: str, pointer: str, result_qu
         result_queue.put(("error", str(exc)))
 
 
-def _iter_files(roots: list[Path], *, max_files: int = 0) -> list[Path]:
+def _iter_files(
+    roots: list[Path],
+    *,
+    max_files: int = 0,
+    max_age_seconds: int = 0,
+) -> list[Path]:
+    """Collect syncable files, newest-first retention applied.
+
+    A retention rule that bounds ingestion has to bound the backfill too. A
+    sidecar for a document RemoteController will never upload is written,
+    stored and then never read -- and on a corpus this size that is days of
+    processing spent on files that are out of scope by policy. The mtime
+    basis matches `filters.max_document_age_seconds` in the sync body, so
+    the two agree on which documents exist."""
+    cutoff = time.time() - max_age_seconds if max_age_seconds > 0 else None
     found: list[Path] = []
     for root in roots:
         if not root.is_dir():
@@ -44,6 +63,15 @@ def _iter_files(roots: list[Path], *, max_files: int = 0) -> list[Path]:
                 continue
             if not is_syncable_extension(path.suffix):
                 continue
+            if cutoff is not None:
+                try:
+                    if path.stat().st_mtime < cutoff:
+                        continue
+                except OSError as exc:
+                    # Unreadable mtime cannot be shown to be in scope, and a
+                    # retention limit that fails open is not a limit.
+                    logger.debug("Skip (no mtime) %s: %s", path, exc)
+                    continue
             found.append(path)
             if max_files > 0 and len(found) >= max_files:
                 return found
@@ -75,6 +103,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Pointer prefix (e.g. corpus). Default: ingestion.identifier_prefix or corpus",
     )
     parser.add_argument("--max-files", type=int, default=0, help="Limit files processed (0=all)")
+    parser.add_argument(
+        "--max-age-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Skip files whose mtime is older than this (0=no limit). Set it to the "
+            "filters.max_document_age_seconds the sync body uses, e.g. 220992000 for 7 years."
+        ),
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Leave files that already have a sidecar alone -- resumes a long run.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -103,16 +145,25 @@ def main(argv: list[str] | None = None) -> int:
         prefix = "corpus"
 
     roots = [Path(r).resolve() for r in roots_raw]
-    files = _iter_files(roots, max_files=args.max_files)
+    files = _iter_files(
+        roots,
+        max_files=args.max_files,
+        max_age_seconds=args.max_age_seconds,
+    )
     logger.info("Scanning %d file(s) under %s", len(files), ", ".join(str(r) for r in roots))
 
     ok = 0
     failed = 0
     timed_out = 0
+    skipped = 0
     ctx = mp.get_context("fork")
     for file_path in files:
         root = next((r for r in roots if file_path.is_relative_to(r)), roots[0])
         pointer = _pointer_for(file_path, root, prefix)
+
+        if args.skip_existing and sidecar_path_for_pointer(store_dir, pointer).is_file():
+            skipped += 1
+            continue
 
         result_queue = ctx.Queue()
         proc = ctx.Process(
@@ -143,7 +194,14 @@ def main(argv: list[str] | None = None) -> int:
             logger.warning("Failed %s: worker exited with no result (exitcode=%s)", file_path, proc.exitcode)
         result_queue.close()
 
-    logger.info("Done: wrote=%d failed=%d timed_out=%d store=%s", ok, failed, timed_out, store_dir)
+    logger.info(
+        "Done: wrote=%d failed=%d timed_out=%d skipped=%d store=%s",
+        ok,
+        failed,
+        timed_out,
+        skipped,
+        store_dir,
+    )
     return 0 if failed == 0 and timed_out == 0 else 3
 
 
