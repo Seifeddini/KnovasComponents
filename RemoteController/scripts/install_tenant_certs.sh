@@ -11,6 +11,37 @@ if [[ ! -d "$CERTS_DIR" ]]; then
   exit 1
 fi
 
+# chown and chmod go through the same escalation. Splitting them was the second
+# half of an old bug: once `sudo chown` handed the files to uid 10001, a
+# following unprivileged `chmod` could no longer touch them, so even a first run
+# died with "Operation not permitted" after appearing to succeed.
+escalate() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+    return
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "Need root to fix ownership under $CERTS_DIR, and sudo is not available." >&2
+    echo "Re-run as root: sudo $0" >&2
+    exit 1
+  fi
+  sudo "$@"
+}
+
+# The operator must own the certs directory itself. An install upgraded from an
+# older version does not: setup was run with sudo, or an older version of this
+# script chowned the directory along with the keys. Mode 711 then leaves the
+# operator able to traverse it but not to list or write it, and everything below
+# that touches the directory rather than a named file -- the mktemp for the
+# decrypted key, the closing `ls` -- fails with "Permission denied" even though
+# the certs themselves are already correct. Take it back before that happens.
+OWNER_UID="${SUDO_UID:-$(id -u)}"
+OWNER_GID="${SUDO_GID:-$(id -g)}"
+if [[ "$(stat -c %u "$CERTS_DIR")" != "$OWNER_UID" ]]; then
+  echo "==> $CERTS_DIR belongs to uid $(stat -c %u "$CERTS_DIR"), not to uid $OWNER_UID — taking it back"
+  escalate chown "$OWNER_UID:$OWNER_GID" "$CERTS_DIR"
+fi
+
 for f in client-cert.pem client-key.pem ca-root.pem; do
   if [[ ! -f "$CERTS_DIR/$f" ]]; then
     echo "Missing $CERTS_DIR/$f" >&2
@@ -77,23 +108,10 @@ if ownership_ok; then
   echo "==> Ownership and modes already correct for uid 10001 — nothing to change"
 else
   echo "==> Docker rcuser (uid 10001) must traverse the directory and read the key"
-  # chown and chmod go through the same escalation. Splitting them was the second
-  # half of the bug: once `sudo chown` handed the files to uid 10001, a following
-  # unprivileged `chmod` could no longer touch them, so even a first run died with
-  # "Operation not permitted" after appearing to succeed.
-  SUDO=""
-  if [[ "$(id -u)" -ne 0 ]]; then
-    if ! command -v sudo >/dev/null 2>&1; then
-      echo "Need root to give the certs to uid 10001, and sudo is not available." >&2
-      echo "Re-run as root: sudo $0" >&2
-      exit 1
-    fi
-    SUDO="sudo"
-  fi
-  $SUDO chmod 711 "$CERTS_DIR"
-  $SUDO chown 10001:10001 "${KEY_FILES[@]}" "${PUB_FILES[@]}"
-  $SUDO chmod 644 "${PUB_FILES[@]}"
-  $SUDO chmod 600 "${KEY_FILES[@]}"
+  escalate chmod 711 "$CERTS_DIR"
+  escalate chown 10001:10001 "${KEY_FILES[@]}" "${PUB_FILES[@]}"
+  escalate chmod 644 "${PUB_FILES[@]}"
+  escalate chmod 600 "${KEY_FILES[@]}"
 fi
 
 # An older run of this script chowned the encrypted key to uid 10001 too. That is
@@ -109,5 +127,5 @@ if [[ "$RC_KEY" == "$PLAIN_KEY" && -f "$CERTS_DIR/client-key.pem" ]]; then
   fi
 fi
 
-ls -la "$CERTS_DIR/"
+ls -la "$CERTS_DIR/" || echo "(cannot list $CERTS_DIR as $(id -un) — the certs above are still installed)"
 echo "==> Done. Compose mounts $CERTS_DIR -> /certs (see docker-compose.yml)"

@@ -98,19 +98,33 @@ knovas_pick_host_port() {
 knovas_upsert_env() {
   local file="$1" key="$2" value="$3"
   local tmp
-  tmp="$(mktemp)"
+  # Both branches build the new content beside the destination and rename it into
+  # place. Appending with `>>` fails outright on a file owned by root, which an
+  # install upgraded from an older version carries wherever setup was once run
+  # with sudo; and a mktemp in /tmp lands on another filesystem, so the `mv` that
+  # used to follow it copied the temporary file's 0600 onto knovas.env instead of
+  # keeping the mode it had. Replacing a file needs write permission on the
+  # *directory*, which the operator has, not on the file, which they do not.
+  tmp="$(mktemp "$file.XXXXXX")"
   if [[ -f "$file" ]] && grep -qE "^[[:space:]]*${key}=" "$file"; then
     awk -v k="$key" -v v="$value" '
       BEGIN { re = "^[[:space:]]*" k "=" }
       $0 ~ re { print k "=" v; next }
       { print }
     ' "$file" > "$tmp"
-    mv "$tmp" "$file"
   else
-    rm -f "$tmp"
-    [[ -f "$file" && -s "$file" && "$(tail -c1 "$file" | wc -l)" -eq 0 ]] && printf '\n' >> "$file"
-    printf '%s=%s\n' "$key" "$value" >> "$file"
+    if [[ -f "$file" ]]; then
+      cat "$file" > "$tmp"
+      [[ -s "$tmp" && "$(tail -c1 "$tmp" | wc -l)" -eq 0 ]] && printf '\n' >> "$tmp"
+    fi
+    printf '%s=%s\n' "$key" "$value" >> "$tmp"
   fi
+  if [[ -f "$file" ]]; then
+    chmod --reference="$file" "$tmp" 2>/dev/null || chmod 644 "$tmp"
+  else
+    chmod 644 "$tmp"
+  fi
+  mv -f "$tmp" "$file"
 }
 
 knovas_prepare_stack() {

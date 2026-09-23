@@ -17,12 +17,24 @@ fi
 
 CERTS_DIR="$ROOT_DIR/certs"
 mkdir -p "$CERTS_DIR"
-for f in client-cert.pem client-key.pem ca-root.pem; do
-  if [[ ! -f "$CERTS_DIR/$f" ]]; then
-    echo "Missing $CERTS_DIR/$f — place tenant mTLS certs before setup." >&2
-    exit 1
-  fi
-done
+# An install upgraded from an older version can carry a certs directory the
+# operator no longer owns, because setup was run with sudo or because an older
+# version of install_tenant_certs.sh chowned the directory along with the keys.
+# `test -f` inside a directory it cannot read answers "no", so this loop used to
+# report perfectly good certs as missing and send the operator looking for files
+# that were sitting right there. install_tenant_certs.sh takes the directory
+# back before it reads anything inside, so leave that case to it.
+if [[ -r "$CERTS_DIR" && -x "$CERTS_DIR" ]]; then
+  for f in client-cert.pem client-key.pem ca-root.pem; do
+    if [[ ! -f "$CERTS_DIR/$f" ]]; then
+      echo "Missing $CERTS_DIR/$f — place tenant mTLS certs before setup." >&2
+      exit 1
+    fi
+  done
+else
+  echo "NOTE: $CERTS_DIR belongs to $(stat -c '%U (uid %u)' "$CERTS_DIR") and $(id -un) cannot"
+  echo "      list it. An older version of the installer left it that way — taking it back."
+fi
 
 echo "==> Installing tenant certs for RemoteController"
 bash "$ROOT_DIR/RemoteController/scripts/install_tenant_certs.sh"
@@ -41,6 +53,15 @@ echo "==> Identity database secret"
 SECRETS_DIR="$ROOT_DIR/secrets"
 DB_SECRET="$SECRETS_DIR/platform_db_password"
 mkdir -p "$SECRETS_DIR"
+# Same upgrade hazard as certs/: a secrets directory an older, sudo-run setup
+# created belongs to root, and chmod on a directory you do not own fails with
+# "Operation not permitted" -- under set -e, that ends the run.
+if [[ "$(id -u)" -ne 0 && "$(stat -c %u "$SECRETS_DIR")" != "$(id -u)" ]]; then
+  echo "ERROR: $SECRETS_DIR belongs to $(stat -c '%U (uid %u)' "$SECRETS_DIR"), not to $(id -un)." >&2
+  echo "       An older setup run created it as root. Take it back with:" >&2
+  echo "         sudo chown -R $(id -un):$(id -gn) $SECRETS_DIR" >&2
+  exit 1
+fi
 chmod 700 "$SECRETS_DIR"
 if [[ -s "$DB_SECRET" ]]; then
   echo "    Keeping the existing password — rotating it would orphan the volume."
