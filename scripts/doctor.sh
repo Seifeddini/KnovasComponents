@@ -624,6 +624,8 @@ except (OSError, ValueError):
 sequential = bool(sync_cfg.get("sequential_subfolders"))
 state = str(checks.get("scheduler_state") or "unknown")
 last_paused = os.environ.get("DOCTOR_LAST_PAUSED") or ""
+window = sync_cfg.get("window") or {}
+start, end = window.get("start_local") or "00:00", window.get("end_local") or "23:59"
 
 # A cycle stops walking after max_scan_entries_per_cycle folders. Folder by
 # folder (sequential_subfolders) it keeps its place and the next cycle goes on
@@ -657,13 +659,24 @@ elif state == "rate_limited":
 elif state == "stop_requested":
     print("   WARN  the sync was stopped by request — new and changed files are not ingested")
 elif state == "paused_outside_window":
-    print("   WARN  the sync is paused outside its time window (RC_SYNC_DEFAULT_WINDOW_START/END)")
+    # A window is a decision (a firm that syncs only at night), not a fault.
+    print(f"     OK  the sync waits for its window, {start}–{end}; it goes on at {start}")
 elif state == "awaiting_initial_sync_body":
     print("   WARN  the sync waits for a sync request — nothing is ingested until one is saved")
 elif state in ("not_running", "disabled"):
     print(f"   WARN  the sync is not running ({state}) — new and changed files are not ingested")
 else:
     print(f"   FAIL  the sync is in state '{state}'")
+
+# The window is read on RemoteController's clock, which is UTC unless
+# RC_TIMEZONE says otherwise -- "20:00" is then 22:00 in Zurich in summer.
+if (start, end) != ("00:00", "23:59"):
+    if get_config().rc_timezone:
+        print(f"         sync window {start}–{end}, {get_config().rc_timezone}")
+    else:
+        print(f"   WARN  the sync window {start}–{end} is read in UTC, the container's clock.")
+        print("         For local time set RC_TIMEZONE=Europe/Zurich (or yours) in knovas.env,")
+        print("         then ./scripts/setup.sh && ./scripts/start.sh")
 
 # From inside the container the peer is loopback, which the stack's local bypass
 # always admits; where the bypass is off this answers 401 and is skipped.
