@@ -67,6 +67,8 @@ To prevent sync from auto-starting after a container restart, set `"enabled": fa
 - Set **`sequential_subfolders`: true** in `remote_controller_sync.json` when the sync source root contains many top-level folders (e.g. WinJur bucket dirs). RC processes **one subfolder per cycle**, then advances automatically when that folder has no pending uploads.
 - Set `max_files_per_cycle` (e.g. 200–500) to cap uploads per cycle.
 - Set `max_scan_entries_per_cycle` (e.g. 10000) to cap **directory visits** per cycle on slow SMB mounts (important when most files are unsupported types such as legacy `.doc`).
+  **Only together with `sequential_subfolders`**, which keeps its place between cycles. Without it every cycle starts again at the top of the share, so on a share with more folders than the cap the same folders are read every time and the rest never — new documents there are not ingested, and nothing counts as an error. The scheduler state reads `scan_limit_reached`. For continuous sync of such a share set the cap to `0` (the whole share each cycle, backing off to `scan_interval_idle_max_seconds` while nothing changes); `./scripts/doctor.sh` prints the command.
+- A `sequential_subfolders` pass ends (`subfolders_complete`) once every folder is done, and from then on nothing is read. It suits a one-time import of a large archive, not a share that keeps changing.
 - Use a **24h sync window** (`00:00`–`23:59`) for initial backfill; the default is no longer limited to business hours.
 - Use `scan_interval_idle_max_seconds` so steady-state rescans back off when nothing is pending.
 - `POST /sync` responses cap `transmissions` (default 100 entries); counts in `document_sync` remain full.

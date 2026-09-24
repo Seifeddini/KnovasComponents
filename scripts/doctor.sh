@@ -573,10 +573,22 @@ else
   if [[ -n "$RC_PREFIX" ]]; then
     echo "  ingests as '$RC_PREFIX/…' ($RC_PREFIX_FROM)"
   fi
-  "${DC[@]}" exec -T remote-controller python - <<'PY' 2>&1 | sed 's/^/  /'
+  # Per-document upload failures do not change the state below: the cycle
+  # finishes, counts them, and carries on. Its closing line is the one place
+  # they add up -- and the one place a scan cut short by its cap is recorded.
+  LAST_CYCLE="$("${DC[@]}" logs --no-log-prefix --tail 5000 remote-controller 2>/dev/null \
+    | grep 'Sync cycle finished' | tail -1)"
+  LAST_PAUSED="$(printf '%s' "$LAST_CYCLE" | sed -n 's/.*paused=\([a-z_]*\).*/\1/p')"
+  "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore -e "DOCTOR_LAST_PAUSED=$LAST_PAUSED" \
+    -e "DOCTOR_ROOT_DIR=$ROOT_DIR" remote-controller python - <<'PY' 2>&1 | sed 's/^/  /'
 import json
+import os
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+from config import get_config
+from sync.sync_executor import _max_scan_entries_per_cycle
 
 
 def get(path):
@@ -603,9 +615,47 @@ else:
 if checks.get("config") != "ok":
     print("   FAIL  its configuration is incomplete — see its log")
 
+# Read, not load_sync_config(): that one writes a default file when there is
+# none, and this is a diagnosis.
+try:
+    sync_cfg = json.loads(Path(get_config().rc_sync_config_path).read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    sync_cfg = {}
+sequential = bool(sync_cfg.get("sequential_subfolders"))
 state = str(checks.get("scheduler_state") or "unknown")
-if state in ("running", "backlog_pending", "idle_between_cycles", "completed", "subfolders_complete"):
+last_paused = os.environ.get("DOCTOR_LAST_PAUSED") or ""
+
+# A cycle stops walking after max_scan_entries_per_cycle folders. Folder by
+# folder (sequential_subfolders) it keeps its place and the next cycle goes on
+# from there. Otherwise the next cycle starts again at the top of the share, so
+# on a share with more folders than the cap the same first folders are read
+# every time and the rest never: new documents there never reach the index,
+# and nothing counts as an error.
+if "scan_limit_reached" in (state, last_paused) and not sequential:
+    fix = ("from sync.sync_config import load_sync_config as l, save_sync_config as s; "
+           "c = l(); c['max_scan_entries_per_cycle'] = 0; s(c)")
+    print(f"   FAIL  each cycle stops after {_max_scan_entries_per_cycle(sync_cfg)} folders and the next starts again at")
+    print("         the top of the share, so the folders past that point are never read: new and")
+    print("         changed documents there never reach the index. Lift the cap — the whole share")
+    print("         is then read each cycle, backing off to hourly while nothing changes:")
+    print(f'           cd "{os.environ.get("DOCTOR_ROOT_DIR") or "."}"')
+    print("           docker compose --env-file knovas.env exec -T remote-controller python -c \\")
+    print(f'             "{fix}"')
+    print("           docker compose --env-file knovas.env restart remote-controller")
+elif state in ("running", "backlog_pending", "idle_between_cycles", "completed"):
     print(f"     OK  the sync is active ({state})")
+elif sequential and state in ("scan_limit_reached", "cycle_time_limit"):
+    print(f"     OK  the sync works through the share folder by folder ({state});")
+    print("         the next cycle goes on where this one stopped")
+elif state == "subfolders_complete":
+    print("   WARN  the folder-by-folder pass over the share is finished, and nothing more is")
+    print("         read: new and changed files are not ingested. For a sync that keeps going,")
+    print("         set sequential_subfolders to false and max_scan_entries_per_cycle to 0 in")
+    print("         the sync config, then restart remote-controller.")
+elif state == "rate_limited":
+    print("   WARN  Knovas is rate-limiting the uploads; the next cycle carries on")
+elif state == "stop_requested":
+    print("   WARN  the sync was stopped by request — new and changed files are not ingested")
 elif state == "paused_outside_window":
     print("   WARN  the sync is paused outside its time window (RC_SYNC_DEFAULT_WINDOW_START/END)")
 elif state == "awaiting_initial_sync_body":
@@ -624,18 +674,13 @@ if code == 200:
     print(f"         last cycle finished: {status.get('last_run_at') or 'none yet'}"
           f" — files tracked: {status.get('files_synced_local', 0)}")
 PY
-  # Per-document upload failures do not change the state above: the cycle
-  # finishes, counts them, and carries on. Its closing line is the one place
-  # they add up.
-  LAST_CYCLE="$("${DC[@]}" logs --no-log-prefix --tail 5000 remote-controller 2>/dev/null \
-    | grep 'Sync cycle finished' | tail -1)"
   if [[ -z "$LAST_CYCLE" ]]; then
     echo "  no sync cycle has finished yet — the first over a large share takes a while"
   else
     CYCLE_ERRORS="$(printf '%s' "$LAST_CYCLE" | sed -n 's/.*errors=\([0-9][0-9]*\).*/\1/p')"
     CYCLE="$(printf '%s' "$LAST_CYCLE" | sed 's/.*Sync cycle finished //')"
     if [[ "${CYCLE_ERRORS:-0}" == "0" ]]; then
-      ok "last cycle: $CYCLE"
+      ok "last cycle had no upload errors: $CYCLE"
     else
       warn "last cycle: $CYCLE"
       echo "       Which files, and why: ${DC[*]} logs remote-controller | grep -iE 'error|fail' | tail -20"
@@ -813,9 +858,18 @@ head_ "Snippet text across the share"
 if ! "${DC[@]}" exec -T docbridge-web test -d "$STORE" 2>/dev/null; then
   echo "  skipped — there is no context store to sample (see 'Search result snippets')"
 else
+  # A backfill already running is the answer to a low count, not a reason to
+  # start a second one -- which would fail on the container name anyway.
+  BACKFILL="$(docker ps --filter name=knovas-snippet-backfill --format '{{.Names}}|{{.Status}}' 2>/dev/null \
+    | sed -n 's/^knovas-snippet-backfill|//p')"
+  BACKFILL_LAST=""
+  if [[ -n "$BACKFILL" ]]; then
+    BACKFILL_LAST="$(docker logs --tail 1 knovas-snippet-backfill 2>&1 | tr -d '\r')"
+  fi
   "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore -e "DOCTOR_STORE=$STORE" \
     -e "DOCTOR_RC_PREFIX=$RC_PREFIX" -e "DOCTOR_SEEN_PREFIX=$SEEN_PREFIX" \
-    -e "DOCTOR_ROOT_DIR=$ROOT_DIR" docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
+    -e "DOCTOR_ROOT_DIR=$ROOT_DIR" -e "DOCTOR_BACKFILL=$BACKFILL" \
+    -e "DOCTOR_BACKFILL_LAST=$BACKFILL_LAST" docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
 import os
 from pathlib import Path
 
@@ -859,10 +913,17 @@ if covered == sampled:
     print(f"     OK  all {sampled} sampled documents have snippet text")
     raise SystemExit(0)
 print(f"   WARN  {covered} of {sampled} sampled documents have snippet text; results for the")
-print("         others show a title and nothing under it. RemoteController writes the text")
-print("         as it syncs, by default only for files changed in the last 30 days.")
-print("         Build the rest from the files themselves — nothing is sent to Knovas,")
-print("         and it runs in the background:")
+print("         others show a title and nothing under it.")
+backfill = os.environ.get("DOCTOR_BACKFILL") or ""
+if backfill:
+    print(f"         A backfill is running ({backfill}) and fills in the rest. Its last line:")
+    print(f"           {(os.environ.get('DOCTOR_BACKFILL_LAST') or '(nothing yet)')[:150]}")
+    print("         Follow it with: docker logs -f knovas-snippet-backfill")
+    raise SystemExit(0)
+print("         RemoteController writes the text as it syncs, by default only for files")
+print("         changed in the last 30 days. Build the rest from the files themselves —")
+print("         nothing is sent to Knovas, it runs in the background, and a run that is")
+print("         stopped picks up where it was:")
 prefix = seen or (prefixes[0] if prefixes else rc_prefix)
 if not str(store).startswith("/var/rc-state/"):
     print(f"         (not from here: {store} is not on RemoteController's volume /var/rc-state)")
@@ -872,8 +933,10 @@ else:
     print(f'           cd "{os.environ.get("DOCTOR_ROOT_DIR") or "."}"')
     print("           docker compose --env-file knovas.env run -d --rm --name knovas-snippet-backfill \\")
     print('             -v "$PWD/RemoteController/scripts:/app/scripts:ro" remote-controller \\')
-    print(f"             python /app/scripts/build_context_sidecars.py --identifier-prefix {prefix} --store-dir {store}")
+    print("             python /app/scripts/build_context_sidecars.py --jobs 2 \\")
+    print(f"             --identifier-prefix {prefix} --store-dir {store}")
     print("         Follow it with: docker logs -f knovas-snippet-backfill")
+    print("         (--jobs is how many documents at once; each takes one CPU core while it runs.)")
 PY
 fi
 

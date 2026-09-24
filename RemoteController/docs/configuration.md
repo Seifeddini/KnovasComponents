@@ -28,11 +28,24 @@ with `RC_SYNC_CONFIG_API_ENABLED=true`; with the default `false` the API answers
 
 Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). RemoteController writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.
 
-Backfill existing corpora without re-uploading:
+Backfill existing corpora without re-uploading. In the unified stack, run it in
+a one-off RemoteController container from the repository root; `--identifier-prefix`
+must be the prefix the documents were ingested with (`KNOVAS_IDENTIFIER_PREFIX`),
+or the Platform never finds the text:
 
 ```bash
-python scripts/build_context_sidecars.py --store-dir /mirror/.search_context --root /data/corpus --identifier-prefix corpus
+docker compose --env-file knovas.env run -d --rm --name knovas-snippet-backfill \
+  -v "$PWD/RemoteController/scripts:/app/scripts:ro" remote-controller \
+  python /app/scripts/build_context_sidecars.py --jobs 2 \
+  --identifier-prefix <prefix> --store-dir /var/rc-state/search_context
+docker logs -f knovas-snippet-backfill
 ```
+
+It logs its progress once a minute and leaves a sidecar that is already newer than
+its file alone, so a run that was stopped continues where it was (`--force`
+rewrites them all). `--jobs` is how many documents are extracted at once, one CPU
+core each. `./scripts/doctor.sh` reports how much of the share has text, and
+whether a backfill is running.
 
 ## Scheduler config file
 
