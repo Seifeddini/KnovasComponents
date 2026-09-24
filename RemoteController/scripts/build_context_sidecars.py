@@ -132,10 +132,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
+    # The extraction libraries narrate every document -- three INFO lines per
+    # e-mail from extract_msg, an OCR report per scanned page from pymupdf4llm --
+    # and among them the once-a-minute progress line was lost. They are held to
+    # warnings; this script's own INFO still shows.
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.DEBUG if args.verbose else logging.WARNING,
         format="%(levelname)s %(message)s",
     )
+    logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    try:
+        import pymupdf
+
+        pymupdf.set_messages(pylogging=True, pylogging_level=logging.INFO)
+    except (ImportError, AttributeError, TypeError):
+        pass
 
     store_dir = Path(args.store_dir).resolve() if args.store_dir else context_store_dir_from_env()
     if store_dir is None:
