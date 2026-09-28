@@ -1,12 +1,13 @@
 # Plan: Experiments module (Experimente) inside KnovasPlatform
 
-Date: 2026-09-28
+Date: 2026-09-28 (revision 2, after a four-lens review of revision 1)
 Design: [../specs/2026-09-28-experiment-platform-design.md](../specs/2026-09-28-experiment-platform-design.md)
 Component: `KnovasPlatform/components/docbridge_integration` (the Platform web app) plus an optional
 sandbox service `KnovasPlatform/components/experiments_runner`.
 
 This document is the contract every part of the implementation codes against. Where it names a
-function, a key, a table column, a JSON field or a German UI string, use exactly that name.
+function, a key, a table column, a JSON field or a German UI string, use exactly that name. The
+migration `src/identity/migrations/0003_experiments.sql` is part of the contract: read it.
 
 ## 0. Requirements and resolved decisions
 
@@ -16,68 +17,71 @@ User requirements:
 2. Can be disabled entirely.
 3. Users can create new domains (not only the shipped four).
 4. Robust and scalable technical choices, decided (not left open).
-5. A version usable right away for Knovas' own experiments: search quality and engineering,
-   LinkedIn/marketing tests, sales outreach, product/usability.
+5. A version usable right away for Knovas' own experiments: search quality and engineering
+   (from CI), LinkedIn/marketing tests, sales outreach, product/usability.
 6. All texts, decisions and results searchable with Knovas.
 
-Resolved decisions (they replace the open questions of the design doc):
-
-| Question | Decision | Why |
-|---|---|---|
-| Where it runs | A module of the existing Platform web app (Flask, Jinja, vanilla JS), code name `experiments`, UI label **Experimente**. | Same login, roles, audit, deployment and look; no new stack to operate. |
-| Hidden | Visible only to people with role `experimenter` or `experiments_manager` (or `admin`). Nobody else gets the nav item, the pages (404) or experiment hits in search. | The standard view stays exactly as it is for everyone else. |
-| Disable | `EXPERIMENTS_ENABLED` (default **false**). Off = blueprints not registered, a before_request gate answers 404/redirect, no worker thread, experiment hits stripped from search. | Same pattern as `CORTEX_ENABLED`, but default off. |
-| Storage | Existing `platform-db` PostgreSQL, migration `0003_experiments.sql`. Measurements stored as sufficient statistics (sum, count, sum of squares, denominator) so one row can be a single observation or a pre-aggregated block. | Postgres is already run, backed up and shared by all workers. Pre-aggregated rows keep volume small; the index plan and BRIN on time scale to 10^8 rows; declarative partitioning is the next step if ever needed. No TimescaleDB or ClickHouse to operate. |
-| Search | Every experiment is one Knovas document (pointer `experiments/<domain>/<KEY>`), re-uploaded on change. Hits are recognised by the pointer prefix and rendered from the Platform database. | Knovas is the search engine; no pgvector. One document per experiment keeps well inside the tenant's init rate limit. |
-| Background work | A Postgres job queue (`exp_jobs`, `FOR UPDATE SKIP LOCKED`, leases, retries with backoff, coalescing) polled by one daemon thread per gunicorn worker. A shared rate slot (`exp_rate_slots`) keeps Knovas uploads under `EXPERIMENTS_INDEX_PER_MINUTE` across all workers. | No new broker (Redis/Celery). Survives worker crashes and restarts. |
-| Indexing identity | A second `KnovasAPIClient` without a principal broker uploads (as RemoteController does). Knovas-side visibility is set by `EXPERIMENTS_ACCESS_GROUPS` (sent as `access_groups` on init) or by a folder rule on the prefix; the Platform additionally strips hits for people without the role. | The request-bound client refuses to call Knovas without a signed-in user, and indexing happens in the background. |
-| Python and Julia | Built-in statistics run in-process (pure Python, trusted code). User-written evaluators run only in `experiments-runner`: its own image (Python with numpy/scipy/pandas/statsmodels, Julia 1.11), non-root, read-only root FS, all capabilities dropped, no-new-privileges, CPU/memory/pid limits, per-job subprocess with rlimits and a wall-clock kill, on an `internal: true` network with no egress and no secrets mounted. Optional compose profile `experiments`. | docbridge-web runs as root and holds the mTLS key, broker key and DB password; user code must never run there. No docker socket needed. |
-| Machine access (CI) | Personal access tokens (`exp_api_tokens`, SHA-256 hashed) on `/api/experiments/v1/*` with `Authorization: Bearer`. Python SDK (single file, stdlib only) and a Julia client. | Engineering experiments are logged from CI. |
-| Configurability | Domains, experiment types (versioned JSON/YAML documents with fields, states, transitions with gates, variant rules, default metrics, evaluation pipeline), metrics, evaluators — all data, editable in the UI, exportable/importable as YAML packs (config-as-code in git). | "Ultra modular and configurable" without code changes. |
-
-## 1. File ownership
-
-Each part is owned by exactly one implementer. Do not edit files owned by another part; if a
-contract is missing something, implement the smallest compatible addition in your own files and
-report it.
-
-| Part | Files (paths relative to `KnovasPlatform/components/docbridge_integration/` unless absolute) |
+| Question | Decision |
 |---|---|
-| FOUNDATION (done) | `src/identity/migrations/0003_experiments.sql`, `src/experiments/__init__.py`, `errors.py`, `permissions.py`, `settings.py` |
-| A schema+packs | `src/experiments/kinds.py`, `src/experiments/schema.py`, `src/experiments/packs.py`, `src/experiments/packs/*.yaml`, `tests/test_experiments_schema.py`, `tests/test_experiments_packs.py` |
-| B stats+evaluators | `src/experiments/stats.py`, `src/experiments/evaluators.py`, `tests/test_experiments_stats.py`, `tests/test_experiments_evaluators.py` |
-| C store+service | `src/experiments/store.py`, `src/experiments/service.py`, `tests/test_experiments_store.py`, `tests/test_experiments_service.py` |
-| D jobs+index+search | `src/experiments/jobs.py`, `src/experiments/indexer.py`, `src/experiments/runner_client.py`, `src/experiments/tasks.py`, `src/experiments/search.py`, `src/experiments/cli.py`, `src/experiments/__main__.py`, the method `upload_text_document` added to `src/knovas_client.py`, `tests/test_experiments_jobs.py`, `tests/test_experiments_indexer.py`, `tests/test_experiments_search.py` |
-| E web | `src/web_interface/experiments_routes.py`, edits in `src/web_interface/app.py`, `src/identity/webauth.py` (bearer endpoints), `src/web_interface/admin.py` (ASSIGNABLE_ROLES), `config/config.yaml` (`experiments:` section), `tests/test_experiments_routes.py`, `tests/test_experiments_switch.py`, `tests/test_experiments_api_tokens.py` |
-| F frontend | `src/web_interface/templates/experiments_list.html`, `experiments_detail.html`, `experiments_manage.html`, `_sidebar.html` (nav item), `src/web_interface/static/js/experiments_common.js`, `experiments_list.js`, `experiments_detail.js`, `experiments_manage.js`, `static/css/experiments.css`, edits in `static/js/app.js` (experiment hit cards) |
+| Where it runs | A module of the Platform web app (Flask, Jinja, vanilla JS), code name `experiments`, UI label **Experimente**. Same login, roles, audit, deployment, look. |
+| Hidden | Visible only to people with role `experimenter` or `experiments_manager` (or `admin`). Everyone else gets no nav item, 404 on every module route, and never sees experiment hits or pointers in search responses. Each experimenter can also switch experiment hits in the normal search off for themselves. |
+| Disable | `EXPERIMENTS_ENABLED` (default **false**). Off = blueprints not registered, a gate answers redirect/404 on module paths, no worker threads, experiment hits and pointers stripped from every search response. |
+| Storage | platform-db PostgreSQL (migration 0003). Measurements as sufficient statistics (sum, count, sum of squares, denominator) with a covering index for index-only aggregation; imports tracked in `exp_batches`. Scales to 10^8 rows; declarative partitioning is the documented next step. No TimescaleDB/ClickHouse. |
+| Search | One Knovas document per experiment (pointer `experiments/<domain>/<KEY>`), re-uploaded after changes (debounced, rate-limited). Hits are recognised by pointer prefix and rendered from the Platform database. Knovas-side visibility: uploads carry `EXPERIMENTS_ACCESS_GROUPS`; with no group configured the indexer refuses to upload (fail closed) unless `EXPERIMENTS_INDEX_UNRESTRICTED=true` (documented for a folder rule on the prefix). |
+| Background work | Postgres job queue `exp_jobs` (`FOR UPDATE SKIP LOCKED`, leases, fencing, priorities, retries with backoff, coalescing, dead-letter with `on_dead` hooks). Two daemon threads per gunicorn process (one for index/unindex/pipeline, one for evaluate). A shared rate slot keeps Knovas uploads under `EXPERIMENTS_INDEX_PER_MINUTE` across workers. |
+| Indexing identity | A second KnovasAPIClient without principal broker (like RemoteController), built by `experiments.indexer.make_index_client(config)`. |
+| Python and Julia | Built-in statistics in-process (pure Python). User evaluators run only in `experiments-runner`: own image (Python venv with numpy/scipy/pandas/statsmodels, Julia 1.11 with JSON3/Distributions/HypothesisTests/StatsBase/DataFrames), **no network at all** (`network_mode: none`), reached over a unix socket on a shared volume, non-root, read-only root FS, no capabilities, no-new-privileges, CPU/memory/pid limits, per-job subprocess with rlimits, wall-clock kill and cleanup of stray processes, no secrets mounted. Optional compose profile `experiments`. |
+| Machine access (CI) | Personal access tokens (`exp_api_tokens`, SHA-256, expiry required) on `/api/experiments/v1/*` with `Authorization: Bearer`. Python SDK (stdlib only), Julia client. CI can log runs with per-query rows, trigger the pipeline and read verdicts. |
+| Configurability | Domains, experiment types (versioned documents: fields, states, gated transitions, variant rules, default metrics, evaluation pipeline with scope), metrics (kind, unit, direction, min/max, levels), evaluators — all data, editable in the UI, exportable/importable as YAML packs (config-as-code). |
+
+## 1. File ownership and working rules
+
+Each part is owned by exactly one implementer. Do not edit files owned by another part. If a
+contract is missing something, implement the smallest compatible addition in your own files and
+report it in your final message. **Nobody edits the migration** (it is final; report schema needs).
+
+| Part | Files (relative to `KnovasPlatform/components/docbridge_integration/` unless absolute) |
+|---|---|
+| FOUNDATION (done) | `src/identity/migrations/0003_experiments.sql`, `src/experiments/__init__.py`, `errors.py`, `permissions.py`, `settings.py`, the experiments fixtures at the end of `tests/conftest.py` |
+| A schema+packs | `src/experiments/kinds.py`, `labels.py`, `schema.py`, `packs.py`, `packs/*.yaml`, `tests/test_experiments_schema.py`, `tests/test_experiments_kinds.py`, `tests/test_experiments_packs.py` |
+| B stats+evaluators | `src/experiments/stats.py`, `evaluators.py`, `tests/test_experiments_stats.py`, `tests/test_experiments_evaluators.py` |
+| C store+service | `src/experiments/store.py`, `service.py`, `csv_import.py`, `tests/test_experiments_store.py`, `tests/test_experiments_service.py`, `tests/test_experiments_csv.py` |
+| D jobs+index+search | `src/experiments/jobs.py`, `indexer.py`, `runner_client.py`, `tasks.py`, `search.py`, `cli.py`, `__main__.py`, method `upload_text_document` in `src/knovas_client.py`, `tests/test_experiments_jobs.py`, `tests/test_experiments_indexer.py`, `tests/test_experiments_search.py`, `tests/test_experiments_runner_client.py` |
+| E web | `src/web_interface/experiments_routes.py`, edits in `src/web_interface/app.py`, `src/identity/webauth.py`, `src/web_interface/admin.py`, `config/config.yaml`, `tests/test_experiments_routes.py`, `tests/test_experiments_switch.py`, `tests/test_experiments_api_tokens.py`, `tests/test_experiments_search_integration.py` |
+| F frontend | `src/web_interface/templates/experiments_list.html`, `experiments_detail.html`, `experiments_manage.html`, `_sidebar.html` (nav item), `src/web_interface/static/js/experiments_common.js`, `experiments_list.js`, `experiments_detail.js`, `experiments_manage.js`, `static/css/experiments.css`, edits in `static/js/app.js`, `tests/test_experiments_frontend.py` |
 | G runner+deploy | `KnovasPlatform/components/experiments_runner/**`, `/docker-compose.yml`, `/.github/workflows/ci.yml`, `/scripts/doctor.sh`, `/knovas.env.example`, `/docs/client/README.md` (settings rows) |
 | H docs+sdk | `KnovasPlatform/experiments-sdk/**`, `KnovasPlatform/docs/features/experiments.md`, `/RELEASE_NOTES.md`, `/docs/superpowers/specs/2026-09-28-experiment-platform-design.md` |
 
 Conventions for all parts:
 
-- Python 3.11, no new dependency in `requirements.txt` (psycopg 3, PyYAML, jsonschema, requests,
-  Flask are available). Python source ASCII only (German in Python strings as `ä` escapes or
-  transliterated `ae/oe/ue/ss` is fine; templates and JS use real umlauts).
-- UI copy German (Swiss-style `ss` is used in places; use real umlauts in templates/JS, `ss`
-  instead of `ß`). Identifiers, comments, commit messages English.
-- Error messages returned to the browser are German, never contain exception text; use the
-  classes in `experiments/errors.py`.
-- psycopg rows are tuples; index by position or zip with a column tuple. `%s` placeholders.
-  JSONB written as `json.dumps(...)` (or `psycopg.types.json.Jsonb`), read back as dict.
-  Connections are autocommit; wrap multi-statement writes in `with conn.transaction():`.
-- Timestamps in JSON are ISO 8601 strings with timezone (`dt.isoformat()`), ids are strings.
-- Tests: `cd KnovasPlatform/components/docbridge_integration && <venv>/bin/pytest tests/<file>`.
-  The venv with all requirements is
-  `/tmp/claude-0/-home-user-KnovasComponents/8edc8a0c-cb19-5849-9edf-35f6fb3bc4c4/scratchpad/venv`.
-  A PostgreSQL 16 is running locally; export
-  `PLATFORM_DB_TEST_DSN=postgresql://platform:testpw@127.0.0.1:5432/knovas_platform_test`
-  for DB tests. DB tests use the `platform_db` fixture from `tests/conftest.py` (a migrated
-  per-test schema) and are marked
+- Python 3.11. No new dependency in `requirements.txt`. Python source ASCII only (German in
+  Python strings via `ä`-style escapes). Templates, JS and YAML packs use real umlauts;
+  write `ss` for `ß`. Identifiers, comments, commit messages English. UI copy German.
+- Errors to the browser: German, never exception text; use `experiments/errors.py`
+  (`NotFound()` default text "Nicht gefunden.").
+- psycopg 3: rows are tuples; `%s` placeholders; JSONB via `psycopg.types.json.Jsonb(...)` or
+  `json.dumps`; autocommit connections, `with conn.transaction():` for multi-statement writes.
+  Aggregates cast in SQL so Python sees only int/float/str/None: `sum(count)::bigint`,
+  `count(*)::int`, `sum(...)::float8`, ids `::text`. Never return `Decimal`.
+- JSON: timestamps ISO 8601 with timezone, ids strings, no NaN/Infinity anywhere (reject on
+  input, `None` on output).
+- Tests: `cd KnovasPlatform/components/docbridge_integration &&
+  /tmp/claude-0/-home-user-KnovasComponents/8edc8a0c-cb19-5849-9edf-35f6fb3bc4c4/scratchpad/venv/bin/pytest tests/<file>`.
+  PostgreSQL 16 runs locally. **Each part uses its own database**:
+  `PLATFORM_DB_TEST_DSN=postgresql://platform:testpw@127.0.0.1:5432/knovas_platform_test_<a..h>`
+  (part letter; all exist). DB tests use the `platform_db` fixture and
   `pytest.mark.skipif(not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN")`.
+  Test apps never run the worker thread (the shared `experiments_app` fixture sets
+  `worker.enabled: false`); tests drive jobs with `JobWorker.run_once(conn)`.
+- Shared fixtures (end of `tests/conftest.py`): `EXPERIMENTS_TEST_YAML`, `FakeIndexClient`,
+  `fake_index_client`, `experiments_app` (module on, index off, worker off,
+  `experiments.indexer.make_index_client` patched to return `fake_index_client`),
+  personas `experimenter` (eva@knovas.ch), `exp_manager` (max@knovas.ch), `member`,
+  `platform_admin`, and signed-in clients `experimenter_client`, `exp_manager_client`,
+  `exp_member_client`, `exp_admin_client` (they add X-CSRF-Token automatically).
+  `_identity_app(..., extra_yaml=...)` appends config for tests that need other settings.
 
 ## 2. Configuration (`config/config.yaml`, part E)
-
-Add a top-level section (values come from knovas.env via `.env.generated`):
 
 ```yaml
 experiments:
@@ -89,57 +93,66 @@ experiments:
     per_minute: "${EXPERIMENTS_INDEX_PER_MINUTE:-2}"
     debounce_seconds: "${EXPERIMENTS_INDEX_DEBOUNCE_SECONDS:-60}"
     access_groups: "${EXPERIMENTS_ACCESS_GROUPS:-}"
+    unrestricted: "${EXPERIMENTS_INDEX_UNRESTRICTED:-false}"
   runner:
-    url: "${EXPERIMENTS_RUNNER_URL:-http://experiments-runner:8090}"
-    timeout_seconds: "${EXPERIMENTS_RUNNER_TIMEOUT:-120}"
+    # unix:///run/experiments-runner/runner.sock with COMPOSE_PROFILES=experiments
+    url: "${EXPERIMENTS_RUNNER_URL:-}"
+    timeout_seconds: "${EXPERIMENTS_RUNNER_TIMEOUT:-90}"
   worker:
     enabled: "${EXPERIMENTS_WORKER_ENABLED:-true}"
     poll_seconds: "${EXPERIMENTS_WORKER_POLL_SECONDS:-5}"
+  max_csv_rows: "${EXPERIMENTS_MAX_CSV_ROWS:-200000}"
 ```
 
-`experiments.settings.load_settings(config, identity_enabled=...)` reads it (already written).
+`experiments.settings.load_settings(config, identity_enabled=...)` reads it (written; a
+set-but-empty variable means "default").
 
-## 3. Measurement rows (the storage contract)
+## 3. Measurement rows (storage contract)
 
-Table `exp_measurements`. Every row belongs to one experiment, one metric, optionally one variant
-and one run. Columns `value`, `count` (>= 1), `denominator`, `sum_sq` are read by metric kind:
+Table `exp_measurements` (see migration). Every row belongs to one experiment, one metric, one
+batch, optionally one variant and one run of the same experiment. Columns by metric kind:
 
 | kind | value | count | denominator | sum_sq | estimate per variant |
 |---|---|---|---|---|---|
-| `proportion` | successes (0 <= value <= count) | trials | - | - | sum(value)/sum(count) |
-| `mean`, `duration`, `currency` | sum of the observations | number of observations | - | sum of squares (optional; for count = 1 it is value^2) | sum(value)/sum(count) |
-| `count` | number of events | exposure units (e.g. days, sessions) | - | - | sum(value)/sum(count) (a rate) |
-| `ratio` | numerator sum | units | denominator sum (> 0) | - | sum(value)/sum(denominator) |
-| `ordinal` | the level (a number, e.g. 1..5 or 0..100) | units at that level | - | - | mean level = sum(value*count)/sum(count) |
-| `categorical` | the category code (integer) | units in that category | - | - | none (a distribution) |
+| `proportion` | successes, integer, 0 <= value <= count | trials | NULL | NULL | sum(value)/sum(count) |
+| `mean`, `duration`, `currency` | sum of the observations | number of observations | NULL | sum of squares (count = 1: exactly value^2, filled in automatically; count > 1: optional, must be >= value^2/count) | sum(value)/sum(count) |
+| `count` | number of events, integer >= 0 | exposure units | NULL | NULL | sum(value)/sum(count) (a rate) |
+| `ratio` | numerator sum (>= 0 for costs, any finite otherwise) | units (usually 1 per row) | denominator sum, >= 0 (0 allowed, e.g. a week without leads) | NULL | sum(value)/sum(denominator); NULL while sum(denominator) = 0 |
+| `ordinal` | the level (a number) | units at that level (integer) | NULL | NULL (ignored) | sum(value*count)/sum(count) |
+| `categorical` | the category code (integer) | units in that category (integer) | NULL | NULL | NULL (a distribution) |
 
-Note ordinal/categorical rows are level rows: `value` is the level, not a sum. For ordinal the
-aggregate `value_sum` is `sum(value*count)` and `sum_sq` is `sum(value^2*count)`; for categorical
-`levels` carries the distribution.
+Metric `definition` (validated by `schema.validate_metric_definition`, see §6): optional
+`decimals` (0-6), `min`, `max` (value bounds for mean-like, ordinal), `levels` (object level
+key -> label <= 80 chars, 2-50 entries; required for categorical, optional for ordinal; when
+present, values must be defined levels).
 
-A category's label lives in the metric `definition.levels` (`{"1": "sehr unzufrieden", ...}`).
+`dims`: object, <= 20 keys, key `^[A-Za-z0-9_.-]{1,40}$`, values strings <= 200 chars (numbers
+are stringified). `observed_at`: when the value happened. Every insert creates one
+`exp_batches` row (`rows`, `metric_keys`, `source`, `filename`, `run_id`) — counts shown in the
+UI come from `exp_batches`, never from counting `exp_measurements`.
 
-`dims` (JSONB object, string values) carries segments (e.g. `{"segment": "SMB"}`); `observed_at`
-the time the value belongs to; `batch_id` groups one import so it can be undone.
+**Scope** (which rows an aggregate or evaluation uses), a JSON object, `{}` = all rows:
+`{"runs": "latest" | [run_id, ...], "since": iso, "until": iso, "dims": {key: value}}`.
+`"latest"` = for each variant its newest run with status `finished` that has measurements of
+this metric, plus rows without a run for variants that have no such run.
 
-Aggregate (as returned by `store.aggregates` and passed to evaluators), one per variant (plus one
-with `variant: null` for rows without a variant):
+**Aggregate** (store returns, evaluators receive), one per variant key plus one with
+`"variant": null` for rows without a variant (omitted when there are none):
 
 ```json
 {"variant": "B", "rows": 12, "n": 10714, "value_sum": 175.0, "denominator_sum": null,
  "sum_sq": null, "estimate": 0.016334, "levels": null}
 ```
 
-- `n` = sum(count). `value_sum` as in the table above. `denominator_sum` for ratio, else null.
-- `sum_sq`: sum over rows of `sum_sq`, where a row with count = 1 and null sum_sq contributes
-  value^2 (ordinal: value^2*count). If any row with count > 1 has null sum_sq (non-ordinal), the
-  aggregate `sum_sq` is null (variance unknown).
-- `levels`: for ordinal and categorical, `{"<level>": units}` with the level formatted by
-  `kinds.level_key(value)` (integers without `.0`); else null.
+`n` = sum(count). `value_sum`: sum(value), except ordinal sum(value*count). `sum_sq`: for
+mean-like kinds sum(sum_sq) with count=1 rows contributing value^2; NULL if any count>1 row
+lacks sum_sq; ordinal sum(value*value*count); others NULL. `levels`: ordinal/categorical
+`{level_key: units}` (level_key = `kinds.level_key(value)`), else NULL. `estimate` =
+`kinds.estimate(kind, aggregate)`.
 
 ## 4. Experiment type definitions (part A validates, part C stores)
 
-A type version's `definition` (JSONB) is exactly this shape (JSON Schema in `schema.py`):
+A type version's `definition` has exactly this shape:
 
 ```json
 {
@@ -160,132 +173,194 @@ A type version's `definition` (JSONB) is exactly this shape (JSON Schema in `sch
      "requires": ["hypothesis", "primary_metric", "variants:2"]},
     {"from": "running", "to": "analysis", "label": "Zur Auswertung", "requires": ["measurements"]},
     {"from": "analysis", "to": "decided", "label": "Entscheiden", "requires": ["decision"]},
-    {"from": "*", "to": "stopped", "label": "Abbrechen", "roles": ["experiments_manager"]}
+    {"from": "*", "to": "stopped", "label": "Abbrechen"}
   ],
   "variants": {"min": 2, "max": 10,
                "defaults": [{"key": "A", "name": "Kontrolle", "is_control": true},
                             {"key": "B", "name": "Variante B"}]},
   "metrics": [{"metric": "ctr", "role": "primary"},
               {"metric": "bounce_rate", "role": "guardrail", "op": "max", "value": 0.7}],
-  "evaluation": [{"evaluator": "builtin.bayes_proportion", "metric": "primary", "params": {}}],
+  "evaluation": [{"evaluator": "builtin.bayes_proportion", "metric": "primary", "params": {},
+                  "scope": {}}],
   "decision": {"require_learning": true}
 }
 ```
 
-Rules:
+Rules (`schema.validate_type_definition` enforces; `ValidationError(fields={path: message})`):
 
-- `fields[].type` one of `text` (<= 500 chars), `longtext` (<= 20000), `number`, `integer`,
-  `enum` (needs `options`, 1-50 strings), `multi_enum` (same), `date` (`YYYY-MM-DD`), `url`
-  (http/https), `boolean`. Optional `min`/`max` for number/integer. `key` matches
-  `^[a-z][a-z0-9_]{0,39}$`, unique; at most 40 fields. `label` 1-80 chars. `help` <= 300.
-- `states`: 2-12, keys `^[a-z][a-z0-9_]{0,31}$`, unique; `phase` optional, one of `running`
-  (entering it the first time sets `started_at`), `decided` (sets `decided_at` and `ended_at`),
-  `stopped` (sets `ended_at`). At most one state per phase. `initial` must be a state.
-- `transitions`: `from` is a state key or `"*"` (any state except `to`); `to` a state key;
-  `label` 1-40 chars; `requires` from the vocabulary below; `roles` optional list from
-  `experimenter`, `experiments_manager` (admin always allowed; empty or missing = any viewer).
-- Requirement vocabulary (German messages when unmet are produced by `schema.check_transition`):
-  `hypothesis` ("Die Hypothese fehlt."), `primary_metric` ("Es ist keine primäre Metrik
-  festgelegt."), `variants:N` ("Es braucht mindestens N Varianten."), `measurements` ("Es gibt
-  noch keine Messwerte."), `evaluation` ("Es gibt noch keine abgeschlossene Auswertung."),
-  `decision` ("Es ist noch keine Entscheidung festgehalten."), `learning` ("Die Erkenntnis
-  fehlt."), `field:<key>` ("Das Feld «<label>» ist leer.").
-- `variants`: `min` 0-10, `max` 1-20, `defaults` 0-10 items (`key` as in exp_variants, `name`,
-  optional `is_control`, optional `allocation`).
-- `metrics`: metric keys resolved in the experiment's domain first, then global; roles
-  `primary` (at most one), `secondary`, `guardrail` (needs `op` `max`|`min` and `value`).
-  Unknown metric keys are an error when the definition is saved.
-- `evaluation`: `evaluator` is an evaluator key; `metric` is `"primary"`, `"all"` (every metric
-  whose kind the evaluator accepts) or a metric key; `params` object.
-- `decision.require_learning`: the decision form requires a learning.
+- `fields[].type`: `text` (<= 500 chars), `longtext` (<= 20000), `number`, `integer`, `enum`
+  and `multi_enum` (need `options`, 1-50 unique strings <= 80), `date` (`YYYY-MM-DD`), `url`
+  (http/https, <= 2000), `boolean`. Optional `min`/`max` for number/integer. `key`
+  `^[a-z][a-z0-9_]{0,39}$`, unique; <= 40 fields; `label` 1-80; `help` <= 300; `required` bool.
+- `states`: 2-12, keys `^[a-z][a-z0-9_]{0,31}$`, unique; `label` 1-40; `phase` optional, one of
+  `running` (entering it first time sets `started_at`), `decided` (sets `decided_at`, `ended_at`),
+  `stopped` (sets `ended_at`); at most one state per phase. `initial` is a state without phase
+  `decided`/`stopped`.
+- `transitions`: 1-40; `from` a state key or `"*"` (every state except `to`); `to` a state key;
+  `label` 1-40; `requires` list from the vocabulary; `roles` optional list from `experimenter`,
+  `experiments_manager` (admin always allowed; missing/empty = any viewer). No duplicate
+  (from, to).
+- Requirement vocabulary and the German message when unmet (from `schema.check_transition`):
+  `hypothesis` "Die Hypothese fehlt." · `primary_metric` "Es ist keine primäre Metrik
+  festgelegt." · `variants:N` "Es braucht mindestens N Varianten." · `measurements` "Es gibt noch
+  keine Messwerte." · `evaluation` "Es gibt noch keine abgeschlossene Auswertung." · `decision`
+  "Es ist noch keine Entscheidung festgehalten." · `learning` "Die Erkenntnis fehlt." ·
+  `field:<key>` "Das Feld «<label>» ist leer." · `n_planned:<field_key>` "Die geplante
+  Stichprobe ist noch nicht erreicht (<n> von <planned> je Variante)." (the field must be an
+  integer/number field; satisfied when every non-null variant's primary-metric `n` >= the value;
+  unsatisfied when the field is empty).
+- `variants`: `min` 0-10, `max` 1-20 (min <= max), `defaults` 0-10 items {`key`
+  (exp_variants.key pattern), `name` <= 120, optional `is_control` (at most one), optional
+  `allocation` 0..1}.
+- `metrics`: 0-30 items; `metric` a metric key; `role` `primary` (at most one), `secondary`,
+  `guardrail` (needs `op` `max`|`min` and finite `value`). Resolved in the experiment's domain
+  first, then global; unresolved keys are refused when the definition is saved (the service
+  checks, schema only checks shape).
+- `evaluation`: 0-20 items; `evaluator` an evaluator key; `metric` `"primary"`, `"all"` (every
+  assigned metric whose kind the evaluator accepts) or a metric key; `params` object validated
+  against the evaluator's params schema (service); `scope` optional (§3 shape).
+- `decision.require_learning`: bool.
 
 ## 5. Packs (part A)
 
-A pack is YAML (also accepted as JSON). The shipped packs live in `src/experiments/packs/`:
-`core.yaml`, `engineering.yaml`, `marketing.yaml`, `sales.yaml`, `product.yaml`. Export of a
-domain produces the same format, so a domain can be kept in git and imported elsewhere.
+YAML or JSON text. Parsing is only through `packs.parse_pack_text` / `schema.parse_definition_text`:
+`json.loads` when the stripped text starts with `{`, otherwise `yaml.load(text,
+Loader=NoAliasSafeLoader)` where `NoAliasSafeLoader(yaml.SafeLoader)` raises
+`ValidationError("Anker und Verweise (&/*) sind nicht erlaubt.")` on any alias. Never
+`yaml.load` with another loader, `full_load` or `unsafe_load`. Size limits before parsing:
+definition text 200 KB, pack text 2 MB. `dump_pack` uses `yaml.safe_dump(sort_keys=False,
+allow_unicode=True)`.
 
 ```yaml
-pack: marketing            # name, ^[a-z][a-z0-9-]{1,31}$
+pack: marketing            # ^[a-z][a-z0-9-]{1,31}$
 title: Marketing
 description: A/B-Tests, Kampagnen und Content-Tests.
 version: 1
-domain:                    # omitted in core.yaml (global types/metrics)
-  key: marketing
-  name: Marketing
-  id_prefix: MKT
-  color: "#eb6834"
-  description: ...
+domain:                    # omitted in core.yaml
+  {key: marketing, name: Marketing, id_prefix: MKT, color: "#eb6834", description: "..."}
 metrics:
   - {key: ctr, name: Klickrate, kind: proportion, unit: "%", direction: higher,
-     description: ..., definition: {}}
+     description: "...", definition: {decimals: 2}}
 types:
-  - key: ab_test
-    name: A/B-Test
-    description: ...
-    definition: {...}      # section 4
-evaluators:                # optional; python/julia only (builtins are always present)
-  - {key: mkt.bootstrap_mean, name: ..., language: python, description: ...,
-     input_kinds: [mean], params_schema: {}, code: "..."}
+  - {key: ab_test, name: A/B-Test, description: "...", definition: {...}}
+evaluators:                # python/julia only; keys never start with "builtin."
+  - {key: example.bootstrap_mean_py, name: "...", language: python, description: "...",
+     input_kinds: [mean, duration, currency], params_schema: {...}, code: "..."}
+requires_metrics: []       # global metric keys a type uses (export writes them)
 ```
 
-Shipped content ("our scenario"):
-
-- `core`: global type `hypothesis` "Allgemeine Hypothese" (fields: none; states draft, running,
-  analysis, decided, stopped), global metrics none. Also the example custom evaluators
-  `example.bootstrap_mean_py` (Python, mean-like kinds: bootstrap CI of the difference, uses
-  numpy) and `example.beta_binomial_jl` (Julia, proportion: posterior P(better) by sampling with
-  the stdlib `Random` only). Both need the runner.
-- `engineering` (ENG, `#2a78d6`): types `offline_eval` "Offline-Evaluation" (fields: component
-  enum [Suche, Ingestion, Vorschau, Cortex, RemoteController, Plattform, Sonstiges], query_set
-  text, baseline_ref text, candidate_ref text), `performance` "Performance-Änderung" (fields:
-  component, environment enum [lokal, CI, Staging, Produktion]), `rollout` "Feature-Rollout"
-  (fields: feature_flag text, rollout_percent number 0-100). Metrics: `recall_at_20` Recall@20
-  (mean, higher, unit "", definition decimals 3), `ndcg_at_10` NDCG@10 (mean, higher),
-  `mrr` MRR (mean, higher), `latency_p95_ms` "Latenz p95" (duration, lower, "ms"),
-  `index_size_gb` "Indexgrösse" (mean, lower, "GB"), `ci_minutes` "CI-Dauer" (duration, lower,
-  "min"), `error_rate` Fehlerrate (proportion, lower, "%").
-- `marketing` (MKT, `#eb6834`): types `ab_test` "A/B-Test" (fields: channel enum [LinkedIn,
-  Google Ads, E-Mail, Website, Webinar, Messe, Sonstiges], audience text, budget number,
-  campaign_ref text), `campaign` "Kampagne" (fields: channel, audience, budget, goal longtext),
-  `content_test` "Content-Test". Metrics: `ctr` Klickrate (proportion, higher, "%"),
-  `conversion_rate` Konversionsrate (proportion, higher, "%"), `demo_request_rate`
-  "Demo-Anfragen" (proportion, higher, "%"), `bounce_rate` Absprungrate (proportion, lower, "%"),
-  `cost_per_click` "Kosten pro Klick" (currency, lower, "CHF"), `cost_per_lead` "Kosten pro Lead"
-  (currency, lower, "CHF").
-- `sales` (SAL, `#1baf7a`): types `playbook` "Playbook-Test" (fields: segment enum [Kanzlei klein,
-  Kanzlei mittel, Kanzlei gross, Rechtsabteilung, Sonstiges], territory enum [Schweiz,
-  Deutschland, Österreich, Sonstiges], sequence text, planned_n integer), `pricing` "Preis-Test".
-  Metrics: `reply_rate` Antwortrate (proportion, higher), `meeting_rate` Terminquote
-  (proportion, higher), `pilot_conversion` "Pilot → Vertrag" (proportion, higher),
-  `pipeline_value` Pipeline-Wert (currency, higher, "CHF"), `unsubscribe_rate` Abmelderate
-  (proportion, lower), `cycle_days` "Verkaufszyklus" (duration, lower, "Tage").
-- `product` (PRD, `#4a3aa7`): types `usability` "Nutzertest" (fields: sessions integer,
-  persona text, script longtext), `feature` "Feature-Rollout". Metrics: `task_success`
-  Aufgabenerfolg (proportion, higher), `sus_score` "SUS-Wert" (ordinal, higher, "", levels not
-  needed), `time_to_value_s` "Zeit bis Ergebnis" (duration, lower, "s"), `satisfaction`
-  Zufriedenheit (ordinal 1-5 with labels), `preferred_option` "Bevorzugte Variante"
-  (categorical with levels).
-
-Each type sets sensible `states`/`transitions` (as in section 4), `variants` (A/B types: min 2 with
-defaults A=Kontrolle, B; offline eval: defaults `baseline` (control) and `candidate`), `metrics`
-defaults, and `evaluation` pipeline (proportion primaries: `builtin.bayes_proportion` and
-`builtin.two_proportion`; mean-like: `builtin.welch_t`; always `builtin.describe` on `all`).
-
-`src/experiments/packs.py` API:
+`packs.py` API:
 
 ```python
 PACKS_DIR: pathlib.Path
-def available_packs() -> list[dict]          # [{"name","title","description","version","domain_key"}] sorted, core first
-def load_pack(name: str) -> dict            # parsed + validated shipped pack; NotFound if unknown
-def parse_pack_text(text: str) -> dict      # YAML or JSON -> validated pack dict; ValidationError
-def validate_pack(pack: dict) -> dict       # normalised copy; every type definition validated
-                                            # with schema.validate_type_definition; metric
-                                            # references resolvable within pack + builtin names
-def dump_pack(pack: dict) -> str            # YAML text (sort_keys=False, allow_unicode=True)
+def available_packs() -> list[dict]      # [{"name","title","description","version","domain_key"}], core first
+def load_pack(name: str) -> dict        # shipped pack, validated; NotFound("Das Paket gibt es nicht.")
+def parse_pack_text(text: str) -> dict  # -> validate_pack(...) result; ValidationError
+def validate_pack(pack: dict, *, known_metrics=(), known_evaluators=()) -> dict
+    # normalised copy. Every type definition through schema.validate_type_definition; every
+    # metric definition through schema.validate_metric_definition; metric references in types
+    # must resolve within the pack's metrics or known_metrics (global keys); evaluator
+    # references within the pack, evaluators.BUILTINS keys (import lazily) or known_evaluators.
+def dump_pack(pack: dict) -> str
 ```
 
+Shipped packs (`src/experiments/packs/*.yaml`). "A/B states" below means: draft "Entwurf",
+running "Läuft" (phase running), analysis "Auswertung", decided "Entschieden" (phase decided),
+stopped "Abgebrochen" (phase stopped); transitions draft→running "Starten", running→analysis
+"Zur Auswertung" requires [measurements], analysis→decided "Entscheiden" requires [decision],
+analysis→running "Weiterlaufen lassen", *→stopped "Abbrechen". `decision.require_learning: true`
+everywhere. Every evaluation list starts with `{evaluator: builtin.describe, metric: all}`.
+
+- `core` (global): type `hypothesis` "Allgemeine Hypothese" — no fields; A/B states with
+  draft→running requires [hypothesis]; variants {min 0, max 10, defaults []}; metrics [];
+  evaluation [describe/all]. Evaluators `example.bootstrap_mean_py` (Python, kinds mean,
+  duration, currency, ordinal: bootstrap 95 % CI of each variant's mean difference to the
+  control using numpy, needs rows) and `example.beta_binomial_jl` (Julia, kind proportion:
+  P(better) by sampling Beta posteriors with the `Random` stdlib only). Both follow the output
+  contract and are commented as templates.
+- `engineering` (ENG, `#2a78d6`, "Engineering"): metrics
+  `recall_at_20` "Recall@20" (mean, higher, "", decimals 3, min 0, max 1, description "Ein
+  Messwert je Anfrage (dims.query) und Lauf."), `ndcg_at_10` "NDCG@10" (same), `mrr` "MRR"
+  (same), `latency_p95_ms` "Latenz p95" (duration, lower, "ms", decimals 0, description "Ein
+  Messwert je Benchmark-Lauf: das 95. Perzentil dieses Laufs. Die Schätzung ist das Mittel über
+  die Läufe."), `latency_ms` "Latenz (Mittel)" (duration, lower, "ms", "Ein Wert je Anfrage."),
+  `index_size_gb` "Indexgrösse" (mean, lower, "GB", one per run), `ci_minutes` "CI-Dauer"
+  (duration, lower, "min", one per pipeline run), `error_rate` "Fehlerrate" (proportion, lower,
+  "%", value = errors, count = requests). Types:
+  `offline_eval` "Offline-Evaluation" (fields component enum [Suche, Ingestion, Vorschau,
+  Cortex, RemoteController, Plattform, Sonstiges], query_set text, baseline_ref text,
+  candidate_ref text; variants min 2 defaults `baseline` "Ausgangsstand" (control),
+  `candidate` "Kandidat"; metrics primary ndcg_at_10, secondary recall_at_20, mrr, guardrail
+  latency_p95_ms max 250; evaluation describe/all, `builtin.paired_t` on ndcg_at_10,
+  recall_at_20, mrr with params {pair_by: query} and scope {runs: latest}),
+  `performance` "Performance-Änderung" (fields component, environment enum [lokal, CI,
+  Staging, Produktion]; variants `vorher` "Vorher" (control), `nachher` "Nachher"; primary
+  latency_p95_ms, guardrail error_rate max 0.01; evaluation describe, welch_t on primary),
+  `rollout` "Feature-Rollout" (fields feature_flag text, rollout_percent number 0-100;
+  variants `aus` "Flag aus" (control), `an` "Flag an"; primary error_rate, guardrail
+  latency_p95_ms max 300; evaluation describe, two_proportion and bayes_proportion on primary).
+- `marketing` (MKT, `#eb6834`, "Marketing"): metrics `ctr` "Klickrate" (proportion, higher,
+  "%", clicks/impressions), `conversion_rate` "Konversionsrate" (proportion, higher),
+  `demo_request_rate` "Demo-Anfragequote" (proportion, higher), `bounce_rate` "Absprungrate"
+  (proportion, lower), `cost_per_click` "Kosten pro Klick" (ratio, lower, "CHF", value =
+  Kosten, denominator = Klicks, one row per day or week), `cost_per_lead` "Kosten pro Lead"
+  (ratio, lower, "CHF", value = Kosten, denominator = Leads). Types:
+  `ab_test` "A/B-Test" (fields channel enum [LinkedIn, Google Ads, E-Mail, Website, Webinar,
+  Messe, Sonstiges], audience text, budget number, campaign_ref text; A/B variants; primary
+  ctr, secondary conversion_rate, cost_per_click, guardrail bounce_rate max 0.7; evaluation
+  describe, bayes_proportion and two_proportion on primary, ratio_delta on cost_per_click),
+  `campaign` "Kampagne" (fields channel, audience, budget, goal longtext; variants min 0
+  defaults []; primary demo_request_rate, secondary ctr, cost_per_lead; transitions without
+  variants; evaluation describe/all), `content_test` "Content-Test" (fields channel, format
+  enum [Text, Bild, Karussell, Video, Dokument]; A/B; primary ctr; evaluation describe, bayes).
+- `sales` (SAL, `#1baf7a`, "Vertrieb"): metrics `reply_rate` "Antwortrate", `meeting_rate`
+  "Terminquote", `pilot_conversion` "Pilot → Vertrag", `win_rate` "Abschlussquote" (all
+  proportion, higher), `unsubscribe_rate` "Abmelderate" (proportion, lower), `pipeline_value`
+  "Pipeline-Wert" (currency, higher, "CHF", "ein Wert je angeschriebenem Kontakt, 0 ohne
+  Opportunity"), `deal_value` "Vertragswert" (currency, higher, "CHF", one per offer, 0 if
+  lost), `cycle_days` "Verkaufszyklus" (duration, lower, "Tage"). Types: `playbook`
+  "Playbook-Test" (fields segment enum [Kanzlei klein, Kanzlei mittel, Kanzlei gross,
+  Rechtsabteilung, Sonstiges], territory enum [Schweiz, Deutschland, Österreich, Sonstiges],
+  sequence text, planned_n integer min 1; A/B variants; primary meeting_rate, secondary
+  reply_rate, pipeline_value, guardrail unsubscribe_rate max 0.02; running→analysis requires
+  [measurements, n_planned:planned_n]; evaluation describe, bayes, two_proportion), `pricing`
+  "Preis-Test" (fields segment, price_model text; variants A "Aktueller Preis" (control), B
+  "Neuer Preis"; primary win_rate, secondary deal_value; evaluation describe, bayes, welch_t on
+  deal_value).
+- `product` (PRD, `#4a3aa7`, "Produkt"): metrics `task_success` "Aufgabenerfolg"
+  (proportion, higher), `sus_score` "SUS-Wert" (mean, higher, "Punkte", min 0, max 100,
+  decimals 1, one per participant), `time_to_value_s` "Zeit bis Ergebnis" (duration, lower,
+  "s"), `satisfaction` "Zufriedenheit" (ordinal, higher, levels {"1": "sehr unzufrieden", "2":
+  "unzufrieden", "3": "neutral", "4": "zufrieden", "5": "sehr zufrieden"}), `preferred_option`
+  "Bevorzugte Variante" (categorical, none, levels {"1": "Variante A", "2": "Variante B", "3":
+  "Variante C", "0": "Keine Präferenz"}). Types: `usability` "Nutzertest" (fields sessions
+  integer, persona text, script longtext; variants min 0 defaults [] ; primary task_success,
+  secondary sus_score, satisfaction, time_to_value_s; transitions without variants;
+  evaluation describe/all with params {target: 0.8} on task_success), `feature`
+  "Feature-Rollout" (variants A "Ohne Feature" (control), B "Mit Feature"; primary
+  task_success; evaluation describe, bayes).
+
 ## 6. Part A module APIs
+
+`src/experiments/labels.py` (German labels, `\u` escapes in source):
+
+```python
+DECISION_VERDICT_LABELS = {"ship": "Übernehmen", "iterate": "Weiterentwickeln",
+                           "stop": "Verwerfen", "inconclusive": "Ohne klares Ergebnis"}
+EVALUATION_VERDICT_LABELS = {"better": "besser", "worse": "schlechter",
+                             "inconclusive": "offen", "n/a": "–"}
+NOTE_KIND_LABELS = {"note": "Notiz", "observation": "Beobachtung", "interview": "Interview",
+                    "feedback": "Rückmeldung", "status": "Statuswechsel"}
+DIRECTION_LABELS = {"higher": "höher ist besser", "lower": "tiefer ist besser",
+                    "none": "ohne Richtung"}
+METRIC_ROLE_LABELS = {"primary": "primär", "secondary": "sekundär", "guardrail": "Leitplanke"}
+RUN_STATUS_LABELS = {"running": "läuft", "finished": "abgeschlossen",
+                     "failed": "fehlgeschlagen", "cancelled": "abgebrochen"}
+EVALUATION_STATUS_LABELS = {"queued": "wartet", "running": "läuft", "done": "fertig",
+                            "failed": "fehlgeschlagen"}
+INDEX_STATE_LABELS = {"pending": "ausstehend", "indexed": "aktuell", "error": "Fehler", "off": "aus"}
+SOURCE_LABELS = {"manual": "von Hand", "api": "API", "csv": "CSV"}
+```
 
 `src/experiments/kinds.py`:
 
@@ -293,72 +368,89 @@ def dump_pack(pack: dict) -> str            # YAML text (sort_keys=False, allow_
 @dataclass(frozen=True)
 class KindSpec:
     key: str; label: str; description: str
-    needs_denominator: bool; is_distribution: bool
-    value_label: str; count_label: str          # German labels for the entry form
+    needs_denominator: bool; is_distribution: bool; integral_value: bool
+    value_label: str; count_label: str; denominator_label: str; sum_sq_label: str
     default_evaluators: tuple[str, ...]
-KINDS: dict[str, KindSpec]    # the 8 kinds of section 3, German labels:
-    # proportion "Anteil", mean "Mittelwert", count "Rate (Ereignisse je Einheit)",
-    # duration "Dauer", currency "Geldbetrag", ratio "Verhältnis", ordinal "Skala",
-    # categorical "Kategorie"
-def validate_row(kind: str, row: dict) -> dict   # normalised {value,count,denominator,sum_sq};
-                                                 # ValidationError (German) on e.g. value > count
-def estimate(kind: str, agg: dict) -> float | None  # from an aggregate dict (section 3)
-def level_key(value: float) -> str
+KINDS: dict[str, KindSpec]
+    # proportion "Anteil" (value "Erfolge", count "Versuche"), mean "Mittelwert" (value "Summe
+    # der Werte", count "Anzahl"), count "Rate" (value "Ereignisse", count "Einheiten"),
+    # duration "Dauer", currency "Geldbetrag", ratio "Verhältnis" (value "Zähler", denominator
+    # "Nenner", count "Einheiten"), ordinal "Skala" (value "Stufe", count "Anzahl"),
+    # categorical "Kategorie" (value "Kategorie", count "Anzahl"); sum_sq_label
+    # "Quadratsumme (optional)"
+def validate_row(kind: str, row: dict, definition: dict | None = None) -> dict
+    # -> {"value","count","denominator","sum_sq"} normalised per §3; ValidationError with a
+    # German message: non-finite ("Der Wert muss eine endliche Zahl sein."), count < 1 or not
+    # integral, proportion value not integral ("Erfolge müssen eine ganze Zahl sein.") or > count,
+    # count kind value not integral/negative ("Ereignisse müssen eine ganze Zahl sein."),
+    # ratio denominator missing/negative, sum_sq inconsistent ("Die Quadratsumme passt nicht
+    # zum Wert."), min/max violated ("Der Wert liegt ausserhalb von <min>–<max>."), level not
+    # defined ("Wert <v> ist keine Stufe von «<name>»." -- name from definition.get("_name")).
+def estimate(kind: str, agg: dict) -> float | None
+def level_key(value: float) -> str        # 3.0 -> "3", 2.5 -> "2.5"
+def format_number(x: float | None, decimals: int = 2) -> str
+    # decimal comma, ASCII apostrophe thousands: 10714.5 -> "10'714,50"; None -> "–"
 def format_value(kind: str, x: float | None, unit: str = "", decimals: int | None = None) -> str
-    # German display: proportion as percent "1,63 %", others with unit, "–" for None,
-    # thousands separator "'" (Swiss), decimal comma
+    # proportion -> percent "1,63 %"; others format_number + " " + unit (unit "%" also gets a space)
+def format_diff(kind: str, x: float | None, unit: str = "", decimals: int | None = None) -> str
+    # signed; proportion -> "+0,42 Pp."; others "+12,5 ms"
 ```
 
 `src/experiments/schema.py`:
 
 ```python
 FIELD_TYPES: tuple[str, ...]
+REQUIREMENT_KEYS: tuple[str, ...]
 TYPE_DEFINITION_SCHEMA: dict
-def validate_type_definition(definition: dict) -> dict          # normalised; ValidationError(fields=...)
-def parse_definition_text(text: str) -> dict                   # JSON or YAML text -> dict (not yet validated)
+def parse_definition_text(text: str) -> dict               # §5 safe parsing; ValidationError
+def validate_type_definition(definition: dict) -> dict     # normalised; ValidationError(fields=...)
+def validate_metric_definition(kind: str, definition: dict | None) -> dict
+def validate_scope(scope: dict | None) -> dict             # §3 scope; ValidationError
 def validate_field_values(definition: dict, values: dict, *, partial: bool = False) -> dict
-    # normalised values; unknown keys -> ValidationError; required-missing only when not partial;
-    # empty string / None removes the key
-def display_field_value(field: dict, value) -> str             # German display text
-def initial_state(definition: dict) -> str
-def state_label(definition: dict, state: str) -> str           # falls back to the key
-def state_phase(definition: dict, state: str) -> str | None
-def transitions_from(definition: dict, state: str) -> list[dict]  # [{"to","label","requires","roles"}]
-def check_transition(definition: dict, from_state: str, to_state: str, *,
-                     facts: dict, roles: frozenset) -> list[str]
-    # ValidationError if no such transition; Forbidden if roles do not allow it;
-    # returns the German messages of unmet requirements ([] = allowed).
-    # facts: {"hypothesis": bool, "primary_metric": bool, "variants": int,
-    #         "measurements": int, "evaluations": int, "decision": bool,
-    #         "learning": bool, "fields": {key: bool}}
-def metric_refs(definition: dict) -> list[str]   # metric keys referenced by metrics/evaluation
+    # unknown keys -> ValidationError; required-missing only when not partial; "" / None removes;
+    # number/integer must be finite
+def display_field_value(field: dict, value) -> str        # German ("ja"/"nein", dates TT.MM.JJJJ)
+def initial_state(definition) -> str
+def state_label(definition, state) -> str
+def state_phase(definition, state) -> str | None
+def phase_state(definition, phase: str) -> str | None      # the state carrying that phase
+def transitions_from(definition, state) -> list[dict]      # [{"to","label","requires","roles"}]
+def check_transition(definition, from_state, to_state, *, facts: dict, roles: frozenset) -> list[str]
+    # ValidationError("Dieser Statuswechsel ist nicht vorgesehen.") if undefined;
+    # Forbidden("Diesen Statuswechsel dürfen nur ... ausführen.") if roles do not allow;
+    # returns unmet messages ([] = allowed). facts: {"hypothesis": bool, "primary_metric": bool,
+    # "variants": int, "measurements": int, "evaluations": int, "decision": bool,
+    # "learning": bool, "fields": {key: value}, "variant_n": {variant_key: n of primary metric}}
+def metric_refs(definition) -> list[str]
+def evaluator_refs(definition) -> list[str]
 ```
 
 ## 7. Part B module APIs
 
-`src/experiments/stats.py` — pure Python (math, random), no numpy. Each function documents its
-method and returns a dict of floats; tests compare with reference values computed with scipy.
+`src/experiments/stats.py` — pure Python (math, random). Deterministic. Every function
+documents method and returns a dict of floats/ints (NaN never returned: None instead).
 
 ```python
-def normal_cdf(x) ; def normal_ppf(p)
-def student_t_cdf(t, df) ; def student_t_ppf(p, df)
-def chi2_sf(x, df)
-def betainc(a, b, x)              # regularized incomplete beta I_x(a, b)
-def gammaincc(s, x)               # regularized upper incomplete gamma Q(s, x)
-def two_proportion_test(s1, n1, s2, n2, alpha=0.05) -> dict
-    # keys: p1, p2, diff (p2-p1), ci_low, ci_high (Wald on diff), z, p_value (two-sided,
-    # pooled SE), relative_lift (diff/p1 or None)
-def bayes_beta_binomial(s1, n1, s2, n2, prior_a=1.0, prior_b=1.0, draws=40000, seed=7) -> dict
-    # keys: prob_better (P(p2 > p1)), expected_loss (E[max(p1-p2, 0)]), diff_mean,
-    # ci_low, ci_high (95% equal-tailed of p2-p1), deterministic for a given seed
-def welch_t_test(mean1, var1, n1, mean2, var2, n2, alpha=0.05) -> dict
-    # keys: diff (mean2-mean1), ci_low, ci_high, t, df, p_value
-def poisson_rate_test(e1, t1, e2, t2, alpha=0.05) -> dict
-    # keys: rate1, rate2, ratio (rate2/rate1), ci_low, ci_high (on ratio, log-normal), p_value
-def chi_square_independence(table: list[list[float]]) -> dict
-    # keys: chi2, df, p_value, cramers_v
-def sample_size_proportion(p_base, mde_abs, alpha=0.05, power=0.8) -> int   # per arm
-def sample_size_mean(sd, mde_abs, alpha=0.05, power=0.8) -> int
+normal_cdf(x); normal_ppf(p); student_t_cdf(t, df); student_t_ppf(p, df)
+chi2_sf(x, df); betainc(a, b, x); gammaincc(s, x); binom_cdf(k, n, p)
+wilson_interval(s, n, alpha=0.05) -> (lo, hi)
+poisson_interval(k, t, alpha=0.05) -> (lo, hi)          # exact (chi-square) CI of rate k/t
+t_interval(mean, var, n, alpha=0.05) -> (lo, hi)
+two_proportion_test(s1, n1, s2, n2, alpha=0.05) -> {p1, p2, diff, ci_low, ci_high, z, p_value, relative_lift}
+bayes_beta_binomial(s1, n1, s2, n2, prior_a=1.0, prior_b=1.0, draws=40000, seed=7)
+    -> {prob_better, expected_loss, diff_mean, ci_low, ci_high}     # draws/seed internal only
+welch_t_test(mean1, var1, n1, mean2, var2, n2, alpha=0.05) -> {diff, ci_low, ci_high, t, df, p_value}
+paired_t_test(diffs: list[float], alpha=0.05) -> {mean_diff, ci_low, ci_high, t, df, p_value, n_pairs}
+poisson_rate_test(e1, t1, e2, t2, alpha=0.05) -> {rate1, rate2, ratio, ci_low, ci_high, p_value}
+ratio_delta(num1: list, den1: list, num2: list, den2: list, alpha=0.05)
+    -> {ratio1, ratio2, diff, ci_low, ci_high, p_value}   # delta method, units = rows
+chi_square_independence(table: list[list[float]]) -> {chi2, df, p_value, cramers_v}
+chi_square_goodness_of_fit(observed: list[float], expected: list[float] | None = None) -> {chi2, df, p_value}
+binomial_test(k, n, p=0.5) -> {p_value}                   # two-sided exact
+holm(p_values: list[float]) -> list[float]
+sample_size_proportion(p_base, mde_abs, alpha=0.05, power=0.8) -> int     # per arm
+sample_size_mean(sd, mde_abs, alpha=0.05, power=0.8) -> int
+variance(sum_, sum_sq, n) -> float | None   # max(0.0, (sum_sq - sum_**2/n)/(n-1)); None if n < 2 or sum_sq None
 ```
 
 `src/experiments/evaluators.py`:
@@ -367,506 +459,645 @@ def sample_size_mean(sd, mde_abs, alpha=0.05, power=0.8) -> int
 @dataclass(frozen=True)
 class BuiltinSpec:
     key: str; name: str; description: str
-    input_kinds: tuple[str, ...]; params_schema: dict
-    fn: Callable[[dict, dict], dict]
+    input_kinds: tuple[str, ...]; params_schema: dict; needs_rows: bool
+    fn: Callable[[dict], dict]
 BUILTINS: dict[str, BuiltinSpec]
-    # 'builtin.describe'         "Beschreibung je Variante"   all kinds
-    # 'builtin.two_proportion'   "Zwei-Anteile-Test"          proportion
-    # 'builtin.bayes_proportion' "Bayes-Vergleich (Anteile)"  proportion
-    # 'builtin.welch_t'          "Welch-t-Test"               mean, duration, currency, ordinal
-    # 'builtin.poisson_rate'     "Raten-Vergleich"            count
-    # 'builtin.chi_square'       "Chi-Quadrat-Test"           categorical, ordinal
-def build_input(*, experiment: dict, metric: dict, variants: list[dict],
-                aggregates: list[dict], rows: list[dict] | None,
-                rows_truncated: bool, params: dict) -> dict      # the input contract below
-def run_builtin(key: str, data: dict) -> dict                    # output contract below; params in data["params"]
-def sanitize_output(raw) -> dict                                 # ValidationError if not an object;
-                                                                 # clips sizes, drops unknown keys
+  # key                        name (German)                     kinds                              rows
+  # builtin.describe           "Beschreibung je Variante"        all                                no
+  # builtin.two_proportion     "Zwei-Anteile-Test"               proportion                         no
+  # builtin.bayes_proportion   "Bayes-Vergleich (Anteile)"       proportion                         no
+  # builtin.welch_t            "Welch-t-Test"                    mean, duration, currency, ordinal  no
+  # builtin.paired_t           "Gepaarter t-Test"                mean, duration, currency, ordinal  yes
+  # builtin.poisson_rate       "Raten-Vergleich"                 count                              no
+  # builtin.ratio_delta        "Verhältnis-Vergleich"            ratio                              yes
+  # builtin.chi_square         "Chi-Quadrat-Test"                categorical, ordinal               no
+  # params_schema: closed JSON Schemas (additionalProperties false):
+  #   describe {target: number}; two_proportion/welch_t/poisson_rate/chi_square/ratio_delta
+  #   {alpha: 0.001..0.2, correction: "holm"|"none"}; paired_t {alpha, correction,
+  #   pair_by: string ^[A-Za-z0-9_.-]{1,40}$ (default "query")}; bayes_proportion
+  #   {threshold: 0.5..0.999, prior_a: 0.01..1000, prior_b: 0.01..1000}; chi_square also
+  #   {expected: array of numbers > 0, <= 50}
+def validate_params(schema: dict, params: dict | None) -> dict   # jsonschema; ValidationError(fields); json <= 4 KB
+def build_input(*, snapshot: dict, metric: dict, aggregates: list[dict], rows: list[dict] | None,
+                rows_truncated: bool, params: dict, scope: dict) -> dict
+def run_builtin(key: str, data: dict) -> dict          # validates data["params"] first
+def sanitize_output(raw, *, evaluator_name: str = "") -> dict
 def default_params(key: str) -> dict
 ```
 
-Builtins compare every non-control variant with the control (the variant with `is_control`,
-else the first variant). Verdict: considering `metric.direction` (`lower` flips the sign;
-`none` gives `n/a`): Bayes: `better` if prob_better >= threshold (param `threshold`, default
-0.95) for the best variant, `worse` if <= 1 - threshold, else `inconclusive`; frequentist
-tests: `better`/`worse` if p_value < alpha (param `alpha`, default 0.05) with the sign of the
-effect, else `inconclusive`; describe: `n/a`. Too little data (a variant with n < 2, or missing
-variance for welch) gives `inconclusive` with a German warning, never an exception.
-
-Evaluator input contract (what `build_input` returns and what custom evaluators receive):
+`build_input` maps the §9 snapshot: `experiment` = {key, title, hypothesis, domain:
+snapshot.domain.key, type: snapshot.type.key, status, fields: snapshot.field_values, tags};
+`metric` = the snapshot metric entry without `aggregates`, plus `guardrail` = {op, value} or
+null and `definition`; `variants` = [{key, name, is_control}]. Evaluator input contract:
 
 ```json
 {
   "experiment": {"key": "MKT-1", "title": "...", "hypothesis": "...", "domain": "marketing",
-                 "type": "ab_test", "status": "running", "fields": {"channel": "LinkedIn"}},
+                 "type": "ab_test", "status": "running", "fields": {"channel": "LinkedIn"}, "tags": []},
   "metric": {"key": "ctr", "name": "Klickrate", "kind": "proportion", "unit": "%",
-             "direction": "higher", "role": "primary", "definition": {}},
-  "variants": [{"key": "A", "name": "Kontrolle", "is_control": true}, {"key": "B", "name": "Variante B", "is_control": false}],
-  "aggregates": [ {"variant": "A", "rows": 12, "n": 10688, "value_sum": 129.0, "denominator_sum": null,
-                   "sum_sq": null, "estimate": 0.01207, "levels": null} ],
-  "rows": [ {"variant": "A", "run": null, "value": 11.0, "count": 900, "denominator": null,
-             "sum_sq": null, "observed_at": "2026-09-16T00:00:00+00:00", "dims": {}} ],
+             "direction": "higher", "role": "primary", "definition": {}, "guardrail": null},
+  "variants": [{"key": "A", "name": "Kontrolle", "is_control": true}],
+  "aggregates": [{"variant": "A", "rows": 12, "n": 10688, "value_sum": 129.0,
+                  "denominator_sum": null, "sum_sq": null, "estimate": 0.01207, "levels": null}],
+  "rows": [{"variant": "A", "run": null, "value": 11.0, "count": 900, "denominator": null,
+            "sum_sq": null, "observed_at": "2026-09-16T00:00:00+00:00", "dims": {}}],
   "rows_truncated": false,
+  "scope": {},
   "params": {}
 }
 ```
 
-Output contract (builtins produce it; custom output passes `sanitize_output`):
+`rows` is present for custom evaluators and builtins with `needs_rows`, else `[]`.
+
+Output contract:
 
 ```json
 {
   "verdict": "better | worse | inconclusive | n/a",
   "headline": "P(B besser als A) = 99,6 %",
-  "summary": "Markdown, <= 20000 chars; this text is indexed into Knovas",
-  "comparisons": [{"variant": "B", "baseline": "A", "label": "Differenz",
-                   "estimate": 0.0042, "ci_low": 0.0011, "ci_high": 0.0073,
-                   "p_value": null, "prob_better": 0.996, "unit": "pts"}],
-  "variants": [{"variant": "A", "n": 10688, "value": 0.01207, "sd": null}],
-  "values": {"prob_better": 0.996},
+  "summary": "Markdown <= 20000 chars (indexed into Knovas)",
+  "comparisons": [{"variant": "B", "baseline": "A", "label": "Differenz", "estimate": 0.0042,
+                   "ci_low": 0.0011, "ci_high": 0.0073, "p_value": null, "prob_better": 0.996,
+                   "relative": 0.348, "unit": "Pp.", "verdict": "better"}],
+  "variants": [{"variant": "A", "n": 10688, "value": 0.01207, "sd": null, "sum": 129.0,
+                "ci_low": 0.0101, "ci_high": 0.0143}],
+  "values": {"prob_better": 0.996, "guardrail_ok": true},
   "table": {"headers": ["..."], "rows": [["..."]]},
   "warnings": ["..."]
 }
 ```
 
-Limits in `sanitize_output`: headline <= 200, summary <= 20000, comparisons <= 50,
-variants <= 50, values <= 100 keys (numbers, strings <= 500, booleans), table <= 50 headers and
-<= 500 rows of <= 50 cells (cells stringified, <= 200 chars), warnings <= 20 of <= 300 chars;
-unknown verdict -> `n/a`; NaN/Infinity -> null. Units: proportion differences in `pts`
-(percentage points, estimate in fraction units 0..1), others in the metric's unit, ratios `x`.
+Rules: compare each non-control variant with the control (`is_control`, else the first variant;
+rows/aggregates with variant null are not compared). A difference's `estimate` is in the
+metric's natural units (proportion: fraction 0..1, `unit` "Pp."; ratio_delta: unit of the metric;
+poisson_rate: ratio, unit "x"). `direction` `lower` flips "better"; `none` gives `n/a`
+verdicts but still reports numbers. Per comparison: Bayes `better` when prob_better >=
+threshold (default 0.95), `worse` when <= 1-threshold; frequentist `better`/`worse` when the
+(Holm-adjusted when > 1 comparison and correction != "none", with warning "p-Werte nach Holm
+korrigiert.") p_value < alpha (default 0.05). Overall verdict: `better` if any comparison is
+better (headline names the best), else `worse` if any is worse, else `inconclusive`.
+`describe`: per variant n, estimate, 95 % interval (Wilson for proportion, t for mean-like when
+variance is known, exact Poisson for count, none for ratio/categorical), `sum`; guardrail check
+(metric.guardrail: a variant whose estimate violates it gets the warning "Leitplanke verletzt:
+Variante B 78,0 % > 70,0 %." and `values.guardrail_ok = false`, verdict `worse`); with param
+`target`, verdict better/worse when every variant's interval lies on the good/bad side of the
+target (respecting direction), else inconclusive, headline e.g. "Aufgabenerfolg 75,0 %
+(95 %-KI 40,9–92,9 %) – Ziel 80,0 % nicht belegt."; else verdict `n/a`. `chi_square`: with
+>= 2 variants having data independence test, else goodness of fit against equal shares (or
+`expected`), with the exact binomial test when 2 categories and n < 30. `paired_t`: pairs control
+and variant rows with the same `dims[pair_by]` (row values averaged per key and variant);
+warning "N Zeilen ohne Partner ignoriert." Too little data (n < 2, no pairs, missing variance)
+gives `inconclusive` with a German warning, never an exception.
 
-## 8. Part C: store and service
+`sanitize_output(raw, evaluator_name=...)`: not an object -> ValidationError("Der Auswerter
+hat kein Objekt zurückgegeben."). Keeps the contract keys; unknown top-level keys with
+scalar values move into `values` (warning "Nicht vorgesehene Felder nach values verschoben: a, b"),
+others are dropped (warning "Nicht übernommen: c"). Limits: headline <= 200 (missing ->
+f"{evaluator_name}: {len(values)} Werte"), summary <= 20000, comparisons <= 50, variants <= 50,
+values <= 100 keys (numbers, strings <= 500, booleans), table <= 20 headers and <= 200 rows of
+<= 20 cells (stringified, <= 200 chars), warnings <= 20 of <= 300; unknown verdicts -> `n/a`;
+NaN/Infinity -> null; total `json.dumps` <= 256 KB (clip table, then summary; warning
+"Ausgabe gekürzt.").
 
-`src/experiments/store.py` holds every SQL statement about domains, types, metrics, evaluators,
-experiments, variants, metrics assignment, runs, measurements, notes, evaluations, decisions,
-tokens and runtime settings (jobs SQL is part D). Functions take `conn` first. Besides whatever
-the service needs, these are used by other parts and must exist with these signatures:
+## 8. Part C: store, service, CSV
+
+`src/experiments/store.py` holds all SQL except the job queue (part D). Functions take `conn`
+first. Rules:
+
+- Version bumps: `UPDATE exp_types SET current_version = current_version + 1, updated_at =
+  now() WHERE id=%s RETURNING current_version` then INSERT the version row, one transaction (same
+  for evaluators; metrics bump `version` on update).
+- Idempotent inserts (`ensure_builtin_evaluators`, `ensure_core_pack`, `install_pack`): `INSERT
+  ... ON CONFLICT ... DO NOTHING`, then re-SELECT. `psycopg.errors.UniqueViolation` ->
+  `Conflict` with a German message ("Der Schlüssel «x» ist schon vergeben.").
+- Experiment keys: `UPDATE exp_domains SET next_seq = next_seq + 1, updated_at = now() WHERE
+  id = %s RETURNING id_prefix, next_seq - 1`.
+- `row_version` is bumped only by changes to the experiment's own editable state:
+  update_experiment, transition, set_variants, set_metrics, decide, archive. Those start with
+  `SELECT ... FROM exp_experiments WHERE key = %s FOR UPDATE` in a transaction and, when the
+  caller sent `row_version`, raise `Conflict("Das Experiment wurde inzwischen geändert. Bitte
+  neu laden.")` on mismatch (required for update_experiment, optional elsewhere). Child writes
+  (measurements, batches, runs, notes, evaluations) and worker writes set only `updated_at`.
+  `set_index_state` touches neither.
+
+Functions other parts use (exact signatures):
 
 ```python
-def load_snapshot(conn, key_or_id: str) -> dict | None      # section 9 shape; None if not found
+def load_snapshot(conn, key_or_id: str, *, actor=None) -> dict | None      # §9; actor for can_delete flags
 def lookup_by_keys(conn, keys: list[str]) -> dict[str, dict]
-    # {KEY: {"key","title","hypothesis","status","status_label","archived",
-    #        "domain_key","domain_name","domain_color","type_name"}}
-def aggregates(conn, experiment_id: str, metric_id: str) -> list[dict]     # section 3
-def evaluator_rows(conn, experiment_id: str, metric_id: str, limit: int) -> tuple[list[dict], bool]
-def set_index_state(conn, experiment_id: str, state: str, error: str | None = None) -> None
-    # 'indexed' also sets indexed_at = now(); error truncated to 500 chars
-def experiment_ids_for_reindex(conn) -> list[tuple[str, str, str]]   # (id, key, domain_key), all
+    # {KEY: {"key","title","hypothesis","status","status_label","archived","domain_key",
+    #        "domain_name","domain_color","type_name","updated_at"}}
+def aggregates(conn, experiment_id: str, metric_id: str, *, kind: str, scope: dict | None = None) -> list[dict]
+def evaluator_rows(conn, experiment_id: str, metric_id: str, limit: int, *, scope: dict | None = None) -> tuple[list[dict], bool]
+    # newest `limit` rows (ORDER BY id DESC) returned in ascending id order, input-contract row
+    # shape (variant key, run id); second value = more rows exist
+def timeseries(conn, experiment_id: str, metric_id: str, *, kind: str, bucket: str, scope=None) -> list[dict]
+    # bucket 'day'|'week'|'month' (date_trunc on observed_at, UTC):
+    # [{"bucket_start","variant","n","value_sum","denominator_sum","estimate"}]
+def set_index_state(conn, experiment_id: str, state: str, error: str | None = None, *,
+                    if_updated_at: str | None = None) -> None
+    # 'indexed' sets indexed_at=now() and is skipped when if_updated_at is given and the row's
+    # updated_at differs (a newer edit keeps 'pending'); error text <= 500 chars (German, fixed)
+def record_index_document(conn, pointer: str, experiment_id: str | None) -> None   # upsert exp_index_documents
+def forget_index_document(conn, pointer: str) -> None
+def index_documents(conn, after: str | None = None, limit: int = 500) -> list[str]  # pointers, ordered
+def experiments_for_reindex(conn, *, domain_id=None, type_id=None, states=None) -> list[str]  # experiment ids
 def resolve_api_token(conn, plaintext: str) -> dict | None
-    # {"token_id","user_id"} for an unrevoked, unexpired token; updates last_used_at at most once a minute
-def get_runtime_setting(conn, key: str)                      # value or settings.RUNTIME_DEFAULTS[key]
-def set_runtime_setting(conn, key: str, value, actor) -> None
+    # {"token_id","user_id"} for an unrevoked, unexpired token (hash compare in SQL on the
+    # SHA-256 hex); updates last_used_at at most once a minute
+def get_runtime_setting(conn, key: str)        # only keys in settings.RUNTIME_DEFAULTS, else ValidationError
+def set_runtime_setting(conn, key: str, value, actor) -> None   # same whitelist + type check
+def get_user_show_in_search(conn, user_id) -> bool              # USER_PREF_SHOW_IN_SEARCH, default True
+def set_user_show_in_search(conn, user_id, value: bool) -> None
 def get_evaluation_record(conn, evaluation_id: str) -> dict | None
-    # {"id","experiment_id","evaluator_id","evaluator_key","language","code","version",
-    #  "metric_id","params","status"}
-def mark_evaluation(conn, evaluation_id: str, *, status: str, output: dict | None = None,
-                    error: str | None = None, logs: str | None = None,
-                    duration_ms: int | None = None) -> None
+    # {"id","experiment_id","experiment_key","evaluator_id","evaluator_key","language","code",
+    #  "version","params_schema","metric_id","params","scope","status","trigger","created_at"}
+def mark_evaluation(conn, evaluation_id: str, *, status: str, output=None, error=None,
+                    logs=None, duration_ms=None) -> None
+    # 'running' sets started_at; 'done'/'failed' set finished_at = clock_timestamp();
+    # logs <= 64 KB; error a fixed German message
+def ensure_builtin_evaluators(conn) -> None
+def ensure_core_pack(conn) -> None             # installs packs.load_pack('core') if missing
 ```
 
-Experiment keys: allocated atomically with
-`UPDATE exp_domains SET next_seq = next_seq + 1, updated_at = now() WHERE id = %s RETURNING id_prefix, next_seq - 1`.
+`src/experiments/csv_import.py` (Flask-free):
 
-Builtin evaluators are rows too: on first use (`store.ensure_builtin_evaluators(conn)`,
-idempotent, called by the service before listing or running evaluators) one `exp_evaluators`
-row per `evaluators.BUILTINS` key with `language='builtin'` and version 1 (`code` = the key).
+```python
+def parse_csv(content: bytes, *, metrics: dict[str, dict], variants: set[str], max_rows: int) -> dict
+    # -> {"rows": [row dicts as for add_measurements], "ignored_columns": [...]} or
+    # ValidationError listing <= 20 errors "Zeile 5: ...".
+```
+
+UTF-8 (BOM tolerated), delimiter sniffed among `,` `;` tab. Header required, names
+`^[A-Za-z0-9_. -]{1,60}$`. **Long format** (header has `metric`): columns metric, variant,
+value, count, denominator, sum_sq, observed_at, run (run id), `dim.<name>`. **Wide format** (no
+`metric` column): a column named exactly a metric key is that metric's value;
+`<key>.count`, `<key>.denominator`, `<key>.sum_sq` its other fields; plus variant,
+observed_at, run, `dim.<name>`; one row per metric column with a non-empty value. Unknown
+columns are ignored and returned in `ignored_columns`; at most 20 dim columns. Numbers: strip
+`'`, `’`, spaces and NBSP; a single `,` without `.` is a decimal comma; reject nan/inf.
+Dates: ISO 8601 or `TT.MM.JJJJ` (UTC midnight). Cells <= 200 chars. Rows > max_rows ->
+ValidationError("Die Datei hat mehr als <max> Zeilen; bitte aufteilen.").
 
 `src/experiments/service.py`:
 
 ```python
 class ExperimentService:
-    def __init__(self, conn, actor, settings, *, runner=None, knovas_search=None): ...
-        # actor: identity.users.User (has .id, .email, .display_name, .roles)
-        # runner: runner_client.RunnerClient | None
-        # knovas_search: callable(query: str, limit: int) -> dict  (the request-bound
-        #                api_client.search_documents) | None
+    def __init__(self, conn, actor, settings, *, runner=None, knovas_search=None,
+                 request_meta: dict | None = None): ...
+        # actor: identity.users.User; runner: RunnerClient | None;
+        # knovas_search: callable(query, limit) -> {"results": [...]} (request-bound client) | None;
+        # request_meta: {"ip","user_agent","token_id"} passed to audit.record (token_id into detail)
 ```
 
-Every public method first checks `permissions.can_view(actor)` (else `NotFound("Seite nicht
-gefunden.")`, so the module stays invisible) and, where marked [manage], `can_manage` (else
-`Forbidden("Nur für Verantwortliche der Experimente.")`). Every mutation writes
-`identity.audit.record(conn, action='experiment.<verb>' | 'experiments.<noun>.<verb>', actor=actor,
-target_type='experiment' | 'exp_domain' | 'exp_type' | 'exp_metric' | 'exp_evaluator' | 'exp_token',
-target_id=<experiment KEY or id>, detail={...})`, and every mutation of an experiment
-bumps `row_version` and `updated_at` and calls `self._queue_index(experiment_id)`:
-if `settings.index_enabled` then `jobs.JobQueue(conn).enqueue('index', {"experiment_id": id},
-dedupe_key=f"index:{id}", delay_seconds=settings.index_debounce_seconds)` and
-`index_state='pending'`, else `index_state='off'`.
+Every public method first checks `permissions.can_view(actor)` (else `NotFound()`); [manage]
+methods check `can_manage` (else `Forbidden("Nur für Verantwortliche der Experimente.")`).
+Audit: `identity.audit.record(conn, action=..., actor=actor, target_type=..., target_id=...,
+detail=..., ip=..., user_agent=...)` after every mutation; `target_type='experiment'` ->
+target_id the experiment KEY; `exp_domain` -> domain key; `exp_type`/`exp_metric`/
+`exp_evaluator`/`exp_token`/`exp_settings` -> row id or setting key. Detail holds ids, keys,
+counts only — never bodies, values, code or tokens. After experiment content changes:
+`_queue_index(experiment_id, priority=10)` = if `settings.index_enabled`: `JobQueue(conn).enqueue(
+'index', {"experiment_id": id}, dedupe_key=f"index:{id}", delay_seconds=settings.index_debounce_seconds,
+priority=10)` and `index_state='pending'`; else `index_state='off'`. After measurements are
+added (any path): `JobQueue(conn).enqueue('pipeline', {"experiment_id": id},
+dedupe_key=f"pipeline:{id}", delay_seconds=30)`.
 
-Methods and their return values (these ARE the JSON payloads of the web API, section 10):
+Methods (return values are the JSON payloads of §10):
 
 ```python
 # domains
 list_domains(include_archived=False) -> list[dict]
-    # {"id","key","name","description","color","id_prefix","pack","archived",
-    #  "experiment_count","running_count"}
-create_domain(data) -> dict                 # [manage] data: key,name,id_prefix,color?,description?
-update_domain(key, data) -> dict            # [manage] name,color,description,archived(bool)
+    # {"id","key","name","description","color","id_prefix","pack","archived","experiment_count","running_count"}
+create_domain(data) -> dict        # [manage] key, name, id_prefix, color?, description?
+update_domain(key, data) -> dict   # [manage] name?, color?, description?, archived?; a changed name
+                                   # re-queues index for all its experiments (priority 200)
+export_domain(key) -> str          # [manage] YAML pack: domain, its metrics and types, the custom
+                                   # evaluators its types reference, requires_metrics (global keys)
 # types
 list_types(domain=None, include_archived=False) -> list[dict]
-    # {"id","key","name","description","domain_key"|None,"current_version","archived","definition"}
-    # domain=<key>: that domain's types plus global ones
-get_type(type_id) -> dict                   # + "versions": [{"version","created_at","created_by"}]
-create_type(data) -> dict                   # [manage] domain(key|None),key,name,description?,definition|definition_text
-add_type_version(type_id, data) -> dict     # [manage] definition|definition_text, name?, description?
-                                            # identical definition -> no new version
-set_type_archived(type_id, archived: bool) -> dict   # [manage]
+    # {"id","key","name","description","domain_key"|None,"current_version","archived","definition",
+    #  "experiment_count"}; domain=<key> -> that domain's plus global
+get_type(type_id) -> dict          # + "versions": [{"version","created_at","created_by": display name}]
+validate_type(data) -> dict        # [manage] {definition|definition_text, domain} -> normalised
+                                   # definition; checks metric/evaluator resolution and params
+create_type(data) -> dict          # [manage] domain (key|None), key, name, description?,
+                                   # definition|definition_text|copy_from (type id)
+add_type_version(type_id, data) -> dict   # [manage]; identical definition -> no new version;
+                                          # changed name re-queues its experiments' index
+set_type_archived(type_id, archived) -> dict   # [manage]
 # metrics
 list_metrics(domain=None, include_archived=False) -> list[dict]
-    # {"id","key","name","kind","kind_label","unit","direction","description","definition",
-    #  "domain_key"|None,"archived","version","measurement_count"}
-create_metric(data) -> dict                 # [manage]
-update_metric(metric_id, data) -> dict      # [manage] kind change refused if measurements exist
+    # {"id","key","name","kind","kind_label","unit","direction","direction_label","description",
+    #  "definition","domain_key"|None,"archived","version","in_use": bool}
+create_metric(data) -> dict        # [manage] domain (key|None), key, name, kind, unit?, direction?,
+                                   # description?, definition?
+update_metric(metric_id, data) -> dict   # [manage] kind change refused when
+                                         # EXISTS(measurements) ("Die Art lässt sich nicht mehr
+                                         # ändern, es gibt schon Messwerte.")
 # evaluators
 list_evaluators(include_archived=False) -> list[dict]
     # {"id","key","name","language","description","input_kinds","current_version","archived",
-    #  "builtin": bool, "params_schema"}
-get_evaluator(evaluator_id) -> dict         # + "code" (current), "versions"
-create_evaluator(data) -> dict              # [manage] key,name,language(python|julia),description,code,input_kinds,params_schema
+    #  "builtin": bool,"params_schema","needs_rows": bool}
+get_evaluator(evaluator_id) -> dict          # + "code" (current), "versions"
+create_evaluator(data) -> dict               # [manage] key (not "builtin."), name, language
+                                             # python|julia, description, code, input_kinds, params_schema
 add_evaluator_version(evaluator_id, data) -> dict   # [manage]
-test_evaluator(evaluator_id, data) -> dict  # [manage] data: experiment (KEY), metric (key), params,
-                                            # code? (unsaved code to test); runs synchronously
-                                            # through the runner; returns {"ok","output","error","logs","duration_ms"}
+test_evaluator(evaluator_id, data) -> dict   # [manage] experiment (KEY), metric (key), params?,
+    # scope?, code? (unsaved); runner.run with timeout min(settings.runner_timeout_seconds, 60);
+    # audits "experiments.evaluator.test" {experiment, metric, code_sha256, unsaved};
+    # -> {"ok","output","error","logs","duration_ms"}
+sample_size(data) -> dict                    # {kind: proportion|mean, base|sd, mde, alpha?, power?} -> {"per_variant": n}
 # experiments
-list_experiments(*, domain=None, status=None, q=None, include_archived=False,
+list_experiments(*, domain=None, status=None, q=None, tag=None, include_archived=False,
                  after=None, limit=50) -> dict
-    # {"items": [summary], "next_after": str|None, "total": int}
-    # summary: {"key","title","status","status_label","archived","domain": {"key","name","color"},
-    #           "type": {"key","name"}, "owner": {"id","display_name"}|None,
-    #           "primary_metric": {"key","name","unit","kind"}|None,
-    #           "latest": {"headline","verdict","finished_at"}|None,  # newest done evaluation of the primary metric
-    #           "updated_at","index_state"}
-    # order: updated_at DESC, id DESC; after = opaque cursor string; q matches key, title,
-    # hypothesis (ILIKE); limit 1..200
-create_experiment(data) -> dict             # snapshot; data: domain (key), type (id or key),
-                                            # title, hypothesis?, description?, fields?, tags?,
-                                            # variants? (else type defaults), metrics? (else type defaults)
-get_experiment(key) -> dict                 # snapshot + "definition" (pinned type version)
-                                            # + "transitions": [{"to","label","allowed","missing":[...]}]
-                                            # + "evaluators": list_evaluators() filtered to this experiment's metric kinds
-update_experiment(key, data) -> dict        # data: row_version (required), title?, hypothesis?,
-                                            # description?, fields? (partial), tags?, owner_id?, archived?
-                                            # Conflict("Das Experiment wurde inzwischen geändert. Bitte neu laden.")
-transition(key, data) -> dict               # data: to, comment?; snapshot
-set_variants(key, data) -> dict             # data: variants (full list; ids kept by key); a variant
-                                            # with measurements cannot be removed (ValidationError)
-set_metrics(key, data) -> dict              # data: metrics [{metric (key), role, guardrail_op?, guardrail_value?}]
+    # {"items": [summary], "next_after": str|None, "total": int}; summary: {"key","title","status",
+    #  "status_label","archived","tags","domain": {"key","name","color"},"type": {"key","name"},
+    #  "owner": {"id","display_name"}|None,"primary_metric": {"key","name","unit","kind"}|None,
+    #  "latest": {"headline","verdict","finished_at"}|None, "guardrail_violations": int,
+    #  "updated_at","index_state"}; order updated_at DESC, id DESC; q ILIKE on key/title/hypothesis
+    # latest = newest done evaluation of the primary metric with verdict <> 'n/a', else newest done
+create_experiment(data) -> dict   # snapshot; domain (key), type (id or key), title, hypothesis?,
+                                  # description?, fields?, tags?, variants?, metrics? (defaults from type)
+get_experiment(key) -> dict       # snapshot + "definition" + "transitions" [{"to","label","allowed",
+                                  # "missing": [...], "needs_comment": bool, "decides": bool}]
+                                  # + "evaluators" (usable for this experiment's metric kinds)
+update_experiment(key, data) -> dict   # row_version required; title?, hypothesis?, description?,
+                                       # fields? (partial), tags? (<= 20 x 50), owner_id?, archived?
+transition(key, data) -> dict     # to, comment?, row_version?; entering a 'stopped'-phase state needs a
+    # comment (ValidationError fields {"comment": "Bitte einen Grund für den Abbruch angeben."});
+    # a transition into the 'decided' phase is done by decide(), here it is refused with
+    # ValidationError("Bitte die Entscheidung über das Formular festhalten."); a non-empty comment
+    # becomes an exp_notes row kind 'status', body "«<from>» → «<to>»: <comment>"
+set_variants(key, data) -> dict   # variants (full list; kept by key), row_version?; min/max from the
+                                  # type; removing a variant with data -> ValidationError("Die Variante
+                                  # «B» hat Messwerte und kann nicht entfernt werden.")
+set_metrics(key, data) -> dict    # metrics [{metric, role, guardrail_op?, guardrail_value?}], row_version?
 add_measurements(key, data, source='manual') -> dict
-    # data: rows [{metric, variant?, value, count?, denominator?, sum_sq?, observed_at?, dims?, run_id?}]
-    # (metric/variant by key) <= settings.max_rows_per_request rows, all-or-nothing;
-    # returns {"batch_id","inserted"}; after insert enqueues a 'pipeline' job
-    # (dedupe "pipeline:<id>", delay 30 s)
-import_csv(key, content: bytes, filename: str) -> dict
-    # UTF-8 (BOM tolerated), delimiter auto (',' ';' tab). Header row required; columns:
-    # metric, variant, value, count, denominator, sum_sq, observed_at, run, plus any other
-    # column becomes a dim. Numbers accept decimal comma. Returns {"batch_id","inserted"} or
-    # ValidationError listing up to 20 line errors ("Zeile 5: ...").
-list_batches(key) -> list[dict]             # {"batch_id","source","rows","metrics":[keys],"created_at","created_by"}
-delete_batch(key, batch_id) -> dict         # {"deleted": n}
+    # rows [{metric, variant?, value, count?, denominator?, sum_sq?, observed_at?, dims?, run_id?}]
+    # <= settings.max_rows_per_request, all-or-nothing; -> {"batch_id","inserted"}
+import_csv(key, content: bytes, filename: str) -> dict   # -> {"batch_id","inserted","ignored_columns"}
+list_batches(key, after=None, limit=50) -> dict   # {"items": [{"batch_id","source","source_label","rows",
+                                                  #  "metric_keys","filename","created_at","created_by"}], "next_after"}
+delete_batch(key, batch_id) -> dict               # {"deleted": rows}
 add_run(key, data, source='manual') -> dict
-    # data: name?, variant?, status?, params?, environment?, commit?, started_at?, ended_at?,
-    # metrics? {metric_key: number | {value,count,denominator,sum_sq}}, note?
-    # -> run dict {"id","name","variant","status","params","environment","commit","source",
-    #              "started_at","ended_at","created_at","metrics": {key: estimate}}
-list_runs(key, after=None, limit=50) -> dict   # {"items":[run], "next_after"}
-add_note(key, data) -> dict                 # data: body, kind?, variant?, run_id?
-delete_note(key, note_id) -> dict           # {"deleted": 1}; author or manager
-run_evaluation(key, data) -> dict           # data: evaluator (key), metric (key), params?
-    # builtin: computed now, status 'done'; custom: status 'queued' + 'evaluate' job
-    # (Unavailable("Die Rechenumgebung ist nicht eingerichtet.") if no runner configured)
-run_pipeline(key) -> list[dict]             # runs the type's evaluation list; builtins now, custom queued
-get_evaluation(key, evaluation_id) -> dict
-decide(key, data) -> dict                   # data: verdict, rationale?, learning?; snapshot
-delete_experiment(key) -> dict              # [manage] {"deleted": KEY}; enqueues 'unindex'
-                                            # with {"pointer": ...} BEFORE deleting
-reindex(key) -> dict                        # enqueue now; {"queued": true}
-activity(key, limit=50) -> list[dict]       # audit_log entries: {"at","action","label","actor","detail"}
-# machine tokens (every viewer manages their own)
-list_tokens() -> list[dict]                 # {"id","name","hint","created_at","last_used_at","expires_at","revoked"}
-create_token(data) -> dict                  # data: name, expires_days? -> same + "token" (plaintext, once)
-                                            # token format: "kxp_" + secrets.token_urlsafe(32)
-revoke_token(token_id) -> dict
-# operations [manage]
-index_status() -> dict                      # {"enabled","counts":{state: n},"jobs":{status: n},
-                                            #  "failures":[{"kind","error","at","payload"}],"runner":{...}}
-reindex_all() -> dict                       # {"queued": n}
-get_settings() -> dict                      # {"show_in_search": bool}   (any viewer may read)
-update_settings(data) -> dict               # [manage]
-list_packs() -> list[dict]                  # packs.available_packs() + "installed": bool
-install_pack(name) -> dict                  # [manage] idempotent; {"domain","types","metrics","evaluators"} counts
-import_pack(data) -> dict                   # [manage] data: text (YAML/JSON)
-export_domain(key) -> str                   # [manage] YAML text of a pack
-search(q, limit=30) -> dict                 # Knovas search restricted to experiments; falls back
-    # to the database: {"source": "knovas"|"database", "items": [summary + "snippet"]}
+    # name?, variant?, status (finished|failed|cancelled, default finished), params? (<= 16 KB),
+    # environment? (<= 16 KB), commit?, started_at?, ended_at?, metrics? {key: number (mean-like
+    # kinds only) | {value,count,denominator,sum_sq}}, rows? [measurement rows without run_id;
+    # variant defaults to the run's], note?; one transaction, one batch; queues pipeline
+    # -> run {"id","name","variant","status","status_label","params","environment","commit","source",
+    #         "started_at","ended_at","created_at","metrics": {key: estimate}}
+list_runs(key, after=None, limit=50) -> dict      # {"items": [run], "next_after"}
+add_note(key, data) -> dict                       # body (1..50000), kind?, variant?, run_id?
+delete_note(key, note_id) -> dict                 # author or manager
+run_evaluation(key, data, trigger='manual') -> dict   # evaluator (key), metric (key), params?, scope?
+    # params validated against the evaluator's params schema; builtin -> computed now (done);
+    # custom -> runner None: Unavailable("Die Rechenumgebung ist nicht eingerichtet."),
+    # runner.health() not ok: Unavailable("Die Rechenumgebung ist nicht erreichbar."), else
+    # status queued + 'evaluate' job (dedupe f"evaluate:{evaluation_id}")
+run_pipeline(key, data=None, trigger='manual') -> list[dict]   # the type's evaluation list (optional
+    # scope override): describe first; builtins now; custom queued (skipped with a warning
+    # entry when the runner is missing); unchanged input (same input_digest, same evaluator
+    # version, params, scope) -> the existing evaluation is returned instead of a new one
+get_evaluation(key, evaluation_id) -> dict        # includes logs
+decide(key, data) -> dict        # verdict, rationale?, learning? (required if the type says so),
+    # row_version?; allowed only when the current state has a transition to the 'decided'-phase
+    # state (else ValidationError("Eine Entscheidung ist in diesem Status nicht vorgesehen.")),
+    # checks that transition's roles/requires with the new decision counted, inserts the
+    # decision and performs the transition in one transaction; types without a decided phase
+    # only record. -> snapshot
+delete_experiment(key) -> dict   # [manage] one transaction: enqueue 'unindex' {"pointer",
+    # "experiment_id"} (delay 330 s, priority 10) when index_state <> 'off' or indexed_at is set,
+    # DELETE pending 'index:<id>'/'pipeline:<id>' jobs, DELETE the experiment -> {"deleted": KEY}
+reindex(key) -> dict             # enqueue with priority 10 and no delay (ON CONFLICT pulls an existing
+                                 # pending job forward) -> {"queued": true}
+activity(key, limit=50) -> list[dict]   # audit_log target experiment KEY: {"at","action","label" (German),
+                                        # "actor" (display name, "Gelöschtes Konto" if gone), "detail"}
+get_timeseries(key, metric_key, bucket='week', scope=None) -> list[dict]
+search(q, limit=30) -> dict
+    # Knovas (knovas_search(q, min(200, limit*5)), keep hits whose pointer
+    # search.parse_pointer(settings.pointer_prefix, ...) accepts) merged by KEY with a database
+    # search (ILIKE on key, title, hypothesis, description, decisions' learning/rationale, notes'
+    # body) -> {"source": "knovas"|"database"|"knovas+database", "warning": str|None,
+    # "items": [summary + "snippet"]}. Database only when knovas_search is None, raises,
+    # indexing is off, or the actor lacks a configured access group (warning "Ihnen fehlt die
+    # Knovas-Zugriffsgruppe für Experimente; gezeigt werden Datenbanktreffer.")
+# tokens (own tokens only)
+list_tokens() -> list[dict]      # {"id","name","hint","created_at","last_used_at","expires_at","revoked"}
+create_token(data) -> dict       # name, expires_days (default 90, 1..365) -> + "token" ("kxp_" +
+                                 # secrets.token_urlsafe(32), shown once); hint "kxp_…" + last 4
+revoke_token(token_id) -> dict   # WHERE id AND user_id = actor, else NotFound
+# preferences and operations
+get_preferences() -> dict        # {"show_in_search": bool}  (the actor's own)
+update_preferences(data) -> dict # {"show_in_search": bool}
+get_settings() -> dict           # {"show_in_search": bool}  (global)
+update_settings(data) -> dict    # [manage] exactly {"show_in_search": bool}, else ValidationError
+index_status() -> dict           # [manage] {"enabled","unrestricted","access_groups","counts": {state: n},
+    # "jobs": {status: n}, "failures": [{"kind","error","at"}], "access_warnings":
+    # [{"user","missing_groups"}], "runner": runner.health() or {"configured": false}}
+reindex_all() -> dict            # [manage] priority 200 -> {"queued": n}
+list_packs() -> list[dict]       # available_packs() + "installed"
+install_pack(name) -> dict       # [manage] idempotent -> {"domain","types","metrics","evaluators"} counts
+import_pack(data) -> dict        # [manage] {"text"}; refuses "builtin." evaluator keys
 ```
 
-Module-level functions used by the worker (part D calls them from `tasks.py`):
+Module-level functions for the worker (part D calls them):
 
 ```python
 def execute_evaluation(conn, evaluation_id: str, *, settings, runner) -> None
-    # status running -> done/failed; builds the input with store.aggregates and
-    # store.evaluator_rows (<= settings.evaluator_max_rows); custom via runner.run(...);
-    # output through evaluators.sanitize_output; enqueues index. Runner unavailable:
-    # raises jobs.RetryLater(60, ...) so the job waits without failing.
+    # missing evaluation -> return. runner None -> mark failed "Die Rechenumgebung ist nicht
+    # eingerichtet.". Builds the input (store.aggregates / store.evaluator_rows with the scope,
+    # <= settings.evaluator_max_rows) in one short transaction, then calls the runner outside any
+    # transaction, then writes in a new one. runner raises Unavailable: if the evaluation is older
+    # than 30 min mark failed "Die Rechenumgebung war 30 Minuten nicht erreichbar.", else raise
+    # jobs.RetryLater(60). Output through sanitize_output; queues index.
 def run_pipeline_job(conn, experiment_id: str, *, settings, runner) -> None
-    # the type's evaluation list without an actor (system); builtins in-process, custom queued
+    # run_pipeline without actor (trigger 'pipeline', audit actor None); missing experiment -> return;
+    # keeps the newest 10 done pipeline evaluations per (evaluator, metric, params, scope), deletes older
+def on_evaluation_dead(conn, evaluation_id: str) -> None   # mark failed "Die Auswertung konnte nicht ausgeführt werden."
 ```
 
-## 9. Experiment snapshot (store.load_snapshot and service.get_experiment)
+## 9. Experiment snapshot
 
 ```json
 {
   "id": "uuid", "key": "MKT-1", "title": "...", "hypothesis": "...", "description": "...",
-  "status": "running", "status_label": "Läuft", "archived": false,
+  "status": "running", "status_label": "Läuft", "status_phase": "running", "archived": false,
   "domain": {"id": "...", "key": "marketing", "name": "Marketing", "color": "#eb6834", "id_prefix": "MKT"},
   "type": {"id": "...", "key": "ab_test", "name": "A/B-Test", "version": 1},
   "fields": [{"key": "channel", "label": "Kanal", "type": "enum", "value": "LinkedIn", "display": "LinkedIn"}],
   "field_values": {"channel": "LinkedIn"},
   "tags": [],
   "owner": {"id": "...", "display_name": "..."},
-  "variants": [{"id","key","name","description","is_control","allocation","position"}],
-  "metrics": [{"id","key","name","kind","kind_label","unit","direction","role",
-               "guardrail_op","guardrail_value","definition",
-               "aggregates": [ /* section 3, one per variant */ ]}],
-  "evaluations": [{"id","evaluator_key","evaluator_name","language","evaluator_version",
-                   "metric_key","params","status","output","error","logs",
-                   "created_at","finished_at","duration_ms","requested_by": {"display_name"}|null}],
-                   // newest first, at most 100
+  "variants": [{"id","key","name","description","is_control","allocation","position","has_data"}],
+  "metrics": [{"id","key","name","kind","kind_label","unit","direction","direction_label","role",
+               "role_label","guardrail_op","guardrail_value","definition","guardrail_status",
+               "aggregates": [...]}],        // guardrail_status "ok" | "violated" | null
+  "evaluations": [{"id","evaluator_key","evaluator_name","language","evaluator_version","metric_key",
+                   "params","scope","trigger","status","status_label","verdict","headline",
+                   "output","error","created_at","finished_at","duration_ms",
+                   "requested_by": {"display_name"}|null}],
+      // newest first, <= 60; "output" only for the newest 20 (else null); never "logs"
   "decisions": [{"id","verdict","verdict_label","rationale","learning",
-                 "decided_by": {"id","display_name"}|null,"decided_at"}],   // newest first
+                 "decided_by": {"id","display_name"}|null,"decided_at"}],     // newest first
   "notes": [{"id","kind","kind_label","body","variant","run_id",
-             "created_by": {"id","display_name"}|null,"created_at"}],        // newest first, <= 200
+             "created_by": {"id","display_name"}|null,"created_at","can_delete"}],   // newest first, <= 200
   "runs": [/* run dicts, newest first, <= 100 */],
   "run_count": 0, "measurement_count": 0, "batch_count": 0,
   "created_at","updated_at","started_at","ended_at","decided_at",
   "row_version": 3,
-  "index": {"state": "pending", "indexed_at": null, "error": null}
+  "index": {"state": "pending", "state_label": "ausstehend", "indexed_at": null, "error": null}
 }
 ```
 
-German labels: verdicts ship "Übernehmen", iterate "Weiterentwickeln", stop "Verwerfen",
-inconclusive "Ohne klares Ergebnis"; note kinds note "Notiz", observation "Beobachtung",
-interview "Interview", feedback "Rückmeldung"; evaluation verdicts better "besser",
-worse "schlechter", inconclusive "offen", n/a "–".
-
 ## 10. HTTP API (part E routes, part F consumes)
 
-All JSON. Success: `{"success": true, <key>: <value>}` with the key named below. Failure:
-`{"success": false, "error": "<German>", "fields": {...}?}` with the error's `status`
-(400/403/404/409/503); unexpected exceptions: 500 with `"Interner Serverfehler"` (log with
-exc_info). Session routes need the signed-in user (global gate), the X-CSRF-Token header on
-non-GET (global gate), and a viewing role (else 404 page / 404 JSON "Nicht gefunden.").
+JSON. Success `{"success": true, <key>: <value>}`; failure `{"success": false, "error":
+"<German>", "fields": {...}?}` with the error's status (400/403/404/409/413/503); unexpected
+exceptions 500 `"Interner Serverfehler"` (logged with exc_info). Session routes: signed-in user
+(global gate), X-CSRF-Token on non-GET (global gate), viewing role (else 404 page / JSON
+"Nicht gefunden."). Route parameters are never named `doc_id`; bodies never use the key
+`access_groups`. `app.config['MAX_CONTENT_LENGTH'] = 32 MB`; the CSV route also refuses
+`request.content_length > 20 MB` with 413 "Die Datei ist grösser als 20 MB.".
 
-Pages (blueprint `experiments`, endpoint names in brackets):
+Pages (blueprint `experiments`): `GET /experiments` (`experiments.list_page`,
+`experiments_list.html`), `GET /experiments/verwaltung` (`experiments.manage_page`,
+`experiments_manage.html`, any viewer; manager tabs hidden and refused server-side),
+`GET /experiments/<key>` (`experiments.detail_page`, `experiments_detail.html`; 404 unless
+`^[A-Z][A-Z0-9]{1,7}-[0-9]{1,9}$` and the experiment exists). Context: `active_nav='experiments'`,
+`**page_context()`, `app_title`, `brand`, `csrf_token`, `asset_version`, `experiments_can_manage`,
+`experiment_key` (detail; templates emit it with `|tojson`), `pointer_prefix`.
 
-| Path | Endpoint | Template |
+| Method, path (prefix `/api/experiments`) | Service call | Response key |
 |---|---|---|
-| `GET /experiments` | `experiments.list_page` | `experiments_list.html` |
-| `GET /experiments/<key>` | `experiments.detail_page` | `experiments_detail.html` |
-| `GET /experiments/verwaltung` | `experiments.manage_page` | `experiments_manage.html` (any viewer; manager-only tabs hidden and refused server-side) |
+| GET `?domain=&status=&q=&tag=&archived=0&after=&limit=` | list_experiments | `result` |
+| POST `` | create_experiment | `experiment` (201) |
+| GET `/meta` | (see below) | `meta` |
+| GET `/search?q=&limit=` | search | `result` |
+| GET `/sample-size?kind=&base=&sd=&mde=&alpha=&power=` | sample_size | `result` |
+| GET/PUT `/preferences` | get_preferences / update_preferences | `preferences` |
+| GET/PUT `/settings` | get_settings / update_settings | `settings` |
+| GET `/<key>` | get_experiment | `experiment` |
+| PATCH `/<key>` | update_experiment | `experiment` |
+| DELETE `/<key>` | delete_experiment | `result` |
+| POST `/<key>/transition` | transition | `experiment` |
+| PUT `/<key>/variants` | set_variants | `experiment` |
+| PUT `/<key>/metrics` | set_metrics | `experiment` |
+| POST `/<key>/measurements` | add_measurements | `result` (201) |
+| POST `/<key>/measurements/csv` (multipart `file`) | import_csv | `result` (201) |
+| GET `/<key>/batches?after=` | list_batches | `result` |
+| DELETE `/<key>/batches/<batch_id>` | delete_batch | `result` |
+| GET `/<key>/runs?after=` | list_runs | `result` |
+| POST `/<key>/runs` | add_run | `run` (201) |
+| POST `/<key>/notes` | add_note | `note` (201) |
+| DELETE `/<key>/notes/<note_id>` | delete_note | `result` |
+| POST `/<key>/evaluations` | run_evaluation | `evaluation` (201) |
+| POST `/<key>/pipeline` | run_pipeline | `evaluations` |
+| GET `/<key>/evaluations/<evaluation_id>` | get_evaluation | `evaluation` |
+| GET `/<key>/metrics/<metric_key>/timeseries?bucket=week` | get_timeseries | `series` |
+| POST `/<key>/decisions` | decide | `experiment` (201) |
+| POST `/<key>/reindex` | reindex | `result` |
+| GET `/<key>/activity` | activity | `activity` |
+| GET/POST `/domains` | list_domains / create_domain | `domains` / `domain` |
+| PATCH `/domains/<domain_key>` | update_domain | `domain` |
+| GET `/domains/<domain_key>/export` | export_domain | `text` |
+| GET/POST `/types?domain=&archived=` | list_types / create_type | `types` / `type` |
+| POST `/types/validate` | validate_type | `definition` |
+| GET `/types/<type_id>` | get_type | `type` |
+| POST `/types/<type_id>/versions` | add_type_version | `type` |
+| POST `/types/<type_id>/archive` (`{"archived": bool}`) | set_type_archived | `type` |
+| GET/POST `/metrics?domain=&archived=` | list_metrics / create_metric | `metrics` / `metric` |
+| PATCH `/metrics/<metric_id>` | update_metric | `metric` |
+| GET/POST `/evaluators` | list_evaluators / create_evaluator | `evaluators` / `evaluator` |
+| GET `/evaluators/<evaluator_id>` | get_evaluator | `evaluator` |
+| POST `/evaluators/<evaluator_id>/versions` | add_evaluator_version | `evaluator` |
+| POST `/evaluators/<evaluator_id>/test` | test_evaluator | `result` |
+| GET/POST `/tokens` | list_tokens / create_token | `tokens` / `token` |
+| DELETE `/tokens/<token_id>` | revoke_token | `token` |
+| GET `/index` | index_status | `index` |
+| POST `/index/reindex` | reindex_all | `result` |
+| GET `/packs` | list_packs | `packs` |
+| POST `/packs/<name>/install` | install_pack | `result` |
+| POST `/packs/import` (`{"text"}`) | import_pack | `result` |
 
-The key pattern is `^[A-Z][A-Z0-9]{1,7}-[0-9]{1,9}$`; route converter `string`; `verwaltung` is
-matched first. Page context: `active_nav='experiments'`, `**page_context()` (sidebar values),
-`app_title`, `brand`, `csrf_token`, `asset_version`, plus `experiments_can_manage` (bool),
-`experiment_key` (detail), `pointer_prefix`. Pages carry `<meta name="csrf-token">` and load
-`experiments_common.js` + the page script with `?v={{ asset_version }}`.
+Static paths (`meta`, `search`, `domains`, `types`, `metrics`, `evaluators`, `tokens`, `index`,
+`packs`, `settings`, `preferences`, `sample-size`) are registered before `/<key>`; `<key>`
+routes 404 for anything not matching the key pattern.
 
-JSON API (blueprint `experiments`, prefix `/api/experiments`):
-
-| Method, path | Service call | Response key |
-|---|---|---|
-| GET `/api/experiments?domain=&status=&q=&archived=0&after=&limit=` | list_experiments | `result` |
-| POST `/api/experiments` | create_experiment | `experiment` (201) |
-| GET `/api/experiments/search?q=` | search | `result` |
-| GET `/api/experiments/<key>` | get_experiment | `experiment` |
-| PATCH `/api/experiments/<key>` | update_experiment | `experiment` |
-| DELETE `/api/experiments/<key>` | delete_experiment | `result` |
-| POST `/api/experiments/<key>/transition` | transition | `experiment` |
-| PUT `/api/experiments/<key>/variants` | set_variants | `experiment` |
-| PUT `/api/experiments/<key>/metrics` | set_metrics | `experiment` |
-| POST `/api/experiments/<key>/measurements` | add_measurements | `result` (201) |
-| POST `/api/experiments/<key>/measurements/csv` (multipart field `file`, <= 20 MB) | import_csv | `result` (201) |
-| GET `/api/experiments/<key>/batches` | list_batches | `batches` |
-| DELETE `/api/experiments/<key>/batches/<batch_id>` | delete_batch | `result` |
-| GET `/api/experiments/<key>/runs?after=` | list_runs | `result` |
-| POST `/api/experiments/<key>/runs` | add_run | `run` (201) |
-| POST `/api/experiments/<key>/notes` | add_note | `note` (201) |
-| DELETE `/api/experiments/<key>/notes/<note_id>` | delete_note | `result` |
-| POST `/api/experiments/<key>/evaluations` | run_evaluation | `evaluation` (201) |
-| POST `/api/experiments/<key>/pipeline` | run_pipeline | `evaluations` |
-| GET `/api/experiments/<key>/evaluations/<evaluation_id>` | get_evaluation | `evaluation` |
-| POST `/api/experiments/<key>/decisions` | decide | `experiment` (201) |
-| POST `/api/experiments/<key>/reindex` | reindex | `result` |
-| GET `/api/experiments/<key>/activity` | activity | `activity` |
-| GET/POST `/api/experiments/domains` | list_domains/create_domain | `domains`/`domain` |
-| PATCH `/api/experiments/domains/<domain_key>` | update_domain | `domain` |
-| GET `/api/experiments/domains/<domain_key>/export` | export_domain | `text` |
-| GET/POST `/api/experiments/types?domain=&archived=` | list_types/create_type | `types`/`type` |
-| GET `/api/experiments/types/<type_id>` | get_type | `type` |
-| POST `/api/experiments/types/<type_id>/versions` | add_type_version | `type` |
-| POST `/api/experiments/types/<type_id>/archive` (body `{"archived": bool}`) | set_type_archived | `type` |
-| GET/POST `/api/experiments/metrics?domain=` | list_metrics/create_metric | `metrics`/`metric` |
-| PATCH `/api/experiments/metrics/<metric_id>` | update_metric | `metric` |
-| GET/POST `/api/experiments/evaluators` | list_evaluators/create_evaluator | `evaluators`/`evaluator` |
-| GET `/api/experiments/evaluators/<evaluator_id>` | get_evaluator | `evaluator` |
-| POST `/api/experiments/evaluators/<evaluator_id>/versions` | add_evaluator_version | `evaluator` |
-| POST `/api/experiments/evaluators/<evaluator_id>/test` | test_evaluator | `result` |
-| GET/POST `/api/experiments/tokens` | list_tokens/create_token | `tokens`/`token` |
-| DELETE `/api/experiments/tokens/<token_id>` | revoke_token | `token` |
-| GET `/api/experiments/index` | index_status | `index` |
-| POST `/api/experiments/index/reindex` | reindex_all | `result` |
-| GET/PUT `/api/experiments/settings` | get_settings/update_settings | `settings` |
-| GET `/api/experiments/packs` | list_packs | `packs` |
-| POST `/api/experiments/packs/<name>/install` | install_pack | `result` |
-| POST `/api/experiments/packs/import` (body `{"text": "..."}`) | import_pack | `result` |
-| GET `/api/experiments/meta` | kinds, field types, verdict labels, runner status, can_manage | `meta` |
-
-`meta` = `{"kinds": [{"key","label","description","needs_denominator","is_distribution","value_label","count_label"}],
-"field_types": [...], "verdicts": {"ship": "Übernehmen", ...}, "note_kinds": {...},
-"can_manage": bool, "runner": {"configured": bool, "ok": bool, "languages": {...}},
-"index_enabled": bool, "pointer_prefix": "experiments"}` (runner health cached 30 s per worker).
-
-Request bodies never use the key `access_groups` (the app rejects such bodies globally).
-Route parameters are never named `doc_id` (that name triggers the document wall).
+`meta` = `{"me": {"id","display_name"}, "can_manage": bool, "kinds": [KindSpec as dict],
+"field_types": [...], "decision_verdicts": {...}, "evaluation_verdicts": {...},
+"note_kinds": {...}, "directions": {...}, "metric_roles": {...}, "run_statuses": {...},
+"evaluation_statuses": {...}, "index_states": {...}, "runner": {"configured": bool, "ok": bool,
+"languages": {...}}, "index_enabled": bool, "pointer_prefix": str, "max_csv_rows": int,
+"max_rows_per_request": int}` (runner health cached 30 s per process).
 
 Machine API (blueprint `experiments_api`, prefix `/api/experiments/v1`, bearer tokens only):
 
 | Method, path | Service call | Response key |
 |---|---|---|
-| GET `/api/experiments/v1/ping` | - | `user` (`{"display_name","roles"}`) |
-| GET `/api/experiments/v1/experiments/<key>` | get_experiment (trimmed: key,title,status,domain,type,variants,metrics without aggregates) | `experiment` |
-| POST `/api/experiments/v1/experiments/<key>/runs` | add_run(source='api') | `run` (201) |
-| POST `/api/experiments/v1/experiments/<key>/measurements` | add_measurements(source='api') | `result` (201) |
-| POST `/api/experiments/v1/experiments/<key>/notes` | add_note | `note` (201) |
+| GET `/ping` | - | `user` (`{"display_name","roles"}`) |
+| POST `/experiments` | create_experiment | `experiment` (201; trimmed) |
+| GET `/experiments/<key>` | get_experiment trimmed to key, title, status, domain, type, variants, metrics (no aggregates), row_version | `experiment` |
+| POST `/experiments/<key>/runs` | add_run(source='api') | `run` (201) |
+| POST `/experiments/<key>/measurements` | add_measurements(source='api') | `result` (201) |
+| POST `/experiments/<key>/notes` | add_note | `note` (201) |
+| POST `/experiments/<key>/pipeline` | run_pipeline(trigger='api') | `evaluations` |
+| GET `/experiments/<key>/evaluations?metric=&limit=20` | snapshot evaluations (no logs), filtered | `evaluations` |
 
-Bearer rules: header `Authorization: Bearer kxp_...`; the token resolves to an active user with a
-viewing role at request time (else 401 `{"success": false, "error": "Ungültiger oder
-abgelaufener Zugangsschlüssel."}`); the session cookie is never consulted; these endpoints are
-exempt from the login gate (via `IdentityGate.bearer_endpoints`) and from the CSRF header gate
-(prefix `experiments_api.`) precisely because they accept nothing but a bearer token.
+Bearer rules (part E): header `Authorization: Bearer kxp_...` only (the session cookie is never
+read); `store.resolve_api_token` -> `UserRepository(conn).get(user_id)`; admitted only if
+`user.is_active and not user.is_locked and not user.must_change_password and can_view(user)`;
+otherwise 401 `{"success": false, "error": "Ungültiger oder abgelaufener Zugangsschlüssel."}`.
+The service gets `request_meta={"ip","user_agent","token_id"}`. These endpoints are exempt from
+the login gate (`IdentityGate.bearer_endpoints`) and from the CSRF header gate (endpoint prefix
+`experiments_api.`) because they accept nothing but a bearer token.
 
 ## 11. Knovas documents (part D)
 
-- Pointer: `f"{settings.pointer_prefix}/{domain_key}/{KEY}"`, e.g. `experiments/marketing/MKT-1`.
-  `search.parse_pointer(pointer)` returns the KEY for such a pointer (also when it starts with
-  `/`), else None.
+- Pointer: `f"{prefix}/{domain_key}/{KEY}"`. `search.parse_pointer(prefix, pointer)` -> KEY or
+  None (tolerates a leading `/`; the KEY must match the key pattern).
 - `title`: `f"{KEY} · {title}"` (<= 500). `description`: hypothesis (<= 2000). `path`:
-  `f"/Experimente/{domain name}/{type name}/{KEY} {title}"` (<= 2000; the path gets a BM25 boost).
-- Body: Markdown rendered by `indexer.render_markdown(snapshot)`:
+  `"/Experimente/" + "/".join(seg(domain name), seg(type name), seg(f"{KEY} {title}"))` where
+  `seg` replaces `/` and `\` with `-` and collapses whitespace (<= 2000).
+- Body `indexer.render_markdown(snapshot)`:
 
 ```
 # MKT-1 · <title>
 
-Experiment im Bereich <domain> · Typ <type> · Status <status_label> · aktualisiert <date>
+Experiment im Bereich <domain> · Typ <type> · Status <status_label> · aktualisiert <TT.MM.JJJJ>
+[· Schlagwörter: a, b]
 
 ## Hypothese
-<hypothesis>
-
 ## Beschreibung
-<description>
-
-## Angaben
-- <label>: <display>
-
-## Varianten
-- <key> (Kontrolle): <name> – <description>
-
-## Metriken
-- <name> (<kind_label>, <direction German>, Rolle <primär|sekundär|Leitplanke ≤/≥ value>):
-  <variant>: <formatted estimate> (n = <n>); ...
-
-## Auswertungen
-### <evaluator_name> – <metric name> – <date>
-<headline>
-<summary>
-
-## Läufe
-- <run name> (<variant>, <date>): <metric>: <value>; ...   (at most 50)
-
-## Notizen
-### <kind_label> – <date>
-<body>
-
-## Entscheidungen
-### <verdict_label> – <date>
-Begründung: <rationale>
-Erkenntnis: <learning>
+## Angaben            - <label>: <display>
+## Varianten          - <key> (Kontrolle): <name> – <description>
+## Metriken           - <name> (<kind_label>, <direction_label>, <role_label>[ <= / >= value]):
+                        <variant>: <format_value(estimate)> (n = <n>); ...  [Leitplanke verletzt]
+## Auswertungen       ### <evaluator_name> – <metric name> – <TT.MM.JJJJ>
+                      <headline> (<verdict label>) \n <summary>
+                      (only the newest done evaluation per evaluator, metric, scope)
+## Läufe              - <name> (<variant>, <TT.MM.JJJJ>): <metric>: <value>; ...  (<= 50)
+## Notizen            ### <kind_label> – <TT.MM.JJJJ> \n <body>
+## Entscheidungen     ### <verdict_label> – <TT.MM.JJJJ> \n Begründung: … \n Erkenntnis: …
 ```
 
-  Empty sections are omitted. No personal names or e-mail addresses go into the document.
-  Parts: split at `## ` boundaries into chunks <= 40000 characters (a single section longer
-  than that is split at paragraph boundaries); total document capped at 400000 characters
-  (runs and notes truncated first, with a line saying so).
-- Upload: `KnovasAPIClient.upload_text_document(identifier, *, title, description, path, parts,
-  access_groups=None) -> dict` (new method, part D): init via `_request_no_retry('POST',
-  endpoints['init_transmission'], data={identifier, part_count, title, description, path,
-  [access_groups]})` then each part via `_secured_transmit_part_payload`. `access_groups` is
-  sent only when the tuple is non-empty. Same identifier replaces the previous version.
-- Delete: `client.delete_information_object(pointer)`; HTTP 404 counts as done.
-- Error classes: connection errors, timeouts, HTTP 408/409/425/429/5xx -> retry with backoff;
-  other 4xx -> dead job and `index_state='error'` with a German message
-  ("Knovas hat das Dokument abgelehnt (HTTP 400).").
-- Before every init: `jobs.take_rate_slot(conn, 'knovas_init', settings.index_per_minute)`;
-  when it returns a wait > 0 the handler raises `RetryLater(wait)`.
+  Empty sections omitted. No personal names or e-mail addresses. Parts: split at `## `
+  boundaries into chunks <= 40000 chars (long sections at paragraph, then hard, boundaries).
+  Total cap 400000: drop older evaluations first, then runs, then notes (oldest first), then
+  hard cut with the line "Gekürzt."
+- Upload (`indexer.index_experiment`): snapshot missing -> return (done). Indexing disabled
+  -> `index_state 'off'`, return. No access groups and not unrestricted -> `index_state
+  'error'` "Für Experimente ist keine Knovas-Zugriffsgruppe festgelegt
+  (EXPERIMENTS_ACCESS_GROUPS).", return (job done). Rate slot (§12) else `RetryLater`. Read the
+  snapshot and remember its `updated_at` (short transaction), upload outside any transaction via
+  `client.upload_text_document(identifier, title=, description=, path=, parts=[{"snippet": ...}],
+  access_groups=<tuple or None>)`, then: `store.record_index_document(pointer, id)`; if the
+  experiment no longer exists, `client.delete_information_object(pointer)` and
+  `forget_index_document`; else `set_index_state('indexed', if_updated_at=<remembered>)`.
+- `KnovasAPIClient.upload_text_document(identifier, *, title, description, path, parts,
+  access_groups=None) -> dict` (new, part D): `_request_no_retry` init with identifier,
+  part_count, title, description, path (normalised with `_normalize_semantix_path_for_init`),
+  `access_groups` only when non-empty; then each part via `_secured_transmit_part_payload`.
+  `experiments.indexer.make_index_client(config)` returns `KnovasAPIClient(config)` (no broker).
+- Unindex (`indexer.unindex_pointer(conn, client, pointer)`): client None -> `RetryLater(3600)`;
+  404 = done; then `forget_index_document`.
+- Error mapping (handlers; exception text only to the log): connection error/timeout, HTTP
+  5xx other than 503 -> retry with backoff and message "Knovas nicht erreichbar."; HTTP 429/503
+  -> `RetryLater(Retry-After or 60)`; HTTP 408/409/425 -> retry; other 4xx -> dead,
+  `index_state 'error'` "Knovas hat das Dokument abgelehnt (HTTP <code>)."
 
 ## 12. Part D module APIs
 
 `src/experiments/jobs.py`:
 
 ```python
-class RetryLater(Exception):          # wait without consuming an attempt
+class RetryLater(Exception):
     def __init__(self, delay_seconds: float, reason: str = ""): ...
-class PermanentError(Exception): ...  # dead immediately
+class PermanentError(Exception): ...
 @dataclass
-class Job: id: int; kind: str; payload: dict; attempts: int; max_attempts: int
+class Job: id: int; kind: str; payload: dict; attempts: int; max_attempts: int; locked_by: str; created_at: datetime
 class JobQueue:
     def __init__(self, conn): ...
-    def enqueue(self, kind, payload, *, dedupe_key=None, delay_seconds=0, max_attempts=8) -> int | None
-        # INSERT ... ON CONFLICT (dedupe_key) WHERE status = 'pending' DO NOTHING; None when coalesced
-    def claim(self, worker_id: str, lease_seconds: int = 300) -> Job | None
-        # pending & due, or running with an expired lease; FOR UPDATE SKIP LOCKED; attempts += 1
-    def complete(self, job_id) -> None
-    def retry(self, job, error: str) -> None     # backoff min(3600, 30 * 2**(attempts-1)) s; dead at max_attempts
-    def defer(self, job, delay_seconds, reason="") -> None   # attempts -= 1, run_after = now + delay
-    def fail(self, job, error: str) -> None      # dead
-    def counts(self) -> dict                     # {status: n}
-    def recent_failures(self, limit=20) -> list[dict]
+    def enqueue(self, kind, payload, *, dedupe_key=None, delay_seconds=0, priority=100,
+                max_attempts=8) -> int | None
+        # INSERT ... ON CONFLICT (dedupe_key) WHERE status = 'pending' DO UPDATE SET
+        #   run_after = LEAST(exp_jobs.run_after, EXCLUDED.run_after),
+        #   priority = LEAST(exp_jobs.priority, EXCLUDED.priority) RETURNING id
+    def claim(self, worker_id: str, *, kinds: tuple[str, ...], lease_seconds: int) -> Job | None
+        # UPDATE ... SET status='running', attempts=attempts+1, locked_by, locked_until=
+        # clock_timestamp()+lease WHERE id = (SELECT id FROM exp_jobs WHERE kind = ANY(kinds) AND
+        # ((status='pending' AND run_after <= clock_timestamp()) OR (status='running' AND
+        # locked_until < clock_timestamp() AND attempts < max_attempts)) AND (kind <> 'index' OR
+        # (SELECT next_at FROM exp_rate_slots WHERE name='knovas_init') <= clock_timestamp())
+        # ORDER BY priority, run_after, id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING ...
+    def complete(self, job) -> bool
+    def retry(self, job, error: str) -> bool     # backoff min(3600, 30 * 2**(attempts-1)); dead at max
+    def defer(self, job, delay_seconds, reason="") -> bool   # attempts - 1; dead with "Zu lange
+                                                            # zurückgestellt." when job older than 24 h
+    def fail(self, job, error: str) -> bool      # dead
+        # All four: fenced with WHERE id AND status='running' AND locked_by AND attempts; False =
+        # lease lost (log, do nothing). Putting a job back to pending when another pending job
+        # with the same dedupe_key exists closes this one as done ("superseded") instead; a
+        # UniqueViolation race takes the same path (savepoint).
+    def sweep_expired(self) -> list[Job]         # running, lease expired, attempts >= max -> dead; returned
+    def counts(self) -> dict
+    def recent_failures(self, limit=20) -> list[dict]   # {"kind","error","at"} (German messages only)
     def purge_finished(self, older_than_days=7) -> int
-def take_rate_slot(conn, name: str, per_minute: int) -> float   # 0.0 = taken now, else seconds to wait
+def take_rate_slot(conn, name: str, per_minute: int) -> float
+    # UPDATE exp_rate_slots SET next_at = GREATEST(next_at, clock_timestamp()) +
+    # make_interval(secs => 60.0/per_minute) WHERE name=%s AND next_at <= clock_timestamp()
+    # RETURNING 0.0; else seconds until next_at
 class JobWorker(threading.Thread):
-    def __init__(self, *, connect, handlers: dict, poll_seconds: float, worker_id: str | None = None): ...
-    def run(self) -> None        # loop: claim, dispatch, sleep with jitter when idle; reconnect with
-                                 # backoff on DB errors; purge finished jobs about hourly; never dies
-    def stop(self) -> None
-    def run_once(self, conn) -> bool   # process at most one job; True if one was processed (tests)
+    def __init__(self, *, connect, handlers: dict, on_dead: dict, kinds: tuple[str, ...],
+                 lease_seconds: int, poll_seconds: float, worker_id: str | None = None,
+                 maintenance: Callable[[conn], None] | None = None): ...
+        # worker_id default f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
+    def run(self): ...   # own connection (SET statement_timeout '120s',
+                         # idle_in_transaction_session_timeout '60s'); loop claim -> handler(conn, job)
+                         # -> complete / RetryLater -> defer / PermanentError -> fail / other
+                         # exception -> retry; on dead -> on_dead[kind](conn, job); sleep with
+                         # jitter when idle; reconnect with backoff; every ~10 min sweep_expired
+                         # (+ on_dead), maintenance(conn), purge_finished; never dies
+    def stop(self): ...
+    def run_once(self, conn) -> bool
+def start_workers_once(*, settings, connect, handlers, on_dead, maintenance) -> list[JobWorker]
+    # at most once per process (guard keyed by os.getpid()): thread A kinds ('index','unindex',
+    # 'pipeline') lease 600 s; thread B kinds ('evaluate',) lease runner_timeout_seconds + 120
 ```
 
 `src/experiments/tasks.py`:
 
 ```python
-def build_handlers(*, settings, index_client, runner) -> dict[str, Callable[[conn, dict], None]]
-    # 'index': indexer.index_experiment(conn, payload['experiment_id'], client=index_client, settings=settings)
-    #          (index_client None -> set index_state 'off' and return)
-    # 'unindex': indexer.unindex_pointer(index_client, payload['pointer'])
-    # 'evaluate': service.execute_evaluation(conn, payload['evaluation_id'], settings=settings, runner=runner)
-    # 'pipeline': service.run_pipeline_job(conn, payload['experiment_id'], settings=settings, runner=runner)
+def build_handlers(*, settings, index_client, runner) -> tuple[dict, dict, Callable]
+    # handlers: 'index' -> indexer.index_experiment(conn, job.payload['experiment_id'], client, settings)
+    #           'unindex' -> indexer.unindex_pointer(conn, client, job.payload['pointer'])
+    #           'evaluate' -> service.execute_evaluation(conn, job.payload['evaluation_id'], ...)
+    #           'pipeline' -> service.run_pipeline_job(conn, job.payload['experiment_id'], ...)
+    # on_dead: 'index' -> set_index_state('error', "Knovas war nicht erreichbar.");
+    #          'evaluate' -> service.on_evaluation_dead(...); others log
+    # maintenance(conn): re-enqueue 'index' (priority 100) for experiments with index_state in
+    #   ('pending','error') that have no pending/running job, when indexing is on and groups are set
 ```
 
-`src/experiments/indexer.py`: `pointer_for(settings, domain_key, key)`, `render_markdown(snapshot)`,
-`split_parts(markdown, max_chars=40000) -> list[str]`, `document_for(snapshot, settings) -> dict`
-(`{"identifier","title","description","path","parts":[{"snippet"}],"access_groups":[...]}`),
-`index_experiment(conn, experiment_id, *, client, settings)`, `unindex_pointer(client, pointer)`.
+`src/experiments/indexer.py`: `make_index_client(config)`, `pointer_for(settings, domain_key,
+key)`, `render_markdown(snapshot)`, `split_parts(markdown, max_chars=40000)`,
+`document_for(snapshot, settings) -> {"identifier","title","description","path","parts",
+"access_groups"}`, `index_experiment(conn, experiment_id, client, settings)`,
+`unindex_pointer(conn, client, pointer)`, `purge_all(conn, client, settings, *, knovas_listing=True)
+-> int` (deletes every pointer in exp_index_documents, then every document Knovas lists under
+the prefix via `client.iter_documents(prefix=...)` when available).
 
 `src/experiments/runner_client.py`:
 
 ```python
 class RunnerClient:
-    def __init__(self, base_url: str, *, timeout_seconds: int = 120): ...
-    def health(self) -> dict      # {"ok": bool, "languages": {"python": "3.x", "julia": "1.11.x"}, "error": str?}
-                                  # cached 30 s per instance; never raises
-    def run(self, *, language: str, code: str, data: dict, timeout_seconds: int | None = None) -> dict
-        # {"ok": bool, "output": dict | None, "error": str | None, "logs": str, "duration_ms": int}
-        # raises errors.Unavailable("Die Rechenumgebung ist nicht erreichbar.") on connection
-        # errors or HTTP 503 (busy)
+    def __init__(self, url: str, *, timeout_seconds: int = 90): ...
+        # url "unix:///path/runner.sock" (HTTP over AF_UNIX via http.client) or "http://host:port"
+    def health(self) -> dict   # {"configured": True, "ok": bool, "languages": {...}, "busy": n}; cached 30 s; never raises
+    def run(self, *, language: str, code: str, data: dict, timeout_seconds: int) -> dict
+        # {"ok","output","error","logs","duration_ms"}; HTTP read timeout = timeout + 30 s.
+        # Unavailable("Die Rechenumgebung ist nicht erreichbar.") on connect errors and 503;
+        # a read timeout after acceptance -> {"ok": False, "error": "Zeitlimit überschritten.", ...}
 ```
 
 `src/experiments/search.py`:
@@ -874,229 +1105,271 @@ class RunnerClient:
 ```python
 def parse_pointer(prefix: str, pointer: str) -> str | None
 class SearchIntegration:
-    def __init__(self, *, settings, connect_current, current_user, show_in_search): ...
-        # connect_current(): the request's DB connection; current_user(): identity User | None;
-        # show_in_search(conn) -> bool (runtime setting)
+    def __init__(self, *, settings, connection, current_user, enabled: bool): ...
+        # connection(): the request's DB connection; current_user(): User | None
     def split(self, results: dict) -> tuple[dict, list[dict]]
-        # takes experiment hits (pointer/doc_id/path under the prefix) out of results["results"];
-        # returns a shallow copy of results without them, and the removed hit rows
+        # copy of results without experiment hits in "results"; results["semantix"] copied with
+        # "pointers" filtered the same way (str items or dicts with pointer/identifier/doc_id)
+        # and "result_count" reduced; "total" recomputed. Works when the module is disabled.
     def rows(self, hits: list[dict]) -> list[dict]
-        # [] when disabled, no user, no viewing role or show_in_search off; else one row per hit
-        # whose KEY still exists: hit fields kept (doc_id, path, score, final_score, cosine_*),
-        # plus "result_kind": "experiment", "title": "KEY · title", "app_url": "/experiments/KEY",
-        # "experiment": {"key","domain_key","domain_name","domain_color","status_label","type_name"},
-        # "context_snippet": first text of hit.top_chunks if any (str or dict text/snippet/content),
-        # else the hypothesis (<= 300 chars), "file_exists": False, "can_open": False
+        # [] unless enabled, a user with a viewing role, global show_in_search and the user's
+        # preference; else per hit whose KEY exists: hit's doc_id, path, score, final_score,
+        # cosine_* kept, plus "result_kind": "experiment", "title": "KEY · title",
+        # "app_url": "/experiments/KEY", "experiment": {"key","domain_key","domain_name",
+        # "domain_color","status_label","type_name"}, "context_snippet" and "snippet" (the same
+        # text: first text of hit.top_chunks (str or dict text/snippet/content) else the
+        # hypothesis, <= 300 chars), "file_exists": False, "can_open": False
 ```
 
-`src/experiments/cli.py` (`python -m experiments <command>` via `__main__.py`), run inside the
-docbridge-web container with the app's config: `status`, `reindex [KEY ...|--all]`,
-`purge-index [--yes]` (deletes every experiment document from Knovas; works while the module is
-switched off), `install-pack NAME`, `worker --once`.
+`src/experiments/cli.py` (`python -m experiments <command>` in the docbridge-web container):
+`status`, `reindex [KEY ...|--all]`, `purge-index [--yes]` (works while the module is off),
+`install-pack NAME`, `worker --once`. Loads config via `config_loader.get_config()` and connects
+with `PLATFORM_DB_DSN` or `identity.db.connect()`.
 
 ## 13. app.py integration (part E)
 
-1. After the identity block: `experiments_settings = load_settings(config,
-   identity_enabled=identity_enabled)`; if `config.get_bool('experiments.enabled')` but identity
-   is off, log a warning.
-2. `_sidebar_context()` gains `'experiments_nav': _experiments_nav_visible()` — True only when
-   enabled, identity on, and `permissions.can_view(identity_gate.current_user())`.
-3. `@app.before_request refuse_experiments_when_switched_off` (after the CSRF gate, next to the
-   Cortex gate): when disabled, `/experiments` and `/experiments/...` redirect to `index`,
-   `/api/experiments` and below answer 404 `{"success": false, "error": "Experimente sind
-   deaktiviert."}`.
-4. When enabled (inside `if identity_gate is not None:`): register both blueprints; call
-   `identity_gate.allow_bearer_endpoints(<experiments_api endpoint names>)`; build
-   `experiments_index_client = KnovasAPIClient(config)` if `index_enabled` (no broker!), a
-   `RunnerClient` if `runner_url`; start one `JobWorker` daemon thread per process if
-   `worker_enabled` (connect: `PLATFORM_DB_DSN` if set else `identity.db.connect()`), handlers
-   from `tasks.build_handlers`.
-5. `/api/search`: right after `results = api_client.search_documents(...)` (and for test
-   fixtures too) call `results, experiment_hits = experiments_search.split(results)` (always, even
-   when disabled, so stale experiment documents never show up as missing files); after
-   `_supplement_results_from_enrichment_filenames`, merge
-   `experiments_search.rows(experiment_hits)` passed through the same
-   `_apply_search_refinement({'results': rows}, query, filters, config)` into `final_results`,
-   re-sorted by score (descending), truncated to `limit`.
-6. `_prevent_stale_ui_assets`: `/experiments` and below are no-store.
-7. `CSRF gate`: endpoints starting with `experiments_api.` are exempt (bearer only).
-8. `webauth.IdentityGate`: new attribute `bearer_endpoints: frozenset` (default empty) and method
-   `allow_bearer_endpoints(names)`; `guard()` returns None for them.
-9. `admin.ASSIGNABLE_ROLES` gains `experimenter`, `experiments_manager`.
+1. `app.config['MAX_CONTENT_LENGTH'] = config.get_int('web.max_request_bytes', 32*1024*1024)`.
+2. After the identity block: `experiments_settings = load_settings(config, identity_enabled=...)`
+   (log a warning when EXPERIMENTS_ENABLED is on but identity is off).
+3. `@app.before_request refuse_experiments_when_switched_off`, **registered before
+   `require_company_login`**: when disabled, `/experiments` and below redirect to `index`,
+   `/api/experiments` and below answer 404 `{"success": false, "error": "Experimente sind nicht
+   eingeschaltet."}`. When enabled it does nothing.
+4. `require_readable_document`: a `doc_id` starting with `<prefix>/` -> 404 (experiment
+   documents are never served as files).
+5. `_sidebar_context()` gains `'experiments_nav': ...` (enabled, identity on, can_view(current user)).
+6. When enabled (inside `if identity_gate is not None:`): `store.ensure_builtin_evaluators` and
+   `ensure_core_pack` once at startup (boot connection, under the identity advisory lock or
+   idempotently); register blueprints `experiments` and `experiments_api`;
+   `identity_gate.allow_bearer_endpoints(...)`; index client from
+   `experiments.indexer.make_index_client(config)` (always when enabled; `index_enabled` gates
+   uploads, not deletions); `RunnerClient(settings.runner_url, ...)` if `runner_url`; workers via
+   `jobs.start_workers_once(...)` if `worker_enabled`, with `connect` bound at construction to
+   `PLATFORM_DB_DSN` (if set) else `identity.db.connect`. Everything in
+   `app.extensions['experiments'] = {"settings", "search", "index_client", "runner", "workers"}`.
+7. `/api/search`: right after results are obtained (Knovas and test fixtures alike):
+   `results, experiment_hits = experiments_search.split(results)` (always, also when disabled);
+   after the grants loop and the OneDrive loop, just before `literal_hits`, merge
+   `rows = experiments_search.rows(experiment_hits)` passed through
+   `_apply_search_refinement({'results': rows}, query, filters, config)['results']` into
+   `final_results`, re-sorted by score descending, truncated to `limit`. Experiment rows are
+   never granted and never get open hints.
+8. `_prevent_stale_ui_assets`: `/experiments` and below no-store.
+9. CSRF gate: endpoints starting with `experiments_api.` exempt.
+10. `webauth.IdentityGate`: attribute `bearer_endpoints` (frozenset, default empty), method
+    `allow_bearer_endpoints(names)`, `guard()` returns None for them.
+11. `admin.ASSIGNABLE_ROLES` gains `experimenter`, `experiments_manager`.
 
 ## 14. UI (part F)
 
-Look: the existing Platform design tokens (style.css `:root`), IBM Plex, cards with
-`--radius-lg`, no new colours except each domain's own colour as a small dot. German copy.
-Vanilla JS, no build, no external libraries; charts are inline SVG built in JS. Every page
-includes `_sidebar.html` with `active_nav='experiments'`.
+Look: existing design tokens (style.css `:root`), IBM Plex, `--radius-lg` cards; each domain's
+colour only as a small dot. German copy. Vanilla JS, no build, no libraries; charts inline SVG.
+Pages include `_sidebar.html` (`active_nav='experiments'`), `<meta name="csrf-token">`,
+`markdown.js`, `experiments_common.js` and the page script with `?v={{ asset_version }}`.
 
-Sidebar (`_sidebar.html`): after the Cortex item, `{% if experiments_nav is defined and
-experiments_nav %}` an item "Experimente" (icon: flask, Lucide path
-`M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10`), active when
-`active_nav == 'experiments'`.
+Sidebar: after the Cortex item, `{% if experiments_nav is defined and experiments_nav %}` an
+item "Experimente" (flask icon path `M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0
+1.5-2.5L14 9V3M7 15h10`), active when `active_nav == 'experiments'`; update the header comment.
 
-`experiments_common.js` exposes `window.KX` with: `csrfToken()`, `api(method, url, body)`
-(JSON, X-CSRF-Token, 401 -> `/login`, returns parsed body or throws `Error` with `.fields`),
-`upload(url, file)`, `esc(s)`, `fmtDate(iso)`, `fmtNumber(x, decimals)` (de-CH: `'` thousands,
-`.` decimal is Swiss convention — use `Intl.NumberFormat('de-CH')`), `fmtEstimate(kind, x, unit)`
-(proportion as percent), `toast(message, kind)`, `dialog(options)` (native `<dialog>`),
-`verdictChip(verdict)`, `statusChip(label)`, `domainDot(color)`, `intervalBar(estimate, lo, hi,
-{direction})` (SVG, zero line, point and interval), `renderMarkdown(md)` (uses
-`window.KnovasMarkdown.render` if loaded — include `markdown.js`), `renderFieldInput(field,
-value)` / `readFieldInput(field, el)` for type-driven forms.
+Security rules: every server string (names, labels, units, headlines, table cells, warnings,
+logs, messages, notes) goes in via `textContent` or `KX.esc`; Markdown only through
+`window.KnovasMarkdown.render` (fallback `<pre>` + escaped text); links only from `app_url`
+values starting with `/experiments/`.
 
-`experiments_list.html` + `experiments_list.js` (`/experiments`):
-- Header: h1 "Experimente", subtitle "Hypothesen, Messwerte und Entscheidungen – über alle
-  Bereiche."; buttons "Neues Experiment" (primary) and "Verwaltung" (link to
-  `/experiments/verwaltung`).
-- Search box "In Knovas suchen …" (calls `/api/experiments/search`, shows hits with snippet and
-  a note "Gefunden mit Knovas" or "Datenbanksuche (Knovas nicht erreichbar)").
-- Domain chips (all + each domain with colour dot and count), status select, "Archivierte
-  zeigen" checkbox, text filter (debounced, server `q`).
-- Table: Schlüssel, Experiment (title + type), Bereich, Status, Primäre Metrik, Letztes Ergebnis
-  (headline + verdict chip), Aktualisiert; rows link to the detail page; "Mehr laden" with
-  keyset cursor.
-- Empty state when no domain exists: "Noch keine Bereiche." with buttons to install packs
-  (managers) or a hint to ask a manager.
-- "Neues Experiment" dialog: Bereich select, Typ select (types of that domain + global), Titel,
-  Hypothese (textarea), then the type's fields rendered from its definition; submit -> POST, then
-  navigate to the new experiment.
+`experiments_common.js` (`window.KX`): `csrfToken()`, `api(method, url, body)` (JSON,
+X-CSRF-Token, 401 -> `/login`, throws Error with `.status`, `.fields`), `upload(url, file)`
+(FormData + X-CSRF-Token; 413 message), `esc`, `el(tag, attrs, ...children)`, `fmtDate(iso)`
+(TT.MM.JJJJ), `fmtDateTime`, `fmtNumber(x, d)` and `fmtEstimate(kind, x, unit, d)` and
+`fmtDiff(kind, x, unit, d)` with **the same rules as kinds.format_***: decimal comma, ASCII
+`'` thousands, percent with a space, proportion differences in "Pp." (x*100, signed) — do not use
+Intl de-CH; `toast`, `dialog({title, body, actions})` (native `<dialog>`), `verdictChip`,
+`statusChip`, `domainDot(color)` (validate `#RRGGBB`), `intervalBar(estimate, lo, hi, {direction,
+unit, kind})` (SVG with zero line), `lineChart(series, {kind, unit})` (SVG, one line per variant,
+hover tooltips via `<title>`), `renderMarkdown(md)`, `renderFieldInput(field, value)` /
+`readFieldInput(field, el)`, `meta()` (cached GET `/api/experiments/meta`).
 
-`experiments_detail.html` + `experiments_detail.js` (`/experiments/<KEY>`): loads
-`GET /api/experiments/<KEY>` and renders:
-- Header: KEY, domain dot + name, type name + version, status chip, title (editable inline),
-  archive toggle, "Neu indexieren", index state ("In Knovas: aktuell / ausstehend / Fehler: …
-  / aus").
-- Lifecycle strip: states of the type in order, current highlighted; buttons for
-  `transitions` — disabled ones show their `missing` messages as a tooltip and a list.
-- Hypothesis and description (editable, markdown preview), type fields (form, save with
-  row_version; 409 -> "Das Experiment wurde inzwischen geändert." + reload button).
-- Varianten (table editable: key, name, description, control radio, allocation) and Metriken
-  (assign metric with role; guardrail op/value).
-- Messwerte: per metric a card: aggregates table per variant (n, estimate formatted, rows) and
-  an interval chart of the newest comparison; forms: "Messwert erfassen" (metric, variant,
-  value/count/denominator labels from the kind), "CSV importieren" (file input; show the CSV
-  format help), list of batches with "Rückgängig" (delete batch).
-- Läufe (runs table with params/commit/metrics; "Lauf erfassen" dialog).
-- Auswertungen: "Auswertung starten" (evaluator select filtered by kind + metric select + params
-  JSON textarea), "Alle Auswertungen des Typs ausführen"; result cards: evaluator, metric,
-  verdict chip, headline, comparisons with `intervalBar`, variants table, table, warnings,
-  summary markdown, logs (collapsible, custom only); queued/running evaluations poll every 3 s.
-- Notizen (list + add form with kind select; delete own).
-- Entscheidung (form: verdict select, Begründung, Erkenntnis — required when the type says so;
-  history list).
-- Aktivität (from `/activity`).
+`/experiments` (list): h1 "Experimente", subtitle "Hypothesen, Messwerte und Entscheidungen –
+über alle Bereiche."; buttons "Neues Experiment" (primary), "Verwaltung". Search box "In Knovas
+suchen …" -> `/search`; result note "Gefunden mit Knovas" / "Knovas und Datenbank" /
+"Datenbanksuche" (+ warning text). Domain chips (all + each with dot and count), status select,
+tag filter, "Archivierte zeigen", text filter (debounced). Table: Schlüssel, Experiment (title +
+type), Bereich, Status, Primäre Metrik, Letztes Ergebnis (headline + verdict chip +
+"Leitplanke verletzt" chip), Aktualisiert; "Mehr laden". Empty states: no domains -> "Noch
+keine Bereiche." + managers "Pakete installieren" (engineering, marketing, sales, product) /
+others "Bitten Sie eine verantwortliche Person, Bereiche einzurichten."; domain without
+experiments -> "Noch keine Experimente in diesem Bereich." + "Neues Experiment". New-experiment
+dialog: Bereich, Typ (domain + global), Titel, Hypothese, the type's fields; POST then navigate.
 
-`experiments_manage.html` + `experiments_manage.js` (`/experiments/verwaltung`), tabs:
-- "Bereiche" (managers): list, create (key, name, prefix, colour, description), edit, archive,
-  export YAML (download), import YAML (textarea), install shipped packs ("Pakete").
-- "Typen" (managers): list per domain; editor with a textarea for the definition as YAML/JSON,
-  "Prüfen" (client shows server validation errors per field), "Als neue Version speichern",
-  version list; a read-only preview of fields/states/transitions.
-- "Metriken" (managers): list/create/edit (key, name, kind, unit, direction, description,
-  levels for ordinal/categorical).
-- "Auswerter" (managers): list incl. builtins; create/edit python/julia evaluators with a code
-  textarea (monospace, tab inserts spaces), input kinds, params schema; "Testen" against an
-  experiment+metric shows output and logs; runner status line.
-- "Zugangsschlüssel" (every viewer): own tokens, create (name, expiry days) shows the token once
-  with copy button and a usage example (curl + Python SDK), revoke.
-- "Index" (managers): counts, job counts, recent failures, "Alles neu indexieren", setting
-  "Experimente in der normalen Suche zeigen" (checkbox, PUT settings).
+`/experiments/<KEY>` (detail) renders `GET /api/experiments/<KEY>`:
+- Header: KEY, domain dot + name, type + version, status chip, title (inline edit), tags (chips,
+  add/remove), archive toggle, "Neu indexieren", index state ("In Knovas: aktuell / ausstehend /
+  Fehler: … / aus").
+- Lifecycle strip: the type's states in order, current highlighted, `transitions` as buttons;
+  disabled ones list their `missing` messages; `needs_comment` opens a dialog with required
+  "Grund"; `decides` scrolls to/opens the decision form.
+- Hypothese, Beschreibung (edit, markdown preview), type fields (form; 409 -> message + "Neu
+  laden").
+- Varianten (editable table: key, name, description, control radio, allocation; `has_data`
+  rows cannot be removed) and Metriken (assign metric with role, guardrail op/value; small
+  sample-size calculator for draft experiments via `/sample-size`).
+- Messwerte: per metric a card with aggregates per variant (n, estimate, interval if an
+  evaluation has one), guardrail chip, week/day/month line chart (`/timeseries`); forms
+  "Messwert erfassen" (labels from the kind; select of level labels when the metric has levels),
+  "CSV importieren" (help showing long and wide format incl. a LinkedIn example
+  `variant;observed_at;ctr;ctr.count;cost_per_click;cost_per_click.denominator`, the row limit
+  `max_csv_rows` and 20 MB; shows `ignored_columns`), batches with "Rückgängig". Empty state:
+  "Noch keine Messwerte. Erfassen Sie Werte von Hand, laden Sie eine CSV-Datei hoch oder senden
+  Sie sie aus CI (Zugangsschlüssel unter Verwaltung)."
+- Läufe: table (name, variant, status, commit, params, metrics); "Lauf erfassen" dialog.
+- Auswertungen: "Auswertung starten" (evaluator select filtered by kind; python/julia disabled
+  with hint "Python- und Julia-Auswerter brauchen die Rechenumgebung (Profil experiments)." when
+  `meta.runner.ok` is false; metric select; scope: Alle Daten / Neuester Lauf je Variante /
+  Zeitraum; params JSON), "Alle Auswertungen des Typs ausführen". Cards: evaluator, metric,
+  scope, verdict chip, headline, comparisons with `intervalBar` and per-comparison chip,
+  variants table (n, value, interval), table, warnings, summary markdown; "Protokoll" loads
+  `get_evaluation` logs (custom only). queued/running cards poll every 3 s (stop after 10 min).
+  Empty: "Noch keine Auswertung. «Alle Auswertungen des Typs ausführen» startet die vorgesehenen."
+- Notizen (list, add with kind select, delete where `can_delete`).
+- Entscheidung (shown when a `decides` transition exists or decisions exist): guardrail
+  violations listed first, verdict select, Begründung, Erkenntnis (required per type); history.
+- Aktivität.
 
-`app.js` (search cards): in `createDocumentCard`, when `result.result_kind === 'experiment'`,
-render a card with a flask icon, metaline "Experiment · <domain_name> · <status_label>", the
-title, the snippet, no file badge; clicking or Enter navigates to `result.app_url`
-(`window.location.assign`), not the preview. Keep method names unique (test_frontend_static).
+`/experiments/verwaltung` tabs: "Bereiche" [manage] (list, create with note "Neue Bereiche
+starten mit dem Typ «Allgemeine Hypothese».", edit, archive, export (download .yaml), import
+(textarea), "Pakete"), "Typen" [manage] (per domain; YAML/JSON editor textarea; "Prüfen" ->
+`/types/validate` showing field errors; "Als neue Version speichern"; "Kopieren nach …"; version
+list; read-only preview of fields/states/transitions), "Metriken" [manage] (create/edit incl.
+levels, min, max, decimals), "Auswerter" [manage] (list incl. builtins; create/edit python/julia
+with code textarea pre-filled from a template returning every contract key; Tab inserts 4
+spaces; "Testen" against experiment + metric shows output + logs; runner status), "Zugangsschlüssel"
+(every viewer: own tokens, create shows the token once with copy button and curl + Python SDK
+example, revoke; checkbox "Experimente in meiner normalen Suche zeigen" -> `/preferences`),
+"Index" [manage] (counts, jobs, failures, access warnings, "Alles neu indexieren", global
+checkbox "Experimente in der normalen Suche zeigen" -> `/settings`).
+
+`app.js`: in `_onResultsClick` and the results keydown handler, when
+`this.currentResults[idx]?.result_kind === 'experiment'` and `app_url` starts with
+`/experiments/`, `window.location.assign(app_url)` instead of `openPreview`; `stepPreview`
+skips experiment rows; `createDocumentCard` renders experiment rows with a flask icon, metaline
+"Experiment · <domain_name> · <status_label>", `doc.title` as is (not `displayTitle`), the
+snippet escaped, no file badge. Keep class method names unique (test_frontend_static).
 
 ## 15. Runner (part G)
 
 `KnovasPlatform/components/experiments_runner/`:
 
-- `Dockerfile`: `FROM julia:1.11.9-bookworm`; apt `python3 python3-venv` ; venv `/opt/venv` with
-  `requirements.txt` (numpy, scipy, pandas, statsmodels, pinned); Julia depot `/opt/julia-depot`
-  with `Project.toml` packages (JSON3, Distributions, HypothesisTests, StatsBase, DataFrames)
-  added and precompiled at build; user `10001`; `ENV JULIA_DEPOT_PATH=/tmp/julia-depot:/opt/julia-depot:`;
-  `CMD ["python3", "/app/runner.py"]`. The harnesses must not need any Julia package: the Julia
-  harness carries its own small JSON reader/writer, so the protocol works even if a package
-  fails to install.
-- `runner.py` (stdlib only): `ThreadingHTTPServer` on `RUNNER_PORT` (8090). `GET /health` ->
+- `Dockerfile`: `FROM julia:1.11.9-bookworm`; apt `python3 python3-venv ca-certificates`; venv
+  `/opt/venv` from `requirements.txt` (numpy, scipy, pandas, statsmodels, pinned); Julia
+  packages into the depot's default environment at build: `RUN JULIA_DEPOT_PATH=/opt/julia-depot
+  julia --startup-file=no -e 'using Pkg; Pkg.add(["JSON3","Distributions","HypothesisTests",
+  "StatsBase","DataFrames"]); Pkg.precompile()'` (default optimisation level; the harness runs
+  with default flags too), then `chmod -R a+rX /opt/julia-depot`; `useradd -u 10001 runner`;
+  `mkdir -p /run/experiments-runner && chown 10001:10001 /run/experiments-runner`; `USER 10001`;
+  `CMD ["/opt/venv/bin/python3", "-I", "/app/runner.py"]`. No `ENV JULIA_DEPOT_PATH` with a
+  shared writable entry.
+- `runner.py` (stdlib only): listens on `RUNNER_LISTEN` (default
+  `unix:/run/experiments-runner/runner.sock`; `tcp:0.0.0.0:8090` for development), socket mode
+  0660. Exits (so the container restarts) if the socket file disappears. `GET /health` ->
   `{"ok": true, "languages": {"python": "...", "julia": "..."}, "busy": n, "max_concurrent": n}`.
-  `POST /v1/run` body `{"language": "python"|"julia", "code": str (<= 200000), "data": object,
-  "timeout_seconds": int}` (body <= 64 MB) -> 200 `{"ok": bool, "output": object|null,
-  "error": str|null, "logs": str, "duration_ms": int}`; 400 bad request; 503 when
-  `RUNNER_MAX_CONCURRENT` (default 2) jobs are running and a slot does not free within 10 s.
-  Each job: fresh temp dir under `/tmp`, code and input written there, child process
-  (`python3 -I -S harness.py` with the venv python / `julia --startup-file=no --history-file=no
-  -O1 harness.jl`), `start_new_session=True`, scrubbed environment (PATH, HOME=job dir, LANG,
-  JULIA_DEPOT_PATH, OPENBLAS/MKL/OMP threads = 1), rlimits in the child (CPU seconds = timeout +
-  5, file size 64 MB, open files 256, core 0; address space 4 GB for Python only), wall-clock
-  timeout -> kill the process group, stdout+stderr captured to at most 64 KB, output read from
-  `output.json` (<= 8 MB), temp dir removed. The user's code must define `evaluate(data)`
-  (Python) / `evaluate(data)` (Julia, `data` a `Dict{String,Any}`) returning a dict/Dict.
-- `tests/` (pytest, stdlib + pytest): python harness happy path, exception -> ok false with
-  traceback in logs, timeout kills, output too large, bad JSON output, non-dict return; Julia
-  tests skip when `julia` is not on PATH.
+  `POST /v1/run` `{"language", "code" (<= 200000), "data" (object), "timeout_seconds"}`
+  (body <= 64 MB) -> 200 `{"ok","output","error","logs","duration_ms"}`; 400 bad request; 503
+  when `RUNNER_MAX_CONCURRENT` (2) jobs run and no slot frees in 10 s, or tmpfs has < 256 MB free.
+  Per job: fresh dir under `/tmp` (0700), `code`, `input.json` there; child
+  `/opt/venv/bin/python3 -I harness.py` (no `-S`) or `julia --startup-file=no --history-file=no
+  harness.jl`; `start_new_session=True`; env only PATH, HOME=<jobdir>, LANG=C.UTF-8,
+  OPENBLAS_NUM_THREADS/MKL_NUM_THREADS/OMP_NUM_THREADS=1, JULIA_NUM_THREADS=1,
+  JULIA_DEPOT_PATH=<jobdir>/depot:/opt/julia-depot:, JULIA_LOAD_PATH=@:@v#.#:@stdlib (packages
+  resolve from the read-only depot's default environment); preexec rlimits CPU = timeout + 5 s,
+  AS 1.5 GB for Python and 6 GB for Julia (which reserves address space; plus
+  `--heap-size-hint=1G`), FSIZE 64 MB, NOFILE 256, NPROC 128, CORE 0, and oom_score_adj 1000;
+  wall-clock timeout -> SIGKILL the process group; after every job SIGKILL every process of the
+  runner uid whose session id is neither the server's nor a running job's; stdout+stderr
+  captured to <= 64 KB; `output.json` opened with `O_NOFOLLOW`, must be a regular file <= 8 MB;
+  job dir removed. User code defines `evaluate(data)` returning a dict (Python: executed in a
+  fresh namespace with `exec(compile(code, "evaluator.py", "exec"), ns)`; Julia:
+  `include_string` into a fresh module, `data::Dict{String,Any}`). The Julia harness has its
+  own small JSON reader/writer (no package needed for the protocol). Exceptions -> ok false,
+  traceback in logs, error "Der Auswerter ist mit einem Fehler abgebrochen."
+- `tests/` (pytest; Julia tests skip without `julia` on PATH, numpy tests skip without numpy):
+  happy path, exception, timeout kill, output too large, symlinked output, non-dict return,
+  double-fork survivor killed, health while busy, per-job Julia depot isolation.
 
-`docker-compose.yml`: service `experiments-runner` with `profiles: [experiments]`, build
-context `./KnovasPlatform/components/experiments_runner`, image `knovas-experiments-runner:0.1.0`,
-`expose: ["8090"]`, `user: "10001:10001"`, `read_only: true`, `tmpfs: ["/tmp:size=1g,mode=1777"]`,
-`cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 256`,
-`mem_limit: ${EXPERIMENTS_RUNNER_MEMORY:-2g}`, `cpus: ${EXPERIMENTS_RUNNER_CPUS:-2}`,
-environment `RUNNER_MAX_CONCURRENT`, `RUNNER_MAX_SECONDS`, healthcheck via python urllib on
-`/health`, `restart: unless-stopped`, `networks: [experiments-sandbox]`. New network
-`experiments-sandbox: {internal: true}`; docbridge-web joins it in addition to knovas-internal.
-No `container_name`, no `${X:?}` interpolation, no plain `depends_on` on the profiled service.
+`docker-compose.yml`: service `experiments-runner`, `profiles: [experiments]`, build
+`./KnovasPlatform/components/experiments_runner`, image `knovas-experiments-runner:0.1.0`,
+`network_mode: none`, `volumes: [experiments_runner_socket:/run/experiments-runner]`,
+`user: "10001:10001"`, `read_only: true`, `tmpfs: ["/tmp:size=1g,mode=1777"]`, `cap_drop:
+[ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 256`, `mem_limit:
+${EXPERIMENTS_RUNNER_MEMORY:-3g}`, `cpus: ${EXPERIMENTS_RUNNER_CPUS:-2}`, environment
+`RUNNER_MAX_CONCURRENT`, `RUNNER_MAX_SECONDS`, healthcheck (python over the socket), `restart:
+unless-stopped`. docbridge-web mounts `experiments_runner_socket:/run/experiments-runner` (always;
+harmless when the profile is off). New named volume `experiments_runner_socket`. No
+`container_name`, no `${X:?}`, no plain `depends_on` on the profiled service.
 
-CI (`.github/workflows/ci.yml`): run the runner's pytest (Python 3.11; Julia tests skip);
-`docker compose --env-file scripts/lib/fixtures/knovas.env.fixture config --quiet` must still
-pass; add `docker compose --env-file scripts/lib/fixtures/knovas.env.fixture --profile
-experiments build experiments-runner`.
+CI: runner pytest (Python 3.11); compose config with the fixture env still passes; `docker
+compose --env-file scripts/lib/fixtures/knovas.env.fixture --profile experiments build
+experiments-runner`; smoke `docker run --rm knovas-experiments-runner:0.1.0 /opt/venv/bin/python3
+-I -c 'import numpy, scipy, pandas, statsmodels'` and `julia -e 'using JSON3, Distributions'`.
 
-`scripts/doctor.sh`: section "Experimente": off -> ok "ausgeschaltet (EXPERIMENTS_ENABLED=false)"
-and skip; on -> report identity requirement, tables present (probe), job queue counts and dead
-jobs (WARN if any), index states (WARN on errors), runner reachability if COMPOSE_PROFILES
-contains experiments (WARN if configured but unreachable). A default-off flag needs its own
-helper (the existing `flag_on` treats empty as on).
+`scripts/doctor.sh` section "Experimente" (its own default-off flag helper): off -> ok and skip;
+on -> identity requirement, tables (probe), job counts and dead jobs (WARN), index states (WARN
+on error), empty EXPERIMENTS_ACCESS_GROUPS without EXPERIMENTS_INDEX_UNRESTRICTED (WARN
+"Experimente werden nicht in Knovas indexiert: keine Zugriffsgruppe"), unrestricted without
+groups (WARN "Experimente sind in Knovas für alle Nutzer des Mandanten sichtbar"), runner
+reachability when EXPERIMENTS_RUNNER_URL is set.
 
-`knovas.env.example`: commented block for EXPERIMENTS_ENABLED, EXPERIMENTS_ACCESS_GROUPS,
-EXPERIMENTS_INDEX_PER_MINUTE, COMPOSE_PROFILES=experiments with EXPERIMENTS_RUNNER_URL,
-EXPERIMENTS_RUNNER_MEMORY/CPUS. `docs/client/README.md`: rows in the settings table.
+`knovas.env.example`: commented block for EXPERIMENTS_ENABLED, EXPERIMENTS_ACCESS_GROUPS (with
+the note that every experimenter needs these groups under Verwaltung → Personen),
+EXPERIMENTS_INDEX_UNRESTRICTED, EXPERIMENTS_INDEX_PER_MINUTE, COMPOSE_PROFILES=experiments with
+EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock, EXPERIMENTS_RUNNER_MEMORY/CPUS.
+`docs/client/README.md`: rows in the settings table.
 
 ## 16. SDK and docs (part H)
 
-- `KnovasPlatform/experiments-sdk/python/knovas_experiments.py`: stdlib only (urllib, json,
-  ssl). `Client(base_url, token, *, verify=True|cafile, timeout=30)` with `ping()`,
-  `experiment(key)`, `log_run(key, *, name=None, variant=None, params=None, metrics=None,
-  environment=None, commit=None, status="finished", started_at=None, ended_at=None, note=None)`,
-  `add_measurements(key, rows)`, `add_note(key, body, kind="note")`, and a context manager
-  `run(key, variant=..., name=..., params=...)` collecting `log(**metrics)` and posting on exit
-  (status failed on exception). Env fallbacks `KNOVAS_URL`, `KNOVAS_EXPERIMENTS_TOKEN`.
-  README with CI example (GitHub Actions step).
-- `KnovasPlatform/experiments-sdk/julia/KnovasExperiments.jl`: a module using HTTP.jl and JSON3
-  with `log_run`, `add_measurements`, `add_note`; README.
-- `KnovasPlatform/docs/features/experiments.md` (German): what it is, switching on (env, roles,
-  profile for Python/Julia), domains/types/metrics/evaluators, measurement kinds table,
-  CSV format, evaluations, decisions, search with Knovas, API tokens and SDK, operations (index,
-  doctor, CLI, backup), security model of the runner, limits.
-- `RELEASE_NOTES.md`: a German `### Experimente` section under `## KnovasPlatform`.
-- Design doc: add "Resolved decisions" (section 0 of this plan) and correct the stack/search
-  statements (Flask module, Knovas instead of pgvector, platform-db instead of TimescaleDB).
+- `KnovasPlatform/experiments-sdk/python/knovas_experiments.py` (stdlib only): `Client(base_url,
+  token, *, cafile=None, verify=True, timeout=30)` (env fallbacks `KNOVAS_URL`,
+  `KNOVAS_EXPERIMENTS_TOKEN`) with `ping()`, `experiment(key)`, `create_experiment(domain,
+  type, title, hypothesis="", fields=None)`, `log_run(key, *, name=None, variant=None,
+  params=None, metrics=None, rows=None, environment=None, commit=None, status="finished",
+  started_at=None, ended_at=None, note=None)`, `add_measurements(key, rows)`, `add_note(key,
+  body, kind="note")`, `evaluate(key, scope=None) -> list`, `evaluations(key, metric=None)`,
+  and `run(key, variant=..., name=..., params=..., commit=...)` context manager with
+  `log(**metrics)` and `add_rows(rows)` posting on exit (status failed on exception). A clear
+  error when the server answers 404 "Experimente sind nicht eingeschaltet.". README with a GitHub
+  Actions example that logs per-query rows (`dims: {"query": id}`) and fails the job on a
+  `worse` verdict.
+- `KnovasPlatform/experiments-sdk/julia/KnovasExperiments.jl` (HTTP.jl + JSON3): `log_run`,
+  `add_measurements`, `add_note`, `evaluate`; README.
+- `KnovasPlatform/docs/features/experiments.md` (German): what it is; switching on (env, roles,
+  Knovas access group + granting it to experimenters, profile for Python/Julia); domains, types,
+  metrics, evaluators; measurement kinds table with how to enter real cases (per-query ranking
+  scores, weekly ad data wide CSV, costs as ratio, interviews as notes, SUS); CSV formats;
+  evaluations and scope; decisions and learnings; search with Knovas; tokens and SDK;
+  operations (index, doctor, CLI, backup of platform_db_data); runner security model (no
+  network, unix socket, limits) and accepted risks; limits.
+- `RELEASE_NOTES.md`: German `### Experimente` section under `## KnovasPlatform`.
+- Design doc: replace open decisions with §0 of this plan; correct stack/search statements.
 
 ## 17. Tests (every part)
 
-- Pure units: stats (reference values from scipy, tolerance 1e-6 relative for closed forms,
-  0.01 absolute for Monte Carlo), kinds, schema, packs (all shipped packs validate), evaluators
-  (verdicts incl. direction lower, too little data, sanitize limits), indexer (markdown,
-  parts, document_for, upload calls on a fake client), search (split/rows), runner client
-  (fake HTTP server).
-- Postgres: store (key allocation under concurrency, aggregates per kind, tokens), jobs (claim
-  with SKIP LOCKED from two connections, dedupe, retry/defer/dead, lease expiry, rate slot),
-  service (create -> measurements -> evaluation -> transition gates -> decision -> snapshot;
-  permissions; CSV import; delete batch; pack install idempotent).
-- Web (Postgres, `tests/conftest.py` personas; grant roles with `identity_repo.grant_role`):
-  switch off (nav hidden, page redirect, API 404, search strips experiment hits), role gate
-  (member -> 404 page and API, experimenter ok, manager-only -> 403), CSRF (403 without header),
-  `access_groups` body -> 400, token API (401 without/invalid token, cookie alone refused,
-  revoked token refused, run logging works), search integration with a fake Knovas client
-  returning experiment pointers.
+- Pure units: stats against scipy reference values (pinned numbers in the test; closed forms
+  1e-6 relative, Monte Carlo 0.01 absolute), kinds (validation, formatting), schema, packs
+  (every shipped pack validates; alias bomb and python tag refused), evaluators (verdicts incl.
+  direction lower, multiple variants + Holm, guardrail, target, too little data, params
+  refused, sanitize limits and moved keys), csv (long, wide, decimal comma, errors), indexer
+  (markdown, parts, truncation, document_for, path segments, access-group refusal), search
+  (split incl. semantix pointers, rows), runner client (fake unix and TCP servers).
+- Postgres: store (key allocation under concurrency, aggregates per kind incl. scope latest,
+  sum_sq rules, casts, batches, timeseries, tokens, settings whitelist), jobs (two connections +
+  SKIP LOCKED, dedupe + supersede, fencing, priority, rate slot, lease expiry, sweep, defer cap),
+  service (create -> measurements -> evaluation -> transition gates -> decide -> snapshot;
+  permissions incl. 404 for non-viewers; CSV import; delete batch; pack install idempotent;
+  export/import round trip; pipeline digest reuse; delete with unindex job).
+- Web: switch off (nav hidden, page redirect, API 404, bearer 404, search strips hits and
+  semantix pointers), role gate (member -> 404, experimenter ok, manager-only -> 403), CSRF 403,
+  `access_groups` body 400, token API (401 without/invalid/revoked/expired token, cookie alone
+  refused, locked or must-change user refused, run logging with rows, pipeline + evaluations),
+  search integration with the Dummy client returning experiment pointers (viewer sees cards,
+  member sees nothing, no grants for experiment pointers, preference off hides).
+- Frontend: templates render under StrictUndefined with the admin-test base context plus the
+  new keys; `_sidebar.html` without `experiments_nav` shows no item; JS files parse with
+  `node --check` when node is available.

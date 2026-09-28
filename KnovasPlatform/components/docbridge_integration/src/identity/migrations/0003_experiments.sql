@@ -107,7 +107,9 @@ CREATE TABLE IF NOT EXISTS exp_evaluators (
     archived_at     TIMESTAMPTZ,
     created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- builtin.* names the trusted in-process functions; user code may not take them.
+    CHECK (language = 'builtin' OR key NOT LIKE 'builtin.%')
 );
 
 CREATE TABLE IF NOT EXISTS exp_evaluator_versions (
@@ -172,7 +174,10 @@ CREATE TABLE IF NOT EXISTS exp_variants (
     allocation    DOUBLE PRECISION CHECK (allocation IS NULL OR (allocation >= 0 AND allocation <= 1)),
     config        JSONB NOT NULL DEFAULT '{}'::jsonb,
     position      INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (experiment_id, key)
+    UNIQUE (experiment_id, key),
+    -- Target of the (experiment_id, variant_id) foreign keys below, so a row can
+    -- never point at another experiment's variant.
+    UNIQUE (experiment_id, id)
 );
 
 -- At most one control per experiment.
@@ -184,7 +189,9 @@ CREATE TABLE IF NOT EXISTS exp_experiment_metrics (
     metric_id       UUID NOT NULL REFERENCES exp_metrics(id) ON DELETE RESTRICT,
     role            TEXT NOT NULL CHECK (role IN ('primary', 'secondary', 'guardrail')),
     guardrail_op    TEXT CHECK (guardrail_op IN ('max', 'min')),
-    guardrail_value DOUBLE PRECISION,
+    guardrail_value DOUBLE PRECISION
+                    CHECK (guardrail_value IS NULL OR guardrail_value NOT IN
+                           ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)),
     position        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (experiment_id, metric_id),
     CHECK (role <> 'guardrail' OR (guardrail_op IS NOT NULL AND guardrail_value IS NOT NULL))
@@ -196,7 +203,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_exp_experiment_metrics_one_primary
 CREATE TABLE IF NOT EXISTS exp_runs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     experiment_id UUID NOT NULL REFERENCES exp_experiments(id) ON DELETE CASCADE,
-    variant_id    UUID REFERENCES exp_variants(id) ON DELETE SET NULL,
+    variant_id    UUID,
     name          TEXT NOT NULL DEFAULT '' CHECK (char_length(name) <= 200),
     status        TEXT NOT NULL DEFAULT 'finished'
                   CHECK (status IN ('running', 'finished', 'failed', 'cancelled')),
@@ -207,54 +214,103 @@ CREATE TABLE IF NOT EXISTS exp_runs (
     started_at    TIMESTAMPTZ,
     ended_at      TIMESTAMPTZ,
     created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (experiment_id, id),
+    FOREIGN KEY (experiment_id, variant_id) REFERENCES exp_variants (experiment_id, id)
+        ON DELETE SET NULL (variant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_exp_runs_experiment
     ON exp_runs (experiment_id, created_at DESC);
+
+-- One row per insert operation (a form entry, a CSV import, an API call, a
+-- run). Undoing an import deletes its batch and, through the cascade, its
+-- measurements; counts for the UI come from here instead of scanning
+-- exp_measurements.
+CREATE TABLE IF NOT EXISTS exp_batches (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    experiment_id UUID NOT NULL REFERENCES exp_experiments(id) ON DELETE CASCADE,
+    run_id        UUID,
+    source        TEXT NOT NULL CHECK (source IN ('manual', 'api', 'csv')),
+    rows          INTEGER NOT NULL CHECK (rows >= 0),
+    metric_keys   TEXT[] NOT NULL DEFAULT '{}',
+    filename      TEXT CHECK (filename IS NULL OR char_length(filename) <= 255),
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (experiment_id, run_id) REFERENCES exp_runs (experiment_id, id)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_exp_batches_experiment
+    ON exp_batches (experiment_id, created_at DESC, id DESC);
 
 -- Measurements are stored as sufficient statistics so that one row can be a
 -- single observation or a pre-aggregated block (a day of an ad campaign, a CI
 -- run). How value/count/denominator/sum_sq are read depends on the metric's
 -- kind; the plan's "Measurement rows" section is the contract. Insert-only;
 -- an import is undone by deleting its batch.
+--
+-- variant_id / run_id reference (experiment_id, id), so a measurement can
+-- only name a variant or run of its own experiment. Deleting a variant that
+-- still has measurements fails (NO ACTION): removing data is a batch delete,
+-- never a side effect of editing the variant list.
 CREATE TABLE IF NOT EXISTS exp_measurements (
     id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     experiment_id UUID NOT NULL REFERENCES exp_experiments(id) ON DELETE CASCADE,
     metric_id     UUID NOT NULL REFERENCES exp_metrics(id) ON DELETE RESTRICT,
-    variant_id    UUID REFERENCES exp_variants(id) ON DELETE CASCADE,
-    run_id        UUID REFERENCES exp_runs(id) ON DELETE CASCADE,
+    variant_id    UUID,
+    run_id        UUID,
+    batch_id      UUID NOT NULL REFERENCES exp_batches(id) ON DELETE CASCADE,
     observed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    value         DOUBLE PRECISION NOT NULL,
+    value         DOUBLE PRECISION NOT NULL
+                  CHECK (value NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)),
     count         BIGINT NOT NULL DEFAULT 1 CHECK (count >= 1),
-    denominator   DOUBLE PRECISION,
-    sum_sq        DOUBLE PRECISION,
+    denominator   DOUBLE PRECISION
+                  CHECK (denominator IS NULL OR (denominator >= 0 AND denominator NOT IN
+                         ('NaN'::float8, 'Infinity'::float8))),
+    sum_sq        DOUBLE PRECISION
+                  CHECK (sum_sq IS NULL OR (sum_sq >= 0 AND sum_sq NOT IN
+                         ('NaN'::float8, 'Infinity'::float8))),
     dims          JSONB NOT NULL DEFAULT '{}'::jsonb,
     source        TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'api', 'csv')),
-    batch_id      UUID NOT NULL,
     created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (experiment_id, variant_id) REFERENCES exp_variants (experiment_id, id),
+    FOREIGN KEY (experiment_id, run_id) REFERENCES exp_runs (experiment_id, id)
+        ON DELETE CASCADE
 );
 
+-- Covering index: aggregates per (experiment, metric) are index-only scans on
+-- this insert-only table, and evaluator rows come back in id order.
 CREATE INDEX IF NOT EXISTS idx_exp_measurements_lookup
-    ON exp_measurements (experiment_id, metric_id, variant_id);
+    ON exp_measurements (experiment_id, metric_id, id)
+    INCLUDE (variant_id, run_id, observed_at, value, count, denominator, sum_sq);
 CREATE INDEX IF NOT EXISTS idx_exp_measurements_batch
     ON exp_measurements (batch_id);
 CREATE INDEX IF NOT EXISTS idx_exp_measurements_run
     ON exp_measurements (run_id) WHERE run_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_exp_measurements_observed_brin
-    ON exp_measurements USING brin (observed_at);
+-- For the foreign-key checks when a variant or metric is deleted.
+CREATE INDEX IF NOT EXISTS idx_exp_measurements_variant
+    ON exp_measurements (variant_id) WHERE variant_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_exp_measurements_metric
+    ON exp_measurements (metric_id);
 
 CREATE TABLE IF NOT EXISTS exp_notes (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     experiment_id UUID NOT NULL REFERENCES exp_experiments(id) ON DELETE CASCADE,
-    run_id        UUID REFERENCES exp_runs(id) ON DELETE SET NULL,
-    variant_id    UUID REFERENCES exp_variants(id) ON DELETE SET NULL,
+    run_id        UUID,
+    variant_id    UUID,
+    -- 'status' holds the reason given when the experiment changed state, so
+    -- "why was this stopped?" is searchable like any other note.
     kind          TEXT NOT NULL DEFAULT 'note'
-                  CHECK (kind IN ('note', 'observation', 'interview', 'feedback')),
+                  CHECK (kind IN ('note', 'observation', 'interview', 'feedback', 'status')),
     body          TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 50000),
     created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (experiment_id, run_id) REFERENCES exp_runs (experiment_id, id)
+        ON DELETE SET NULL (run_id),
+    FOREIGN KEY (experiment_id, variant_id) REFERENCES exp_variants (experiment_id, id)
+        ON DELETE SET NULL (variant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_exp_notes_experiment
@@ -267,6 +323,12 @@ CREATE TABLE IF NOT EXISTS exp_evaluations (
     evaluator_version INTEGER NOT NULL,
     metric_id         UUID REFERENCES exp_metrics(id) ON DELETE SET NULL,
     params            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- Which rows the evaluation looked at: {"runs": "latest" | [ids],
+    -- "since", "until", "dims": {...}}; {} = all rows.
+    scope             JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- manual (a person), pipeline (automatic after new data), api (CI).
+    trigger           TEXT NOT NULL DEFAULT 'manual'
+                      CHECK (trigger IN ('manual', 'pipeline', 'api')),
     status            TEXT NOT NULL DEFAULT 'queued'
                       CHECK (status IN ('queued', 'running', 'done', 'failed')),
     output            JSONB,
@@ -284,6 +346,8 @@ CREATE TABLE IF NOT EXISTS exp_evaluations (
 
 CREATE INDEX IF NOT EXISTS idx_exp_evaluations_experiment
     ON exp_evaluations (experiment_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_exp_evaluations_pair
+    ON exp_evaluations (experiment_id, evaluator_id, metric_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS exp_decisions (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -311,7 +375,7 @@ CREATE TABLE IF NOT EXISTS exp_api_tokens (
     token_hint   TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_used_at TIMESTAMPTZ,
-    expires_at   TIMESTAMPTZ,
+    expires_at   TIMESTAMPTZ NOT NULL,
     revoked_at   TIMESTAMPTZ
 );
 
@@ -328,6 +392,8 @@ CREATE TABLE IF NOT EXISTS exp_jobs (
     kind         TEXT NOT NULL CHECK (kind IN ('index', 'unindex', 'evaluate', 'pipeline')),
     dedupe_key   TEXT,
     payload      JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- Lower runs first: a person's edit (10) before a bulk re-index (200).
+    priority     SMALLINT NOT NULL DEFAULT 100,
     status       TEXT NOT NULL DEFAULT 'pending'
                  CHECK (status IN ('pending', 'running', 'done', 'dead')),
     attempts     INTEGER NOT NULL DEFAULT 0,
@@ -343,8 +409,10 @@ CREATE TABLE IF NOT EXISTS exp_jobs (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_exp_jobs_dedupe_pending
     ON exp_jobs (dedupe_key) WHERE status = 'pending';
-CREATE INDEX IF NOT EXISTS idx_exp_jobs_ready
-    ON exp_jobs (run_after) WHERE status IN ('pending', 'running');
+CREATE INDEX IF NOT EXISTS idx_exp_jobs_due
+    ON exp_jobs (priority, run_after, id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_exp_jobs_lease
+    ON exp_jobs (locked_until) WHERE status = 'running';
 CREATE INDEX IF NOT EXISTS idx_exp_jobs_finished
     ON exp_jobs (finished_at) WHERE status IN ('done', 'dead');
 
@@ -357,6 +425,15 @@ CREATE TABLE IF NOT EXISTS exp_rate_slots (
 );
 
 INSERT INTO exp_rate_slots (name) VALUES ('knovas_init') ON CONFLICT (name) DO NOTHING;
+
+-- Every pointer the module has written to Knovas, until it is deleted there.
+-- No foreign key: the row must outlive its experiment so a failed or late
+-- deletion can still be found and repeated (purge-index reads this table).
+CREATE TABLE IF NOT EXISTS exp_index_documents (
+    pointer       TEXT PRIMARY KEY,
+    experiment_id UUID,
+    indexed_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- The experiment page reads its activity from audit_log by target.
 CREATE INDEX IF NOT EXISTS idx_audit_log_target

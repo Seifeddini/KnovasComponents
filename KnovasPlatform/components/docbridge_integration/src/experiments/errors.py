@@ -23,6 +23,9 @@ class ExperimentsError(Exception):
 class NotFound(ExperimentsError):
     status = 404
 
+    def __init__(self, message: str = "Nicht gefunden.") -> None:
+        super().__init__(message)
+
 
 class Forbidden(ExperimentsError):
     status = 403
