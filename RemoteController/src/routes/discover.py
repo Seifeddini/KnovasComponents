@@ -3,6 +3,8 @@ from flask import Blueprint, jsonify, request
 from auth.knovas_verify_client import require_operator_or_tenant_admin, require_same_origin
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from discover.filesystem import discover_filesystem
+from discover.m365 import discover_m365
+from m365.source import M365Error, active_m365_source
 from util.schema import validate
 
 discover_bp = Blueprint("discover", __name__)
@@ -33,14 +35,26 @@ def discover():
     root = request.args.get("root")
 
     try:
-        body = discover_filesystem(
-            root_param=root,
-            max_depth=max_depth,
-            include_globs=include_globs,
-            exclude_globs=exclude_globs,
-        )
+        source = active_m365_source()
+        if source is not None:
+            body = discover_m365(
+                source,
+                root_param=root,
+                max_depth=max_depth,
+                include_globs=include_globs,
+                exclude_globs=exclude_globs,
+            )
+        else:
+            body = discover_filesystem(
+                root_param=root,
+                max_depth=max_depth,
+                include_globs=include_globs,
+                exclude_globs=exclude_globs,
+            )
     except PermissionError as exc:
         return jsonify({"error": str(exc), "status": "error"}), 403
+    except M365Error as exc:
+        return jsonify({"error": f"Microsoft 365: {exc}", "status": "error"}), 503
 
     errors = validate(body, "discover_response.schema.json")
     if errors:

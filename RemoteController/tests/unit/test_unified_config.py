@@ -30,3 +30,14 @@ def test_knovas_api_url_alias(monkeypatch):
     reset_config()
     cfg = load_config(validate=True, force_reload=True)
     assert cfg.semantix_secure_base_url == "https://api.example:8443"
+
+
+def test_default_sync_body_includes_files_in_the_top_folder(monkeypatch):
+    from sync.sync_executor import _matches_globs
+
+    monkeypatch.setenv("RC_WATCH_ROOTS", "/mnt/documents")
+    reset_config()
+    body = build_default_sync_body(load_config(validate=False, force_reload=True))
+    globs = body["filters"]["include_globs"]
+    assert _matches_globs("vertrag.pdf", globs)
+    assert _matches_globs("Akten/2024/vertrag.pdf", globs)

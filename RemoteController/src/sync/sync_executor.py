@@ -4,6 +4,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,8 @@ from typing import Any, Callable, Iterator, Optional
 import requests
 
 from discover.filesystem import resolve_root
+from m365.inventory import RemoteFile
+from m365.source import M365Source, active_m365_source, m365_configured, watch_root_subpath
 from sync.document_text import (
     DEFAULT_INCLUDE_GLOBS,
     is_syncable_extension,
@@ -275,6 +278,69 @@ def _iter_candidate_files(
             break
 
 
+def _iter_m365_candidates(
+    source: M365Source,
+    sync_body: dict[str, Any],
+    *,
+    filters: dict[str, Any],
+    should_stop: Callable[[], bool],
+    budget: _WalkBudget,
+) -> Iterator[tuple[RemoteFile, str, str, int, tuple[str, ...]]]:
+    """The Microsoft 365 twin of ``_iter_candidate_files``.
+
+    Same filters, same relative paths (relative to each source folder, as a
+    filesystem walk computes them), same access groups -- only the listing
+    comes from the change-tracked inventory instead of ``os.scandir``, and
+    the first element is a ``RemoteFile`` that is downloaded at upload time.
+    """
+    include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
+    exclude = filters.get("exclude_globs") or ["**/.git/**"]
+    max_bytes = int(filters.get("max_file_bytes", 10_485_760))
+    files = source.files()
+    ordered = sorted(files)
+    for spec in sync_body.get("sources") or []:
+        sub = watch_root_subpath(str(spec.get("path") or ""))
+        if sub is None:
+            logger.warning("Source %r is outside the Microsoft 365 folder; skipped", spec.get("path"))
+            continue
+        recursive = bool(spec.get("recursive", True))
+        groups = tuple(spec.get("access_groups") or ())
+        prefix = f"{sub}/" if sub else ""
+        for full_rel in ordered:
+            if should_stop():
+                budget.stopped = True
+                return
+            if prefix and not full_rel.startswith(prefix):
+                continue
+            rel = full_rel[len(prefix):]
+            if not rel or (not recursive and "/" in rel):
+                continue
+            remote = files[full_rel]
+            if not is_syncable_extension(Path(remote.name).suffix):
+                continue
+            if not _matches_globs(rel, include):
+                continue
+            if exclude and _matches_globs(rel, exclude):
+                continue
+            if remote.size > max_bytes:
+                continue
+            yield remote, rel, remote.modified_iso, remote.size, groups
+
+
+def _local_file(item: Any):
+    """A readable local path for an upload-queue entry.
+
+    Files on a share are read where they are. Microsoft 365 files are fetched
+    into a private temp directory for the duration of the upload only.
+    """
+    if isinstance(item, RemoteFile):
+        source = active_m365_source()
+        if source is None:
+            raise RuntimeError("Microsoft 365 source is no longer configured")
+        return source.local_copy(item)
+    return nullcontext(item)
+
+
 def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
     if mode != "incremental":
         return status != "excluded_max_age"
@@ -297,8 +363,8 @@ def _should_skip_failed_upload(upload: UploadResult, mode: str) -> bool:
 @dataclass
 class _ScanPlan:
     summary: DocumentSyncSummary
-    # (abs_path, relative_path, mtime_iso, size_bytes, access_groups)
-    upload_queue: list[tuple[Path, str, str, int, tuple[str, ...]]]
+    # (abs_path or RemoteFile, relative_path, mtime_iso, size_bytes, access_groups)
+    upload_queue: list[tuple[Any, str, str, int, tuple[str, ...]]]
     scanned_paths: set[str] = field(default_factory=set)
     scan_truncated: bool = False
     scan_stopped: bool = False
@@ -400,17 +466,29 @@ def plan_sync_cycle(
     max_upload_files: int = 0,
     max_scan_entries: int = 0,
     queue: SubfolderQueue | None = None,
+    m365_max_age_seconds: float = 0,
 ) -> _ScanPlan:
-    """Single filesystem pass: inventory counts + upload queue."""
+    """Single pass over the source: inventory counts + upload queue.
+
+    The source is the watch root's file tree, or -- with ``M365_FOLDER_URL``
+    set -- the OneDrive/SharePoint folder's change-tracked inventory, which
+    is refreshed first and raises rather than plan from a stale view.
+    """
+    m365 = active_m365_source()
+    if m365 is not None:
+        m365.refresh(max_age_seconds=m365_max_age_seconds)
+        queue = None
     filters = effective_filters(sync_body, sync_config)
     mode = sync_body.get("mode", "incremental")
     max_age = filters.get("max_document_age_seconds")
     max_age_seconds = int(max_age) if max_age is not None else None
     fingerprints = state.load_fingerprints()
     summary = DocumentSyncSummary()
-    upload_queue: list[tuple[Path, str, str, int, tuple[str, ...]]] = []
+    upload_queue: list[tuple[Any, str, str, int, tuple[str, ...]]] = []
     scanned_paths: set[str] = set()
-    walk_targets, _ = build_walk_targets(sync_body, sync_config, queue)
+    walk_targets, _ = (
+        build_walk_targets(sync_body, sync_config, queue) if m365 is None else ([], None)
+    )
     visit_cap = max_scan_entries if max_scan_entries > 0 else 0
     budget = (
         _WalkBudget(max_dir_visits=visit_cap, max_files=max_scan_entries)
@@ -433,17 +511,36 @@ def plan_sync_cycle(
                         len(saved),
                     )
 
+    if m365 is not None:
+        candidates = _iter_m365_candidates(
+            m365, sync_body, filters=filters, should_stop=should_stop, budget=budget
+        )
+    else:
+        candidates = _iter_candidate_files(
+            walk_targets,
+            should_stop=should_stop,
+            filters=filters,
+            max_scan_entries=max_scan_entries,
+            budget=budget,
+            initial_stacks=initial_stacks,
+        )
+    identifier_prefix = (sync_body.get("ingestion") or {}).get("identifier_prefix", "rc-sync")
+    links: list[dict[str, str]] = []
+
     scanned = 0
-    for abs_path, rel, mtime_iso, size_bytes, access_groups in _iter_candidate_files(
-        walk_targets,
-        should_stop=should_stop,
-        filters=filters,
-        max_scan_entries=max_scan_entries,
-        budget=budget,
-        initial_stacks=initial_stacks,
-    ):
+    for abs_path, rel, mtime_iso, size_bytes, access_groups in candidates:
         scanned += 1
         scanned_paths.add(rel)
+        if isinstance(abs_path, RemoteFile):
+            links.append(
+                {
+                    "doc_id": _pointer_for_relative(identifier_prefix, rel),
+                    "web_url": abs_path.web_url,
+                    "title": abs_path.name,
+                    "modified_at": abs_path.modified_iso,
+                    "item_id": abs_path.item_id,
+                }
+            )
         stored = state.lookup_stored(rel, fingerprints)
         status = _classify_status(
             stored, mtime_iso, size_bytes, max_age_seconds=max_age_seconds, now=now
@@ -474,6 +571,11 @@ def plan_sync_cycle(
                 upload_queue.append(
                     (abs_path, rel, mtime_iso, size_bytes, access_groups)
                 )
+
+    if m365 is not None and not budget.stopped:
+        # Only a complete pass describes the folder; a partial one would drop
+        # the open/preview links of every document it did not reach.
+        m365.write_links(links)
 
     scan_truncated = budget.truncated
     # A stop/deadline interrupt is NOT the same as a completed scan: the tail is
@@ -524,6 +626,7 @@ def scan_document_inventory(
             now=now,
             max_scan_entries=max_scan_entries,
             queue=queue,
+            m365_max_age_seconds=60,
         ).summary
     finally:
         if queue is not None:
@@ -538,7 +641,7 @@ def _collect_files(
     sync_config: dict[str, Any] | None = None,
     now: datetime | None = None,
     max_upload_files: int = 0,
-) -> list[tuple[Path, str, str, int, tuple[str, ...]]]:
+) -> list[tuple[Any, str, str, int, tuple[str, ...]]]:
     """Return files that need upload (pending or modified; all in-scope in full mode)."""
     state = SyncStateStore()
     try:
@@ -605,7 +708,10 @@ def run_sync_work(
     result = SyncRunResult()
     state = SyncStateStore()
     queue: SubfolderQueue | None = None
-    sequential = _sequential_subfolders_enabled(sync_config)
+    # The subfolder queue bounds a filesystem walk of a huge share. The
+    # Microsoft 365 inventory is already an in-memory listing, so it has
+    # nothing to bound and ignores the setting.
+    sequential = _sequential_subfolders_enabled(sync_config) and not m365_configured()
     source_root: Path | None = None
 
     try:
@@ -652,9 +758,10 @@ def run_sync_work(
                 break
 
             try:
-                upload = uploader.upload_file(
-                    abs_path, rel, sync_body, access_groups=access_groups
-                )
+                with _local_file(abs_path) as local_path:
+                    upload = uploader.upload_file(
+                        local_path, rel, sync_body, access_groups=access_groups
+                    )
             except requests.RequestException as exc:
                 if "rate limit" in str(exc).lower():
                     result.paused_reason = "rate_limited"
