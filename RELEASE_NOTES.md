@@ -21,6 +21,21 @@ und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
 
 Anleitung: [docs/microsoft-365.md](docs/microsoft-365.md).
 
+## Eigener Azure-Server je Kunde
+
+- `scripts/azure/create-server.sh` legt VM, Firewall, Entra-Anmeldung und
+  taegliche Sicherung in einem Schritt an; `scripts/azure/cloud-init.yaml`
+  installiert Docker, nginx, certbot und automatische Sicherheitsupdates.
+- `scripts/host-https.sh <name> <email>` holt das Let's-Encrypt-Zertifikat und
+  richtet die nginx-Seite ein.
+- Die nginx-Vorlage setzt `X-Forwarded-For` statt es zu verlaengern (sonst
+  konnte ein Browser die protokollierte IP selbst waehlen), drosselt `/login`
+  je Adresse und verschweigt die nginx-Version. Bestehende Installationen:
+  `knovas-login-limit.conf` nach `/etc/nginx/conf.d/` kopieren und die
+  Seite aus der Vorlage erneuern.
+
+Schritt fuer Schritt: [docs/azure-server.md](docs/azure-server.md).
+
 Behoben dabei: Das Standardprofil von RemoteController uebernahm keine Dateien,
 die direkt im obersten Ordner liegen (`**/*.pdf` braucht vor Python 3.13 ein
 Unterverzeichnis).

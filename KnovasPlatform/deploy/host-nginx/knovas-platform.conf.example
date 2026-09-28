@@ -1,24 +1,35 @@
 # Host nginx: TLS termination for Knovas Platform (Docker on 127.0.0.1:8081).
 #
-# 1. Copy to /etc/nginx/sites-available/knovas (or include from conf.d).
-# 2. Replace server_name and ssl_certificate* paths with your internal PKI files.
-# 3. If DOCBRIDGE_WEB_PORT in .env is not 8081, change proxy_pass below to match.
-# 4. sudo ln -s /etc/nginx/sites-available/knovas /etc/nginx/sites-enabled/
-# 5. sudo nginx -t && sudo systemctl reload nginx
+# With a public name and Let's Encrypt, ./scripts/host-https.sh <fqdn> <email>
+# does all of the following. By hand (internal PKI):
+# 1. Copy knovas-login-limit.conf to /etc/nginx/conf.d/ (the login throttle's zone).
+# 2. Copy this file to /etc/nginx/sites-available/knovas.
+# 3. Replace server_name and ssl_certificate* paths with your own.
+# 4. If DOCBRIDGE_WEB_PORT in knovas.env is not 8081, change both proxy_pass lines.
+# 5. sudo ln -s /etc/nginx/sites-available/knovas /etc/nginx/sites-enabled/
+# 6. sudo nginx -t && sudo systemctl reload nginx
 #
-# Start the stack: ./scripts/start_stack_host_nginx.sh
 # Guide: docs/deployment/host-nginx-internal.md
 
 server {
     listen 80;
     server_name knovas.example.internal;
+    server_tokens off;
 
-    return 301 https://$host$request_uri;
+    # Let's Encrypt issuance and renewal (scripts/host-https.sh); harmless otherwise.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 
 server {
     listen 443 ssl;
     server_name knovas.example.internal;
+    server_tokens off;
 
     ssl_certificate     /etc/ssl/certs/knovas.example.internal-fullchain.pem;
     ssl_certificate_key /etc/ssl/private/knovas.example.internal.key;
@@ -39,14 +50,27 @@ server {
 
     client_max_body_size 32m;
 
+    # X-Forwarded-For is SET, not appended to: the Platform records the first
+    # address in it as the person's IP, and $proxy_add_x_forwarded_for would
+    # keep whatever the browser sent there -- any client could name its own.
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 120s;
+    proxy_connect_timeout 10s;
+
+    # Password guessing is throttled per client address here, in front of the
+    # app: the app locks an account after repeated failures, which anyone who
+    # knows an address could otherwise use to keep that person locked out.
+    location = /login {
+        limit_req zone=knovas_login burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:8081;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8081;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_read_timeout 120s;
-        proxy_connect_timeout 10s;
     }
 }

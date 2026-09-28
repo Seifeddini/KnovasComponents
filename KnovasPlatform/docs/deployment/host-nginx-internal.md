@@ -72,9 +72,14 @@ curl -fsS http://127.0.0.1:8081/health
 
 ## 3. Configure host nginx
 
-Copy the template and edit hostname + certificate paths:
+With a public name and Let's Encrypt, `sudo ./scripts/host-https.sh <fqdn> <email>`
+(repo root) does this whole step. With internal PKI, by hand:
+
+Copy the template and edit hostname + certificate paths. Copy the login throttle's
+zone too; the site refers to it:
 
 ```bash
+sudo cp deploy/host-nginx/knovas-login-limit.conf /etc/nginx/conf.d/
 sudo cp deploy/host-nginx/knovas-platform.conf.example /etc/nginx/sites-available/knovas
 sudo nano /etc/nginx/sites-available/knovas
 ```
