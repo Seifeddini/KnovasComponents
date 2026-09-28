@@ -52,7 +52,7 @@ class FolderLocation:
 
 
 def default_tenant_for_host(hostname: str) -> str:
-    """``contoso.sharepoint.com`` / ``contoso-my.sharepoint.com`` → ``contoso.onmicrosoft.com``.
+    """``contoso.sharepoint.com`` / ``contoso-my.sharepoint.com`` -> ``contoso.onmicrosoft.com``.
 
     Microsoft's token endpoint accepts the initial domain wherever it accepts
     the tenant id, and every Microsoft 365 tenant keeps its initial

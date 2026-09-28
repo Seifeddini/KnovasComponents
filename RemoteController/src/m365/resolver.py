@@ -26,7 +26,7 @@ _SITE_PREFIXES = ("sites", "teams", "personal")
 
 PERMISSION_HINT = (
     "Grant the app the Microsoft Graph *application* permission Sites.Read.All "
-    "and give admin consent (Entra admin center → App registrations → API permissions)."
+    "and give admin consent (Entra admin center > App registrations > API permissions)."
 )
 
 

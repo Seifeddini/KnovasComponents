@@ -91,6 +91,11 @@ IDENT_ON=true
 flag_on "$(env_in_app IDENTITY_ENABLED)" || IDENT_ON=false
 CORTEX_ON=true
 flag_on "$(env_in_app CORTEX_ENABLED)" || CORTEX_ON=false
+# KNOVAS_DOCUMENTS_URL: the documents are in OneDrive/SharePoint and nothing of
+# them is on this server, so every check that looks for a file on the share
+# asks Microsoft 365 instead.
+M365=false
+[[ "$(env_in_app DOCUMENT_SOURCE)" == "m365" ]] && M365=true
 
 # The prefix RemoteController puts in front of every pointer it sends, asked of
 # RemoteController itself so the answer follows its rules and not a copy of them.
@@ -310,6 +315,61 @@ else
   fi
 fi
 
+if [[ "$M365" == true ]]; then
+head_ "Documents in OneDrive / SharePoint"
+# RemoteController reads the folder through Microsoft Graph, indexes what is
+# new or changed and keeps nothing; the Platform opens and previews every hit
+# in Microsoft 365. So the questions are: can RemoteController sign in and read
+# the folder, and has it published the links the Platform opens with.
+if [[ "$RC_UP" == true ]]; then
+  "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore remote-controller python -m m365.check 2>&1 \
+    | sed -E 's/^ok    /     OK  /; s/^FAIL  /   FAIL  /; s/^WARN  /   WARN  /; s/^SKIP  /     --  /' \
+    | sed 's/^/  /'
+else
+  bad "remote-controller is not running — the OneDrive/SharePoint folder cannot be checked."
+fi
+"${DC[@]}" exec -T -e PYTHONWARNINGS=ignore -e "DOCTOR_STORE=$STORE" \
+  docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
+import json
+import os
+from pathlib import Path
+
+from context_store import sidecar_path_for_pointer
+
+path = os.environ.get("SEARCH_ENRICHMENT_PATH") or ""
+print(f"links = {path or '<unset>'}")
+rows = []
+try:
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+except OSError:
+    raise SystemExit(
+        "   FAIL  RemoteController has not published the OneDrive/SharePoint links yet, so no\n"
+        "         result can be opened or previewed. It writes them at the end of every sync\n"
+        "         cycle -- see the RemoteController section below."
+    )
+if not rows:
+    raise SystemExit("   WARN  the links file is empty: nothing in the folder was indexable yet.")
+print(f"     OK  {len(rows)} document(s) open and preview in OneDrive/SharePoint")
+
+store = Path(os.environ.get("DOCTOR_STORE") or "")
+sample = rows[:: max(1, len(rows) // 200)][:200]
+covered = sum(1 for r in sample if sidecar_path_for_pointer(store, str(r.get("doc_id") or "")).is_file())
+if covered == len(sample):
+    print(f"     OK  all {len(sample)} sampled documents have snippet text")
+else:
+    print(f"   WARN  {covered} of {len(sample)} sampled documents have snippet text so far.")
+    print("         RemoteController writes it as it indexes each file; the first pass over a")
+    print("         large folder takes a while, and the rest shows a title only until then.")
+PY
+echo "  Öffnen goes to OneDrive/SharePoint, which shows the file to whoever may see it there."
+echo "  The preview is Microsoft 365's own viewer, shown to anyone this Platform lets see the hit."
+
+else
 head_ "Documents, preview and opening"
 # Search can work perfectly while every file-backed feature is dead, and the UI
 # says nothing useful about why. The snippets under a result come from the
@@ -462,6 +522,7 @@ else
       echo "       or OPEN_CLIENT_LOCAL_ROOT (clients that mount it themselves)." ;;
   esac
 fi
+fi
 
 # The wall on those same routes. It is decided here, from what each person's own
 # search returned -- not by asking the Secure API, whose document_readable route
@@ -608,7 +669,12 @@ code, health = get("/health")
 if code is None:
     raise SystemExit(f"   FAIL  it does not answer on port 5001: {health.get('error')}")
 checks = health.get("checks") or {}
-if checks.get("watch_roots") == "ok":
+if checks.get("source") == "m365":
+    if checks.get("m365") == "ok":
+        print("     OK  it reads the OneDrive/SharePoint folder")
+    else:
+        print("   FAIL  it cannot read the OneDrive/SharePoint folder — see 'Documents in OneDrive / SharePoint'")
+elif checks.get("watch_roots") == "ok":
     print("     OK  it can read the document share")
 else:
     print("   FAIL  it cannot read the document share — check KNOVAS_DOCUMENTS_PATH")
@@ -723,7 +789,7 @@ else
   # Captured rather than piped straight out: its last line says which prefix
   # the index's pointers carry, and the snippet sample below needs exactly that.
   E2E="$("${DC[@]}" exec -T -e PYTHONWARNINGS=ignore -e "DOCTOR_QUERY=$QUERY" \
-    docbridge-web python - <<'PY' 2>&1
+    -e "DOCTOR_M365=$M365" docbridge-web python - <<'PY' 2>&1
 import http.client
 import json
 import os
@@ -804,10 +870,35 @@ else:
     print("         Set KNOVAS_IDENTIFIER_PREFIX in knovas.env to what they start with,")
     print("         then ./scripts/setup.sh && ./scripts/start.sh")
 
-on_share = [r for r in top
-            if r.get("autodoc_rel_path")
-            and os.path.isfile(os.path.join(root, str(r["autodoc_rel_path"]).lstrip("/")))]
-if len(on_share) == len(top):
+m365 = os.environ.get("DOCTOR_M365") == "true"
+on_share = [] if m365 else [
+    r for r in top
+    if r.get("autodoc_rel_path")
+    and os.path.isfile(os.path.join(root, str(r["autodoc_rel_path"]).lstrip("/")))
+]
+if m365:
+    linked = [r for r in top if r.get("external_url")]
+    if len(linked) == len(top):
+        print("     OK  every top result opens in OneDrive/SharePoint")
+    else:
+        print(f"   FAIL  {len(top) - len(linked)} of the top {len(top)} results have no OneDrive/SharePoint link.")
+        print("         RemoteController publishes the links at the end of each sync cycle, under")
+        print("         the identifiers it ingests with; a result indexed under another Kennung")
+        print("         has none. See 'Documents in OneDrive / SharePoint' above.")
+    if linked:
+        doc = urllib.parse.quote(str(linked[0].get("doc_id") or linked[0].get("path")), safe="/")
+        status, raw = call("GET", f"/api/document/{doc}/m365-preview?"
+                           + urllib.parse.urlencode({"path": linked[0].get("path") or ""}))
+        try:
+            answer = json.loads(raw)
+        except ValueError:
+            answer = {}
+        if status == 200 and (answer.get("embed_url") or answer.get("post_url")):
+            print("     OK  the preview opens in Microsoft 365's viewer")
+        else:
+            print(f"   WARN  the Microsoft 365 preview answers HTTP {status}; the dialog shows the")
+            print("         indexed text instead. RemoteController's log says why.")
+elif len(on_share) == len(top):
     print("     OK  every top result is a file on the share")
 else:
     missing = next(r for r in top if r not in on_share)
@@ -859,6 +950,7 @@ PY
   SEEN_PREFIX="$(printf '%s\n' "$E2E" | sed -n 's/^@@prefix //p')"
 fi
 
+if [[ "$M365" != true ]]; then
 head_ "Snippet text across the share"
 # A store that is not empty can still hold text only for what RemoteController
 # has read since this deployment began -- by default the files changed in the
@@ -951,6 +1043,7 @@ else:
     print("         Follow it with: docker logs -f knovas-snippet-backfill")
     print("         (--jobs is how many documents at once; each takes one CPU core while it runs.)")
 PY
+fi
 fi
 
 head_ "Public address"

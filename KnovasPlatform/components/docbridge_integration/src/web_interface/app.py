@@ -2380,7 +2380,7 @@ def create_app(config_path: Optional[str] = None):
             body.pop('post_url')
             body.pop('post_params', None)
         if not (body.get('embed_url') or body.get('post_url')):
-            return jsonify({'success': False, 'error': 'Keine Vorschau für dieses Dokument.'}), 502
+            return jsonify({'success': False, 'error': 'Keine Vorschau f\u00fcr dieses Dokument.'}), 502
         return jsonify(body)
 
     @app.route('/api/open-tokens/mint', methods=['POST'])

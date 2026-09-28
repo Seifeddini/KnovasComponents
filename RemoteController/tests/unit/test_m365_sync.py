@@ -228,6 +228,13 @@ def test_discover_lists_the_folder_like_a_share(m365, monkeypatch):
     load_config(validate=False, force_reload=True)
     client = create_app(skip_validation=True).test_client()
 
+    # Before any sync has read the folder, the picker does not run the first
+    # pass inside its request (a single gunicorn worker would time out and take
+    # the sync with it): it starts it in the background and says so.
+    first = client.get("/discover?max_depth=1")
+    assert first.status_code == 503 and "still being read" in first.get_json()["error"]
+    _wait_until_read(m365[1])
+
     resp = client.get("/discover?max_depth=1")
     assert resp.status_code == 200, resp.get_json()
     data = resp.get_json()
@@ -240,6 +247,29 @@ def test_discover_lists_the_folder_like_a_share(m365, monkeypatch):
     assert sorted(e["path"] for e in sub["entries"]) == ["b.txt", "c.md"]
 
     assert client.get("/discover?root=/etc").status_code == 403
+
+
+def _wait_until_read(source, timeout=5.0):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if source._inventory_for().complete and not source._refresh_lock.locked():
+            return
+        time.sleep(0.01)
+    raise AssertionError("background first read did not finish")
+
+
+def test_browsing_never_waits_for_a_running_refresh(m365):
+    graph, source, _ = m365
+    source.refresh()  # first pass done
+    graph.fail_delta = True  # would raise if browsing refreshed now
+    assert source._refresh_lock.acquire(blocking=False)  # a sync cycle is mid-refresh
+    try:
+        source.refresh(max_age_seconds=0.000001)  # returns the last view at once
+        assert "a.md" in source.files()
+    finally:
+        source._refresh_lock.release()
 
 
 def test_preview_serves_only_published_documents(m365, monkeypatch):

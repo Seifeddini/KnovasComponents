@@ -1,3 +1,30 @@
+# Unreleased
+
+## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
+
+Statt `KNOVAS_DOCUMENTS_PATH` kann `knovas.env` die Adresse eines OneDrive- oder
+SharePoint-Ordners nennen, so wie der Browser sie zeigt, dazu `M365_CLIENT_ID`
+und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
+`Sites.Read.All`. Eine Einstellung fuer beide.
+
+- **Keine Kopie auf dem Server.** RemoteController fragt Microsoft Graph nach
+  Aenderungen, laedt nur neue und geaenderte Dateien in ein temporaeres
+  Verzeichnis, indexiert sie und loescht sie wieder.
+- **Oeffnen und Vorschau in Microsoft 365.** Treffer oeffnen in
+  OneDrive/SharePoint; die Vorschau ist der Viewer von Microsoft 365, auf der
+  Seite der Fundstelle. Textauszuege und Fundstellen bleiben wie bisher.
+- **Uebernahme im Admin-Bereich** zeigt die Unterordner aus OneDrive/SharePoint;
+  Zugriffsgruppen je Ordner funktionieren unveraendert.
+- Das Client-Secret gelangt nur in den RemoteController-Container, nie in die
+  generierten `.env.generated` und nie in die Plattform.
+- `start.sh` und `doctor.sh` pruefen Anmeldung, Adresse und Ordner.
+
+Anleitung: [docs/microsoft-365.md](docs/microsoft-365.md).
+
+Behoben dabei: Das Standardprofil von RemoteController uebernahm keine Dateien,
+die direkt im obersten Ordner liegen (`**/*.pdf` braucht vor Python 3.13 ein
+Unterverzeichnis).
+
 # v1.0.0
 
 Customer deploy bundle for Knovas.

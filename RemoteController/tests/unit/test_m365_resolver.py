@@ -1,4 +1,4 @@
-"""Resolving an address walks site → library → folder with read-only Graph calls."""
+"""Resolving an address walks site -> library -> folder with read-only Graph calls."""
 from __future__ import annotations
 
 from urllib.parse import unquote

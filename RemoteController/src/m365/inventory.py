@@ -118,8 +118,10 @@ def _record_for(item: dict[str, Any], previous: Optional[list]) -> list:
 class DriveInventory:
     """Id-tracked view of one drive, filtered to one folder.
 
-    Thread-safe: the scheduler's worker refreshes it while request threads
-    (``/discover``, ``/m365/preview``) read it.
+    Thread-safe without making readers wait: a refresh builds the next view on
+    a copy and swaps one reference at the end, so ``/discover`` keeps reading
+    the last complete view while the scheduler's worker spends minutes on the
+    first pass over a large library. Refreshes themselves are serialised.
     """
 
     def __init__(
@@ -136,7 +138,7 @@ class DriveInventory:
         self._folder_id = folder_id
         self._folder_is_root = folder_is_root
         self._state_path = Path(state_path)
-        self._lock = threading.RLock()
+        self._refresh_lock = threading.Lock()
         self._items: dict[str, list] = {}
         self._delta_link: Optional[str] = None
         self._complete = False
@@ -194,7 +196,7 @@ class DriveInventory:
         over a new delta link, so a refresh that dies half way leaves the last
         good view (and its link) in place and the next one simply repeats.
         """
-        with self._lock:
+        with self._refresh_lock:
             try:
                 return self._refresh_from(self._delta_link)
             except DeltaTokenInvalid:
@@ -234,8 +236,10 @@ class DriveInventory:
                 "the app lost access). Nothing is removed from Knovas until it is back "
                 "or the address is changed."
             )
-        self._items = staged
+        # Link first, then the view readers pick up; both before the save, so
+        # a failed write costs a repeated delta next time, never a lost change.
         self._delta_link = new_link
+        self._items = staged
         self._complete = True
         self._save()
         return {"changes": changed, "items": len(staged)}
@@ -245,8 +249,7 @@ class DriveInventory:
         return self._complete
 
     # ------------------------------------------------------------------ views
-    def _path_resolver(self):
-        items = self._items
+    def _path_resolver(self, items: dict[str, list]):
         cache: dict[str, Optional[str]] = {self._folder_id: ""}
 
         def path_of(item_id: str, depth: int = 0) -> Optional[str]:
@@ -267,42 +270,42 @@ class DriveInventory:
 
     def files(self) -> dict[str, RemoteFile]:
         """Every file below the configured folder, keyed by its relative path."""
-        with self._lock:
-            if not self._complete:
-                raise InventoryError("The Microsoft 365 folder has not been read yet")
-            path_of = self._path_resolver()
-            out: dict[str, RemoteFile] = {}
-            for item_id, record in self._items.items():
-                if record[2] != _KIND_FILE:
-                    continue
-                rel = path_of(item_id)
-                if not rel:
-                    continue
-                out[rel] = RemoteFile(
-                    drive_id=self._drive_id,
-                    item_id=item_id,
-                    rel_path=rel,
-                    name=record[0],
-                    size=int(record[3] or 0),
-                    modified_iso=record[4] or "1970-01-01T00:00:00Z",
-                    web_url=record[5],
-                )
-            return out
+        items = self._items  # one consistent view; a refresh swaps, never mutates it
+        if not self._complete:
+            raise InventoryError("The Microsoft 365 folder has not been read yet")
+        path_of = self._path_resolver(items)
+        out: dict[str, RemoteFile] = {}
+        for item_id, record in items.items():
+            if record[2] != _KIND_FILE:
+                continue
+            rel = path_of(item_id)
+            if not rel:
+                continue
+            out[rel] = RemoteFile(
+                drive_id=self._drive_id,
+                item_id=item_id,
+                rel_path=rel,
+                name=record[0],
+                size=int(record[3] or 0),
+                modified_iso=record[4] or "1970-01-01T00:00:00Z",
+                web_url=record[5],
+            )
+        return out
 
     def folders(self) -> dict[str, RemoteFolder]:
         """Every folder below the configured folder, keyed by its relative path."""
-        with self._lock:
-            if not self._complete:
-                raise InventoryError("The Microsoft 365 folder has not been read yet")
-            path_of = self._path_resolver()
-            out: dict[str, RemoteFolder] = {}
-            for item_id, record in self._items.items():
-                if record[2] != _KIND_FOLDER:
-                    continue
-                rel = path_of(item_id)
-                if not rel:
-                    continue
-                out[rel] = RemoteFolder(
-                    item_id=item_id, rel_path=rel, name=record[0], modified_iso=record[4]
-                )
-            return out
+        items = self._items
+        if not self._complete:
+            raise InventoryError("The Microsoft 365 folder has not been read yet")
+        path_of = self._path_resolver(items)
+        out: dict[str, RemoteFolder] = {}
+        for item_id, record in items.items():
+            if record[2] != _KIND_FOLDER:
+                continue
+            rel = path_of(item_id)
+            if not rel:
+                continue
+            out[rel] = RemoteFolder(
+                item_id=item_id, rel_path=rel, name=record[0], modified_iso=record[4]
+            )
+        return out

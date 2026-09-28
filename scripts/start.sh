@@ -43,3 +43,12 @@ curl -fsS "http://${PROBE_HOST}:${PORT}/api/stats" >/dev/null \
   && echo "Platform (through nginx): ok" \
   || echo "Platform (through nginx): NOT reachable — docker compose logs docbridge-web docbridge-web-nginx"
 docker compose --env-file "$KNOVAS_ENV" ps
+
+# OneDrive/SharePoint: prove the folder can be read now, not at the first
+# empty search. Signs in as the app, resolves the address, reads the folder.
+if [[ -n "$(read_env_var KNOVAS_DOCUMENTS_URL "" "$KNOVAS_ENV")" ]]; then
+  echo "==> OneDrive/SharePoint folder"
+  docker compose --env-file "$KNOVAS_ENV" exec -T -e PYTHONWARNINGS=ignore \
+    remote-controller python -m m365.check \
+    || echo "    Fix the line marked FAIL in knovas.env, then ./scripts/setup.sh && ./scripts/start.sh"
+fi

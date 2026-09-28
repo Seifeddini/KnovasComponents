@@ -85,12 +85,18 @@ bash "$ROOT_DIR/scripts/lib/expand_knovas_env.sh" "$KNOVAS_ENV"
 source "$ROOT_DIR/KnovasPlatform/scripts/lib/read_env.sh"
 PLATFORM_URL="$(read_env_var KNOVAS_PLATFORM_URL "" "$KNOVAS_ENV")"
 DOCS_PATH="$(read_env_var KNOVAS_DOCUMENTS_PATH "" "$KNOVAS_ENV")"
+DOCS_URL="$(read_env_var KNOVAS_DOCUMENTS_URL "" "$KNOVAS_ENV")"
 ADMIN_EMAIL="$(read_env_var PLATFORM_ADMIN_EMAIL "" "$KNOVAS_ENV")"
 WEB_PORT="$(read_env_var DOCBRIDGE_WEB_PORT 8081 "$KNOVAS_ENV")"
 RC_PORT="$(read_env_var RC_HOST_PORT 5001 "$KNOVAS_ENV")"
 PROJECT="$(read_env_var COMPOSE_PROJECT_NAME "" "$KNOVAS_ENV")"
 
-if [[ ! -d "$DOCS_PATH" ]]; then
+if [[ -n "$DOCS_URL" ]]; then
+  # Documents are read from Microsoft 365 and never stored here. The empty
+  # folder only fills the mount docker-compose.yml declares for a share; made
+  # here so Docker does not create it as root.
+  mkdir -p "$ROOT_DIR/data/no-local-documents"
+elif [[ ! -d "$DOCS_PATH" ]]; then
   echo "WARNING: KNOVAS_DOCUMENTS_PATH does not exist yet: $DOCS_PATH"
 fi
 
@@ -105,7 +111,12 @@ fi
 echo ""
 echo "Setup complete."
 echo "  Platform URL: $PLATFORM_URL"
-echo "  Documents:    $DOCS_PATH"
+if [[ -n "$DOCS_URL" ]]; then
+  echo "  Documents:    $DOCS_URL"
+  echo "                (OneDrive/SharePoint; read on demand, nothing stored on this server)"
+else
+  echo "  Documents:    $DOCS_PATH"
+fi
 echo "  Administrator: $ADMIN_EMAIL"
 echo "  Compose project: ${PROJECT:-$(basename "$ROOT_DIR")}"
 echo "  Host ports:   UI ${WEB_PORT}, RemoteController ${RC_PORT}"

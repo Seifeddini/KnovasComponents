@@ -53,7 +53,7 @@ def test_a_microsoft_365_hit_keeps_its_snippets(links, tmp_path, monkeypatch):
     store = tmp_path / "ctx"
     write_context_sidecar(
         str(store), POINTER, "Mandanten/Meierhans/Klage.pdf",
-        "Klage gegen Meierhans. Die Forderung beträgt CHF 12'000. Frist 30 Tage.",
+        "Klage gegen Meierhans. Die Forderung betraegt CHF 12'000. Frist 30 Tage.",
         [_Sentence(0, 0, 1), _Sentence(1, 23, 1), _Sentence(2, 57, 2)],
     )
     monkeypatch.setenv("SEARCH_CONTEXT_STORE_PATH", str(store))
@@ -228,7 +228,7 @@ def test_front_end_uses_microsofts_viewer_for_microsoft_365_hits():
     js = (Path(__file__).resolve().parents[1] / "src/web_interface/static/js/app.js").read_text(encoding="utf-8")
     assert "this.m365Mode && doc.external_url" in js
     assert "/m365-preview" in js
-    assert "In ${label} öffnen" in js
+    assert "In ${label} \u00f6ffnen" in js
     assert "_externalSourceLabel(" in js
 
 
@@ -238,8 +238,8 @@ def test_cortex_quotes_come_from_the_indexed_text_when_no_file_is_here(tmp_path)
 
     write_context_sidecar(
         str(tmp_path), POINTER, "Mandanten/Meierhans/Klage.pdf",
-        "Klage gegen Meierhans wegen Mietzins. Die Forderung beträgt CHF 12'000 netto. "
-        "Die Frist beträgt dreissig Tage ab Zustellung.",
+        "Klage gegen Meierhans wegen Mietzins. Die Forderung betraegt CHF 12'000 netto. "
+        "Die Frist betraegt dreissig Tage ab Zustellung.",
         [_Sentence(0, 0, 1), _Sentence(1, 38, 1), _Sentence(2, 80, 2)],
     )
     pages = indexed_pages(load_context(str(tmp_path), [POINTER]))

@@ -17,7 +17,7 @@ m365_bp = Blueprint("m365", __name__)
 @require_same_origin
 @require_operator_or_tenant_user
 def m365_preview():
-    """``{"doc_id": "<identifier>", "page": 3}`` → a short-lived viewer URL.
+    """``{"doc_id": "<identifier>", "page": 3}`` -> a short-lived viewer URL.
 
     Deliberately not behind the handled-request limiter: the Platform calls
     this once per opened preview for every person of the firm, and paging

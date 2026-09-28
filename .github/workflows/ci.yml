@@ -75,6 +75,23 @@ jobs:
           docker compose --env-file scripts/lib/fixtures/knovas.env.fixture config --quiet
           docker compose --env-file scripts/lib/fixtures/knovas.env.fixture build docbridge-web
 
+      # OneDrive/SharePoint: no KNOVAS_DOCUMENTS_PATH, the app secret handed to
+      # RemoteController alone and never to the internet-facing Platform.
+      - name: Compose contract (Microsoft 365 documents)
+        working-directory: .
+        run: |
+          bash scripts/lib/expand_knovas_env.sh scripts/lib/fixtures/knovas.env.m365.fixture
+          docker compose --env-file scripts/lib/fixtures/knovas.env.m365.fixture config --format json > m365-compose.json
+          python3 - <<'PY'
+          import json
+          services = json.load(open("m365-compose.json"))["services"]
+          rc, web = services["remote-controller"]["environment"], services["docbridge-web"]
+          assert rc["M365_FOLDER_URL"].startswith("https://contoso.sharepoint.com/"), rc
+          assert rc["M365_CLIENT_SECRET"], "RemoteController did not get the app secret"
+          assert "not-a-real-secret" not in json.dumps(web), "the app secret reached the Platform"
+          assert web["environment"]["DOCUMENT_SOURCE"] == "m365"
+          PY
+
   remote-controller:
     runs-on: ubuntu-latest
     defaults:

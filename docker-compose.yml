@@ -44,7 +44,10 @@ services:
       - ./RemoteController/.env.generated
     volumes:
       - ./certs:/certs:ro
-      - ${KNOVAS_DOCUMENTS_PATH}:/mnt/documents:ro
+      # With KNOVAS_DOCUMENTS_URL (OneDrive/SharePoint) there is no local folder:
+      # an empty one stands in, and /mnt/documents only names the Microsoft 365
+      # folder for sync profiles and the folder picker. setup.sh creates it.
+      - ${KNOVAS_DOCUMENTS_PATH:-./data/no-local-documents}:/mnt/documents:ro
       - rc-config:/app/config
       - rc-state:/var/rc-state
       # The Platform's broker key directory. It holds the PRIVATE key too, and
@@ -58,6 +61,14 @@ services:
       - docbridge_broker_key:/app/secrets/broker:ro
     environment:
       RC_PLATFORM_BROKER_PUBKEY_PATH: /app/secrets/broker/broker_ed25519.pub
+      # OneDrive/SharePoint (KNOVAS_DOCUMENTS_URL in knovas.env). Handed over
+      # here, from knovas.env, and to this container only: the generated .env
+      # files are world-readable, and the Platform -- the internet-facing half --
+      # never needs the secret. Empty means documents come from the folder above.
+      M365_FOLDER_URL: ${KNOVAS_DOCUMENTS_URL:-}
+      M365_CLIENT_ID: ${M365_CLIENT_ID:-}
+      M365_CLIENT_SECRET: ${M365_CLIENT_SECRET:-}
+      M365_TENANT_ID: ${M365_TENANT_ID:-}
       # The console's "Speichern und uebertragen" writes GET/POST /sync/config;
       # that API is off by default and the push fails at its first call without this.
       RC_SYNC_CONFIG_API_ENABLED: "true"
@@ -109,7 +120,7 @@ services:
       # The broker signing key. Named volume, never a bind mount into the
       # repo: recreating the container without it silently rotates the key.
       - docbridge_broker_key:/app/secrets/broker
-      - ${KNOVAS_DOCUMENTS_PATH}:/mnt/autodoc:ro
+      - ${KNOVAS_DOCUMENTS_PATH:-./data/no-local-documents}:/mnt/autodoc:ro
       - ./certs:/app/certs:ro
       - rc-state:/var/rc-state:ro
       # The profile compiler validates against these schemas. The image also

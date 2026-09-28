@@ -35,7 +35,7 @@ flowchart LR
     RC -->|"outbound mTLS"| Cloud["Knovas cloud API"]
     KP -->|"outbound mTLS"| Cloud
   end
-  Share["File share / OneDrive mirror"] --> RC
+  Share["File share, or OneDrive / SharePoint via Microsoft Graph"] --> RC
   Share --> KP
   Users["Employee browsers\nVPN or LAN"] -->|"HTTPS :443"| KP
   Admin["Knovas setup via SSH"] --> RC
@@ -45,14 +45,14 @@ flowchart LR
 
 ## Minimum hardware
 
-Sizing covers **both** RemoteController and KnovasPlatform on one VM. Document files stay on the network share (or OneDrive mirror path)—not on the OS disk.
+Sizing covers **both** RemoteController and KnovasPlatform on one VM. Document files stay on the network share, or in OneDrive/SharePoint, and never on the OS disk.
 
 | Employees (N) | vCPU | RAM | OS disk | Notes |
 |---------------|------|-----|---------|-------|
 | Up to 25 | 4 | 8 GB | 30 GB | Pilot / small team |
 | 26–50 | 6 | 12 GB | 40 GB | More concurrent search users |
 | 51–100 | 8 | 16 GB | 50 GB | Heavy concurrent search |
-| Large SMB corpus or OneDrive mirror | +2–4 GB RAM | — | +10 GB if local mirror | Slow CIFS or local mirror storage |
+| Large SMB corpus | +2–4 GB RAM | — | — | Slow CIFS |
 
 The OS disk holds Ubuntu, Docker images, RC sync state, and Platform logs/data only.
 
@@ -92,7 +92,7 @@ The OS disk holds Ubuntu, Docker images, RC sync state, and Platform logs/data o
 | Target | Required when |
 |--------|---------------|
 | Knovas tenant API (HTTPS, typically `:8443`, mTLS) | Always — document sync and search |
-| `login.microsoftonline.com` and Microsoft Graph | OneDrive / SharePoint mirror only |
+| `login.microsoftonline.com` and `graph.microsoft.com` | Documents in OneDrive / SharePoint only |
 
 ---
 
@@ -126,10 +126,12 @@ The OS disk holds Ubuntu, Docker images, RC sync state, and Platform logs/data o
 
 | Item | Requirement |
 |------|-------------|
-| Microsoft Entra app | Tenant ID, client ID, client secret |
-| Library scope | Drive/site ID and read access to the target library |
-| VM storage | Local mirror path on the VM for sync (add RAM/disk per sizing table) |
-| Web links | Optional JSONL enrichment for “Open in OneDrive/SharePoint” in search results |
+| Folder | Its address from the browser (`KNOVAS_DOCUMENTS_URL`); OneDrive and SharePoint alike |
+| Microsoft Entra app | Client ID and client secret; Microsoft Graph **application** permission `Sites.Read.All` with admin consent |
+| VM storage | None extra: files are read when new or changed, indexed, and not kept |
+| File share | Not needed; results open and preview in OneDrive/SharePoint |
+
+Setup, permissions and troubleshooting: [microsoft-365.md](microsoft-365.md).
 
 ### End-user PCs (not the VM)
 
@@ -160,7 +162,7 @@ Hosting partner signs off before Knovas installs:
 - [ ] HTTPS on 443; HTTP not used for production
 - [ ] 443 allowed from employee subnets/VPN only
 - [ ] Pilot folder path and read-only credentials delivered securely
-- [ ] (If OneDrive/SharePoint) Graph credentials and library scope agreed
+- [ ] (If OneDrive/SharePoint) Entra app with `Sites.Read.All` (admin consent), client secret, and the folder address agreed
 
 ---
 

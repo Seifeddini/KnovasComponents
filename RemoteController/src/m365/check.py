@@ -40,7 +40,7 @@ def main() -> int:
             print(f"FAIL  {problem}")
         return 1
     tenant = settings.tenant_id or default_tenant_for_host(location.hostname)
-    print(f"ok    app: client {settings.client_id[:8]}… in tenant {tenant}")
+    print(f"ok    app: client {settings.client_id[:8]}... in tenant {tenant}")
 
     source = M365Source(settings)
     try:
@@ -70,7 +70,7 @@ def main() -> int:
         f"{len(indexable)} of a type Knovas indexes"
     )
     if files and not indexable:
-        print("WARN  none of the files is a type Knovas reads (pdf, docx, txt, md, eml, msg, …).")
+        print("WARN  none of the files is a type Knovas reads (pdf, docx, txt, md, eml, msg, ...).")
     return 0
 
 

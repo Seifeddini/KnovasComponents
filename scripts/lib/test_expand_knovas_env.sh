@@ -74,4 +74,36 @@ grep -q '^RC_SYNC_AUTO_START_CONTINUOUS=' "$KP_ENV" && fail "RC key leaked into 
 # A consumed key must not be echoed back as an override.
 [[ "$(grep -c '^KNOVAS_API_URL=' "$KP_ENV")" == "0" ]] || fail "orchestration key passed through verbatim"
 
+# --- OneDrive/SharePoint: one address, one app, nothing secret on disk ------
+bash scripts/lib/expand_knovas_env.sh "$FIXTURES/knovas.env.m365.fixture"
+[[ "$(last_value DOCUMENT_SOURCE "$KP_ENV")" == "m365" ]] || fail "Platform not switched to Microsoft 365 mode"
+[[ "$(last_value SEARCH_ENRICHMENT_PATH "$KP_ENV")" == "/var/rc-state/m365/links.jsonl" ]] \
+  || fail "Platform does not read RemoteController's OneDrive/SharePoint links"
+# The generated files are world-readable; the app secret must be in neither.
+grep -q 'not-a-real-secret-m365-fixture' "$RC_ENV" "$KP_ENV" \
+  && fail "the Microsoft 365 client secret was written into a world-readable .env.generated"
+grep -q '^M365_\|^KNOVAS_DOCUMENTS_URL=' "$KP_ENV" && fail "Microsoft 365 settings leaked into the Platform env"
+# A share deployment stays exactly as it was.
+bash scripts/lib/expand_knovas_env.sh "$FIXTURES/knovas.env.fixture"
+grep -q '^DOCUMENT_SOURCE=' "$KP_ENV" && fail "a share deployment was switched to Microsoft 365"
+
+refused() {
+  local file
+  file="$(mktemp)"
+  cat > "$file"
+  if bash scripts/lib/expand_knovas_env.sh "$file" 2>/dev/null; then
+    rm -f "$file"
+    fail "$1"
+  fi
+  rm -f "$file"
+}
+{ cat "$FIXTURES/knovas.env.m365.fixture"; echo "KNOVAS_DOCUMENTS_PATH=/mnt/share"; } \
+  | refused "both a share and a Microsoft 365 folder were accepted"
+grep -v '^M365_CLIENT_SECRET=' "$FIXTURES/knovas.env.m365.fixture" \
+  | refused "a Microsoft 365 folder without the app secret was accepted"
+sed 's#^KNOVAS_DOCUMENTS_URL=.*#KNOVAS_DOCUMENTS_URL=https://example.com/docs#' "$FIXTURES/knovas.env.m365.fixture" \
+  | refused "a non-SharePoint address was accepted"
+grep -v '^KNOVAS_DOCUMENTS_URL=' "$FIXTURES/knovas.env.m365.fixture" \
+  | refused "no document source at all was accepted"
+
 echo "expand_knovas_env smoke OK"

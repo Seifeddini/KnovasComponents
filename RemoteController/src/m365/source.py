@@ -110,7 +110,14 @@ class M365Source:
         self._client = client or GraphClient(
             tenant_id=tenant, client_id=settings.client_id, client_secret=settings.client_secret
         )
+        # _lock guards resolution and the inventory object; _refresh_lock is
+        # held for the whole Graph round trip; _links_lock for the link table.
+        # Kept apart so a preview never waits for a refresh -- the first pass
+        # over a large library takes minutes, and RemoteController has a single
+        # gunicorn worker whose request timeout would kill the sync with it.
         self._lock = threading.RLock()
+        self._refresh_lock = threading.Lock()
+        self._links_lock = threading.Lock()
         self._resolved: Optional[ResolvedFolder] = None
         self._inventory: Optional[DriveInventory] = None
         self._last_refresh: float = 0.0
@@ -148,6 +155,8 @@ class M365Source:
         The cache is keyed by the address, so changing ``M365_FOLDER_URL``
         resolves again, and the inventory of a different library starts fresh.
         """
+        if self._resolved is not None:
+            return self._resolved
         with self._lock:
             if self._resolved is None:
                 cached = self._load_resolution()
@@ -181,15 +190,43 @@ class M365Source:
         A failure is never papered over with the previous view for a sync
         cycle (``max_age_seconds=0``): pruning from a stale or partial view is
         how documents get deleted from Knovas that still exist.
+
+        A browsing read (``max_age_seconds > 0``) never waits for a refresh
+        that is already running: it takes the last complete view, or -- during
+        the very first pass -- says the folder is still being read.
         """
-        with self._lock:
-            inventory = self._inventory_for()
-            if (
-                max_age_seconds > 0
-                and inventory.complete
-                and time.monotonic() - self._last_refresh < max_age_seconds
-            ):
+        inventory = self._inventory_for()
+        if max_age_seconds > 0:
+            if inventory.complete and time.monotonic() - self._last_refresh < max_age_seconds:
                 return
+            if not inventory.complete:
+                # The first pass can take minutes: never inside a request.
+                self._start_background_refresh()
+                raise M365Error(
+                    "The OneDrive/SharePoint folder is still being read for the first "
+                    "time; try again in a minute."
+                )
+            if not self._refresh_lock.acquire(blocking=False):
+                return  # a refresh is running; the last complete view will do
+        else:
+            self._refresh_lock.acquire()
+        self._refresh_locked(inventory)
+
+    def _start_background_refresh(self) -> None:
+        if not self._refresh_lock.acquire(blocking=False):
+            return  # already under way
+
+        def run() -> None:
+            try:
+                self._refresh_locked(self._inventory_for())
+            except M365Error as exc:
+                logger.warning("Microsoft 365 first read failed: %s", exc)
+
+        threading.Thread(target=run, name="m365-first-read", daemon=True).start()
+
+    def _refresh_locked(self, inventory: DriveInventory) -> None:
+        """Refresh while holding ``_refresh_lock``; always releases it."""
+        try:
             try:
                 stats = inventory.refresh()
             except (InventoryError, GraphAuthError, GraphRequestError,
@@ -205,6 +242,8 @@ class M365Source:
                     stats["changes"],
                     stats["items"],
                 )
+        finally:
+            self._refresh_lock.release()
 
     def files(self) -> dict[str, RemoteFile]:
         try:
@@ -242,7 +281,7 @@ class M365Source:
 
     # ------------------------------------------------------------------ links
     def write_links(self, rows: list[dict[str, str]]) -> None:
-        """Publish identifier → web address for the Platform (open and preview).
+        """Publish identifier -> web address for the Platform (open and preview).
 
         Rewritten only when something changed, so the Platform does not reload
         an identical file after every idle cycle.
@@ -250,7 +289,7 @@ class M365Source:
         ordered = sorted(rows, key=lambda r: r["doc_id"])
         body = "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in ordered)
         digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        with self._lock:
+        with self._links_lock:
             path = self.settings.links_path
             if digest == self._links_digest and path.exists():
                 return
@@ -272,7 +311,7 @@ class M365Source:
             self._links_by_doc = {r["doc_id"]: r for r in ordered}
 
     def _link_for(self, doc_id: str) -> Optional[dict[str, str]]:
-        with self._lock:
+        with self._links_lock:
             if self._links_by_doc is None:
                 by_doc: dict[str, dict[str, str]] = {}
                 try:
@@ -373,7 +412,7 @@ def reset_m365_source(source: Optional[M365Source] = None) -> None:
 def watch_root_subpath(source_path: str) -> Optional[str]:
     """Map a sync-body source path onto the configured folder.
 
-    ``/mnt/documents`` → ``""``, ``/mnt/documents/Akten`` → ``"Akten"``, and a
+    ``/mnt/documents`` -> ``""``, ``/mnt/documents/Akten`` -> ``"Akten"``, and a
     relative ``Akten`` means the same. None for anything outside the root.
     """
     roots = [r.rstrip("/") or "/" for r in get_config().rc_watch_roots] or ["/mnt/documents"]
