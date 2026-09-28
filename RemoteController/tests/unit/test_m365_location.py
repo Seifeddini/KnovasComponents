@@ -92,3 +92,20 @@ def test_unusable_addresses_say_why(url, needle):
 )
 def test_tenant_is_derived_from_the_host(host, tenant):
     assert default_tenant_for_host(host) == tenant
+
+
+def test_classic_view_names_the_folder_in_rootfolder():
+    loc = parse_folder_url(
+        "https://contoso.sharepoint.com/sites/Kanzlei/Shared%20Documents/Forms/AllItems.aspx"
+        "?RootFolder=%2Fsites%2FKanzlei%2FShared%20Documents%2FAkten%202024&FolderCTID=0x0120"
+    )
+    assert loc.segments == SP
+
+
+def test_query_paths_are_decoded_once():
+    # A folder literally named "Rabatt%20Aktion" is %2520-encoded in ?id=.
+    loc = parse_folder_url(
+        "https://contoso.sharepoint.com/sites/K/Shared%20Documents/Forms/AllItems.aspx"
+        "?id=%2Fsites%2FK%2FShared%20Documents%2FRabatt%2520Aktion"
+    )
+    assert loc.segments[-1] == "Rabatt%20Aktion"

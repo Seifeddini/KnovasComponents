@@ -85,6 +85,7 @@ class GraphClient:
         max_attempts: int = 8,
         backoff: float = 2.0,
         jitter: float = 1.0,
+        adapter_retries: int = 4,
     ) -> None:
         if not (tenant_id and client_id and client_secret):
             raise ValueError(
@@ -97,6 +98,7 @@ class GraphClient:
         self._max_attempts = max(1, int(max_attempts))
         self._backoff = max(0.0, float(backoff))
         self._jitter = max(0.0, float(jitter))
+        self._adapter_retries = max(0, int(adapter_retries))
 
         self._token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
@@ -106,7 +108,7 @@ class GraphClient:
     def _build_session(self) -> requests.Session:
         session = requests.Session()
         retry = Retry(
-            total=4,
+            total=self._adapter_retries,
             backoff_factor=self._backoff,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET", "POST"],

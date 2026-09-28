@@ -8,7 +8,7 @@ from flask import Flask
 
 from auth.platform_principal import refuse_if_broker_private_key_is_readable
 from config import get_config, load_config
-from m365.source import m365_configured
+from m365.source import m365_configured, remove_stale_temp_copies
 from onedrive_mirror import start_mirror_thread_if_configured
 from routes.discover import discover_bp
 from routes.health import health_bp
@@ -59,6 +59,8 @@ def create_app(*, skip_validation: bool = False) -> Flask:
             logger.warning("Auto-start continuous sync skipped: %s", exc)
 
         if m365_configured():
+            if remove_stale_temp_copies():
+                logger.info("Removed temp copies of Microsoft 365 files left by a killed worker")
             # The native source reads the folder itself; a mirror copying the
             # same files onto this server is exactly what it replaces.
             if (os.environ.get("ONEDRIVE_DRIVE_ID") or "").strip():

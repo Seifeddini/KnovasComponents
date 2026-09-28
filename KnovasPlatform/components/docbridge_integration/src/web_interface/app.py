@@ -2335,10 +2335,14 @@ def create_app(config_path: Optional[str] = None):
         body: Dict[str, Any] = {'doc_id': doc_id}
         if page:
             body['page'] = page
+        from remote_controller_client import RemoteControllerError
+
         resp = requests.post(f'{base}/m365/preview', json=body, timeout=8)
         data = resp.json() if resp.content else {}
         if resp.status_code >= 400:
-            raise RuntimeError(str((data or {}).get('error') or f'HTTP {resp.status_code}'))
+            raise RemoteControllerError(
+                str((data or {}).get('error') or f'HTTP {resp.status_code}'), status=resp.status_code,
+            )
         return data
 
     @app.route('/api/document/<path:doc_id>/m365-preview', methods=['GET'])
@@ -2351,22 +2355,18 @@ def create_app(config_path: Optional[str] = None):
         """
         if not m365_mode:
             return jsonify({'success': False, 'error': 'Not found'}), 404
-        file_path = str(request.args.get('path') or doc_id).strip()
-        enrichment = _load_search_enrichment(config)
-        meta = _lookup_enrichment_meta(
-            enrichment, {'doc_id': doc_id, 'path': file_path, 'pointer': doc_id},
-        ) if enrichment else None
-        if not meta or not meta.get('doc_id'):
-            return jsonify({'success': False, 'error': 'Kein Microsoft-365-Dokument.'}), 404
         try:
             page = int(request.args.get('page') or 0) or None
         except (TypeError, ValueError):
             page = None
         try:
-            # The identifier exactly as RemoteController published it, not
-            # however this request happened to spell it.
-            data = _rc_m365_preview(str(meta['doc_id']), page)
+            # Exactly the identifier the gate above granted -- no lookup that
+            # could land on another file of the same name. RemoteController
+            # answers only for identifiers it published itself.
+            data = _rc_m365_preview(str(doc_id), page)
         except Exception as exc:  # noqa: BLE001 - every failure means "show the indexed text"
+            if getattr(exc, 'status', None) == 404:
+                return jsonify({'success': False, 'error': 'Kein Microsoft-365-Dokument.'}), 404
             logger.warning('Microsoft 365 preview for %r failed: %s', doc_id, exc)
             return jsonify({'success': False, 'error': 'Vorschau von Microsoft 365 nicht erreichbar.'}), 502
         body: Dict[str, Any] = {'success': True}
@@ -3208,11 +3208,34 @@ def _web_url_from_enrichment(meta: dict) -> Optional[str]:
     return None
 
 
-def _lookup_enrichment_meta(enrichment: Dict[str, dict], result: Dict[str, Any]) -> Optional[dict]:
+def _m365_documents(config=None) -> bool:
+    """documents.source == m365: every document is identified exactly."""
+    if config is None:
+        return False
+    try:
+        return str(config.get('documents.source', 'files') or 'files').strip().lower() == 'm365'
+    except Exception:  # noqa: BLE001 - a config stub without the key is "files"
+        return False
+
+
+def _lookup_enrichment_meta(
+    enrichment: Dict[str, dict], result: Dict[str, Any], *, exact_only: bool = False,
+) -> Optional[dict]:
+    """Enrichment row for a result.
+
+    ``exact_only`` drops the file-name and path-suffix fallbacks. They exist to
+    bridge a mirror whose identifiers were spelt differently from the index;
+    with Microsoft 365 as the source RemoteController publishes the index's own
+    identifiers, and a fallback can only ever find a DIFFERENT document -- one
+    with the same file name elsewhere, possibly behind a wall this person may
+    not pass, opened with an app-only viewer that ignores SharePoint's rights.
+    """
     for key in _enrichment_lookup_keys(result):
         meta = enrichment.get(key)
         if meta:
             return meta
+    if exact_only:
+        return None
     for field in ("path", "doc_id", "pointer"):
         raw = result.get(field)
         if not raw:
@@ -3255,7 +3278,7 @@ def _resolve_onedrive_url(doc_id: str, path: str, config=None) -> Optional[str]:
         "doc_id": doc_id,
         "path": path,
         "pointer": path or doc_id,
-    })
+    }, exact_only=_m365_documents(config))
     return _web_url_from_enrichment(meta) if meta else None
 
 
@@ -3323,7 +3346,9 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
         _search_enrichment_inferred_prefixes = []
         return {}
     max_bytes = 0
-    if config is not None:
+    if config is not None and not _m365_documents(config):
+        # In Microsoft 365 mode this file is how every hit opens and previews;
+        # skipping it past a size cap would silently take both from all of them.
         max_bytes = config.get_int("web.search.enrichment_max_bytes", 52_428_800)
     try:
         if not os.path.isfile(path):
@@ -3445,7 +3470,10 @@ def _enhance_search_results(
 
     for result in enhanced_results['results']:
         doc_id = str(result.get("doc_id") or result.get("pointer") or "")
-        meta = _lookup_enrichment_meta(enrichment, result) if enrichment else None
+        meta = (
+            _lookup_enrichment_meta(enrichment, result, exact_only=_m365_documents(config))
+            if enrichment else None
+        )
         if meta:
             if meta.get("title"):
                 result["title"] = meta["title"]

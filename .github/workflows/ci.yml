@@ -91,6 +91,12 @@ jobs:
           assert "not-a-real-secret" not in json.dumps(web), "the app secret reached the Platform"
           assert web["environment"]["DOCUMENT_SOURCE"] == "m365"
           PY
+          # Neither a share nor a Microsoft 365 folder: compose must refuse,
+          # never mount the empty stand-in as if it were the share.
+          grep -v '^KNOVAS_DOCUMENTS_PATH=' scripts/lib/fixtures/knovas.env.fixture > no-documents.env
+          if docker compose --env-file no-documents.env config --quiet 2>/dev/null; then
+            echo "compose started with no document source"; exit 1
+          fi
 
   remote-controller:
     runs-on: ubuntu-latest

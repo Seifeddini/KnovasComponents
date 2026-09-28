@@ -71,8 +71,11 @@ def default_tenant_for_host(hostname: str) -> str:
     return f"{name}.onmicrosoft.com"
 
 
-def _split_path(raw: str) -> list[str]:
-    return [unquote(part) for part in raw.split("/") if part]
+def _split_path(raw: str, *, decode: bool = True) -> list[str]:
+    """Path segments. A URL path is percent-decoded once here; a query value
+    already was (by ``parse_qs``), and decoding it again would turn a folder
+    literally named ``Rabatt%20Aktion`` into ``Rabatt Aktion``."""
+    return [unquote(part) if decode else part for part in raw.split("/") if part]
 
 
 def _strip_view_pages(segments: list[str]) -> list[str]:
@@ -114,11 +117,12 @@ def parse_folder_url(url: str) -> FolderLocation:
             "folder in the browser and copy the address from the address bar instead."
         )
 
-    # Library views and OneDrive's own page name the folder in ?id=.
-    query = parse_qs(parts.query)
-    id_values = [v for v in query.get("id", []) if v.strip()]
+    # Library views and OneDrive's own page name the folder in ?id=; the
+    # classic view in ?RootFolder=. Keys compared without case, as SharePoint does.
+    query = {k.lower(): v for k, v in parse_qs(parts.query).items()}
+    id_values = [v for v in query.get("id", []) + query.get("rootfolder", []) if v.strip()]
     if id_values:
-        segments = _split_path(id_values[0])
+        segments = _split_path(id_values[0], decode=False)
     else:
         segments = _strip_view_pages(_split_path(path))
 

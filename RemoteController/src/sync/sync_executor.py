@@ -341,6 +341,31 @@ def _local_file(item: Any):
     return nullcontext(item)
 
 
+#: setup.sh puts this in the empty folder that stands in for the share when the
+#: documents are in Microsoft 365 (KNOVAS_DOCUMENTS_URL).
+PLACEHOLDER_MARKER = ".knovas-no-local-documents"
+
+
+def _refuse_placeholder_root() -> None:
+    """Never read the Microsoft 365 stand-in folder as if it were a share.
+
+    It is empty by design, so a cycle over it would find nothing and prune
+    every document from Knovas. That happens exactly when the Microsoft 365
+    settings did not reach this container (a blanked or misspelt key in
+    knovas.env), so stop and say that instead.
+    """
+    from config import get_config
+
+    for root in get_config().rc_watch_roots:
+        if (Path(root) / PLACEHOLDER_MARKER).exists():
+            raise RuntimeError(
+                f"{root} is the stand-in for a OneDrive/SharePoint folder, not a share, "
+                "but M365_FOLDER_URL is empty here. Check KNOVAS_DOCUMENTS_URL in "
+                "knovas.env, then ./scripts/setup.sh && ./scripts/start.sh. Nothing "
+                "was synced or removed."
+            )
+
+
 def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
     if mode != "incremental":
         return status != "excluded_max_age"
@@ -478,6 +503,8 @@ def plan_sync_cycle(
     if m365 is not None:
         m365.refresh(max_age_seconds=m365_max_age_seconds)
         queue = None
+    else:
+        _refuse_placeholder_root()
     filters = effective_filters(sync_body, sync_config)
     mode = sync_body.get("mode", "incremental")
     max_age = filters.get("max_document_age_seconds")
@@ -539,6 +566,7 @@ def plan_sync_cycle(
                     "title": abs_path.name,
                     "modified_at": abs_path.modified_iso,
                     "item_id": abs_path.item_id,
+                    "drive_id": abs_path.drive_id,
                 }
             )
         stored = state.lookup_stored(rel, fingerprints)
@@ -816,7 +844,22 @@ def run_sync_work(
             and not result.paused_reason
             and not sequential
         )
-        if can_prune:
+        if can_prune and not plan.scanned_paths and state.count_tracked_paths() > 0:
+            # Every source came back empty while documents are tracked: a share
+            # that is not mounted, a folder emptied by mistake, a source that
+            # points nowhere. Pruning would remove the whole index in one cycle.
+            # Leave it, and say so; a genuine emptying is one deliberate
+            # "delete_all_documents" away.
+            logger.warning(
+                "Sources are empty but %d document(s) are tracked; NOT removing them "
+                "from Knovas. Check the document source.",
+                state.count_tracked_paths(),
+            )
+            result.errors.append({
+                "path": "",
+                "error": "sources empty while documents are tracked; nothing removed",
+            })
+        elif can_prune:
             _prune_removed_documents(sync_body, uploader, state, plan.scanned_paths, result)
 
         if sequential and queue is not None and source_root is not None and result.document_sync is not None:

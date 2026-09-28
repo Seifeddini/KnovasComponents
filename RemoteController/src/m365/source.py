@@ -31,7 +31,13 @@ from typing import Any, Iterator, Optional
 import requests
 
 from config import get_config
-from m365.inventory import DriveInventory, InventoryError, RemoteFile, RemoteFolder
+from m365.inventory import (
+    DriveInventory,
+    FolderMissingError,
+    InventoryError,
+    RemoteFile,
+    RemoteFolder,
+)
 from m365.location import FolderLocation, LocationError, default_tenant_for_host, parse_folder_url
 from m365.resolver import GRAPH, ResolveError, ResolvedFolder, resolve_folder
 from onedrive_mirror.graph import GraphAuthError, GraphClient, GraphRequestError
@@ -92,9 +98,35 @@ class M365Settings:
         return out
 
 
-def _sanitize_filename(name: str) -> str:
+#: Well below the 255-byte file name limit of every Linux filesystem, in bytes,
+#: because a name of umlauts is twice as long in bytes as in characters.
+_MAX_STEM_BYTES = 150
+
+
+def temp_filename(name: str) -> str:
+    """A safe local name that keeps the extension extraction reads by.
+
+    Long Outlook subjects and SharePoint names routinely pass 200 characters;
+    cutting them blindly dropped the ``.msg``/``.pdf`` (so the file counted as
+    unconvertible and was skipped for good) or overran 255 bytes (so the
+    download failed every cycle).
+    """
     cleaned = "".join("_" if c in '/\\:\x00' else c for c in (name or "")).strip().strip(".")
-    return cleaned[:200] or "document"
+    stem, dot, ext = cleaned.rpartition(".")
+    if not dot or not ext or len(ext) > 16 or not ext.isalnum() or not stem:
+        stem, ext = cleaned, ""
+    encoded = stem.encode("utf-8")[:_MAX_STEM_BYTES]
+    stem = encoded.decode("utf-8", errors="ignore").strip() or "document"
+    return f"{stem}.{ext}" if ext else stem
+
+
+def remove_stale_temp_copies() -> int:
+    """Delete temp copies a killed worker left behind (``finally`` never ran)."""
+    removed = 0
+    for leftover in Path(tempfile.gettempdir()).glob("knovas-m365-*"):
+        shutil.rmtree(leftover, ignore_errors=True)
+        removed += 1
+    return removed
 
 
 class M365Source:
@@ -109,6 +141,18 @@ class M365Source:
         tenant = settings.tenant_id or default_tenant_for_host(self.location.hostname)
         self._client = client or GraphClient(
             tenant_id=tenant, client_id=settings.client_id, client_secret=settings.client_secret
+        )
+        # For calls made inside an HTTP request (the preview): one attempt,
+        # short timeout. The sync client's patient retries (minutes, during a
+        # Graph throttling episode) would outlast gunicorn's worker timeout and
+        # take the running sync down with the request.
+        self._request_client = client or GraphClient(
+            tenant_id=tenant,
+            client_id=settings.client_id,
+            client_secret=settings.client_secret,
+            request_timeout=8.0,
+            max_attempts=1,
+            adapter_retries=0,
         )
         # _lock guards resolution and the inventory object; _refresh_lock is
         # held for the whole Graph round trip; _links_lock for the link table.
@@ -195,22 +239,24 @@ class M365Source:
         that is already running: it takes the last complete view, or -- during
         the very first pass -- says the folder is still being read.
         """
-        inventory = self._inventory_for()
         if max_age_seconds > 0:
-            if inventory.complete and time.monotonic() - self._last_refresh < max_age_seconds:
-                return
-            if not inventory.complete:
-                # The first pass can take minutes: never inside a request.
+            # A browsing read (folder picker, status page) never talks to Graph
+            # itself: it reads the last complete view and, when that is older
+            # than max_age_seconds, has a refresh started in the background.
+            inventory = self._inventory
+            if inventory is None and self._resolved is None and self._load_resolution() is not None:
+                inventory = self._inventory_for()  # cached resolution: no network
+            if inventory is None or not inventory.complete:
                 self._start_background_refresh()
                 raise M365Error(
                     "The OneDrive/SharePoint folder is still being read for the first "
                     "time; try again in a minute."
                 )
-            if not self._refresh_lock.acquire(blocking=False):
-                return  # a refresh is running; the last complete view will do
-        else:
-            self._refresh_lock.acquire()
-        self._refresh_locked(inventory)
+            if time.monotonic() - self._last_refresh >= max_age_seconds:
+                self._start_background_refresh()
+            return
+        self._refresh_lock.acquire()
+        self._refresh_locked()
 
     def _start_background_refresh(self) -> None:
         if not self._refresh_lock.acquire(blocking=False):
@@ -218,18 +264,38 @@ class M365Source:
 
         def run() -> None:
             try:
-                self._refresh_locked(self._inventory_for())
+                self._refresh_locked()
             except M365Error as exc:
-                logger.warning("Microsoft 365 first read failed: %s", exc)
+                logger.warning("Microsoft 365 background read failed: %s", exc)
 
-        threading.Thread(target=run, name="m365-first-read", daemon=True).start()
+        threading.Thread(target=run, name="m365-refresh", daemon=True).start()
 
-    def _refresh_locked(self, inventory: DriveInventory) -> None:
-        """Refresh while holding ``_refresh_lock``; always releases it."""
+    def _forget_resolution(self) -> None:
+        """Resolve the address again next time (the folder's id changed)."""
+        with self._lock:
+            self._resolved = None
+            self._inventory = None
+            try:
+                self._resolution_path().unlink()
+            except OSError:
+                pass
+
+    def _refresh_locked(self) -> None:
+        """Refresh while holding ``_refresh_lock``; always releases it, also
+        when resolving the address fails before any refresh starts."""
         try:
             try:
+                inventory = self._inventory_for()
                 stats = inventory.refresh()
-            except (InventoryError, GraphAuthError, GraphRequestError,
+            except FolderMissingError as exc:
+                # Deleted -- or deleted and re-created under the same address,
+                # which gives it a new id. Resolve again next cycle: a folder
+                # that is really gone fails there, and nothing is pruned either
+                # way; one that is back under a new id is picked up.
+                self._forget_resolution()
+                self._last_error = str(exc)
+                raise M365Error(str(exc)) from exc
+            except (M365Error, InventoryError, GraphAuthError, GraphRequestError,
                     requests.RequestException) as exc:
                 self._last_error = str(exc)
                 raise M365Error(str(exc)) from exc
@@ -268,7 +334,7 @@ class M365Source:
         tmp_dir = Path(tempfile.mkdtemp(prefix="knovas-m365-"))
         try:
             os.chmod(tmp_dir, 0o700)
-            dest = tmp_dir / _sanitize_filename(remote.name)
+            dest = tmp_dir / temp_filename(remote.name)
             try:
                 self._client.download_to(
                     remote.drive_id, remote.item_id, dest, expected_size=remote.size or None
@@ -341,9 +407,11 @@ class M365Source:
         body: dict[str, Any] = {}
         if page is not None and page >= 1:
             body["page"] = str(page)
-        drive_id = self.resolved().drive_id
+        drive_id = row.get("drive_id") or (self._resolved.drive_id if self._resolved else "")
+        if not drive_id:
+            raise M365Error("preview unavailable until the next sync cycle publishes links")
         try:
-            status, data = self._client.post_json(
+            status, data = self._request_client.post_json(
                 f"{GRAPH}/drives/{drive_id}/items/{row['item_id']}/preview", body
             )
         except (GraphAuthError, GraphRequestError, requests.RequestException) as exc:

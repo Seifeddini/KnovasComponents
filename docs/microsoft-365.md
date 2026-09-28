@@ -18,7 +18,7 @@ folder right away, and `./scripts/doctor.sh` checks it again at any time.
 | | |
 |---|---|
 | **Sync** | RemoteController asks Microsoft 365 what changed since its last cycle: one request when nothing did. It downloads a file only when the file is new or modified, into a private temporary folder. It indexes the file and deletes the temporary copy. |
-| **On the server** | No documents. Only the list of files (names, dates, sizes, IDs), the text snippets shown under each result, and the sync state. The server's disk does not grow with the size of the library. |
+| **On the server** | No documents. A file is held only in memory between download and indexing. What stays is the snippet text shown under each result, the sync state, and the library's item list: names, dates, sizes, IDs and web addresses. The item list covers **the whole library** the folder is in, because Microsoft's change feed only works on a whole library. It holds no content. The server's disk does not grow with the size of the documents. |
 | **Deleted, moved, renamed** | Deleting a file in OneDrive/SharePoint removes it from Knovas at the next cycle. Moving or renaming a file, or a whole folder, re-indexes it under its new path. |
 | **Search** | Unchanged. Results show their text and "Fundstellen" (the places where the search matched) as before. |
 | **Öffnen** | Opens the document in OneDrive/SharePoint (Word, Excel and the PDF viewer in the browser). Microsoft's own permissions decide who may open it there. |
@@ -62,11 +62,20 @@ SharePoint or Teams library first.
 `contoso.onmicrosoft.com`, and setup uses that automatically.
 
 **Scope, plainly.** `Sites.Read.All` lets the app read every SharePoint site
-and OneDrive in the firm's tenant, not only the configured folder. Knovas reads
-only the configured folder. A firm that wants Microsoft to enforce that limit
-can grant `Sites.Selected` instead and give the app read access to that one
-site. This setup has not been tested with that permission; check it with
-`doctor.sh` before relying on it.
+and OneDrive in the firm's tenant, not only the configured folder.
+- **Content:** Knovas downloads and indexes only files inside the configured
+  folder.
+- **Item list:** for the library that folder is in, it keeps names, dates,
+  sizes and addresses (see above).
+
+A firm that wants Microsoft to enforce a narrower limit can grant
+`Sites.Selected` instead and give the app read access to that one site. This
+setup has not been tested with that permission; check it with `doctor.sh`
+before relying on it.
+
+**Large libraries:** the item list covers the whole library, so a library with
+millions of items takes long for its first read. Point it at a dedicated
+library for Knovas rather than at a sprawling archive.
 
 ## Where the secret goes
 
@@ -106,7 +115,7 @@ counts what would be indexed. Every failure names its fix:
 | `HTTP 403 … Sites.Read.All` | The permission is missing, or admin consent was not granted. |
 | `No OneDrive or SharePoint document library matches` | The address does not name a library. Open the folder itself and copy again. |
 | `is a file` | The address points at a document; use the folder that contains it. |
-| `The configured … folder no longer exists` | The folder was deleted or access was withdrawn. Nothing is removed from Knovas until it is back or the address changes. |
+| `The configured … folder no longer exists` | The folder was deleted or access was withdrawn. Nothing is removed from Knovas. The address is resolved again each cycle, so a folder re-created at the same address is picked up by itself. |
 
 The first sync of a large library takes a while. Search finds documents as
 they are indexed, and `doctor.sh` shows how many have snippet text so far.

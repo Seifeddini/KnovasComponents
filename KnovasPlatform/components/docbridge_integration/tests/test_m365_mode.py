@@ -159,10 +159,59 @@ def test_preview_comes_from_microsoft_via_remote_controller(links, tmp_path, mon
 def test_preview_refuses_unknown_documents_and_unsafe_urls(links, tmp_path, monkeypatch):
     import web_interface.app as wa
 
-    monkeypatch.setattr(wa.requests, "post", lambda *a, **k: _Resp(200, {"getUrl": "javascript:alert(1)"}))
+    def fake_post(url, json=None, timeout=None):
+        if json["doc_id"] != POINTER:  # RemoteController knows only what it published
+            return _Resp(404, {"error": "Unknown document"})
+        return _Resp(200, {"getUrl": "javascript:alert(1)"})
+
+    monkeypatch.setattr(wa.requests, "post", fake_post)
     client = _app(tmp_path, monkeypatch, source="m365")
     assert client.get("/api/document/tenant%2Fnope.pdf/m365-preview?path=tenant%2Fnope.pdf").status_code == 404
     assert client.get(_preview_url()).status_code == 502
+
+
+def test_same_file_name_elsewhere_is_never_taken_for_the_hit(tmp_path, monkeypatch):
+    """The review's probe: A asked, B (same name, other client) opened.
+
+    The file-name fallback is for mirrors whose identifiers were spelt
+    differently. With Microsoft 365 the identifiers are exact, so a fallback
+    can only find a different document -- and the preview would show it with
+    an app-only viewer that ignores SharePoint's rights.
+    """
+    from web_interface import app as web_app
+
+    _reset_enrichment()
+    other = "tenant/Vertraulich/Mandant B/Vertrag.pdf"
+    links = tmp_path / "links.jsonl"
+    links.write_text(json.dumps({"doc_id": other, "web_url": "https://contoso.sharepoint.com/B/Vertrag.pdf",
+                                 "item_id": "b"}) + "\n", encoding="utf-8")
+    monkeypatch.setenv("SEARCH_ENRICHMENT_PATH", str(links))
+
+    class _Cfg:
+        def __init__(self, source):
+            self.source = source
+
+        def get_bool(self, key, default=False):
+            return False if key == "web.search.verify_files_on_disk" else default
+
+        def get_int(self, key, default=0):
+            return default
+
+        def get(self, key, default=""):
+            return self.source if key == "documents.source" else default
+
+    class _Handler:
+        autodoc_path = str(tmp_path)
+
+    asked = "tenant/Mandant A/Vertrag.pdf"
+    m365_hit = web_app._enhance_search_results(
+        {"results": [{"doc_id": asked, "path": asked}]}, _Handler(), _Cfg("m365"))["results"][0]
+    assert not m365_hit.get("external_url")
+    assert web_app._resolve_onedrive_url(asked, asked, _Cfg("m365")) is None
+    # A mirror deployment keeps its fallback exactly as before.
+    _reset_enrichment()
+    assert web_app._resolve_onedrive_url(asked, asked, _Cfg("files")) == "https://contoso.sharepoint.com/B/Vertrag.pdf"
+    _reset_enrichment()
 
 
 def test_preview_failure_is_a_502_the_dialog_can_fall_back_from(links, tmp_path, monkeypatch):

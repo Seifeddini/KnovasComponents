@@ -57,6 +57,10 @@ class InventoryError(RuntimeError):
     """The inventory cannot give a trustworthy view of the folder right now."""
 
 
+class FolderMissingError(InventoryError):
+    """The configured folder's id is gone from the library."""
+
+
 @dataclass(frozen=True)
 class RemoteFile:
     """A file in the configured folder, addressed by Graph ids."""
@@ -231,17 +235,22 @@ class DriveInventory:
         if not new_link:
             raise InventoryError("Microsoft 365 change feed ended without a position to resume from")
         if not self._folder_is_root and self._folder_id not in staged:
-            raise InventoryError(
+            raise FolderMissingError(
                 "The configured OneDrive/SharePoint folder no longer exists (deleted, or "
                 "the app lost access). Nothing is removed from Knovas until it is back "
                 "or the address is changed."
             )
         # Link first, then the view readers pick up; both before the save, so
         # a failed write costs a repeated delta next time, never a lost change.
+        first = link is None
         self._delta_link = new_link
         self._items = staged
         self._complete = True
-        self._save()
+        if changed or first:
+            # An unchanged cycle keeps the saved position: resuming from it
+            # after a restart only replays nothing. Rewriting the whole
+            # inventory every minute for no change was pure disk churn.
+            self._save()
         return {"changes": changed, "items": len(staged)}
 
     @property

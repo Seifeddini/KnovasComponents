@@ -46,8 +46,11 @@ services:
       - ./certs:/certs:ro
       # With KNOVAS_DOCUMENTS_URL (OneDrive/SharePoint) there is no local folder:
       # an empty one stands in, and /mnt/documents only names the Microsoft 365
-      # folder for sync profiles and the folder picker. setup.sh creates it.
-      - ${KNOVAS_DOCUMENTS_PATH:-./data/no-local-documents}:/mnt/documents:ro
+      # folder for sync profiles and the folder picker. setup.sh creates it, with
+      # a marker RemoteController refuses to sync from. With NEITHER setting the
+      # spec stays empty and compose refuses to start, as it always did: an empty
+      # folder read as a share would prune every document from Knovas.
+      - ${KNOVAS_DOCUMENTS_PATH:-${KNOVAS_DOCUMENTS_URL:+./data/no-local-documents}}:/mnt/documents:ro
       - rc-config:/app/config
       - rc-state:/var/rc-state
       # The Platform's broker key directory. It holds the PRIVATE key too, and
@@ -72,6 +75,11 @@ services:
       # The console's "Speichern und uebertragen" writes GET/POST /sync/config;
       # that API is off by default and the push fails at its first call without this.
       RC_SYNC_CONFIG_API_ENABLED: "true"
+    # Temporary copies of documents (a OneDrive/SharePoint file between download
+    # and indexing, extraction scratch) live in memory, never on disk: a worker
+    # killed mid-upload cannot leave a document behind in the container layer.
+    tmpfs:
+      - /tmp:size=1g,mode=1777
     ports:
       - "127.0.0.1:${RC_HOST_PORT:-5001}:5001"
     restart: unless-stopped
@@ -120,7 +128,7 @@ services:
       # The broker signing key. Named volume, never a bind mount into the
       # repo: recreating the container without it silently rotates the key.
       - docbridge_broker_key:/app/secrets/broker
-      - ${KNOVAS_DOCUMENTS_PATH:-./data/no-local-documents}:/mnt/autodoc:ro
+      - ${KNOVAS_DOCUMENTS_PATH:-${KNOVAS_DOCUMENTS_URL:+./data/no-local-documents}}:/mnt/autodoc:ro
       - ./certs:/app/certs:ro
       - rc-state:/var/rc-state:ro
       # The profile compiler validates against these schemas. The image also

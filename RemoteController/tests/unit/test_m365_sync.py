@@ -350,3 +350,117 @@ def test_check_command_reports_each_step(m365, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "SharePoint folder /sites/Kanzlei/Shared Documents/Akten" in out
     assert "1 folder(s), 4 file(s), 3 of a type Knovas indexes" in out
+
+
+def test_long_file_names_keep_their_extension(m365):
+    graph, _, _ = m365
+    long_name = "Re " * 80 + "Offerte.md"  # 250 characters, like a long mail subject
+    graph.contents["f-long"] = "Offerte Schaffhauserstrasse"
+    graph.pages["L1"] = [([_file("f-long", long_name, "akten", graph.contents["f-long"])], "L2")]
+    _run(_body())
+    graph.downloads.clear()
+    result, _ = _run(_body())
+    assert result.errors == [] and result.files_uploaded == 1
+    local = graph.downloads[-1].name
+    assert local.endswith(".md") and len(local.encode()) < 255
+
+
+def test_preview_needs_no_resolution_and_uses_the_link_drive(m365, tmp_path):
+    graph, _, settings = m365
+    _run(_body())
+    assert _links(settings)["tenant/a.md"]["drive_id"] == "drv"
+    graph.table.clear()  # any resolution attempt would now fail
+    (settings.state_dir / "resolution.json").unlink()
+    fresh = M365Source(settings, client=graph)
+    assert fresh.preview("tenant/a.md")["getUrl"].endswith("item=f-a/preview")
+
+
+def test_a_stale_browse_refreshes_in_the_background_and_answers_at_once(m365):
+    graph, source, _ = m365
+    source.refresh()
+    graph.fail_delta = True
+    source._last_refresh = 0  # stale
+    source.refresh(max_age_seconds=60)  # no Graph call here, no exception
+    assert "a.md" in source.files()
+    _wait_until_read(source)
+    assert source.status()["last_error"]  # the background refresh reported it
+
+
+def test_a_failed_first_resolution_does_not_leave_the_sync_locked(m365, tmp_path):
+    graph, _, settings = m365
+    graph.table.clear()
+    fresh = M365Source(settings, client=graph)
+    with pytest.raises(M365Error, match="still being read"):
+        fresh.refresh(max_age_seconds=60)
+    import time
+
+    deadline = time.monotonic() + 5
+    while fresh._refresh_lock.locked() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not fresh._refresh_lock.locked()
+    with pytest.raises(M365Error):  # a sync cycle gets the error, not a hang
+        fresh.refresh()
+
+
+def test_a_recreated_folder_is_found_again(m365):
+    graph, source, settings = m365
+    source.refresh()
+    graph.pages["L1"] = [([{"id": "akten", "deleted": {"state": "deleted"}}], "L2")]
+    with pytest.raises(M365Error, match="no longer exists"):
+        source.refresh()
+    assert not (settings.state_dir / "resolution.json").exists()
+    # Re-created under the same address: a new id. The failed refresh kept the
+    # last good position (L1), so the feed from there carries both changes.
+    graph.table[f"{G}/drives/drv/root:/Akten"] = (200, {"id": "akten-2", "name": "Akten", "folder": {}})
+    graph.pages["L1"] = [([{"id": "akten", "deleted": {"state": "deleted"}},
+                           _folder("akten-2", "Akten", "root"),
+                           _file("f-n", "neu.md", "akten-2", "neu")], "L3")]
+    graph.contents["f-n"] = "neu"
+    source.refresh()
+    assert sorted(source.files()) == ["neu.md"]
+
+
+def test_the_stand_in_folder_is_never_synced_as_a_share(tmp_path, monkeypatch):
+    root = tmp_path / "no-local-documents"
+    root.mkdir()
+    (root / ".knovas-no-local-documents").write_text("stand-in", encoding="utf-8")
+    monkeypatch.setenv("RC_WATCH_ROOTS", str(root))
+    monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state.json"))
+    monkeypatch.delenv("M365_FOLDER_URL", raising=False)
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    reset_m365_source(None)
+    body = _body(sources=[{"path": str(root), "recursive": True}])
+    from sync.sync_executor import run_sync_work
+
+    uploader, ok = _uploader()
+    with patch.object(uploader, "_request", return_value=ok) as req, \
+            pytest.raises(RuntimeError, match="stand-in"):
+        run_sync_work(body, uploader)
+    assert req.call_count == 0
+    reset_config()
+
+
+def test_an_empty_source_never_prunes_the_whole_index(tmp_path, monkeypatch):
+    root = tmp_path / "share"
+    root.mkdir()
+    (root / "a.md").write_text("eins", encoding="utf-8")
+    monkeypatch.setenv("RC_WATCH_ROOTS", str(root))
+    monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv("SEARCH_CONTEXT_STORE_PATH", str(tmp_path / "ctx"))
+    monkeypatch.delenv("M365_FOLDER_URL", raising=False)
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    reset_m365_source(None)
+    body = _body(sources=[{"path": str(root), "recursive": True}])
+    result, _ = _run(body)
+    assert result.files_uploaded == 1
+    (root / "a.md").unlink()  # the share is suddenly empty (unmounted, emptied)
+    result, req = _run(body)
+    assert [c for c in req.call_args_list if c.args[0] == "DELETE"] == []
+    assert any("nothing removed" in e["error"] for e in result.errors)
+    reset_config()

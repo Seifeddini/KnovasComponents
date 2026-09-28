@@ -202,3 +202,15 @@ def test_unsafe_names_and_packages_are_skipped(tmp_path):
     inv = make(tmp_path, g)
     inv.refresh()
     assert inv.files() == {}
+
+
+def test_an_unchanged_cycle_does_not_rewrite_the_inventory(tmp_path):
+    g = FakeDelta()
+    g.pages["__initial__"] = [(initial_library(), "L1")]
+    g.pages["L1"] = [([], "L2")]
+    inv = make(tmp_path, g)
+    inv.refresh()
+    before = (tmp_path / "inventory.json").stat().st_mtime_ns
+    inv.refresh()
+    assert (tmp_path / "inventory.json").stat().st_mtime_ns == before
+    assert json.loads((tmp_path / "inventory.json").read_text())["delta_link"] == "L1"
