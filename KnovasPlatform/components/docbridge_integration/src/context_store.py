@@ -814,6 +814,34 @@ def indexed_text(entry: Optional[Dict[str, Any]], max_chars: int = MAX_INDEX_TEX
     return "\n\n".join(parts).strip()
 
 
+def indexed_pages(entry: Optional[Dict[str, Any]]) -> Dict[int, str]:
+    """The indexed text of a document, page by page, as ingestion read it.
+
+    For documents with no file on this server -- a OneDrive/SharePoint folder
+    that RemoteController reads through Microsoft Graph -- this is the only
+    text there is. A document whose sentences carry no page numbers is one
+    page.
+    """
+    if not entry:
+        return {}
+    pages: Dict[int, List[str]] = {}
+    unpaged: List[str] = []
+    for sent in entry.get("sentences") or []:
+        if not isinstance(sent, dict):
+            continue
+        text = _sentence_text(sent)
+        if not text:
+            continue
+        page = sent.get("p")
+        if isinstance(page, int) and page >= 1:
+            pages.setdefault(page, []).append(text)
+        else:
+            unpaged.append(text)
+    if not pages and unpaged:
+        pages[1] = unpaged
+    return {page: " ".join(parts) for page, parts in pages.items()}
+
+
 def _sentences_by_number(sentences: Any) -> Dict[int, str]:
     """Satznummer -> Text. Fehlt die Nummer, zaehlt die Position."""
     by_number: Dict[int, str] = {}

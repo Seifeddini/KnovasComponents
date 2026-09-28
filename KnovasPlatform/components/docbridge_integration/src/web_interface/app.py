@@ -1041,6 +1041,9 @@ def create_app(config_path: Optional[str] = None):
         raise RuntimeError('COMPANY_LOGIN_PASSWORD must be changed before login can be enabled.')
 
     open_section = config.get_dict('open', {}) or {}
+    # Documents in OneDrive/SharePoint: nothing on this server to open,
+    # download or render. Every hit opens and previews in Microsoft 365.
+    m365_mode = str(config.get('documents.source', 'files') or 'files').strip().lower() == 'm365'
     browser_client_open_enabled = config.get_bool('open.browser_client_path', True)
     companion_enabled = config.get_bool('open.companion_enabled', False)
     open_token_ttl = max(30, config.get_int('open.token_ttl_seconds', 120))
@@ -1131,6 +1134,10 @@ def create_app(config_path: Optional[str] = None):
         environment rather than the config value is what tells those apart:
         config.yaml always carries the key with a default interpolated in.
         """
+        if m365_mode:
+            # The file is in OneDrive/SharePoint, not here: a download button
+            # would only ever answer 404. OneDrive's own viewer downloads.
+            return False
         if allow_degraded_download_open:
             return True
         chosen = os.getenv('OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN')
@@ -1620,6 +1627,7 @@ def create_app(config_path: Optional[str] = None):
             open_mapping_configured=_open_mapping_configured(),
             pdf_inline_in_browser=pdf_inline_in_browser,
             onedrive_enrichment_loaded=bool(_unique_enrichment_records()),
+            m365_mode=m365_mode,
             results_per_page=config.get_int('web.search.results_per_page', 20),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
@@ -2313,6 +2321,68 @@ def create_app(config_path: Optional[str] = None):
             }), 404
         return redirect(url, code=302)
 
+    def _rc_m365_preview(doc_id: str, page: Optional[int]) -> Dict[str, Any]:
+        """Ask RemoteController -- which holds the Microsoft 365 credentials,
+        this internet-facing app does not -- for Microsoft's viewer URL.
+
+        Signed as the person looking when per-user identity is on; with the
+        shared login there is nobody to sign as, and RemoteController accepts
+        the call from the stack's own network, as it does the console's.
+        """
+        if rc_client is not None:
+            return rc_client.m365_preview(doc_id, page)
+        base = str(config.get('remote_controller.base_url', 'http://remote-controller:5001')).rstrip('/')
+        body: Dict[str, Any] = {'doc_id': doc_id}
+        if page:
+            body['page'] = page
+        resp = requests.post(f'{base}/m365/preview', json=body, timeout=8)
+        data = resp.json() if resp.content else {}
+        if resp.status_code >= 400:
+            raise RuntimeError(str((data or {}).get('error') or f'HTTP {resp.status_code}'))
+        return data
+
+    @app.route('/api/document/<path:doc_id>/m365-preview', methods=['GET'])
+    def document_m365_preview(doc_id: str):
+        """Microsoft 365's own viewer for this document, embeddable in the dialog.
+
+        Guarded like every document route (``require_readable_document`` sees
+        ``doc_id``): only what this person's search returned. The URL is
+        short-lived and fetched per opening, never cached or shared.
+        """
+        if not m365_mode:
+            return jsonify({'success': False, 'error': 'Not found'}), 404
+        file_path = str(request.args.get('path') or doc_id).strip()
+        enrichment = _load_search_enrichment(config)
+        meta = _lookup_enrichment_meta(
+            enrichment, {'doc_id': doc_id, 'path': file_path, 'pointer': doc_id},
+        ) if enrichment else None
+        if not meta or not meta.get('doc_id'):
+            return jsonify({'success': False, 'error': 'Kein Microsoft-365-Dokument.'}), 404
+        try:
+            page = int(request.args.get('page') or 0) or None
+        except (TypeError, ValueError):
+            page = None
+        try:
+            # The identifier exactly as RemoteController published it, not
+            # however this request happened to spell it.
+            data = _rc_m365_preview(str(meta['doc_id']), page)
+        except Exception as exc:  # noqa: BLE001 - every failure means "show the indexed text"
+            logger.warning('Microsoft 365 preview for %r failed: %s', doc_id, exc)
+            return jsonify({'success': False, 'error': 'Vorschau von Microsoft 365 nicht erreichbar.'}), 502
+        body: Dict[str, Any] = {'success': True}
+        for src, dst in (('getUrl', 'embed_url'), ('postUrl', 'post_url'), ('postParameters', 'post_params')):
+            value = str((data or {}).get(src) or '')
+            if value:
+                body[dst] = value
+        if body.get('embed_url') and not _is_safe_http_url(body['embed_url']):
+            body.pop('embed_url')
+        if body.get('post_url') and not _is_safe_http_url(body['post_url']):
+            body.pop('post_url')
+            body.pop('post_params', None)
+        if not (body.get('embed_url') or body.get('post_url')):
+            return jsonify({'success': False, 'error': 'Keine Vorschau für dieses Dokument.'}), 502
+        return jsonify(body)
+
     @app.route('/api/open-tokens/mint', methods=['POST'])
     def open_token_mint():
         """Mint a short-lived signed token for companion redeem (browser must send CSRF)."""
@@ -2552,8 +2622,16 @@ def create_app(config_path: Optional[str] = None):
         """Wortlaut zu einem Pointer - die API liefert keinen Passagentext."""
         if 'resolver' not in _cortex_text_resolver:
             from ontology_text import DocumentTextResolver
+            from context_store import indexed_pages
+
+            def _pages_from_index(pointer: str) -> Dict[int, str]:
+                return indexed_pages(load_context(
+                    _context_store_path_from_config(config),
+                    [pointer, _rel_path_for_autodoc(pointer)],
+                ))
+
             _cortex_text_resolver['resolver'] = DocumentTextResolver(
-                resolve_path=_resolve_autodoc_path)
+                resolve_path=_resolve_autodoc_path, indexed_pages=_pages_from_index)
         return _cortex_text_resolver['resolver']
 
     def _ontology_source():
@@ -3401,11 +3479,15 @@ def _enhance_search_results(
         if _is_safe_http_url(fp):
             _apply_external_open_mode(result, (result.get("external_url") or fp).strip())
 
-        if result.get("external_url") and _is_safe_http_url(result["external_url"]):
-            continue
+        external = bool(result.get("external_url") and _is_safe_http_url(result["external_url"]))
 
         file_path = result.get("path")
-        if file_path:
+        if external:
+            # Opened in OneDrive/SharePoint, so there is no file here to stat --
+            # but the snippets and the "Fundstellen" come from the indexed text,
+            # which RemoteController wrote for this document like any other.
+            pass
+        elif file_path:
             rel = _rel_path_for_autodoc(str(file_path))
             result["autodoc_rel_path"] = rel
             # Confine to the AutoDoc root before touching disk. Without this,
