@@ -1352,6 +1352,18 @@ def _ceil(value: float) -> int:
     return int(math.ceil(value - 1e-9 * max(1.0, value)))
 
 
+_MSG_SIZE_UNBOUNDED = ("Der gesuchte Effekt ist im Verh\u00e4ltnis zur Streuung zu klein; "
+                       "die Stichprobe l\u00e4sst sich nicht berechnen.")
+
+
+def _finite_size(value: float) -> float:
+    """A sample size before rounding; StatsInputError when it is not finite
+    (a huge spread or a tiny effect), never an OverflowError from ceil."""
+    if not math.isfinite(value):
+        raise StatsInputError(_MSG_SIZE_UNBOUNDED)
+    return value
+
+
 def _power_z(alpha, power) -> Tuple[float, float]:
     alpha = _probability(alpha, "alpha")
     power = _finite(power, "Testst\u00e4rke")
@@ -1377,7 +1389,10 @@ def sample_size_proportion(p_base, mde_abs, alpha=0.05, power=0.8) -> int:
     pbar = (p1 + p2) / 2.0
     root = (za * math.sqrt(2.0 * pbar * (1.0 - pbar))
             + zb * math.sqrt(p1 * (1.0 - p1) + p2 * (1.0 - p2)))
-    return max(2, _ceil(root * root / (mde * mde)))
+    # The ratio before the square: mde * mde underflows to 0 for a tiny
+    # effect, and the square of the ratio overflows to infinity.
+    ratio = root / abs(mde)
+    return max(2, _ceil(_finite_size(ratio * ratio)))
 
 
 def _t_test_power(n: int, sd: float, mde: float, alpha: float) -> float:
@@ -1389,27 +1404,45 @@ def _t_test_power(n: int, sd: float, mde: float, alpha: float) -> float:
     Simpson's rule over the part of W's distribution that carries mass.
     """
     df = 2.0 * n - 2.0
-    delta = abs(mde) / (sd * math.sqrt(2.0 / n))
+    if not math.isfinite(df):
+        raise StatsInputError(_MSG_SIZE_UNBOUNDED)
+    # Effect over its standard error with the ratio taken first: sd * sqrt(2 / n)
+    # underflows to 0 for a tiny sd. An infinite delta (an effect beyond any
+    # spread) is fine: erfc turns it into a power of 1.
+    delta = abs(mde) / sd * math.sqrt(n / 2.0)
     t_crit = student_t_ppf(1.0 - alpha / 2.0, df)
+
+    def tail(w: float) -> float:
+        return (0.5 * math.erfc(-(delta - t_crit * w) / _SQRT2)
+                + 0.5 * math.erfc(-(-delta - t_crit * w) / _SQRT2))
+
+    if df > 1e15:
+        # W's variance, 1 / (2 df), is below the last digit of the power: the
+        # t test is the z test (and Simpson's grid would shrink to one point).
+        return tail(1.0)
     k = df / 2.0
     spread = math.sqrt(2.0 / df)
     lo = math.sqrt(max(0.0, 1.0 - 12.0 * spread))
     hi = math.sqrt(1.0 + 12.0 * spread + 12.0 / df)
     steps = 2000
     h = (hi - lo) / steps
-    log_norm = k * math.log(2.0) + math.lgamma(k)
     total = 0.0
     for i in range(steps + 1):
         w = lo + i * h
         if w <= 0.0:
             continue
         v = df * w * w
-        density = math.exp((k - 1.0) * math.log(v) - v / 2.0 - log_norm) * 2.0 * df * w
-        tail = (0.5 * math.erfc(-(delta - t_crit * w) / _SQRT2)
-                + 0.5 * math.erfc(-(-delta - t_crit * w) / _SQRT2))
+        # The chi-square density of V written as (v/2)^k e^(-v/2) / Gamma(k) / v,
+        # so that _log_gamma_power cancels its large terms analytically;
+        # (k - 1) log v - v / 2 - lgamma(k) cancelled them in floating point
+        # (at df = 2e14 the power was 9 % off, at 2e16 it was 5e34).
+        density = math.exp(_log_gamma_power(k, v / 2.0) - math.log(v)) * 2.0 * df * w
         weight = 1.0 if i in (0, steps) else (4.0 if i % 2 else 2.0)
-        total += weight * density * tail
-    return total * h / 3.0
+        total += weight * density * tail(w)
+    power = total * h / 3.0
+    if not math.isfinite(power):
+        raise StatsInputError(_MSG_SIZE_UNBOUNDED)
+    return power
 
 
 def sample_size_mean(sd, mde_abs, alpha=0.05, power=0.8) -> int:
@@ -1425,7 +1458,9 @@ def sample_size_mean(sd, mde_abs, alpha=0.05, power=0.8) -> int:
     if mde == 0:
         raise StatsInputError("Der gesuchte Effekt darf nicht 0 sein.")
     za, zb = _power_z(alpha, power)
-    n = max(2, _ceil(2.0 * (za + zb) ** 2 * sd * sd / (mde * mde) + za * za / 4.0))
+    # The ratio before the square, as in sample_size_proportion.
+    ratio = sd / abs(mde)
+    n = max(2, _ceil(_finite_size(2.0 * (za + zb) ** 2 * (ratio * ratio) + za * za / 4.0)))
     for _ in range(50):
         if _t_test_power(n, sd, mde, alpha) >= power:
             break

@@ -242,16 +242,21 @@ def _mark_purged_off(conn: Any) -> int:
     Runs after purge_all whatever its outcome, so the index state matches
     what was deleted: an experiment whose document is gone never reads
     "aktuell", and one whose deletion failed keeps its state (it is still in
-    Knovas). 'off' also keeps the maintenance from uploading the experiments
-    again right after the purge."""
+    Knovas). 'off' with the INDEX_OFF_PURGED marker also keeps the
+    maintenance from uploading the experiments again -- right after the
+    purge and once indexing is switched back on (it re-uploads only the
+    unmarked 'off' rows, those turned off while indexing was off; those are
+    marked here too, their copy is gone as well). "Alles neu indexieren"
+    or ``reindex`` brings them back."""
     store = _store()
     keep = _recorded_experiment_ids(conn)
     marked = 0
     states = ("indexed", "pending", "error")
-    for experiment_id in store.experiments_for_reindex(conn, states=states) or []:
+    for experiment_id in store.experiments_for_reindex(conn, states=states,
+                                                       switched_off=True) or []:
         if str(experiment_id) in keep:
             continue
-        store.set_index_state(conn, str(experiment_id), "off")
+        store.set_index_state(conn, str(experiment_id), "off", store.INDEX_OFF_PURGED)
         marked += 1
     return marked
 

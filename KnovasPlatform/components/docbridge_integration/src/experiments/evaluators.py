@@ -213,6 +213,10 @@ class _Group:
     sum_sq: Optional[float] = None
     estimate: Optional[float] = None
     levels: Dict[str, float] = field(default_factory=dict)
+    #: False when the aggregate carries no distribution (``levels`` None): a
+    #: scale without defined levels whose variant has more than
+    #: kinds.MAX_AGGREGATE_LEVELS distinct values. Not the same as no data.
+    levels_known: bool = True
 
 
 @dataclass
@@ -265,6 +269,7 @@ def _merge(into: _Group, other: _Group) -> None:
                    if into.sum_sq is not None and other.sum_sq is not None else None)
     for key, units in other.levels.items():
         into.levels[key] = into.levels.get(key, 0.0) + units
+    into.levels_known = into.levels_known and other.levels_known
 
 
 def _group(agg: Dict[str, Any]) -> _Group:
@@ -286,6 +291,7 @@ def _group(agg: Dict[str, Any]) -> _Group:
         sum_sq=_finite(agg.get("sum_sq")),
         estimate=_finite(agg.get("estimate")),
         levels=levels,
+        levels_known=isinstance(agg.get("levels"), dict),
     )
 
 
@@ -703,6 +709,13 @@ def _top_level(ctx: _Input, group: _Group) -> Optional[Tuple[str, float]]:
     return _level_name(ctx, key), group.levels[key] / group.n
 
 
+def _no_levels_warning(ctx: _Input, group: _Group) -> str:
+    """Why a group shows no distribution although it has data."""
+    what = "Kategorie" if ctx.kind == "categorical" else "Stufe"
+    return (f"{ctx.label(group.key)}: mehr als {kinds.MAX_AGGREGATE_LEVELS} verschiedene Werte; "
+            f"keine Verteilung je {what}.")
+
+
 def _variants_table(ctx: _Input, entries: List[Dict[str, Any]], groups: List[_Group],
                     decimals: int, level: str) -> Dict[str, Any]:
     kind = ctx.kind
@@ -742,7 +755,9 @@ def _variants_table(ctx: _Input, entries: List[Dict[str, Any]], groups: List[_Gr
             row += [_fmt_number(group.value_sum, 2), _fmt_number(group.denominator_sum, 2)]
         for c in categories:
             units = group.levels.get(c, 0.0)
-            share = units / group.n if group.n > 0 else None
+            # Without a distribution (too many distinct values) a level's
+            # share is unknown, not 0 %.
+            share = units / group.n if group.n > 0 and group.levels_known else None
             row.append(f"{_fmt_share(share)} ({_fmt_count(units)})" if share is not None else _DASH)
         rows.append(row)
     return {"headers": headers, "rows": rows}
@@ -776,6 +791,11 @@ def _describe(data: Dict[str, Any]) -> Dict[str, Any]:
                        summary="\n".join(lines + ["", "Es gibt noch keine Messwerte."]),
                        variants=entries, values=values, warnings=warnings,
                        table=_variants_table(ctx, entries, groups, decimals, level))
+
+    # A group without a distribution shows dashes where the table (or, for
+    # categories, the headline) has one; say why.
+    if ctx.kind in kinds.LEVEL_KINDS and (ctx.kind == "categorical" or _categories(ctx, groups)):
+        warnings.extend(_no_levels_warning(ctx, g) for _, g in with_data if not g.levels_known)
 
     # Guardrail: every group whose estimate lies beyond the limit.
     violations: List[str] = []
@@ -812,8 +832,9 @@ def _describe(data: Dict[str, Any]) -> Dict[str, Any]:
     if target is not None and ctx.kind == "proportion" and not 0.0 <= target <= 1.0:
         # 80 typed for 80 %: compared with a share of 0..1 it would be
         # "verfehlt" (or "erreicht" for a lower-is-better rate) for certain.
-        warnings.append(f"Ziel {_fmt_plain(target)} ignoriert: F\u00fcr Anteile das Ziel als Bruch "
-                        "angeben (0.8 f\u00fcr 80 %).")
+        # The service already refuses such a target; this is the second line
+        # of defence for every other way in.
+        warnings.append("Ziel ausserhalb 0..1 \u2013 f\u00fcr Anteile 0,8 statt 80 angeben.")
         values["target_invalid"] = target
         target = None
     if target is not None:
@@ -887,6 +908,10 @@ def _estimates_headline(ctx: _Input, with_data, decimals: int, level: str) -> st
             if top is not None:
                 prefix = "" if len(with_data) == 1 else f"{ctx.label(group.key)} "
                 parts.append(f"{prefix}\u00ab{top[0]}\u00bb {_fmt_share(top[1])}")
+        if not parts:
+            # No group with a distribution: the count instead of an empty
+            # "most frequent".
+            return f"{ctx.name}: n = {_fmt_count(sum(g.n for _, g in with_data))}"
         lead = f"{ctx.name}: am h\u00e4ufigsten " if len(with_data) == 1 else f"{ctx.name}: "
         return _join_clipped(lead, parts)
     if len(with_data) == 1:
@@ -1493,6 +1518,27 @@ def _chi_square(data: Dict[str, Any]) -> Dict[str, Any]:
     values: Dict[str, Any] = {"alpha": alpha}
     table = _variants_table(ctx, entries, groups, value_decimals, _level_text(alpha))
 
+    # The groups the test reads: the variants with data, else the rows
+    # without a variant. One without a distribution (a scale without defined
+    # levels with more than MAX_AGGREGATE_LEVELS distinct values) leaves
+    # nothing to test -- which is not the same as no data.
+    tested = [ctx.groups[k] for k in ctx.order if ctx.has_data(k)]
+    if not tested and ctx.null_group is not None and ctx.null_group.n > 0:
+        tested = [ctx.null_group]
+    unbounded = [g for g in tested if not g.levels_known]
+    if unbounded:
+        what = "Kategorien" if ctx.kind == "categorical" else "Stufen"
+        reason = f"mehr als {kinds.MAX_AGGREGATE_LEVELS} {what}"
+        warnings.extend(_no_levels_warning(ctx, g) for g in unbounded)
+        conclusion = f"Ergebnis: Der Test ist nicht anwendbar: {reason}."
+        if ctx.kind == "ordinal":
+            conclusion += (" Ohne definierte Stufen gibt es keine Verteilung, die sich testen "
+                           "l\u00e4sst; die mittlere Stufe vergleicht der Welch-t-Test.")
+        lines += ["", conclusion, "", _hints(warnings)]
+        return _output(verdict="n/a", headline=f"{spec_name}: nicht anwendbar: {reason}",
+                       summary="\n".join(lines), variants=entries, values=values, table=table,
+                       warnings=warnings)
+
     if len(variant_groups) >= 2:
         categories = _categories(ctx, variant_groups)
         observed = [[g.levels.get(c, 0.0) for c in categories] for g in variant_groups]
@@ -1667,7 +1713,8 @@ BUILTINS: Dict[str, BuiltinSpec] = {
                          "optional ein Ziel (Parameter target)."),
             input_kinds=_ALL_KINDS,
             params_schema=_schema({"target": {"type": "number",
-                                              "description": "Zielwert in der Einheit der Metrik (Anteile als 0..1)."}}),
+                                              "description": ("Zielwert; Anteile als 0..1 (80 % = 0.8), "
+                                                              "sonst in der Einheit der Metrik.")}}),
             needs_rows=False, fn=_describe),
         BuiltinSpec(
             key="builtin.two_proportion", name="Zwei-Anteile-Test",

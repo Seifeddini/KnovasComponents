@@ -1058,7 +1058,7 @@ class DocumentSearchApp {
                 this._literalMatches = Number(data.literal_query_matches || 0);
                 this._highlightPrefixes = Array.isArray(data.highlight_prefixes)
                     ? data.highlight_prefixes : [];
-                this.displayResults(data.results, data.total, data.semantix);
+                this.displayResults(data.results, data.total, data.semantix, data.has_more);
             } else {
                 throw new Error(data.error || 'Suche fehlgeschlagen');
             }
@@ -1129,7 +1129,7 @@ class DocumentSearchApp {
         box.hidden = false;
     }
 
-    displayResults(results, total, semantix) {
+    displayResults(results, total, semantix, hasMore) {
         this.closePreview();
         this.resultsSection.style.display = 'block';
         this.resultsContainer.innerHTML = '';
@@ -1162,9 +1162,13 @@ class DocumentSearchApp {
             });
         });
 
-        // Nur anbieten, wenn die Antwort das Limit ausgeschoepft hat -- sonst
-        // gibt es plausibel nichts mehr zu holen.
-        const more = results.length >= this._searchLimit && this._searchLimit < 100;
+        // Nur anbieten, wenn ein hoeheres Limit mehr zeigen kann. Das sagt der
+        // Server (has_more): Experiment-Treffer und die Verfeinerung nehmen
+        // Zeilen heraus, nachdem Knovas geantwortet hat, eine ausgeschoepfte
+        // Seite ist also kein verlaessliches Zeichen. Ohne Angabe (aeltere
+        // Server) bleibt es bei "die Antwort hat das Limit ausgeschoepft".
+        const full = typeof hasMore === 'boolean' ? hasMore : results.length >= this._searchLimit;
+        const more = full && this._searchLimit < 100;
         this.loadMoreButton.hidden = !more;
     }
 

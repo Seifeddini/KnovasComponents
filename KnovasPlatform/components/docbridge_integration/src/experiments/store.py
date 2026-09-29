@@ -1792,6 +1792,17 @@ def get_run(conn: Any, experiment_id: str, run_id: str) -> Optional[Dict[str, An
     return _run(row, run_metric_estimates(conn, experiment_id, [row[0]]).get(row[0], {}))
 
 
+def run_ids_by_name(conn: Any, experiment_id: str) -> Dict[str, List[str]]:
+    """{name: [run ids]} of the experiment's named runs, oldest first (a CSV
+    import may name a run instead of giving its id)."""
+    out: Dict[str, List[str]] = {}
+    for name, ident in conn.execute(
+            "SELECT name, id::text FROM exp_runs WHERE experiment_id = %s AND name <> '' "
+            "ORDER BY created_at, id", (experiment_id,)).fetchall():
+        out.setdefault(name, []).append(ident)
+    return out
+
+
 def run_count(conn: Any, experiment_id: str) -> int:
     return int(conn.execute("SELECT count(*)::int FROM exp_runs WHERE experiment_id = %s",
                             (experiment_id,)).fetchone()[0])
@@ -2212,10 +2223,16 @@ def load_snapshot_with_definition(conn: Any, key_or_id: str, *, actor: Any = Non
         _NOTE_SELECT + "WHERE n.experiment_id = %s ORDER BY n.created_at DESC, n.id DESC LIMIT %s",
         (eid, SNAPSHOT_NOTES),
     ).fetchall()
+    # One more than shown tells whether the list goes on; then runs_next_after
+    # is the cursor list_runs (same order) continues with.
     run_rows = conn.execute(
         _RUN_SELECT + "WHERE r.experiment_id = %s ORDER BY r.created_at DESC, r.id DESC LIMIT %s",
-        (eid, SNAPSHOT_RUNS),
+        (eid, SNAPSHOT_RUNS + 1),
     ).fetchall()
+    runs_next_after = None
+    if len(run_rows) > SNAPSHOT_RUNS:
+        run_rows = run_rows[:SNAPSHOT_RUNS]
+        runs_next_after = encode_cursor(run_rows[-1][10], run_rows[-1][0])
     estimates = run_metric_estimates(conn, eid, [r[0] for r in run_rows])
     batches, measurements = batch_counts(conn, eid)
 
@@ -2241,6 +2258,7 @@ def load_snapshot_with_definition(conn: Any, key_or_id: str, *, actor: Any = Non
         } for r in decision_rows],
         "notes": [_note(r, actor) for r in note_rows],
         "runs": [_run(r, estimates.get(r[0], {})) for r in run_rows],
+        "runs_next_after": runs_next_after,
         "run_count": run_count(conn, eid),
         "measurement_count": measurements,
         "batch_count": batches,

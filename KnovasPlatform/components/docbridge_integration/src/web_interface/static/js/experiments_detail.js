@@ -1365,6 +1365,10 @@
         const alpha = KX.input({ name: 'alpha', inputmode: 'decimal', value: '0,05' });
         const power = KX.input({ name: 'power', inputmode: 'decimal', value: '0,8' });
         const result = el('p', { class: 'kx-headline', 'aria-live': 'polite' });
+        // Bei mehr als zwei Varianten: das Niveau, mit dem jeder einzelne
+        // Vergleich gegen die Kontrolle gerechnet wurde.
+        const alphaNote = el('p', { class: 'kx-help', 'aria-live': 'polite' });
+        alphaNote.hidden = true;
         // Basisrate aus der Kontrolle vorschlagen, wenn schon Daten da sind.
         if (primary && primary.kind === 'proportion') {
             const control = (exp.variants || []).find((v) => v.is_control);
@@ -1396,10 +1400,12 @@
                 KX.field({ label: 'Teststärke', input: power, name: 'power' })),
             el('div', { class: 'kx-form-actions' },
                 el('button', { type: 'submit', class: 'btn btn-outline btn-sm', text: 'Berechnen' })),
-            result);
+            result, alphaNote);
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             KX.clearFieldErrors(form);
+            alphaNote.textContent = '';
+            alphaNote.hidden = true;
             const isProp = kind.value === 'proportion';
             const params = new URLSearchParams({ kind: kind.value });
             const num = (node) => KX.parseNumber(node.value);
@@ -1423,15 +1429,27 @@
             }
             if (num(alpha) !== null) params.set('alpha', String(num(alpha)));
             if (num(power) !== null) params.set('power', String(num(power)));
+            // Die Varianten von jetzt, nicht die vom Aufbau des Rechners:
+            // er bleibt stehen, auch wenn Varianten dazukommen.
+            const count = Math.max(2, ((state.exp && state.exp.variants) || []).length);
+            // Jede weitere Variante ist ein weiterer Vergleich mit der
+            // Kontrolle; die Auswertung korrigiert dafuer (Holm), also muss
+            // die Planung mit dem strengeren Niveau je Vergleich rechnen.
+            if (count > 2) params.set('comparisons', String(count - 1));
             result.textContent = 'Wird berechnet …';
             try {
                 const data = await KX.api('GET', `/api/experiments/sample-size?${params.toString()}`);
                 const n = data.result && KX.finite(data.result.per_variant);
-                // Die Varianten von jetzt, nicht die vom Aufbau des Rechners:
-                // er bleibt stehen, auch wenn Varianten dazukommen.
-                const count = Math.max(2, ((state.exp && state.exp.variants) || []).length);
                 result.textContent = n === null || n === undefined ? DASH
                     : `Rund ${KX.fmtNumber(n, 0)} je Variante, bei ${count} Varianten ${KX.fmtNumber(n * count, 0)} insgesamt.`;
+                const used = data.result ? KX.finite(data.result.alpha_used) : null;
+                const comparisons = data.result ? Number(data.result.comparisons) : 1;
+                if (n !== null && n !== undefined && used !== null && used > 0 && comparisons > 1) {
+                    // Drei gueltige Stellen: 0,025 / 0,0167 / 0,00333.
+                    const digits = Math.max(3, Math.ceil(-Math.log10(used)) + 2);
+                    alphaNote.textContent = `Signifikanzniveau je Vergleich: ${KX.fmtPlain(used, digits)} (Bonferroni, ${comparisons} Vergleiche)`;
+                    alphaNote.hidden = false;
+                }
             } catch (err) {
                 const unmatched = KX.showFieldErrors(form, err.fields);
                 result.textContent = [KX.errorMessage(err)].concat(unmatched).join(' ');
@@ -1591,6 +1609,10 @@
     }
 
     function levelBars(counts, labels, total) {
+        // null: der Server hat die Verteilung weggelassen, weil die Variante
+        // mehr verschiedene Werte hat, als er zaehlt (eine Skala ohne
+        // definierte Stufen). Das sind Daten, nicht "keine Daten".
+        if (counts === null) return el('span', { class: 'kx-muted', text: 'Zu viele verschiedene Werte für eine Verteilung' });
         const entries = counts && typeof counts === 'object' ? Object.keys(counts) : [];
         if (!entries.length) return el('span', { class: 'kx-muted', text: DASH });
         const order = labels ? Object.keys(labels) : [];

@@ -434,13 +434,24 @@ def test_domains(name):
 def test_core_is_global():
     core = load_pack("core")
     assert "domain" not in core
-    assert core["metrics"] == [] and core["requires_metrics"] == []
+    # e2e-ui-2: global metrics, so a new domain can measure right away.
+    assert [m["key"] for m in core["metrics"]] == [
+        "generic_success_rate", "generic_events_per_period", "generic_duration_s", "generic_score",
+        "generic_rating"]
+    assert core["requires_metrics"] == [] and core["version"] == 3
     hypothesis = core["types"][0]["definition"]
     assert hypothesis["fields"] == [] and hypothesis["metrics"] == []
     assert hypothesis["variants"] == {"min": 0, "max": 10, "defaults": []}
 
 
 PACK_METRICS = {
+    "core": [
+        ("generic_success_rate", "Erfolgsquote", "proportion", "higher", "%"),
+        ("generic_events_per_period", "Ereignisse je Zeitraum", "count", "higher", ""),
+        ("generic_duration_s", "Dauer in Sekunden", "duration", "lower", "s"),
+        ("generic_score", "Messwert", "mean", "higher", ""),
+        ("generic_rating", "Bewertung 1\u20135", "ordinal", "higher", ""),
+    ],
     "engineering": [
         ("recall_at_20", "Recall@20", "mean", "higher", ""),
         ("ndcg_at_10", "NDCG@10", "mean", "higher", ""),

@@ -1,7 +1,9 @@
 # Grundausstattung der Experimente: wird beim Einschalten des Moduls
 # installiert (store.ensure_core_pack). Global, also ohne Bereich: der Typ
-# «Allgemeine Hypothese» steht in jedem Bereich zur Verfügung, auch in
-# Bereichen, die Verantwortliche selbst anlegen.
+# «Allgemeine Hypothese» und die allgemeinen Metriken (generic_*) stehen in
+# jedem Bereich zur Verfügung, auch in Bereichen, die Verantwortliche selbst
+# anlegen. Neue Metriken einer späteren Version kommen beim nächsten Start
+# dazu; bestehende bleiben, wie sie sind.
 #
 # Die beiden Beispiel-Auswerter sind Vorlagen für eigene Auswerter in Python
 # und Julia. Sie laufen nur in der Rechenumgebung (experiments-runner, Profil
@@ -9,11 +11,68 @@
 pack: core
 title: Allgemein
 description: >-
-  Der Typ «Allgemeine Hypothese» für jeden Bereich und zwei Beispiel-Auswerter
-  (Python und Julia) als Vorlagen für eigene Auswertungen.
-version: 2
+  Der Typ «Allgemeine Hypothese» und allgemeine Metriken für jeden Bereich sowie
+  zwei Beispiel-Auswerter (Python und Julia) als Vorlagen für eigene
+  Auswertungen.
+version: 3
 
-metrics: []
+# Allgemeine Metriken, je eine für die häufigsten Messarten: damit lässt sich
+# auch in einem neuen Bereich sofort messen. Der Präfix generic_ kommt in
+# keinem Bereichspaket vor.
+metrics:
+  - key: generic_success_rate
+    name: Erfolgsquote
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: >-
+      Anteil gelungener Versuche, z. B. Konversionen, gelöste Aufgaben oder
+      angenommene Vorschläge. Wert = Erfolge, Anzahl = Versuche. Höher ist besser.
+    definition: {decimals: 1}
+  - key: generic_events_per_period
+    name: Ereignisse je Zeitraum
+    kind: count
+    unit: ""
+    direction: higher
+    description: >-
+      Wie oft etwas geschieht, z. B. Anfragen pro Tag oder Anmeldungen pro Woche.
+      Wert = Ereignisse, Anzahl = Zeiträume (etwa Tage). Höher ist besser; für
+      Fehler oder Abbrüche eine eigene Metrik mit «tiefer ist besser» anlegen.
+    definition: {decimals: 2}
+  - key: generic_duration_s
+    name: Dauer in Sekunden
+    kind: duration
+    unit: s
+    direction: lower
+    description: >-
+      Zeit, bis etwas erledigt ist, z. B. Bearbeitungs- oder Antwortzeit; ein
+      Wert je Vorgang, in Sekunden. Kürzer ist besser.
+    definition: {decimals: 1, min: 0}
+  - key: generic_score
+    name: Messwert
+    kind: mean
+    unit: ""
+    direction: higher
+    description: >-
+      Eine Zahl je Person, Anfrage oder Lauf, deren Mittel zählt, z. B. eine
+      Punktzahl oder ein Qualitätswert. Höher ist besser.
+    definition: {decimals: 2}
+  - key: generic_rating
+    name: Bewertung 1–5
+    kind: ordinal
+    unit: ""
+    direction: higher
+    description: >-
+      Fünfstufige Bewertung, z. B. Zufriedenheit oder Nützlichkeit. Wert = Stufe,
+      Anzahl = Personen auf dieser Stufe. Höher ist besser.
+    definition:
+      decimals: 2
+      levels:
+        "1": sehr schlecht
+        "2": schlecht
+        "3": mittel
+        "4": gut
+        "5": sehr gut
 
 types:
   - key: hypothesis

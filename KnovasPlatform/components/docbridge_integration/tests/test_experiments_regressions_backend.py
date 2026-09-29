@@ -244,7 +244,6 @@ def test_lists_and_objects_where_a_code_belongs_are_refused_not_crashing(w):
 def test_sample_size_refuses_absurd_effects_and_plans_for_holm(w):
     svc = w.experimenter
     for bad in ({"kind": "mean", "sd": 1, "mde": 1e-300}, {"kind": "mean", "sd": 1e300, "mde": 1e-5},
-                {"kind": "mean", "sd": 1e-300, "mde": 1e-300}, {"kind": "mean", "sd": 1e300, "mde": 1e299},
                 {"kind": "proportion", "base": 0.5, "mde": 1e-12},
                 {"kind": "proportion", "base": 0.5, "mde": 1e-160},
                 {"kind": "proportion", "base": 0.5, "mde": 1e-200}):
@@ -255,6 +254,11 @@ def test_sample_size_refuses_absurd_effects_and_plans_for_holm(w):
         svc.sample_size({"kind": "mean", "sd": 1, "mde": 0})
     assert info.value.message == ("\u00abKleinster relevanter Unterschied\u00bb: Bitte den kleinsten "
                                   "relevanten Unterschied angeben (nicht 0).")
+    # Extreme scales with a sensible ratio are ordinary plans: only sd / mde
+    # counts (stats takes the ratio before squaring, review-stats).
+    for sd, mde in ((1e-300, 1e-300), (1e300, 1e299)):
+        assert svc.sample_size({"kind": "mean", "sd": sd, "mde": mde}) == \
+            svc.sample_size({"kind": "mean", "sd": sd / mde, "mde": 1})
     # Rare events keep realistic plans.
     assert svc.sample_size({"kind": "proportion", "base": 0.001, "mde": 0.0001})["per_variant"] > 10 ** 5
 

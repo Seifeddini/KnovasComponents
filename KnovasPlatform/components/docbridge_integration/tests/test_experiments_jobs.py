@@ -930,6 +930,8 @@ def test_retry_later_normalises_delay():
 
 
 class RecordingStore:
+    INDEX_OFF_PURGED = "purged by purge-index"
+
     def __init__(self):
         self.calls = []
         self.reindex_ids = []
@@ -937,7 +939,8 @@ class RecordingStore:
     def set_index_state(self, conn, experiment_id, state, error=None, *, if_updated_at=None):
         self.calls.append(("set_index_state", experiment_id, state, error))
 
-    def experiments_for_reindex(self, conn, *, domain_id=None, type_id=None, states=None):
+    def experiments_for_reindex(self, conn, *, domain_id=None, type_id=None, states=None,
+                                switched_off=False):
         self.calls.append(("experiments_for_reindex", tuple(states or ())))
         return list(self.reindex_ids)
 
@@ -1051,13 +1054,15 @@ def test_index_dead_message_follows_the_cause(db, last_error, shown):
 
 
 def test_maintenance_requeues_only_stranded_experiments(db):
-    from experiments import tasks
+    from experiments import store, tasks
 
     a = make_experiment(db, "MKT-1", index_state="pending")
     b = make_experiment(db, "MKT-2", index_state="pending")
     c = make_experiment(db, "MKT-3", index_state="error", index_error=tasks.MSG_INDEX_DEAD)
     make_experiment(db, "MKT-4", index_state="indexed")
-    make_experiment(db, "MKT-5", index_state="off")
+    # Taken out of Knovas by purge-index: stays out (switched-off rows are
+    # test_maintenance_uploads_experiments_switched_off_earlier).
+    make_experiment(db, "MKT-5", index_state="off", index_error=store.INDEX_OFF_PURGED)
     q = JobQueue(db)
     q.enqueue("index", {"experiment_id": a}, dedupe_key=f"index:{a}")
     q.enqueue("index", {"experiment_id": b}, dedupe_key=f"index:{b}")
@@ -1073,6 +1078,39 @@ def test_maintenance_requeues_only_stranded_experiments(db):
     maintenance(db)  # idempotent
     assert db.execute("SELECT count(*) FROM exp_jobs WHERE payload->>'experiment_id' = %s",
                       (c,)).fetchone()[0] == 1
+
+
+def test_maintenance_uploads_experiments_switched_off_earlier(db, monkeypatch):
+    """review-jobs-5: what was turned 'off' while indexing was switched off
+    goes up again once it is back on -- marked 'pending' and queued behind
+    edits and stranded uploads, a batch per pass, so the rate-limited index
+    jobs spread the uploads. What purge-index took out stays out."""
+    from experiments import store, tasks
+
+    older = make_experiment(db, "MKT-1", index_state="off")
+    newer = make_experiment(db, "MKT-2", index_state="off")
+    purged = make_experiment(db, "MKT-3", index_state="off", index_error=store.INDEX_OFF_PURGED)
+    db.execute("UPDATE exp_experiments SET updated_at = now() - interval '1 hour' WHERE id = %s",
+               (older,))
+    monkeypatch.setattr(tasks, "REUPLOAD_BATCH", 1)
+    _, _, still_off = tasks.build_handlers(
+        settings=settings(index_enabled=False, index_access_groups=("g-exp",)),
+        index_client=object(), runner=None)
+    still_off(db)
+    assert job_count(db) == 0 and index_state(db, newer) == ("off", None)
+
+    _, _, maintenance = tasks.build_handlers(
+        settings=settings(index_access_groups=("g-exp",)), index_client=object(), runner=None)
+    maintenance(db)
+    jobs_now = "SELECT payload->>'experiment_id', priority, status FROM exp_jobs ORDER BY id"
+    assert db.execute(jobs_now).fetchall() == [(newer, tasks.REUPLOAD_PRIORITY, "pending")]
+    assert index_state(db, newer) == ("pending", None)
+    assert index_state(db, older) == ("off", None)  # the next pass takes it
+    maintenance(db)
+    assert db.execute(jobs_now).fetchall() == [(newer, 200, "pending"), (older, 200, "pending")]
+    maintenance(db)  # both have their job now; the purged one is never queued
+    assert job_count(db) == 2
+    assert index_state(db, purged) == ("off", store.INDEX_OFF_PURGED)
 
 
 @pytest.mark.parametrize("overrides, client", [
@@ -1190,7 +1228,8 @@ class CliStore(RecordingStore):
         self.forgotten.append(pointer)
         self.pointers.remove(pointer)
 
-    def experiments_for_reindex(self, conn, *, domain_id=None, type_id=None, states=None):
+    def experiments_for_reindex(self, conn, *, domain_id=None, type_id=None, states=None,
+                                switched_off=False):
         self.calls.append(("experiments_for_reindex", tuple(states or ())))
         if states == ("pending",):
             return ["p1"]
@@ -1270,7 +1309,8 @@ def test_cli_purge_index_needs_yes_and_works_while_off(cli_env, cli_store, db, m
                                                  "experiments/sales/SAL-2"]
     assert cli_store.pointers == []
     assert JobQueue(db).counts()["pending"] == 0  # nothing re-uploads right away
-    assert ("set_index_state", "e1", "off", None) in cli_store.calls
+    # Marked as purged: the maintenance does not upload it again (review-jobs-5).
+    assert ("set_index_state", "e1", "off", cli_store.INDEX_OFF_PURGED) in cli_store.calls
 
 
 def test_cli_worker_once_processes_due_jobs(cli_env, cli_store, db, monkeypatch):

@@ -300,8 +300,8 @@ def test_stats7_proportion_target_out_of_range_is_ignored(target, direction):
         params={"target": target}, direction=direction, name="Aufgabenerfolg"))
     assert out["verdict"] == "n/a"
     assert "Ziel" not in out["headline"]
-    assert any(w.startswith(f"Ziel {str(target).replace('.', ',')} ignoriert: F\u00fcr Anteile das Ziel "
-                            "als Bruch angeben") for w in out["warnings"])
+    # Leftover (stats group): the fixed wording of the second line of defence.
+    assert "Ziel ausserhalb 0..1 \u2013 f\u00fcr Anteile 0,8 statt 80 angeben." in out["warnings"]
     assert out["values"]["target_invalid"] == target and "target_met" not in out["values"]
     # A share typed as a fraction still counts, and so do targets of other kinds.
     ok = E.run_builtin("builtin.describe", data(
@@ -445,7 +445,7 @@ def test_e2e_api1_offline_eval_describe_uses_the_latest_run():
     for key in ("performance", "rollout"):
         t = next(t for t in pack["types"] if t["key"] == key)
         assert t["definition"]["evaluation"][0]["scope"] == {}
-    assert load_pack("core")["version"] == 2
+    assert load_pack("core")["version"] == 3  # 3: the generic_* metrics (e2e-ui-2)
 
 
 # -- review-contract-frontend-7: a missing unit is not "no unit" ---------------------------

@@ -21,7 +21,8 @@ calls and service answers (or refusals) into responses.
   client, the runner client and the worker threads.
 
 Refusals: ``ExperimentsError`` carries a German message written for the
-person and its HTTP status; both are returned as they are. Anything else is
+person and its HTTP status; both are returned as they are. A deadlock or
+serialization failure is a 409 "Gleichzeitige \u00c4nderung". Anything else is
 logged with its traceback and answered with 500 "Interner Serverfehler":
 exception text never reaches the browser or the CI log.
 
@@ -90,6 +91,7 @@ MSG_METHOD = "Diese Methode ist hier nicht erlaubt."
 MSG_FAILED = "Die Anfrage konnte nicht bearbeitet werden."
 MSG_CSV_BUSY = ("Es l\u00e4uft gerade schon ein CSV-Import. Bitte in einem Moment noch "
                 "einmal versuchen.")
+MSG_CONCURRENT = "Gleichzeitige \u00c4nderung; bitte erneut versuchen."
 
 _HTTP_MESSAGES = {
     400: MSG_BAD_REQUEST,
@@ -103,7 +105,7 @@ _HTTP_MESSAGES = {
 _TRIMMED_EXPERIMENT_KEYS = ("key", "title", "status", "domain", "type", "variants", "metrics",
                             "row_version")
 
-_SAMPLE_SIZE_ARGS = ("kind", "base", "sd", "mde", "alpha", "power")
+_SAMPLE_SIZE_ARGS = ("kind", "base", "sd", "mde", "alpha", "power", "comparisons")
 
 
 # -- responses ------------------------------------------------------------------
@@ -153,11 +155,30 @@ def _refusal(exc: ExperimentsError):
     return _error(status, str(exc.message), getattr(exc, "fields", None))
 
 
+#: SQLSTATEs of class 40 (transaction rollback) a retry can get past:
+#: transaction_rollback, serialization_failure, deadlock_detected. psycopg 3
+#: has no common base class for them (its DeadlockDetected derives from
+#: OperationalError directly), so they are told apart by their code.
+_RETRYABLE_SQLSTATES = frozenset({"40000", "40001", "40P01"})
+
+
+def _concurrent_change(exc: BaseException) -> bool:
+    """A deadlock or serialization failure PostgreSQL resolved by rolling
+    this request's transaction back: nothing was written, a retry works."""
+    try:
+        import psycopg
+    except ImportError:  # pragma: no cover - psycopg is a hard dependency here
+        return False
+    return isinstance(exc, psycopg.Error) and getattr(exc, "sqlstate", None) in _RETRYABLE_SQLSTATES
+
+
 def _json_view(view: Callable) -> Callable:
     """Map what a view raises to a JSON answer.
 
     HTTP exceptions (a body over MAX_CONTENT_LENGTH, a malformed upload) pass
     through to the blueprint's error handler, which answers them in JSON too.
+    A deadlock or serialization failure is a 409 the caller can simply repeat
+    (the lock order rules should make it rare; this is the safety net).
     """
 
     @functools.wraps(view)
@@ -168,7 +189,11 @@ def _json_view(view: Callable) -> Callable:
             return _refusal(exc)
         except HTTPException:
             raise
-        except Exception:  # noqa: BLE001 - the one place that turns anything into a 500
+        except Exception as exc:  # noqa: BLE001 - the one place that turns anything into a 500
+            if _concurrent_change(exc):
+                logger.warning("Experiments request rolled back by the database: %s %s (%s)",
+                               request.method, request.path, type(exc).__name__)
+                return _error(409, MSG_CONCURRENT)
             logger.error("Experiments request failed: %s %s", request.method, request.path,
                          exc_info=True)
             return _error(500, MSG_INTERNAL)

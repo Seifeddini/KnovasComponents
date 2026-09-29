@@ -35,8 +35,10 @@ import secrets
 import time
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
+import yaml
+
 from experiments import (
-    csv_import, evaluators, indexer, kinds, labels, packs, permissions, schema, stats, store,
+    csv_import, evaluators, indexer, kinds, labels, packs, permissions, schema, stats, store, tasks,
 )
 from experiments import search as search_mod
 from experiments.errors import Conflict, Forbidden, NotFound, Unavailable, ValidationError
@@ -108,6 +110,9 @@ MSG_SAMPLE_TOO_LARGE = (
 RUNNER_GIVE_UP = _dt.timedelta(minutes=30)
 TOKEN_DEFAULT_DAYS = 90
 REINDEX_CHUNK = 100
+#: Measurement rows go into COPY in chunks of this many, validated as they
+#: go: a CSV import of max_csv_rows never holds all of them as tuples.
+COPY_CHUNK_ROWS = 10_000
 
 DOMAIN_KEY_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 ID_PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}$")
@@ -433,6 +438,59 @@ def _public(item: Dict[str, Any], *drop: str) -> Dict[str, Any]:
     return {k: v for k, v in item.items() if k not in drop}
 
 
+#: Top-level order of a type definition shown as YAML (schema's keys; the
+#: first three only in case a definition ever carries them). Other keys follow
+#: in their stored order.
+DEFINITION_YAML_ORDER = ("key", "name", "description", "fields", "states", "initial",
+                         "transitions", "variants", "metrics", "evaluation", "decision")
+
+
+class _DefinitionDumper(yaml.SafeDumper):
+    """Block style without anchors (parse_definition_text refuses aliases),
+    list items indented under their key as in the pack files."""
+
+    def ignore_aliases(self, data: Any) -> bool:
+        return True
+
+    def increase_indent(self, flow: bool = False, indentless: bool = False) -> Any:
+        return super().increase_indent(flow, False)
+
+
+def _represent_text(dumper: yaml.SafeDumper, value: str) -> Any:
+    style = "|" if "\n" in value else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_DefinitionDumper.add_representer(str, _represent_text)
+
+
+def definition_yaml(definition: Dict[str, Any]) -> str:
+    """A type definition as YAML for the type editor, in a natural order
+    (DEFINITION_YAML_ORDER on top). The stored JSONB has lost the order the
+    entries were written in; when normalising reproduces the stored content
+    exactly, its order (key, label, ... within an entry) is used, else the
+    stored one. schema.parse_definition_text reads the text back as the
+    stored definition."""
+    ordered = definition
+    try:
+        normalised = schema.validate_type_definition(definition)
+    except ValidationError:
+        normalised = None
+    if normalised == definition:
+        ordered = normalised
+    top = {k: ordered[k] for k in DEFINITION_YAML_ORDER if k in ordered}
+    top.update((k, v) for k, v in ordered.items() if k not in top)
+    return yaml.dump(top, Dumper=_DefinitionDumper, sort_keys=False, allow_unicode=True,
+                     default_flow_style=False, width=4096)
+
+
+def _variant_fields(variant: Dict[str, Any]) -> tuple:
+    """What saving a variant list can change about one variant (its place
+    in the list aside), to recognise a save that changes nothing."""
+    return (variant["key"], variant.get("name") or "", variant.get("description") or "",
+            bool(variant.get("is_control")), variant.get("allocation"))
+
+
 # -- evaluations (shared by the service and the worker) --------------------------
 
 
@@ -729,7 +787,8 @@ def execute_evaluation(conn: Any, evaluation_id: str, *, settings: Any, runner: 
         if isinstance(result, dict) and result.get("ok"):
             try:
                 output = evaluators.sanitize_output(result.get("output"),
-                                                    evaluator_name=record["evaluator_name"])
+                                                    evaluator_name=record["evaluator_name"],
+                                                    metric_kind=metric["kind"])
             except ValidationError as exc:
                 store.mark_evaluation(conn, record["id"], status="failed", error=exc.message,
                                       logs=logs, duration_ms=duration)
@@ -995,6 +1054,7 @@ class ExperimentService:
         if found is None:
             raise NotFound("Den Typ gibt es nicht.")
         out = _public(found, "domain_id")
+        out["definition_yaml"] = definition_yaml(found["definition"] or {})
         out["versions"] = store.type_versions(self.conn, found["id"])
         return out
 
@@ -1367,7 +1427,8 @@ class ExperimentService:
             if result["ok"]:
                 try:
                     result["output"] = evaluators.sanitize_output(
-                        raw.get("output"), evaluator_name=evaluator["name"])
+                        raw.get("output"), evaluator_name=evaluator["name"],
+                        metric_kind=metric["kind"])
                 except ValidationError as exc:
                     result.update(ok=False, error=exc.message)
             elif not result["error"]:
@@ -1736,8 +1797,11 @@ class ExperimentService:
                 store.update_experiment_state(self.conn, row["id"], changes)
                 _queue_index(self.conn, self.settings, row["id"])
         if changes:
-            self._audit("experiments.experiment.update", "experiment", row["key"],
-                        {"changed": sorted(changes)})
+            detail: Dict[str, Any] = {"changed": sorted(changes)}
+            if "archived" in changes:
+                # The activity list names the direction (archived or restored).
+                detail["archived"] = changes["archived"]
+            self._audit("experiments.experiment.update", "experiment", row["key"], detail)
         return self._snapshot(row["key"])
 
     def transition(self, key: Any, data: Any) -> Dict[str, Any]:
@@ -1793,20 +1857,29 @@ class ExperimentService:
             raise _refuse("variants", "Pflichtangabe fehlt.", "Varianten")
         with self.conn.transaction():
             row = self._experiment(key, lock="update")
+            # Before the no-op check: a stale row_version is refused even when
+            # nothing would change, so the client learns its view is outdated.
             self._check_row_version(row, data, required=False)
             desired = self._variants(data["variants"], row["definition"].get("variants") or {})
             wanted = {v["key"] for v in desired}
-            for variant in store.list_variants(self.conn, row["id"]):
-                if variant["key"] not in wanted and variant["has_data"]:
-                    raise _refuse("variants",
-                                  f"Die Variante \u00ab{variant['key']}\u00bb hat Messwerte und kann "
-                                  "nicht entfernt werden.")
-            outcome = store.replace_variants(self.conn, row["id"], desired)
-            store.update_experiment_state(self.conn, row["id"], {})
-            _queue_index(self.conn, self.settings, row["id"])
-        self._audit("experiments.experiment.variants", "experiment", row["key"],
-                    {"variants": len(desired), "added": outcome["added"],
-                     "removed": outcome["removed"]})
+            current = store.list_variants(self.conn, row["id"])
+            if [_variant_fields(v) for v in current] == [_variant_fields(v) for v in desired]:
+                # Saved unchanged: no new row_version, no re-index, no audit entry.
+                changed = False
+            else:
+                changed = True
+                for variant in current:
+                    if variant["key"] not in wanted and variant["has_data"]:
+                        raise _refuse("variants",
+                                      f"Die Variante \u00ab{variant['key']}\u00bb hat Messwerte und "
+                                      "kann nicht entfernt werden.")
+                outcome = store.replace_variants(self.conn, row["id"], desired)
+                store.update_experiment_state(self.conn, row["id"], {})
+                _queue_index(self.conn, self.settings, row["id"])
+        if changed:
+            self._audit("experiments.experiment.variants", "experiment", row["key"],
+                        {"variants": len(desired), "added": outcome["added"],
+                         "removed": outcome["removed"]})
         return self._snapshot(row["key"])
 
     def set_metrics(self, key: Any, data: Any) -> Dict[str, Any]:
@@ -1816,76 +1889,51 @@ class ExperimentService:
             raise _refuse("metrics", "Pflichtangabe fehlt.", "Metriken")
         with self.conn.transaction():
             row = self._experiment(key, lock="update")
+            # As in set_variants: checked before an unchanged save is skipped.
             self._check_row_version(row, data, required=False)
             current = store.assigned_metrics(self.conn, row["id"])
             entries = self._metric_entries(data["metrics"], row["domain_id"],
                                            {m["id"] for m in current})
             kept = {e["metric_id"] for e in entries}
             removed = [m for m in current if m["id"] not in kept]
-            with_data = set(store.metrics_with_data(self.conn, row["id"], [m["id"] for m in removed]))
-            for metric in removed:
-                if metric["id"] in with_data:
-                    raise _refuse("metrics",
-                                  f"Die Metrik \u00ab{metric['name']}\u00bb hat Messwerte und kann "
-                                  "nicht entfernt werden.")
-            store.replace_experiment_metrics(self.conn, row["id"], entries)
-            store.update_experiment_state(self.conn, row["id"], {})
-            _queue_index(self.conn, self.settings, row["id"])
-        self._audit("experiments.experiment.metrics", "experiment", row["key"],
-                    {"metrics": [e["key"] for e in entries],
-                     "removed": [m["key"] for m in removed]})
+            changed = [(m["id"], m["role"], m["guardrail_op"], m["guardrail_value"])
+                       for m in current] != [(e["metric_id"], e["role"], e["guardrail_op"],
+                                              e["guardrail_value"]) for e in entries]
+            if changed:
+                with_data = set(store.metrics_with_data(self.conn, row["id"],
+                                                        [m["id"] for m in removed]))
+                for metric in removed:
+                    if metric["id"] in with_data:
+                        raise _refuse("metrics",
+                                      f"Die Metrik \u00ab{metric['name']}\u00bb hat Messwerte und "
+                                      "kann nicht entfernt werden.")
+                store.replace_experiment_metrics(self.conn, row["id"], entries)
+                store.update_experiment_state(self.conn, row["id"], {})
+                _queue_index(self.conn, self.settings, row["id"])
+        if changed:
+            self._audit("experiments.experiment.metrics", "experiment", row["key"],
+                        {"metrics": [e["key"] for e in entries],
+                         "removed": [m["key"] for m in removed]})
         return self._snapshot(row["key"])
 
     # -- measurements ------------------------------------------------------
 
-    def _prepare_rows(self, row: Dict[str, Any], rows: List[Any], *, lines: Optional[List[int]] = None,
-                      run_id: Optional[str] = None, default_variant: Optional[str] = None,
-                      row_labels: Optional[List[Optional[str]]] = None,
-                      row_paths: Optional[List[Optional[str]]] = None
-                      ) -> Tuple[List[tuple], List[str]]:
-        """Validate measurement rows against the experiment (its metrics,
-        variants, runs) and each metric's kind; all or nothing. Errors name
-        the row ("Messwert 3: ...", the file line for CSV, or ``row_labels``)
-        and are keyed ``rows.<i>.<field>``, or under ``row_paths`` (a run's
-        ``metrics.<key>``, ``metrics.<key>.count``: the names its form uses).
+    def _row_context(self, row: Dict[str, Any], rows: List[Any]
+                     ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, str], set]:
+        """What measurement rows are validated against: the experiment's
+        metrics by key, its variants (key -> id) and the ids among the rows'
+        run_id that are runs of it.
 
         Call inside the insert's transaction: the metrics are read with KEY
         SHARE, so their kinds cannot change before the rows are written.
         """
         metrics = {m["key"]: m for m in store.assigned_metrics(self.conn, row["id"], lock=True)}
         variants = {v["key"]: v["id"] for v in store.list_variants(self.conn, row["id"])}
-        wanted_runs = {r.get("run_id") for r in rows if isinstance(r, dict)} - {None, ""}
+        wanted_runs = {r.get("run_id") for r in rows
+                       if isinstance(r, dict) and isinstance(r.get("run_id"), str)} - {""}
         valid_runs = store.run_ids_of(self.conn, row["id"],
                                       {store.canonical_uuid(r) for r in wanted_runs} - {None})
-        errors: List[str] = []
-        fields: Dict[str, str] = {}
-        prepared: List[tuple] = []
-        metric_keys: List[str] = []
-        for i, raw in enumerate(rows):
-            label = row_labels[i] if row_labels and i < len(row_labels) else None
-            path = row_paths[i] if row_paths and i < len(row_paths) else None
-            where = label or (f"Zeile {lines[i]}" if lines else f"Messwert {i + 1}")
-            try:
-                prepared.append(self._prepare_row(raw, metrics, variants, valid_runs, run_id,
-                                                  default_variant, metric_keys))
-            except ValidationError as exc:
-                errors.append(f"{where}: {exc.message}")
-                for name, message in (exc.fields or {"row": exc.message}).items():
-                    if path:
-                        key = path if name in ("value", "row", "metric") else f"{path}.{name}"
-                    else:
-                        key = f"rows.{i}.{name}"
-                    fields.setdefault(key, message)
-                if len(errors) >= 20:
-                    break
-        if errors:
-            more = len(errors) >= 20 and len(prepared) + len(errors) < len(rows)
-            text = csv_import.join_messages(errors[:20], more)
-            if lines:
-                # A file: the list is the message, the file field points to it.
-                raise ValidationError(text, fields={"file": csv_import.MSG_SEE_ERRORS})
-            raise ValidationError(text, fields=dict(list(fields.items())[:20]))
-        return prepared, metric_keys
+        return metrics, variants, valid_runs
 
     @staticmethod
     def _prepare_row(raw: Any, metrics: Dict[str, Dict[str, Any]], variants: Dict[str, str],
@@ -1934,40 +1982,100 @@ class ExperimentService:
             raise _refuse("dims", "Die Dimensionen enthalten ung\u00fcltige Zeichen.")
         if metric["key"] not in metric_keys:
             metric_keys.append(metric["key"])
-        # A compact tuple (a CSV import holds up to max_csv_rows of them), in
-        # store.MEASUREMENT_COLUMNS order without the per-batch columns.
+        # In store.MEASUREMENT_COLUMNS order without the per-batch columns.
         return (metric["id"], variant_id, row_run, observed, normal["value"], normal["count"],
                 normal["denominator"], normal["sum_sq"], json.dumps(dims, ensure_ascii=False))
 
-    def _write_rows(self, row: Dict[str, Any], prepared: List[tuple], metric_keys: List[str],
-                    *, source: str, filename: Optional[str], run_id: Optional[str]) -> str:
-        """Batch plus COPY of the rows; inside the caller's transaction."""
+    def _write_rows(self, row: Dict[str, Any], rows: List[Any],
+                    context: Tuple[Dict[str, Dict[str, Any]], Dict[str, str], set], *,
+                    source: str, filename: Optional[str], run_id: Optional[str],
+                    lines: Optional[List[int]] = None, default_variant: Optional[str] = None,
+                    row_labels: Optional[List[Optional[str]]] = None,
+                    row_paths: Optional[List[Optional[str]]] = None
+                    ) -> Tuple[str, int, List[str]]:
+        """Validate measurement rows against the experiment (``context``
+        from _row_context) and each metric's kind, and write them as one
+        batch; returns (batch id, rows written, metric keys).
+
+        All or nothing. The batch row comes first, then the rows go into COPY
+        in chunks of COPY_CHUNK_ROWS as they are validated, so a 200'000-row
+        import never holds all of them as tuples. After the first refused row
+        nothing more is written, the rest is only checked (up to 20 errors),
+        and the ValidationError rolls the caller's transaction back with the
+        batch and every chunk already written. Errors name the row
+        ("Messwert 3: ...", the file line for CSV, or ``row_labels``) and are
+        keyed ``rows.<i>.<field>``, or under ``row_paths`` (a run's
+        ``metrics.<key>``, ``metrics.<key>.count``: the names its form uses).
+        """
+        metrics, variants, valid_runs = context
+        # The batch records the metrics in the order the rows name them. It
+        # is written before the rows, so the list is taken from the rows up
+        # front: when every row is valid it is exactly the metrics they use.
+        named = (r.get("metric") for r in rows if isinstance(r, dict))
+        metric_keys = [k for k in dict.fromkeys(n for n in named if isinstance(n, str))
+                       if k in metrics]
         batch_id = store.insert_batch(self.conn, experiment_id=row["id"], run_id=run_id,
-                                      source=source, rows=len(prepared), metric_keys=metric_keys,
+                                      source=source, rows=len(rows), metric_keys=metric_keys,
                                       filename=filename, actor_id=self._actor_id)
         now = store.transaction_now(self.conn)
         actor_id = self._actor_id
-        store.copy_measurements(self.conn, (
-            (row["id"], metric_id, variant_id, run, batch_id, observed or now, value, count,
-             denominator, sum_sq, dims, source, actor_id)
-            for metric_id, variant_id, run, observed, value, count, denominator, sum_sq, dims
-            in prepared))
-        return batch_id
+        errors: List[str] = []
+        fields: Dict[str, str] = {}
+        chunk: List[tuple] = []
+        valid = written = 0
+        seen_keys: List[str] = []
+        for i, raw in enumerate(rows):
+            try:
+                metric_id, variant_id, run, observed, value, count, denominator, sum_sq, dims = \
+                    self._prepare_row(raw, metrics, variants, valid_runs, run_id, default_variant,
+                                      seen_keys)
+            except ValidationError as exc:
+                label = row_labels[i] if row_labels and i < len(row_labels) else None
+                path = row_paths[i] if row_paths and i < len(row_paths) else None
+                where = label or (f"Zeile {lines[i]}" if lines else f"Messwert {i + 1}")
+                errors.append(f"{where}: {exc.message}")
+                for name, message in (exc.fields or {"row": exc.message}).items():
+                    if path:
+                        key = path if name in ("value", "row", "metric") else f"{path}.{name}"
+                    else:
+                        key = f"rows.{i}.{name}"
+                    fields.setdefault(key, message)
+                if len(errors) >= 20:
+                    break
+                continue
+            valid += 1
+            if errors:
+                continue  # refused anyway: only look for further errors
+            chunk.append((row["id"], metric_id, variant_id, run, batch_id, observed or now, value,
+                          count, denominator, sum_sq, dims, source, actor_id))
+            if len(chunk) >= COPY_CHUNK_ROWS:
+                written += store.copy_measurements(self.conn, chunk)
+                chunk = []
+        if errors:
+            more = len(errors) >= 20 and valid + len(errors) < len(rows)
+            text = csv_import.join_messages(errors[:20], more)
+            if lines:
+                # A file: the list is the message, the file field points to it.
+                raise ValidationError(text, fields={"file": csv_import.MSG_SEE_ERRORS})
+            raise ValidationError(text, fields=dict(list(fields.items())[:20]))
+        if chunk:
+            written += store.copy_measurements(self.conn, chunk)
+        return batch_id, written, metric_keys
 
     def _add_rows(self, key: Any, rows: List[Any], *, source: str, filename: Optional[str],
                   lines: Optional[List[int]], action: str) -> Dict[str, Any]:
         with self.conn.transaction():
             row = self._experiment(key, lock="no key update")
-            prepared, metric_keys = self._prepare_rows(row, rows, lines=lines)
-            batch_id = self._write_rows(row, prepared, metric_keys, source=source,
-                                        filename=filename, run_id=None)
+            context = self._row_context(row, rows)
+            batch_id, inserted, metric_keys = self._write_rows(
+                row, rows, context, source=source, filename=filename, run_id=None, lines=lines)
             store.touch_experiment(self.conn, row["id"])
             _queue_pipeline(self.conn, row["id"])
             _queue_index(self.conn, self.settings, row["id"])
         self._audit(action, "experiment", row["key"],
-                    {"batch_id": batch_id, "rows": len(prepared), "metrics": metric_keys,
+                    {"batch_id": batch_id, "rows": inserted, "metrics": metric_keys,
                      "source": source})
-        return {"batch_id": batch_id, "inserted": len(prepared)}
+        return {"batch_id": batch_id, "inserted": inserted}
 
     def add_measurements(self, key: Any, data: Any, source: str = "manual") -> Dict[str, Any]:
         self._view()
@@ -1992,8 +2100,11 @@ class ExperimentService:
         if not metrics:
             raise ValidationError("Das Experiment hat noch keine Metriken; bitte zuerst Metriken zuordnen.")
         variants = {v["key"] for v in store.list_variants(self.conn, row["id"])}
+        # The run column may name a run instead of giving its id; the names
+        # are read only when a cell is not an id.
         parsed = csv_import.parse_csv(content, metrics=metrics, variants=variants,
-                                      max_rows=int(self.settings.max_csv_rows))
+                                      max_rows=int(self.settings.max_csv_rows),
+                                      runs=lambda: store.run_ids_by_name(self.conn, row["id"]))
         result = self._add_rows(row["key"], parsed["rows"], source="csv", filename=_filename(filename),
                                 lines=parsed.get("lines"), action="experiments.measurements.import")
         result["ignored_columns"] = parsed["ignored_columns"]
@@ -2095,18 +2206,16 @@ class ExperimentService:
                 name=name, status=status, params=params, environment=environment, commit_ref=commit,
                 source=source, started_at=started_at, ended_at=ended_at, actor_id=self._actor_id)
             batch_id = None
-            prepared: List[tuple] = []
+            inserted = 0
             if rows:
                 row_labels = [None if k is None else
                               f"\u00ab{(metrics.get(k) or {}).get('name') or k[:48]}\u00bb"
                               for k in row_metric_keys]
                 row_paths = [None if k is None else f"metrics.{k}" for k in row_metric_keys]
-                prepared, metric_keys = self._prepare_rows(row, rows, run_id=run_id,
-                                                           default_variant=variant,
-                                                           row_labels=row_labels,
-                                                           row_paths=row_paths)
-                batch_id = self._write_rows(row, prepared, metric_keys, source=source,
-                                            filename=None, run_id=run_id)
+                batch_id, inserted, _ = self._write_rows(
+                    row, rows, self._row_context(row, rows), source=source, filename=None,
+                    run_id=run_id, default_variant=variant, row_labels=row_labels,
+                    row_paths=row_paths)
                 _queue_pipeline(self.conn, row["id"])
             if note:
                 store.insert_note(self.conn, experiment_id=row["id"], kind="note", body=note,
@@ -2115,7 +2224,7 @@ class ExperimentService:
             store.touch_experiment(self.conn, row["id"])
             _queue_index(self.conn, self.settings, row["id"])
         self._audit("experiments.run.add", "experiment", row["key"],
-                    {"run_id": run_id, "batch_id": batch_id, "rows": len(prepared),
+                    {"run_id": run_id, "batch_id": batch_id, "rows": inserted,
                      "status": status, "source": source})
         return store.get_run(self.conn, row["id"], run_id)
 
@@ -2480,6 +2589,9 @@ class ExperimentService:
             "unrestricted": bool(self.settings.index_unrestricted),
             "access_groups": groups,
             "counts": store.index_state_counts(self.conn),
+            # Documents of deleted experiments still in Knovas (the worker's
+            # maintenance repeats their deletion).
+            "orphans": tasks.orphan_count(self.conn),
             "jobs": queue.counts(),
             "failures": queue.recent_failures(),
             "access_warnings": store.viewers_without_groups(self.conn, groups) if groups else [],

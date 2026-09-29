@@ -37,7 +37,7 @@ pytestmark = pytest.mark.skipif(
     not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN"
 )
 
-from experiments import indexer, jobs, tasks  # noqa: E402
+from experiments import indexer, jobs, store, tasks  # noqa: E402
 from experiments.errors import Unavailable  # noqa: E402
 from experiments.jobs import JOB_KINDS, Job, JobQueue, JobWorker  # noqa: E402
 from experiments.settings import ExperimentsSettings  # noqa: E402
@@ -668,6 +668,9 @@ def test_purge_index_keeps_the_index_state_true_when_the_listing_fails(
     deleted_one = make_experiment(db, "MKT-1", index_state="indexed")
     refused_one = make_experiment(db, "MKT-2", index_state="indexed")
     never_sent = make_experiment(db, "MKT-3", index_state="pending")
+    # Turned 'off' while indexing was switched off, its old copy recorded.
+    switched_off = make_experiment(db, "MKT-4", index_state="off")
+    record(db, "experiments/marketing/MKT-4", switched_off)
     record(db, "experiments/marketing/MKT-1", deleted_one)
     record(db, "experiments/marketing/MKT-2", refused_one)
     JobQueue(db).enqueue("index", {"experiment_id": never_sent}, dedupe_key=f"index:{never_sent}")
@@ -676,13 +679,16 @@ def test_purge_index_keeps_the_index_state_true_when_the_listing_fails(
     rc, out = run_cli("--config", cli_env, "purge-index", "--yes")
     assert rc == code, out
     assert message in out
-    assert "1 Dokument(e) aus Knovas gel\u00f6scht" in out
+    assert "2 Dokument(e) aus Knovas gel\u00f6scht" in out
     assert "RetryError" not in out and "HTTPError" not in out and "secret" not in out
-    # Deleted -> "aus"; still in Knovas -> unchanged; never sent -> "aus" (so
-    # the maintenance does not upload it right after the purge).
-    assert state_of(db, deleted_one) == ("off", None)
+    # Deleted -> "aus"; still in Knovas -> unchanged; never sent -> "aus",
+    # marked as purged, so the maintenance does not upload it again -- right
+    # after the purge nor once indexing is back on (review-jobs-5), which is
+    # also why the switched-off one is marked now.
+    assert state_of(db, deleted_one) == ("off", store.INDEX_OFF_PURGED)
     assert state_of(db, refused_one) == ("indexed", None)
-    assert state_of(db, never_sent) == ("off", None)
+    assert state_of(db, never_sent) == ("off", store.INDEX_OFF_PURGED)
+    assert state_of(db, switched_off) == ("off", store.INDEX_OFF_PURGED)
     _, _, maintenance = tasks.build_handlers(settings=SETTINGS, index_client=object(),
                                              runner=None)
     maintenance(db)

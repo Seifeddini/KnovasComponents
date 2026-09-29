@@ -15,7 +15,12 @@ The maintenance repeats what no job is working on any more:
 * uploads: experiments still 'pending', or in 'error' for a reason that may
   go away by itself (Knovas was unreachable, no access group was set, the
   upload did not complete). A document Knovas refused is not sent again
-  every few minutes: it goes up with the next edit or "Alles neu indexieren".
+  every few minutes: it goes up with the next edit or "Alles neu indexieren";
+* switched back on: experiments set to 'off' while indexing was switched off
+  (index_error NULL) are marked 'pending' and queued again, a batch per pass
+  behind everything else, the upload rate limit spacing them as usual. The
+  ones purge-index removed (store.INDEX_OFF_PURGED) stay out until someone
+  re-indexes them.
 
 Plan: docs/superpowers/plans/2026-09-28-experiments-module.md (section 12)
 """
@@ -40,6 +45,11 @@ MSG_INCOMPLETE = "Der Auftrag ist unvollst\u00e4ndig."
 #: Maintenance re-queues stranded experiments behind people's edits (10) and
 #: ahead of bulk re-indexing (200).
 MAINTENANCE_PRIORITY = 100
+#: Experiments switched off and on again are a bulk re-index: behind edits
+#: and stranded uploads, at most REUPLOAD_BATCH per maintenance pass (the
+#: uploads themselves wait for the rate slot; the next pass queues more).
+REUPLOAD_PRIORITY = 200
+REUPLOAD_BATCH = 500
 #: Index errors the maintenance repeats on its own: causes outside the
 #: document that may go away. A refusal by Knovas (MSG_REJECTED) or a key
 #: Knovas cannot take (MSG_BAD_KEY) would fail the same way every time.
@@ -151,6 +161,44 @@ def stranded_experiments(conn: Any) -> List[str]:
     return [str(r[0]) for r in rows]
 
 
+def switched_off_experiments(conn: Any, *, limit: Optional[int] = None) -> List[str]:
+    """Experiments turned 'off' while indexing was switched off (index_error
+    NULL; purge-index leaves INDEX_OFF_PURGED), newest change first: their
+    Knovas copy is missing or stale now that indexing is back on. At most
+    ``limit`` (REUPLOAD_BATCH)."""
+    n = REUPLOAD_BATCH if limit is None else limit
+    rows = conn.execute(
+        "SELECT id::text FROM exp_experiments WHERE index_state = 'off' AND index_error IS NULL "
+        "ORDER BY updated_at DESC, id DESC LIMIT %s",
+        (max(1, min(10_000, int(n))),),
+    ).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def requeue_switched_off(conn: Any) -> int:
+    """Mark each switched_off_experiments entry 'pending' and queue its
+    upload; returns how many. The experiment row is written before the job's
+    dedupe slot in one transaction, the order every writer keeps
+    (service._queue_index), and only while it is still unmarked 'off'."""
+    queue = JobQueue(conn)
+    queued = 0
+    for experiment_id in switched_off_experiments(conn):
+        with conn.transaction():
+            cur = conn.execute(
+                "UPDATE exp_experiments SET index_state = 'pending' "
+                "WHERE id = %s AND index_state = 'off' AND index_error IS NULL",
+                (experiment_id,))
+            if not cur.rowcount:
+                continue
+            queue.enqueue("index", {"experiment_id": experiment_id},
+                          dedupe_key=f"index:{experiment_id}", priority=REUPLOAD_PRIORITY)
+        queued += 1
+    if queued:
+        logger.info("Experiments maintenance queued %s experiment(s) switched off earlier for "
+                    "upload.", queued)
+    return queued
+
+
 def index_dead_message(last_error: Optional[str]) -> str:
     """What the experiment shows for an index job that died with
     ``last_error``: MSG_INDEX_DEAD only when Knovas could not be reached."""
@@ -231,7 +279,7 @@ def build_handlers(*, settings: Any, index_client: Any,
         """Repeat failed deletions, then re-queue experiments whose Knovas
         copy is pending or failed retryably but that no job is working on (a
         job lost to a purge, a dead job, an upload refused while no access
-        group was configured)."""
+        group was configured), then queue the ones switched off earlier."""
         if index_client is not None:
             try:
                 requeue_failed_deletions(conn)
@@ -243,20 +291,21 @@ def build_handlers(*, settings: Any, index_client: Any,
         if not getattr(settings, "index_access_groups", ()) and not settings.index_unrestricted:
             return
         ids = stranded_experiments(conn)
-        if not ids:
-            return
-        queue = JobQueue(conn)
-        active = queue.active_dedupe_keys(f"index:{i}" for i in ids)
-        queued = 0
-        for experiment_id in ids:
-            key = f"index:{experiment_id}"
-            if key in active:
-                continue
-            queue.enqueue("index", {"experiment_id": experiment_id}, dedupe_key=key,
-                          priority=MAINTENANCE_PRIORITY)
-            queued += 1
-        if queued:
-            logger.info("Experiments maintenance re-queued %s index jobs.", queued)
+        if ids:
+            queue = JobQueue(conn)
+            active = queue.active_dedupe_keys(f"index:{i}" for i in ids)
+            queued = 0
+            for experiment_id in ids:
+                key = f"index:{experiment_id}"
+                if key in active:
+                    continue
+                queue.enqueue("index", {"experiment_id": experiment_id}, dedupe_key=key,
+                              priority=MAINTENANCE_PRIORITY)
+                queued += 1
+            if queued:
+                logger.info("Experiments maintenance re-queued %s index jobs.", queued)
+        # After the stranded ones: those marked 'pending' here have their job.
+        requeue_switched_off(conn)
 
     handlers = {
         "index": handle_index,

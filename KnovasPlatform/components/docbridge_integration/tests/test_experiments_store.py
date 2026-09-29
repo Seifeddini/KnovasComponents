@@ -774,8 +774,9 @@ def test_snapshot_shape_counts_and_sizes(w):
     assert set(snap) == {
         "id", "key", "title", "hypothesis", "description", "status", "status_label", "status_phase",
         "archived", "domain", "type", "fields", "field_values", "tags", "owner", "variants", "metrics",
-        "evaluations", "decisions", "notes", "runs", "run_count", "measurement_count", "batch_count",
-        "created_at", "updated_at", "started_at", "ended_at", "decided_at", "row_version", "index"}
+        "evaluations", "decisions", "notes", "runs", "runs_next_after", "run_count",
+        "measurement_count", "batch_count", "created_at", "updated_at", "started_at", "ended_at",
+        "decided_at", "row_version", "index"}
     assert snap["status_label"] == "Entwurf" and snap["status_phase"] is None
     assert snap["domain"] == {"id": w.domain_id, "key": "marketing", "name": "Marketing",
                               "color": "#eb6834", "id_prefix": "MKT"}

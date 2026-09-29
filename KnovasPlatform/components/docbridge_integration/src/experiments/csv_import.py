@@ -37,7 +37,7 @@ import io
 import math
 import re
 import uuid
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple, Union
 
 from experiments import kinds, schema
 from experiments.errors import ValidationError
@@ -281,6 +281,60 @@ class _LineError(Exception):
     pass
 
 
+class _Dims(dict):
+    """A row's ``dims``, shared instead of copied: every row of a wide line
+    holds its line's object, and lines naming the same dimensions hold one
+    object between them (a 200'000-line export with one channel column
+    keeps one dict, not 200'000). Read-only, so no reader can change another
+    row's dimensions through it; ``dict(dims)`` gives a private copy."""
+
+    __slots__ = ()
+
+    def _read_only(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("CSV dims are shared and read-only; copy them with dict().")
+
+    __setitem__ = __delitem__ = __ior__ = _read_only  # type: ignore[assignment]
+    clear = pop = popitem = setdefault = update = _read_only  # type: ignore[assignment]
+
+    def __reduce__(self) -> Any:  # copy, deepcopy and pickle go through dict()
+        return (type(self), (dict(self),))
+
+
+#: Distinct dims objects one import shares at most; further ones are kept per line.
+MAX_SHARED_DIMS = 10_000
+_NO_DIMS = _Dims()
+
+
+def _shared_dims(dims: Dict[str, str], cache: Dict[Tuple[Tuple[str, str], ...], _Dims]) -> _Dims:
+    if not dims:
+        return _NO_DIMS
+    key = tuple(dims.items())
+    found = cache.get(key)
+    if found is None:
+        found = _Dims(dims)
+        if len(cache) < MAX_SHARED_DIMS:
+            cache[key] = found
+    return found
+
+
+RunNames = Union[Mapping[str, Iterable[str]], Callable[[], Mapping[str, Iterable[str]]]]
+
+
+class _RunIndex:
+    """Run name -> the ids of the experiment's runs with that name, read on
+    first use: most files give run ids, or no run at all."""
+
+    def __init__(self, source: RunNames) -> None:
+        self._source = source
+        self._index: Optional[Dict[str, List[str]]] = None
+
+    def ids(self, name: str) -> List[str]:
+        if self._index is None:
+            found = self._source() if callable(self._source) else self._source
+            self._index = {str(n): [str(i) for i in ids] for n, ids in (found or {}).items()}
+        return self._index.get(name) or []
+
+
 def _cell(row: List[str], index: Optional[int]) -> str:
     if index is None or index >= len(row):
         return ""
@@ -305,10 +359,30 @@ def _metric_row(kind: str, definition: Dict[str, Any], raw: Dict[str, Any]) -> D
         raise _LineError(exc.message) from None
 
 
-def _common(row: List[str], layout: _Layout, variants: Tuple[Set[str], Dict[str, Optional[str]]]
-            ) -> Dict[str, Any]:
+def _run_id(cell: str, runs: Optional[_RunIndex]) -> str:
+    """The run a ``run`` cell names: a run id, or -- when ``runs`` (name ->
+    ids) is given -- the name of exactly one of the experiment's runs."""
+    try:
+        return str(uuid.UUID(cell))
+    except ValueError:
+        pass
+    if runs is None:
+        raise _LineError(f"\u00ab{cell[:40]}\u00bb ist keine g\u00fcltige Lauf-ID.")
+    ids = runs.ids(cell)
+    if len(ids) > 1:
+        raise _LineError(f"{len(ids)} L\u00e4ufe heissen \u00ab{cell[:40]}\u00bb; bitte die "
+                         "Lauf-ID angeben.")
+    if not ids:
+        raise _LineError(f"\u00ab{cell[:40]}\u00bb ist weder eine Lauf-ID noch der Name eines "
+                         "Laufs dieses Experiments.")
+    return ids[0]
+
+
+def _common(row: List[str], layout: _Layout, variants: Tuple[Set[str], Dict[str, Optional[str]]],
+            dims_cache: Dict[Tuple[Tuple[str, str], ...], _Dims],
+            runs: Optional[_RunIndex] = None) -> Dict[str, Any]:
     exact, folded = variants
-    out: Dict[str, Any] = {"variant": None, "observed_at": None, "run_id": None, "dims": {}}
+    out: Dict[str, Any] = {"variant": None, "observed_at": None, "run_id": None, "dims": _NO_DIMS}
     variant = _cell(row, layout.fixed.get("variant"))
     if variant:
         if variant in exact:
@@ -328,16 +402,13 @@ def _common(row: List[str], layout: _Layout, variants: Tuple[Set[str], Dict[str,
         out["observed_at"] = moment.isoformat()
     run = _cell(row, layout.fixed.get("run"))
     if run:
-        try:
-            out["run_id"] = str(uuid.UUID(run))
-        except ValueError:
-            raise _LineError(f"\u00ab{run[:40]}\u00bb ist keine g\u00fcltige Lauf-ID.") from None
+        out["run_id"] = _run_id(run, runs)
     dims: Dict[str, str] = {}
     for key, index in layout.dims:
         value = _cell(row, index)
         if value:
             dims[key] = value
-    out["dims"] = dims
+    out["dims"] = _shared_dims(dims, dims_cache)
     return out
 
 
@@ -348,15 +419,20 @@ def _definition(metric: Dict[str, Any], key: str) -> Dict[str, Any]:
 
 
 def parse_csv(content: bytes, *, metrics: Dict[str, Dict[str, Any]], variants: Set[str],
-              max_rows: int) -> Dict[str, Any]:
+              max_rows: int, runs: Optional[RunNames] = None) -> Dict[str, Any]:
     """Measurement rows from a CSV file, or ValidationError listing at most
     20 errors ("Zeile 5: ...").
 
     ``metrics`` maps the experiment's metric keys to ``{"kind", "definition",
-    "name"}``; ``variants`` holds its variant keys. Returns ``{"rows",
-    "ignored_columns", "lines"}``: rows shaped like add_measurements input
-    (numbers already normalised by kinds.validate_row, ``observed_at`` as
-    ISO 8601 UTC or None, ``run_id`` as a UUID string or None) and, for each
+    "name"}``; ``variants`` holds its variant keys; ``runs``, when given,
+    maps its run names to their ids (or is a function returning that map,
+    called once when a ``run`` cell is not an id), so the ``run`` column may
+    name a run instead of giving its id (a name several runs share is
+    refused, naming the line). Returns
+    ``{"rows", "ignored_columns", "lines"}``: rows shaped like
+    add_measurements input (numbers already normalised by
+    kinds.validate_row, ``observed_at`` as ISO 8601 UTC or None, ``run_id``
+    as a UUID string or None, ``dims`` shared and read-only) and, for each
     row, the file line it came from.
     """
     metrics = {str(k): dict(v or {}) for k, v in (metrics or {}).items()}
@@ -367,6 +443,8 @@ def parse_csv(content: bytes, *, metrics: Dict[str, Dict[str, Any]], variants: S
     text = _decode(content)
     delimiter = _sniff_delimiter(text)
     variant_index = _variant_index(variants or ())
+    run_index = _RunIndex(runs) if runs is not None else None
+    dims_cache: Dict[Tuple[Tuple[str, str], ...], _Dims] = {}
 
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
     rows_out: List[Dict[str, Any]] = []
@@ -388,7 +466,7 @@ def parse_csv(content: bytes, *, metrics: Dict[str, Dict[str, Any]], variants: S
             if data_lines > max_rows:
                 raise ValidationError(_MSG_TOO_MANY_ROWS.format(max=kinds.format_plain(max_rows)))
             try:
-                produced = _parse_line(row, layout, metrics, variant_index)
+                produced = _parse_line(row, layout, metrics, variant_index, dims_cache, run_index)
             except _LineError as exc:
                 errors.append(f"Zeile {line}: {exc}")
                 if len(errors) > MAX_ERRORS:
@@ -414,7 +492,9 @@ def parse_csv(content: bytes, *, metrics: Dict[str, Dict[str, Any]], variants: S
 
 
 def _parse_line(row: List[str], layout: _Layout, metrics: Dict[str, Dict[str, Any]],
-                variant_index: Tuple[Set[str], Dict[str, Optional[str]]]) -> List[Dict[str, Any]]:
+                variant_index: Tuple[Set[str], Dict[str, Optional[str]]],
+                dims_cache: Dict[Tuple[Tuple[str, str], ...], _Dims],
+                runs: Optional[_RunIndex] = None) -> List[Dict[str, Any]]:
     width = len(layout.names)
     if len(row) > width and any(cell.strip() for cell in row[width:]):
         raise _LineError("Die Zeile hat mehr Werte als die Kopfzeile Spalten.")
@@ -422,7 +502,8 @@ def _parse_line(row: List[str], layout: _Layout, metrics: Dict[str, Dict[str, An
         if len(cell.strip()) > MAX_CELL_CHARS:
             name = layout.names[index] or f"Spalte {index + 1}"
             raise _LineError(f"Der Wert in \u00ab{name}\u00bb ist l\u00e4nger als {MAX_CELL_CHARS} Zeichen.")
-    common = _common(row, layout, variant_index)
+    # The rows below share common["dims"] (read-only), they do not copy it.
+    common = _common(row, layout, variant_index, dims_cache, runs)
 
     if layout.long:
         key = _cell(row, layout.fixed.get("metric"))
@@ -441,7 +522,7 @@ def _parse_line(row: List[str], layout: _Layout, metrics: Dict[str, Dict[str, An
             "sum_sq": _number(_cell(row, layout.fixed.get("sum_sq")), "sum_sq"),
         }
         normal = _metric_row(metric["kind"], _definition(metric, key), raw)
-        return [dict(common, metric=key, **normal, dims=dict(common["dims"]))]
+        return [dict(common, metric=key, **normal)]
 
     produced: List[Dict[str, Any]] = []
     for key, columns in layout.metric_columns.items():
@@ -456,5 +537,5 @@ def _parse_line(row: List[str], layout: _Layout, metrics: Dict[str, Dict[str, An
             normal = _metric_row(metric["kind"], _definition(metric, key), raw)
         except _LineError as exc:
             raise _LineError(f"{key}: {exc}") from None
-        produced.append(dict(common, metric=key, **normal, dims=dict(common["dims"])))
+        produced.append(dict(common, metric=key, **normal))
     return produced
