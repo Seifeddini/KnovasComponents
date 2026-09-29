@@ -918,7 +918,19 @@
         const defs = definition().fields || [];
         const values = state.exp.field_values || {};
         const form = el('form', { class: 'kx-fields-form', noValidate: true });
-        defs.forEach((f) => form.appendChild(KX.renderFieldInput(f, values[f.key])));
+        const added = state.exp.field_options || {};
+        const domainKey = (state.exp.domain || {}).key || '';
+        defs.forEach((f) => form.appendChild(KX.renderFieldInput(f, values[f.key], {
+            extra: added[f.key],
+            onAdd: async (def) => {
+                const value = await KX.addFieldOption(domainKey, def, state.exp.key);
+                if (value) {
+                    state.exp.field_options = Object.assign({}, state.exp.field_options || {});
+                    state.exp.field_options[def.key] = (state.exp.field_options[def.key] || []).concat([value]);
+                }
+                return value;
+            },
+        })));
         const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true, style: { margin: '12px 0 0' } });
         const save = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'Angaben speichern' });
         const close = () => {

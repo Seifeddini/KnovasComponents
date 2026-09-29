@@ -480,6 +480,8 @@
         const fieldsBox = el('div', { class: 'kx-type-fields' });
         const fieldsHead = el('p', { class: 'kx-subhead', text: 'Angaben', hidden: true });
         let types = [];
+        // Values added to the domain's selection fields (a new segment, say).
+        let fieldOptions = {};
         let loadSeq = 0;
 
         function currentType() {
@@ -492,16 +494,31 @@
             typeHelp.textContent = type && type.description ? type.description : '';
             const defs = (type && type.definition && type.definition.fields) || [];
             fieldsHead.hidden = !defs.length;
-            defs.forEach((f) => fieldsBox.appendChild(KX.renderFieldInput(f, null)));
+            const domainKey = domainSelect.value;
+            defs.forEach((f) => fieldsBox.appendChild(KX.renderFieldInput(f, null, {
+                extra: fieldOptions[f.key],
+                onAdd: async (def) => {
+                    const added = await KX.addFieldOption(domainKey, def);
+                    if (added && domainKey === domainSelect.value) {
+                        fieldOptions[def.key] = (fieldOptions[def.key] || []).concat([added]);
+                    }
+                    return added;
+                },
+            })));
         }
 
         async function loadTypes() {
             const seq = ++loadSeq;
             typeSelect.disabled = true;
             try {
-                const data = await KX.api('GET',
-                    `/api/experiments/types?domain=${encodeURIComponent(domainSelect.value)}`);
+                const domainKey = encodeURIComponent(domainSelect.value);
+                const [data, added] = await Promise.all([
+                    KX.api('GET', `/api/experiments/types?domain=${domainKey}`),
+                    KX.api('GET', `/api/experiments/domains/${domainKey}/field-options`)
+                        .catch(() => ({ result: { by_field: {} } })),
+                ]);
                 if (seq !== loadSeq) return;
+                fieldOptions = ((added && added.result) || {}).by_field || {};
                 types = (data.types || []).filter((t) => !t.archived);
                 // Typen des Bereichs zuerst, die bereichsuebergreifenden danach.
                 types.sort((a, b) => (a.domain_key ? 0 : 1) - (b.domain_key ? 0 : 1)

@@ -644,9 +644,72 @@
         return unmatched;
     }
 
-    /** Eingabe fuer ein Feld der Experimentart (schema FIELD_TYPES). */
-    function renderFieldInput(fieldDef, value) {
+    const NEW_OPTION = '__kx_new_option__';
+
+    /** Ob man einem Auswahlfeld Werte hinzufuegen darf (schema.is_extensible). */
+    function isExtensible(fieldDef) {
         const f = fieldDef || {};
+        return (f.type === 'enum' || f.type === 'multi_enum') && f.extensible !== false;
+    }
+
+    /** Die Optionen des Typs, dann die im Bereich hinzugefuegten, ohne Doppel. */
+    function effectiveOptions(fieldDef, extra) {
+        const f = fieldDef || {};
+        const out = (f.options || []).map(String);
+        if (!isExtensible(f)) return out;
+        const seen = new Set(out.map((o) => o.toLocaleLowerCase('de-CH')));
+        for (const value of extra || []) {
+            const text = String(value);
+            if (!seen.has(text.toLocaleLowerCase('de-CH'))) {
+                seen.add(text.toLocaleLowerCase('de-CH'));
+                out.push(text);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Fragt nach einem neuen Wert fuer ein Auswahlfeld und legt ihn im Bereich
+     * an (z. B. ein neues Segment). Liefert den gespeicherten Wert oder null.
+     */
+    async function addFieldOption(domainKey, fieldDef, experimentKey) {
+        const f = fieldDef || {};
+        const label = String(f.label || f.key || '');
+        const valueInput = input({ name: 'value', maxlength: 80, autocomplete: 'off' });
+        return dialog({
+            title: `Neuer Wert für «${label}»`,
+            description: 'Der Wert steht danach in allen Experimenten des Bereichs zur Auswahl.',
+            body: field({ label: 'Wert', input: valueInput, name: 'value', required: true }),
+            actions: [
+                { label: 'Abbrechen', value: null },
+                {
+                    label: 'Hinzufügen',
+                    primary: true,
+                    onClick: async () => {
+                        const text = valueInput.value.trim();
+                        if (!text) throw new ApiError('Bitte einen Wert eingeben.', 400, { value: 'Bitte einen Wert eingeben.' });
+                        const body = { field: f.key, value: text };
+                        if (experimentKey) body.experiment = experimentKey;
+                        const data = await api('POST', `/api/experiments/domains/${encodeURIComponent(domainKey)}/field-options`, body);
+                        const result = data.result || {};
+                        toast(result.created ? `«${result.value}» hinzugefügt.` : `«${result.value}» gibt es schon.`, 'success');
+                        return result.value || null;
+                    },
+                },
+            ],
+        });
+    }
+
+    /**
+     * Eingabe fuer ein Feld der Experimentart (schema FIELD_TYPES).
+     * opts.extra: im Bereich hinzugefuegte Werte eines Auswahlfelds;
+     * opts.onAdd(fieldDef): legt einen neuen Wert an und liefert ihn (oder null).
+     */
+    function renderFieldInput(fieldDef, value, opts) {
+        const f = fieldDef || {};
+        const o = opts || {};
+        const canAdd = isExtensible(f) && typeof o.onAdd === 'function';
+        const choices = effectiveOptions(f, o.extra);
         const key = String(f.key || '');
         const label = String(f.label || key);
         const helpParts = [];
@@ -674,9 +737,31 @@
             });
             break;
         case 'enum': {
-            const opts = [{ value: '', label: DASH }].concat(
-                (f.options || []).map((o) => ({ value: o, label: o })));
+            const list = choices.slice();
+            // A stored value the lists no longer offer stays visible and chosen.
+            if (!empty && !list.includes(String(value))) list.push(String(value));
+            const opts = [{ value: '', label: DASH }].concat(list.map((c) => ({ value: c, label: c })));
+            if (canAdd) opts.push({ value: NEW_OPTION, label: '+ Neuer Wert …' });
             control = select({ name: key }, opts, empty ? '' : value);
+            if (canAdd) {
+                let previous = control.value;
+                control.addEventListener('change', async () => {
+                    if (control.value !== NEW_OPTION) {
+                        previous = control.value;
+                        return;
+                    }
+                    control.value = previous;
+                    const added = await o.onAdd(f);
+                    if (!added) return;
+                    const exists = Array.from(control.querySelectorAll('option')).some((x) => x.value === added);
+                    if (!exists) {
+                        const all = control.querySelectorAll('option');
+                        control.insertBefore(el('option', { value: added }, added), all[all.length - 1]);
+                    }
+                    control.value = added;
+                    previous = added;
+                });
+            }
             break;
         }
         case 'multi_enum': {
@@ -684,10 +769,24 @@
             const legendId = uid('kx-legend');
             control = el('div', { class: 'kx-choice-group', role: 'group', 'aria-labelledby': legendId });
             control.appendChild(el('span', { id: legendId, class: 'kx-visually-hidden', text: label }));
-            for (const opt of f.options || []) {
+            const choice = (opt, checked) => {
                 const box = el('input', { type: 'checkbox', value: String(opt) });
-                box.checked = chosen.has(String(opt));
-                control.appendChild(el('label', { class: 'kx-choice' }, box, el('span', { text: String(opt) })));
+                box.checked = checked;
+                return el('label', { class: 'kx-choice' }, box, el('span', { text: String(opt) }));
+            };
+            const list = choices.slice();
+            chosen.forEach((c) => { if (!list.includes(c)) list.push(c); });
+            for (const opt of list) control.appendChild(choice(opt, chosen.has(String(opt))));
+            if (canAdd) {
+                const add = el('button', { type: 'button', class: 'kx-link-button', text: '+ Neuer Wert …' });
+                add.addEventListener('click', async () => {
+                    const added = await o.onAdd(f);
+                    if (!added) return;
+                    const existing = Array.from(control.querySelectorAll('input[type=checkbox]')).find((b) => b.value === added);
+                    if (existing) existing.checked = true;
+                    else control.insertBefore(choice(added, true), add);
+                });
+                control.appendChild(add);
             }
             break;
         }
@@ -732,6 +831,7 @@
         const control = row.querySelector('input, select, textarea');
         if (!control) return null;
         const raw = String(control.value == null ? '' : control.value);
+        if (raw === NEW_OPTION) return null;
         const trimmed = raw.trim();
         if (trimmed === '') return null;
         switch (f.type) {
@@ -1477,6 +1577,7 @@
         isKey, experimentUrl, safeAppUrl,
         toast, dialog, confirm, field, input, textarea, select,
         showFieldErrors, clearFieldErrors, renderFieldInput, readFieldInput,
+        isExtensible, effectiveOptions, addFieldOption,
         label, chip, verdictChip, decisionChip, statusChip, domainDot, emptyState, spinnerText,
         renderMarkdown, copyText, downloadText, codeEditor, errorLines,
         canonicalJson, evaluationGroupKey, splitEvaluations,

@@ -984,6 +984,99 @@ class ExperimentService:
                         {"changed": sorted(changes), "requeued": requeued})
         return store.get_domain(self.conn, domain["key"])
 
+    # -- values added to selection fields -------------------------------------
+
+    def _selection_fields(self, domain: Dict[str, Any],
+                          extra_definitions: Sequence[Dict[str, Any]] = ()) -> Dict[str, Dict[str, Any]]:
+        """field key -> {label, options, extensible} over the selection fields of
+        the types usable in the domain (current versions) and ``extra_definitions``
+        (the version an experiment was created with). A field is extensible when
+        any type with that key lets people add values."""
+        definitions = [t["definition"] for t in store.list_types(self.conn, domain_id=domain["id"],
+                                                                  restrict=True)]
+        definitions.extend(d for d in extra_definitions if d)
+        out: Dict[str, Dict[str, Any]] = {}
+        for definition in definitions:
+            for field in (definition or {}).get("fields") or []:
+                if field.get("type") not in ("enum", "multi_enum"):
+                    continue
+                entry = out.setdefault(field["key"], {"label": field.get("label") or field["key"],
+                                                      "options": [], "extensible": False})
+                entry["extensible"] = entry["extensible"] or schema.is_extensible(field)
+                for option in field.get("options") or []:
+                    if option.casefold() not in {o.casefold() for o in entry["options"]}:
+                        entry["options"].append(option)
+        return out
+
+    def list_field_options(self, key: Any) -> Dict[str, Any]:
+        """The values added to the domain's selection fields; ``by_field`` is
+        what the forms add to a field's own options."""
+        self._view()
+        domain = store.get_domain(self.conn, key) if isinstance(key, str) else None
+        if domain is None:
+            raise NotFound("Den Bereich gibt es nicht.")
+        options = store.list_field_options(self.conn, domain["id"])
+        fields = self._selection_fields(domain)
+        for option in options:
+            option["field_label"] = (fields.get(option["field"]) or {}).get("label") or option["field"]
+        return {"options": options, "by_field": store.field_option_values(self.conn, domain["id"])}
+
+    def add_field_option(self, key: Any, data: Any) -> Dict[str, Any]:
+        """Add a value to a selection field of the domain, e.g. a new segment.
+        Anyone who works with experiments may; the type decides whether the
+        field takes new values (``extensible``)."""
+        self._view()
+        data = _obj(data)
+        domain = store.get_domain(self.conn, key) if isinstance(key, str) else None
+        if domain is None:
+            raise NotFound("Den Bereich gibt es nicht.")
+        if domain["archived"]:
+            raise _refuse("domain", "Der Bereich ist archiviert.", "Bereich")
+        extra: List[Dict[str, Any]] = []
+        if data.get("experiment") not in (None, ""):
+            row = self._experiment(data["experiment"])
+            if row["domain_id"] != domain["id"]:
+                raise _refuse("experiment", "Das Experiment geh\u00f6rt zu einem anderen Bereich.")
+            extra.append(row["definition"])
+        field_key = data.get("field")
+        fields = self._selection_fields(domain, extra)
+        field = fields.get(field_key) if isinstance(field_key, str) else None
+        if field is None:
+            raise _refuse("field", "Ein Auswahlfeld mit diesem Schl\u00fcssel gibt es in diesem Bereich nicht.",
+                          "Feld")
+        if not field["extensible"]:
+            raise _refuse("value", "Die Auswahl dieses Feldes ist fest vorgegeben; neue Werte legt eine "
+                                   "verantwortliche Person im Typ an.", field["label"])
+        value = _text(data, "value", limit=80, label=field["label"], required=True)
+        own = {o.casefold(): o for o in field["options"]}
+        if value.casefold() in own:
+            return {"field": field_key, "value": own[value.casefold()], "created": False}
+        stored, created = store.add_field_option(self.conn, domain["id"], field_key, value,
+                                                 self._actor_id)
+        if created:
+            self._audit("experiments.field_option.create", "exp_domain", domain["key"],
+                        {"field": field_key, "value": stored})
+        return {"field": field_key, "value": stored, "created": created}
+
+    def delete_field_option(self, key: Any, option_id: Any) -> Dict[str, Any]:
+        """Remove an added value nobody uses (a typo, say)."""
+        self._manage()
+        domain = store.get_domain(self.conn, key) if isinstance(key, str) else None
+        if domain is None:
+            raise NotFound("Den Bereich gibt es nicht.")
+        with self.conn.transaction():
+            option = store.get_field_option(self.conn, option_id)
+            if option is None or option["domain_id"] != domain["id"]:
+                raise NotFound("Diesen Wert gibt es nicht.")
+            if option["used"]:
+                n = option["used"]
+                raise Conflict(f"\u00ab{option['value']}\u00bb wird von {n} "
+                               f"{'Experiment' if n == 1 else 'Experimenten'} verwendet und bleibt.")
+            store.delete_field_option(self.conn, option["id"])
+        self._audit("experiments.field_option.delete", "exp_domain", domain["key"],
+                    {"field": option["field"], "value": option["value"]})
+        return {"deleted": True}
+
     def export_domain(self, key: Any) -> str:
         self._manage()
         domain = store.get_domain(self.conn, key) if isinstance(key, str) else None
@@ -1020,7 +1113,8 @@ class ExperimentService:
             "version": 1,
             "domain": {"key": domain["key"], "name": domain["name"], "id_prefix": domain["id_prefix"],
                        "color": domain["color"],
-                       "description": domain["description"][:MAX_CONFIG_DESCRIPTION]},
+                       "description": domain["description"][:MAX_CONFIG_DESCRIPTION],
+                       "field_options": store.field_option_values(self.conn, domain["id"])},
             "metrics": [{"key": m["key"], "name": m["name"], "kind": m["kind"], "unit": m["unit"],
                          "direction": m["direction"],
                          "description": m["description"][:MAX_CONFIG_DESCRIPTION],
@@ -1707,7 +1801,9 @@ class ExperimentService:
         hypothesis = _text(data, "hypothesis", limit=MAX_HYPOTHESIS, label="Hypothese", multiline=True)
         description = _text(data, "description", limit=MAX_DESCRIPTION, label="Beschreibung",
                             multiline=True)
-        fields = schema.validate_field_values(definition, data.get("fields") or {}, partial=False)
+        fields = schema.validate_field_values(
+            definition, data.get("fields") or {}, partial=False,
+            extra_options=store.field_option_values(self.conn, domain["id"]))
         tags = _tags(data.get("tags"))
         variants = self._variants(
             data["variants"] if data.get("variants") is not None
@@ -1764,8 +1860,9 @@ class ExperimentService:
                 changes["description"] = _text(data, "description", limit=MAX_DESCRIPTION,
                                                label="Beschreibung", multiline=True)
             if "fields" in data:
-                updates = schema.validate_field_values(row["definition"], data["fields"] or {},
-                                                       partial=True)
+                updates = schema.validate_field_values(
+                    row["definition"], data["fields"] or {}, partial=True,
+                    extra_options=store.field_option_values(self.conn, row["domain_id"]))
                 merged = dict(row["fields"])
                 for field, value in updates.items():
                     if value is None:

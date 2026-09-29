@@ -27,7 +27,7 @@ import math
 import numbers
 import re
 import uuid
-from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import urlsplit
 
 import yaml
@@ -192,6 +192,7 @@ _FIELD_SCHEMA: Dict[str, Any] = {
             "items": text_schema(80),
         },
         "required": {"type": "boolean"},
+        "extensible": {"type": "boolean"},
         "help": text_schema(300, min_length=0),
         "min": {"type": "number"},
         "max": {"type": "number"},
@@ -752,6 +753,12 @@ def type_definition_errors(
                     add_error(errors, p("fields", i, "options"),
                               "Eintr\u00e4ge d\u00fcrfen sich nicht wiederholen.")
                 field["options"] = options
+        if "extensible" in raw:
+            if ftype not in _ENUM_TYPES:
+                add_error(errors, p("fields", i, "extensible"),
+                          "\u00abextensible\u00bb gibt es nur bei Auswahlfeldern (enum, multi_enum).")
+            else:
+                field["extensible"] = bool(raw["extensible"])
         for bound in ("min", "max"):
             if bound not in raw:
                 continue
@@ -1326,17 +1333,45 @@ def _field_value(field: Dict[str, Any], raw: Any) -> Any:
     raise ValueError("Unbekannter Feldtyp.")
 
 
+def is_extensible(field: Dict[str, Any]) -> bool:
+    """Whether people may add values to a selection field (the domain's
+    exp_field_options). On unless the type says ``extensible: false``."""
+    return field.get("type") in _ENUM_TYPES and field.get("extensible", True) is not False
+
+
+def effective_options(field: Dict[str, Any], extra: Optional[Sequence[str]] = None) -> List[str]:
+    """The type's options, then the values added in the domain (for an
+    extensible field), without a second spelling of one."""
+    options = list(field.get("options") or [])
+    if not extra or not is_extensible(field):
+        return options
+    seen = {o.casefold() for o in options}
+    for value in extra:
+        text = str(value)
+        if text.casefold() not in seen:
+            seen.add(text.casefold())
+            options.append(text)
+    return options
+
+
 def validate_field_values(definition: Dict[str, Any], values: Dict[str, Any], *,
-                          partial: bool = False) -> Dict[str, Any]:
+                          partial: bool = False,
+                          extra_options: Optional[Dict[str, Sequence[str]]] = None) -> Dict[str, Any]:
     """An experiment's field values, checked against its type's fields.
 
     ``""``, ``None`` and ``[]`` mean "no value". With ``partial=False`` (a
     complete set, e.g. on create) such keys are left out and required fields
     must be present. With ``partial=True`` (an update) only the sent keys are
     checked and a cleared key comes back as ``None`` so the caller can remove
-    it; clearing a required field is refused either way.
+    it; clearing a required field is refused either way. ``extra_options``
+    (field key -> values added in the domain) widen extensible selection
+    fields.
     """
     fields = {f["key"]: f for f in (definition or {}).get("fields") or []}
+    if extra_options:
+        fields = {key: (dict(f, options=effective_options(f, extra_options.get(key)))
+                        if key in extra_options and is_extensible(f) else f)
+                  for key, f in fields.items()}
     if values is None:
         values = {}
     if not isinstance(values, dict):

@@ -123,7 +123,10 @@ def measurements(**counts):
 
 CALLS = [
     ("list_domains", ()), ("create_domain", ({},)), ("update_domain", ("marketing", {})),
-    ("export_domain", ("marketing",)), ("list_types", ()), ("get_type", (ZERO,)),
+    ("export_domain", ("marketing",)), ("list_field_options", ("marketing",)),
+    ("add_field_option", ("marketing", {"field": "channel", "value": "x"})),
+    ("delete_field_option", ("marketing", ZERO)),
+    ("list_types", ()), ("get_type", (ZERO,)),
     ("validate_type", ({},)), ("create_type", ({},)), ("add_type_version", (ZERO, {})),
     ("set_type_archived", (ZERO, True)), ("list_metrics", ()), ("create_metric", ({},)),
     ("update_metric", (ZERO, {})), ("list_evaluators", ()), ("get_evaluator", (ZERO,)),
@@ -144,7 +147,8 @@ CALLS = [
     ("index_status", ()), ("reindex_all", ()), ("list_packs", ()),
     ("install_pack", ("marketing",)), ("import_pack", ({},)),
 ]
-MANAGE_ONLY = {"create_domain", "update_domain", "export_domain", "validate_type", "create_type",
+MANAGE_ONLY = {"create_domain", "update_domain", "export_domain", "delete_field_option",
+               "validate_type", "create_type",
                "add_type_version", "set_type_archived", "create_metric", "update_metric",
                "create_evaluator", "add_evaluator_version", "test_evaluator", "delete_experiment",
                "update_settings", "index_status", "reindex_all", "install_pack", "import_pack"}

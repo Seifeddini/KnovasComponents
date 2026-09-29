@@ -241,6 +241,7 @@
                 el('td', null, d.archived ? KX.chip('archiviert', 'muted') : KX.chip('aktiv', 'good')),
                 el('td', { class: 'kx-row-actions' },
                     button('Bearbeiten', () => openDomainDialog(d)), ' ',
+                    button('Werte', () => openFieldOptionsDialog(d)), ' ',
                     button('Exportieren', (e) => exportDomain(d, e.currentTarget)))))));
         }
         const packsBox = el('div', { style: { 'margin-top': '28px' } });
@@ -303,6 +304,58 @@
         add(r.metrics, 'Metrik', 'Metriken');
         add(r.evaluators, 'Auswerter', 'Auswerter');
         return parts.length ? `${parts.join(', ')} neu` : 'nichts zu ergänzen';
+    }
+
+    // Values people added to the domain's selection fields ("+ Neuer Wert" in
+    // an experiment, e.g. a new segment). Unused ones can be removed here.
+    async function openFieldOptionsDialog(domain) {
+        const listBox = el('div');
+        const url = `/api/experiments/domains/${encodeURIComponent(domain.key)}/field-options`;
+        async function render() {
+            clear(listBox).appendChild(KX.spinnerText());
+            let options;
+            try {
+                options = ((await KX.api('GET', url)).result || {}).options || [];
+            } catch (err) {
+                clear(listBox).appendChild(el('p', { class: 'kx-dialog-error', role: 'alert', text: KX.errorMessage(err) }));
+                return;
+            }
+            clear(listBox);
+            if (!options.length) {
+                listBox.appendChild(KX.emptyState('Noch keine hinzugefügten Werte.',
+                    'In einem Experiment wählt man bei einem Auswahlfeld «+ Neuer Wert …», z. B. für ein neues Segment.'));
+                return;
+            }
+            listBox.appendChild(tableWrap(['Feld', 'Wert', { text: 'Verwendet', attrs: { class: 'kx-num' } }, 'Hinzugefügt',
+                { node: el('span', { class: 'kx-visually-hidden', text: 'Aktionen' }) }],
+            options.map((o) => el('tr', null,
+                el('td', { text: o.field_label || o.field }),
+                el('th', { scope: 'row', text: o.value }),
+                el('td', { class: 'kx-num', text: KX.fmtPlain(o.used) }),
+                el('td', { class: 'kx-muted', text: [o.created_by && o.created_by.display_name, KX.fmtDate(o.created_at)]
+                    .filter(Boolean).join(' · ') }),
+                el('td', { class: 'kx-row-actions' }, o.used
+                    ? el('span', { class: 'kx-muted', text: 'in Gebrauch' })
+                    : button('Entfernen', async (e) => {
+                        e.currentTarget.disabled = true;
+                        try {
+                            await KX.api('DELETE', `${url}/${encodeURIComponent(o.id)}`);
+                            KX.toast(`«${o.value}» entfernt.`, 'success');
+                        } catch (err) {
+                            KX.toast(KX.errorMessage(err), 'error');
+                        }
+                        render();
+                    }, 'danger'))))));
+        }
+        render();
+        await KX.dialog({
+            title: `Hinzugefügte Werte – ${domain.name}`,
+            description: 'Werte, die in Experimenten dieses Bereichs zu Auswahlfeldern hinzugefügt wurden. '
+                + 'Sie gelten für alle Experimente des Bereichs; verwendete bleiben.',
+            body: listBox,
+            wide: true,
+            actions: [{ label: 'Schliessen', value: null, primary: true }],
+        });
     }
 
     async function openDomainDialog(domain) {

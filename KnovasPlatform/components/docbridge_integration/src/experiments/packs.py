@@ -85,6 +85,17 @@ PACK_SCHEMA: Dict[str, Any] = {
                                                "Buchstaben; 2 bis 8 Zeichen (z. B. MKT)."),
                 "color": schema.key_schema(COLOR_PATTERN, "Eine Farbe im Format #RRGGBB."),
                 "description": _LONG_TEXT,
+                # Values added to the domain's selection fields (field key -> values),
+                # e.g. {segment: [Notariat]}; see exp_field_options.
+                "field_options": {
+                    "type": "object",
+                    "maxProperties": 50,
+                    "propertyNames": {"pattern": schema.FIELD_KEY_PATTERN},
+                    "additionalProperties": {
+                        "type": "array", "maxItems": 200, "uniqueItems": True,
+                        "items": schema.text_schema(80),
+                    },
+                },
             },
         },
         "metrics": {
@@ -314,6 +325,17 @@ def validate_pack(pack: Dict[str, Any], *, known_metrics: Iterable[str] = (),
             "color": domain.get("color", DEFAULT_COLOR),
             "description": _clean(domain.get("description", "")),
         }
+        field_options: Dict[str, List[str]] = {}
+        for field_key, values in (domain.get("field_options") or {}).items():
+            cleaned: List[str] = []
+            for value in values:
+                text = _clean(value)
+                if text and text.casefold() not in {c.casefold() for c in cleaned}:
+                    cleaned.append(text)
+            if cleaned:
+                field_options[field_key] = cleaned
+        if field_options:
+            out["domain"]["field_options"] = field_options
         if not out["domain"]["name"]:
             schema.add_error(errors, "domain.name", "Darf nicht leer sein.")
 

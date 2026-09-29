@@ -380,6 +380,83 @@ def allocate_experiment_key(conn: Any, domain_id: str) -> str:
     return f"{row[0]}-{int(row[1])}"
 
 
+# -- values added to selection fields -----------------------------------------
+
+#: Values one field of one domain may gain (the type's own options are up to 50).
+MAX_FIELD_OPTIONS = 200
+
+
+def field_option_values(conn: Any, domain_id: Optional[str]) -> Dict[str, List[str]]:
+    """field key -> the values added in the domain, in the order they came."""
+    if domain_id is None:
+        return {}
+    out: Dict[str, List[str]] = {}
+    for field_key, value in conn.execute(
+            "SELECT field_key, value FROM exp_field_options WHERE domain_id = %s "
+            "ORDER BY created_at, id", (domain_id,)).fetchall():
+        out.setdefault(field_key, []).append(value)
+    return out
+
+
+_FIELD_OPTION_USE = (
+    "(SELECT count(*)::int FROM exp_experiments e WHERE e.domain_id = o.domain_id AND ("
+    "  (jsonb_typeof(e.fields -> o.field_key) = 'string' AND e.fields ->> o.field_key = o.value) OR"
+    "  (jsonb_typeof(e.fields -> o.field_key) = 'array' AND (e.fields -> o.field_key) ? o.value)))"
+)
+
+
+def list_field_options(conn: Any, domain_id: str) -> List[Dict[str, Any]]:
+    """The values added in a domain, each with how many experiments use it."""
+    rows = conn.execute(
+        "SELECT o.id::text, o.field_key, o.value, o.created_at, u.id::text, u.display_name, "
+        + _FIELD_OPTION_USE + " FROM exp_field_options o "
+        "LEFT JOIN users u ON u.id = o.created_by WHERE o.domain_id = %s "
+        "ORDER BY o.field_key, lower(o.value)", (domain_id,)).fetchall()
+    return [{"id": r[0], "field": r[1], "value": r[2], "created_at": iso(r[3]),
+             "created_by": _person(r[4], r[5]), "used": int(r[6])} for r in rows]
+
+
+def add_field_option(conn: Any, domain_id: str, field_key: str, value: str,
+                     actor_id: Optional[str]) -> Tuple[str, bool]:
+    """(the stored spelling, whether it is new). An existing value in another
+    spelling ("kanzlei Mittel") is returned as it is stored."""
+    with conn.transaction():
+        # One writer per field at a time, so the limit below holds.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('exp_field_options:' || %s::text || ':' || %s::text))",
+                     (domain_id, field_key))
+        found = conn.execute(
+            "SELECT value FROM exp_field_options WHERE domain_id = %s AND field_key = %s "
+            "AND lower(value) = lower(%s)", (domain_id, field_key, value)).fetchone()
+        if found is not None:
+            return found[0], False
+        count = conn.execute(
+            "SELECT count(*)::int FROM exp_field_options WHERE domain_id = %s AND field_key = %s",
+            (domain_id, field_key)).fetchone()[0]
+        if count >= MAX_FIELD_OPTIONS:
+            raise Conflict(f"Dieses Feld hat schon {MAX_FIELD_OPTIONS} hinzugef\u00fcgte Werte.",
+                           fields={"value": "Keine weiteren Werte m\u00f6glich."})
+        conn.execute(
+            "INSERT INTO exp_field_options (domain_id, field_key, value, created_by) "
+            "VALUES (%s, %s, %s, %s)", (domain_id, field_key, value, actor_id))
+    return value, True
+
+
+def get_field_option(conn: Any, option_id: Any) -> Optional[Dict[str, Any]]:
+    ident = canonical_uuid(option_id)
+    if ident is None:
+        return None
+    row = conn.execute(
+        "SELECT o.id::text, o.domain_id::text, o.field_key, o.value, " + _FIELD_OPTION_USE +
+        " FROM exp_field_options o WHERE o.id = %s", (ident,)).fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "domain_id": row[1], "field": row[2], "value": row[3], "used": int(row[4])}
+
+
+def delete_field_option(conn: Any, option_id: str) -> None:
+    conn.execute("DELETE FROM exp_field_options WHERE id = %s", (option_id,))
+
+
 # -- types --------------------------------------------------------------------
 
 _TYPE_SELECT = (
@@ -884,6 +961,10 @@ def install_pack(conn: Any, pack: Dict[str, Any], *, actor_id: Optional[str] = N
         if domain:
             domain_id, changed = _install_domain(conn, pack, domain, actor_id, update_existing)
             counts["domain"] = 1 if changed else 0
+            # Added values only accumulate: an import never removes one.
+            for field_key, values in (domain.get("field_options") or {}).items():
+                for value in values:
+                    add_field_option(conn, domain_id, field_key, value, actor_id)
 
         for evaluator in pack.get("evaluators") or []:
             if _install_evaluator(conn, evaluator, actor_id, update_existing):
@@ -2257,6 +2338,8 @@ def load_snapshot_with_definition(conn: Any, key_or_id: str, *, actor: Any = Non
         "type": {"id": row[24], "key": row[25], "name": row[26], "version": int(row[18])},
         "fields": fields,
         "field_values": field_values,
+        # Values added to the domain's selection fields (exp_field_options).
+        "field_options": field_option_values(conn, row[19]),
         "tags": list(row[7] or []),
         "owner": _person(row[28], row[29]),
         "variants": variants,

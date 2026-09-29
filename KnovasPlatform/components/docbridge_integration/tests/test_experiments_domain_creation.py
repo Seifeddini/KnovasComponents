@@ -38,7 +38,7 @@ _PACKS = """[{ key: 'engineering', id_prefix: 'ENG', name: 'Engineering' },
 @needs_node
 class TestSuggestions:
     def test_free_names_keep_the_simple_suggestion(self):
-        result = _suggest("['Einkauf', 'Recht & Compliance', 'Qualität', 'HR']", _PACKS)
+        result = _suggest("['Einkauf', 'Recht & Compliance', 'Qualit\u00e4t', 'HR']", _PACKS)
         assert result == [["einkauf", "EIN"], ["recht-compliance", "REC"],
                           ["qualitaet", "QUA"], ["hr", "HR"]]
 

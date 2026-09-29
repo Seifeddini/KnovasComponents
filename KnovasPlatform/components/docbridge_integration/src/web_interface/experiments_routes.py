@@ -474,6 +474,22 @@ def create_experiments_blueprint(gate: Any, *, settings: Any, runner: Any = None
     def export_domain(domain_key: str):
         return _ok("text", service().export_domain(domain_key))
 
+    # values added to selection fields (a new segment, say)
+    @bp.route("/api/experiments/domains/<domain_key>/field-options", methods=["GET"])
+    @_json_view
+    def list_field_options(domain_key: str):
+        return _ok("result", service().list_field_options(domain_key))
+
+    @bp.route("/api/experiments/domains/<domain_key>/field-options", methods=["POST"])
+    @_json_view
+    def add_field_option(domain_key: str):
+        return _ok("result", service().add_field_option(domain_key, _body()))
+
+    @bp.route("/api/experiments/domains/<domain_key>/field-options/<option_id>", methods=["DELETE"])
+    @_json_view
+    def delete_field_option(domain_key: str, option_id: str):
+        return _ok("result", service().delete_field_option(domain_key, option_id))
+
     # types
     @bp.route("/api/experiments/types", methods=["GET"])
     @_json_view
