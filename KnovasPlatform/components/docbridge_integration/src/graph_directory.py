@@ -609,8 +609,10 @@ def history(node: dict, facts: Sequence[dict], histories: Dict[str, Optional[lis
             kind = str(_first(row, "event_type", "type", "action", default="")).lower()
             actor_ref = str(_first(row, "actor_ref", "actor_id", default=""))
             actor = str(_first(row, "actor", default=""))
-            who = people.get(actor_ref) or people.get(actor) or (
-                "Knovas" if str(row.get("actor_kind") or "") in ("system", "service") else actor)
+            # A platform person by name; else whatever the API calls the
+            # actor; "Knovas" only for a system actor it gives no name.
+            who = people.get(actor_ref) or people.get(actor) or actor or (
+                "Knovas" if str(row.get("actor_kind") or "") in ("system", "service") else "")
             when = _first(row, "occurred_at", "created_at", "at", default="")
             events.append({"at": str(when), "when": format_timestamp(when), "who": who or "—",
                            "field": field, "what": _EVENT_LABELS.get(kind, kind or "geändert")})

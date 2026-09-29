@@ -374,6 +374,14 @@ class TestPages:
         html = admin_client.get("/admin/wissenstypen").get_data(as_text=True)
         assert ">Wissenstypen</a>" in html and ">Verzeichnisse</a>" in html
 
+    def test_every_asset_the_pages_load_is_served(self, admin_client, directory):
+        import re
+
+        for path in ("/verzeichnis/mandate", "/eintrag/n1", "/admin/wissenstypen/t1/karte"):
+            html = admin_client.get(path).get_data(as_text=True)
+            for asset in re.findall(r'(?:src|href)="(/static/[^"?]+)', html):
+                assert admin_client.get(asset).status_code == 200, (path, asset)
+
     def test_pages_require_a_session(self, anon_client, seeded):
         assert anon_client.get("/verzeichnis/mandate").status_code == 302
 

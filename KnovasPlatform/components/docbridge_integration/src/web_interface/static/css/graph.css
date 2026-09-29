@@ -20,6 +20,9 @@
     line-height: 1.5;
 }
 .kg *, .kg *::before, .kg *::after { box-sizing: border-box; }
+/* A flex child: without this a wide table sizes the page instead of
+   scrolling inside its own frame. */
+main.kg, .kg-console { min-width: 0; }
 .kg a { color: var(--primary-color); }
 .kg :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .kg h1 { font-family: var(--font-heading); font-size: 1.42rem; font-weight: 600;
@@ -269,8 +272,8 @@
 .kg-sg--warn .kg-sg-body strong { color: var(--kg-warn); }
 
 /* ── Feldliste der Typ-Werkstatt ──────────────────────────────────────── */
-.kg-fl { border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--card-bg);
-         overflow: hidden; margin-top: 16px; }
+.kg-flist { border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--card-bg);
+            overflow: hidden; margin-top: 16px; }
 .kg-fl-row { border-top: 1px solid var(--border-color); }
 .kg-fl-row:first-child { border-top: none; }
 .kg-fl-row.is-dragging { opacity: .35; }
@@ -353,7 +356,9 @@
 .kg-previewframe .kg-cardhead { margin: 0 0 10px; }
 .kg-previewframe h1 { font-size: 1.12rem; margin: 2px 0 8px; }
 .kg-previewframe .kg-sect { margin-bottom: 12px; }
-.kg-previewframe .kg-frow { grid-template-columns: 130px minmax(0, 1fr); padding: 9px 13px; }
+.kg-previewframe .kg-frow { grid-template-columns: 104px minmax(0, 1fr); padding: 9px 13px; }
+.kg-previewframe .kg-frow > span:nth-child(3):empty { display: none; }
+.kg-previewframe .kg-frow .kg-fv { overflow-wrap: break-word; }
 .kg-previewframe .kg-rail .kg-frow { grid-template-columns: 1fr; }
 .kg-previewgrid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 @media (max-width: 640px) { .kg-previewgrid { grid-template-columns: minmax(0, 1fr); } }

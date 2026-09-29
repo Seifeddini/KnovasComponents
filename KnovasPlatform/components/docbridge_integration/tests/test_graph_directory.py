@@ -249,6 +249,13 @@ class TestHistoryAndDocuments:
             ("geändert", "A. Brunner"), ("gesetzt", "RemoteController"), ("Eintrag angelegt", "—")]
         assert result["events"][0]["when"] == "01.02.2026, 10:00"
 
+    def test_a_named_service_keeps_its_name_and_a_nameless_one_is_knovas(self):
+        rows = [{"event_type": "created", "actor": "Knovas Connector", "actor_kind": "service",
+                 "occurred_at": "2026-01-02"},
+                {"event_type": "updated", "actor_kind": "system", "occurred_at": "2026-01-03"}]
+        events = gd.history({"id": "n1"}, [fact("f1", "a1", "x")], {"f1": rows}, {}, {})["events"]
+        assert [e["who"] for e in events] == ["Knovas", "Knovas Connector"]
+
     def test_an_api_without_history_says_so(self):
         result = gd.history({"id": "n1"}, [fact("f1", "a1", "x")], {"f1": None}, {}, {})
         assert result["available"] is False
