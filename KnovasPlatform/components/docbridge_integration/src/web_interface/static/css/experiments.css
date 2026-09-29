@@ -551,6 +551,13 @@
 
 .kx-domain-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* Managers: create a domain right from the filter row. */
+.kx-domain-chip--add {
+    border-style: dashed;
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
 .kx-count {
     font-family: var(--font-heading);
     font-size: 0.72rem;

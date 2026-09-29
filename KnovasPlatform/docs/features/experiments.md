@@ -73,8 +73,10 @@ Schritt](#einschalten-schritt-für-schritt) ausführlich beschrieben.
    `knovas.env`, dann `./scripts/setup.sh && ./scripts/start.sh` ([Python und
    Julia](#python-und-julia-das-profil-experiments)).
 5. **Eigener Bereich.** Unter **Experimente → Verwaltung → Bereiche → Neuer
-   Bereich**. Er hat sofort den Typ «Allgemeine Hypothese» und die
-   allgemeinen Metriken des Grundpakets (Erfolgsquote, Dauer, Bewertung …).
+   Bereich** oder mit **+ Neuer Bereich** neben den Bereichen der Liste (nur
+   für `experiments_manager` und `admin`). Er hat sofort den Typ «Allgemeine
+   Hypothese» und die allgemeinen Metriken des Grundpakets (Erfolgsquote,
+   Dauer, Bewertung …).
 6. **Wieder ausschalten.** `EXPERIMENTS_ENABLED=false`, dann
    `./scripts/setup.sh && ./scripts/start.sh`. Die Daten bleiben in der
    Plattform-Datenbank; Experiment-Dokumente erscheinen in keiner Suche der
@@ -335,9 +337,15 @@ Für Fehler oder Abbrüche («weniger ist besser») eine eigene Metrik mit
 allgemeinen Metriken beim nächsten Start; von Verantwortlichen geänderte
 Metriken bleiben, wie sie sind.
 
-Ein **eigener Bereich** entsteht unter **Bereiche → Neuer Bereich** mit
-Schlüssel (`^[a-z][a-z0-9-]{1,31}$`), Name, Kürzel (2–8 Grossbuchstaben oder
-Ziffern, beginnt mit einem Buchstaben) und Farbe. Er startet mit dem Typ
+Ein **eigener Bereich** entsteht unter **Bereiche → Neuer Bereich** (oder
+**+ Neuer Bereich** neben den Bereichen der Liste) mit Schlüssel
+(`^[a-z][a-z0-9-]{1,31}$`), Name, Kürzel (2–8 Grossbuchstaben oder Ziffern,
+beginnt mit einem Buchstaben) und Farbe. Der Dialog schlägt Schlüssel und
+Kürzel aus dem Namen vor und nimmt dabei keine vergebenen (auch nicht die
+archivierter Bereiche): aus «Engineering Team» wird `ET`, nicht das `ENG` des
+Pakets. Ein Name, den es schon gibt, wird abgelehnt. Bereiche anlegen dürfen
+nur `experiments_manager` und `admin`; wer nur `experimenter` ist, sieht unter
+**Verwaltung** allein die Zugangsschlüssel und einen Hinweis darauf. Er startet mit dem Typ
 «Allgemeine Hypothese» und den allgemeinen Metriken oben: ein Experiment
 lässt sich sofort anlegen und im Abschnitt «Varianten und Metriken» über
 **Metriken bearbeiten** mit ihnen ausstatten. Eigene Typen und Metriken

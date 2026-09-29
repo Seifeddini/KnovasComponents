@@ -127,6 +127,12 @@
         dom.chips.appendChild(domainChip('', 'Alle', null, total));
         visible.forEach((d) => dom.chips.appendChild(
             domainChip(d.key, d.name, d.color, d.experiment_count)));
+        if (state.canManage) {
+            dom.chips.appendChild(el('a', {
+                class: 'kx-domain-chip kx-domain-chip--add', href: '/experiments/verwaltung#bereich-neu',
+                text: '+ Neuer Bereich',
+            }));
+        }
     }
 
     function domainChip(key, name, color, count) {

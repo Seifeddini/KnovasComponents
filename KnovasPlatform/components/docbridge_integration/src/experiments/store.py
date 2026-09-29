@@ -320,11 +320,18 @@ def get_domain(conn: Any, key: Any) -> Optional[Dict[str, Any]]:
     return _domain(row) if row else None
 
 
+def _key_taken(key: str) -> Conflict:
+    message = MSG_KEY_TAKEN.format(key=key)
+    return Conflict(message, fields={"key": message})
+
+
 def _domain_conflict(exc: Exception, key: str, prefix: str) -> Conflict:
     constraint = getattr(getattr(exc, "diag", None), "constraint_name", "") or ""
     if "prefix" in constraint:
-        return Conflict(MSG_PREFIX_TAKEN.format(prefix=prefix))
-    return Conflict(MSG_KEY_TAKEN.format(key=key))
+        message = MSG_PREFIX_TAKEN.format(prefix=prefix)
+        return Conflict(message, fields={"id_prefix": message})
+    message = MSG_KEY_TAKEN.format(key=key)
+    return Conflict(message, fields={"key": message})
 
 
 def insert_domain(conn: Any, *, key: str, name: str, id_prefix: str, color: str,
@@ -462,7 +469,7 @@ def insert_type(conn: Any, *, domain_id: Optional[str], key: str, name: str, des
                 (type_id, _jsonb(definition), actor_id),
             )
     except _unique_violation():
-        raise Conflict(MSG_KEY_TAKEN.format(key=key)) from None
+        raise _key_taken(key) from None
     return type_id
 
 
@@ -616,7 +623,7 @@ def insert_metric(conn: Any, *, domain_id: Optional[str], key: str, name: str, k
                  actor_id),
             ).fetchone()
     except _unique_violation():
-        raise Conflict(MSG_KEY_TAKEN.format(key=key)) from None
+        raise _key_taken(key) from None
     return row[0]
 
 
@@ -748,7 +755,7 @@ def insert_evaluator(conn: Any, *, key: str, name: str, language: str, descripti
                 (evaluator_id, code, description, list(input_kinds), _jsonb(params_schema), actor_id),
             )
     except _unique_violation():
-        raise Conflict(MSG_KEY_TAKEN.format(key=key)) from None
+        raise _key_taken(key) from None
     return evaluator_id
 
 

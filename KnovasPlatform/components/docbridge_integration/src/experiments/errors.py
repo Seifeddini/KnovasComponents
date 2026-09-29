@@ -32,9 +32,15 @@ class Forbidden(ExperimentsError):
 
 
 class Conflict(ExperimentsError):
-    """The row changed since it was read, or a unique value is taken."""
+    """The row changed since it was read, or a unique value is taken.
+    ``fields`` names the input that holds the taken value, so a form can
+    mark it."""
 
     status = 409
+
+    def __init__(self, message: str, fields: Optional[Dict[str, str]] = None) -> None:
+        super().__init__(message)
+        self.fields = dict(fields or {})
 
 
 class ValidationError(ExperimentsError):

@@ -17,6 +17,7 @@
     const DOMAIN_KEY_RE = /^[a-z][a-z0-9-]{1,31}$/;
     const PREFIX_RE = /^[A-Z][A-Z0-9]{1,7}$/;
     const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
+    const NEW_DOMAIN_HASH = 'bereich-neu';
     const METRIC_KEY_RE = /^[a-z][a-z0-9_]{1,47}$/;
     const TYPE_KEY_RE = /^[a-z][a-z0-9_-]{1,47}$/;
     const EVALUATOR_KEY_RE = /^[a-z][a-z0-9_.-]{1,63}$/;
@@ -114,6 +115,37 @@
             .slice(0, maxLen);
     }
 
+    // Suggestions for a new domain that are still free: every domain, archived
+    // ones included, keeps its key and prefix, and a taken one only fails on
+    // «Anlegen» -- "Engineering Team" must not be offered ENG.
+    function suggestDomainKey(name) {
+        const taken = new Set(state.domains.map((d) => d.key));
+        const base = suggestKey(name, '-', 32);
+        if (!base || !taken.has(base)) return base;
+        for (let i = 2; i < 100; i += 1) {
+            const candidate = `${base.slice(0, 32 - String(i).length - 1).replace(/-+$/, '')}-${i}`;
+            if (!taken.has(candidate)) return candidate;
+        }
+        return base;
+    }
+
+    function suggestDomainPrefix(name) {
+        const taken = new Set(state.domains.map((d) => String(d.id_prefix || '').toUpperCase()));
+        const words = suggestKey(name, ' ', 80).toUpperCase().split(' ')
+            .map((w) => w.replace(/[^A-Z0-9]/g, '')).filter(Boolean);
+        const joined = words.join('');
+        const candidates = [joined.slice(0, 3)];
+        if (words.length > 1) {
+            candidates.push(words.map((w) => w[0]).join('').slice(0, 8));
+            candidates.push(words[0][0] + words[1].slice(0, 2));
+            candidates.push(words[0].slice(0, 2) + words[1][0]);
+        }
+        candidates.push(joined.slice(0, 4), joined.slice(0, 5));
+        for (let i = 2; i < 10; i += 1) candidates.push(joined.slice(0, 3) + i);
+        const free = candidates.find((c) => PREFIX_RE.test(c) && !taken.has(c));
+        return free || joined.slice(0, 3);
+    }
+
     // ── Reiter ──────────────────────────────────────────────────────────
 
     const LOADERS = {
@@ -169,6 +201,10 @@
         });
         window.addEventListener('hashchange', () => {
             const name = window.location.hash.replace(/^#/, '');
+            if (name === NEW_DOMAIN_HASH && canManage) {
+                openNewDomainRequested();
+                return;
+            }
             if (all.some((t) => t.dataset.tab === name)) selectTab(name, false);
         });
     }
@@ -285,10 +321,8 @@
             key.addEventListener('input', () => { keyTouched = true; });
             prefix.addEventListener('input', () => { prefixTouched = true; });
             name.addEventListener('input', () => {
-                if (!keyTouched) key.value = suggestKey(name.value, '-', 32);
-                if (!prefixTouched) {
-                    prefix.value = suggestKey(name.value, '', 8).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
-                }
+                if (!keyTouched) key.value = suggestDomainKey(name.value);
+                if (!prefixTouched) prefix.value = suggestDomainPrefix(name.value);
             });
         }
         const body = el('div', null,
@@ -314,6 +348,11 @@
                     onClick: async () => {
                         const errors = {};
                         if (!name.value.trim()) errors.name = 'Bitte einen Namen angeben.';
+                        const sameName = name.value.trim().toLowerCase();
+                        if (sameName && state.domains.some((d) => (!editing || d.key !== domain.key)
+                                && String(d.name || '').trim().toLowerCase() === sameName)) {
+                            errors.name = 'Einen Bereich mit diesem Namen gibt es schon.';
+                        }
                         if (!editing && !DOMAIN_KEY_RE.test(key.value.trim())) errors.key = '2–32 Zeichen: Kleinbuchstaben, Ziffern, Bindestrich; zuerst ein Buchstabe.';
                         if (!editing && !PREFIX_RE.test(prefix.value.trim())) errors.id_prefix = '2–8 Zeichen: Grossbuchstaben und Ziffern, zuerst ein Buchstabe.';
                         if (!COLOR_RE.test(color.value)) errors.color = 'Bitte eine Farbe wählen.';
@@ -1315,6 +1354,12 @@
     async function renderTokensTab() {
         const box = panel('zugangsschluessel');
         clear(box);
+        if (!canManage) {
+            box.appendChild(el('div', { class: 'kx-banner kx-banner--info', style: { 'margin-bottom': '16px' } },
+                el('p', { text: 'Neue Bereiche, Typen, Metriken und Auswerter richten Verantwortliche ein '
+                    + '(Rolle «experiments_manager» oder Administration). Bitten Sie eine dieser Personen, '
+                    + 'wenn ein Bereich fehlt.' })));
+        }
         box.appendChild(sectionHead('Zugangsschlüssel',
             'Persönliche Schlüssel für CI und Skripte (Python-SDK, Julia, curl). Ein Schlüssel handelt mit Ihren Rollen, wie sie beim Aufruf gelten. Er wird nur beim Anlegen angezeigt.'));
         const prefBox = el('div', { class: 'kx-card', style: { 'margin-bottom': '16px' } });
@@ -1609,10 +1654,31 @@
 
     // ── Start ───────────────────────────────────────────────────────────
 
+    // The list page links here with #bereich-neu: show «Bereiche» and open
+    // the dialog once the domains (needed for free suggestions) are loaded.
+    async function openNewDomainRequested() {
+        try {
+            window.history.replaceState(null, '', '#bereiche');
+        } catch (err) {
+            // Without history the hash stays; harmless.
+        }
+        selectTab('bereiche', false);
+        try {
+            await loadDomains();
+        } catch (err) {
+            return; // the tab shows the failure itself
+        }
+        openDomainDialog(null);
+    }
+
     function init() {
         bindTabs();
         const all = tabs();
         const requested = window.location.hash.replace(/^#/, '');
+        if (requested === NEW_DOMAIN_HASH && canManage) {
+            openNewDomainRequested();
+            return;
+        }
         const initial = all.some((t) => t.dataset.tab === requested) ? requested
             : (canManage ? 'bereiche' : 'zugangsschluessel');
         selectTab(initial, false);
