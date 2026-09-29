@@ -256,9 +256,11 @@
     function countsText(result) {
         const r = result && typeof result === 'object' ? result : {};
         const parts = [];
+        // Nur, was wirklich neu ist: "0 Bereiche, 0 Typen, ..." sagte nichts,
+        // und ohne Neues heisst es "nichts zu ergaenzen".
         const add = (n, one, many) => {
             const v = Number(n);
-            if (Number.isFinite(v)) parts.push(`${KX.fmtNumber(v, 0)} ${v === 1 ? one : many}`);
+            if (Number.isFinite(v) && v > 0) parts.push(`${KX.fmtNumber(v, 0)} ${v === 1 ? one : many}`);
         };
         add(r.domain !== undefined ? (typeof r.domain === 'number' ? r.domain : (r.domain ? 1 : 0)) : undefined, 'Bereich', 'Bereiche');
         add(r.types, 'Typ', 'Typen');
@@ -291,7 +293,9 @@
         }
         const body = el('div', null,
             editing ? null : el('div', { class: 'kx-banner kx-banner--info' },
-                el('p', { text: 'Neue Bereiche starten mit dem Typ «Allgemeine Hypothese».' })),
+                el('p', { text: 'Neue Bereiche starten mit dem Typ «Allgemeine Hypothese». '
+                    + 'Legen Sie danach unter «Metriken» die Metriken des Bereichs an – ohne sie gibt es '
+                    + 'keine Messwerte.' })),
             KX.field({ label: 'Name', input: name, name: 'name', required: true }),
             el('div', { class: 'kx-form-row', style: { 'margin-top': '14px' } },
                 KX.field({ label: 'Schlüssel', input: key, name: 'key', required: !editing, help: editing ? 'Lässt sich nicht ändern.' : 'Kleinbuchstaben, Ziffern, Bindestrich.' }),
@@ -497,7 +501,12 @@
                 },
             },
             el('span', null, el('strong', { text: t.name }), t.archived ? ' ' : null, t.archived ? KX.chip('archiviert', 'muted') : null),
-            el('span', { class: 'kx-sub', text: `${domainName(t.domain_key)} · Version ${t.current_version} · ${KX.fmtNumber(Number(t.experiment_count) || 0, 0)} Experimente` }))))));
+            el('span', { class: 'kx-sub', text: `${domainName(t.domain_key)} · Version ${t.current_version} · ${experimentCount(t.experiment_count)}` }))))));
+    }
+
+    function experimentCount(n) {
+        const v = Number(n) || 0;
+        return `${KX.fmtNumber(v, 0)} ${v === 1 ? 'Experiment' : 'Experimente'}`;
     }
 
     function definitionPreview(def) {
@@ -513,7 +522,7 @@
         box.appendChild(el('p', { class: 'kx-subhead', text: 'Status' }));
         box.appendChild(el('ol', { class: 'kx-steps' }, states.map((s) => el('li', {
             class: ['kx-step', s.key === d.initial ? 'kx-step--initial' : ''],
-        }, el('span', { class: 'kx-step-label', text: `${s.label || s.key}${s.phase ? ` · ${s.phase}` : ''}` }),
+        }, el('span', { class: 'kx-step-label', text: `${s.label || s.key}${s.phase ? ` · Phase ${KX.label('phases', s.phase)}` : ''}` }),
         s.key === d.initial ? el('span', { class: 'kx-visually-hidden', text: '(Anfangsstatus)' }) : null))));
         const transitions = Array.isArray(d.transitions) ? d.transitions : [];
         box.appendChild(el('p', { class: 'kx-subhead', text: 'Übergänge' }));
@@ -558,8 +567,15 @@
         const preview = el('div', null, definitionPreview(type.definition));
         const showErrors = (err) => {
             const fields = err.fields || {};
+            const keys = Object.keys(fields);
+            // Die Meldung des Servers wiederholt den ersten Feldfehler
+            // (schema.raise_invalid); steht die Liste darunter, genuegt ein Titel.
+            const aboutDefinition = keys.every((k) => k !== 'name' && k !== 'description');
+            const title = !keys.length ? KX.errorMessage(err)
+                : `${aboutDefinition ? 'Die Definition ist ungültig' : 'Bitte die Angaben prüfen'} `
+                    + `(${KX.fmtNumber(keys.length, 0)} Fehler).`;
             clear(result).appendChild(el('div', { class: 'kx-banner kx-banner--error', role: 'alert' },
-                el('div', null, el('p', { text: KX.errorMessage(err) }),
+                el('div', null, el('p', { text: title }),
                     Object.keys(fields).length ? el('ul', null, Object.keys(fields).slice(0, 50).map((k) => el('li', null,
                         el('span', { class: 'kx-mono', text: k }), `: ${fields[k]}`))) : null)));
         };
@@ -1305,15 +1321,30 @@
         const status = el('span', { class: 'kx-help', 'aria-live': 'polite' });
         clear(box).appendChild(el('label', { class: 'kx-check', for: 'kxPrefShowInSearch' }, checkbox,
             el('span', { text: 'Experimente in meiner normalen Suche zeigen' })));
-        box.appendChild(el('p', { class: 'kx-help', text: 'Treffer aus Experimenten erscheinen dann auch in der Knovas-Suche (Seite «Suche»), mit einem Kolben-Symbol.' }));
+        box.appendChild(el('p', { class: 'kx-help', text: 'Treffer aus Experimenten erscheinen dann auch in der Knovas-Suche (Seite «Suche»), mit einem Kolben-Symbol, sofern die Verwaltung sie nicht für alle ausgeschaltet hat.' }));
         box.appendChild(status);
+        let settings = null;
         try {
-            const data = await KX.api('GET', '/api/experiments/preferences');
+            // Die Suche zeigt Experimente nur, wenn beides an ist: die
+            // Einstellung hier und die der Verwaltung (Reiter Index). Die
+            // lesen alle mit Experimente-Rolle.
+            const [data, global] = await Promise.all([
+                KX.api('GET', '/api/experiments/preferences'),
+                KX.api('GET', '/api/experiments/settings').catch(() => null),
+            ]);
             checkbox.checked = Boolean(data.preferences && data.preferences.show_in_search);
             checkbox.disabled = false;
+            settings = global && global.settings ? global.settings : null;
         } catch (err) {
             status.textContent = KX.errorMessage(err);
             return;
+        }
+        if (settings && settings.show_in_search === false) {
+            // Die eigene Einstellung bleibt waehlbar; sie gilt wieder, sobald
+            // die Verwaltung die Experimente in der Suche einschaltet.
+            box.insertBefore(el('div', { class: 'kx-banner kx-banner--info', role: 'status' },
+                el('p', { text: 'Die Verwaltung hat Experimente in der normalen Suche für alle ausgeschaltet. '
+                    + 'Ihre Einstellung hier gilt wieder, sobald sie eingeschaltet werden.' })), box.firstChild);
         }
         checkbox.addEventListener('change', async () => {
             checkbox.disabled = true;

@@ -58,9 +58,29 @@ MSG_BUSY = "Knovas ist ausgelastet; neuer Versuch folgt."
 MSG_RATE_SLOT = "Warten auf den n\u00e4chsten freien Upload-Platz."
 MSG_NO_CLIENT = "Kein Knovas-Zugang eingerichtet."
 MSG_BAD_KEY = "Das Experiment hat keinen g\u00fcltigen Schl\u00fcssel f\u00fcr Knovas."
+MSG_UPLOAD_RUNNING = "Das Experiment wird gerade hochgeladen; neuer Versuch folgt."
+MSG_LISTING_UNREACHABLE = (
+    "Knovas konnte die Liste der Experiment-Dokumente nicht liefern; "
+    "der Befehl kann wiederholt werden."
+)
+MSG_LISTING_REFUSED = (
+    "Knovas hat die Liste der Dokumente abgelehnt (HTTP {code}); nicht erfasste "
+    "Experiment-Dokumente wurden nicht gesucht."
+)
 
 DEFAULT_RETRY_AFTER = 60.0
 MAX_RETRY_AFTER = 3600.0
+#: Statuses that say the request may succeed later. 401/403 come from the
+#: caller's credentials (a certificate being renewed, a group not set up yet),
+#: not from the document, so they are retried like an outage.
+TEMPORARY_STATUSES = (401, 403, 408, 409, 425)
+#: One upload per experiment at a time, across every worker of every process
+#: (a session advisory lock on the worker's connection, released on unlock or
+#: when the connection ends). A second job for the same experiment waits this
+#: long and then reads the snapshot afresh, so the newest content is always
+#: the one uploaded last.
+UPLOAD_LOCK_PREFIX = "experiments.index:"
+UPLOAD_LOCK_RETRY_SECONDS = 10.0
 
 try:  # Dates the way people in the firm read them; UTC when tzdata is missing.
     from zoneinfo import ZoneInfo
@@ -286,12 +306,19 @@ def _metric_index(snapshot: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 
 def _evaluation_items(snapshot: Dict[str, Any]) -> List[_Item]:
-    """The newest finished evaluation per (evaluator, metric, scope)."""
+    """The newest finished evaluation per (evaluator, metric, scope).
+
+    An evaluation the snapshot marks ``superseded`` (a newer one of its
+    group exists) is never the current result, so it is left out even when
+    it is the newest finished one.
+    """
     metrics = _metric_index(snapshot)
     seen = set()
     items = []
     for ev in snapshot.get("evaluations") or []:  # newest first
         if not isinstance(ev, dict) or ev.get("status") != "done":
+            continue
+        if ev.get("superseded") is True:
             continue
         ident = (ev.get("evaluator_key"), ev.get("metric_key"), _scope_key(ev.get("scope")))
         if ident in seen:
@@ -534,14 +561,33 @@ def document_for(snapshot: Dict[str, Any], settings: Any) -> Dict[str, Any]:
 # -- talking to Knovas ------------------------------------------------------------
 
 
+def _root_error(exc: BaseException) -> BaseException:
+    """The error behind a tenacity RetryError: KnovasAPIClient retries
+    transport errors with tenacity (without reraise), so an outage reaches
+    callers wrapped in one."""
+    try:
+        from tenacity import RetryError
+    except ImportError:  # pragma: no cover - tenacity comes with knovas_client
+        return exc
+    if isinstance(exc, RetryError):
+        attempt = getattr(exc, "last_attempt", None)
+        try:
+            inner = attempt.exception() if attempt is not None and attempt.failed else None
+        except Exception:  # noqa: BLE001 - a future in an unexpected state
+            inner = None
+        if isinstance(inner, BaseException):
+            return inner
+    return exc
+
+
 def _http_status(exc: BaseException) -> Optional[int]:
-    response = getattr(exc, "response", None)
+    response = getattr(_root_error(exc), "response", None)
     status = getattr(response, "status_code", None)
     return int(status) if isinstance(status, int) else None
 
 
 def _retry_after(exc: BaseException) -> float:
-    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    headers = getattr(getattr(_root_error(exc), "response", None), "headers", None) or {}
     try:
         raw = headers.get("Retry-After")
     except Exception:  # noqa: BLE001
@@ -567,6 +613,7 @@ def _retry_after(exc: BaseException) -> float:
 
 
 def _is_transport_error(exc: BaseException) -> bool:
+    exc = _root_error(exc)
     try:
         import requests
     except ImportError:  # pragma: no cover - requests is a hard dependency
@@ -586,7 +633,7 @@ def _raise_for_knovas_error(exc: BaseException, what: str, pointer: str) -> None
         logger.warning("Knovas %s of %s failed: HTTP %s (%s)", what, pointer, status, exc)
         if status in (429, 503):
             raise RetryLater(_retry_after(exc), MSG_BUSY) from exc
-        if status in (408, 409, 425):
+        if status in TEMPORARY_STATUSES:
             raise Unavailable(MSG_TEMPORARY.format(code=status)) from exc
         if status >= 500:
             raise Unavailable(MSG_UNREACHABLE) from exc
@@ -616,6 +663,33 @@ def _read_snapshot(conn: Any, experiment_id: str) -> Optional[Dict[str, Any]]:
         return store.load_snapshot(conn, experiment_id)
 
 
+def _try_lock(conn: Any, name: str) -> bool:
+    """A session advisory lock, the same kind store.try_advisory_lock takes
+    (kept here so the lock does not depend on the store module)."""
+    row = conn.execute("SELECT pg_try_advisory_lock(hashtextextended(%s, 0))",
+                       (str(name),)).fetchone()
+    return bool(row and row[0])
+
+
+def _unlock(conn: Any, name: str) -> None:
+    """Release a lock _try_lock took. Never raises: a connection that broke
+    has released it already. A failed transaction left open is rolled back
+    first -- nothing but a rollback can end it, and the lock must not outlive
+    the job on a connection the worker keeps."""
+    try:
+        try:
+            from psycopg import pq
+
+            if conn.info.transaction_status == pq.TransactionStatus.INERROR:
+                conn.rollback()
+        except ImportError:  # pragma: no cover - psycopg is a hard dependency here
+            pass
+        conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (str(name),))
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not release the upload lock %s; it ends with the connection.",
+                       name, exc_info=True)
+
+
 def index_experiment(conn: Any, experiment_id: str, client: Any, settings: Any) -> None:
     """Upload (or re-upload) one experiment. Handler of 'index' jobs."""
     store = _store()
@@ -631,10 +705,21 @@ def index_experiment(conn: Any, experiment_id: str, client: Any, settings: Any) 
         return
     if client is None:
         raise RetryLater(3600, MSG_NO_CLIENT)
-    wait = jobs.take_rate_slot(conn, jobs.RATE_SLOT_KNOVAS_INIT, settings.index_per_minute)
-    if wait > 0:
-        raise RetryLater(wait, MSG_RATE_SLOT)
+    # A second job for the same experiment (an edit or "Neu indexieren" while
+    # this upload runs) must not upload beside it: Knovas keeps whichever
+    # transmission finishes last, which could be the older content. Taken
+    # before the rate slot, so a job that has to wait does not use one up.
+    lock = UPLOAD_LOCK_PREFIX + experiment_id
+    if not _try_lock(conn, lock):
+        raise RetryLater(UPLOAD_LOCK_RETRY_SECONDS, MSG_UPLOAD_RUNNING)
+    try:
+        _upload_locked(conn, store, experiment_id, client, settings)
+    finally:
+        _unlock(conn, lock)
 
+
+def _upload_locked(conn: Any, store: Any, experiment_id: str, client: Any, settings: Any) -> None:
+    """index_experiment while it holds the experiment's upload lock."""
     snapshot = _read_snapshot(conn, experiment_id)
     if snapshot is None:
         return
@@ -647,6 +732,11 @@ def index_experiment(conn: Any, experiment_id: str, client: Any, settings: Any) 
         store.set_index_state(conn, experiment_id, "error", str(exc))
         raise PermanentError(str(exc), handled=True) from exc
     pointer = document["identifier"]
+    # After the document is built: an experiment that is gone or that Knovas
+    # could never take does not use up one of the tenant's upload slots.
+    wait = jobs.take_rate_slot(conn, jobs.RATE_SLOT_KNOVAS_INIT, settings.index_per_minute)
+    if wait > 0:
+        raise RetryLater(wait, MSG_RATE_SLOT)
 
     try:
         client.upload_text_document(
@@ -719,13 +809,59 @@ def _purge_one(client: Any, pointer: str) -> bool:
     return False
 
 
-def purge_all(conn: Any, client: Any, settings: Any, *, knovas_listing: bool = True) -> int:
+def _listing_failed(exc: BaseException, prefix: str, notes: Optional[List[str]]) -> None:
+    """Map a failed Knovas listing for purge_all. Knovas away or busy raises
+    Unavailable (the purge can be repeated); a refused listing only ends the
+    listing pass, with a note for the operator; anything else is a bug and
+    goes up unchanged."""
+    root = _root_error(exc)
+    status = _http_status(root)
+    if _is_transport_error(root) or (status is not None and (status >= 500 or status in (
+            408, 425, 429))):
+        logger.warning("Knovas listing under %s/ failed: %s", prefix, root)
+        raise Unavailable(MSG_LISTING_UNREACHABLE) from exc
+    if status is not None:
+        logger.warning("Knovas refused the listing under %s/: HTTP %s (%s)", prefix, status, root)
+        if notes is not None:
+            notes.append(MSG_LISTING_REFUSED.format(code=status))
+        return
+    raise exc
+
+
+def _listed_documents(lister: Any, prefix: str, notes: Optional[List[str]]):
+    """The documents Knovas lists under ``prefix/``, with its failures mapped
+    by _listing_failed. Only the listing itself is guarded: an error while
+    deleting a listed document keeps its own meaning."""
+    try:
+        iterator = iter(lister(prefix=f"{prefix}/"))
+    except Exception as exc:  # noqa: BLE001 - mapped
+        _listing_failed(exc, prefix, notes)
+        return
+    while True:
+        try:
+            document = next(iterator)
+        except StopIteration:
+            return
+        except Exception as exc:  # noqa: BLE001 - mapped
+            _listing_failed(exc, prefix, notes)
+            return
+        yield document
+
+
+def purge_all(conn: Any, client: Any, settings: Any, *, knovas_listing: bool = True,
+              notes: Optional[List[str]] = None) -> int:
     """Delete every experiment document from Knovas; returns how many.
 
     First every pointer the module recorded (exp_index_documents), then --
-    when the client can list documents -- whatever Knovas still holds under
+    when the client can list documents -- whatever Knovas still lists under
     the prefix. Only pointers of the exact experiment shape are deleted from
     the listing, so a misconfigured prefix can never reach ordinary files.
+
+    The listing goes through the unsigned client, and Knovas lists documents
+    by the caller's own access: documents uploaded with an access group are
+    only found through the record. A listing Knovas refuses is skipped with
+    a German note appended to ``notes``; Knovas unreachable raises
+    Unavailable, after the recorded documents are already gone.
     """
     if client is None:
         raise Unavailable(MSG_NO_CLIENT)
@@ -748,7 +884,7 @@ def purge_all(conn: Any, client: Any, settings: Any, *, knovas_listing: bool = T
     lister = getattr(client, "iter_documents", None)
     if knovas_listing and callable(lister):
         prefix = settings.pointer_prefix
-        for document in lister(prefix=f"{prefix}/"):
+        for document in _listed_documents(lister, prefix, notes):
             if not isinstance(document, dict):
                 continue
             pointer = None

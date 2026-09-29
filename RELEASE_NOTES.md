@@ -104,10 +104,12 @@ Suche beantwortet, was schon versucht wurde und was dabei herauskam.
 
 Das Modul ist **standardmässig aus** (`EXPERIMENTS_ENABLED=false`). Auch
 eingeschaltet sehen es nur Personen mit einer der neuen Rollen `experimenter`
-oder `experiments_manager`: alle anderen haben keinen Menüpunkt, keine
-Experiment-Treffer in der Suche und erhalten auf jeder Adresse des Moduls
-«Nicht gefunden». Für bestehende Installationen ändert sich nichts, solange es
-aus bleibt; die Tabellen legt die Migration beim Start trotzdem an.
+oder `experiments_manager` sowie Administratoren (`admin`, mit allen Rechten
+der Verwalter-Rolle, also auch Lesezugriff auf alle Experimente): alle anderen
+haben keinen Menüpunkt, keine Experiment-Treffer in der Suche und erhalten auf
+jeder Adresse des Moduls «Nicht gefunden». Für bestehende Installationen
+ändert sich nichts, solange es aus bleibt; die Tabellen legt die Migration
+beim Start trotzdem an.
 
 Einschalten:
 
@@ -116,10 +118,14 @@ Einschalten:
    `EXPERIMENTS_ACCESS_GROUPS=<Gruppe>` setzen. **Ohne Zugriffsgruppe lädt das
    Modul nichts nach Knovas hoch** — ein Experiment-Dokument ohne Gruppe wäre
    für den ganzen Mandanten sichtbar.
-3. Unter Verwaltung → Personen die Rollen vergeben und jeder Person mit einer
+3. `./scripts/setup.sh && ./scripts/start.sh`. Erst die neue Version legt beim
+   Start die Rollen `experimenter` und `experiments_manager` an; vorher bietet
+   die Verwaltung sie nicht an.
+4. Unter Verwaltung → Personen die Rollen vergeben und jeder Person mit einer
    Experimente-Rolle die Gruppe zusätzlich zu ihren bisherigen geben.
-4. `./scripts/setup.sh && ./scripts/start.sh`; `./scripts/doctor.sh` prüft
-   den neuen Abschnitt «Experimente».
+5. `./scripts/doctor.sh` prüft den neuen Abschnitt «Experimente» — nach
+   Schritt 4, damit die Prüfung «niemand hat die Rolle» den fertigen Stand
+   sieht.
 
 - Mitgeliefert sind Pakete für Engineering, Marketing, Vertrieb und Produkt;
   Bereiche, Typen, Metriken und Auswerter sind Konfiguration und lassen sich als
@@ -132,6 +138,9 @@ Einschalten:
   Netzwerk, erreichbar allein über einen Unix-Socket — und nur mit dem
   Compose-Profil `experiments` (`COMPOSE_PROFILES=experiments`,
   `EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock`).
+  `EXPERIMENTS_RUNNER_CPUS` (Vorgabe 2) darf nicht über der Zahl der CPUs des
+  Rechners liegen, sonst legt Docker den Container nicht an; auf einem Rechner
+  mit einer CPU `EXPERIMENTS_RUNNER_CPUS=1` setzen (`doctor.sh` prüft das).
 - Alle Daten liegen in der Plattform-Datenbank und sind in deren Sicherung
   enthalten. `python -m experiments purge-index --yes` im Container
   `docbridge-web` entfernt die Knovas-Kopien wieder, auch bei ausgeschaltetem

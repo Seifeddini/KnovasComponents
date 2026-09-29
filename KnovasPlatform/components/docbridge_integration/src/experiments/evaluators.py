@@ -164,6 +164,40 @@ def _md(text: Any) -> str:
     return value.replace("](", "] (")
 
 
+def _exact_decimals(kind: Optional[str], x: float, decimals: int) -> int:
+    """At least ``decimals``, more (up to 6) until a configured number such as
+    a limit or target of 0.7005 prints as itself and not as 70,0 %."""
+    scaled = x * (100.0 if kind == "proportion" else 1.0)
+    d = decimals
+    while d < 6 and abs(round(scaled, d) - scaled) > 1e-9 * max(1.0, abs(scaled)):
+        d += 1
+    return d
+
+
+def _distinct_decimals(kind: Optional[str], a: float, b: float, unit: str, decimals: int) -> int:
+    """Enough decimals (up to 6) that two different numbers set side by side
+    with ">" or "<" do not print the same ("70,0 % > 70,0 %")."""
+    d = decimals
+    while d < 6 and a != b and _fmt_value(kind or "", a, unit, d) == _fmt_value(kind or "", b, unit, d):
+        d += 1
+    return d
+
+
+def _relative(diff: Any, base: Any) -> Optional[float]:
+    """diff / base as a relative change, only against a positive baseline:
+    against a negative control mean (a margin of -20 CHF) the ratio has the
+    wrong sign ("+30 CHF, relativ -150 %"), against 0 it is undefined."""
+    d, b = _finite(diff), _finite(base)
+    if d is None or b is None or not b > 0.0:
+        return None
+    return _finite(d / b)
+
+
+def _hints(warnings: Sequence[str]) -> str:
+    """The summary's "Hinweise:" line, each warning once (as in ``warnings``)."""
+    return "Hinweise: " + " ".join(dict.fromkeys(warnings))
+
+
 # -- input -----------------------------------------------------------------------
 
 
@@ -411,12 +445,10 @@ def _judge(sign: float, p_value: Optional[float], alpha: float, direction: str) 
     return "better" if up == (direction == "higher") else "worse"
 
 
-def _gain(comparison: Dict[str, Any], direction: str, log_scale: bool = False) -> float:
+def _gain(comparison: Dict[str, Any], direction: str) -> float:
     estimate = _finite(comparison.get("estimate"))
     if estimate is None:
         return 0.0
-    if log_scale:
-        estimate = math.log(estimate) if estimate > 0 else -1e300
     return -estimate if direction == "lower" else estimate
 
 
@@ -542,7 +574,12 @@ def _describe_group(ctx: _Input, group: _Group, alpha: float, warnings: List[str
             var = stats.variance(s, group.sum_sq, n)
             if var is not None:
                 entry["sd"] = math.sqrt(var)
-                entry["ci_low"], entry["ci_high"] = stats.t_interval(mean, var, n, alpha)
+                if var > 0.0:
+                    entry["ci_low"], entry["ci_high"] = stats.t_interval(mean, var, n, alpha)
+                elif n >= 2:
+                    # Identical values: a t interval of width 0 would claim
+                    # certainty from two answers of 5, so there is none.
+                    warnings.append(f"{label}: keine Streuung in den Daten; kein Konfidenzintervall.")
         elif kind == "count" and s is not None:
             if s < 0:
                 warnings.append(f"{label}: negative Anzahl Ereignisse; die Daten sind widerspr\u00fcchlich.")
@@ -752,10 +789,14 @@ def _describe(data: Dict[str, Any]) -> Dict[str, Any]:
             checked = True
             if (op == "max" and estimate > limit) or (op == "min" and estimate < limit):
                 who = f"Variante {group.key}" if group.key is not None else "Messwerte ohne Variante"
+                # The test is exact; the text must not round both sides to
+                # the same number ("70,0 % > 70,0 %" for 0.7003 > 0.7).
+                d = _distinct_decimals(ctx.kind, estimate, limit, ctx.unit,
+                                       _exact_decimals(ctx.kind, limit, decimals))
                 violations.append(
-                    f"Leitplanke verletzt: {who} {_fmt_value(ctx.kind, estimate, ctx.unit, decimals)} "
-                    f"{'>' if op == 'max' else '<'} {_fmt_value(ctx.kind, limit, ctx.unit, decimals)}.")
-        limit_text = _fmt_value(ctx.kind, limit, ctx.unit, decimals)
+                    f"Leitplanke verletzt: {who} {_fmt_value(ctx.kind, estimate, ctx.unit, d)} "
+                    f"{'>' if op == 'max' else '<'} {_fmt_value(ctx.kind, limit, ctx.unit, d)}.")
+        limit_text = _fmt_value(ctx.kind, limit, ctx.unit, _exact_decimals(ctx.kind, limit, decimals))
         bound = "h\u00f6chstens" if op == "max" else "mindestens"
         if checked:
             values["guardrail_ok"] = not violations
@@ -768,18 +809,34 @@ def _describe(data: Dict[str, Any]) -> Dict[str, Any]:
     verdict = "n/a"
     headline = ""
     target = _finite(ctx.params.get("target"))
+    if target is not None and ctx.kind == "proportion" and not 0.0 <= target <= 1.0:
+        # 80 typed for 80 %: compared with a share of 0..1 it would be
+        # "verfehlt" (or "erreicht" for a lower-is-better rate) for certain.
+        warnings.append(f"Ziel {_fmt_plain(target)} ignoriert: F\u00fcr Anteile das Ziel als Bruch "
+                        "angeben (0.8 f\u00fcr 80 %).")
+        values["target_invalid"] = target
+        target = None
     if target is not None:
         values["target"] = target
-        target_text = _fmt_value(ctx.kind, target, ctx.unit, decimals)
+        target_decimals = _exact_decimals(ctx.kind, target, decimals)
         verdict, reason = _target_verdict(ctx, with_data, target, warnings)
+        if len(with_data) == 1 and verdict in ("better", "worse"):
+            # The interval end that decides must not print as the target.
+            entry = with_data[0][0]
+            for bound in (entry.get("ci_low"), entry.get("ci_high")):
+                if _finite(bound) is not None:
+                    target_decimals = _distinct_decimals(ctx.kind, bound, target, ctx.unit,
+                                                         target_decimals)
+        target_text = _fmt_value(ctx.kind, target, ctx.unit, target_decimals)
         values["target_met"] = {"better": True, "worse": False}.get(verdict)
         status_text = {"better": "erreicht", "worse": "verfehlt"}.get(verdict, "nicht belegt")
         if len(with_data) == 1:
             entry, group = with_data[0]
+            shown = max(decimals, target_decimals)
             ci = ""
             if _finite(entry.get("ci_low")) is not None:
-                ci = f" ({level} {_range_text(ctx, entry['ci_low'], entry['ci_high'], decimals)})"
-            headline = (f"{ctx.name} {_fmt_value(ctx.kind, entry.get('value'), ctx.unit, decimals)}"
+                ci = f" ({level} {_range_text(ctx, entry['ci_low'], entry['ci_high'], shown)})"
+            headline = (f"{ctx.name} {_fmt_value(ctx.kind, entry.get('value'), ctx.unit, shown)}"
                         f"{ci} {_DASH} Ziel {target_text} {status_text}.")
         elif verdict in ("better", "worse"):
             headline = f"{ctx.name}: Ziel {target_text} von allen Varianten {status_text}."
@@ -905,6 +962,10 @@ def _finish_frequentist(ctx: _Input, spec_name: str, results: List[Dict[str, Any
     level = _level_text(alpha)
     _adjust(results, ctx, warnings)
     adjusted = _HOLM_WARNING in warnings
+    for c in results:
+        if _interval_disagrees(c, adjusted):
+            warnings.append(f"Variante {c['variant']}: p-Wert und Konfidenzintervall widersprechen "
+                            "sich knapp; das Ergebnis mit Vorsicht lesen.")
     verdict, focus = _overall(results, ctx.direction, rank=rank)
     decimals = _diff_decimals(ctx, results)
     value_decimals = _value_decimals(ctx, variant_entries)
@@ -922,7 +983,7 @@ def _finish_frequentist(ctx: _Input, spec_name: str, results: List[Dict[str, Any
         conclusion = _conclusion(verdict, focus, ctx, alpha)
     lines += ["", conclusion]
     if warnings:
-        lines += ["", "Hinweise: " + " ".join(warnings)]
+        lines += ["", _hints(warnings)]
     fallback = f"{ctx.name}: zu wenig Daten f\u00fcr einen Vergleich"
     headline = (headline_fn or _frequentist_headline)(ctx, focus, decimals, level, fallback)
     values = _values_for(results, focus, {"alpha": alpha, "correction": _correction(ctx),
@@ -931,6 +992,28 @@ def _finish_frequentist(ctx: _Input, spec_name: str, results: List[Dict[str, Any
     return _output(verdict=verdict, headline=headline, summary="\n".join(lines),
                    comparisons=_public(results), variants=variant_entries, values=values,
                    table=table, warnings=warnings)
+
+
+def _interval_disagrees(c: Dict[str, Any], adjusted: bool) -> bool:
+    """Whether a comparison's verdict and its interval tell different stories.
+
+    Every built-in test is paired with the interval it inverts, so this only
+    guards against rounding at the very boundary and future changes: a
+    better/worse whose interval still holds the reference (0, or 1 for a
+    ratio), or, without a Holm correction (which widens only the p-values),
+    an undecided comparison whose interval excludes it.
+    """
+    lo, hi = _finite(c.get("ci_low")), _finite(c.get("ci_high"))
+    if lo is None and hi is None:
+        return False
+    reference = 1.0 if c.get("unit") == "x" else 0.0
+    lo = -math.inf if lo is None else lo
+    hi = math.inf if hi is None else hi
+    excludes = lo > reference or hi < reference
+    if c.get("verdict") in ("better", "worse"):
+        return not excludes
+    return (not adjusted and c.get("verdict") == "inconclusive"
+            and _finite(c.get("p_value")) is not None and excludes)
 
 
 def _comparisons_table(ctx: _Input, results: List[Dict[str, Any]], decimals: int, level: str) -> Dict[str, Any]:
@@ -1084,7 +1167,7 @@ def _bayes_proportion(data: Dict[str, Any]) -> Dict[str, Any]:
     lines += ["", f"Schwelle f\u00fcr ein Urteil: {_fmt_prob(threshold)}; Prior Beta({_fmt_plain(prior_a)}, "
               f"{_fmt_plain(prior_b)}).", "", conclusion]
     if warnings:
-        lines += ["", "Hinweise: " + " ".join(warnings)]
+        lines += ["", _hints(warnings)]
     values = _values_for(results, focus, {"threshold": threshold, "prior_a": prior_a,
                                           "prior_b": prior_b},
                          ("prob_better", "expected_loss", "estimate", "ci_low", "ci_high"))
@@ -1140,7 +1223,7 @@ def _welch_t(data: Dict[str, Any]) -> Dict[str, Any]:
                 warnings.append(f"Variante {key}: keine Streuung in den Daten; kein Test m\u00f6glich.")
             results.append(_comparison(key, ctx.control, "Differenz", ctx.unit, estimate=r["diff"],
                                        ci_low=r["ci_low"], ci_high=r["ci_high"], p_raw=r["p_value"],
-                                       relative=(r["diff"] / m1) if m1 else None,
+                                       relative=_relative(r["diff"], m1),
                                        sign=r["diff"] or 0.0))
     return _finish_frequentist(ctx, spec_name, results, warnings, variant_entries=entries,
                                variant_groups=groups,
@@ -1231,7 +1314,7 @@ def _paired_t(data: Dict[str, Any]) -> Dict[str, Any]:
         base = math.fsum(control_values) / len(control_values)
         results.append(_comparison(key, ctx.control, "Mittlere Differenz", ctx.unit,
                                    estimate=r["mean_diff"], ci_low=r["ci_low"], ci_high=r["ci_high"],
-                                   p_raw=r["p_value"], relative=(r["mean_diff"] / base) if base else None,
+                                   p_raw=r["p_value"], relative=_relative(r["mean_diff"], base),
                                    sign=r["mean_diff"] or 0.0, n_pairs=r["n_pairs"]))
     unmatched = sum(1 for pv in row_keys if pv not in used)
     if unmatched:
@@ -1268,6 +1351,7 @@ def _poisson_rate(data: Dict[str, Any]) -> Dict[str, Any]:
     groups = _groups_in_order(ctx)
     entries = _describe_all(ctx, alpha, warnings)
     results = []
+    unbounded = False
     for key in _comparison_targets(ctx, warnings):
         c, v = ctx.groups[ctx.control], ctx.groups[key]
         try:
@@ -1278,12 +1362,21 @@ def _poisson_rate(data: Dict[str, Any]) -> Dict[str, Any]:
         if not c.value_sum and not v.value_sum:
             warnings.append(f"Keine Ereignisse in {ctx.control} und {key}.")
         elif not c.value_sum:
-            warnings.append(f"Die Kontrolle {ctx.control} hat keine Ereignisse; das Verh\u00e4ltnis ist unbegrenzt.")
+            unbounded = True
         sign = (r["rate2"] or 0.0) - (r["rate1"] or 0.0)
+        # rate2 travels along (not in the output: _public drops it) to rank
+        # the variants: with a control without events every ratio is
+        # unbounded (None), but the variants' own rates still order them.
         results.append(_comparison(key, ctx.control, "Verh\u00e4ltnis der Raten", "x", estimate=r["ratio"],
                                    ci_low=r["ci_low"], ci_high=r["ci_high"], p_raw=r["p_value"],
                                    relative=(r["ratio"] - 1.0) if r["ratio"] is not None else None,
-                                   sign=sign))
+                                   sign=sign, rate2=r["rate2"]))
+    if unbounded:
+        warnings.append(f"Die Kontrolle {ctx.control} hat keine Ereignisse; das Verh\u00e4ltnis ist unbegrenzt.")
+
+    def rank(c):
+        rate = _finite(c.get("rate2")) or 0.0
+        return -rate if ctx.direction == "lower" else rate
 
     def headline(ctx_, focus, decimals, level, fallback):
         if focus is None or _finite(focus.get("p_value")) is None:
@@ -1306,7 +1399,7 @@ def _poisson_rate(data: Dict[str, Any]) -> Dict[str, Any]:
     return _finish_frequentist(ctx, spec_name, results, warnings, variant_entries=entries,
                                variant_groups=groups, headline_fn=headline, sentence_fn=sentence,
                                value_names=("estimate", "ci_low", "ci_high", "p_value"),
-                               rank=lambda c: _gain(c, ctx.direction, log_scale=True))
+                               rank=rank)
 
 
 def _ratio_text(value: Any) -> str:
@@ -1349,6 +1442,9 @@ def _ratio_delta(data: Dict[str, Any]) -> Dict[str, Any]:
         warnings.append("Es wurden keine Einzelwerte \u00fcbergeben; der Vergleich braucht Zeilen.")
     results = []
     control_units = units.get(ctx.control or "", ([], []))
+    if targets and len(control_units[1]) >= 2 and math.fsum(control_units[1]) == 0:
+        # Said once, of the control: its zero sum blocks every comparison.
+        warnings.append(f"Kontrolle {ctx.control}: die Summe des Nenners ist 0; kein Vergleich m\u00f6glich.")
     for key in targets:
         xs, ys = units.get(key, ([], []))
         if len(xs) < 2 or len(control_units[0]) < 2:
@@ -1361,12 +1457,15 @@ def _ratio_delta(data: Dict[str, Any]) -> Dict[str, Any]:
             warnings.append(f"Variante {key}: der Vergleich l\u00e4sst sich mit diesen Daten nicht rechnen.")
             continue
         if r["ratio1"] is None or r["ratio2"] is None:
-            warnings.append(f"Variante {key}: die Summe des Nenners ist 0; kein Vergleich m\u00f6glich.")
+            # Name the group whose denominators sum to 0 (the control's is
+            # reported once above), not always the variant.
+            if r["ratio2"] is None:
+                warnings.append(f"Variante {key}: die Summe des Nenners ist 0; kein Vergleich m\u00f6glich.")
         elif r["p_value"] is None:
             warnings.append(f"Variante {key}: keine Streuung in den Daten; kein Test m\u00f6glich.")
         results.append(_comparison(key, ctx.control, "Differenz", ctx.unit, estimate=r["diff"],
                                    ci_low=r["ci_low"], ci_high=r["ci_high"], p_raw=r["p_value"],
-                                   relative=(r["diff"] / r["ratio1"]) if r["ratio1"] and r["diff"] is not None else None,
+                                   relative=_relative(r["diff"], r["ratio1"]),
                                    sign=r["diff"] or 0.0))
     return _finish_frequentist(ctx, spec_name, results, warnings, variant_entries=entries,
                                variant_groups=groups,
@@ -1414,26 +1513,24 @@ def _chi_square(data: Dict[str, Any]) -> Dict[str, Any]:
                 c_mean, v_mean = control.value_sum / control.n, v.value_sum / v.n
                 results.append(_comparison(key, ctx.control, "Differenz der mittleren Stufe", ctx.unit,
                                            estimate=v_mean - c_mean, p_raw=pair["p_value"],
-                                           relative=((v_mean - c_mean) / c_mean) if c_mean else None,
+                                           relative=_relative(v_mean - c_mean, c_mean),
                                            sign=v_mean - c_mean))
             else:
                 results.append(_comparison(key, ctx.control, "Cram\u00e9rs V", "", estimate=pair["cramers_v"],
                                            p_raw=pair["p_value"], sign=0.0))
         _adjust(results, ctx, warnings)
-        if ctx.kind == "categorical":
-            for c in results:
-                c["verdict"] = "n/a"
-        verdict, focus = _overall(results, ctx.direction)
-        if ctx.kind == "categorical" and results:
-            verdict = "n/a"
+        # The chi-square test asks whether the distributions differ at all,
+        # not whether one is shifted up or down: a large change of shape
+        # (everyone at 3 against half at 1 and half at 5) is significant
+        # with a mean that barely moves. So it names no better or worse
+        # variant, on a scale either; the mean level is welch_t's question.
+        for c in results:
+            c["verdict"] = "n/a"
+        verdict = "n/a" if results else "inconclusive"
         p = overall["p_value"]
         differs = p is not None and p < alpha
         stat_text = (f"\u03c7\u00b2 = {_fmt_number(overall['chi2'], 2)}, df = {overall['df']}, {_fmt_p(p)}")
-        if verdict in ("better", "worse") and focus is not None:
-            decimals = _diff_decimals(ctx, [focus])
-            headline = (f"{focus['variant']}: mittlere Stufe {_signed(focus['estimate'], decimals)} "
-                        f"gegen\u00fcber {focus['baseline']}, {_fmt_p(focus['p_value'])}")
-        elif differs:
+        if differs:
             headline = f"Verteilung unterscheidet sich zwischen den Varianten ({stat_text})"
         else:
             headline = f"Kein belegter Unterschied in der Verteilung ({stat_text})"
@@ -1447,10 +1544,16 @@ def _chi_square(data: Dict[str, Any]) -> Dict[str, Any]:
                 effect = f"Cram\u00e9rs V {_fmt_number(c['estimate'], 3)}"
             lines.append(f"- {_md(c['variant'])} gegen\u00fcber {_md(c['baseline'])}: {effect}, "
                          f"{_fmt_p(c['p_value'])}{_verdict_suffix(c['verdict'])}.")
-        lines += ["", _conclusion(verdict, focus, ctx, alpha) if ctx.kind == "ordinal"
-                  else "Ergebnis: Eine Verteilung \u00fcber Kategorien hat keine Richtung; es gibt kein Urteil \u00fcber besser oder schlechter."]
+        if ctx.kind == "ordinal":
+            conclusion = ("Ergebnis: Der Chi-Quadrat-Test pr\u00fcft nur, ob sich die Verteilung der "
+                          "Stufen unterscheidet, nicht welche Variante besser ist; das zeigt der "
+                          "Welch-t-Test auf die mittlere Stufe.")
+        else:
+            conclusion = ("Ergebnis: Eine Verteilung \u00fcber Kategorien hat keine Richtung; es gibt "
+                          "kein Urteil \u00fcber besser oder schlechter.")
+        lines += ["", conclusion]
         if warnings:
-            lines += ["", "Hinweise: " + " ".join(warnings)]
+            lines += ["", _hints(warnings)]
         return _output(verdict=verdict, headline=headline, summary="\n".join(lines),
                        comparisons=_public(results), variants=entries, values=values, table=table,
                        warnings=warnings)
@@ -1501,7 +1604,7 @@ def _chi_square(data: Dict[str, Any]) -> Dict[str, Any]:
               + ("Die Verteilung weicht ab." if differs else "Eine Abweichung ist nicht belegt."),
               "", "Ergebnis: Ein Test gegen feste Anteile vergleicht keine Varianten; es gibt kein Urteil \u00fcber besser oder schlechter."]
     if warnings:
-        lines += ["", "Hinweise: " + " ".join(warnings)]
+        lines += ["", _hints(warnings)]
     return _output(verdict="n/a", headline=headline, summary="\n".join(lines), variants=entries,
                    values=values, table=table, warnings=warnings)
 
@@ -1569,7 +1672,8 @@ BUILTINS: Dict[str, BuiltinSpec] = {
         BuiltinSpec(
             key="builtin.two_proportion", name="Zwei-Anteile-Test",
             description=("Vergleicht jeden Anteil mit der Kontrolle: Differenz in Prozentpunkten mit "
-                         "Newcombe-Intervall und z-Test; mehrere Vergleiche nach Holm korrigiert."),
+                         "z-Test und dem dazu passenden Score-Intervall (Mee); mehrere Vergleiche "
+                         "nach Holm korrigiert."),
             input_kinds=("proportion",), params_schema=_schema(_TEST_SCHEMA["properties"]),
             needs_rows=False, fn=_two_proportion),
         BuiltinSpec(
@@ -1820,7 +1924,9 @@ def run_builtin(key: str, data: dict) -> dict:
         warning = "Die Auswertung l\u00e4sst sich mit diesen Daten nicht rechnen."
         raw = {"verdict": "inconclusive", "headline": f"{spec.name}: nicht berechenbar",
                "summary": f"**{spec.name}**: {warning}", "warnings": [warning]}
-    return sanitize_output(raw, evaluator_name=spec.name)
+    metric = data.get("metric") if isinstance(data.get("metric"), dict) else {}
+    kind = metric.get("kind") if isinstance(metric.get("kind"), str) else None
+    return sanitize_output(raw, evaluator_name=spec.name, metric_kind=kind)
 
 
 # -- output ----------------------------------------------------------------------
@@ -1924,7 +2030,23 @@ class _Names:
         return ", ".join(self.names) + (f" (und {self.more} weitere)" if self.more else "")
 
 
-def sanitize_output(raw, *, evaluator_name: str = "") -> dict:
+def _missing_unit(entry: Dict[str, Any], metric_kind: Optional[str]) -> Optional[str]:
+    """The unit of a comparison that came without one.
+
+    On a proportion metric a difference of shares (every number within
+    -1..1) is in percentage points: "Pp.", as the built-ins write it, so
+    0.0041 reads "+0,41 Pp." and not "+0,00". Otherwise null, which the page
+    reads as "the metric's own unit" (an explicit "" stays "no unit").
+    """
+    if metric_kind == "proportion":
+        numbers = [entry.get(k) for k in ("estimate", "ci_low", "ci_high")]
+        numbers = [x for x in numbers if x is not None]
+        if numbers and all(-1.0 <= x <= 1.0 for x in numbers):
+            return "Pp."
+    return None
+
+
+def sanitize_output(raw, *, evaluator_name: str = "", metric_kind: Optional[str] = None) -> dict:
     """Bring any evaluator's output into the output contract.
 
     Keeps the contract keys; unknown top-level scalars move into ``values``,
@@ -1932,6 +2054,11 @@ def sanitize_output(raw, *, evaluator_name: str = "") -> dict:
     size limit of the plan (section 7), turns NaN and infinity into null,
     strips control characters and lone surrogates (PostgreSQL's JSONB refuses
     them), and keeps the whole object below 256 KB of JSON.
+
+    A comparison without ``unit`` (or with null) gets "Pp." when
+    ``metric_kind`` is "proportion" and its numbers are a difference of
+    shares, else null (the page then uses the metric's unit); see
+    _missing_unit.
     """
     if not isinstance(raw, dict):
         raise ValidationError("Der Auswerter hat kein Objekt zur\u00fcckgegeben.")
@@ -1998,11 +2125,13 @@ def sanitize_output(raw, *, evaluator_name: str = "") -> dict:
                 elif name == "verdict":
                     entry[name] = _verdict(value)
                 elif name == "unit":
-                    entry[name] = _clean_text(value, 20, single_line=True) if value is not None else ""
+                    entry[name] = _clean_text(value, 20, single_line=True) if value is not None else None
                 elif name == "label":
                     entry[name] = _clean_text(value, 80, single_line=True) if value is not None else ""
                 else:
                     entry[name] = _clean_text(value, 100, single_line=True) if value is not None else None
+            if entry["unit"] is None:
+                entry["unit"] = _missing_unit(entry, metric_kind)
             for extra in list(item)[:100]:
                 if extra not in _COMPARISON_KEYS:
                     dropped.add(f"comparisons.{_key_text(extra)}")

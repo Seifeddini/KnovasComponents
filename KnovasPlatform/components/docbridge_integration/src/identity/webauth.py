@@ -18,6 +18,7 @@ Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-B1-6)
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 from typing import Any, Callable, Iterable
@@ -118,7 +119,7 @@ class IdentityGate:
         stops a pre-authentication cookie from being reused afterwards.
         """
         opened = self.sessions().open(
-            user, ip=_client_ip(), user_agent=request.headers.get("User-Agent")
+            user, ip=client_ip(), user_agent=request.headers.get("User-Agent")
         )
         session.clear()
         session.permanent = True
@@ -174,8 +175,57 @@ def _default_connect():
     return db.connect()
 
 
-def _client_ip() -> str | None:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr
+#: How many reverse proxies in front of the app each append the address they
+#: saw to X-Forwarded-For. 1 is the bundled container nginx on its own; 2 when
+#: the host nginx of deploy/host-nginx sits in front of it as well; 0 when the
+#: app is reached directly and the header must be ignored.
+TRUSTED_PROXY_HOPS_ENV = "PLATFORM_TRUSTED_PROXY_HOPS"
+DEFAULT_TRUSTED_PROXY_HOPS = 1
+
+
+def trusted_proxy_hops() -> int:
+    """PLATFORM_TRUSTED_PROXY_HOPS, read on each call; a missing or unreadable
+    value is the default, a negative one is 0."""
+    raw = (os.environ.get(TRUSTED_PROXY_HOPS_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_TRUSTED_PROXY_HOPS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        logger.warning("%s=%r is not a whole number; using %d.", TRUSTED_PROXY_HOPS_ENV,
+                       raw, DEFAULT_TRUSTED_PROXY_HOPS)
+        return DEFAULT_TRUSTED_PROXY_HOPS
+
+
+def _as_ip(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        return str(ipaddress.ip_address(text))
+    except ValueError:
+        return None
+
+
+def client_ip() -> str | None:
+    """The caller's address, as the session list and the audit log record it.
+
+    Each trusted proxy *appends* the address it saw to X-Forwarded-For
+    (nginx's ``$proxy_add_x_forwarded_for``), so everything to the left of
+    the entries they added is whatever the client chose to send. The caller
+    is therefore the entry ``trusted_proxy_hops()`` positions from the
+    right -- never the first one, which the client controls. The same rule
+    as werkzeug's ProxyFix: with fewer entries than trusted hops, or with a
+    value that is not an address, the header is ignored and the connection's
+    own address is used. None when neither is an IP address (the columns
+    are INET).
+    """
+    hops = trusted_proxy_hops()
+    if hops > 0:
+        forwarded = ",".join(request.headers.getlist("X-Forwarded-For"))
+        entries = [entry.strip() for entry in forwarded.split(",") if entry.strip()]
+        if len(entries) >= hops:
+            found = _as_ip(entries[-hops])
+            if found is not None:
+                return found
+    return _as_ip(request.remote_addr)

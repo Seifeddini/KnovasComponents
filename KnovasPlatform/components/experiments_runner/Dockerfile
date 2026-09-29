@@ -34,17 +34,23 @@ ARG JULIA_CPU_TARGET=native
 RUN JULIA_DEPOT_PATH=/opt/julia-depot julia --startup-file=no -e 'using Pkg; Pkg.add(["JSON3", "Distributions", "HypothesisTests", "StatsBase", "DataFrames"]); Pkg.precompile()' \
     && chmod -R a+rX /opt/julia-depot
 
-# uid 10001, like RemoteController. The socket directory is a volume shared
-# with docbridge-web (compose mounts a tmpfs volume owned by this uid there).
-RUN groupadd --gid 10001 runner \
-    && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent \
+# uid 10101, used by no other image of the stack. It must stay unique on the
+# host: runner.py gives every job RLIMIT_NPROC 128, and the kernel checks it
+# against all processes and threads of that uid on the whole host, not of one
+# container. With a shared uid (RemoteController runs as 10001) another
+# container's load would make jobs fail to fork or start threads.
+# docker-compose.yml (user, socket volume) and the CI check use the same
+# number. The socket directory is a volume shared with docbridge-web (compose
+# mounts a tmpfs volume owned by this uid there).
+RUN groupadd --gid 10101 runner \
+    && useradd --uid 10101 --gid 10101 --no-create-home --home-dir /nonexistent \
        --shell /usr/sbin/nologin runner \
     && mkdir -p /run/experiments-runner \
-    && chown 10001:10001 /run/experiments-runner
+    && chown 10101:10101 /run/experiments-runner
 
 COPY runner.py harness.py harness.jl /app/
 
-USER 10001
+USER 10101
 # No docker-entrypoint.sh from the base image: the runner is PID 1 itself, so
 # it reaps what jobs leave behind and receives docker stop's SIGTERM.
 ENTRYPOINT []

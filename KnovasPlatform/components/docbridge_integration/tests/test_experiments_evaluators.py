@@ -890,7 +890,7 @@ def test_chi_square_independence_for_categories_has_no_direction():
     assert any("erwarteten H\u00e4ufigkeiten" in w for w in out["warnings"])
 
 
-def test_chi_square_ordinal_verdict_follows_the_mean_level():
+def test_chi_square_ordinal_reports_the_mean_level_but_names_no_winner():
     levels = {"1": "a", "2": "b", "3": "c", "4": "d", "5": "e"}
     a = agg("A", 100, 1 * 10 + 2 * 20 + 3 * 40 + 4 * 20 + 5 * 10, levels={"1": 10, "2": 20, "3": 40, "4": 20, "5": 10})
     b = agg("B", 100, 1 * 2 + 2 * 8 + 3 * 30 + 4 * 35 + 5 * 25, levels={"1": 2, "2": 8, "3": 30, "4": 35, "5": 25})
@@ -899,10 +899,16 @@ def test_chi_square_ordinal_verdict_follows_the_mean_level():
     assert_contract(out)
     (c,) = out["comparisons"]
     assert c["estimate"] == pytest.approx(3.73 - 3.0)
-    assert c["verdict"] == "better" and out["verdict"] == "better"
-    assert out["headline"].startswith("B: mittlere Stufe +0,73 gegen\u00fcber A")
+    assert c["p_value"] == pytest.approx(stats.chi_square_independence(
+        [[10, 20, 40, 20, 10], [2, 8, 30, 35, 25]])["p_value"])
+    # The test is about the distribution, not a shift: no better/worse
+    # (the mean level is builtin.welch_t's question).
+    assert c["verdict"] == "n/a" and out["verdict"] == "n/a"
+    assert out["headline"].startswith("Verteilung unterscheidet sich zwischen den Varianten")
+    assert "- B gegen\u00fcber A: mittlere Stufe +0,73, p < 0,001." in out["summary"]
+    assert "Welch-t-Test auf die mittlere Stufe" in out["summary"]
     lower = E.run_builtin("builtin.chi_square", data("ordinal", [a, b], direction="lower"))
-    assert lower["verdict"] == "worse"
+    assert lower["verdict"] == "n/a"
 
 
 def test_chi_square_goodness_of_fit_with_one_group():

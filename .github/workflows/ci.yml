@@ -52,6 +52,11 @@ jobs:
           PLATFORM_DB_REQUIRED: "true"
         run: pytest
 
+      - name: Experiments SDK (Python client)
+        # Standard library and pytest only. Also runs the README's CI script
+        # (bench/report_to_knovas.py) against a fake Platform.
+        run: python -m pytest experiments-sdk/python
+
       # The per-component stack under KnovasPlatform/ is gone; there is one
       # Compose project at the repo root, so these steps run from there.
       - name: Env expansion contract
@@ -108,6 +113,14 @@ jobs:
           RUNNER_TESTS_REQUIRE_ALL: "true"
         run: pytest
 
+      # The Julia client of the machine API, with the real HTTP.jl and JSON3.jl,
+      # in an environment of its own (the runner's Julia tests never see it).
+      - name: Experiments SDK (Julia client)
+        working-directory: KnovasPlatform/experiments-sdk/julia
+        run: |
+          julia --startup-file=no --project=@kx-sdk -e 'using Pkg; Pkg.add(["HTTP", "JSON3"])'
+          julia --startup-file=no --project=@kx-sdk test/runtests.jl
+
       - name: Generate compose inputs
         working-directory: .
         run: |
@@ -153,9 +166,11 @@ jobs:
           done
           "${DC[@]}" logs experiments-runner
           [[ "$healthy" == true ]]
-          # No network interface but loopback, not root, read-only root.
+          # No network interface but loopback, not root, read-only root. The
+          # uid is the runner's own (10101), shared with no other image: the
+          # per-job process limit counts every process of a uid on the host.
           "${DC[@]}" exec -T experiments-runner /opt/venv/bin/python3 -I -c \
-            "import os, sys; names = [l.split(':')[0].strip() for l in open('/proc/net/dev').read().splitlines()[2:]]; print(names, os.getuid()); sys.exit(names != ['lo'] or os.getuid() != 10001)"
+            "import os, sys; names = [l.split(':')[0].strip() for l in open('/proc/net/dev').read().splitlines()[2:]]; print(names, os.getuid()); sys.exit(names != ['lo'] or os.getuid() != 10101)"
           if "${DC[@]}" exec -T experiments-runner touch /app/written; then
             echo "the root filesystem is writable"; exit 1
           fi
@@ -163,6 +178,28 @@ jobs:
           VOL="$(docker volume ls -q --filter name=experiments_runner_socket | head -1)"
           docker run --rm --user 0 -v "$VOL:/run/experiments-runner:ro" knovas-experiments-runner:0.1.0 \
             /opt/venv/bin/python3 -I /app/runner.py --healthcheck
+          # Jobs share the runner's uid and can put a directory where the
+          # socket belongs; the watchdog then makes the container restart.
+          # While another container keeps the volume mounted (docbridge-web
+          # always does), the entry survives that restart, so the runner has
+          # to clear its socket directory at start or it never listens again.
+          docker run -d --name keep-socket-volume -v "$VOL:/run/experiments-runner:ro" \
+            knovas-experiments-runner:0.1.0 sleep 600
+          "${DC[@]}" exec -T experiments-runner /opt/venv/bin/python3 -I -c \
+            "import os; p = '/run/experiments-runner/runner.sock'; os.unlink(p); os.mkdir(p); open(os.path.join(p, 'x'), 'w').close()"
+          sleep 2
+          healthy=false
+          for _ in $(seq 1 30); do
+            if "${DC[@]}" exec -T experiments-runner /opt/venv/bin/python3 -I /app/runner.py --healthcheck; then
+              healthy=true; break
+            fi
+            sleep 2
+          done
+          "${DC[@]}" logs --tail 20 experiments-runner
+          docker rm -f keep-socket-volume
+          [[ "$healthy" == true ]]
+          # grep without -q reads to the end: no SIGPIPE for logs under pipefail.
+          "${DC[@]}" logs experiments-runner 2>&1 | grep "Emptied the socket directory"
           "${DC[@]}" down -v
 
   remote-controller:

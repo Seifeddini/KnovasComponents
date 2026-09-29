@@ -9,8 +9,11 @@ zusätzlich als Dokumente in Knovas indexiert: die Frage «Haben wir das schon
 einmal versucht, und was kam heraus?» beantwortet die normale Knovas-Suche.
 
 Das Modul ist **standardmässig ausgeschaltet** und bleibt auch eingeschaltet für
-alle unsichtbar, die keine Experimente-Rolle haben: kein Menüpunkt, keine
-Treffer in der Suche, jede Adresse des Moduls antwortet mit «Nicht gefunden».
+alle unsichtbar, die weder eine Experimente-Rolle noch die Rolle `admin` haben:
+kein Menüpunkt, keine Treffer in der Suche, jede Adresse des Moduls antwortet
+mit «Nicht gefunden». Administratoren haben im Modul alle Rechte der
+Verantwortlichen (`experiments_manager`) und lesen damit auch alle Experimente,
+siehe [Rollen und Sichtbarkeit](#rollen-und-sichtbarkeit).
 
 - Design: [docs/superpowers/specs/2026-09-28-experiment-platform-design.md](../../../docs/superpowers/specs/2026-09-28-experiment-platform-design.md)
 - Umsetzungsplan (Schnittstellen, Datenmodell): [docs/superpowers/plans/2026-09-28-experiments-module.md](../../../docs/superpowers/plans/2026-09-28-experiments-module.md)
@@ -136,7 +139,7 @@ gesetzte, aber leere Variable (`EXPERIMENTS_INDEX_ENABLED=`) gilt als «Vorgabe�
 | `EXPERIMENTS_MAX_CSV_ROWS` | `200000` | Zeilen je CSV-Import (1000–1'000'000). |
 | `COMPOSE_PROFILES` | – | `experiments` baut und startet die Rechenumgebung `experiments-runner`. |
 | `EXPERIMENTS_RUNNER_MEMORY` | `3g` | Speichergrenze der Rechenumgebung. |
-| `EXPERIMENTS_RUNNER_CPUS` | `2` | CPU-Grenze der Rechenumgebung. |
+| `EXPERIMENTS_RUNNER_CPUS` | `2` | CPU-Grenze der Rechenumgebung. Höchstens die Zahl der CPUs des Rechners (`nproc`): sonst legt Docker den Container nicht an («range of CPUs is from 0.01 to 1.00 …»), und `start.sh` bricht ab. Auf einem Rechner mit einer CPU `1` setzen; `doctor.sh` prüft das. |
 | `EXPERIMENTS_RUNNER_MAX_CONCURRENT` | `2` | Gleichzeitige Python-/Julia-Auswertungen. |
 
 ### Ausschalten und entfernen
@@ -161,10 +164,10 @@ gesetzte, aber leere Variable (`EXPERIMENTS_INDEX_ENABLED=`) gilt als «Vorgabe�
 
 | Rolle | Sieht | Darf |
 |---|---|---|
-| ohne Experimente-Rolle | nichts: kein Menüpunkt, keine Treffer, 404 auf jeder Adresse | – |
+| ohne Experimente-Rolle (und ohne `admin`) | nichts: kein Menüpunkt, keine Treffer, 404 auf jeder Adresse | – |
 | `experimenter` (Anzeige «Experimente») | alle Experimente aller Bereiche | Experimente anlegen und bearbeiten, Varianten und Metriken zuordnen, Messwerte, CSV, Läufe, Notizen, Auswertungen starten, Status wechseln, entscheiden, eigene Zugangsschlüssel |
 | `experiments_manager` (Anzeige «Experimente verwalten») | dasselbe | zusätzlich: Bereiche, Typen, Metriken, Auswerter und Pakete pflegen, Experimente löschen, Index betreiben, Experimente global aus der normalen Suche nehmen |
-| `admin` | dasselbe | alles, was `experiments_manager` darf |
+| `admin` | dasselbe – jede Administratorin und jeder Administrator der Plattform, auch ohne Experimente-Rolle | alles, was `experiments_manager` darf |
 
 - Es gibt **keine Rechte je Experiment oder je Bereich**. Wer eine
   Experimente-Rolle hat, sieht alles im Modul. Schreiben Sie deshalb keine
@@ -465,7 +468,7 @@ oder ein Metrik-Schlüssel), `params` und optional `scope`.
 
 | Schlüssel | Name | Messarten | Parameter | Was er rechnet |
 |---|---|---|---|---|
-| `builtin.describe` | Beschreibung je Variante | alle | `target` | n, Schätzwert und 95 %-Intervall je Variante (Wilson für Anteile, t-Intervall für Mittelwerte, exakt für Raten); prüft Leitplanken; mit `target`: «besser», wenn das ganze Intervall auf der guten Seite des Ziels liegt |
+| `builtin.describe` | Beschreibung je Variante | alle | `target` | n, Schätzwert und 95 %-Intervall je Variante (Wilson für Anteile, t-Intervall für Mittelwerte und Skalen, exakt für Raten); haben die Werte einer Variante keine Streuung (alle gleich), gibt es für sie kein Intervall, nur eine Warnung; prüft Leitplanken; mit `target`: «besser», wenn das ganze Intervall auf der guten Seite des Ziels liegt, ohne Intervall «offen» («Ziel … nicht belegt») |
 | `builtin.two_proportion` | Zwei-Anteile-Test | Anteil | `alpha`, `correction` | Differenz in Prozentpunkten mit Intervall und z-Test |
 | `builtin.bayes_proportion` | Bayes-Vergleich (Anteile) | Anteil | `threshold`, `prior_a`, `prior_b` | Wahrscheinlichkeit, dass eine Variante besser ist als die Kontrolle, erwarteter Verlust |
 | `builtin.welch_t` | Welch-t-Test | Mittelwert, Dauer, Geldbetrag, Skala | `alpha`, `correction` | Mittelwert-Differenz mit Intervall; braucht Einzelwerte oder die Quadratsumme |
@@ -559,13 +562,16 @@ def evaluate(data):
     sign = -1.0 if metric["direction"] == "lower" else 1.0
 
     # Mittel je Variante und Anfrage (eine Anfrage kann mehrere Zeilen haben).
+    # value ist die Summe von count Werten -- ausser bei einer Skala (ordinal):
+    # dort ist value die Stufe und count die Zahl der Antworten auf ihr.
+    ordinal = metric["kind"] == "ordinal"
     sums = defaultdict(lambda: [0.0, 0])
     for row in data["rows"]:
         key = (row.get("dims") or {}).get(pair_by)
         if key is None or row["variant"] is None:
             continue
         cell = sums[(row["variant"], key)]
-        cell[0] += row["value"]
+        cell[0] += row["value"] * row["count"] if ordinal else row["value"]
         cell[1] += row["count"]
     means = {k: s / n for k, (s, n) in sums.items() if n}
 
@@ -637,15 +643,24 @@ function evaluate(data)
     isempty(variants) && return Dict("verdict" => "n/a", "headline" => "Keine Varianten.")
     i = findfirst(v -> v["is_control"] === true, variants)
     control = variants[something(i, 1)]["key"]
-    # Ein Wert je Zeile: Summe durch Anzahl (vorab zusammengefasste Zeilen zählen richtig).
-    per_row(key) = [r["value"] / r["count"] for r in data["rows"] if r["variant"] == key]
-    base = per_row(control)
+    # Die Einzelwerte einer Variante. Bei einer Skala (ordinal) ist eine Zeile
+    # eine Stufe mit count Antworten darauf und zählt als count Einzelwerte.
+    # Sonst ist value die Summe von count Werten; eine vorab zusammengefasste
+    # Zeile zählt dann als ein Wert (ihr Mittel) -- für Welch also Einzelwerte
+    # (count 1) liefern.
+    function values_of(key)
+        rows = [r for r in data["rows"] if r["variant"] == key]
+        metric["kind"] == "ordinal" &&
+            return Float64[r["value"] for r in rows for _ in 1:Int(r["count"])]
+        return Float64[r["value"] / r["count"] for r in rows]
+    end
+    base = values_of(control)
     flip = metric["direction"] == "lower" ? -1 : 1
     comparisons = Any[]
     warnings = String[]
     for v in variants
         v["key"] == control && continue
-        x = per_row(v["key"])
+        x = values_of(v["key"])
         if length(x) < 2 || length(base) < 2
             push!(warnings, "Variante $(v["key"]): zu wenige Zeilen.")
             continue
@@ -670,6 +685,9 @@ function evaluate(data)
                 "comparisons" => comparisons, "warnings" => warnings)
 end
 ```
+
+Gedacht für Mittelwerte, Dauern, Geldbeträge und Skalen (`input_kinds: [mean,
+duration, currency, ordinal]`).
 
 Wirft der Code eine Ausnahme, schlägt die Auswertung mit «Der Auswerter ist mit
 einem Fehler abgebrochen.» fehl; der Stacktrace steht im Protokoll.
@@ -727,7 +745,15 @@ besser als der Ausgangsstand?
   und der Latenz p95 als einem Wert je Lauf.
 - Der Typ wertet mit Scope «neuester Lauf je Variante» und gepaartem t-Test je
   Anfrage aus: jede Anfrage wird mit sich selbst verglichen, das macht auch
-  kleine Verbesserungen sichtbar.
+  kleine Verbesserungen sichtbar. Auch die Beschreibung – und mit ihr die
+  Leitplanke Latenz p95 – nimmt je Variante nur den neuesten abgeschlossenen
+  Lauf, also den des jeweiligen Pushes.
+- Experimente, die mit einer älteren Version des Typs angelegt wurden, prüfen
+  die Leitplanke noch über **alle** Läufe (ein Experiment bleibt bei seiner
+  Typ-Version): ein behobener Push bliebe rot, ein neuer Ausreisser ginge im
+  Mittel unter. CI fordert den Scope deshalb ausdrücklich an –
+  `client.evaluate(KEY, scope={"runs": "latest"})` gilt für jeden Schritt –, so
+  wie das Beispiel unter [GitHub Actions](#github-actions).
 
 ```python
 with client.run("ENG-12", variant="candidate", commit=sha, params={"stemmer": "v2"}) as run:
@@ -739,7 +765,8 @@ with client.run("ENG-12", variant="candidate", commit=sha, params={"stemmer": "v
 
 Ein vollständiger GitHub-Actions-Ablauf steht unter [Zugangsschlüssel, API und
 SDK](#github-actions). **Latenz p95** ist ein Wert je Lauf; die Schätzung ist
-das Mittel über die Läufe, und `welch_t` (Typ «Performance-Änderung») braucht
+das Mittel über die Läufe im Scope (mit «neuester Lauf je Variante» also genau
+der Wert dieses Laufs), und `welch_t` (Typ «Performance-Änderung») braucht
 mehrere Läufe je Variante. Für Latenzen je Anfrage die Metrik `latency_ms`
 nehmen.
 
@@ -841,8 +868,12 @@ Aufgabenerfolg gegen das Ziel 80 %: die Kopfzeile lautet dann etwa
 «Aufgabenerfolg 75,0 % (95 %-KI 40,9–92,9 %) – Ziel 80,0 % nicht belegt.» Wer
 den SUS-Wert gegen den üblichen Richtwert 68 prüfen will, ergänzt im Typ die
 Zeile `{evaluator: builtin.describe, metric: sus_score, params: {target: 68}}`
-und speichert eine neue Version. Mit Varianten (zwei Prototypen) vergleicht
-`welch_t` die SUS-Mittel, `chi_square` die Verteilung der Zufriedenheit.
+und speichert eine neue Version. Haben alle Werte einer Variante denselben
+Wert (etwa zweimal 80), gibt es kein Intervall: die Beschreibung warnt
+«keine Streuung in den Daten; kein Konfidenzintervall.», und das Ziel gilt
+als nicht belegt – zwei gleiche Antworten sind kein Beleg. Mit Varianten
+(zwei Prototypen) vergleicht `welch_t` die SUS-Mittel, `chi_square` die
+Verteilung der Zufriedenheit.
 
 ### Vertrieb: Sequenzen mit geplanter Stichprobe («Playbook-Test»)
 
@@ -942,7 +973,10 @@ Die Angaben lassen sich kombinieren. Jede Auswertung zeigt ihren Scope.
   «offen».
 - **Leitplanken**: die Beschreibung prüft jede Variante gegen die Leitplanke
   der Metrik («Leitplanke verletzt: Variante B 78,0 % > 70,0 %.») und urteilt
-  dann «schlechter»; Liste und Experiment zeigen «Leitplanke verletzt».
+  dann «schlechter» – über die Messwerte ihres Scopes. Liste und Experiment
+  zeigen «Leitplanke verletzt» dagegen aus **allen** Messwerten des
+  Experiments; bei CI-Läufen mit Scope «neuester Lauf je Variante» können die
+  beiden verschieden ausfallen. Für einen Push massgeblich ist die Auswertung.
 - Zu wenige Daten (n < 2, keine Paare, unbekannte Streuung) ergeben «offen» mit
   einer Warnung, nie einen Fehler.
 
@@ -1092,18 +1126,30 @@ with client.run("ENG-12", variant="candidate", commit=sha) as run:
     for r in results:
         run.add_row("ndcg_at_10", r["ndcg"], dims={"query": r["query_id"]})
     run.log(latency_p95_ms=212.0)
-worse = [e for e in client.evaluate("ENG-12") if e.get("verdict") == "worse"]
+evaluations = client.wait_for("ENG-12", client.evaluate("ENG-12", scope={"runs": "latest"}))
+worse = [e for e in evaluations if e.get("verdict") == "worse" or e.get("status") == "failed"]
 ```
 
 Endet der `with`-Block mit einer Ausnahme, wird der Lauf als «fehlgeschlagen»
-und ohne Messwerte gemeldet.
+und ohne Messwerte gemeldet. Jede Metrik eines Laufs oder einer Messzeile muss
+dem Experiment zugeordnet sein (die Metriken seines Typs oder unter
+**Metriken** ergänzte); sonst weist die Plattform den ganzen Aufruf mit 400
+ab («Die Metrik «…» ist diesem Experiment nicht zugeordnet.») und speichert
+nichts.
+
+`evaluate` gibt die Auswertungen **dieses** Aufrufs zurück: eingebaute sind
+fertig, Python- und Julia-Auswerter stehen noch auf «wartet»; `wait_for` (in
+beiden Clients) wartet auf sie. Ein CI-Gate prüft diese Liste, nicht
+`evaluations(KEY)` – das ist der Verlauf und enthält noch die Urteile
+früherer Pushes.
 
 ### GitHub Actions
 
 Secret `KNOVAS_EXPERIMENTS_TOKEN` und Variable `KNOVAS_URL` im Repository
 anlegen; `tools/knovas_experiments.py` ins Repository übernehmen. Der Job misst
 Ausgangsstand und Kandidat, meldet beide Läufe und schlägt fehl, wenn eine
-Auswertung «schlechter» ergibt (auch bei verletzter Leitplanke):
+Auswertung dieses Pushes «schlechter» ergibt (auch bei verletzter Leitplanke)
+oder scheitert:
 
 ```yaml
 name: Suchqualität
@@ -1142,7 +1188,14 @@ jobs:
 Das Skript `bench/report_to_knovas.py` steht vollständig im
 [README des Python-Clients](../../experiments-sdk/python/README.md#github-actions-suchqualität-je-pull-request).
 Kurz: je Variante `client.run(...)` mit einer Zeile je Anfrage, danach
-`client.wait_for(KEY, client.evaluate(KEY))` und Exit-Code 1 bei `worse`.
+`client.wait_for(KEY, client.evaluate(KEY, scope={"runs": "latest"}))` und
+Exit-Code 1, wenn eine dieser Auswertungen `worse` ergibt oder scheitert.
+Der Scope «neuester Lauf je Variante» gilt damit für jeden Schritt, auch für
+die Beschreibung mit der Leitplanke: jeder Push wird an seinen eigenen Läufen
+gemessen, auch in Experimenten, deren Typ-Version ihn noch nicht für alle
+Schritte vorsieht. Die Kennzeichnung «Leitplanke verletzt» auf der Seite des
+Experiments rechnet dagegen über alle Messwerte und kann vom Urteil des Jobs
+abweichen.
 
 ## Betrieb
 
@@ -1156,8 +1209,26 @@ der Rechenumgebung. Aufträge werden mit Lease vergeben (ein abgestürzter
 Prozess gibt sie nach Ablauf frei), mit wachsendem Abstand wiederholt (bis zu
 8 Versuche) und danach als «gescheitert» markiert. Gleiche Aufträge werden
 zusammengefasst: zehn Änderungen in einer Minute ergeben einen Upload. Etwa alle
-zehn Minuten stellt die Wartung liegengebliebene Experimente («ausstehend»,
-«Fehler») erneut ein und räumt erledigte Aufträge nach sieben Tagen weg.
+zehn Minuten
+
+- wiederholt die Wartung **gescheiterte Löschungen**: jedes Knovas-Dokument
+  eines gelöschten Experiments, das noch erfasst ist (`exp_index_documents`)
+  und an dem kein Auftrag mehr arbeitet – etwa weil Knovas länger als die
+  rund eine Stunde der Wiederholungen nicht erreichbar war –, bekommt einen
+  neuen Löschauftrag. Nach einem gescheiterten Löschauftrag wartet sie damit
+  eine Stunde, nach einer Ablehnung durch Knovas einen Tag. Das geschieht auch
+  bei `EXPERIMENTS_INDEX_ENABLED=false` (Löschungen laufen immer weiter),
+  solange ein Knovas-Zugang eingerichtet ist. Antwortet Knovas 401 oder 403
+  (etwa während ein Zertifikat erneuert wird), gilt das als vorübergehend;
+- stellt sie liegengebliebene Experimente erneut ein: «ausstehend», und
+  «Fehler», wenn der Grund vorübergehend sein kann (Knovas nicht erreichbar,
+  keine Zugriffsgruppe, Upload nicht abgeschlossen). Ein Dokument, das Knovas
+  abgelehnt hat, geht erst mit der nächsten Änderung oder **Alles neu
+  indexieren** wieder hinaus;
+- räumt sie erledigte Aufträge nach sieben Tagen weg.
+
+`python -m experiments status` und `doctor.sh` zeigen, wie viele gelöschte
+Experimente noch in Knovas liegen («Gelöschte Experimente noch in Knovas»).
 
 ### Index
 
@@ -1185,12 +1256,19 @@ zehn Minuten stellt die Wartung liegengebliebene Experimente («ausstehend»,
 `./scripts/doctor.sh` hat einen Abschnitt **Experimente**. Bei ausgeschaltetem
 Modul meldet er nur «aus». Eingeschaltet prüft er: persönliche Konten an,
 Tabellen vorhanden, Aufträge und gescheiterte Aufträge (Warnung), Experimente
-mit Index-Fehler (Warnung), leere `EXPERIMENTS_ACCESS_GROUPS` ohne
+mit Index-Fehler (Warnung), gelöschte Experimente, deren Löschen in Knovas
+bisher gescheitert ist und an denen gerade kein Auftrag arbeitet (Warnung;
+die Wartung wiederholt es), leere `EXPERIMENTS_ACCESS_GROUPS` ohne
 `EXPERIMENTS_INDEX_UNRESTRICTED` (Warnung «Experimente werden nicht in Knovas
 indexiert: keine Zugriffsgruppe»), `EXPERIMENTS_INDEX_UNRESTRICTED` ohne Gruppe
 (Warnung «Experimente sind in Knovas für alle Nutzer des Mandanten sichtbar»)
 und – wenn `EXPERIMENTS_RUNNER_URL` gesetzt ist – ob die Rechenumgebung
 erreichbar ist.
+
+Schon im Abschnitt **Containers**, auch wenn der Stack nicht läuft, prüft er bei
+`COMPOSE_PROFILES=experiments`, ob `EXPERIMENTS_RUNNER_CPUS` (Vorgabe 2) über
+der Zahl der CPUs liegt, die Docker hat – dann legt Docker den Container
+`experiments-runner` gar nicht erst an (Fehler mit dem passenden Wert).
 
 ### Kommandozeile
 
@@ -1209,7 +1287,7 @@ $DC exec docbridge-web python -m experiments worker --once     # fällige Auftr�
 
 | Befehl | Wirkung |
 |---|---|
-| `status` | Schalter, Zugriffsgruppen, Aufträge je Status, Indexstand, erfasste Knovas-Dokumente, letzte Fehler, Rechenumgebung |
+| `status` | Schalter, Zugriffsgruppen, Aufträge je Status, Indexstand, erfasste Knovas-Dokumente, gelöschte Experimente noch in Knovas (die Wartung wiederholt das Löschen), letzte Fehler, Rechenumgebung |
 | `reindex KEY … \| --all` | Experimente zum Hochladen einreihen (einzeln mit hoher, alle mit niedriger Priorität) |
 | `purge-index [--yes]` | Alle Experiment-Dokumente aus Knovas löschen – jedes erfasste und alles, was Knovas unter dem Präfix noch führt; ohne `--yes` nur anzeigen. Geht auch bei ausgeschaltetem Modul. |
 | `install-pack NAME [--as E-MAIL]` | Paket installieren, als ein Konto mit Verwalter-Rolle (Vorgabe `PLATFORM_ADMIN_EMAIL`) |
@@ -1255,8 +1333,8 @@ der Plattform, sondern nur im Dienst `experiments-runner`:
 | Schicht | Massnahme |
 |---|---|
 | Netzwerk | `network_mode: none`: kein Netzwerk, auch nicht das interne. Die Plattform erreicht den Dienst nur über einen Unix-Socket auf einem kleinen tmpfs-Volume (1 MB, `noexec`); `docbridge-web` bindet es nur lesend ein. Der Code erreicht nichts – weder Knovas noch die Datenbank noch das Internet. |
-| Container | eigener Benutzer (uid 10001), Dateisystem nur lesbar, alle Capabilities entzogen, `no-new-privileges`, Grenzen für Speicher (`EXPERIMENTS_RUNNER_MEMORY`), CPU (`EXPERIMENTS_RUNNER_CPUS`) und Prozesse (256); `/tmp` als tmpfs mit 1 GB. Kein Secret, keine `env_file`, kein weiteres Volume. |
-| Auftrag | eigener Prozess in eigener Sitzung, frisches Verzeichnis (0700), Umgebung nur mit wenigen festen Variablen; Limits für CPU-Zeit, Adressraum (Python 1,5 GB, Julia 6 GB), Dateigrösse (64 MB), offene Dateien, Prozesse, keine Core-Dumps; hoher OOM-Wert, damit der Kernel zuerst den Auftrag beendet. |
+| Container | eigener Benutzer (uid 10101, von keinem anderen Image des Stacks benutzt), Dateisystem nur lesbar, alle Capabilities entzogen, `no-new-privileges`, Grenzen für Speicher (`EXPERIMENTS_RUNNER_MEMORY`), CPU (`EXPERIMENTS_RUNNER_CPUS`) und Prozesse (256); `/tmp` als tmpfs mit 1 GB. Kein Secret, keine `env_file`, kein weiteres Volume. Beim Start leert der Dienst sein Socket-Verzeichnis: was ein Auftrag dort hinterlassen hat, überdauert keinen Neustart. |
+| Auftrag | eigener Prozess in eigener Sitzung, frisches Verzeichnis (0700), Umgebung nur mit wenigen festen Variablen; Limits für CPU-Zeit, Adressraum (Python 1,5 GB, Julia 6 GB), Dateigrösse (64 MB), offene Dateien, keine Core-Dumps; hoher OOM-Wert, damit der Kernel zuerst den Auftrag beendet. Dazu eine Grenze von 128 Prozessen und Threads, die der Kernel aber je Benutzer zählt: sie gilt für alle Aufträge und den Dienst zusammen, nicht für einen Auftrag allein. |
 | Aufräumen | Nach Zeitablauf wird die ganze Prozessgruppe beendet; nach jedem Auftrag jeder Prozess, der weder zum Dienst noch zu einem laufenden Auftrag gehört (auch doppelt abgespaltene); das Verzeichnis wird gelöscht. |
 | Ausgabe | nur eine reguläre Datei bis 8 MB, ohne Symlinks gelesen; Protokoll bis 64 KB; feste deutsche Fehlermeldungen. |
 | Plattform | behandelt jede Ausgabe als fremde Daten: prüft und kürzt sie (höchstens 256 KB), zeigt Texte nur maskiert bzw. über den Markdown-Renderer, speichert und indexiert nur die geprüfte Fassung. Höchstens `EXPERIMENTS_RUNNER_MAX_CONCURRENT` Aufträge gleichzeitig; Zeitlimit `EXPERIMENTS_RUNNER_TIMEOUT`. |
@@ -1276,10 +1354,19 @@ als Eingabe) und laufen ohne Rechenumgebung.
 - **Gleicher Benutzer für Dienst und Aufträge.** Auswerter-Code läuft unter
   derselben uid wie der Runner-Dienst. Ein böswilliger Auswerter kann den Dienst
   stören, gleichzeitig laufende Auswertungen lesen oder deren Ergebnis
-  verfälschen und den Socket ersetzen, bis der Dienst neu startet. Er erreicht
+  verfälschen und den Socket ersetzen. Letzteres bemerkt der Dienst binnen
+  einer Sekunde und startet neu; beim Start leert er sein Socket-Verzeichnis
+  (auch Verzeichnisse, Dateien oder aufgebrauchte Inodes, die ein Auftrag dort
+  hinterlassen hat), sodass die Störung mit dem Neustart endet. Er erreicht
   dabei nur Experimentdaten – die Verantwortliche ohnehin alle sehen – und
   nichts ausserhalb des Containers. Deshalb dürfen nur Verantwortliche
   Auswerter schreiben, und jede Version ist nachvollziehbar.
+- **Gemeinsame Prozessgrenze.** Die Grenze von 128 Prozessen und Threads je
+  Auftrag zählt der Kernel über alle Prozesse der uid 10101 auf dem Rechner:
+  laufende Aufträge und der Dienst teilen sie, zwei Stacks auf einem Rechner
+  ebenfalls. Startet ein Auftrag sehr viele Threads, kann der Start eines
+  anderen scheitern; dessen Protokoll nennt dann die Prozessgrenze. Die uid
+  gehört sonst keinem Dienst des Stacks (RemoteController läuft als 10001).
 - **Auswerter sehen die Daten ihres Experiments** und können sie in ihre
   Ausgabe schreiben; die Ausgabe landet im Experiment und in Knovas. Das ist der
   Zweck eines Auswerters.
@@ -1329,7 +1416,7 @@ KI-Zusammenfassungen.
 
 | Was Sie sehen | Was zu tun ist |
 |---|---|
-| Kein Menüpunkt «Experimente» | Modul aus (`EXPERIMENTS_ENABLED`), persönliche Konten aus, oder Ihnen fehlt die Rolle `experimenter`/`experiments_manager`. |
+| Kein Menüpunkt «Experimente» | Modul aus (`EXPERIMENTS_ENABLED`), persönliche Konten aus, oder Ihnen fehlt die Rolle `experimenter`, `experiments_manager` oder `admin`. |
 | API antwortet 404 «Experimente sind nicht eingeschaltet.» | `EXPERIMENTS_ENABLED=true` in `knovas.env`, dann `setup.sh` und `start.sh`. |
 | API antwortet 401 | Schlüssel abgelaufen, widerrufen oder vertippt; Konto gesperrt, deaktiviert, mit offenem Passwortwechsel oder ohne Experimente-Rolle. |
 | Der Client meldet eine Umleitung | Die Adresse stimmt nicht (meist `http://` statt `https://`, oder ein Pfad fehlt). |
@@ -1337,6 +1424,8 @@ KI-Zusammenfassungen.
 | Suche im Modul sagt «Datenbanksuche» mit Hinweis auf die Zugriffsgruppe | Ihnen fehlt die Gruppe: **Verwaltung → Personen → Zugriffsgruppen** ergänzen. |
 | Experimente stehen lange auf «ausstehend» | Uploadrate (2 pro Minute) nach einer Massenänderung; `python -m experiments status` zeigt die Warteschlange. Sind Aufträge «gescheitert», `doctor.sh`. |
 | Python-/Julia-Auswerter ausgegraut | Profil `experiments` und `EXPERIMENTS_RUNNER_URL` setzen; `docker compose --env-file knovas.env ps experiments-runner` muss «healthy» zeigen. |
+| `start.sh` bricht ab mit «range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs available» | `EXPERIMENTS_RUNNER_CPUS` liegt über der Zahl der CPUs des Rechners (Vorgabe 2). In `knovas.env` höchstens `nproc` setzen, z. B. `EXPERIMENTS_RUNNER_CPUS=1`, dann `start.sh`. |
+| Rechenumgebung startet nach einem Update nicht: «Permission denied» im Protokoll | Das Socket-Volume stammt aus einem früheren Bau mit anderer uid; Docker behält die Optionen eines Volumes. `docker compose --env-file knovas.env down`, dann `docker volume rm <projekt>_experiments_runner_socket` und `start.sh`. |
 | Auswertung bleibt auf «wartet» | Rechenumgebung nicht erreichbar oder ausgelastet; nach 30 Minuten schlägt sie fehl. |
 | «Zeitlimit überschritten.» | Auswerter zu langsam für `EXPERIMENTS_RUNNER_TIMEOUT`; Code beschleunigen oder Zeilen per Scope eingrenzen. |
 | CSV: «Zeile 5: …» | Die Meldung nennt das Problem; die Datei wurde nicht übernommen (alles oder nichts). |

@@ -7,7 +7,7 @@
 pack: engineering
 title: Engineering
 description: Suchqualität, Performance und Rollouts – Messwerte aus CI und Benchmarks.
-version: 1
+version: 2
 
 domain:
   key: engineering
@@ -133,7 +133,10 @@ types:
         - {metric: mrr, role: secondary}
         - {metric: latency_p95_ms, role: guardrail, op: max, value: 250}
       evaluation:
-        - {evaluator: builtin.describe, metric: all}
+        # Jeder Push meldet neue Läufe: auch die Beschreibung (und mit ihr die
+        # Leitplanke Latenz p95) bewertet den neuesten Lauf jeder Variante,
+        # nicht das Mittel über alle Pushes.
+        - {evaluator: builtin.describe, metric: all, scope: {runs: latest}}
         - {evaluator: builtin.paired_t, metric: ndcg_at_10, params: {pair_by: query}, scope: {runs: latest}}
         - {evaluator: builtin.paired_t, metric: recall_at_20, params: {pair_by: query}, scope: {runs: latest}}
         - {evaluator: builtin.paired_t, metric: mrr, params: {pair_by: query}, scope: {runs: latest}}

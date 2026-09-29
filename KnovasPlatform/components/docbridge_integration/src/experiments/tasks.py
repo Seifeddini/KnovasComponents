@@ -5,30 +5,59 @@ the process's settings, index client and runner, and returns the three
 things ``jobs.JobWorker`` needs: handlers, on_dead hooks, and the periodic
 maintenance function.
 
+The maintenance repeats what no job is working on any more:
+
+* deletions: every pointer recorded in exp_index_documents whose experiment
+  no longer exists is a document a deletion failed to remove from Knovas
+  (the unindex job died, for example during a long Knovas outage). It gets a
+  new unindex job -- also while indexing is switched off, because deletions
+  must always reach Knovas;
+* uploads: experiments still 'pending', or in 'error' for a reason that may
+  go away by itself (Knovas was unreachable, no access group was set, the
+  upload did not complete). A document Knovas refused is not sent again
+  every few minutes: it goes up with the next edit or "Alles neu indexieren".
+
 Plan: docs/superpowers/plans/2026-09-28-experiments-module.md (section 12)
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Tuple
+import uuid
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from experiments import indexer
 from experiments.jobs import Job, JobQueue, PermanentError
 
 logger = logging.getLogger(__name__)
 
+#: A dead index job whose last error says Knovas could not be reached.
 MSG_INDEX_DEAD = "Knovas war nicht erreichbar."
+#: A dead index job for any other reason (a lease that ran out, a job
+#: deferred for a day, an unexpected error): the log has the details.
+MSG_INDEX_INCOMPLETE = "Der Upload wurde nicht abgeschlossen (Details im Protokoll)."
 MSG_INCOMPLETE = "Der Auftrag ist unvollst\u00e4ndig."
 #: Maintenance re-queues stranded experiments behind people's edits (10) and
 #: ahead of bulk re-indexing (200).
 MAINTENANCE_PRIORITY = 100
+#: Index errors the maintenance repeats on its own: causes outside the
+#: document that may go away. A refusal by Knovas (MSG_REJECTED) or a key
+#: Knovas cannot take (MSG_BAD_KEY) would fail the same way every time.
+RETRYABLE_INDEX_ERRORS: Tuple[str, ...] = (MSG_INDEX_DEAD, MSG_INDEX_INCOMPLETE,
+                                           indexer.MSG_NO_GROUP)
+#: Last errors of index jobs that mean "Knovas could not be reached".
+_UNREACHABLE_ERRORS = (indexer.MSG_UNREACHABLE, indexer.MSG_BUSY)
+_TEMPORARY_ERROR_PREFIX = indexer.MSG_TEMPORARY.split("{", 1)[0]
+_DELETE_REJECTED_PREFIX = indexer.MSG_DELETE_REJECTED.split("{", 1)[0]
 
-
-def _store():
-    from experiments import store
-
-    return store
+#: At most this many failed deletions are re-queued per maintenance pass.
+ORPHAN_BATCH = 500
+#: A deletion whose job died is tried again after this long (its job has
+#: already spent about an hour on retries) ...
+ORPHAN_RETRY_AFTER_SECONDS = 3600
+#: ... and after a day when Knovas refused it outright, so a refusal does not
+#: fill the list of recent failures.
+ORPHAN_REFUSED_RETRY_AFTER_SECONDS = 24 * 3600
 
 
 def _service():
@@ -42,6 +71,113 @@ def _payload_value(job: Job, key: str) -> str:
     if value is None or str(value).strip() == "":
         raise PermanentError(MSG_INCOMPLETE)
     return str(value)
+
+
+def _uuid_text(value: Any) -> Optional[str]:
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+# -- failed deletions --------------------------------------------------------------
+
+
+_ORPHANS_SQL = (
+    "SELECT d.pointer FROM exp_index_documents d "
+    "WHERE NOT EXISTS (SELECT 1 FROM exp_experiments e WHERE e.id = d.experiment_id) "
+)
+
+
+def orphan_pointers(conn: Any, *, limit: int = ORPHAN_BATCH) -> List[str]:
+    """Recorded Knovas pointers of experiments that no longer exist and that
+    no job is deleting right now, the longest-standing first.
+
+    A pointer whose unindex job died recently is left out for
+    ORPHAN_RETRY_AFTER_SECONDS (ORPHAN_REFUSED_RETRY_AFTER_SECONDS when
+    Knovas refused the deletion). The dedupe key is the one
+    service.delete_experiment uses, so a deletion still waiting for its
+    delay is not queued twice.
+    """
+    n = max(1, min(10_000, int(limit)))
+    rows = conn.execute(
+        _ORPHANS_SQL +
+        "AND NOT EXISTS ("
+        "  SELECT 1 FROM exp_jobs j WHERE j.dedupe_key = 'unindex:' || d.pointer AND ("
+        "    j.status IN ('pending', 'running') OR ("
+        "      j.status = 'dead' AND j.finished_at > clock_timestamp() - make_interval("
+        "        secs => CASE WHEN j.last_error LIKE %s THEN %s ELSE %s END)))) "
+        "ORDER BY d.indexed_at, d.pointer LIMIT %s",
+        (_DELETE_REJECTED_PREFIX.replace("%", r"\%").replace("_", r"\_") + "%",
+         float(ORPHAN_REFUSED_RETRY_AFTER_SECONDS), float(ORPHAN_RETRY_AFTER_SECONDS), n),
+    ).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def orphan_count(conn: Any) -> int:
+    """How many recorded Knovas documents belong to deleted experiments."""
+    row = conn.execute(
+        "SELECT count(*)::int FROM (" + _ORPHANS_SQL + ") AS orphans").fetchone()
+    return int(row[0]) if row else 0
+
+
+def requeue_failed_deletions(conn: Any) -> int:
+    """Queue an unindex job for every orphan_pointers entry; returns how many."""
+    queue = JobQueue(conn)
+    queued = 0
+    for pointer in orphan_pointers(conn):
+        queue.enqueue("unindex", {"pointer": pointer}, dedupe_key=f"unindex:{pointer}",
+                      priority=MAINTENANCE_PRIORITY)
+        queued += 1
+    if queued:
+        logger.warning("Experiments maintenance re-queued %s Knovas deletion(s) of deleted "
+                       "experiments.", queued)
+    return queued
+
+
+# -- stranded uploads ---------------------------------------------------------------
+
+
+def stranded_experiments(conn: Any) -> List[str]:
+    """Experiments whose Knovas copy is pending, or failed for a reason in
+    RETRYABLE_INDEX_ERRORS (or without a recorded reason), newest first."""
+    rows = conn.execute(
+        "SELECT id::text FROM exp_experiments "
+        "WHERE index_state = 'pending' OR (index_state = 'error' AND "
+        "  (index_error IS NULL OR index_error = ANY(%s::text[]))) "
+        "ORDER BY updated_at DESC, id DESC",
+        (list(RETRYABLE_INDEX_ERRORS),),
+    ).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def index_dead_message(last_error: Optional[str]) -> str:
+    """What the experiment shows for an index job that died with
+    ``last_error``: MSG_INDEX_DEAD only when Knovas could not be reached."""
+    text = str(last_error or "")
+    if text in _UNREACHABLE_ERRORS or text.startswith(_TEMPORARY_ERROR_PREFIX):
+        return MSG_INDEX_DEAD
+    return MSG_INDEX_INCOMPLETE
+
+
+def mark_index_dead(conn: Any, experiment_id: str, message: str, *,
+                    job_created_at: Any = None) -> bool:
+    """Record a dead index job on its experiment, unless a job that started
+    after it has uploaded the experiment since: 'indexed' is only ever set
+    for content still current at upload time, so an indexed_at at or after
+    the dead job's creation means Knovas already has what that job was to
+    send. One statement, so a success cannot slip in between check and
+    write. True when the state was written."""
+    cur = conn.execute(
+        "UPDATE exp_experiments SET index_state = 'error', index_error = %s "
+        "WHERE id = %s AND NOT (index_state = 'indexed' "
+        "  AND COALESCE(indexed_at >= %s::timestamptz, FALSE))",
+        (message, experiment_id, job_created_at),
+    )
+    return bool(cur.rowcount)
+
+
+# -- wiring --------------------------------------------------------------------------
 
 
 def build_handlers(*, settings: Any, index_client: Any,
@@ -61,11 +197,21 @@ def build_handlers(*, settings: Any, index_client: Any,
                                     settings=settings, runner=runner)
 
     def index_dead(conn: Any, job: Job) -> None:
-        experiment_id = (job.payload or {}).get("experiment_id")
-        if not experiment_id:
-            logger.warning("Dead index job %s has no experiment id.", job.id)
+        raw = (job.payload or {}).get("experiment_id")
+        experiment_id = _uuid_text(raw)
+        if experiment_id is None:
+            logger.warning("Dead index job %s has no usable experiment id.", job.id)
             return
-        _store().set_index_state(conn, str(experiment_id), "error", MSG_INDEX_DEAD)
+        # A newer job for the experiment is still waiting or running: it
+        # records the outcome itself.
+        if JobQueue(conn).active_dedupe_keys([f"index:{raw}", f"index:{experiment_id}"]):
+            logger.info("Dead index job %s: a newer job for experiment %s is active.",
+                        job.id, experiment_id)
+            return
+        message = index_dead_message(job.last_error)
+        if not mark_index_dead(conn, experiment_id, message, job_created_at=job.created_at):
+            logger.info("Dead index job %s: experiment %s was indexed since or is gone.",
+                        job.id, experiment_id)
 
     def evaluate_dead(conn: Any, job: Job) -> None:
         evaluation_id = (job.payload or {}).get("evaluation_id")
@@ -74,19 +220,29 @@ def build_handlers(*, settings: Any, index_client: Any,
             return
         _service().on_evaluation_dead(conn, str(evaluation_id))
 
+    def unindex_dead(conn: Any, job: Job) -> None:
+        logger.warning("Experiments unindex job %s is dead (%s); the maintenance repeats the "
+                       "deletion later.", job.id, job.last_error)
+
     def log_dead(conn: Any, job: Job) -> None:
         logger.warning("Experiments %s job %s is dead: %s", job.kind, job.id, job.last_error)
 
     def maintenance(conn: Any) -> None:
-        """Re-queue experiments whose Knovas copy is pending or failed but
-        that no job is working on (a job lost to a purge, a dead job, an
-        upload refused while no access group was configured)."""
+        """Repeat failed deletions, then re-queue experiments whose Knovas
+        copy is pending or failed retryably but that no job is working on (a
+        job lost to a purge, a dead job, an upload refused while no access
+        group was configured)."""
+        if index_client is not None:
+            try:
+                requeue_failed_deletions(conn)
+            except Exception:  # noqa: BLE001 - the upload half must still run
+                logger.exception("Experiments maintenance: re-queueing deletions failed.")
+                _rollback_failed(conn)
         if not settings.index_enabled or index_client is None:
             return
         if not getattr(settings, "index_access_groups", ()) and not settings.index_unrestricted:
             return
-        ids = [str(i) for i in (_store().experiments_for_reindex(
-            conn, states=("pending", "error")) or [])]
+        ids = stranded_experiments(conn)
         if not ids:
             return
         queue = JobQueue(conn)
@@ -111,7 +267,18 @@ def build_handlers(*, settings: Any, index_client: Any,
     on_dead = {
         "index": index_dead,
         "evaluate": evaluate_dead,
-        "unindex": log_dead,
+        "unindex": unindex_dead,
         "pipeline": log_dead,
     }
     return handlers, on_dead, maintenance
+
+
+def _rollback_failed(conn: Any) -> None:
+    try:
+        from psycopg import pq
+
+        if conn.info.transaction_status in (pq.TransactionStatus.INTRANS,
+                                            pq.TransactionStatus.INERROR):
+            conn.rollback()
+    except Exception:  # noqa: BLE001
+        pass

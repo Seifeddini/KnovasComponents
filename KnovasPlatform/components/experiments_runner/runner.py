@@ -48,6 +48,10 @@ Configuration (environment):
                             (default /opt/julia-depot)
     RUNNER_MIN_FREE_MB      free job space below which jobs are refused (256)
     RUNNER_SLOT_WAIT_SECONDS  how long a request waits for a free slot (10)
+    RUNNER_SOCKET_DIR_EXCLUSIVE
+                            true: the socket's directory belongs to this
+                            service alone and is emptied at start (default:
+                            true for /run/experiments-runner, else false)
 
 Usage:
     python3 -I runner.py                 serve
@@ -115,6 +119,14 @@ CPU_GRACE_SECONDS = 5
 OOM_SCORE_ADJ = b"1000"
 
 JOB_DIR_PREFIX = "xrun-"
+#: The image's socket directory: a volume that only this service writes to.
+DEFAULT_SOCKET_DIR = "/run/experiments-runner"
+#: The mode compose gives that volume (docbridge-web connects as root).
+SOCKET_DIR_MODE = 0o770
+#: What a job's log says (lower-cased) when fork() or pthread_create()
+#: failed with EAGAIN: typically RLIMIT_NPROC, which counts every process and
+#: thread of the runner's uid together, not those of one job.
+EAGAIN_MARKERS = ("resource temporarily unavailable", "eagain")
 #: Concurrent connections; health probes and queued requests included.
 MAX_CONNECTIONS = 32
 SOCKET_TIMEOUT_SECONDS = 60
@@ -143,6 +155,10 @@ MSG_BAD_REQUEST = "Ung\u00fcltige Anfrage an die Rechenumgebung."
 MSG_BODY_TOO_LARGE = "Die Anfrage ist gr\u00f6sser als 64 MB."
 MSG_NOT_FOUND = "Nicht gefunden."
 MSG_INTERNAL = "Interner Fehler der Rechenumgebung."
+NOTE_EAGAIN = ("[Runner] Ein Prozess oder Thread konnte nicht gestartet werden (EAGAIN). "
+               "Das Prozesslimit (%d) gilt f\u00fcr alle Auftr\u00e4ge und den Dienst zusammen; "
+               "vermutlich war die Rechenumgebung ausgelastet. Die Auswertung sp\u00e4ter "
+               "erneut starten." % NPROC_LIMIT)
 
 #: error_code from the harness envelope -> German message.
 HARNESS_ERRORS = {
@@ -194,6 +210,8 @@ class Config:
     min_free_bytes: int = 256 * MiB
     slot_wait_seconds: float = 10.0
     path: str = DEFAULT_PATH
+    #: The socket's directory is this service's alone: emptied at start.
+    socket_dir_exclusive: bool = False
 
     @classmethod
     def from_env(cls, env: Optional[Dict[str, str]] = None) -> "Config":
@@ -203,8 +221,9 @@ class Config:
         if not julia:
             julia = shutil.which("julia", path=path) or ""
         slot_wait = _env_int(env, "RUNNER_SLOT_WAIT_SECONDS", 10, 0, 300)
+        listen = (env.get("RUNNER_LISTEN") or cls.listen).strip()
         return cls(
-            listen=(env.get("RUNNER_LISTEN") or cls.listen).strip(),
+            listen=listen,
             max_concurrent=_env_int(env, "RUNNER_MAX_CONCURRENT", 2, 1, 16),
             max_seconds=_env_int(env, "RUNNER_MAX_SECONDS", 600, 5, 3600),
             job_root=(env.get("RUNNER_TMP_DIR") or "/tmp").strip(),
@@ -214,7 +233,26 @@ class Config:
             min_free_bytes=_env_int(env, "RUNNER_MIN_FREE_MB", 256, 0, 1 << 30) * MiB,
             slot_wait_seconds=float(slot_wait),
             path=path,
+            socket_dir_exclusive=_socket_dir_exclusive(
+                env.get("RUNNER_SOCKET_DIR_EXCLUSIVE"), listen),
         )
+
+
+def _socket_dir_exclusive(raw: Optional[str], listen: str) -> bool:
+    """RUNNER_SOCKET_DIR_EXCLUSIVE, or -- unset -- whether the socket lives in
+    the image's own socket directory."""
+    text = (raw or "").strip().lower()
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    if text:
+        logger.warning("RUNNER_SOCKET_DIR_EXCLUSIVE=%r is not true or false; ignored.", raw)
+    try:
+        kind, address = parse_listen(listen)
+    except ValueError:
+        return False
+    return kind == "unix" and os.path.dirname(address) == DEFAULT_SOCKET_DIR
 
 
 def parse_listen(spec: str) -> Tuple[str, Any]:
@@ -968,6 +1006,8 @@ class Runner:
             error = MSG_NO_OUTPUT
 
         logs = capture.text()
+        if error is not None and not timed_out and eagain_in(logs):
+            notes.append(NOTE_EAGAIN)
         if notes:
             logs = (logs + ("\n" if logs and not logs.endswith("\n") else "") + "\n".join(notes))
         logs = logs[-MAX_LOG_CHARS:] if len(logs) > MAX_LOG_CHARS else logs
@@ -981,6 +1021,12 @@ class Runner:
             "logs": logs,
             "duration_ms": duration_ms,
         }
+
+
+def eagain_in(logs: str) -> bool:
+    """Whether a failed job's log shows a fork or thread start refused with EAGAIN."""
+    text = logs.lower()
+    return any(marker in text for marker in EAGAIN_MARKERS)
 
 
 def _signal_name(sig: int) -> str:
@@ -1183,9 +1229,123 @@ class _ServerMixin:
             self._connections.release()
 
 
+def _free_name(dir_fd: int, serial: List[int]) -> str:
+    """A name not yet taken in the directory behind ``dir_fd``."""
+    while True:
+        serial[0] += 1
+        name = ".xr-clear-%d" % serial[0]
+        try:
+            os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return name
+
+
+def _list_dir(dir_fd: int) -> List[Tuple[str, bool]]:
+    """(name, is a real directory) of every entry, symlinks not followed."""
+    with os.scandir(dir_fd) as entries:
+        return [(entry.name, entry.is_dir(follow_symlinks=False)) for entry in entries]
+
+
+def clear_directory(directory: str) -> List[str]:
+    """Remove everything inside ``directory`` (not the directory itself) and
+    return the names that were at its top.
+
+    Iterative and flat, so neither the depth of a planted tree nor the limit
+    on open files matters: before a subdirectory is removed, its own
+    subdirectories move up to the top under a fresh name and are handled in
+    the next pass. Directories are given back their owner's permissions on the
+    way (a job may have taken them off). Symlinks are removed, never followed.
+    An entry that cannot be removed is logged and left; the caller finds out
+    when it binds.
+    """
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    top = os.open(directory, flags)
+    serial = [0]
+    stuck: Set[str] = set()
+    first: Optional[List[str]] = None
+    try:
+        while True:
+            entries = [e for e in _list_dir(top) if e[0] not in stuck]
+            if first is None:
+                first = [name for name, _ in entries]
+            if not entries:
+                return first
+            for name, is_dir in entries:
+                try:
+                    if not is_dir:
+                        os.unlink(name, dir_fd=top)
+                        continue
+                    os.chmod(name, 0o700, dir_fd=top)
+                    sub = os.open(name, flags, dir_fd=top)
+                    try:
+                        for child, child_is_dir in _list_dir(sub):
+                            if not child_is_dir:
+                                os.unlink(child, dir_fd=sub)
+                                continue
+                            # Moving a directory to another parent rewrites
+                            # its "..": that needs write access to it.
+                            os.chmod(child, 0o700, dir_fd=sub)
+                            os.rename(child, _free_name(top, serial),
+                                      src_dir_fd=sub, dst_dir_fd=top)
+                    finally:
+                        os.close(sub)
+                    os.rmdir(name, dir_fd=top)
+                except OSError as exc:
+                    logger.warning("Could not remove %r from %s: %s", name, directory, exc)
+                    stuck.add(name)
+    finally:
+        os.close(top)
+
+
+def claim_socket_dir(directory: str, socket_name: str = "") -> None:
+    """Empty the service's own socket directory before listening in it.
+
+    Jobs run under this server's uid and can write to the directory. What
+    one leaves there -- a directory or a file where the socket belongs, or
+    every inode of the small tmpfs -- would outlive the restart that the
+    watchdog forces: the volume stays mounted as long as docbridge-web has
+    it mounted too, and bind() would then fail at every start. Only for a
+    directory that is this service's alone (Config.socket_dir_exclusive)
+    and owned by its uid; anything else is left as it is. The socket of the
+    previous run (``socket_name``, if it is a socket) goes without a warning.
+    """
+    try:
+        info = os.lstat(directory)
+    except OSError as exc:
+        raise RuntimeError("socket directory %s cannot be read (%s)" % (directory, exc)) from None
+    if not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError("socket directory %s is not a directory" % directory)
+    if info.st_uid != os.getuid():
+        logger.warning("The socket directory %s belongs to uid %s, not to this runner (uid %s); "
+                       "it is not emptied.", directory, info.st_uid, os.getuid())
+        return
+    # A job may have changed the directory's own permissions as well.
+    if stat.S_IMODE(info.st_mode) != SOCKET_DIR_MODE:
+        try:
+            os.chmod(directory, SOCKET_DIR_MODE)
+            logger.warning("The socket directory %s had mode %o; set back to %o.",
+                           directory, stat.S_IMODE(info.st_mode), SOCKET_DIR_MODE)
+        except OSError as exc:  # e.g. a read-only file system; bind() will tell
+            logger.warning("Could not set the mode of the socket directory %s: %s",
+                           directory, exc)
+    stale_socket = ""
+    if socket_name:
+        try:
+            if stat.S_ISSOCK(os.lstat(os.path.join(directory, socket_name)).st_mode):
+                stale_socket = socket_name
+        except OSError:
+            pass
+    removed = [name for name in clear_directory(directory) if name != stale_socket]
+    if removed:
+        shown = ", ".join(repr(n) for n in sorted(removed)[:5])
+        more = " and %d more" % (len(removed) - 5) if len(removed) > 5 else ""
+        logger.warning("Emptied the socket directory %s: removed %s%s.", directory, shown, more)
+
+
 class UnixServer(_ServerMixin, socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    def __init__(self, path: str, runner: Runner) -> None:
+    def __init__(self, path: str, runner: Runner, *, exclusive_dir: bool = False) -> None:
         self.runner = runner
+        self.exclusive_dir = exclusive_dir
         self._init_limits()
         self.socket_id: Optional[Tuple[int, int]] = None
         super().__init__(path, _Handler)
@@ -1195,13 +1355,16 @@ class UnixServer(_ServerMixin, socketserver.ThreadingMixIn, socketserver.UnixStr
         directory = os.path.dirname(path)
         if not os.path.isdir(directory):
             raise RuntimeError("socket directory %s does not exist" % directory)
+        if self.exclusive_dir:
+            claim_socket_dir(directory, os.path.basename(path))
         try:
             info = os.lstat(path)
         except FileNotFoundError:
             pass
         else:
             # A socket (or a link) left by the previous run; anything else at
-            # that path is not ours to delete.
+            # that path is not ours to delete (in a directory of our own,
+            # claim_socket_dir has already emptied it).
             if stat.S_ISSOCK(info.st_mode) or stat.S_ISLNK(info.st_mode):
                 os.unlink(path)
             else:
@@ -1250,7 +1413,7 @@ class TCPServer(_ServerMixin, socketserver.ThreadingMixIn, socketserver.TCPServe
 def make_server(config: Config, runner: Runner):
     kind, address = parse_listen(config.listen)
     if kind == "unix":
-        return UnixServer(address, runner)
+        return UnixServer(address, runner, exclusive_dir=config.socket_dir_exclusive)
     logger.warning("Listening on TCP %s:%s WITHOUT authentication. Development only: "
                    "anyone who reaches this port can run code here.", *address)
     return TCPServer(address, runner)
@@ -1262,7 +1425,8 @@ class Watchdog(threading.Thread):
     A job runs under the same uid as this server and could unlink or replace
     the socket file. The Platform must then not keep talking to whatever
     listens there now: the server exits and Docker restarts the container,
-    which also ends every process in it.
+    which also ends every process in it. Whatever the job left in the socket
+    directory is removed at the next start (claim_socket_dir).
     """
 
     def __init__(self, server: Any, runner: Runner) -> None:

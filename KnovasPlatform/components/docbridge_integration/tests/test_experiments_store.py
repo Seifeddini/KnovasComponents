@@ -19,7 +19,7 @@ pytestmark = pytest.mark.skipif(
     not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN"
 )
 
-from experiments import evaluators, schema, store  # noqa: E402
+from experiments import evaluators, kinds, schema, store  # noqa: E402
 from experiments.errors import Conflict, ValidationError  # noqa: E402
 from experiments.jobs import JobQueue  # noqa: E402
 
@@ -693,9 +693,14 @@ def test_mark_evaluation_moves_states_clips_logs_and_touches_the_experiment(w):
     assert "\x00" not in row[2] and len(row[2].encode("utf-8")) <= 64 * 1024
     after = experiment_state(conn, w.eid)
     assert after[0] > before[0] and after[1] == before[1]
+    first_start = conn.execute("SELECT started_at FROM exp_evaluations").fetchone()[0]
     store.mark_evaluation(conn, evaluation, status="queued")
+    # started_at is kept: the runner give-up clock counts from the first attempt.
     assert conn.execute("SELECT status, started_at, finished_at FROM exp_evaluations").fetchone() == (
-        "queued", None, None)
+        "queued", first_start, None)
+    store.mark_evaluation(conn, evaluation, status="running")
+    assert conn.execute("SELECT started_at FROM exp_evaluations").fetchone()[0] == first_start
+    assert 0 <= store.seconds_since_first_attempt(conn, evaluation) < 60
     store.mark_evaluation(conn, evaluation, status="done", output={"verdict": "n/a"}, duration_ms=12)
     assert store.get_evaluation(conn, w.eid, evaluation)["duration_ms"] == 12
     with pytest.raises(ValueError):
@@ -818,8 +823,10 @@ def test_snapshot_shape_counts_and_sizes(w):
 def test_lookup_by_keys(w):
     found = store.lookup_by_keys(w.conn, [w.key, "MKT-99", "kaputt", w.key])
     assert list(found) == [w.key]
-    assert set(found[w.key]) == {"key", "title", "hypothesis", "status", "status_label", "archived",
-                                 "domain_key", "domain_name", "domain_color", "type_name", "updated_at"}
+    assert set(found[w.key]) == {"key", "title", "hypothesis", "status", "status_label", "status_phase",
+                                 "archived", "domain_key", "domain_name", "domain_color", "type_name",
+                                 "updated_at"}
+    assert found[w.key]["status_phase"] is None  # draft has no phase
     assert found[w.key]["status_label"] == "Entwurf" and found[w.key]["type_name"] == "A/B-Test"
     assert store.lookup_by_keys(w.conn, []) == {}
 
@@ -834,7 +841,9 @@ def test_list_summaries_filters_pages_latest_result_and_guardrails(w):
     add(w, [{"metric": "latency", "variant": "A", "value": 300}])
     insert_eval(w, output={"verdict": "better", "headline": "Besser"})
     time.sleep(0.002)
-    insert_eval(w, output={"verdict": "n/a", "headline": "Nur Zahlen"})
+    # Another group (params differ): a newer evaluation of the same group would
+    # supersede "Besser" instead.
+    insert_eval(w, output={"verdict": "n/a", "headline": "Nur Zahlen"}, params={"target": 0.5})
     conn.execute("UPDATE exp_experiments SET updated_at = now() + interval '1 minute' WHERE id = %s",
                  (w.eid,))
 
@@ -846,9 +855,9 @@ def test_list_summaries_filters_pages_latest_result_and_guardrails(w):
     assert first["guardrail_violations"] == 1
     assert first["primary_metric"] == {"key": "ctr", "name": "CTR", "unit": "", "kind": "proportion"}
     assert first["owner"] == {"id": w.uid, "display_name": "Eva"}
-    assert set(first) == {"key", "title", "status", "status_label", "archived", "tags", "domain", "type",
-                          "owner", "primary_metric", "latest", "guardrail_violations", "updated_at",
-                          "index_state"}
+    assert set(first) == {"key", "title", "status", "status_label", "status_phase", "archived", "tags",
+                          "domain", "type", "owner", "primary_metric", "latest",
+                          "guardrail_violations", "updated_at", "index_state"}
     items, cursor, _ = store.list_summaries(conn, after=cursor, limit=1)
     assert [i["key"] for i in items] == [second_key] and cursor is None
     assert items[0]["latest"] is None and items[0]["guardrail_violations"] == 0
@@ -919,3 +928,226 @@ def test_viewers_without_the_access_group(w):
         {"user": "Eva (eva@knovas.ch)", "missing_groups": ["g-exp", "g-2"]}]
     assert store.viewers_without_groups(conn, []) == []
     assert store.user_access_groups(conn, manager.id) == ("g-exp",)
+
+
+# -- regressions (review fixes) --------------------------------------------------------------------
+
+
+def describe_id(w):
+    return store.get_evaluator(w.conn, key="builtin.describe")["id"]
+
+
+def reusable(w, digest, **kwargs):
+    return store.find_reusable_evaluation(
+        w.conn, experiment_id=w.eid, evaluator_id=describe_id(w), version=1,
+        metric_id=w.metrics["ctr"], params=kwargs.get("params", {}), scope={}, input_digest=digest)
+
+
+def test_only_the_newest_of_a_group_is_reused_and_current(w):
+    # review-backend-1 / e2e-ui-3: after an undo the digest matches an older
+    # evaluation again; reusing it left the evaluation of the removed rows the
+    # newest one everywhere.
+    store.ensure_builtin_evaluators(w.conn)
+    old = insert_eval(w, trigger="pipeline", digest="d1",
+                      output={"verdict": "better", "headline": "Alt"})
+    time.sleep(0.002)
+    removed = insert_eval(w, trigger="pipeline", digest="d2",
+                          output={"verdict": "worse", "headline": "Entfernt"})
+    time.sleep(0.002)
+    other_group = insert_eval(w, trigger="pipeline", digest="d1", params={"target": 0.5},
+                              output={"verdict": "n/a", "headline": "Andere"})
+    assert reusable(w, "d1") is None  # d1 is history now, a fresh evaluation is due
+    assert reusable(w, "d2") == removed
+    assert reusable(w, "d1", params={"target": 0.5}) == other_group
+    evaluations = {e["id"]: e for e in store.load_snapshot(w.conn, w.key)["evaluations"]}
+    assert evaluations[old]["superseded"] is True
+    assert evaluations[removed]["superseded"] is False
+    assert evaluations[other_group]["superseded"] is False
+    assert store.get_evaluation(w.conn, w.eid, old)["superseded"] is True
+    assert store.get_evaluation(w.conn, w.eid, removed)["superseded"] is False
+
+    # A newer failed evaluation makes the done one history too and is not
+    # reused itself: the next pipeline runs it again.
+    time.sleep(0.002)
+    failed = insert_eval(w, status="failed", digest="d2")
+    assert reusable(w, "d2") is None
+    assert store.get_evaluation(w.conn, w.eid, removed)["superseded"] is True
+    assert store.get_evaluation(w.conn, w.eid, failed)["superseded"] is False
+    # A queued one on the current input is reused (it is about to run).
+    time.sleep(0.002)
+    queued = insert_eval(w, status="queued", digest="d3")
+    assert reusable(w, "d3") == queued
+    # Another evaluator version never matches.
+    assert store.find_reusable_evaluation(
+        w.conn, experiment_id=w.eid, evaluator_id=describe_id(w), version=2,
+        metric_id=w.metrics["ctr"], params={}, scope={}, input_digest="d3") is None
+
+
+def test_list_latest_reads_only_current_done_evaluations(w):
+    store.ensure_builtin_evaluators(w.conn)
+    insert_eval(w, output={"verdict": "better", "headline": "Alt"})
+    time.sleep(0.002)
+    insert_eval(w, output={"verdict": "worse", "headline": "Neu"})
+    latest = lambda: store.list_summaries(w.conn)[0][0]["latest"]  # noqa: E731
+    assert latest()["headline"] == "Neu"  # the older "better" of the same group is superseded
+    time.sleep(0.002)
+    insert_eval(w, status="queued")  # the group is being recomputed
+    assert latest() is None
+    time.sleep(0.002)
+    insert_eval(w, key="builtin.bayes_proportion", output={"verdict": "better", "headline": "Bayes"})
+    assert latest()["headline"] == "Bayes"
+    assert store.summaries_by_keys(w.conn, [w.key])[w.key]["latest"]["headline"] == "Bayes"
+
+
+def test_aggregate_sums_cannot_overflow(w):
+    # review-security-1 / review-backend-4: 1'025 rows of 2**53 - 1 (the old
+    # per-row maximum) overflowed every sum(count)::bigint, and the experiment
+    # could no longer be read, evaluated or indexed.
+    run_id = run(w, variant="A")
+    big = 2 ** 53 - 1
+    add(w, [{"metric": "ctr", "variant": "A", "value": 0, "count": big}] * 1025)
+    add(w, [{"metric": "satisfaction", "variant": "A", "value": 4, "count": big}] * 1025,
+        run_id=run_id)
+    snap = store.load_snapshot(w.conn, w.key)
+    ctr = next(m for m in snap["metrics"] if m["key"] == "ctr")
+    assert ctr["aggregates"][0]["n"] == pytest.approx(1025 * big, rel=1e-12)
+    assert ctr["aggregates"][0]["estimate"] == 0.0
+    sat = next(m for m in snap["metrics"] if m["key"] == "satisfaction")
+    assert sat["aggregates"][0]["levels"]["4"] == pytest.approx(1025 * big, rel=1e-12)
+    json.dumps(snap, allow_nan=False)
+    assert store.timeseries(w.conn, w.eid, w.metrics["ctr"], kind="proportion", bucket="day")
+    assert store.list_runs(w.conn, w.eid)[0][0]["metrics"] == {"satisfaction": pytest.approx(4.0)}
+    assert store.aggregates(w.conn, w.eid, w.metrics["satisfaction"], kind="ordinal",
+                            scope={"runs": "latest"})[0]["n"] > 2 ** 63
+    # Below 2**53 counts stay exact.
+    other = make_experiment(w.conn, w, title="Genau")[0]
+    add(w, [{"metric": "ctr", "variant": "A", "value": 1, "count": 2 ** 52},
+            {"metric": "ctr", "variant": "A", "value": 0, "count": 2 ** 52 - 1}], eid=other)
+    n = store.aggregates(w.conn, other, w.metrics["ctr"], kind="proportion")[0]["n"]
+    assert n == 2 ** 53 - 1 and isinstance(n, int)
+
+
+def test_levels_of_an_ordinal_metric_without_defined_levels_are_bounded(w):
+    # review-backend-10: every distinct value became a level of every snapshot.
+    score = store.insert_metric(
+        w.conn, domain_id=w.domain_id, key="score", name="Score", kind="ordinal", unit="",
+        direction="higher", description="",
+        definition=schema.validate_metric_definition("ordinal", {"min": 0, "max": 100}), actor_id=w.uid)
+    w.metrics["score"] = score
+    w.conn.execute("INSERT INTO exp_experiment_metrics (experiment_id, metric_id, role, position) "
+                   "VALUES (%s, %s, 'secondary', 99)", (w.eid, score))
+    add(w, [{"metric": "score", "variant": "A", "value": i / 4} for i in range(60)]
+        + [{"metric": "score", "variant": "B", "value": v, "count": 2} for v in (1, 2, 2, 3)])
+    aggs = {a["variant"]: a for a in store.aggregates(w.conn, w.eid, score, kind="ordinal")}
+    assert aggs["A"]["levels"] is None and aggs["A"]["n"] == 60
+    assert aggs["A"]["estimate"] == pytest.approx(sum(i / 4 for i in range(60)) / 60)
+    assert aggs["B"]["levels"] == {"1": 2, "2": 4, "3": 2}
+    assert kinds.MAX_AGGREGATE_LEVELS == 50
+    exactly = make_experiment(w.conn, w, title="Genau 50")[0]
+    w.conn.execute("INSERT INTO exp_experiment_metrics (experiment_id, metric_id, role, position) "
+                   "VALUES (%s, %s, 'secondary', 99)", (exactly, score))
+    add(w, [{"metric": "score", "variant": "A", "value": i} for i in range(50)], eid=exactly)
+    assert len(store.aggregates(w.conn, exactly, score, kind="ordinal")[0]["levels"]) == 50
+
+
+def test_summaries_carry_the_status_phase(w):
+    # review-contract-frontend-5: the list guessed the phase from the key.
+    w.conn.execute("UPDATE exp_experiments SET status = 'running' WHERE id = %s", (w.eid,))
+    items = store.list_summaries(w.conn)[0]
+    assert items[0]["status_phase"] == "running" and items[0]["status_label"] == "L\u00e4uft"
+    assert store.summaries_by_keys(w.conn, [w.key])[w.key]["status_phase"] == "running"
+    assert store.lookup_by_keys(w.conn, [w.key])[w.key]["status_phase"] == "running"
+
+
+def test_list_pages_bring_experiments_that_moved_above_the_cursor(w):
+    # review-contract-frontend-11: a change moved an experiment from a later
+    # page above the cursor, and no page returned it any more.
+    for i in range(4):
+        make_experiment(w.conn, w, title=f"E{i}")
+        time.sleep(0.002)
+    everyone = {i["key"] for i in store.list_summaries(w.conn, limit=50)[0]}
+    assert len(everyone) == 5
+    page, cursor, total = store.list_summaries(w.conn, limit=2)
+    seen = [i["key"] for i in page]
+    oldest = store.list_summaries(w.conn, limit=50)[0][-1]["key"]
+    assert oldest not in seen
+    store.touch_experiment(w.conn, store.get_experiment_row(w.conn, oldest)["id"])
+    moved = []
+    while cursor:
+        page, cursor, total = store.list_summaries(w.conn, after=cursor, limit=2)
+        seen += [i["key"] for i in page]
+        moved += [i["key"] for i in page if i.get("moved")]
+    assert set(seen) == everyone and total == 5
+    assert oldest in moved
+    # Cursors without the as_of part (older pages, batches and runs) still work.
+    legacy = store.encode_cursor(dt.datetime.now(UTC) + dt.timedelta(days=1),
+                                 "ffffffff-ffff-ffff-ffff-ffffffffffff")
+    assert len(store.list_summaries(w.conn, after=legacy, limit=50)[0]) == 5
+    with pytest.raises(ValidationError):
+        store.list_summaries(w.conn, after="a3x8", limit=2)
+
+
+def test_prune_keeps_ten_per_group_of_ci_evaluations_too(w):
+    # review-backend-7: CI's evaluations (trigger 'api') were never pruned.
+    store.ensure_builtin_evaluators(w.conn)
+    for _ in range(12):
+        insert_eval(w, trigger="api")
+    newest = insert_eval(w, trigger="api")
+    manual = [insert_eval(w, trigger="manual", params={"target": 0.1}) for _ in range(12)]
+    assert store.prune_pipeline_evaluations(w.conn, w.eid, keep=10) == 3
+    counts = dict(w.conn.execute("SELECT trigger, count(*) FROM exp_evaluations GROUP BY 1").fetchall())
+    assert counts == {"api": 10, "manual": 12}
+    assert store.get_evaluation(w.conn, w.eid, newest) is not None
+    assert all(store.get_evaluation(w.conn, w.eid, m) for m in manual)
+
+
+def test_switched_off_experiments_are_found_for_reupload_but_purged_ones_are_not(w):
+    # review-jobs-5: 'off' while indexing was switched off (index_error NULL)
+    # vs 'off' after purge-index (marked).
+    conn = w.conn
+    purged = make_experiment(conn, w, title="Entfernt")[0]
+    pending = make_experiment(conn, w, title="Wartet")[0]
+    store.set_index_state(conn, w.eid, "off")
+    store.set_index_state(conn, purged, "off", store.INDEX_OFF_PURGED)
+    store.set_index_state(conn, pending, "pending")
+    assert experiment_state(conn, purged)[4] == store.INDEX_OFF_PURGED
+    assert experiment_state(conn, w.eid)[4] is None
+    assert set(store.experiments_for_reindex(conn, states=("pending", "error"),
+                                             switched_off=True)) == {w.eid, pending}
+    assert store.experiments_for_reindex(conn, states=("pending", "error")) == [pending]
+    assert store.experiments_for_reindex(conn, switched_off=True) == [w.eid]
+    assert store.set_all_index_states(conn, "off", store.INDEX_OFF_PURGED) == 2
+    assert store.experiments_for_reindex(conn, switched_off=True) == []
+
+
+def test_owner_candidates_need_an_active_account_with_a_viewing_role(w):
+    # e2e-api-5
+    member = _person(w.repo, "mia@knovas.ch", "Mia", "member")
+    admin = _person(w.repo, "chef@knovas.ch", "Chef", "admin")
+    assert store.user_can_view_experiments(w.conn, w.uid)
+    assert store.user_can_view_experiments(w.conn, admin.id)
+    assert not store.user_can_view_experiments(w.conn, member.id)
+    assert not store.user_can_view_experiments(w.conn, "kaputt")
+    w.conn.execute("UPDATE users SET status = 'disabled' WHERE id = %s", (w.uid,))
+    assert not store.user_can_view_experiments(w.conn, w.uid)
+
+
+def test_assigned_metrics_can_lock_the_kinds_they_validate_against(w, connect):
+    # review-backend-9: the insert holds KEY SHARE on its metrics, so a kind
+    # change (FOR UPDATE) waits for it; creating experiments (KEY SHARE) and
+    # pack imports (NO KEY UPDATE) do not.
+    conn = w.conn
+    other = connect()
+    other.execute("SET lock_timeout = '300ms'")
+    with conn.transaction():
+        assert [m["key"] for m in store.assigned_metrics(conn, w.eid, lock=True)][0] == "ctr"
+        import psycopg
+
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            with other.transaction():
+                store.get_metric(other, w.metrics["ctr"], lock=True)
+        with other.transaction():
+            other.execute("SELECT 1 FROM exp_metrics WHERE id = %s FOR NO KEY UPDATE",
+                          (w.metrics["ctr"],))
+            other.execute("SELECT 1 FROM exp_metrics WHERE id = %s FOR KEY SHARE",
+                          (w.metrics["ctr"],))

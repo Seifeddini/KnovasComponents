@@ -140,6 +140,16 @@ def test_count_beyond_exact_json_integers_is_refused():
     assert validate_row("mean", {"value": 1, "count": kinds.MAX_COUNT})["count"] == kinds.MAX_COUNT
 
 
+def test_count_is_capped_far_below_what_sums_could_overflow():
+    # 1'025 rows of 2**53 - 1 used to be accepted and overflowed every BIGINT
+    # sum of the experiment (review-security-1).
+    assert kinds.MAX_COUNT == 10 ** 12
+    for kind in ("proportion", "mean", "count", "ordinal"):
+        error = _refused(kind, {"value": 0 if kind != "ordinal" else 1, "count": 2 ** 53 - 1})
+        assert error.fields == {"count": error.message} and "zu gross" in error.message
+    assert validate_row("proportion", {"value": 0, "count": 10 ** 12})["count"] == 10 ** 12
+
+
 # -- proportion -----------------------------------------------------------------
 
 
@@ -170,10 +180,13 @@ def test_proportion_successes_not_above_trials():
     assert _refused("proportion", {"value": 11, "count": 10}).message == (
         "Es kann nicht mehr Erfolge als Versuche geben."
     )
-    # Without a count there is one trial.
+    # Without a count there is one trial: the message says the count is
+    # missing (not that the successes are too many) and points at it.
     assert _refused("proportion", {"value": 2}).fields == {
-        "value": "Es kann nicht mehr Erfolge als Versuche geben."
+        "count": "\u00abVersuche\u00bb fehlt; ohne Angabe gilt 1, und 2 Erfolge brauchen mindestens "
+                 "so viele Versuche."
     }
+    assert validate_row("proportion", {"value": 1})["count"] == 1
     assert validate_row("proportion", {"value": 10, "count": 10})["value"] == 10.0
 
 

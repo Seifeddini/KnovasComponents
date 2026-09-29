@@ -9,6 +9,7 @@ only ever delete pointers of the experiment shape.
 import copy
 import json
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 
@@ -232,6 +233,21 @@ def test_only_the_newest_done_evaluation_per_evaluator_metric_scope():
     snap = make_snapshot()
     snap["evaluations"][1]["scope"] = {"runs": "latest"}
     assert "\u00c4ltere Auswertung (offen)" in indexer.render_markdown(snap)
+
+
+def test_superseded_evaluations_never_reach_knovas():
+    """A result the snapshot marks superseded (a newer evaluation of its group
+    exists, for example after an import was undone) is not the current one,
+    even when it is the newest finished one of its group."""
+    snap = make_snapshot()
+    snap["evaluations"][0]["superseded"] = True
+    snap["evaluations"][1]["superseded"] = False
+    markdown = indexer.render_markdown(snap)
+    assert "99,6 %" not in markdown
+    assert "\u00c4ltere Auswertung (offen)" in markdown
+    # Without the flag the newest finished one per group still wins.
+    snap["evaluations"][0].pop("superseded")
+    assert "99,6 %" in indexer.render_markdown(snap)
 
 
 def test_evaluation_without_metric_or_date():
@@ -510,6 +526,15 @@ def http_error(status, headers=None):
     return err
 
 
+def retry_error(inner):
+    """What KnovasAPIClient._make_request raises once tenacity gives up."""
+    import tenacity
+
+    attempt = tenacity.Future(3)
+    attempt.set_exception(inner)
+    return tenacity.RetryError(attempt)
+
+
 @needs_db
 def test_index_experiment_uploads_and_marks_indexed(conn, store):
     client = FakeIndexClient()
@@ -618,6 +643,11 @@ def test_failed_delete_after_concurrent_removal_keeps_the_record(conn, store):
      "Knovas hat die Anfrage vor\u00fcbergehend nicht angenommen (HTTP 408)."),
     (http_error(425), Unavailable,
      "Knovas hat die Anfrage vor\u00fcbergehend nicht angenommen (HTTP 425)."),
+    # The caller's credentials (a certificate being renewed), not the document.
+    (http_error(401), Unavailable,
+     "Knovas hat die Anfrage vor\u00fcbergehend nicht angenommen (HTTP 401)."),
+    (http_error(403), Unavailable,
+     "Knovas hat die Anfrage vor\u00fcbergehend nicht angenommen (HTTP 403)."),
 ])
 def test_transient_knovas_errors_are_retried(conn, store, error, expected_type, message):
     client = FakeIndexClient()
@@ -653,7 +683,7 @@ def test_retry_after_as_http_date():
 
 
 @needs_db
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 413, 422])
+@pytest.mark.parametrize("status", [400, 404, 413, 422])
 def test_rejected_document_is_dead_with_a_fixed_message(conn, store, status):
     client = FakeIndexClient()
     client.fail_with = http_error(status)
@@ -686,6 +716,114 @@ def test_unexpected_upload_errors_reach_the_worker_unchanged(conn, store):
     assert store.states() == []
 
 
+@pytest.fixture
+def other_conn(conn):
+    """A second session in the test's schema (another gunicorn process)."""
+    import psycopg
+
+    from conftest import PLATFORM_DB_TEST_DSN
+
+    schema = conn.execute("SELECT current_schema()").fetchone()[0]
+    second = psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True,
+                             options=f"-c search_path={schema}")
+    yield second
+    second.close()
+
+
+class GateClient(FakeIndexClient):
+    """An upload that blocks until released; counts parallel uploads."""
+
+    def __init__(self):
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.running = 0
+        self.max_running = 0
+        self._lock = threading.Lock()
+        self.block_first = True
+
+    def upload_text_document(self, identifier, **kw):
+        with self._lock:
+            self.running += 1
+            self.max_running = max(self.max_running, self.running)
+            block, self.block_first = self.block_first, False
+        try:
+            if block:
+                self.entered.set()
+                assert self.release.wait(20)
+            return super().upload_text_document(identifier, **kw)
+        finally:
+            with self._lock:
+                self.running -= 1
+
+
+@needs_db
+def test_second_upload_of_the_same_experiment_waits_for_the_first(conn, other_conn, store):
+    """Two jobs for one experiment (an edit while its upload runs) never
+    upload side by side: the second waits and then sends the newest content,
+    so Knovas cannot end up with the older transmission."""
+    client = GateClient()
+    errors = []
+
+    def first():
+        try:
+            indexer.index_experiment(conn, EXPERIMENT_ID, client, settings(index_per_minute=60))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    thread = threading.Thread(target=first)
+    thread.start()
+    try:
+        assert client.entered.wait(20)
+        store.snapshots[EXPERIMENT_ID] = make_snapshot(title="Neuer Titel",
+                                                       updated_at="2026-09-28T11:00:00+00:00")
+        other_conn.execute("UPDATE exp_rate_slots SET next_at = clock_timestamp()")
+        with pytest.raises(RetryLater) as exc:
+            indexer.index_experiment(other_conn, EXPERIMENT_ID, client,
+                                     settings(index_per_minute=60))
+        assert exc.value.delay_seconds == indexer.UPLOAD_LOCK_RETRY_SECONDS
+        assert exc.value.reason == "Das Experiment wird gerade hochgeladen; neuer Versuch folgt."
+        # The waiting job did not use up an upload slot.
+        assert jobs.take_rate_slot(other_conn, "knovas_init", 60) == 0.0
+    finally:
+        client.release.set()
+        thread.join(20)
+    assert errors == []
+    other_conn.execute("UPDATE exp_rate_slots SET next_at = clock_timestamp()")
+    indexer.index_experiment(other_conn, EXPERIMENT_ID, client, settings())
+    assert client.max_running == 1
+    assert [u["title"] for u in client.uploads] == ["MKT-1 \u00b7 Betreffzeile mit Frage",
+                                                    "MKT-1 \u00b7 Neuer Titel"]
+
+
+@needs_db
+def test_upload_lock_is_released_whatever_happens(conn, other_conn, store):
+    client = FakeIndexClient()
+    for failure in (requests.exceptions.ConnectionError("down"), http_error(400),
+                    ValueError("bug")):
+        conn.execute("UPDATE exp_rate_slots SET next_at = clock_timestamp()")
+        client.fail_with = failure
+        with pytest.raises(Exception):
+            indexer.index_experiment(conn, EXPERIMENT_ID, client, settings())
+        # Another session can take the experiment's lock straight away.
+        name = indexer.UPLOAD_LOCK_PREFIX + EXPERIMENT_ID
+        assert indexer._try_lock(other_conn, name)
+        indexer._unlock(other_conn, name)
+    held = conn.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                        "AND pid = pg_backend_pid()").fetchone()[0]
+    assert held == 0
+
+
+@needs_db
+def test_a_missing_or_unkeyable_experiment_takes_no_upload_slot(conn, store):
+    store.snapshots[EXPERIMENT_ID] = make_snapshot(key="mkt-1")
+    with pytest.raises(PermanentError):
+        indexer.index_experiment(conn, EXPERIMENT_ID, FakeIndexClient(), settings())
+    indexer.index_experiment(conn, "11111111-2222-3333-4444-555555555555", FakeIndexClient(),
+                             settings())
+    assert jobs.take_rate_slot(conn, "knovas_init", 2) == 0.0
+
+
 @needs_db
 def test_index_job_end_to_end_through_the_worker(conn, store):
     """tasks + JobWorker + indexer, as app.py wires them."""
@@ -716,9 +854,13 @@ def test_index_job_end_to_end_through_the_worker(conn, store):
 
 
 @needs_db
-def test_exhausted_index_job_marks_knovas_unreachable(conn, store):
+def test_exhausted_index_job_marks_knovas_unreachable(conn, store, monkeypatch):
     from experiments import tasks
 
+    marked = []
+    monkeypatch.setattr(tasks, "mark_index_dead",
+                        lambda conn, eid, message, *, job_created_at=None:
+                        marked.append((eid, message)) or True)
     client = FakeIndexClient()
     handlers, on_dead, _ = tasks.build_handlers(settings=settings(), index_client=client,
                                                 runner=None)
@@ -727,7 +869,7 @@ def test_exhausted_index_job_marks_knovas_unreachable(conn, store):
     jobs.JobQueue(conn).enqueue("index", {"experiment_id": EXPERIMENT_ID}, max_attempts=1)
     client.fail_with = requests.exceptions.ConnectionError("refused")
     assert worker.run_once(conn)
-    assert store.states() == [("error", "Knovas war nicht erreichbar.", None)]
+    assert marked == [(EXPERIMENT_ID, "Knovas war nicht erreichbar.")]
 
 
 # -- unindex_pointer ------------------------------------------------------------------
@@ -756,6 +898,8 @@ def test_unindex_treats_404_as_done(conn, store):
     (http_error(500), Unavailable),
     (requests.exceptions.ConnectionError("x"), Unavailable),
     (http_error(503), RetryLater),
+    (http_error(401), Unavailable),
+    (http_error(403), Unavailable),
     (http_error(400), PermanentError),
 ])
 def test_unindex_failures_keep_the_record(conn, store, error, expected):
@@ -765,6 +909,19 @@ def test_unindex_failures_keep_the_record(conn, store, error, expected):
     with pytest.raises(expected):
         indexer.unindex_pointer(conn, client, "experiments/marketing/MKT-1")
     assert store.pointers == ["experiments/marketing/MKT-1"]
+
+
+@needs_db
+def test_transport_errors_wrapped_by_tenacity_are_outages(conn, store):
+    """KnovasAPIClient retries transport errors with tenacity (no reraise):
+    what reaches the indexer is a RetryError around the ConnectionError."""
+    client = FakeIndexClient()
+    client.fail_with = retry_error(requests.exceptions.ConnectionError("down"))
+    with pytest.raises(Unavailable) as exc:
+        indexer.unindex_pointer(conn, client, "experiments/marketing/MKT-1")
+    assert exc.value.message == "Knovas nicht erreichbar."
+    assert indexer._is_transport_error(retry_error(requests.exceptions.ReadTimeout("x")))
+    assert not indexer._is_transport_error(retry_error(ValueError("x")))
 
 
 @needs_db
@@ -852,6 +1009,65 @@ def test_purge_all_waits_once_on_rate_limits(store, monkeypatch):
     client.fail_with = http_error(429, {"Retry-After": "7"})
     assert indexer.purge_all("conn", client, settings()) == 1
     assert slept == [7.0]
+
+
+class FailingListingClient(ListingClient):
+    """Lists ``listed``, then fails with ``error`` (before any when listed is empty)."""
+
+    def __init__(self, error, listed=()):
+        super().__init__(list(listed))
+        self.error = error
+
+    def iter_documents(self, **kwargs):
+        self.list_calls.append(kwargs)
+        yield from self.listed
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [
+    retry_error(requests.exceptions.ConnectionError("down")),
+    requests.exceptions.ConnectionError("down"),
+    http_error(502),
+    http_error(429),
+])
+def test_purge_all_listing_outage_is_unavailable_after_the_recorded_deletes(store, error):
+    store.pointers = ["experiments/marketing/MKT-1", "experiments/marketing/MKT-2"]
+    client = FailingListingClient(error, listed=[{"pointer": "experiments/sales/SAL-7"}])
+    with pytest.raises(Unavailable) as exc:
+        indexer.purge_all("conn", client, settings())
+    assert exc.value.message == indexer.MSG_LISTING_UNREACHABLE
+    assert store.pointers == []  # the recorded ones are gone and forgotten
+    assert sorted(client.deleted) == ["experiments/marketing/MKT-1",
+                                      "experiments/marketing/MKT-2", "experiments/sales/SAL-7"]
+    assert "secret" not in exc.value.message
+
+
+@pytest.mark.parametrize("status", [401, 403, 400])
+def test_purge_all_refused_listing_ends_the_pass_with_a_note(store, status):
+    store.pointers = ["experiments/marketing/MKT-1"]
+    client = FailingListingClient(http_error(status))
+    notes = []
+    assert indexer.purge_all("conn", client, settings(), notes=notes) == 1
+    assert notes == [f"Knovas hat die Liste der Dokumente abgelehnt (HTTP {status}); nicht "
+                     "erfasste Experiment-Dokumente wurden nicht gesucht."]
+    assert store.pointers == []
+    # Without a place for notes it still does not raise.
+    store.pointers = ["experiments/marketing/MKT-2"]
+    assert indexer.purge_all("conn", FailingListingClient(http_error(status)), settings()) == 1
+
+
+def test_purge_all_passes_bugs_and_delete_outages_through_unchanged(store):
+    with pytest.raises(ValueError):
+        indexer.purge_all("conn", FailingListingClient(ValueError("bug")), settings())
+
+    class DeleteDown(ListingClient):
+        def delete_information_object(self, pointer):
+            raise requests.exceptions.ConnectionError("down")
+
+    with pytest.raises(Unavailable) as exc:
+        indexer.purge_all("conn", DeleteDown([{"pointer": "experiments/sales/SAL-7"}]),
+                          settings())
+    assert exc.value.message == "Knovas nicht erreichbar."
 
 
 # -- the index client and upload_text_document ------------------------------------------------

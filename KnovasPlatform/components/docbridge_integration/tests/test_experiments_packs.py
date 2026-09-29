@@ -260,8 +260,11 @@ def test_every_type_uses_the_ab_states_describe_first_and_requires_learning(pack
     definition = _type(pack_name, key)["definition"]
     assert definition["states"] == AB_STATES
     assert definition["initial"] == "draft"
+    # offline_eval is fed from CI, one run per push: its describe (and with
+    # it the latency guardrail) judges the newest run of each variant.
+    scope = {"runs": "latest"} if key == "offline_eval" else {}
     assert definition["evaluation"][0] == {"evaluator": "builtin.describe", "metric": "all",
-                                           "params": {}, "scope": {}}
+                                           "params": {}, "scope": scope}
     assert definition["decision"] == {"require_learning": True}
     transitions = [(t["from"], t["to"], t["label"]) for t in definition["transitions"]]
     assert transitions == [

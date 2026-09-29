@@ -30,9 +30,18 @@ from experiments.errors import ValidationError
 #: Shown wherever a number is missing or not finite.
 DASH = "\u2013"
 
-#: Counts must stay exact in a JSON double (and in JavaScript), and they sum
-#: into a BIGINT; 2**53 - 1 keeps both true with room for many rows.
-MAX_COUNT = 2 ** 53 - 1
+#: The largest count one row may carry (a trillion trials or units is far
+#: beyond any real block of observations). The aggregates sum counts as
+#: float8 in SQL, so no number of rows can overflow them; this bound keeps a
+#: single row -- and sums of up to about 9'000 rows at the bound -- below
+#: 2**53, where a count is still exact in a JSON double and in JavaScript.
+MAX_COUNT = 10 ** 12
+
+#: At most this many levels per variant in an aggregate's ``levels`` (the
+#: limit on defined levels). An ordinal metric without defined levels can take
+#: any value within its bounds; with more distinct values than this its
+#: aggregates carry ``levels: None`` instead of an unbounded distribution.
+MAX_AGGREGATE_LEVELS = 50
 
 #: Kinds whose rows are sums of observations with an optional sum of squares.
 MEAN_LIKE_KINDS = frozenset({"mean", "duration", "currency"})
@@ -334,7 +343,8 @@ def validate_row(kind: str, row: Dict[str, Any],
         raise _refuse("value", "Der Wert muss eine endliche Zahl sein.")
 
     raw_count = row.get("count")
-    if raw_count is None:
+    count_given = raw_count is not None
+    if not count_given:
         count = 1
     else:
         count_f = _as_float(raw_count)
@@ -355,6 +365,15 @@ def validate_row(kind: str, row: Dict[str, Any],
         if value < 0:
             raise _refuse("value", "Erfolge d\u00fcrfen nicht negativ sein.")
         if value > count:
+            if not count_given:
+                # Without a count a row is one trial; say what is missing
+                # rather than that the successes are too many.
+                raise _refuse(
+                    "count",
+                    f"\u00ab{spec.count_label}\u00bb fehlt; ohne Angabe gilt 1, und "
+                    f"{format_plain(value)} Erfolge brauchen mindestens so viele "
+                    f"{spec.count_label}.",
+                )
             raise _refuse("value", "Es kann nicht mehr Erfolge als Versuche geben.")
 
     elif spec.key == "count":

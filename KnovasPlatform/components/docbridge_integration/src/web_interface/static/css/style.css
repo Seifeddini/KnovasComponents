@@ -1417,7 +1417,11 @@ mark.context-snippet-match,
         border-right: 0;
         border-bottom: 1px solid var(--border-color);
     }
-    .app-nav { flex-direction: row; }
+    /* Die Navigation scrollt in sich, statt die Seite seitwaerts zu schieben
+       (wie admin.css in der Verwaltung); _sidebar.html rueckt den aktuellen
+       Eintrag ins Bild. */
+    .app-nav { flex-direction: row; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+    .app-nav-item { flex: 0 0 auto; }
     .app-sidebar-foot { margin-top: 0; margin-left: auto; flex-direction: row; align-items: center; }
     .corpus-status { display: none; }
     .app-user-text { display: none; }

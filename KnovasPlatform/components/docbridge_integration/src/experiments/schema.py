@@ -843,6 +843,12 @@ def type_definition_errors(
     if len(defaults) > vmax:
         add_error(errors, p("variants", "defaults"),
                   f"Mehr Vorgaben als Varianten erlaubt sind (h\u00f6chstens {vmax}).")
+    elif len(defaults) < vmin <= vmax:
+        # A new experiment starts with the defaults (the create form sends no
+        # variants), so fewer than the minimum could never be created.
+        add_error(errors, p("variants", "defaults"),
+                  f"Weniger Vorgaben als Varianten verlangt sind (mindestens {vmin}). "
+                  "Mehr Vorgaben angeben oder \u00abmin\u00bb senken.")
     if allocation_sum > 1.0 + 1e-9:
         add_error(errors, p("variants", "defaults"), "Die Anteile ergeben zusammen mehr als 1.")
     variants = {"min": vmin, "max": vmax, "defaults": defaults}

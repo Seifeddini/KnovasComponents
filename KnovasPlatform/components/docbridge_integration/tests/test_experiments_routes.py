@@ -429,8 +429,11 @@ class TestErrorMapping:
         body = r.get_json()
         assert body["success"] is False and "domain" in body["fields"]
 
+    # Not /api/experiments/v1: that is the machine API's root, which answers
+    # a request without a token with its bearer 401
+    # (test_experiments_regressions_web.TestMachineApiRoot).
     @pytest.mark.parametrize("path", ["/api/experiments/MKT-999", "/api/experiments/mkt-1",
-                                      "/api/experiments/MKT-1x/runs", "/api/experiments/v1"])
+                                      "/api/experiments/MKT-1x/runs", "/api/experiments/v2"])
     def test_unknown_or_malformed_keys_are_404(self, experimenter_client, mkt, path):
         r = experimenter_client.get(path)
         assert r.status_code == 404
@@ -783,10 +786,14 @@ class TestRouteTable:
         ("POST", "/api/experiments/v1/experiments/<key>/notes"),
         ("POST", "/api/experiments/v1/experiments/<key>/pipeline"),
         ("GET", "/api/experiments/v1/experiments/<key>/evaluations"),
-        # Anything else under /v1 is a JSON 404 once the token checked out.
+        # Anything else under /v1 is a JSON 404 once the token checked out,
+        # the root /v1 (and /v1/) included.
         ("GET", "/api/experiments/v1/<path:rest>"), ("POST", "/api/experiments/v1/<path:rest>"),
         ("PUT", "/api/experiments/v1/<path:rest>"), ("PATCH", "/api/experiments/v1/<path:rest>"),
         ("DELETE", "/api/experiments/v1/<path:rest>"),
+        ("GET", "/api/experiments/v1/"), ("POST", "/api/experiments/v1/"),
+        ("PUT", "/api/experiments/v1/"), ("PATCH", "/api/experiments/v1/"),
+        ("DELETE", "/api/experiments/v1/"),
     }
 
     def _rules(self, app):

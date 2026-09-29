@@ -16,6 +16,7 @@
         domains: [],
         domainsLoaded: false,
         domainsFailed: false,
+        domainsPromise: null,
         filters: { domain: '', status: '', q: '', tag: '', archived: false },
         items: [],
         nextAfter: null,
@@ -78,9 +79,24 @@
 
     // ── Bereiche ────────────────────────────────────────────────────────
 
-    async function loadDomains() {
+    /**
+     * Alle Bereiche, auch archivierte: renderDomainChips zeigt diese nur mit
+     * "Archivierte zeigen" oder wenn sie gewaehlt sind (ein Link auf die
+     * Experimente eines archivierten Bereichs). Ein Filter auf einen
+     * unbekannten Bereich faellt weg -- und die Liste wird ohne ihn neu
+     * geladen --, aber nur, wenn die Bereiche wirklich geladen wurden.
+     * Laeuft das Laden schon, wird auf dieselbe Anfrage gewartet.
+     */
+    function loadDomains() {
+        if (!state.domainsPromise) {
+            state.domainsPromise = fetchDomains().finally(() => { state.domainsPromise = null; });
+        }
+        return state.domainsPromise;
+    }
+
+    async function fetchDomains() {
         try {
-            const data = await KX.api('GET', '/api/experiments/domains');
+            const data = await KX.api('GET', '/api/experiments/domains?archived=1');
             state.domains = Array.isArray(data.domains) ? data.domains : [];
             state.domainsFailed = false;
         } catch (err) {
@@ -89,9 +105,11 @@
             KX.toast(KX.errorMessage(err), 'error');
         }
         state.domainsLoaded = true;
-        if (state.filters.domain && !state.domains.some((d) => d.key === state.filters.domain)) {
+        if (!state.domainsFailed && state.filters.domain
+                && !state.domains.some((d) => d.key === state.filters.domain)) {
             state.filters.domain = '';
             writeFiltersToUrl();
+            loadList(true);
         }
         renderDomainChips();
     }
@@ -185,7 +203,7 @@
             const result = data.result || {};
             // Eine Zeile ohne gueltigen Schluessel hat kein Ziel; sie zaehlt auch nicht mit.
             const items = (Array.isArray(result.items) ? result.items : []).filter((i) => i && KX.isKey(i.key));
-            state.items = reset ? items : state.items.concat(items);
+            state.items = reset ? items : mergeByKey(state.items, items);
             state.nextAfter = result.next_after || null;
             state.total = Number(result.total) || state.items.length;
             state.listLoaded = true;
@@ -213,6 +231,32 @@
         }
     }
 
+    /**
+     * Eine weitere Seite in die Liste einfuegen. Ein Experiment, das sich
+     * seit der vorigen Seite geaendert hat, rutscht ueber den Cursor; der
+     * Server haengt es der naechsten Seite an (moved: true), und es kann schon
+     * in der Liste stehen. Darum nach Schluessel zusammenfuehren (die neue
+     * Fassung ersetzt die alte) und wieder nach updated_at absteigend ordnen
+     * -- stabil, gleiche Zeiten behalten die Reihenfolge des Servers.
+     */
+    function mergeByKey(existing, incoming) {
+        const merged = existing.slice();
+        const index = new Map(merged.map((item, i) => [item.key, i]));
+        incoming.forEach((item) => {
+            if (index.has(item.key)) {
+                merged[index.get(item.key)] = item;
+            } else {
+                index.set(item.key, merged.length);
+                merged.push(item);
+            }
+        });
+        const time = (item) => {
+            const t = Date.parse(item.updated_at);
+            return Number.isFinite(t) ? t : 0;
+        };
+        return merged.sort((a, b) => time(b) - time(a));
+    }
+
     function renderList() {
         clear(dom.body);
         const shown = state.items.length;
@@ -228,7 +272,7 @@
     }
 
     function emptyListState() {
-        if (state.domainsLoaded && !state.domainsFailed && !state.domains.length) {
+        if (state.domainsLoaded && !state.domainsFailed && !state.domains.some((d) => !d.archived)) {
             return noDomainsState();
         }
         if (hasNarrowingFilter()) {
@@ -407,7 +451,11 @@
     // ── Neues Experiment ────────────────────────────────────────────────
 
     async function openNewExperiment(presetDomain) {
-        if (!state.domainsLoaded) await loadDomains();
+        // Nach einem Fehlschlag erneut fragen: "noch kein Bereich" darf nur
+        // heissen, dass der Server wirklich keinen geliefert hat. Schlaegt es
+        // wieder fehl, hat loadDomains den Fehler schon gemeldet.
+        if (!state.domainsLoaded || state.domainsFailed) await loadDomains();
+        if (state.domainsFailed) return;
         const domains = state.domains.filter((d) => !d.archived);
         if (!domains.length) {
             KX.toast('Es gibt noch keinen Bereich. Zuerst einen Bereich einrichten.', 'error');

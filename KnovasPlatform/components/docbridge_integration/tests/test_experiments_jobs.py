@@ -100,6 +100,34 @@ def worker(connect=None, handlers=None, on_dead=None, kinds=jobs.JOB_KINDS, **kw
                      on_dead=on_dead or {}, kinds=kinds, **kw)
 
 
+def make_experiment(conn, key="MKT-1", *, index_state="pending", index_error=None,
+                    indexed_at=None):
+    """A bare exp_experiments row (and the domain and type it needs), for
+    the SQL the tasks run themselves; returns its id."""
+    domain_id = conn.execute(
+        "INSERT INTO exp_domains (key, name, id_prefix) VALUES ('marketing', 'Marketing', 'MKT') "
+        "ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name RETURNING id::text").fetchone()[0]
+    row = conn.execute("SELECT id::text FROM exp_types WHERE domain_id = %s AND key = 'plain'",
+                       (domain_id,)).fetchone()
+    if row is None:
+        row = conn.execute("INSERT INTO exp_types (domain_id, key, name) "
+                           "VALUES (%s, 'plain', 'Schlicht') RETURNING id::text",
+                           (domain_id,)).fetchone()
+        conn.execute("INSERT INTO exp_type_versions (type_id, version, definition) "
+                     "VALUES (%s, 1, '{}'::jsonb)", (row[0],))
+    return conn.execute(
+        "INSERT INTO exp_experiments (key, domain_id, type_id, type_version, title, status, "
+        "  index_state, index_error, indexed_at) "
+        "VALUES (%s, %s, %s, 1, %s, 'draft', %s, %s, %s) RETURNING id::text",
+        (key, domain_id, row[0], f"Titel {key}", index_state, index_error, indexed_at),
+    ).fetchone()[0]
+
+
+def index_state(conn, experiment_id):
+    return conn.execute("SELECT index_state, index_error FROM exp_experiments WHERE id = %s",
+                        (experiment_id,)).fetchone()
+
+
 # -- enqueue ----------------------------------------------------------------------
 
 
@@ -833,6 +861,9 @@ def no_thread_start(monkeypatch):
     started = []
     monkeypatch.setattr(JobWorker, "start", lambda self: started.append(self))
     monkeypatch.setattr(jobs, "_workers_by_pid", {})
+    # No exit hook of the test process may point at these unstarted workers.
+    monkeypatch.setattr(jobs, "_exit_hooks_for_pids", set())
+    monkeypatch.setattr(jobs.atexit, "register", lambda fn, *args: None)
     return started
 
 
@@ -983,39 +1014,65 @@ def test_handlers_refuse_incomplete_payloads(fake_service):
         assert str(exc.value) == "Der Auftrag ist unvollst\u00e4ndig."
 
 
-def test_on_dead_hooks(fake_store, fake_service):
+def test_on_dead_hooks(db, fake_service):
     from experiments import tasks
 
+    e1 = make_experiment(db, "MKT-1", index_state="pending")
     _, on_dead, _ = tasks.build_handlers(settings=settings(), index_client=None, runner=None)
-    on_dead["index"]("conn", make_job("index", {"experiment_id": "e1"}))
-    on_dead["evaluate"]("conn", make_job("evaluate", {"evaluation_id": "v1"}))
-    on_dead["unindex"]("conn", make_job("unindex", {"pointer": "p"}))
-    on_dead["pipeline"]("conn", make_job("pipeline", {"experiment_id": "e1"}))
-    on_dead["index"]("conn", make_job("index", {}))  # nothing to mark, no crash
-    assert fake_store.calls == [("set_index_state", "e1", "error", "Knovas war nicht erreichbar.")]
+    on_dead["index"](db, make_job("index", {"experiment_id": e1}))
+    on_dead["evaluate"](db, make_job("evaluate", {"evaluation_id": "v1"}))
+    on_dead["unindex"](db, make_job("unindex", {"pointer": "p"}))
+    on_dead["pipeline"](db, make_job("pipeline", {"experiment_id": e1}))
+    on_dead["index"](db, make_job("index", {}))  # nothing to mark, no crash
+    on_dead["index"](db, make_job("index", {"experiment_id": "not-a-uuid"}))  # no crash either
+    # Died without a Knovas error behind it: the log has the details.
+    assert index_state(db, e1) == ("error", tasks.MSG_INDEX_INCOMPLETE)
     assert fake_service.calls == [("on_evaluation_dead", "v1")]
 
 
-def test_maintenance_requeues_only_stranded_experiments(db, fake_store):
+@pytest.mark.parametrize("last_error, shown", [
+    ("Knovas nicht erreichbar.", "Knovas war nicht erreichbar."),
+    ("Knovas ist ausgelastet; neuer Versuch folgt.", "Knovas war nicht erreichbar."),
+    ("Knovas hat die Anfrage vor\u00fcbergehend nicht angenommen (HTTP 403).",
+     "Knovas war nicht erreichbar."),
+    (jobs.MSG_UNEXPECTED, "Der Upload wurde nicht abgeschlossen (Details im Protokoll)."),
+    (jobs.MSG_LEASE_EXPIRED, "Der Upload wurde nicht abgeschlossen (Details im Protokoll)."),
+    (jobs.MSG_DEFERRED_TOO_LONG, "Der Upload wurde nicht abgeschlossen (Details im Protokoll)."),
+])
+def test_index_dead_message_follows_the_cause(db, last_error, shown):
     from experiments import tasks
 
+    e1 = make_experiment(db)
+    _, on_dead, _ = tasks.build_handlers(settings=settings(), index_client=None, runner=None)
+    job = make_job("index", {"experiment_id": e1})
+    job.last_error = last_error
+    on_dead["index"](db, job)
+    assert index_state(db, e1) == ("error", shown)
+
+
+def test_maintenance_requeues_only_stranded_experiments(db):
+    from experiments import tasks
+
+    a = make_experiment(db, "MKT-1", index_state="pending")
+    b = make_experiment(db, "MKT-2", index_state="pending")
+    c = make_experiment(db, "MKT-3", index_state="error", index_error=tasks.MSG_INDEX_DEAD)
+    make_experiment(db, "MKT-4", index_state="indexed")
+    make_experiment(db, "MKT-5", index_state="off")
     q = JobQueue(db)
-    q.enqueue("index", {"experiment_id": "a"}, dedupe_key="index:a")  # pending
-    q.enqueue("index", {"experiment_id": "b"}, dedupe_key="index:b")
+    q.enqueue("index", {"experiment_id": a}, dedupe_key=f"index:{a}")
+    q.enqueue("index", {"experiment_id": b}, dedupe_key=f"index:{b}")
     free_slot(db)
     q.claim("w", kinds=("index",), lease_seconds=60)  # a running now
-    q.enqueue("index", {"experiment_id": "b"}, dedupe_key="index:b")  # b pending again
-    fake_store.reindex_ids = ["a", "b", "c"]
+    last = q.enqueue("index", {"experiment_id": b}, dedupe_key=f"index:{b}")  # b pending again
     _, _, maintenance = tasks.build_handlers(
         settings=settings(index_access_groups=("g-exp",)), index_client=object(), runner=None)
     maintenance(db)
-    assert ("experiments_for_reindex", ("pending", "error")) in fake_store.calls
     rows = db.execute("SELECT payload->>'experiment_id', priority, status FROM exp_jobs "
-                      "WHERE payload->>'experiment_id' = 'c'").fetchall()
-    assert rows == [("c", 100, "pending")]
+                      "WHERE id > %s", (last,)).fetchall()
+    assert rows == [(c, 100, "pending")]
     maintenance(db)  # idempotent
-    assert db.execute("SELECT count(*) FROM exp_jobs WHERE payload->>'experiment_id' = 'c'"
-                      ).fetchone()[0] == 1
+    assert db.execute("SELECT count(*) FROM exp_jobs WHERE payload->>'experiment_id' = %s",
+                      (c,)).fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("overrides, client", [
@@ -1023,20 +1080,20 @@ def test_maintenance_requeues_only_stranded_experiments(db, fake_store):
     ({"index_access_groups": ()}, object()),
     ({"index_access_groups": ("g",)}, None),
 ])
-def test_maintenance_stays_quiet_when_indexing_cannot_work(db, fake_store, overrides, client):
+def test_maintenance_stays_quiet_when_indexing_cannot_work(db, overrides, client):
     from experiments import tasks
 
-    fake_store.reindex_ids = ["a"]
+    make_experiment(db, "MKT-1", index_state="pending")
     _, _, maintenance = tasks.build_handlers(settings=settings(**overrides),
                                              index_client=client, runner=None)
     maintenance(db)
     assert job_count(db) == 0
 
 
-def test_maintenance_works_unrestricted_without_groups(db, fake_store):
+def test_maintenance_works_unrestricted_without_groups(db):
     from experiments import tasks
 
-    fake_store.reindex_ids = ["a"]
+    make_experiment(db, "MKT-1", index_state="pending")
     _, _, maintenance = tasks.build_handlers(
         settings=settings(index_unrestricted=True), index_client=object(), runner=None)
     maintenance(db)

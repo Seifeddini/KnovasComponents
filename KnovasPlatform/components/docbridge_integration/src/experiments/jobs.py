@@ -22,6 +22,10 @@ How the queue stays correct with several processes polling it:
 * Knovas document inits are rate limited per tenant, so ``index`` jobs also
   take a shared slot from ``exp_rate_slots``; every worker of every process
   takes it from the same row.
+* A process that ends normally (a gunicorn restart, a deploy) hands the jobs
+  its threads are still working on back to the queue (``stop_workers``, run
+  at interpreter exit): pending again at once, the attempt not counted. Only
+  a hard kill leaves a job to its lease.
 
 ``last_error`` is shown to experiments managers (index status page), so it
 only ever holds fixed German messages. Exception text goes to the log.
@@ -31,6 +35,7 @@ Plan: docs/superpowers/plans/2026-09-28-experiments-module.md (sections 11, 12)
 
 from __future__ import annotations
 
+import atexit
 import logging
 import math
 import os
@@ -66,6 +71,10 @@ MAX_BACKOFF_SECONDS = 3600
 DEFER_CAP_SECONDS = 24 * 3600
 MAX_DELAY_SECONDS = 7 * 24 * 3600
 MAX_ERROR_CHARS = 500
+#: How long a process that is shutting down waits for its threads to finish
+#: the job at hand before handing it back; well below docker's 10 s stop
+#: grace period and gunicorn's graceful timeout.
+SHUTDOWN_JOIN_SECONDS = 5.0
 
 MSG_UNEXPECTED = "Unerwarteter Fehler bei der Bearbeitung (Details im Protokoll)."
 MSG_DEFERRED_TOO_LONG = "Zu lange zur\u00fcckgestellt."
@@ -296,10 +305,20 @@ class JobQueue:
         return self._reschedule(job, error=_clip(reason), delay=delay,
                                 consume_attempt=False) is not None
 
+    def release(self, job: Job) -> bool:
+        """Hand a job back unfinished because its worker is shutting down:
+        pending again at once, the attempt not counted and the day-long
+        defer cap not applied (a restart is not the job's fault). Fenced like
+        every other change, so a job that meanwhile finished or was taken over
+        is left alone; a pending twin with the same key closes it as
+        superseded."""
+        return self._reschedule(job, error=None, delay=0.0, consume_attempt=False,
+                                cap_age=False) is not None
+
     def _reschedule(self, job: Job, *, error: Optional[str], delay: Optional[float],
-                    consume_attempt: bool) -> Optional[str]:
-        """Shared path of retry and defer. Returns the outcome ('pending',
-        'dead' or 'superseded') or None when the lease was lost."""
+                    consume_attempt: bool, cap_age: bool = True) -> Optional[str]:
+        """Shared path of retry, defer and release. Returns the outcome
+        ('pending', 'dead' or 'superseded') or None when the lease was lost."""
         import psycopg
 
         with self.conn.transaction():
@@ -323,7 +342,7 @@ class JobQueue:
 
             if consume_attempt and job.attempts >= job.max_attempts:
                 return self._mark_dead(job, error or MSG_UNEXPECTED)
-            if not consume_attempt and too_old:
+            if not consume_attempt and too_old and cap_age:
                 return self._mark_dead(job, MSG_DEFERRED_TOO_LONG)
 
             wait = float(backoff_seconds(job.attempts)) if consume_attempt else float(delay or 0.0)
@@ -567,6 +586,9 @@ class JobWorker(threading.Thread):
         self.maintenance = maintenance
         self._halt = threading.Event()
         self._conn: Any = None
+        #: The job this thread is working on right now (read by stop_workers
+        #: from another thread to hand it back when the process ends).
+        self._current: Optional[Job] = None
         lo, hi = self.first_maintenance_after
         self._next_maintenance_at = time.monotonic() + random.uniform(lo, hi)
 
@@ -579,6 +601,40 @@ class JobWorker(threading.Thread):
     @property
     def stopping(self) -> bool:
         return self._halt.is_set()
+
+    @property
+    def current_job(self) -> Optional[Job]:
+        return self._current
+
+    def release_unfinished(self) -> bool:
+        """Hand the job this thread is still working on back to the queue
+        (JobQueue.release) over a connection of its own: the thread's own
+        connection is busy with the job. For a process that is ending; the
+        thread must have been asked to stop first. Never raises; True when a
+        job was handed back."""
+        job = self._current
+        if job is None:
+            return False
+        conn = None
+        try:
+            conn = self.connect()
+            if not conn.autocommit:
+                conn.autocommit = True
+            released = JobQueue(conn).release(job)
+        except Exception:  # noqa: BLE001 - a shutdown path must never raise
+            logger.exception("Experiments worker %s: could not hand back job %s (%s); its lease "
+                             "will free it.", self.worker_id, job.id, job.kind)
+            return False
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        if released:
+            logger.info("Experiments worker %s: job %s (%s) handed back unfinished at shutdown.",
+                        self.worker_id, job.id, job.kind)
+        return released
 
     def run(self) -> None:
         backoff = self.reconnect_initial
@@ -663,7 +719,11 @@ class JobWorker(threading.Thread):
         job = queue.claim(self.worker_id, kinds=self.kinds, lease_seconds=self.lease_seconds)
         if job is None:
             return False
-        self._process(conn, queue, job)
+        self._current = job
+        try:
+            self._process(conn, queue, job)
+        finally:
+            self._current = None
         return True
 
     def _process(self, conn: Any, queue: JobQueue, job: Job) -> None:
@@ -774,6 +834,55 @@ class JobWorker(threading.Thread):
 
 _workers_lock = threading.Lock()
 _workers_by_pid: Dict[int, List[JobWorker]] = {}
+_exit_hooks_for_pids: Set[int] = set()
+
+
+def stop_workers(workers: Iterable[JobWorker], *, timeout: float = SHUTDOWN_JOIN_SECONDS) -> int:
+    """Stop these worker threads: ask each to end, wait up to ``timeout``
+    seconds in all for them to finish the job at hand, then hand every job
+    still in progress back to the queue (JobWorker.release_unfinished).
+
+    Returns how many jobs were handed back. Never raises: it runs while a
+    process ends, where an exception would only hide the reason it ended.
+    """
+    released = 0
+    try:
+        workers = [w for w in (workers or []) if isinstance(w, JobWorker)]
+        for worker in workers:
+            worker.stop()
+        deadline = time.monotonic() + _finite_seconds(timeout, default=SHUTDOWN_JOIN_SECONDS,
+                                                      lo=0.0, hi=3600.0)
+        for worker in workers:
+            if worker.is_alive():
+                worker.join(max(0.0, deadline - time.monotonic()))
+        for worker in workers:
+            if worker.is_alive() and worker.release_unfinished():
+                released += 1
+    except BaseException:  # noqa: BLE001 - see the docstring
+        logger.exception("Experiments workers: stopping failed.")
+    return released
+
+
+def shutdown_workers(timeout: float = SHUTDOWN_JOIN_SECONDS) -> int:
+    """Stop the worker threads start_workers_once started in this process."""
+    with _workers_lock:
+        workers = _workers_by_pid.pop(os.getpid(), None) or []
+    if not workers:
+        return 0
+    released = stop_workers(workers, timeout=timeout)
+    logger.info("Experiments workers of process %s stopped (%s job(s) handed back).",
+                os.getpid(), released)
+    return released
+
+
+def _shutdown_at_exit(pid: int) -> None:
+    """The atexit hook: gunicorn ends a worker process with sys.exit, which
+    runs it. Only in the process that started the threads -- a child forked
+    from it (gunicorn --preload) inherits the hook but not the threads. No
+    signal handler: gunicorn owns SIGTERM and SIGINT in its workers."""
+    if os.getpid() != pid:
+        return
+    shutdown_workers()
 
 
 def start_workers_once(*, settings: Any, connect: Callable[[], Any], handlers: Dict[str, Callable],
@@ -784,6 +893,8 @@ def start_workers_once(*, settings: Any, connect: Callable[[], Any], handlers: D
     Keyed by pid: create_app may run more than once in a process (tests, a
     reload), and gunicorn forks workers from a master that may have imported
     the app -- threads do not survive a fork, so each child starts its own.
+    When the process ends normally the threads are stopped and their jobs in
+    progress handed back (``_shutdown_at_exit``).
     """
     if not getattr(settings, "enabled", False) or not getattr(settings, "worker_enabled", False):
         return []
@@ -806,5 +917,8 @@ def start_workers_once(*, settings: Any, connect: Callable[[], Any], handlers: D
         for worker in workers:
             worker.start()
         _workers_by_pid[pid] = workers
+        if pid not in _exit_hooks_for_pids:
+            _exit_hooks_for_pids.add(pid)
+            atexit.register(_shutdown_at_exit, pid)
         logger.info("Experiments workers started in process %s.", pid)
         return list(workers)

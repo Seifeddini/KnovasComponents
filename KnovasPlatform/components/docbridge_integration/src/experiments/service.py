@@ -95,6 +95,16 @@ PIPELINE_DELAY_SECONDS = 30
 UNINDEX_DELAY_SECONDS = 330
 PIPELINE_KEEP = 10
 RUNNER_TEST_MAX_SECONDS = 60
+#: Sample-size planning: largest spread / effect ratio (sd / mde, or the
+#: proportions' standard deviation / mde) and largest answer per variant.
+MAX_SAMPLE_EFFECT_RATIO = math.sqrt(5e7)
+MAX_SAMPLE_PER_VARIANT = 10 ** 9
+MAX_SAMPLE_COMPARISONS = 50
+LABEL_MDE = "Kleinster relevanter Unterschied"
+MSG_SAMPLE_TOO_LARGE = (
+    "Die n\u00f6tige Stichprobe w\u00e4re unrealistisch gross; bitte einen gr\u00f6sseren "
+    "Unterschied w\u00e4hlen."
+)
 RUNNER_GIVE_UP = _dt.timedelta(minutes=30)
 TOKEN_DEFAULT_DAYS = 90
 REINDEX_CHUNK = 100
@@ -152,6 +162,15 @@ def _obj(data: Any) -> Dict[str, Any]:
 def _refuse(field: str, message: str, label: Optional[str] = None) -> ValidationError:
     shown = f"\u00ab{label}\u00bb: {message}" if label else message
     return ValidationError(shown, fields={field: message})
+
+
+def _choice(raw: Any, field: str, allowed: Any, message: str, label: Optional[str] = None) -> str:
+    """``raw`` when it is one of ``allowed`` (a dict or a tuple of codes).
+    Only text qualifies: a list or an object from a JSON body cannot be
+    looked up in a dict (it is unhashable) and must be refused, not crash."""
+    if not isinstance(raw, str) or raw not in allowed:
+        raise _refuse(field, message, label)
+    return raw
 
 
 def _clean_text(raw: Any, field: str, *, limit: int, multiline: bool, label: str) -> str:
@@ -436,6 +455,35 @@ def _needs_rows(evaluator: Dict[str, Any]) -> bool:
     return bool(evaluator.get("needs_rows")) or not evaluator.get("builtin")
 
 
+MSG_TARGET_PROPORTION = "F\u00fcr Anteile das Ziel als Bruch angeben (0.8 f\u00fcr 80 %)."
+
+
+def _check_target(evaluator: Dict[str, Any], metric: Dict[str, Any], params: Dict[str, Any]) -> None:
+    """builtin.describe's optional ``target`` must be a value the metric can
+    take: a proportion as a fraction 0..1 (80 % is 0.8, not 80), a bounded
+    metric within its minimum and maximum. Anything else gives a confident
+    verdict against an impossible goal, and that verdict becomes the
+    experiment's latest result in the list, the search and Knovas."""
+    if evaluator.get("key") != "builtin.describe" or not isinstance(params, dict):
+        return
+    target = _number(params.get("target"))
+    if target is None:
+        return
+    if metric.get("kind") == "proportion":
+        if not 0.0 <= target <= 1.0:
+            raise _refuse("params.target", MSG_TARGET_PROPORTION, "Ziel")
+        return
+    if metric.get("kind") not in kinds.BOUNDED_KINDS:
+        return
+    bounds = metric.get("definition") or {}
+    lo, hi = _number(bounds.get("min")), _number(bounds.get("max"))
+    if (lo is not None and target < lo) or (hi is not None and target > hi):
+        shown = (f"{kinds.format_plain(lo) if lo is not None else kinds.DASH}\u2013"
+                 f"{kinds.format_plain(hi) if hi is not None else kinds.DASH}")
+        raise _refuse("params.target", f"Das Ziel liegt ausserhalb des Wertebereichs der Metrik "
+                                       f"({shown}).", "Ziel")
+
+
 def _prepare_input(conn: Any, snapshot: Dict[str, Any], metric: Dict[str, Any],
                    evaluator: Dict[str, Any], params: Dict[str, Any],
                    scope: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
@@ -580,6 +628,7 @@ def _pipeline(conn: Any, settings: Any, runner: Any, snapshot: Dict[str, Any],
             try:
                 params = evaluators.validate_params(evaluator["params_schema"],
                                                     _params(entry.get("params")))
+                _check_target(evaluator, metric, params)
                 scope = scope_override if scope_override is not None else \
                     schema.validate_scope(entry.get("scope") or {})
             except ValidationError as exc:
@@ -612,8 +661,8 @@ def execute_evaluation(conn: Any, evaluation_id: str, *, settings: Any, runner: 
 
     The input is read in one short transaction, the runner is called outside
     any transaction (it may take minutes), the result is written in a new one.
-    A runner that cannot be reached defers the job; after 30 minutes the
-    evaluation fails for good.
+    A runner that cannot be reached defers the job; 30 minutes after the
+    first attempt the evaluation fails for good.
     """
     record = store.get_evaluation_record(conn, evaluation_id)
     if record is None or record["status"] in ("done", "failed"):
@@ -662,8 +711,12 @@ def execute_evaluation(conn: Any, evaluation_id: str, *, settings: Any, runner: 
             _queue_index(conn, settings, record["experiment_id"])
         return
     except Unavailable:
-        created = _dt.datetime.fromisoformat(record["created_at"])
-        if _dt.datetime.now(_dt.timezone.utc) - created > RUNNER_GIVE_UP:
+        # Counted from the first attempt, not from creation: an evaluation
+        # that waited behind a long queue has not been failing all that time,
+        # and one refusal (the runner answers 503 while its slots are busy)
+        # must not end it for good.
+        waited = store.seconds_since_first_attempt(conn, record["id"])
+        if waited is not None and waited > RUNNER_GIVE_UP.total_seconds():
             with conn.transaction():
                 store.mark_evaluation(conn, record["id"], status="failed", error=MSG_RUNNER_GONE_30)
                 _queue_index(conn, settings, record["experiment_id"])
@@ -693,7 +746,8 @@ def execute_evaluation(conn: Any, evaluation_id: str, *, settings: Any, runner: 
 
 def run_pipeline_job(conn: Any, experiment_id: str, *, settings: Any, runner: Any) -> None:
     """The 'pipeline' job: run_pipeline without a person, then keep only the
-    newest 10 done pipeline evaluations per (evaluator, metric, params, scope).
+    newest 10 done automatic (pipeline and CI/API) evaluations per (evaluator,
+    metric, params, scope).
 
     One pipeline per experiment at a time: a second worker that picks up the
     next pipeline job while the first still runs waits for it instead of
@@ -969,6 +1023,10 @@ class ExperimentService:
             if metric is None:
                 errors.setdefault(path, f"Die Metrik \u00ab{entry['metric']}\u00bb gibt es nicht.")
                 continue
+            if metric["archived"]:
+                # A new experiment would not get it (archived metrics cannot
+                # be assigned anew); the type would promise what it cannot do.
+                errors.setdefault(path, f"Die Metrik \u00ab{entry['metric']}\u00bb ist archiviert.")
             if entry["role"] == "primary":
                 primary = metric
             if entry["role"] == "guardrail":
@@ -1113,13 +1171,10 @@ class ExperimentService:
             raise _refuse("key", schema.METRIC_KEY_MESSAGE
                           + " Nicht \u00abprimary\u00bb oder \u00aball\u00bb.", "Schl\u00fcssel")
         name = _text(data, "name", limit=80, label="Name", required=True)
-        kind = data.get("kind")
-        if kind not in kinds.KINDS:
-            raise _refuse("kind", "Unbekannte Art.", "Art")
+        kind = _choice(data.get("kind"), "kind", kinds.KINDS, "Unbekannte Art.", "Art")
         unit = _text(data, "unit", limit=20, label="Einheit")
-        direction = data.get("direction") or "higher"
-        if direction not in labels.DIRECTION_LABELS:
-            raise _refuse("direction", "Erlaubt sind higher, lower und none.", "Richtung")
+        direction = _choice(data.get("direction") or "higher", "direction", labels.DIRECTION_LABELS,
+                            "Erlaubt sind higher, lower und none.", "Richtung")
         description = _text(data, "description", limit=MAX_CONFIG_DESCRIPTION,
                             label="Beschreibung", multiline=True)
         definition = schema.validate_metric_definition(kind, data.get("definition"))
@@ -1144,16 +1199,14 @@ class ExperimentService:
                 changes["name"] = _text(data, "name", limit=80, label="Name", required=True)
             kind = metric["kind"]
             if "kind" in data:
-                if data["kind"] not in kinds.KINDS:
-                    raise _refuse("kind", "Unbekannte Art.", "Art")
-                kind = data["kind"]
+                kind = _choice(data["kind"], "kind", kinds.KINDS, "Unbekannte Art.", "Art")
                 changes["kind"] = kind
             if "unit" in data:
                 changes["unit"] = _text(data, "unit", limit=20, label="Einheit")
             if "direction" in data:
-                if data["direction"] not in labels.DIRECTION_LABELS:
-                    raise _refuse("direction", "Erlaubt sind higher, lower und none.", "Richtung")
-                changes["direction"] = data["direction"]
+                changes["direction"] = _choice(data["direction"], "direction",
+                                               labels.DIRECTION_LABELS,
+                                               "Erlaubt sind higher, lower und none.", "Richtung")
             if "description" in data:
                 changes["description"] = _text(data, "description", limit=MAX_CONFIG_DESCRIPTION,
                                                label="Beschreibung", multiline=True)
@@ -1223,6 +1276,7 @@ class ExperimentService:
             raise _refuse("code", "Enth\u00e4lt ung\u00fcltige Zeichen.", "Code") from None
         input_kinds = pick("input_kinds")
         if not isinstance(input_kinds, list) or not input_kinds \
+                or not all(isinstance(k, str) for k in input_kinds) \
                 or any(k not in kinds.KINDS for k in input_kinds) \
                 or len(set(input_kinds)) != len(input_kinds):
             raise _refuse("input_kinds", "Eine Liste von Messarten ohne Wiederholung.", "Messarten")
@@ -1324,35 +1378,60 @@ class ExperimentService:
         return result
 
     def sample_size(self, data: Any) -> Dict[str, Any]:
+        """Units per variant for a two-sided test of the smallest relevant
+        difference. ``comparisons`` (default 1): how many variants are each
+        compared with the control. The built-in tests Holm-correct several
+        comparisons, whose strictest step tests at alpha / comparisons; the
+        plan uses that level (Bonferroni, on the safe side of Holm), so the
+        sample keeps its power in the analysis that will actually run."""
         self._view()
         data = _obj(data)
-        kind = data.get("kind")
-        if kind not in ("proportion", "mean"):
-            raise _refuse("kind", "Erlaubt sind proportion und mean.", "Art")
+        kind = _choice(data.get("kind"), "kind", ("proportion", "mean"),
+                       "Erlaubt sind proportion und mean.", "Art")
         mde = _number(data.get("mde"))
         if mde is None or mde == 0:
-            raise _refuse("mde", "Bitte den gesuchten Effekt angeben (nicht 0).", "Effekt")
+            raise _refuse("mde", "Bitte den kleinsten relevanten Unterschied angeben (nicht 0).",
+                          LABEL_MDE)
         alpha = _number(data.get("alpha")) if data.get("alpha") not in (None, "") else 0.05
         power = _number(data.get("power")) if data.get("power") not in (None, "") else 0.8
         if alpha is None or not 0.0 < alpha < 0.5:
             raise _refuse("alpha", "Erlaubt ist ein Wert zwischen 0 und 0,5.", "Signifikanzniveau")
         if power is None or not 0.5 <= power < 1.0:
             raise _refuse("power", "Erlaubt ist ein Wert zwischen 0,5 und 1.", "Testst\u00e4rke")
+        comparisons = _int_value(data.get("comparisons"), "comparisons", lo=1,
+                                 hi=MAX_SAMPLE_COMPARISONS, label="Vergleiche mit der Kontrolle",
+                                 default=1)
+        alpha_used = alpha / comparisons
+        too_large = _refuse("mde", MSG_SAMPLE_TOO_LARGE, LABEL_MDE)
+        # The spread-to-effect ratio is checked before anything is squared:
+        # (sd / mde) ** 2 overflows and mde * mde underflows to 0 for tiny
+        # effects, and neither may end as an internal error.
         if kind == "proportion":
             base = _number(data.get("base"))
             if base is None:
                 raise _refuse("base", "Bitte die Basisrate angeben.", "Basisrate")
-            n = stats.sample_size_proportion(base, mde, alpha, power)
+            spread = None
+            if 0.0 < base < 1.0 and 0.0 < base + mde < 1.0:
+                spread = math.sqrt((base * (1.0 - base) + (base + mde) * (1.0 - base - mde)) / 2.0)
+            compute = lambda: stats.sample_size_proportion(base, mde, alpha_used, power)  # noqa: E731
         else:
             sd = _number(data.get("sd"))
             if sd is None or sd <= 0:
                 raise _refuse("sd", "Bitte eine Standardabweichung gr\u00f6sser als 0 angeben.",
                               "Standardabweichung")
-            if (sd / abs(mde)) ** 2 > 5e7:
-                raise _refuse("mde", "Die n\u00f6tige Stichprobe w\u00e4re unrealistisch gross; "
-                                     "bitte einen gr\u00f6sseren Effekt w\u00e4hlen.", "Effekt")
-            n = stats.sample_size_mean(sd, mde, alpha, power)
-        return {"per_variant": int(n)}
+            spread = sd
+            compute = lambda: stats.sample_size_mean(sd, mde, alpha_used, power)  # noqa: E731
+        if spread is not None and spread / abs(mde) > MAX_SAMPLE_EFFECT_RATIO:
+            raise too_large
+        try:
+            n = compute()
+        except ValidationError:
+            raise  # stats' own German refusal (e.g. base plus effect outside 0..1)
+        except (ZeroDivisionError, OverflowError, ValueError):
+            raise too_large from None
+        if not isinstance(n, int) or n > MAX_SAMPLE_PER_VARIANT:
+            raise too_large
+        return {"per_variant": int(n), "alpha_used": alpha_used, "comparisons": comparisons}
 
     # -- experiments: reading ----------------------------------------------
 
@@ -1493,12 +1572,15 @@ class ExperimentService:
             if share is not None:
                 share = _number(share)
                 if share is None or not 0.0 <= share <= 1.0:
-                    raise _refuse(f"{where}.allocation", "Ein Anteil zwischen 0 und 1.", "Anteil")
+                    raise _refuse(f"{where}.allocation",
+                                  "Eine Zuteilung zwischen 0 und 1 (0\u2013100 %).", "Zuteilung")
                 allocation += share
             out.append({"key": key, "name": name, "description": description,
                         "is_control": is_control, "allocation": share})
         if allocation > 1.0 + 1e-9:
-            raise _refuse("variants", "Die Anteile ergeben zusammen mehr als 1.", "Varianten")
+            # The form takes percent, the API fractions: name both.
+            raise _refuse("variants", "Die Zuteilungen ergeben zusammen mehr als 100 % "
+                                      "(Summe der Anteile > 1).", "Varianten")
         return out
 
     def _metric_entries(self, raw: Any, domain_id: str, assigned: set) -> List[Dict[str, Any]]:
@@ -1526,9 +1608,8 @@ class ExperimentService:
                 raise _refuse(f"{where}.metric", f"Die Metrik \u00ab{key}\u00bb steht schon in der Liste.",
                               "Metrik")
             seen.add(metric["id"])
-            role = item.get("role")
-            if role not in labels.METRIC_ROLE_LABELS:
-                raise _refuse(f"{where}.role", "Erlaubt sind primary, secondary und guardrail.", "Rolle")
+            role = _choice(item.get("role"), f"{where}.role", labels.METRIC_ROLE_LABELS,
+                           "Erlaubt sind primary, secondary und guardrail.", "Rolle")
             if role == "primary":
                 primaries += 1
                 if primaries > 1:
@@ -1570,11 +1651,22 @@ class ExperimentService:
         variants = self._variants(
             data["variants"] if data.get("variants") is not None
             else definition["variants"]["defaults"], definition["variants"])
+        skipped_metrics: List[str] = []
         if data.get("metrics") is not None:
             raw_metrics = data["metrics"]
         else:
-            raw_metrics = [{"metric": m["metric"], "role": m["role"], "guardrail_op": m.get("op"),
-                            "guardrail_value": m.get("value")} for m in definition.get("metrics") or []]
+            # The type's defaults, without the ones archived since: those
+            # cannot be assigned anew, and the create form cannot leave them
+            # out (metrics a caller names explicitly are still refused).
+            defaults = definition.get("metrics") or []
+            resolved = store.resolve_metrics(self.conn, domain["id"], [m["metric"] for m in defaults])
+            raw_metrics = []
+            for m in defaults:
+                if (resolved.get(m["metric"]) or {}).get("archived"):
+                    skipped_metrics.append(m["metric"])
+                    continue
+                raw_metrics.append({"metric": m["metric"], "role": m["role"],
+                                    "guardrail_op": m.get("op"), "guardrail_value": m.get("value")})
         metrics = self._metric_entries(raw_metrics, domain["id"], set())
         status = schema.initial_state(definition)
         with self.conn.transaction():
@@ -1588,9 +1680,11 @@ class ExperimentService:
             store.replace_variants(self.conn, experiment_id, variants)
             store.replace_experiment_metrics(self.conn, experiment_id, metrics)
             _queue_index(self.conn, self.settings, experiment_id)
-        self._audit("experiments.experiment.create", "experiment", key,
-                    {"experiment_id": experiment_id, "domain": domain["key"], "type": type_["key"],
-                     "type_version": type_["current_version"]})
+        detail = {"experiment_id": experiment_id, "domain": domain["key"], "type": type_["key"],
+                  "type_version": type_["current_version"]}
+        if skipped_metrics:
+            detail["skipped_archived_metrics"] = skipped_metrics
+        self._audit("experiments.experiment.create", "experiment", key, detail)
         return self._snapshot(key)
 
     def update_experiment(self, key: Any, data: Any) -> Dict[str, Any]:
@@ -1628,6 +1722,12 @@ class ExperimentService:
                     ident = store.canonical_uuid(owner)
                     if ident is None or not store.user_exists(self.conn, ident):
                         raise _refuse("owner_id", "Dieses Konto gibt es nicht.", "Verantwortlich")
+                    # Only on a change: repeating the current owner must keep
+                    # working after that person has lost the role.
+                    if ident != row.get("owner_id") and \
+                            not store.user_can_view_experiments(self.conn, ident):
+                        raise _refuse("owner_id", "Diese Person hat kein aktives Konto mit Zugang "
+                                                  "zu den Experimenten.", "Verantwortlich")
                     changes["owner_id"] = ident
             if "archived" in data:
                 changes["archived"] = _flag(data, "archived", "Archiviert")
@@ -1739,12 +1839,20 @@ class ExperimentService:
     # -- measurements ------------------------------------------------------
 
     def _prepare_rows(self, row: Dict[str, Any], rows: List[Any], *, lines: Optional[List[int]] = None,
-                      run_id: Optional[str] = None,
-                      default_variant: Optional[str] = None) -> Tuple[List[tuple], List[str]]:
+                      run_id: Optional[str] = None, default_variant: Optional[str] = None,
+                      row_labels: Optional[List[Optional[str]]] = None,
+                      row_paths: Optional[List[Optional[str]]] = None
+                      ) -> Tuple[List[tuple], List[str]]:
         """Validate measurement rows against the experiment (its metrics,
         variants, runs) and each metric's kind; all or nothing. Errors name
-        the row ("Messwert 3: ...", or the file line for CSV)."""
-        metrics = {m["key"]: m for m in store.assigned_metrics(self.conn, row["id"])}
+        the row ("Messwert 3: ...", the file line for CSV, or ``row_labels``)
+        and are keyed ``rows.<i>.<field>``, or under ``row_paths`` (a run's
+        ``metrics.<key>``, ``metrics.<key>.count``: the names its form uses).
+
+        Call inside the insert's transaction: the metrics are read with KEY
+        SHARE, so their kinds cannot change before the rows are written.
+        """
+        metrics = {m["key"]: m for m in store.assigned_metrics(self.conn, row["id"], lock=True)}
         variants = {v["key"]: v["id"] for v in store.list_variants(self.conn, row["id"])}
         wanted_runs = {r.get("run_id") for r in rows if isinstance(r, dict)} - {None, ""}
         valid_runs = store.run_ids_of(self.conn, row["id"],
@@ -1754,20 +1862,28 @@ class ExperimentService:
         prepared: List[tuple] = []
         metric_keys: List[str] = []
         for i, raw in enumerate(rows):
-            where = f"Zeile {lines[i]}" if lines else f"Messwert {i + 1}"
+            label = row_labels[i] if row_labels and i < len(row_labels) else None
+            path = row_paths[i] if row_paths and i < len(row_paths) else None
+            where = label or (f"Zeile {lines[i]}" if lines else f"Messwert {i + 1}")
             try:
                 prepared.append(self._prepare_row(raw, metrics, variants, valid_runs, run_id,
                                                   default_variant, metric_keys))
             except ValidationError as exc:
                 errors.append(f"{where}: {exc.message}")
                 for name, message in (exc.fields or {"row": exc.message}).items():
-                    fields.setdefault(f"rows.{i}.{name}", message)
+                    if path:
+                        key = path if name in ("value", "row", "metric") else f"{path}.{name}"
+                    else:
+                        key = f"rows.{i}.{name}"
+                    fields.setdefault(key, message)
                 if len(errors) >= 20:
                     break
         if errors:
-            text = "; ".join(errors[:20])
-            if len(errors) >= 20 and len(prepared) + len(errors) < len(rows):
-                text += "; weitere Fehler nicht aufgef\u00fchrt."
+            more = len(errors) >= 20 and len(prepared) + len(errors) < len(rows)
+            text = csv_import.join_messages(errors[:20], more)
+            if lines:
+                # A file: the list is the message, the file field points to it.
+                raise ValidationError(text, fields={"file": csv_import.MSG_SEE_ERRORS})
             raise ValidationError(text, fields=dict(list(fields.items())[:20]))
         return prepared, metric_keys
 
@@ -1926,6 +2042,9 @@ class ExperimentService:
             raise _refuse("ended_at", "Das Ende liegt vor dem Beginn.", "Ende")
         note = _text(data, "note", limit=MAX_NOTE, label="Notiz", multiline=True)
         rows: List[Any] = []
+        # For rows from the metrics object: the metric key, so an error names
+        # the metric and lands on its input (metrics.<key>), not "Messwert 2".
+        row_metric_keys: List[Optional[str]] = []
         plain_numbers: List[str] = []
         raw_metrics = data.get("metrics")
         if raw_metrics is not None:
@@ -1941,11 +2060,13 @@ class ExperimentService:
                 else:
                     rows.append({"metric": metric_key, "value": value})
                     plain_numbers.append(metric_key)
+                row_metric_keys.append(str(metric_key))
         raw_rows = data.get("rows")
         if raw_rows is not None:
             if not isinstance(raw_rows, list):
                 raise _refuse("rows", "Muss eine Liste sein.", "Messwerte")
             rows.extend(raw_rows)
+            row_metric_keys.extend([None] * len(raw_rows))
         limit = int(self.settings.max_rows_per_request)
         if len(rows) > limit:
             raise _refuse("rows", f"H\u00f6chstens {kinds.format_plain(limit)} Messwerte je Lauf; "
@@ -1958,7 +2079,9 @@ class ExperimentService:
                 variant = None
             if variant is not None and (not isinstance(variant, str) or variant not in variants):
                 raise _refuse("variant", f"Unbekannte Variante \u00ab{str(variant)[:40]}\u00bb.", "Variante")
-            metrics = {m["key"]: m for m in store.assigned_metrics(self.conn, row["id"])}
+            # Locked like _prepare_rows does: the kind checked here is the one
+            # the rows are validated and written with.
+            metrics = {m["key"]: m for m in store.assigned_metrics(self.conn, row["id"], lock=True)}
             for metric_key in plain_numbers:
                 metric = metrics.get(metric_key)
                 if metric is not None and metric["kind"] not in kinds.MEAN_LIKE_KINDS:
@@ -1974,8 +2097,14 @@ class ExperimentService:
             batch_id = None
             prepared: List[tuple] = []
             if rows:
+                row_labels = [None if k is None else
+                              f"\u00ab{(metrics.get(k) or {}).get('name') or k[:48]}\u00bb"
+                              for k in row_metric_keys]
+                row_paths = [None if k is None else f"metrics.{k}" for k in row_metric_keys]
                 prepared, metric_keys = self._prepare_rows(row, rows, run_id=run_id,
-                                                           default_variant=variant)
+                                                           default_variant=variant,
+                                                           row_labels=row_labels,
+                                                           row_paths=row_paths)
                 batch_id = self._write_rows(row, prepared, metric_keys, source=source,
                                             filename=None, run_id=run_id)
                 _queue_pipeline(self.conn, row["id"])
@@ -2064,6 +2193,7 @@ class ExperimentService:
         if metric["kind"] not in evaluator["input_kinds"]:
             raise _refuse("metric", _kind_message(evaluator, metric), "Metrik")
         params = evaluators.validate_params(evaluator["params_schema"], _params(data.get("params")))
+        _check_target(evaluator, metric, params)
         scope = schema.validate_scope(data.get("scope"))
         evaluation_id, _, _ = _start_evaluation(
             self.conn, self.settings, self.runner, snapshot, metric, evaluator, params, scope,
@@ -2088,9 +2218,23 @@ class ExperimentService:
         snapshot, definition = loaded
         results, created = _pipeline(self.conn, self.settings, self.runner, snapshot, definition,
                                      override, trigger=trigger, requested_by=self._actor_id)
-        self._audit("experiments.pipeline.run", "experiment", snapshot["key"],
-                    {"trigger": trigger, "created": created,
-                     "evaluations": len([r for r in results if r.get("id")])})
+        pruned = 0
+        if trigger == "api" and created:
+            # CI evaluates after every run it logs; the pipeline job then
+            # reuses these evaluations and prunes nothing, so retention runs
+            # here too -- unless the job is running now (it prunes itself).
+            lock = f"experiments.pipeline:{snapshot['id']}"
+            if store.try_advisory_lock(self.conn, lock):
+                try:
+                    pruned = store.prune_pipeline_evaluations(self.conn, snapshot["id"],
+                                                              keep=PIPELINE_KEEP)
+                finally:
+                    store.advisory_unlock(self.conn, lock)
+        detail = {"trigger": trigger, "created": created,
+                  "evaluations": len([r for r in results if r.get("id")])}
+        if pruned:
+            detail["pruned"] = pruned
+        self._audit("experiments.pipeline.run", "experiment", snapshot["key"], detail)
         return results
 
     def get_evaluation(self, key: Any, evaluation_id: Any) -> Dict[str, Any]:
@@ -2107,10 +2251,9 @@ class ExperimentService:
     def decide(self, key: Any, data: Any) -> Dict[str, Any]:
         self._view()
         data = _obj(data)
-        verdict = data.get("verdict")
-        if verdict not in labels.DECISION_VERDICT_LABELS:
-            raise _refuse("verdict", "Bitte ein Ergebnis w\u00e4hlen (ship, iterate, stop, "
-                                     "inconclusive).", "Entscheidung")
+        verdict = _choice(data.get("verdict"), "verdict", labels.DECISION_VERDICT_LABELS,
+                          "Bitte ein Ergebnis w\u00e4hlen (ship, iterate, stop, inconclusive).",
+                          "Entscheidung")
         rationale = _text(data, "rationale", limit=MAX_DECISION_TEXT, label="Begr\u00fcndung",
                           multiline=True)
         learning = _text(data, "learning", limit=MAX_DECISION_TEXT, label="Erkenntnis", multiline=True)
@@ -2397,13 +2540,25 @@ class ExperimentService:
                                   "Auswertern vorbehalten.", "Paket")
         domain = pack.get("domain")
         before = store.get_domain(self.conn, domain["key"]) if domain else None
-        counts = store.install_pack(self.conn, pack, actor_id=self._actor_id, update_existing=True)
+        changed: Dict[str, List[str]] = {}
+        counts = store.install_pack(self.conn, pack, actor_id=self._actor_id, update_existing=True,
+                                    changed_out=changed)
+        # The Knovas copies show the domain's name, the type's name and the
+        # metrics' names, kinds, units, directions and level labels: re-upload
+        # every experiment an import changed any of them for, as the editors
+        # do. After the install committed, for the reason given in
+        # update_metric.
+        ids: set = set()
         requeued = 0
-        if before is not None and before["name"] != domain["name"]:
-            # After the install committed, for the reason given in update_metric.
-            with self.conn.transaction():
-                ids = store.experiments_for_reindex(self.conn, domain_id=before["id"])
-                requeued = _queue_index_many(self.conn, self.settings, ids, priority=200)
+        with self.conn.transaction():
+            if before is not None and before["name"] != domain["name"]:
+                ids.update(store.experiments_for_reindex(self.conn, domain_id=before["id"]))
+            for metric_id in changed.get("metric_ids") or []:
+                ids.update(store.experiments_using_metric(self.conn, metric_id))
+            for type_id in changed.get("type_ids") or []:
+                ids.update(store.experiments_for_reindex(self.conn, type_id=type_id))
+            if ids:
+                requeued = _queue_index_many(self.conn, self.settings, sorted(ids), priority=200)
         self._audit("experiments.pack.import", "exp_domain" if domain else None,
                     domain["key"] if domain else None,
                     dict(counts, pack=pack["pack"], requeued=requeued))

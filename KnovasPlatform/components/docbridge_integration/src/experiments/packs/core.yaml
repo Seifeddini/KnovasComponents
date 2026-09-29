@@ -11,7 +11,7 @@ title: Allgemein
 description: >-
   Der Typ «Allgemeine Hypothese» für jeden Bereich und zwei Beispiel-Auswerter
   (Python und Julia) als Vorlagen für eigene Auswertungen.
-version: 1
+version: 2
 
 metrics: []
 
@@ -49,8 +49,9 @@ evaluators:
     language: python
     description: >-
       Vorlage: Bootstrap-Intervall der Mittelwert-Differenz jeder Variante zur
-      Kontrolle, aus den einzelnen Messzeilen (eine Zeile = eine Einheit).
-      Für Mittelwerte, Dauern, Geldbeträge und Skalen.
+      Kontrolle, aus den einzelnen Messzeilen (eine Zeile = eine Einheit; bei
+      Skalen zählt jede Person auf einer Stufe). Für Mittelwerte, Dauern,
+      Geldbeträge und Skalen.
     input_kinds: [mean, duration, currency, ordinal]
     params_schema:
       type: object
@@ -77,12 +78,24 @@ evaluators:
                     denominator, sum_sq, observed_at, dims
         rows_truncated, scope, params
 
-      Methode: Jede Zeile ist eine Einheit (eine Anfrage, ein Lauf, eine
-      Person). Die Zeilen einer Variante werden mit Zurücklegen neu gezogen;
-      der Mittelwert einer Ziehung ist die Summe der Werte durch die Summe der
-      Anzahlen, so zählen auch vorab zusammengefasste Zeilen richtig. Das
-      Intervall der Differenz (Variante minus Kontrolle) ist das
-      Perzentil-Intervall der gezogenen Differenzen.
+      Methode: Die Einheiten einer Variante werden mit Zurücklegen neu
+      gezogen; das Intervall der Differenz (Variante minus Kontrolle) ist das
+      Perzentil-Intervall der gezogenen Differenzen. Was eine Einheit ist,
+      hängt von der Art der Metrik ab:
+
+      - Mittelwerte, Dauern, Geldbeträge: jede Zeile ist eine Einheit (eine
+        Anfrage, ein Lauf, eine Person), gezogen werden Zeilen. Eine vorab
+        zusammengefasste Zeile (value = Summe, count = Anzahl) bleibt dabei
+        beisammen; der Mittelwert einer Ziehung ist die Summe der Werte durch
+        die Summe der Anzahlen.
+      - Skalen (ordinal): eine Zeile ist eine Stufe (value) mit der Zahl der
+        Personen auf dieser Stufe (count). Gezogen werden Personen, nicht
+        Zeilen: eine Ziehung verteilt die n Personen der Variante multinomial
+        auf die beobachteten Stufen (dasselbe wie n Personen mit Zurücklegen
+        zu ziehen). Fünf Zeilen mit zusammen 100 Antworten zählen so wie 100
+        Antworten, und auch eine Variante, deren Antworten alle auf einer
+        Stufe liegen, wird verglichen (ihr eigenes Intervall hat dann die
+        Breite 0).
       """
 
       import math
@@ -130,6 +143,7 @@ evaluators:
           draws = int(params.get("draws", 4000))
           seed = int(params.get("seed", 7))
           kind = metric.get("kind")
+          ordinal = kind == "ordinal"
           direction = metric.get("direction") or "higher"
           unit = metric.get("unit") or ""
           digits = int((metric.get("definition") or {}).get("decimals", 2))
@@ -139,19 +153,19 @@ evaluators:
           if data.get("rows_truncated"):
               warnings.append("Nur die neuesten Zeilen wurden ausgewertet (Zeilenlimit).")
 
-          # Summe und Anzahl je Zeile, nach Variante. Bei einer Skala (ordinal)
-          # ist value die Stufe und count die Zahl der Einheiten auf dieser Stufe.
-          sums, counts = {}, {}
+          # Wert und Anzahl je Zeile, nach Variante. Bei einer Skala (ordinal)
+          # ist value die Stufe und count die Zahl der Personen auf dieser
+          # Stufe; sonst ist value die Summe der count Einzelwerte der Zeile.
+          values, counts = {}, {}
           for row in data.get("rows") or []:
               key, value = row.get("variant"), row.get("value")
               if key is None or value is None:
                   continue
-              count = float(row.get("count") or 1)
-              total = float(value) * count if kind == "ordinal" else float(value)
-              sums.setdefault(key, []).append(total)
-              counts.setdefault(key, []).append(count)
+              values.setdefault(key, []).append(float(value))
+              counts.setdefault(key, []).append(float(row.get("count") or 1))
 
-          total_rows = sum(len(v) for v in sums.values())
+          # Aufwand je Ziehung: eine Zahl je Zeile (bei Skalen je Stufe).
+          total_rows = sum(len(v) for v in values.values())
           if total_rows and draws * total_rows > MAX_WORK:
               reduced = max(200, MAX_WORK // total_rows)
               if reduced < draws:
@@ -160,15 +174,31 @@ evaluators:
 
           rng = np.random.default_rng(seed)
 
+          def units(key):
+              """Zahl der Einheiten: Personen bei Skalen, sonst Zeilen."""
+              if ordinal:
+                  return float(sum(counts.get(key, [])))
+              return float(len(values.get(key, [])))
+
           def bootstrap(key):
-              s, c = np.asarray(sums[key]), np.asarray(counts[key])
-              n = len(s)
+              v, c = np.asarray(values[key]), np.asarray(counts[key])
               out = np.empty(draws)
-              chunk = max(1, 2_000_000 // n)
+              chunk = max(1, 2_000_000 // len(v))
+              if ordinal:
+                  # Personen ziehen: n Personen multinomial auf die Stufen.
+                  n = int(round(c.sum()))
+                  share = c / c.sum()
+                  for start in range(0, draws, chunk):
+                      size = min(chunk, draws - start)
+                      k = rng.multinomial(n, share, size=size)
+                      out[start:start + size] = (k * v).sum(axis=1) / n
+                  return out
+              # Zeilen ziehen; der Mittelwert ist Summe durch Anzahl.
+              rows = len(v)
               for start in range(0, draws, chunk):
                   size = min(chunk, draws - start)
-                  idx = rng.integers(0, n, size=(size, n))
-                  out[start:start + size] = s[idx].sum(axis=1) / c[idx].sum(axis=1)
+                  idx = rng.integers(0, rows, size=(size, rows))
+                  out[start:start + size] = v[idx].sum(axis=1) / c[idx].sum(axis=1)
               return out
 
           variants = data.get("variants") or []
@@ -179,23 +209,29 @@ evaluators:
           boots, means, variants_out, table_rows = {}, {}, [], []
           for variant in variants:
               key = variant.get("key")
-              s, c = sums.get(key, []), counts.get(key, [])
+              v, c = values.get(key, []), counts.get(key, [])
+              total = sum(x * n for x, n in zip(v, c)) if ordinal else sum(v)
               entry = {"variant": key, "n": int(sum(c)), "value": None, "sd": None,
-                       "sum": float(sum(s)) if s else None, "ci_low": None, "ci_high": None}
+                       "sum": float(total) if v else None, "ci_low": None, "ci_high": None}
               if c:
-                  means[key] = sum(s) / sum(c)
+                  means[key] = total / sum(c)
                   entry["value"] = float(means[key])
-              if len(s) >= 2:
+              if units(key) >= 2:
                   boots[key] = bootstrap(key)
                   lo, hi = np.quantile(boots[key], [alpha / 2, 1 - alpha / 2])
                   entry["ci_low"], entry["ci_high"] = float(lo), float(hi)
-                  if all(x == 1 for x in c):
-                      entry["sd"] = float(np.std(np.asarray(s), ddof=1))
+                  if ordinal:
+                      n = sum(c)
+                      square = sum(x * x * m for x, m in zip(v, c))
+                      entry["sd"] = math.sqrt(max(0.0, (square - n * means[key] ** 2) / (n - 1)))
+                  elif all(x == 1 for x in c):
+                      entry["sd"] = float(np.std(np.asarray(v), ddof=1))
               else:
-                  warnings.append(f"Variante {key}: zu wenige Zeilen (mindestens 2).")
+                  what = "Antworten" if ordinal else "Zeilen"
+                  warnings.append(f"Variante {key}: zu wenige {what} (mindestens 2).")
               variants_out.append(entry)
               table_rows.append([
-                  str(key), str(len(s)), _fmt(entry["n"], 0),
+                  str(key), str(len(v)), _fmt(entry["n"], 0),
                   _unit(_fmt(entry["value"], digits), unit),
                   (f"{_fmt(entry['ci_low'], digits)} bis {_fmt(entry['ci_high'], digits)}"
                    if entry["ci_low"] is not None else "–"),
@@ -223,7 +259,9 @@ evaluators:
                       "estimate": estimate, "ci_low": lo, "ci_high": hi,
                       "p_value": min(1.0, max(p_value, 1.0 / draws)),
                       "prob_better": prob,
-                      "relative": float(estimate / base) if base else None,
+                      # Relativ nur zu einer positiven Kontrolle: gegen -20 CHF
+                      # hätte +30 CHF das Vorzeichen -150 %.
+                      "relative": float(estimate / base) if base > 0 else None,
                       "unit": unit, "verdict": _verdict(lo, hi, direction),
                   })
           elif control_key is not None:
@@ -253,23 +291,28 @@ evaluators:
               verdict = "inconclusive"
               headline = f"Kein klarer Unterschied zu {control_key}."
 
+          # Die Zusammenfassung ist Markdown ohne Tabellen (Überschriften,
+          # Listen, fett, kursiv, Code, Links); Tabellarisches gehört in
+          # "table", das die Seite als Tabelle zeigt.
+          drawn = ("die Personen je Stufe" if ordinal
+                   else "die Messzeilen, eine Zeile ist eine Einheit")
           lines = [
-              f"**Bootstrap** mit {draws} Ziehungen je Variante; eine Messzeile ist "
-              f"eine Einheit. Intervalle: {level_text} %-Perzentil-Intervalle.",
-              "",
+              f"**Bootstrap** mit {draws} Ziehungen je Variante; gezogen werden "
+              f"{drawn}. Intervalle: {level_text} %-Perzentil-Intervalle.",
           ]
           if comparisons:
-              lines += [f"| Variante | Differenz zu {control_key} | P(besser) |", "|---|---|---|"]
+              lines.append("")
               for c in comparisons:
                   prob = "–" if c["prob_better"] is None else f"{_fmt(c['prob_better'] * 100, 1)} %"
-                  lines.append(f"| {c['variant']} | {describe(c)} | {prob} |")
+                  lines.append(f"- {c['variant']} gegenüber {control_key}: {describe(c)}, "
+                               f"P(besser) {prob}")
 
-          values = {"draws": draws, "alpha": alpha}
+          values_out = {"draws": draws, "alpha": alpha}
           if control_key is not None:
-              values["control"] = str(control_key)
+              values_out["control"] = str(control_key)
           probs = [c["prob_better"] for c in comparisons if c["prob_better"] is not None]
           if probs:
-              values["prob_better"] = max(probs)
+              values_out["prob_better"] = max(probs)
 
           return {
               "verdict": verdict,
@@ -277,7 +320,7 @@ evaluators:
               "summary": "\n".join(lines),
               "comparisons": comparisons,
               "variants": variants_out,
-              "values": values,
+              "values": values_out,
               "table": {
                   "headers": ["Variante", "Zeilen", "n", "Mittel", f"{level_text} %-KI"],
                   "rows": table_rows,
@@ -535,13 +578,15 @@ evaluators:
 
           prior_text = "Beta($(fmt(prior_a, 2)); $(fmt(prior_b, 2)))"
           intro = "**Bayes-Vergleich** mit $(prior_text)-Prior und $(draws) Ziehungen je Variante; Schwelle $(pct(threshold))."
-          lines = String[intro, ""]
+          # Die Zusammenfassung ist Markdown ohne Tabellen (Überschriften,
+          # Listen, fett, kursiv, Code, Links); Tabellarisches gehört in
+          # "table", das die Seite als Tabelle zeigt.
+          lines = String[intro]
           if !isempty(comparisons)
-              push!(lines, "| Variante | Differenz zu $(control_text) (95 %-Intervall) | P(besser) |")
-              push!(lines, "|---|---|---|")
+              push!(lines, "")
               for c in comparisons
-                  diff_text = "$(pp(c["estimate"])) ($(pp(c["ci_low"])) bis $(pp(c["ci_high"])))"
-                  push!(lines, "| $(c["variant"]) | $(diff_text) | $(pct(c["prob_better"])) |")
+                  diff_text = "$(pp(c["estimate"])) (95 %-Intervall $(pp(c["ci_low"])) bis $(pp(c["ci_high"])))"
+                  push!(lines, "- $(c["variant"]) gegenüber $(control_text): $(diff_text), P(besser) $(pct(c["prob_better"]))")
               end
           end
 

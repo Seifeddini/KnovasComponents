@@ -245,12 +245,23 @@ def _header_layout(header: List[str], metrics: Dict[str, Dict[str, Any]]) -> _La
     return layout
 
 
+#: The file field's message when the errors are listed in the main message:
+#: a form shows both, and the same list twice helps nobody.
+MSG_SEE_ERRORS = "Siehe Fehlerliste."
+
+
+def join_messages(parts: List[str], more: bool = False) -> str:
+    """Messages as one sentence list: ``"Zeile 2: a; Zeile 3: b."`` (each
+    part's own final period dropped, so no ``".;"``)."""
+    items = [str(p).rstrip().rstrip(".") for p in parts if p]
+    if more:
+        items.append("weitere Fehler nicht aufgef\u00fchrt")
+    return "; ".join(items) + "."
+
+
 def _refuse(errors: List[str], more: bool = False) -> ValidationError:
-    shown = errors[:MAX_ERRORS]
-    text = "; ".join(shown)
-    if more or len(errors) > MAX_ERRORS:
-        text += "; weitere Fehler nicht aufgef\u00fchrt."
-    return ValidationError(text, fields={"file": text})
+    text = join_messages(errors[:MAX_ERRORS], more or len(errors) > MAX_ERRORS)
+    return ValidationError(text, fields={"file": MSG_SEE_ERRORS})
 
 
 # -- rows ---------------------------------------------------------------------

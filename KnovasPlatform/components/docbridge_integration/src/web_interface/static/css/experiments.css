@@ -409,6 +409,21 @@
 /* Einzelne Auswahllisten nicht ueber die ganze Breite ziehen. */
 .kx-form-row--narrow { grid-template-columns: repeat(auto-fill, minmax(170px, 320px)); }
 
+/* Felder einer Reihe auf gemeinsamen Linien (Beschriftung, Eingabe, Hilfe,
+   Fehler): bricht eine Beschriftung um, ruecken alle Eingaben der Reihe mit,
+   statt dass eine tiefer steht (Stichprobe planen). */
+@supports (grid-template-rows: subgrid) {
+    .kx-form-row--aligned { row-gap: 5px; }
+    .kx-form-row--aligned > .kx-field {
+        display: grid;
+        grid-row: span 4;
+        grid-template-rows: subgrid;
+        align-content: start;
+        margin-bottom: 7px;
+    }
+    .kx-form-row--aligned > .kx-field > .kx-label { align-self: end; }
+}
+
 .kx-form-actions {
     display: flex;
     flex-wrap: wrap;
@@ -673,7 +688,12 @@
 .kx-table a { color: var(--primary-color); text-decoration: none; }
 .kx-table a:hover { text-decoration: underline; }
 
-.kx-title-cell strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
+/* Mindestens ein Wort breit: mit overflow-wrap: anywhere schrumpfte die
+   Spalte auf dem Telefon auf ein Zeichen und brach mitten im Wort
+   ("Produktbil d"). Zu breit wird die Tabelle nicht, sie scrollt in
+   .kx-table-wrap. */
+.kx-title-cell { min-width: 12rem; }
+.kx-title-cell strong { display: block; font-weight: 600; overflow-wrap: break-word; }
 
 .kx-result-cell {
     display: flex;
@@ -930,6 +950,14 @@
 }
 
 .kx-title-edit .kx-input { flex: 1 1 320px; font-size: 1.05rem; }
+
+/* Hinweis "Entwurf beruht auf einer aelteren Fassung" (nach Neu laden). */
+.kx-draft-note { margin: 10px 0; }
+.kx-title-edit .kx-draft-note { flex: 1 1 100%; margin: 4px 0 0; }
+.kx-draft-note .kx-form-actions { margin-top: 8px; }
+
+/* Lauf-ID unter dem Namen eines Laufs, mit "ID kopieren". */
+.kx-run-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 
 .kx-tags {
     display: flex;
@@ -1348,6 +1376,16 @@ span.kx-swatch {
 
 .kx-eval-card[aria-busy="true"] { opacity: 0.85; }
 
+/* Von neueren abgeloest: zugeklappt unter den aktuellen, blasser. */
+.kx-earlier-evaluations {
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+.kx-earlier-evaluations > .kx-help { margin: 0 0 10px; }
+.kx-eval-card--superseded { background: var(--surface-sunken); }
+.kx-eval-card--superseded .kx-headline { color: var(--text-secondary); }
+
 .kx-eval-head {
     display: flex;
     align-items: flex-start;
@@ -1601,16 +1639,9 @@ span.kx-swatch {
 /* Unter 900px wird die Seitenleiste zur Kopfzeile (style.css). Dort ist
    .app-shell eine Spalte mit align-items: flex-start -- der Inhalt waere so
    breit wie seine breiteste Tabelle und die Seite scrollte seitwaerts. Die
-   Navigation scrollt in sich, wie in der Verwaltung (admin.css). */
+   Navigation scrollt in sich; das regelt style.css fuer alle Seiten. */
 @media (max-width: 900px) {
     .kx-body .app-content { align-self: stretch; width: 100%; }
-    .kx-body .app-nav {
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow-x: auto;
-        scrollbar-width: thin;
-    }
-    .kx-body .app-nav-item { flex: 0 0 auto; }
     .kx-page.container { padding-left: 16px; padding-right: 16px; }
 }
 

@@ -85,6 +85,25 @@
         </a>
         {% endif %}
     </nav>
+    {# Schmale Fenster: die Navigation scrollt in sich (style.css). Den
+       aktuellen Eintrag an ihren Anfang ruecken, ohne die Seite zu bewegen --
+       noch einmal, wenn die Schriften geladen sind (sie verbreitern die
+       Eintraege). #}
+    <script>
+    (function () {
+        var nav = document.currentScript && document.currentScript.previousElementSibling;
+        function fit() {
+            var item = nav && nav.querySelector('.app-nav-item.active');
+            if (!item || nav.scrollWidth <= nav.clientWidth) return;
+            var box = nav.getBoundingClientRect();
+            var at = item.getBoundingClientRect();
+            if (at.left < box.left || at.right > box.right) nav.scrollLeft += at.left - box.left - 4;
+        }
+        fit();
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+        window.addEventListener('load', fit);
+    })();
+    </script>
 
     <div class="app-sidebar-foot">
         <a class="app-user" href="{{ url_for('settings_page') }}">

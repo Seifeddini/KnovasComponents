@@ -779,6 +779,15 @@ def binomial_test(k, n, p=0.5) -> Dict[str, object]:
     return {"p_value": min(1.0, pval)}
 
 
+def _central_binomial_p(k: int, n: int, p: float) -> float:
+    """Two-sided exact p-value by doubling the smaller tail,
+    2 * min(P(X <= k), P(X >= k)), capped at 1: the test whose acceptance
+    region is the Clopper-Pearson interval."""
+    lower = binom_cdf(k, n, p)
+    upper = _binom_sf(k - 1, n, p)
+    return min(1.0, 2.0 * min(lower, upper))
+
+
 def _clopper_pearson(k: int, n: int, alpha: float) -> Tuple[Tuple[float, float], Tuple[float, float]]:
     """Exact binomial CI as ((lo, 1 - lo), (hi, 1 - hi)) for k successes of n."""
     lo = (0.0, 1.0) if k == 0 else _ibeta_inv(k, n - k + 1.0, alpha / 2.0, 1.0 - alpha / 2.0)
@@ -841,14 +850,136 @@ def t_interval(mean, var, n, alpha=0.05) -> Tuple[Optional[float], Optional[floa
 # -- two-sample tests ----------------------------------------------------------
 
 
+def _restricted_p1(w1s: float, w1f: float, w2s: float, w2f: float, delta: float) -> float:
+    """The maximum-likelihood p1 of two binomial samples under p2 = p1 + delta.
+
+    w1s/w1f are the successes/failures of group 1, w2s/w2f those of group 2,
+    on any common scale (the maximum does not depend on it). The
+    log-likelihood is concave in p1, so its derivative falls monotonically
+    over the feasible [max(0, -delta), min(1, 1 - delta)]: the root comes from
+    Newton steps kept inside a shrinking bracket (a bisection step whenever
+    Newton would leave it), or is an end of the interval when the derivative
+    does not change sign there. At delta = 0 it is the pooled proportion.
+    """
+    # 1 - p - delta as top - p: never rounds to 0 while p < top.
+    top = 1.0 - delta
+    lo, hi = max(0.0, -delta), min(1.0, top)
+    if not hi > lo:
+        return lo
+
+    def score(p: float) -> float:
+        total = 0.0
+        if w1s:
+            total += w1s / p
+        if w1f:
+            total -= w1f / (1.0 - p)
+        if w2s:
+            total += w2s / (p + delta)
+        if w2f:
+            total -= w2f / (top - p)
+        return total
+
+    def slope(p: float) -> float:
+        total = 0.0
+        if w1s:
+            total -= w1s / (p * p)
+        if w1f:
+            total -= w1f / ((1.0 - p) * (1.0 - p))
+        if w2s:
+            total -= w2s / ((p + delta) * (p + delta))
+        if w2f:
+            total -= w2f / ((top - p) * (top - p))
+        return total
+
+    # An end of the interval is the maximum unless a count pushes the
+    # derivative to +-infinity there (a success at p = 0, a failure at 1).
+    if not ((lo == 0.0 and w1s) or (lo == -delta and w2s)) and score(lo) <= 0.0:
+        return lo
+    if not ((hi == 1.0 and w1f) or (hi == top and w2f)) and score(hi) >= 0.0:
+        return hi
+    a, b = lo, hi
+    weight = w1s + w1f + w2s + w2f
+    p = (w1s + w2s - delta * (w2s + w2f)) / weight if weight > 0.0 else 0.5 * (a + b)
+    if not a < p < b:
+        p = 0.5 * (a + b)
+    for _ in range(300):
+        s = score(p)
+        if s > 0.0:
+            a = p
+        elif s < 0.0:
+            b = p
+        else:
+            return p
+        d = slope(p)
+        step = p - s / d if d < 0.0 and math.isfinite(d) else None
+        nxt = step if step is not None and a < step < b else 0.5 * (a + b)
+        if abs(nxt - p) <= 4e-16 * abs(nxt) or not a < nxt < b:
+            return nxt if a <= nxt <= b else p
+        p = nxt
+    return p
+
+
+def _score_interval(s1: float, n1: float, s2: float, n2: float,
+                    alpha: float) -> Tuple[float, float]:
+    """Mee's score interval for p2 - p1: every delta that the score test of
+    p2 - p1 = delta does not reject at level alpha, the variance taken at the
+    restricted maximum-likelihood proportions (Farrington-Manning; the
+    Miettinen-Nurminen interval without its n / (n - 1) factor). The ends
+    are found by bisection between the estimate and -1 / +1."""
+    z = _z(alpha / 2.0)
+    p1_hat, p2_hat = s1 / n1, s2 / n2
+    diff = p2_hat - p1_hat
+    # Group weights n1 / (n1 + n2) and n2 / (n1 + n2) without overflow.
+    if n1 >= n2:
+        r = n2 / n1
+        f1, f2 = 1.0 / (1.0 + r), r / (1.0 + r)
+    else:
+        r = n1 / n2
+        f1, f2 = r / (1.0 + r), 1.0 / (1.0 + r)
+    weights = (p1_hat * f1, (1.0 - p1_hat) * f1, p2_hat * f2, (1.0 - p2_hat) * f2)
+
+    def stat(delta: float) -> float:
+        gap = diff - delta
+        if gap == 0.0:
+            return 0.0
+        p1 = _restricted_p1(*weights, delta)
+        p2 = min(1.0, max(0.0, p1 + delta))
+        var = p1 * (1.0 - p1) / n1 + p2 * (1.0 - p2) / n2
+        if not var > 0.0:
+            return math.copysign(_INF, gap)
+        return gap / math.sqrt(var)
+
+    def end(outside: float, sign: float) -> float:
+        # Invariant: sign * stat(a) > z (rejected), sign * stat(b) <= z.
+        a, b = outside, diff
+        for _ in range(200):
+            mid = 0.5 * (a + b)
+            if mid == a or mid == b:
+                break
+            if sign * stat(mid) > z:
+                a = mid
+            else:
+                b = mid
+            if abs(b - a) <= 1e-15 * max(abs(a), abs(b)):
+                break
+        return b
+
+    lower = -1.0 if diff <= -1.0 else end(-1.0, 1.0)
+    upper = 1.0 if diff >= 1.0 else end(1.0, -1.0)
+    return lower, upper
+
+
 def two_proportion_test(s1, n1, s2, n2, alpha=0.05) -> Dict[str, object]:
     """Compare p2 = s2/n2 with p1 = s1/n1 (group 1 is the baseline).
 
-    diff = p2 - p1 with Newcombe's hybrid score interval (method 10: built from
-    both Wilson intervals; good coverage near 0 and 1, unlike the Wald
-    interval); z and the two-sided p-value from the pooled z test (identical
-    to Pearson's chi-square on the 2x2 table without continuity correction).
-    relative_lift = diff / p1.
+    z and the two-sided p-value come from the pooled z test (identical to
+    Pearson's chi-square on the 2x2 table without continuity correction).
+    diff = p2 - p1 with Mee's score interval (see _score_interval): it
+    inverts the same score test, whose statistic at delta = 0 is the pooled
+    z, so the interval excludes 0 exactly when p_value < alpha and a verdict
+    taken from p_value never contradicts the interval printed beside it.
+    Like Newcombe's interval it keeps its coverage near 0 and 1, unlike the
+    Wald interval. relative_lift = diff / p1.
     """
     alpha = _alpha(alpha)
     s1, n1, s2, n2 = (_nonneg(v, name) for v, name in
@@ -866,10 +997,7 @@ def two_proportion_test(s1, n1, s2, n2, alpha=0.05) -> Dict[str, object]:
         return result
     p1, p2 = s1 / n1, s2 / n2
     diff = p2 - p1
-    l1, u1 = wilson_interval(s1, n1, alpha)
-    l2, u2 = wilson_interval(s2, n2, alpha)
-    ci_low = diff - math.sqrt((p2 - l2) ** 2 + (u1 - p1) ** 2)
-    ci_high = diff + math.sqrt((u2 - p2) ** 2 + (p1 - l1) ** 2)
+    ci_low, ci_high = _score_interval(s1, n1, s2, n2, alpha)
     pooled = (s1 + s2) / (n1 + n2)
     se0 = math.sqrt(pooled * (1.0 - pooled) * (1.0 / n1 + 1.0 / n2))
     if se0 > 0.0:
@@ -1015,11 +1143,15 @@ def poisson_rate_test(e1, t1, e2, t2, alpha=0.05) -> Dict[str, object]:
     """Compare the Poisson rate e2/t2 with e1/t1 (group 1 the baseline).
 
     Exact conditional method: given e1 + e2 events, e2 is binomial with
-    p0 = t2 / (t1 + t2) under equal rates. p_value = two-sided exact binomial
-    test; the interval of ratio = rate2 / rate1 transforms the Clopper-Pearson
-    interval of that binomial proportion. Beyond ten million events the Wald
-    test on log(ratio) is used. ratio and the upper bound are None when e1 = 0
-    (unbounded).
+    p0 = t2 / (t1 + t2) under equal rates. The interval of ratio = rate2 /
+    rate1 transforms the Clopper-Pearson interval of that binomial
+    proportion; p_value is the central exact p-value, twice the smaller
+    binomial tail, the test that interval inverts: the interval excludes 1
+    exactly when p_value < alpha. (binomial_test's minimum-likelihood rule,
+    the one scipy's binomtest follows, is not dual to it and could call a
+    ratio significant whose interval still contains 1.) Beyond ten million
+    events the Wald test on log(ratio) and its interval are used. ratio and
+    the upper bound are None when e1 = 0 (unbounded).
     """
     alpha = _alpha(alpha)
     e1 = _nonneg(e1, "Ereignisse 1")
@@ -1048,7 +1180,7 @@ def poisson_rate_test(e1, t1, e2, t2, alpha=0.05) -> Dict[str, object]:
                        "p_value": math.erfc(abs(log_ratio) / se / _SQRT2)})
         return _clean(result)
     p0 = t2 / (t1 + t2)
-    result["p_value"] = binomial_test(k2, n, p0)["p_value"]
+    result["p_value"] = _central_binomial_p(k2, n, p0)
     (lo, lo_c), (hi, hi_c) = _clopper_pearson(k2, n, alpha)
     result["ci_low"] = (lo / lo_c) * scale if lo_c > 0 else None
     result["ci_high"] = (hi / hi_c) * scale if hi_c > 0 else None
@@ -1307,9 +1439,18 @@ def sample_size_mean(sd, mde_abs, alpha=0.05, power=0.8) -> int:
     return n
 
 
+#: A variance below this share of the mean square is cancellation in
+#: sum_sq - sum^2/n (eleven values of 4.3 leave 1e-14, not 0), not spread.
+_VARIANCE_NOISE = 1e-12
+
+
 def variance(sum_, sum_sq, n) -> Optional[float]:
     """Sample variance from sufficient statistics:
-    max(0, (sum_sq - sum^2/n) / (n - 1)); None if n < 2 or sum_sq is unknown."""
+    max(0, (sum_sq - sum^2/n) / (n - 1)); None if n < 2 or sum_sq is unknown.
+    A result below 1e-12 of the mean square sum_sq / n is rounding left over
+    from identical values and comes back as exactly 0, so "no spread" is
+    recognisable (describe then gives no interval instead of one of width
+    1e-7)."""
     if sum_ is None or sum_sq is None or n is None:
         return None
     try:
@@ -1323,4 +1464,6 @@ def variance(sum_, sum_sq, n) -> Optional[float]:
     value = (sum_sq - sum_ * sum_ / n) / (n - 1.0)
     if not math.isfinite(value):
         return None
-    return max(0.0, value)
+    if value <= _VARIANCE_NOISE * abs(sum_sq) / n:
+        return 0.0
+    return value

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import resource
+import stat
 import subprocess
 import sys
 import threading
@@ -270,6 +271,62 @@ def test_read_output_uses_the_directory_descriptor_not_the_path(job_dir, tmp_pat
     path.mkdir()
     (path / "output.json").write_text('{"ok": true, "result": {"planted": 1}}')
     assert R.read_output(fd)[0] == {"ok": True, "result": {"mine": 1}}
+
+
+@pytest.mark.parametrize("env, expected", [
+    ({}, True),                                                        # the image's own directory
+    ({"RUNNER_LISTEN": "unix:///run/experiments-runner/runner.sock"}, True),
+    ({"RUNNER_LISTEN": "unix:/tmp/dev/runner.sock"}, False),           # any other path: opt-in
+    ({"RUNNER_LISTEN": "unix:/tmp/dev/runner.sock", "RUNNER_SOCKET_DIR_EXCLUSIVE": "true"}, True),
+    ({"RUNNER_SOCKET_DIR_EXCLUSIVE": "false"}, False),
+    ({"RUNNER_SOCKET_DIR_EXCLUSIVE": "maybe"}, True),                  # unreadable: the default
+    ({"RUNNER_LISTEN": "tcp:127.0.0.1:8090"}, False),
+    ({"RUNNER_LISTEN": "nonsense"}, False),
+])
+def test_socket_dir_exclusive_setting(env, expected):
+    assert R.Config.from_env(dict(env, PATH="/nowhere")).socket_dir_exclusive is expected
+
+
+def test_clear_directory_removes_everything_and_follows_no_link(tmp_path):
+    top = tmp_path / "sock"
+    (top / "a" / "b" / "c").mkdir(parents=True)
+    (top / "a" / "b" / "c" / "f").write_text("x")
+    (top / "a" / "b").chmod(0)
+    (top / "file").write_text("x")
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "keep").write_text("keep")
+    os.symlink(target, top / "link")
+    assert sorted(R.clear_directory(str(top))) == ["a", "file", "link"]
+    assert os.listdir(top) == []
+    assert (target / "keep").read_text() == "keep"
+
+
+def test_claim_socket_dir_resets_the_mode_and_leaves_a_foreign_directory_alone(tmp_path):
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    (mine / "planted").mkdir()
+    mine.chmod(0o755)
+    R.claim_socket_dir(str(mine), "runner.sock")
+    assert os.listdir(mine) == []
+    assert stat.S_IMODE(os.stat(mine).st_mode) == R.SOCKET_DIR_MODE
+    if os.geteuid() == 0:
+        foreign = tmp_path / "foreign"
+        foreign.mkdir()
+        (foreign / "theirs").write_text("x")
+        os.chown(foreign, 4242, 4242)
+        R.claim_socket_dir(str(foreign), "runner.sock")
+        assert os.listdir(foreign) == ["theirs"]
+    os.symlink(mine, tmp_path / "alias")
+    with pytest.raises(RuntimeError):
+        R.claim_socket_dir(str(tmp_path / "alias"), "runner.sock")
+
+
+def test_eagain_in_recognises_python_and_julia_wording():
+    assert R.eagain_in("BlockingIOError: [Errno 11] Resource temporarily unavailable")
+    assert R.eagain_in("ERROR: could not spawn `x`: resource temporarily unavailable (EAGAIN)")
+    assert R.eagain_in("fork: Resource temporarily unavailable")
+    assert not R.eagain_in("ValueError: kaputt")
 
 
 def test_remove_tree_copes_with_directories_without_permissions(tmp_path):

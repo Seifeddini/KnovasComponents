@@ -7,8 +7,11 @@ can compose them into a larger unit.
 
 What every function returns is JSON-ready: ids are strings, timestamps ISO
 8601 with an offset, numbers int or float -- aggregates are cast in SQL
-(``sum(count)::bigint``, ``sum(value)::float8``) so no ``Decimal`` ever
-reaches Python -- and NaN never appears (the columns refuse it).
+(``sum(count)::float8``, ``sum(value)::float8``) so no ``Decimal`` ever
+reaches Python and no sum can overflow (a BIGINT sum of counts could: 1'025
+rows of 2**53 each already exceed it; float8 stays exact up to 2**53 and
+the counts are turned back into int in Python) -- and NaN never appears (the
+columns refuse it).
 
 Rules that keep concurrent writers correct (plan, section 8):
 
@@ -64,8 +67,22 @@ SNAPSHOT_EVALUATIONS = 60
 SNAPSHOT_EVALUATION_OUTPUTS = 20
 SNAPSHOT_NOTES = 200
 SNAPSHOT_RUNS = 100
-#: Candidates the list's "latest result" looks at per experiment.
-LATEST_CANDIDATES = 50
+#: Evaluations of the primary metric the list's "latest result" looks at per
+#: experiment (the newest ones, in any status: a newer queued or failed
+#: evaluation supersedes an older done one of the same group).
+LATEST_CANDIDATES = 100
+#: The next page of the experiment list also returns the experiments changed
+#: since this long before the previous page was served: a change moves an
+#: experiment above the cursor, where a keyset page would never reach it. The
+#: margin covers writers whose updated_at (their transaction start) lies
+#: before the page's query although they committed after it.
+LIST_CHANGE_MARGIN_SECONDS = 120
+#: index_error of experiments that purge-index took out of Knovas (index_state
+#: 'off'). Rows turned 'off' because indexing was switched off keep
+#: index_error NULL; maintenance uploads those again once it is back on.
+INDEX_OFF_PURGED = (
+    "Aus Knovas entfernt (purge-index); \u00abAlles neu indexieren\u00bb l\u00e4dt es wieder hoch."
+)
 #: Buckets one time series returns at most (the newest ones).
 MAX_TIMESERIES_ROWS = 10_000
 MAX_INDEX_ERROR_CHARS = 500
@@ -154,26 +171,41 @@ def _person(user_id: Any, display_name: Any) -> Optional[Dict[str, Any]]:
     return {"id": str(user_id), "display_name": display_name or ""}
 
 
-def encode_cursor(moment: Any, ident: Any) -> str:
-    """An opaque keyset cursor: (timestamp, id) of the last item shown."""
-    raw = f"{iso(moment)}|{ident}".encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+def encode_cursor(moment: Any, ident: Any, as_of: Any = None) -> str:
+    """An opaque keyset cursor: (timestamp, id) of the last item shown and,
+    for the experiment list, since when changed items are sent again."""
+    text = f"{iso(moment)}|{ident}"
+    if as_of is not None:
+        text += f"|{iso(as_of)}"
+    return base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii").rstrip("=")
 
 
-def decode_cursor(text: Any) -> Tuple[_dt.datetime, str]:
+def _stamp(text: str) -> _dt.datetime:
+    moment = _dt.datetime.fromisoformat(text)
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=_UTC)
+
+
+def decode_cursor_parts(text: Any) -> Tuple[_dt.datetime, str, Optional[_dt.datetime]]:
+    """(timestamp, id, as_of or None) of a cursor from encode_cursor."""
     if not isinstance(text, str) or not 1 <= len(text) <= 200:
         raise ValidationError(MSG_BAD_CURSOR)
     try:
         padded = text + "=" * (-len(text) % 4)
-        stamp, _, ident = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8").partition("|")
-        moment = _dt.datetime.fromisoformat(stamp)
+        parts = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8").split("|")
+        if len(parts) not in (2, 3):
+            raise ValueError("cursor parts")
+        moment = _stamp(parts[0])
+        as_of = _stamp(parts[2]) if len(parts) == 3 else None
     except (ValueError, UnicodeError):
         raise ValidationError(MSG_BAD_CURSOR) from None
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=_UTC)
-    canonical = canonical_uuid(ident)
+    canonical = canonical_uuid(parts[1])
     if canonical is None:
         raise ValidationError(MSG_BAD_CURSOR)
+    return moment, canonical, as_of
+
+
+def decode_cursor(text: Any) -> Tuple[_dt.datetime, str]:
+    moment, canonical, _ = decode_cursor_parts(text)
     return moment, canonical
 
 
@@ -205,6 +237,21 @@ def user_exists(conn: Any, user_id: Any) -> bool:
     if ident is None:
         return False
     return conn.execute("SELECT 1 FROM users WHERE id = %s", (ident,)).fetchone() is not None
+
+
+def user_can_view_experiments(conn: Any, user_id: Any) -> bool:
+    """Whether the account is active and holds a role that sees the module:
+    only such a person can be named responsible for an experiment. (A
+    temporary lockout after failed sign-ins does not count against it.)"""
+    ident = canonical_uuid(user_id)
+    if ident is None:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM users u JOIN user_roles ur ON ur.user_id = u.id "
+        "JOIN roles r ON r.id = ur.role_id "
+        "WHERE u.id = %s AND u.status = 'active' AND r.key = ANY(%s::text[]) LIMIT 1",
+        (ident, sorted(permissions.VIEW_ROLES)),
+    ).fetchone() is not None
 
 
 def user_access_groups(conn: Any, user_id: Any) -> Tuple[str, ...]:
@@ -426,8 +473,12 @@ def add_type_version(conn: Any, type_id: str, definition: Dict[str, Any],
     with conn.transaction():
         # Lock the type row on its own: joined to its version row, a waiter
         # would re-check the join against the version it read before the
-        # lock was released and find nothing.
-        if conn.execute("SELECT 1 FROM exp_types WHERE id = %s FOR UPDATE",
+        # lock was released and find nothing. NO KEY UPDATE orders concurrent
+        # editors (it conflicts with itself) without blocking the foreign-key
+        # KEY SHARE of an experiment being created with this type -- FOR
+        # UPDATE would, and deadlock with a creation holding that lock and
+        # waiting for a metric a pack import has locked.
+        if conn.execute("SELECT 1 FROM exp_types WHERE id = %s FOR NO KEY UPDATE",
                         (type_id,)).fetchone() is None:
             raise ValidationError("Den Typ gibt es nicht.")
         row = conn.execute(
@@ -513,6 +564,10 @@ def list_metrics(conn: Any, *, domain_id: Optional[str] = None, restrict: bool =
 
 
 def get_metric(conn: Any, metric_id: Any, *, lock: bool = False) -> Optional[Dict[str, Any]]:
+    """The metric; ``lock`` takes FOR UPDATE on it (the metric editor). That
+    lock deliberately conflicts with the KEY SHARE a measurement insert takes
+    on the metrics it validated rows against (assigned_metrics(lock=True)):
+    a kind change waits for the insert and then sees its rows."""
     ident = canonical_uuid(metric_id)
     if ident is None:
         return None
@@ -782,7 +837,8 @@ def ensure_builtin_evaluators(conn: Any) -> None:
 
 
 def install_pack(conn: Any, pack: Dict[str, Any], *, actor_id: Optional[str] = None,
-                 update_existing: bool = False) -> Dict[str, int]:
+                 update_existing: bool = False,
+                 changed_out: Optional[Dict[str, List[str]]] = None) -> Dict[str, int]:
     """Write a validated pack (packs.validate_pack output) in one transaction.
 
     Inserts are ``ON CONFLICT ... DO NOTHING`` followed by a re-select, so
@@ -791,8 +847,13 @@ def install_pack(conn: Any, pack: Dict[str, Any], *, actor_id: Optional[str] = N
     are brought to the pack's state: a new type version when the definition
     differs, a new evaluator version when its code or contract differs, an
     updated metric. Returns how many items were created or changed.
+
+    ``changed_out`` (a dict) receives what the Knovas copies of existing
+    experiments show and the import changed: ``metric_ids`` (name, kind,
+    unit, direction or definition changed) and ``type_ids`` (name changed).
     """
     counts = {"domain": 0, "types": 0, "metrics": 0, "evaluators": 0}
+    reindex: Dict[str, List[str]] = {"metric_ids": [], "type_ids": []}
     with conn.transaction():
         required = [k for k in pack.get("requires_metrics") or []]
         if required:
@@ -816,11 +877,21 @@ def install_pack(conn: Any, pack: Dict[str, Any], *, actor_id: Optional[str] = N
             if _install_evaluator(conn, evaluator, actor_id, update_existing):
                 counts["evaluators"] += 1
         for metric in pack.get("metrics") or []:
-            if _install_metric(conn, domain_id, metric, actor_id, update_existing):
+            changed, metric_id, shown_change = _install_metric(conn, domain_id, metric, actor_id,
+                                                               update_existing)
+            if changed:
                 counts["metrics"] += 1
+            if shown_change:
+                reindex["metric_ids"].append(metric_id)
         for type_ in pack.get("types") or []:
-            if _install_type(conn, domain_id, type_, actor_id, update_existing):
+            changed, type_id, renamed = _install_type(conn, domain_id, type_, actor_id,
+                                                      update_existing)
+            if changed:
                 counts["types"] += 1
+            if renamed:
+                reindex["type_ids"].append(type_id)
+    if changed_out is not None:
+        changed_out.update(reindex)
     return counts
 
 
@@ -893,8 +964,14 @@ def _install_evaluator(conn: Any, evaluator: Dict[str, Any], actor_id: Optional[
     return added
 
 
+#: Metric columns an experiment's Knovas copy does not show.
+_METRIC_UNINDEXED = frozenset({"description", "archived"})
+
+
 def _install_metric(conn: Any, domain_id: Optional[str], metric: Dict[str, Any],
-                    actor_id: Optional[str], update_existing: bool) -> bool:
+                    actor_id: Optional[str], update_existing: bool
+                    ) -> Tuple[bool, Optional[str], bool]:
+    """(created or changed, id, a change the Knovas copies show)."""
     row = conn.execute(
         "INSERT INTO exp_metrics (domain_id, key, name, kind, unit, direction, description, "
         "definition, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
@@ -903,12 +980,16 @@ def _install_metric(conn: Any, domain_id: Optional[str], metric: Dict[str, Any],
          metric["direction"], metric["description"], _jsonb(metric["definition"] or {}), actor_id),
     ).fetchone()
     if row is not None:
-        return True
+        return True, row[0], False
     if not update_existing:
-        return False
+        return False, None, False
+    # NO KEY UPDATE, not FOR UPDATE: it must not block the foreign-key KEY
+    # SHARE of an experiment being created with this metric (that creation
+    # may already hold a type this import locks next -- a deadlock).
     existing = conn.execute(
         "SELECT id::text, name, kind, unit, direction, description, definition FROM exp_metrics "
-        "WHERE COALESCE(domain_id::text, '') = COALESCE(%s::text, '') AND key = %s FOR UPDATE",
+        "WHERE COALESCE(domain_id::text, '') = COALESCE(%s::text, '') AND key = %s "
+        "FOR NO KEY UPDATE",
         (domain_id, metric["key"]),
     ).fetchone()
     wanted = {"name": metric["name"], "kind": metric["kind"], "unit": metric["unit"],
@@ -918,18 +999,25 @@ def _install_metric(conn: Any, domain_id: Optional[str], metric: Dict[str, Any],
                        existing[1:7]))
     changes = {k: v for k, v in wanted.items() if current.get(k) != v}
     if not changes:
-        return False
-    if "kind" in changes and metric_has_measurements(conn, existing[0]):
-        raise ValidationError(
-            f"Die Art der Metrik \u00ab{metric['key']}\u00bb l\u00e4sst sich nicht mehr \u00e4ndern, "
-            "es gibt schon Messwerte."
-        )
+        return False, existing[0], False
+    if "kind" in changes:
+        # A kind change must wait for measurement inserts in flight (they hold
+        # KEY SHARE on the metric from validating their rows) and then see
+        # their rows; only FOR UPDATE conflicts with KEY SHARE.
+        conn.execute("SELECT 1 FROM exp_metrics WHERE id = %s FOR UPDATE", (existing[0],))
+        if metric_has_measurements(conn, existing[0]):
+            raise ValidationError(
+                f"Die Art der Metrik \u00ab{metric['key']}\u00bb l\u00e4sst sich nicht mehr \u00e4ndern, "
+                "es gibt schon Messwerte."
+            )
     update_metric(conn, existing[0], changes)
-    return True
+    return True, existing[0], bool(set(changes) - _METRIC_UNINDEXED)
 
 
 def _install_type(conn: Any, domain_id: Optional[str], type_: Dict[str, Any],
-                  actor_id: Optional[str], update_existing: bool) -> bool:
+                  actor_id: Optional[str], update_existing: bool
+                  ) -> Tuple[bool, Optional[str], bool]:
+    """(created or changed, id, renamed)."""
     row = conn.execute(
         "INSERT INTO exp_types (domain_id, key, name, description, created_by) "
         "VALUES (%s, %s, %s, %s, %s) "
@@ -942,9 +1030,9 @@ def _install_type(conn: Any, domain_id: Optional[str], type_: Dict[str, Any],
             "VALUES (%s, 1, %s, %s)",
             (row[0], _jsonb(type_["definition"]), actor_id),
         )
-        return True
+        return True, row[0], False
     if not update_existing:
-        return False
+        return False, None, False
     existing = conn.execute(
         "SELECT id::text, name, description FROM exp_types "
         "WHERE COALESCE(domain_id::text, '') = COALESCE(%s::text, '') AND key = %s",
@@ -955,7 +1043,7 @@ def _install_type(conn: Any, domain_id: Optional[str], type_: Dict[str, Any],
         update_type(conn, existing[0], {"name": type_["name"], "description": type_["description"]})
         changed = True
     _, added = add_type_version(conn, existing[0], type_["definition"], actor_id)
-    return changed or added
+    return changed or added, existing[0], existing[1] != type_["name"]
 
 
 def ensure_core_pack(conn: Any) -> None:
@@ -1190,14 +1278,22 @@ def replace_variants(conn: Any, experiment_id: str, desired: List[Dict[str, Any]
     return {"added": added, "removed": removed}
 
 
-def assigned_metrics(conn: Any, experiment_id: str) -> List[Dict[str, Any]]:
-    """The experiment's metrics in order, each with role and guardrail."""
+def assigned_metrics(conn: Any, experiment_id: str, *, lock: bool = False) -> List[Dict[str, Any]]:
+    """The experiment's metrics in order, each with role and guardrail.
+
+    ``lock`` (inside the transaction of a measurement insert) takes KEY SHARE
+    on the metric rows: the kind the rows are validated against cannot change
+    until the insert commits (a kind change takes FOR UPDATE and then sees
+    the new rows). The insert's foreign-key check takes the same lock in the
+    same order a moment later anyway, so this adds no new wait.
+    """
     rows = conn.execute(
         "SELECT em.role, em.guardrail_op, em.guardrail_value, em.position, "
         + _METRIC_COLUMNS.format(in_use="TRUE")
         + "FROM exp_experiment_metrics em JOIN exp_metrics mt ON mt.id = em.metric_id "
         "LEFT JOIN exp_domains d ON d.id = mt.domain_id "
-        "WHERE em.experiment_id = %s ORDER BY em.position, mt.key",
+        "WHERE em.experiment_id = %s ORDER BY em.position, mt.key"
+        + (" FOR KEY SHARE OF mt" if lock else ""),
         (experiment_id,),
     ).fetchall()
     out = []
@@ -1401,13 +1497,17 @@ def _sums(conn: Any, experiment_id: str, metric_ids: Sequence[str], scope: Dict[
           level_metric_ids: Sequence[str] = ()) -> Dict[str, Dict[Optional[str], Dict[str, Any]]]:
     """{metric_id: {variant_id|None: sums}} over the scope's rows, from the
     covering index. ``level_metric_ids``: metrics whose units per level are
-    wanted too (ordinal, categorical)."""
+    wanted too (ordinal, categorical); a group with more than
+    kinds.MAX_AGGREGATE_LEVELS distinct values gets ``levels`` None.
+
+    Counts are summed as float8: exact up to 2**53, and no number of rows
+    can make the query fail (a BIGINT sum overflows)."""
     if not metric_ids:
         return {}
     q = _ScopeSQL(experiment_id, metric_ids, scope)
     rows = conn.execute(
         q.with_sql()
-        + "SELECT m.metric_id::text, m.variant_id::text, count(*)::int, sum(m.count)::bigint, "
+        + "SELECT m.metric_id::text, m.variant_id::text, count(*), sum(m.count)::float8, "
         "  sum(m.value)::float8, sum(m.value * m.count)::float8, "
         "  sum(m.value * m.value * m.count)::float8, sum(m.denominator)::float8, "
         "  sum(CASE WHEN m.count = 1 THEN COALESCE(m.sum_sq, m.value * m.value) "
@@ -1419,24 +1519,41 @@ def _sums(conn: Any, experiment_id: str, metric_ids: Sequence[str], scope: Dict[
     out: Dict[str, Dict[Optional[str], Dict[str, Any]]] = {}
     for r in rows:
         out.setdefault(r[0], {})[r[1]] = {
-            "rows": int(r[2]), "n": int(r[3] or 0), "sum_value": r[4], "sum_value_count": r[5],
+            "rows": int(r[2]), "n": _count(r[3]), "sum_value": r[4], "sum_value_count": r[5],
             "sum_sq_levels": r[6], "sum_denominator": r[7], "sum_sq": r[8],
             "sum_sq_missing": bool(r[9]), "levels": {},
         }
     wanted = [m for m in level_metric_ids if m in out]
     if wanted:
         q = _ScopeSQL(experiment_id, wanted, scope)
+        # At most one level more than the limit per group: enough to know the
+        # group has too many, without sending thousands of them.
+        params = dict(q.params, max_levels=kinds.MAX_AGGREGATE_LEVELS + 1)
         rows = conn.execute(
             q.with_sql()
-            + "SELECT m.metric_id::text, m.variant_id::text, m.value, sum(m.count)::bigint "
-            + q.from_sql() + " GROUP BY m.metric_id, m.variant_id, m.value ORDER BY m.value",
-            q.params,
+            + "SELECT metric_id, variant_id, value, units FROM ("
+            "  SELECT m.metric_id::text AS metric_id, m.variant_id::text AS variant_id, "
+            "    m.value AS value, sum(m.count)::float8 AS units, "
+            "    row_number() OVER (PARTITION BY m.metric_id, m.variant_id ORDER BY m.value) AS rn "
+            + q.from_sql() + " GROUP BY m.metric_id, m.variant_id, m.value) lv "
+            "WHERE rn <= %(max_levels)s ORDER BY value",
+            params,
         ).fetchall()
         for r in rows:
             group = out.get(r[0], {}).get(r[1])
-            if group is not None:
-                group["levels"][kinds.level_key(r[2])] = int(r[3])
+            if group is None or group["levels"] is None:
+                continue
+            if len(group["levels"]) >= kinds.MAX_AGGREGATE_LEVELS:
+                group["levels"] = None  # too many distinct values for a distribution
+                continue
+            group["levels"][kinds.level_key(r[2])] = _count(r[3])
     return out
+
+
+def _count(value: Any) -> int:
+    """A count summed as float8 back to int (0 for NULL)."""
+    x = _finite(value)
+    return int(x) if x is not None else 0
 
 
 def _aggregate(kind: str, variant: Optional[str], sums: Dict[str, Any]) -> Dict[str, Any]:
@@ -1457,7 +1574,10 @@ def _aggregate(kind: str, variant: Optional[str], sums: Dict[str, Any]) -> Dict[
         "denominator_sum": _finite(sums["sum_denominator"]) if kind == "ratio" else None,
         "sum_sq": _finite(sum_sq),
         "estimate": None,
-        "levels": dict(sums["levels"]) if kind in kinds.LEVEL_KINDS else None,
+        # None also for a level kind with more than MAX_AGGREGATE_LEVELS
+        # distinct values (an ordinal metric without defined levels).
+        "levels": (dict(sums["levels"]) if kind in kinds.LEVEL_KINDS and sums["levels"] is not None
+                   else None),
     }
     agg["estimate"] = kinds.estimate(kind, agg)
     return agg
@@ -1567,7 +1687,7 @@ def timeseries(conn: Any, experiment_id: str, metric_id: str, *, kind: str, buck
     rows = conn.execute(
         q.with_sql()
         + "SELECT date_trunc(%(bucket)s::text, m.observed_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC', "
-        "  m.variant_id::text, count(*)::int, sum(m.count)::bigint, sum(m.value)::float8, "
+        "  m.variant_id::text, count(*), sum(m.count)::float8, sum(m.value)::float8, "
         "  sum(m.value * m.count)::float8, sum(m.denominator)::float8 "
         + q.from_sql() + " GROUP BY 1, 2 ORDER BY 1 DESC LIMIT %(lim)s",
         params,
@@ -1577,7 +1697,7 @@ def timeseries(conn: Any, experiment_id: str, metric_id: str, *, kind: str, buck
     for r in reversed(rows):
         variant = variants[r[1]][0] if r[1] in variants else None
         value_sum = r[5] if kind == "ordinal" else r[4]
-        agg = {"n": int(r[3] or 0), "value_sum": _finite(value_sum),
+        agg = {"n": _count(r[3]), "value_sum": _finite(value_sum),
                "denominator_sum": _finite(r[6]) if kind == "ratio" else None}
         out.append({
             "bucket_start": iso(r[0]), "variant": variant, "n": agg["n"],
@@ -1618,7 +1738,7 @@ def run_metric_estimates(conn: Any, experiment_id: str, run_ids: Sequence[str]) 
     if not ids:
         return {}
     rows = conn.execute(
-        "SELECT m.run_id::text, mt.key, mt.kind, sum(m.count)::bigint, sum(m.value)::float8, "
+        "SELECT m.run_id::text, mt.key, mt.kind, sum(m.count)::float8, sum(m.value)::float8, "
         "  sum(m.value * m.count)::float8, sum(m.denominator)::float8 "
         "FROM exp_measurements m JOIN exp_metrics mt ON mt.id = m.metric_id "
         "WHERE m.run_id = ANY(%s::uuid[]) AND m.experiment_id = %s "
@@ -1628,7 +1748,7 @@ def run_metric_estimates(conn: Any, experiment_id: str, run_ids: Sequence[str]) 
     out: Dict[str, Dict[str, Any]] = {}
     for r in rows:
         kind = r[2]
-        agg = {"n": int(r[3] or 0), "value_sum": _finite(r[5] if kind == "ordinal" else r[4]),
+        agg = {"n": _count(r[3]), "value_sum": _finite(r[5] if kind == "ordinal" else r[4]),
                "denominator_sum": _finite(r[6])}
         out.setdefault(r[0], {})[r[1]] = kinds.estimate(kind, agg)
     return out
@@ -1756,11 +1876,30 @@ _EVALUATION_SELECT = (
     "SELECT ev.id::text, x.key, x.name, x.language, ev.evaluator_version, mt.key, ev.params, "
     "  ev.scope, ev.trigger, ev.status, ev.output->>'verdict', ev.output->>'headline', "
     "  {output}, ev.error, ev.created_at, ev.finished_at, ev.duration_ms, u.display_name, "
-    "  ev.requested_by IS NOT NULL AND u.id IS NOT NULL {extra} "
+    "  ev.requested_by IS NOT NULL AND u.id IS NOT NULL, {superseded} {extra} "
     "FROM exp_evaluations ev "
     "JOIN exp_evaluators x ON x.id = ev.evaluator_id "
     "LEFT JOIN exp_metrics mt ON mt.id = ev.metric_id "
     "LEFT JOIN users u ON u.id = ev.requested_by "
+)
+
+# An evaluation is superseded when a newer one (created_at, then id) exists in
+# its group: same evaluator, metric, params and scope, in any status. The
+# newest of a group is its current result (a newer queued or failed one makes
+# an older done one history too: it describes data that has changed since or
+# a run that was repeated); find_reusable_evaluation reuses only that one, so
+# what the pipeline returns is never superseded. Both forms below must agree.
+#: For a whole page of evaluations of one experiment.
+_SUPERSEDED_WINDOW = (
+    "(row_number() OVER (PARTITION BY ev.evaluator_id, ev.metric_id, ev.params, ev.scope "
+    "                    ORDER BY ev.created_at DESC, ev.id DESC) > 1)"
+)
+#: For a single evaluation.
+_SUPERSEDED_EXISTS = (
+    "EXISTS (SELECT 1 FROM exp_evaluations nx WHERE nx.experiment_id = ev.experiment_id "
+    "  AND nx.evaluator_id = ev.evaluator_id AND nx.metric_id IS NOT DISTINCT FROM ev.metric_id "
+    "  AND nx.params = ev.params AND nx.scope = ev.scope "
+    "  AND (nx.created_at, nx.id) > (ev.created_at, ev.id))"
 )
 
 
@@ -1775,6 +1914,7 @@ def _evaluation(row: Sequence[Any]) -> Dict[str, Any]:
         "created_at": iso(row[14]), "finished_at": iso(row[15]),
         "duration_ms": int(row[16]) if row[16] is not None else None,
         "requested_by": {"display_name": row[17] or ""} if row[18] else None,
+        "superseded": bool(row[19]),
     }
 
 
@@ -1783,14 +1923,15 @@ def get_evaluation(conn: Any, experiment_id: str, evaluation_id: Any, *,
     ident = canonical_uuid(evaluation_id)
     if ident is None:
         return None
-    sql = _EVALUATION_SELECT.format(output="ev.output", extra=", ev.logs" if with_logs else "")
+    sql = _EVALUATION_SELECT.format(output="ev.output", superseded=_SUPERSEDED_EXISTS,
+                                    extra=", ev.logs" if with_logs else "")
     row = conn.execute(sql + "WHERE ev.experiment_id = %s AND ev.id = %s",
                        (experiment_id, ident)).fetchone()
     if row is None:
         return None
     out = _evaluation(row)
     if with_logs:
-        out["logs"] = row[19]
+        out["logs"] = row[20]
     return out
 
 
@@ -1817,18 +1958,28 @@ def insert_evaluation(conn: Any, *, experiment_id: str, evaluator_id: str, evalu
 def find_reusable_evaluation(conn: Any, *, experiment_id: str, evaluator_id: str, version: int,
                              metric_id: str, params: Dict[str, Any], scope: Dict[str, Any],
                              input_digest: str) -> Optional[str]:
-    """The newest evaluation that ran (or is about to run) on exactly this
-    input: same digest, evaluator version, params and scope."""
+    """The current evaluation of the group (evaluator, metric, params, scope)
+    when it ran -- or is about to run -- on exactly this input: the newest of
+    the group, not failed, with the same digest and evaluator version.
+
+    Only the newest counts. An older evaluation with the same digest (the
+    data went back to an earlier state, e.g. an import was undone) is
+    history: reusing it would leave the evaluation of the removed data the
+    newest one, and that is what the page, the list and Knovas show. A
+    failed newest one is run again rather than hidden behind an older result.
+    """
     row = conn.execute(
-        "SELECT id::text FROM exp_evaluations "
-        "WHERE experiment_id = %s AND evaluator_id = %s AND evaluator_version = %s "
-        "  AND metric_id = %s AND params = %s AND scope = %s AND input_digest = %s "
-        "  AND status IN ('queued', 'running', 'done') "
+        "SELECT id::text, status, evaluator_version, input_digest FROM exp_evaluations "
+        "WHERE experiment_id = %s AND evaluator_id = %s AND metric_id = %s "
+        "  AND params = %s AND scope = %s "
         "ORDER BY created_at DESC, id DESC LIMIT 1",
-        (experiment_id, evaluator_id, int(version), metric_id, _jsonb(params or {}),
-         _jsonb(scope or {}), input_digest),
+        (experiment_id, evaluator_id, metric_id, _jsonb(params or {}), _jsonb(scope or {})),
     ).fetchone()
-    return row[0] if row else None
+    if row is None or row[1] not in ("queued", "running", "done"):
+        return None
+    if int(row[2]) != int(version) or row[3] != input_digest:
+        return None
+    return row[0]
 
 
 def count_done_evaluations(conn: Any, experiment_id: str) -> int:
@@ -1846,7 +1997,7 @@ def get_evaluation_record(conn: Any, evaluation_id: str) -> Optional[Dict[str, A
     row = conn.execute(
         "SELECT ev.id::text, ev.experiment_id::text, e.key, ev.evaluator_id::text, x.key, x.language, "
         "  v.code, ev.evaluator_version, v.params_schema, ev.metric_id::text, ev.params, ev.scope, "
-        "  ev.status, ev.trigger, ev.created_at, x.name "
+        "  ev.status, ev.trigger, ev.created_at, x.name, ev.started_at "
         "FROM exp_evaluations ev "
         "JOIN exp_experiments e ON e.id = ev.experiment_id "
         "JOIN exp_evaluators x ON x.id = ev.evaluator_id "
@@ -1862,8 +2013,24 @@ def get_evaluation_record(conn: Any, evaluation_id: str) -> Optional[Dict[str, A
         "evaluator_key": row[4], "language": row[5], "code": row[6], "version": int(row[7]),
         "params_schema": row[8] or {}, "metric_id": row[9], "params": row[10] or {},
         "scope": row[11] or {}, "status": row[12], "trigger": row[13], "created_at": iso(row[14]),
-        "evaluator_name": row[15],
+        "evaluator_name": row[15], "started_at": iso(row[16]),
     }
+
+
+def seconds_since_first_attempt(conn: Any, evaluation_id: str) -> Optional[float]:
+    """How long ago the evaluation's first attempt started (started_at is kept
+    across retries); None before the first attempt. The runner give-up clock
+    counts from here, not from creation: an evaluation that waited in a long
+    queue has not been failing all that time."""
+    ident = canonical_uuid(evaluation_id)
+    if ident is None:
+        return None
+    row = conn.execute(
+        "SELECT EXTRACT(EPOCH FROM clock_timestamp() - started_at)::float8 "
+        "FROM exp_evaluations WHERE id = %s",
+        (ident,),
+    ).fetchone()
+    return None if row is None or row[0] is None else float(row[0])
 
 
 def _clip_text(text: Any, limit: int) -> Optional[str]:
@@ -1887,9 +2054,11 @@ def _clip_bytes(text: Any, limit: int) -> Optional[str]:
 
 def mark_evaluation(conn: Any, evaluation_id: str, *, status: str, output: Any = None,
                     error: Any = None, logs: Any = None, duration_ms: Any = None) -> None:
-    """Move an evaluation on. 'running' sets started_at; 'done' and 'failed'
+    """Move an evaluation on. 'running' sets started_at on the first attempt
+    (kept across retries: seconds_since_first_attempt); 'done' and 'failed'
     set finished_at (clock time) and touch the experiment's updated_at (its
-    page and Knovas copy change); 'queued' puts it back."""
+    page and Knovas copy change); 'queued' puts it back for another
+    attempt."""
     if status not in ("queued", "running", "done", "failed"):
         raise ValueError(f"unknown evaluation status {status!r}")
     ident = canonical_uuid(evaluation_id)
@@ -1898,9 +2067,9 @@ def mark_evaluation(conn: Any, evaluation_id: str, *, status: str, output: Any =
     sets = ["status = %s"]
     values: List[Any] = [status]
     if status == "running":
-        sets.append("started_at = clock_timestamp()")
+        sets.append("started_at = COALESCE(started_at, clock_timestamp())")
     elif status == "queued":
-        sets += ["started_at = NULL", "finished_at = NULL"]
+        sets.append("finished_at = NULL")
     else:
         sets.append("finished_at = clock_timestamp()")
         sets += ["output = %s", "error = %s", "logs = %s", "duration_ms = %s"]
@@ -1926,15 +2095,20 @@ def mark_evaluation(conn: Any, evaluation_id: str, *, status: str, output: Any =
 
 
 def prune_pipeline_evaluations(conn: Any, experiment_id: str, keep: int = 10) -> int:
-    """Keep the newest ``keep`` done pipeline evaluations per (evaluator,
-    metric, params, scope); delete the older ones."""
+    """Keep the newest ``keep`` done automatic evaluations per (evaluator,
+    metric, params, scope); delete the older ones. Automatic means the
+    pipeline job's ('pipeline') and CI's through the API ('api': a CI job
+    evaluates after every run it logs, and the pipeline job then reuses those
+    evaluations instead of adding its own). Evaluations a person started in
+    the UI ('manual') are all kept. The newest of a group -- the one reuse
+    returns -- is never among the pruned."""
     cur = conn.execute(
         "DELETE FROM exp_evaluations WHERE id IN ("
         "  SELECT id FROM ("
         "    SELECT id, row_number() OVER (PARTITION BY evaluator_id, metric_id, params, scope "
         "                                  ORDER BY created_at DESC, id DESC) AS rn "
         "    FROM exp_evaluations "
-        "    WHERE experiment_id = %s AND trigger = 'pipeline' AND status = 'done') ranked "
+        "    WHERE experiment_id = %s AND trigger IN ('pipeline', 'api') AND status = 'done') ranked "
         "  WHERE rn > %s)",
         (experiment_id, int(keep)),
     )
@@ -2016,10 +2190,13 @@ def load_snapshot_with_definition(conn: Any, key_or_id: str, *, actor: Any = Non
 
     # The window numbers the rows in the same order the query returns them, so
     # only the newest SNAPSHOT_EVALUATION_OUTPUTS outputs are read and sent.
+    # The superseded window runs over all the experiment's evaluations; a row
+    # on the page has every newer row of its group on the page too.
     evaluation_rows = conn.execute(
         _EVALUATION_SELECT.format(
             output=f"CASE WHEN row_number() OVER (ORDER BY ev.created_at DESC, ev.id DESC) "
                    f"<= {SNAPSHOT_EVALUATION_OUTPUTS} THEN ev.output END",
+            superseded=_SUPERSEDED_WINDOW,
             extra="",
         ) + "WHERE ev.experiment_id = %s ORDER BY ev.created_at DESC, ev.id DESC LIMIT %s",
         (eid, SNAPSHOT_EVALUATIONS),
@@ -2095,6 +2272,7 @@ def lookup_by_keys(conn: Any, keys: List[str]) -> Dict[str, Dict[str, Any]]:
         out[r[0]] = {
             "key": r[0], "title": r[1], "hypothesis": r[2], "status": r[3],
             "status_label": schema.state_label({"states": r[10] or []}, r[3]),
+            "status_phase": schema.state_phase({"states": r[10] or []}, r[3]),
             "archived": bool(r[4]), "domain_key": r[5], "domain_name": r[6], "domain_color": r[7],
             "type_name": r[8], "updated_at": iso(r[9]),
         }
@@ -2103,12 +2281,18 @@ def lookup_by_keys(conn: Any, keys: List[str]) -> Dict[str, Dict[str, Any]]:
 
 # -- lists and search ----------------------------------------------------------
 
+# "latest": among the current (not superseded) evaluations of the primary
+# metric, the newest done one with a verdict other than n/a, else the newest
+# done one. Current is decided within the newest LATEST_CANDIDATES of the
+# metric, any status: a row there has every newer row of its group there too.
 _SUMMARY_SQL = (
     "SELECT e.id::text, e.key, e.title, e.status, e.archived, e.tags, e.updated_at, e.index_state, "
     "  d.key, d.name, d.color, t.key, t.name, o.id::text, o.display_name, "
     "  (SELECT s->>'label' FROM jsonb_array_elements(tv.definition->'states') AS s "
     "    WHERE s->>'key' = e.status LIMIT 1), "
-    "  pm.key, pm.name, pm.unit, pm.kind, lat.headline, lat.verdict, lat.finished_at "
+    "  pm.key, pm.name, pm.unit, pm.kind, lat.headline, lat.verdict, lat.finished_at, "
+    "  (SELECT s->>'phase' FROM jsonb_array_elements(tv.definition->'states') AS s "
+    "    WHERE s->>'key' = e.status LIMIT 1) "
     "FROM exp_experiments e "
     "JOIN exp_domains d ON d.id = e.domain_id "
     "JOIN exp_types t ON t.id = e.type_id "
@@ -2118,9 +2302,13 @@ _SUMMARY_SQL = (
     "LEFT JOIN exp_metrics pm ON pm.id = pem.metric_id "
     "LEFT JOIN LATERAL ("
     "  SELECT c.output->>'headline' AS headline, c.output->>'verdict' AS verdict, c.finished_at "
-    "  FROM (SELECT ev.id, ev.output, ev.finished_at, ev.created_at FROM exp_evaluations ev "
-    "        WHERE ev.experiment_id = e.id AND ev.metric_id = pem.metric_id AND ev.status = 'done' "
-    f"        ORDER BY ev.created_at DESC, ev.id DESC LIMIT {LATEST_CANDIDATES}) c "
+    "  FROM (SELECT w.*, row_number() OVER (PARTITION BY w.evaluator_id, w.params, w.scope "
+    "                                       ORDER BY w.created_at DESC, w.id DESC) AS rn "
+    "        FROM (SELECT ev.id, ev.evaluator_id, ev.params, ev.scope, ev.status, ev.output, "
+    "                ev.finished_at, ev.created_at FROM exp_evaluations ev "
+    "              WHERE ev.experiment_id = e.id AND ev.metric_id = pem.metric_id "
+    f"              ORDER BY ev.created_at DESC, ev.id DESC LIMIT {LATEST_CANDIDATES}) w) c "
+    "  WHERE c.rn = 1 AND c.status = 'done' "
     "  ORDER BY (COALESCE(c.output->>'verdict', 'n/a') <> 'n/a') DESC, c.created_at DESC, c.id DESC "
     "  LIMIT 1) lat ON TRUE "
 )
@@ -2132,6 +2320,7 @@ def _summary(row: Sequence[Any]) -> Dict[str, Any]:
         latest = {"headline": row[20], "verdict": row[21], "finished_at": iso(row[22])}
     return {
         "key": row[1], "title": row[2], "status": row[3], "status_label": row[15] or row[3],
+        "status_phase": row[23],
         "archived": bool(row[4]), "tags": list(row[5] or []),
         "domain": {"key": row[8], "name": row[9], "color": row[10]},
         "type": {"key": row[11], "name": row[12]},
@@ -2189,7 +2378,16 @@ def list_summaries(conn: Any, *, domain: Optional[str] = None, status: Optional[
                    words: Sequence[str] = (), tag: Optional[str] = None,
                    include_archived: bool = False, after: Optional[str] = None,
                    limit: int = 50) -> Tuple[List[Dict[str, Any]], Optional[str], int]:
-    """(summaries, next cursor, total) ordered by updated_at DESC, id DESC."""
+    """(summaries, next cursor, total) ordered by updated_at DESC, id DESC.
+
+    Every change bumps an experiment's updated_at, so an experiment changed
+    while someone pages through the list jumps above the cursor, where no
+    later page would reach it. The cursor therefore also carries when its
+    page was served (less LIST_CHANGE_MARGIN_SECONDS), and the next page adds
+    -- after its own items, flagged ``"moved": True`` -- the experiments above
+    the cursor changed since then (at most ``limit``). One of them may
+    already be on an earlier page: clients merge items by key.
+    """
     params: Dict[str, Any] = {}
     where: List[str] = []
     if domain:
@@ -2209,11 +2407,25 @@ def list_summaries(conn: Any, *, domain: Optional[str] = None, status: Optional[
         "SELECT count(*)::int FROM exp_experiments e JOIN exp_domains d ON d.id = e.domain_id "
         + base_where, params,
     ).fetchone()[0]
+    # Taken before the page is read: whatever commits after this moment is
+    # newer than the next cursor's as_of and comes along with the next page.
+    as_of = conn.execute("SELECT clock_timestamp() - make_interval(secs => %s)",
+                         (float(LIST_CHANGE_MARGIN_SECONDS),)).fetchone()[0]
     page_where = list(where)
+    moved_rows: List[Any] = []
     if after:
-        moment, ident = decode_cursor(after)
-        page_where.append("(e.updated_at, e.id) < (%(c_at)s, %(c_id)s::uuid)")
+        moment, ident, since = decode_cursor_parts(after)
         params.update(c_at=moment, c_id=ident)
+        if since is not None:
+            params.update(c_since=since, moved_lim=int(limit))
+            moved_rows = conn.execute(
+                _SUMMARY_SQL + "WHERE " + " AND ".join(
+                    where + ["(e.updated_at, e.id) > (%(c_at)s, %(c_id)s::uuid)",
+                             "e.updated_at > %(c_since)s"])
+                + " ORDER BY e.updated_at DESC, e.id DESC LIMIT %(moved_lim)s",
+                params,
+            ).fetchall()
+        page_where.append("(e.updated_at, e.id) < (%(c_at)s, %(c_id)s::uuid)")
     params["lim"] = int(limit) + 1
     rows = conn.execute(
         _SUMMARY_SQL + (("WHERE " + " AND ".join(page_where) + " ") if page_where else "")
@@ -2222,11 +2434,14 @@ def list_summaries(conn: Any, *, domain: Optional[str] = None, status: Optional[
     ).fetchall()
     more = len(rows) > limit
     rows = rows[:limit]
-    items = [_summary(r) for r in rows]
-    violations = guardrail_violations(conn, [r[0] for r in rows])
-    for row, item in zip(rows, items):
+    shown = {r[0] for r in rows}
+    moved_rows = [r for r in moved_rows if r[0] not in shown]
+    items = [_summary(r) for r in rows] + [dict(_summary(r), moved=True) for r in moved_rows]
+    all_rows = rows + moved_rows
+    violations = guardrail_violations(conn, [r[0] for r in all_rows])
+    for row, item in zip(all_rows, items):
         item["guardrail_violations"] = violations.get(row[0], 0)
-    next_after = encode_cursor(rows[-1][6], rows[-1][0]) if more and rows else None
+    next_after = encode_cursor(rows[-1][6], rows[-1][0], as_of) if more and rows else None
     return items, next_after, int(total)
 
 
@@ -2283,7 +2498,10 @@ def set_index_state(conn: Any, experiment_id: str, state: str, error: Optional[s
                     if_updated_at: Optional[str] = None) -> None:
     """Record where the Knovas copy stands; touches neither updated_at nor
     row_version. 'indexed' sets indexed_at and is skipped when
-    ``if_updated_at`` no longer matches (a newer edit keeps 'pending')."""
+    ``if_updated_at`` no longer matches (a newer edit keeps 'pending').
+    ``error`` is kept for 'error' and for 'off' (purge-index passes
+    INDEX_OFF_PURGED); 'off' without it means "indexing was switched off",
+    which maintenance uploads again once it is back on."""
     if state not in labels.INDEX_STATE_LABELS:
         raise ValueError(f"unknown index state {state!r}")
     ident = canonical_uuid(experiment_id)
@@ -2299,18 +2517,22 @@ def set_index_state(conn: Any, experiment_id: str, state: str, error: Optional[s
                           else str(if_updated_at))
         conn.execute(sql, params)
         return
-    message = _clip_text(error, MAX_INDEX_ERROR_CHARS) if state == "error" else None
+    message = _clip_text(error, MAX_INDEX_ERROR_CHARS) if state in ("error", "off") else None
     conn.execute(
         "UPDATE exp_experiments SET index_state = %s, index_error = %s WHERE id = %s",
         (state, message, ident),
     )
 
 
-def set_all_index_states(conn: Any, state: str) -> int:
+def set_all_index_states(conn: Any, state: str, error: Optional[str] = None) -> int:
+    """Every experiment to ``state`` (not 'indexed'); ``error`` as in
+    set_index_state. Rows already in the state get the new message too."""
     if state not in labels.INDEX_STATE_LABELS or state == "indexed":
         raise ValueError(f"state {state!r} cannot be set for every experiment")
-    cur = conn.execute("UPDATE exp_experiments SET index_state = %s, index_error = NULL "
-                       "WHERE index_state <> %s", (state, state))
+    message = _clip_text(error, MAX_INDEX_ERROR_CHARS) if state in ("error", "off") else None
+    cur = conn.execute("UPDATE exp_experiments SET index_state = %s, index_error = %s "
+                       "WHERE index_state <> %s OR index_error IS DISTINCT FROM %s",
+                       (state, message, state, message))
     return max(0, int(cur.rowcount or 0))
 
 
@@ -2343,7 +2565,12 @@ def index_documents(conn: Any, after: Optional[str] = None, limit: int = 500) ->
 
 def experiments_for_reindex(conn: Any, *, domain_id: Optional[str] = None,
                             type_id: Optional[str] = None,
-                            states: Optional[Sequence[str]] = None) -> List[str]:
+                            states: Optional[Sequence[str]] = None,
+                            switched_off: bool = False) -> List[str]:
+    """Experiment ids, newest change first. ``states`` limits them to those
+    index states; ``switched_off`` adds the ones turned 'off' while indexing
+    was switched off (index_error NULL, unlike after purge-index): their
+    Knovas copy is missing or stale once indexing is back on."""
     where: List[str] = []
     params: List[Any] = []
     if domain_id is not None:
@@ -2352,9 +2579,14 @@ def experiments_for_reindex(conn: Any, *, domain_id: Optional[str] = None,
     if type_id is not None:
         where.append("type_id = %s")
         params.append(type_id)
-    if states is not None:
-        where.append("index_state = ANY(%s::text[])")
-        params.append([str(s) for s in states])
+    if states is not None or switched_off:
+        tests = []
+        if states is not None:
+            tests.append("index_state = ANY(%s::text[])")
+            params.append([str(s) for s in states])
+        if switched_off:
+            tests.append("(index_state = 'off' AND index_error IS NULL)")
+        where.append("(" + " OR ".join(tests) + ")")
     sql = "SELECT id::text FROM exp_experiments"
     if where:
         sql += " WHERE " + " AND ".join(where)

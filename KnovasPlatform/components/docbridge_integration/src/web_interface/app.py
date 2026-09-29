@@ -19,7 +19,7 @@ from flask import Flask, render_template, request, jsonify, send_file, session, 
 from flask_cors import CORS
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import subprocess
 import platform
 import re
@@ -1270,7 +1270,17 @@ def create_app(config_path: Optional[str] = None):
         from identity.principal import ClientAssertedGroupsError, PrincipalBroker
 
         try:
-            PrincipalBroker.reject_client_assertion(request.get_json(silent=True))
+            body = request.get_json(silent=True)
+        except RecursionError:
+            # silent=True swallows ValueError only. A body nested deeper than
+            # the parser's recursion limit is just as unreadable, and it is
+            # the caller's fault, not a 500 with a traceback in the log.
+            logger.info("Refused a JSON body nested too deeply: %s %s",
+                        request.method, request.path)
+            return jsonify({'success': False,
+                            'error': 'Die Anfrage ist kein g\u00fcltiges JSON.'}), 400
+        try:
+            PrincipalBroker.reject_client_assertion(body)
         except ClientAssertedGroupsError as exc:
             return jsonify({'success': False, 'error': str(exc)}), 400
         return None
@@ -1835,7 +1845,8 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'error': 'Query parameter required'}), 400
             
             query = data['query']
-            limit = data.get('limit', config.get_int('web.search.results_per_page', 20))
+            limit = _search_page_limit(
+                data.get('limit'), config.get_int('web.search.results_per_page', 20))
             filters = data.get('filters', {})
             
             logger.info(f"Search request: query='{query}', limit={limit}")
@@ -1851,23 +1862,31 @@ def create_app(config_path: Optional[str] = None):
             use_test_results = _search_use_test_results()
             if use_test_results:
                 logger.info("Search using local test fixtures (SEARCH_USE_TEST_RESULTS=true)")
-                results = _build_test_search_results(query=query, limit=limit)
+
+                def ask(n: int) -> Dict[str, Any]:
+                    return _build_test_search_results(query=query, limit=n)
             else:
                 # exact_match is decided here, after Knovas answers -- it is not
                 # something /secured/query knows about. Forwarding it would put
                 # an unknown key in the request body and a warning in the log on
                 # every single search.
-                results = api_client.search_documents(
-                    query=query, limit=limit,
-                    filters={k: v for k, v in (filters or {}).items()
-                             if k not in _LOCAL_ONLY_FILTERS},
-                )
+                knovas_filters = {k: v for k, v in (filters or {}).items()
+                                  if k not in _LOCAL_ONLY_FILTERS}
+
+                def ask(n: int) -> Dict[str, Any]:
+                    return api_client.search_documents(
+                        query=query, limit=n, filters=knovas_filters)
 
             # Experiment documents (Experimente) are taken out for everyone,
             # with the module on or off, pointers in the semantix block
             # included. They come back further down as experiment rows, and
-            # only for people allowed to see them.
-            results, experiment_hits = experiments_search.split(results)
+            # only for people allowed to see them. Knovas is asked for more
+            # than the page, so the places they held go to the documents
+            # ranked below them rather than being lost; the documents are cut
+            # back to the page here, before anything is granted. The local
+            # fixtures hold no experiment documents and are asked as they are.
+            results, experiment_hits, has_more = _fetch_search_page(
+                ask, experiments_search.split, limit, over_fetch=not use_test_results)
 
             is_test_data = use_test_results or (
                 isinstance(results.get('semantix'), dict)
@@ -1953,6 +1972,8 @@ def create_app(config_path: Optional[str] = None):
             if experiment_rows:
                 experiment_rows = _apply_search_refinement(
                     {'results': experiment_rows}, query, filters, config)['results']
+                if len(final_results) + len(experiment_rows) > limit:
+                    has_more = True
                 final_results = _merge_experiment_rows(final_results, experiment_rows, limit)
 
             # Whether the words the person typed actually occur in anything we
@@ -1988,6 +2009,10 @@ def create_app(config_path: Optional[str] = None):
                         'web.search.strict_match_min_term_length', 2))
                 ),
                 'total': len(final_results),
+                # Whether a larger limit could show more. Not the same as
+                # "the page is full": experiment hits and the refinement take
+                # rows out after Knovas answered.
+                'has_more': bool(has_more),
                 'timestamp': datetime.now().isoformat(),
                 'onedrive_enrichment_loaded': enrichment_loaded,
                 'location_summary': _build_location_summary(final_results),
@@ -3070,6 +3095,147 @@ def _apply_search_refinement(
     refined['results'] = out
     refined['total'] = len(out)
     return refined
+
+
+#: /api/search asks Knovas for this many hits more than the page shows (at
+#: most as many again as the page itself). Experiment hits are taken out of
+#: every answer and come back only for people allowed to see them; without
+#: the margin every experiment Knovas ranked into the page would leave the
+#: page one document short, and "Mehr laden" (offered for a full page only)
+#: would disappear with it.
+SEARCH_FETCH_MARGIN = 20
+#: The most /api/search asks Knovas for to make room -- the ceiling the
+#: module's own search uses as well (ExperimentService.search). A page
+#: larger than this is asked for as it is.
+SEARCH_FETCH_CEILING = 200
+
+
+def _search_page_limit(raw: Any, default: Any) -> int:
+    """The page size a search asked for: a whole number of at least 1, the
+    configured default when it is missing or not a number."""
+    try:
+        fallback = max(1, int(default))
+    except (TypeError, ValueError, OverflowError):
+        fallback = 20
+    if raw is None or isinstance(raw, bool):
+        return fallback
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+
+
+def _search_fetch_size(page_limit: int) -> int:
+    """How many hits to ask Knovas for, for a page of ``page_limit``."""
+    margin = min(page_limit, SEARCH_FETCH_MARGIN)
+    return max(page_limit, min(SEARCH_FETCH_CEILING, page_limit + margin))
+
+
+def _search_hit_count(answer: Any) -> int:
+    if not isinstance(answer, dict):
+        return 0
+    rows = answer.get('results')
+    return len(rows) if isinstance(rows, list) else 0
+
+
+def _search_pointer_name(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    name = value.strip().lstrip('/')
+    return name or None
+
+
+def _search_row_pointer_names(row: Any) -> set:
+    if not isinstance(row, dict):
+        return set()
+    names = (_search_pointer_name(row.get(f)) for f in ('doc_id', 'path', 'pointer', 'identifier'))
+    return {name for name in names if name}
+
+
+def _search_semantix_entry_names(entry: Any) -> set:
+    if isinstance(entry, dict):
+        names = (_search_pointer_name(entry.get(f)) for f in ('pointer', 'identifier', 'doc_id'))
+        return {name for name in names if name}
+    name = _search_pointer_name(entry)
+    return {name} if name else set()
+
+
+def _cut_search_page(answer: Any, page_limit: int) -> Tuple[Any, bool]:
+    """``answer`` with at most ``page_limit`` result rows, and whether any
+    were cut. The semantix block loses the pointers of the rows cut, and its
+    result_count as many, the way SearchIntegration.split treats the
+    experiment hits it takes out. The input is not changed."""
+    if not isinstance(answer, dict):
+        return answer, False
+    rows = answer.get('results')
+    if not isinstance(rows, list) or len(rows) <= page_limit:
+        return answer, False
+    kept, cut = rows[:page_limit], rows[page_limit:]
+    out = dict(answer)
+    out['results'] = kept
+    if 'total' in answer:
+        out['total'] = len(kept)
+    semantix = answer.get('semantix')
+    if isinstance(semantix, dict):
+        meta = dict(semantix)
+        removed = len(cut)
+        pointers = semantix.get('pointers')
+        if isinstance(pointers, list):
+            kept_names: set = set()
+            for row in kept:
+                kept_names |= _search_row_pointer_names(row)
+            cut_names: set = set()
+            for row in cut:
+                cut_names |= _search_row_pointer_names(row)
+            cut_names -= kept_names
+            remaining = [p for p in pointers if not (_search_semantix_entry_names(p) & cut_names)]
+            removed = len(pointers) - len(remaining)
+            meta['pointers'] = remaining
+        count = semantix.get('result_count')
+        if isinstance(count, int) and not isinstance(count, bool):
+            meta['result_count'] = max(0, count - removed)
+        out['semantix'] = meta
+    return out, True
+
+
+def _fetch_search_page(
+    ask: Callable[[int], Any],
+    split: Callable[[Any], Tuple[Any, List[Dict[str, Any]]]],
+    page_limit: int,
+    *,
+    over_fetch: bool = True,
+) -> Tuple[Any, List[Dict[str, Any]], bool]:
+    """One page of document hits for /api/search, experiment hits taken out.
+
+    ``ask(n)`` is the search answer for ``n`` hits; ``split`` is
+    SearchIntegration.split. Asking for exactly the page would leave it short
+    by every experiment hit ``split`` takes out, for everyone who does not
+    see experiments. So Knovas is asked for a margin more, and once more for
+    twice as many when that was not enough and Knovas had that many; the
+    document hits are then cut back to the page. A failed second question
+    keeps the first answer.
+
+    Returns ``(answer, experiment_hits, has_more)``: the answer holds at most
+    ``page_limit`` document hits, the experiment hits are all that came back,
+    and ``has_more`` says whether Knovas may hold more than the page shows
+    (it filled the question, or documents were cut).
+    """
+    fetch = _search_fetch_size(page_limit) if over_fetch else page_limit
+    answer, hits = split(ask(fetch))
+    returned = _search_hit_count(answer) + len(hits)
+    if (over_fetch and hits and _search_hit_count(answer) < page_limit
+            and returned >= fetch and fetch < SEARCH_FETCH_CEILING):
+        wider = min(SEARCH_FETCH_CEILING, fetch * 2)
+        try:
+            wider_answer, wider_hits = split(ask(wider))
+        except Exception as exc:  # noqa: BLE001 - the first answer still stands
+            logger.warning("Second search question (%d hits) failed, keeping the first: %s",
+                           wider, exc)
+        else:
+            answer, hits, fetch = wider_answer, wider_hits, wider
+            returned = _search_hit_count(answer) + len(hits)
+    answer, cut = _cut_search_page(answer, page_limit)
+    return answer, hits, bool(cut or returned >= fetch)
 
 
 def _merge_experiment_rows(

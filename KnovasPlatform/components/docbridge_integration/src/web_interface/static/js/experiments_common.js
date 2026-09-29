@@ -23,6 +23,11 @@
     const SVG_NS = 'http://www.w3.org/2000/svg';
     /** Kategoriale Reihenfarben (CSS-Klassen kx-s1..kx-s8), feste Reihenfolge. */
     const SERIES_SLOTS = 8;
+    /** Breite eines Verlaufs in CSS-Pixeln: gezeichnet wird in der Breite des
+        Rahmens, zwischen diesen Grenzen (820 wie .kx-chart-frame max-width). */
+    const CHART_MIN_WIDTH = 240;
+    const CHART_MAX_WIDTH = 820;
+    const CHART_DEFAULT_WIDTH = 640;
 
     /** Fallback-Beschriftungen, bis meta() die Serverfassung liefert
         (experiments/labels.py ist die Quelle). */
@@ -51,6 +56,8 @@
         },
         index_states: { pending: 'ausstehend', indexed: 'aktuell', error: 'Fehler', off: 'aus' },
         sources: { manual: 'von Hand', api: 'API', csv: 'CSV' },
+        /** Phasen der Zustaende eines Typs (schema.PHASES), fuer Menschen. */
+        phases: { running: 'läuft', decided: 'entschieden', stopped: 'abgebrochen' },
     };
 
     // ── Anfragen ────────────────────────────────────────────────────────
@@ -162,6 +169,25 @@
     function errorMessage(err) {
         if (err && err.name === 'ApiError' && err.message) return err.message;
         return 'Das hat nicht geklappt. Bitte erneut versuchen.';
+    }
+
+    /**
+     * Zeilen einer Sammelmeldung: die Meldung des Fehlers, dann die
+     * Feldfehler, die keiner Zeile zugeordnet werden konnten (aus
+     * showFieldErrors, "schluessel: Text"). Ein Feldfehler, dessen Text schon
+     * in der Meldung steht, faellt weg -- der Server wiederholt den ersten
+     * Feldfehler in der Meldung ("«Varianten»: Die Zuteilungen ..."), und ein
+     * interner Schluessel davor hilft niemandem.
+     */
+    function errorLines(err, unmatched) {
+        const head = errorMessage(err);
+        const rest = (Array.isArray(unmatched) ? unmatched : []).filter((line) => {
+            const text = String(line);
+            const cut = text.indexOf(': ');
+            const message = (cut === -1 ? text : text.slice(cut + 2)).trim().replace(/\.$/, '');
+            return Boolean(message) && head.indexOf(message) === -1;
+        });
+        return [head].concat(rest);
     }
 
     let metaPromise = null;
@@ -570,26 +596,45 @@
     }
 
     /**
+     * Namen, unter denen eine Formularzeile den Feldfehler `key` tragen kann,
+     * vom genauesten zum groebsten: der ganze Pfad, ohne Praefix
+     * fields./definition./data., das letzte Glied ("rows.0.value" -> "value"),
+     * dann die kuerzeren Anfaenge des Pfads ("params.alpha" -> "params").
+     */
+    function fieldCandidates(key) {
+        const parts = key.split('.');
+        const out = [key, key.replace(/^(fields|definition|data)\./, ''), parts[parts.length - 1]];
+        for (let n = parts.length - 1; n >= 1; n -= 1) out.push(parts.slice(0, n).join('.'));
+        return out.filter((c, i) => c && out.indexOf(c) === i);
+    }
+
+    /**
      * Feldfehler des Servers an die passenden Zeilen haengen. Liefert die
      * Meldungen, die keiner Zeile zugeordnet werden konnten (fuer eine
-     * Sammelmeldung). Pfade wie "fields.channel" oder "rows.0.value" treffen
-     * auch eine Zeile namens "channel" bzw. "value".
+     * Sammelmeldung). Gesucht wird der genaueste Name zuerst (fieldCandidates);
+     * trifft nur ein Anfang des Pfads, steht der Rest vor der Meldung
+     * ("params.alpha" an der Zeile "params": "alpha: Darf hoechstens ...").
      */
     function showFieldErrors(container, fields) {
         const unmatched = [];
         if (!fields || typeof fields !== 'object') return unmatched;
         const rows = container ? Array.from(container.querySelectorAll('.kx-field[data-field]')) : [];
+        const namesOf = (r) => (r.dataset.field || '').split(' ');
         for (const key of Object.keys(fields)) {
             const message = String(fields[key]);
-            const candidates = [key, key.replace(/^(fields|definition|data)\./, ''),
-                key.split('.').pop()];
-            const row = rows.find((r) => {
-                const names = (r.dataset.field || '').split(' ');
-                return candidates.some((c) => c && names.indexOf(c) !== -1);
-            });
+            let row = null;
+            let via = null;
+            for (const candidate of fieldCandidates(key)) {
+                row = rows.find((r) => namesOf(r).indexOf(candidate) !== -1) || null;
+                if (row) {
+                    via = candidate;
+                    break;
+                }
+            }
             if (row) {
+                const text = key.indexOf(`${via}.`) === 0 ? `${key.slice(via.length + 1)}: ${message}` : message;
                 const slot = row.querySelector('.kx-field-error');
-                if (slot) slot.textContent = slot.textContent ? `${slot.textContent} ${message}` : message;
+                if (slot) slot.textContent = slot.textContent ? `${slot.textContent} ${text}` : text;
                 const control = row.querySelector('input, select, textarea');
                 if (control) control.setAttribute('aria-invalid', 'true');
             } else {
@@ -792,13 +837,18 @@
                     finish(action.value !== undefined ? action.value : (result === undefined ? true : result));
                 } catch (err) {
                     setBusy(false);
-                    const unmatched = showFieldErrors(body, err && err.fields);
-                    const lines = [errorMessage(err)].concat(unmatched);
+                    const fields = err && err.fields && typeof err.fields === 'object' ? err.fields : {};
+                    const unmatched = showFieldErrors(body, fields);
+                    const lines = errorLines(err, unmatched);
+                    // Steht die Meldung schon woertlich an ihrem Feld, nicht noch
+                    // einmal unten wiederholen.
+                    const onlyAtField = !unmatched.length
+                        && Object.keys(fields).some((k) => String(fields[k]) === lines[0]);
                     clear(errorBox);
                     lines.forEach((line, i) => {
                         errorBox.appendChild(el('p', { class: i ? 'kx-dialog-error-detail' : null, text: line }));
                     });
-                    errorBox.hidden = false;
+                    errorBox.hidden = onlyAtField;
                     const invalid = body.querySelector('[aria-invalid="true"]');
                     if (invalid) invalid.focus();
                 }
@@ -979,6 +1029,62 @@
         return node;
     }
 
+    // ── Auswertungen ────────────────────────────────────────────────────
+
+    /** JSON mit sortierten Schluesseln: {b: 1, a: 2} und {a: 2, b: 1} ergeben
+        denselben Text (wie jsonb auf dem Server). */
+    function canonicalJson(value) {
+        if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+        if (value && typeof value === 'object') {
+            return `{${Object.keys(value).sort()
+                .map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+        }
+        return JSON.stringify(value === undefined ? null : value);
+    }
+
+    /** Gruppe einer Auswertung: derselbe Auswerter auf dieselbe Metrik mit
+        denselben Parametern und demselben Datenbereich. */
+    function evaluationGroupKey(ev) {
+        const e = ev || {};
+        return [String(e.evaluator_key || ''), String(e.metric_key || ''),
+            canonicalJson(e.params || {}), canonicalJson(e.scope || {})].join('|');
+    }
+
+    /**
+     * Aktuelle und ueberholte Auswertungen trennen. Ueberholt ist eine
+     * Auswertung, wenn es in ihrer Gruppe eine neuere gibt (created_at, in
+     * jedem Status) -- sie beschreibt Daten, die sich seither geaendert
+     * haben, oder einen wiederholten Lauf. Der Server sagt das mit
+     * ev.superseded; fehlt die Angabe, wird sie hier bestimmt. Beide Listen
+     * behalten die Reihenfolge der Eingabe.
+     * @returns {{current: object[], earlier: object[]}}
+     */
+    function splitEvaluations(list) {
+        const items = (Array.isArray(list) ? list : []).filter((e) => e && typeof e === 'object');
+        let superseded;
+        if (items.every((e) => typeof e.superseded === 'boolean')) {
+            superseded = new Set(items.filter((e) => e.superseded));
+        } else {
+            superseded = new Set();
+            const seen = new Set();
+            const time = (e) => {
+                const t = Date.parse(e.created_at);
+                return Number.isFinite(t) ? t : 0;
+            };
+            // Stabil sortiert: bei gleicher Zeit gilt die Reihenfolge des
+            // Servers (created_at DESC, id DESC -- genauer als Millisekunden).
+            items.slice().sort((a, b) => time(b) - time(a)).forEach((e) => {
+                const key = evaluationGroupKey(e);
+                if (seen.has(key)) superseded.add(e);
+                else seen.add(key);
+            });
+        }
+        return {
+            current: items.filter((e) => !superseded.has(e)),
+            earlier: items.filter((e) => superseded.has(e)),
+        };
+    }
+
     // ── Diagramme ───────────────────────────────────────────────────────
 
     /**
@@ -1126,11 +1232,6 @@
         const isMonth = o.bucket === 'month';
         const seriesName = (k) => (k === '' ? 'ohne Variante' : (names[k] || k));
         const fmtY = (v, d) => fmtEstimate(o.kind, v, o.unit, d);
-        const width = 640;
-        const height = 220;
-        const m = { left: 64, right: 16, top: 14, bottom: 30 };
-        const plotW = width - m.left - m.right;
-        const plotH = height - m.top - m.bottom;
         let yMin = Math.min(...values);
         let yMax = Math.max(...values);
         if (yMin === yMax) {
@@ -1143,73 +1244,106 @@
         yMax = Math.ceil(yMax / step) * step;
         if (o.kind === 'proportion') yMin = Math.max(0, yMin);
         const tickDecimals = decimalsForStep(o.kind === 'proportion' ? step * 100 : step);
-        const xOf = (i) => m.left + (bucketTimes.length === 1 ? plotW / 2 : (i / (bucketTimes.length - 1)) * plotW);
-        const yOf = (v) => m.top + plotH - ((v - yMin) / (yMax - yMin || 1)) * plotH;
-        const chartLabel = o.label || 'Verlauf je Variante';
-        const svg = svgEl('svg', {
-            class: 'kx-linechart', viewBox: `0 0 ${width} ${height}`, role: 'img',
-            'aria-label': chartLabel, preserveAspectRatio: 'xMidYMid meet', focusable: 'false',
-        }, svgEl('title', null, chartLabel));
-        const grid = svgEl('g', { class: 'kx-chart-grid' });
         const tickCount = Math.min(12, Math.round((yMax - yMin) / step));
+        const yTicks = [];
         for (let i = 0; i <= tickCount; i += 1) {
             const v = yMin + i * step;
-            const y = yOf(v);
-            grid.appendChild(svgEl('line', { x1: m.left, x2: width - m.right, y1: y, y2: y }));
-            grid.appendChild(svgEl('text', {
-                class: 'kx-chart-tick', x: m.left - 8, y: y + 4, 'text-anchor': 'end',
-            }, fmtY(v, tickDecimals)));
+            yTicks.push({ v, text: fmtY(v, tickDecimals) });
         }
-        svg.appendChild(grid);
-        // Hoechstens sechs Datumsbeschriftungen; die letzte steht immer, und
-        // eine davor, die ihr zu nahe kaeme, faellt weg statt zu ueberlappen.
-        const labelEvery = Math.max(1, Math.ceil(bucketTimes.length / 6));
-        const last = bucketTimes.length - 1;
-        const labelled = [];
-        for (let i = 0; i <= last; i += labelEvery) labelled.push(i);
-        if (labelled[labelled.length - 1] !== last) {
-            if (last - labelled[labelled.length - 1] < labelEvery / 2 && labelled.length > 1) labelled.pop();
-            labelled.push(last);
-        }
-        const xAxis = svgEl('g', { class: 'kx-chart-xaxis' });
-        labelled.forEach((i) => {
-            xAxis.appendChild(svgEl('text', {
-                class: 'kx-chart-tick', x: xOf(i), y: height - 8, 'text-anchor': 'middle',
-            }, fmtDateUTC(new Date(bucketTimes[i]).toISOString(), isMonth)));
-        });
-        svg.appendChild(xAxis);
-        const crosshair = svgEl('line', {
-            class: 'kx-chart-crosshair', x1: 0, x2: 0, y1: m.top, y2: m.top + plotH, visibility: 'hidden',
-        });
-        svg.appendChild(crosshair);
+        // Platz links fuer die laengste Achsenbeschriftung (11px-Ziffern sind
+        // etwa 6,4px breit), statt fester 64px, die lange Werte abschneiden.
+        const longestTick = Math.max(...yTicks.map((t) => t.text.length));
+        const chartLabel = o.label || 'Verlauf je Variante';
         const pointText = (k, t, r) => `${seriesName(k)} · ${fmtDateUTC(new Date(t).toISOString(), isMonth)}: `
             + `${fmtY(r.estimate, o.decimals)} (n = ${fmtNumber(r.n, 0)})`;
-        plotted.forEach((k) => {
-            const cls = `kx-s${slots[k]}`;
-            const byTime = groups.get(k);
-            let d = '';
-            let open = false;
-            bucketTimes.forEach((t, i) => {
-                const r = byTime.get(t);
-                const v = r ? finite(r.estimate) : null;
-                if (v === null) {
-                    open = false;
-                    return;
-                }
-                d += `${open ? 'L' : 'M'}${xOf(i).toFixed(1)} ${yOf(v).toFixed(1)} `;
-                open = true;
+
+        // Das SVG wird in der Breite gezeichnet, die es auf der Seite hat: eine
+        // Einheit ist ein CSS-Pixel, die 11px-Beschriftung bleibt 11px, auch
+        // auf dem Telefon (frueher skalierte ein festes 640er-viewBox sie auf
+        // etwa 5px). Aendert sich die Breite, wird neu gezeichnet.
+        let width = 0;
+        let xOf = null;
+        let crosshair = null;
+
+        function build(requested) {
+            width = Math.max(CHART_MIN_WIDTH, Math.min(CHART_MAX_WIDTH, Math.round(requested)));
+            // Die Hoehe waechst mit der Breite wie frueher (640 x 220), aber
+            // nie unter 200px -- sonst wird der Verlauf auf dem Telefon flach.
+            const height = Math.max(200, Math.min(282, Math.round(width * 220 / 640)));
+            const m = {
+                left: Math.max(40, Math.min(96, Math.ceil(longestTick * 6.4) + 14)),
+                right: 16, top: 14, bottom: 30,
+            };
+            const plotW = width - m.left - m.right;
+            const plotH = height - m.top - m.bottom;
+            const xAt = (i) => m.left + (bucketTimes.length === 1 ? plotW / 2 : (i / (bucketTimes.length - 1)) * plotW);
+            const yAt = (v) => m.top + plotH - ((v - yMin) / (yMax - yMin || 1)) * plotH;
+            xOf = xAt;
+            const node = svgEl('svg', {
+                class: 'kx-linechart', viewBox: `0 0 ${width} ${height}`, width, height, role: 'img',
+                'aria-label': chartLabel, preserveAspectRatio: 'xMidYMid meet', focusable: 'false',
+            }, svgEl('title', null, chartLabel));
+            const grid = svgEl('g', { class: 'kx-chart-grid' });
+            yTicks.forEach((tick) => {
+                const y = yAt(tick.v);
+                grid.appendChild(svgEl('line', { x1: m.left, x2: width - m.right, y1: y, y2: y }));
+                grid.appendChild(svgEl('text', {
+                    class: 'kx-chart-tick', x: m.left - 8, y: y + 4, 'text-anchor': 'end',
+                }, tick.text));
             });
-            if (d) svg.appendChild(svgEl('path', { class: `kx-line ${cls}`, d: d.trim() }));
-            bucketTimes.forEach((t, i) => {
-                const r = byTime.get(t);
-                const v = r ? finite(r.estimate) : null;
-                if (v === null) return;
-                svg.appendChild(svgEl('circle', { class: `kx-marker ${cls}`, cx: xOf(i), cy: yOf(v), r: 4 }));
-                svg.appendChild(svgEl('circle', {
-                    class: 'kx-hit', cx: xOf(i), cy: yOf(v), r: 12,
-                }, svgEl('title', null, pointText(k, t, r))));
+            node.appendChild(grid);
+            // Eine Datumsbeschriftung je gut 90px (etwa drei auf dem Telefon,
+            // sechs auf dem Desktop); die letzte steht immer, und eine davor,
+            // die ihr zu nahe kaeme, faellt weg statt zu ueberlappen.
+            const labelEvery = Math.max(1, Math.ceil(bucketTimes.length / Math.max(2, Math.floor(plotW / 90))));
+            const last = bucketTimes.length - 1;
+            const labelled = [];
+            for (let i = 0; i <= last; i += labelEvery) labelled.push(i);
+            if (labelled[labelled.length - 1] !== last) {
+                if (last - labelled[labelled.length - 1] < labelEvery / 2 && labelled.length > 1) labelled.pop();
+                labelled.push(last);
+            }
+            const xAxis = svgEl('g', { class: 'kx-chart-xaxis' });
+            labelled.forEach((i) => {
+                xAxis.appendChild(svgEl('text', {
+                    class: 'kx-chart-tick', x: xAt(i), y: height - 8, 'text-anchor': 'middle',
+                }, fmtDateUTC(new Date(bucketTimes[i]).toISOString(), isMonth)));
             });
-        });
+            node.appendChild(xAxis);
+            crosshair = svgEl('line', {
+                class: 'kx-chart-crosshair', x1: 0, x2: 0, y1: m.top, y2: m.top + plotH, visibility: 'hidden',
+            });
+            node.appendChild(crosshair);
+            plotted.forEach((k) => {
+                const cls = `kx-s${slots[k]}`;
+                const byTime = groups.get(k);
+                let d = '';
+                let open = false;
+                bucketTimes.forEach((t, i) => {
+                    const r = byTime.get(t);
+                    const v = r ? finite(r.estimate) : null;
+                    if (v === null) {
+                        open = false;
+                        return;
+                    }
+                    d += `${open ? 'L' : 'M'}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)} `;
+                    open = true;
+                });
+                if (d) node.appendChild(svgEl('path', { class: `kx-line ${cls}`, d: d.trim() }));
+                bucketTimes.forEach((t, i) => {
+                    const r = byTime.get(t);
+                    const v = r ? finite(r.estimate) : null;
+                    if (v === null) return;
+                    node.appendChild(svgEl('circle', { class: `kx-marker ${cls}`, cx: xAt(i), cy: yAt(v), r: 4 }));
+                    node.appendChild(svgEl('circle', {
+                        class: 'kx-hit', cx: xAt(i), cy: yAt(v), r: 12,
+                    }, svgEl('title', null, pointText(k, t, r))));
+                });
+            });
+            return node;
+        }
+
+        let svg = build(CHART_DEFAULT_WIDTH);
         const tooltip = el('div', { class: 'kx-tooltip', hidden: true, 'aria-hidden': 'true' });
         const live = el('p', { class: 'kx-visually-hidden', 'aria-live': 'polite' });
         const frame = el('div', {
@@ -1280,6 +1414,28 @@
                 hide();
             }
         });
+        if (typeof window.ResizeObserver === 'function') {
+            let attached = false;
+            const observer = new window.ResizeObserver((entries) => {
+                const box = entries && entries[0] && entries[0].contentRect;
+                const w = box ? box.width : 0;
+                if (!frame.isConnected) {
+                    // War sie schon auf der Seite, wurde die Grafik ersetzt
+                    // (neu gezeichnete Karte): nicht weiter beobachten.
+                    if (attached) observer.disconnect();
+                    return;
+                }
+                attached = true;
+                if (!(w > 0)) return;
+                const target = Math.max(CHART_MIN_WIDTH, Math.min(CHART_MAX_WIDTH, Math.round(w)));
+                if (Math.abs(target - width) < 8) return;
+                const next = build(target);
+                frame.replaceChild(next, svg);
+                svg = next;
+                if (active !== -1) show(active);
+            });
+            observer.observe(frame);
+        }
         wrap.appendChild(frame);
         wrap.appendChild(live);
         if (plotted.length >= 2) {
@@ -1322,7 +1478,8 @@
         toast, dialog, confirm, field, input, textarea, select,
         showFieldErrors, clearFieldErrors, renderFieldInput, readFieldInput,
         label, chip, verdictChip, decisionChip, statusChip, domainDot, emptyState, spinnerText,
-        renderMarkdown, copyText, downloadText, codeEditor,
+        renderMarkdown, copyText, downloadText, codeEditor, errorLines,
+        canonicalJson, evaluationGroupKey, splitEvaluations,
         intervalBar, lineChart,
     };
 })();

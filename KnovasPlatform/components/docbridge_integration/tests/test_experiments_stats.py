@@ -1,8 +1,10 @@
 """Tests for experiments.stats, the pure-Python statistics of the built-in evaluators.
 
 Reference values were computed once with scipy 1.17 (and mpmath where scipy is
-itself inaccurate: the incomplete gamma for shape parameters above ~1e7) and
-are pinned here, so the suite never imports scipy. Closed forms must agree to
+itself inaccurate: the incomplete gamma for shape parameters above ~1e7; and
+for the score interval of two proportions, which scipy lacks: 50-digit
+bisection on the restricted likelihood) and are pinned here, so the suite
+never imports scipy. Closed forms must agree to
 1e-9 relative (the plan asks for 1e-6); Monte Carlo results to 0.01 absolute.
 """
 
@@ -89,8 +91,8 @@ TWO_PROP = [{'args': [129, 10688, 175, 10714, 0.05],
              'p1': 0.012069610778443114,
              'p2': 0.016333768900504014,
              'diff': 0.0042641581220609,
-             'ci_low': 0.00109264089871161,
-             'ci_high': 0.007468881432094565,
+             'ci_low': 0.0011003260167422742,
+             'ci_high': 0.007476588720704088,
              'z': 2.6358888215759615,
              'p_value': 0.008391722170333918,
              'relative_lift': 0.353297069834007},
@@ -98,8 +100,8 @@ TWO_PROP = [{'args': [129, 10688, 175, 10714, 0.05],
              'p1': 0.05,
              'p2': 0.06,
              'diff': 0.009999999999999995,
-             'ci_low': 0.0010580192586747087,
-             'ci_high': 0.018972359585584866,
+             'ci_low': 0.0010664862777164297,
+             'ci_high': 0.018983934254067983,
              'z': 2.193172316532562,
              'p_value': 0.028294966290231177,
              'relative_lift': 0.1999999999999999},
@@ -107,8 +109,8 @@ TWO_PROP = [{'args': [129, 10688, 175, 10714, 0.05],
              'p1': 0.15,
              'p2': 0.4090909090909091,
              'diff': 0.25909090909090915,
-             'ci_low': 0.028981688255564297,
-             'ci_high': 0.4533444760047717,
+             'ci_low': 0.03094610324806772,
+             'ci_high': 0.4636315100478191,
              'z': 1.8563159997449499,
              'p_value': 0.06340852986344894,
              'relative_lift': 1.7272727272727277},
@@ -116,8 +118,8 @@ TWO_PROP = [{'args': [129, 10688, 175, 10714, 0.05],
              'p1': 0.6,
              'p2': 0.78,
              'diff': 0.18000000000000005,
-             'ci_low': 0.05179992906096009,
-             'ci_high': 0.3004229954022355,
+             'ci_low': 0.05236155366244977,
+             'ci_high': 0.30300067391644525,
              'z': 2.752023353565414,
              'p_value': 0.005922829700135651,
              'relative_lift': 0.3000000000000001}]
@@ -207,14 +209,14 @@ POISSON_RATE = [{'args': [120, 1000.0, 160, 1000.0, 0.05],
                  'ratio': 0.8333333333333334,
                  'ci_low': 0.26922474422456577,
                  'ci_high': 4.177000455031714,
-                 'p_value': 0.7404886388771397},
+                 'p_value': 0.9310693136913236},
                 {'args': [10, 5.0, 4, 8.0, 0.1],
                  'rate1': 2.0,
                  'rate2': 0.5,
                  'ratio': 0.25,
                  'ci_low': 0.07258147421877471,
                  'ci_high': 0.7337117396869725,
-                 'p_value': 0.023768530508994745},
+                 'p_value': 0.025755575438399295},
                 {'args': [0, 10.0, 5, 10.0, 0.05],
                  'rate1': 0.0,
                  'rate2': 0.5,
@@ -507,7 +509,7 @@ def test_t_interval_needs_two_observations_and_a_variance():
 
 
 @pytest.mark.parametrize("case", TWO_PROP, ids=lambda c: str(c["args"]))
-def test_two_proportion_test_matches_scipy_and_newcombe(case):
+def test_two_proportion_test_matches_scipy_and_the_score_interval(case):
     result = stats.two_proportion_test(*case["args"])
     for key in ("p1", "p2", "diff", "ci_low", "ci_high", "z", "p_value", "relative_lift"):
         close(result[key], case[key], rel=1e-9, abs_=1e-15)

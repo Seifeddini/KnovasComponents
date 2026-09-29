@@ -127,13 +127,16 @@ def test_long_format_errors_name_the_file_line():
             "ctr,A,abc,1\n"
             "ctr,A,nan,1\n")
     message = refused(text)
-    assert "Zeile 3: Unbekannte Metrik \u00abnope\u00bb." in message
-    assert "Zeile 4: Unbekannte Variante \u00abC\u00bb." in message
-    assert "Zeile 5: Es kann nicht mehr Erfolge als Versuche geben." in message
-    assert "Zeile 6: Erfolge m\u00fcssen eine ganze Zahl sein." in message
-    assert "Zeile 7: Der Wert fehlt." in message
-    assert "Zeile 8: Die Metrik fehlt." in message
-    assert "Zeile 9: \u00ababc\u00bb ist keine Zahl (Spalte \u00abvalue\u00bb)." in message
+    # One list: no ".;" between the entries, one period at the end.
+    assert ".;" not in message and message.endswith(".")
+    assert "Zeile 3: Unbekannte Metrik \u00abnope\u00bb;" in message
+    assert "Zeile 4: Unbekannte Variante \u00abC\u00bb;" in message
+    assert "Zeile 5: Es kann nicht mehr Erfolge als Versuche geben;" in message
+    assert "Zeile 6: Erfolge m\u00fcssen eine ganze Zahl sein;" in message
+    assert "Zeile 7: Der Wert fehlt;" in message
+    assert "Zeile 8: Die Metrik fehlt;" in message
+    assert "Zeile 9: \u00ababc\u00bb ist keine Zahl (Spalte \u00abvalue\u00bb);" in message
+    assert message.endswith("Zeile 10: \u00abnan\u00bb ist keine Zahl (Spalte \u00abvalue\u00bb).")
     assert "Zeile 10:" in message and "Zeile 2" not in message
 
 
@@ -189,6 +192,25 @@ def test_wide_format_companion_without_its_metric_column_is_ignored():
 def test_wide_format_errors_name_line_and_metric():
     message = refused("variant,ctr,ctr.count\nA,20,10\n")
     assert message == "Zeile 2: ctr: Es kann nicht mehr Erfolge als Versuche geben."
+
+
+def test_wide_format_without_a_count_column_says_the_count_is_missing():
+    # e2e-api-6: a proportion without ctr.count is one trial per row; the
+    # message says so instead of "more successes than trials".
+    message = refused("variant;ctr\nA;10\n")
+    assert message == ("Zeile 2: ctr: \u00abVersuche\u00bb fehlt; ohne Angabe gilt 1, und 10 Erfolge "
+                       "brauchen mindestens so viele Versuche.")
+
+
+def test_errors_are_listed_once_and_the_file_field_points_to_the_list():
+    # e2e-ui-13 (f): no ".;" between entries, and the file field does not
+    # repeat the whole list the message already carries.
+    with pytest.raises(ValidationError) as info:
+        parse("metric,variant,value\nnope,A,1\nctr,C,1\n")
+    assert info.value.message == ("Zeile 2: Unbekannte Metrik \u00abnope\u00bb; "
+                                  "Zeile 3: Unbekannte Variante \u00abC\u00bb.")
+    assert info.value.fields == {"file": csv_import.MSG_SEE_ERRORS}
+    assert csv_import.join_messages(["a.", "b"], more=True) == "a; b; weitere Fehler nicht aufgef\u00fchrt."
 
 
 def test_wide_format_needs_a_metric_column():

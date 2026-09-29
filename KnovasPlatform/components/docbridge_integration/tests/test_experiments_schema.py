@@ -436,8 +436,25 @@ def test_huge_definitions_are_refused_quickly():
     assert "zu gross" in error.fields["definition"]
 
 
+def test_fewer_default_variants_than_the_minimum_are_refused():
+    # review-backend-3: a new experiment starts with the defaults (the create
+    # form sends no variants), so such a type could never be instantiated.
+    definition = example()
+    definition["variants"]["defaults"] = definition["variants"]["defaults"][:1]
+    error = refused(definition)
+    assert error.fields["variants.defaults"].startswith(
+        "Weniger Vorgaben als Varianten verlangt sind (mindestens 2).")
+    error = refused(example(variants={"min": 2, "max": 4}))
+    assert "variants.defaults" in error.fields
+    assert validate_type_definition(example(variants={"min": 0, "max": 4}))["variants"]["defaults"] == []
+    # min above max is reported once, on min.
+    error = refused(example(variants={"min": 5, "max": 4}))
+    assert "variants.min" in error.fields and "variants.defaults" not in error.fields
+
+
 def test_integral_floats_count_as_integers():
-    normalised = validate_type_definition(example(variants={"min": 2.0, "max": 4.0}))
+    normalised = validate_type_definition(example(variants={
+        "min": 2.0, "max": 4.0, "defaults": [{"key": "A"}, {"key": "B"}]}))
     assert normalised["variants"]["min"] == 2 and isinstance(normalised["variants"]["min"], int)
 
 

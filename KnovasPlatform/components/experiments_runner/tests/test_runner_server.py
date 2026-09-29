@@ -82,6 +82,170 @@ def test_exits_when_the_socket_file_disappears(py_runner):
     assert "socket file was removed or replaced" in py_runner.log()
 
 
+def _deep_tree(top: str, name: str, depth: int) -> None:
+    """``depth`` nested directories under top/name, built through descriptors
+    (the full path is far longer than PATH_MAX), every other one mode 000."""
+    fd = os.open(top, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for level in range(depth):
+            child = name if level == 0 else "d"
+            os.mkdir(child, 0o700, dir_fd=fd)
+            with open(os.open("f", os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=fd), "w") as handle:
+                handle.write("x")
+            nxt = os.open(child, os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+    finally:
+        os.close(fd)
+
+
+def test_exclusive_socket_directory_is_emptied_at_start(start_runner, tmp_path):
+    # What a job can leave in the socket volume (it runs under the server's
+    # uid) must not keep the next start from binding: review-security-2.
+    directory = tempfile.mkdtemp(prefix="xr-", dir="/tmp")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep me")
+    try:
+        socket_path = os.path.join(directory, "runner.sock")
+        os.mkdir(socket_path)                                   # a directory where the socket belongs
+        with open(os.path.join(socket_path, "inner"), "w") as handle:
+            handle.write("x")
+        _deep_tree(directory, "deep", 1500)                     # deeper than any recursion limit
+        for n in range(200):
+            with open(os.path.join(directory, "junk%d" % n), "w") as handle:
+                handle.write("x")
+        os.symlink(str(outside), os.path.join(directory, "link"))
+        os.symlink(str(tmp_path), os.path.join(directory, "dirlink"))
+        os.mkfifo(os.path.join(directory, "fifo"))
+        locked = os.path.join(directory, "locked")
+        os.makedirs(os.path.join(locked, "a", "b"))
+        os.chmod(os.path.join(locked, "a"), 0)
+        os.chmod(locked, 0)
+        os.chmod(directory, 0o707)                              # and the directory's own mode
+
+        runner = start_runner({"RUNNER_LISTEN": "unix:" + socket_path,
+                               "RUNNER_SOCKET_DIR_EXCLUSIVE": "true"})
+        assert runner.health()["ok"] is True
+        assert os.listdir(directory) == ["runner.sock"]
+        assert stat.S_ISSOCK(os.lstat(socket_path).st_mode)
+        assert stat.S_IMODE(os.stat(directory).st_mode) == R.SOCKET_DIR_MODE
+        # Links were removed, never followed.
+        assert outside.read_text() == "keep me"
+        assert tmp_path.is_dir()
+        assert "Emptied the socket directory" in runner.log()
+    finally:
+        R.remove_tree(directory)
+
+
+def test_a_job_that_plants_a_directory_at_the_socket_path_does_not_outlast_a_restart(
+        start_runner, tmp_path):
+    # The attack of review-security-2: unlink the socket and put a directory
+    # there. The server exits (watchdog); the next start must come up again
+    # instead of refusing "exists and is not a socket" for ever.
+    first = start_runner({"RUNNER_SOCKET_DIR_EXCLUSIVE": "true"})
+    code = (
+        "import os\n"
+        "\n"
+        "def evaluate(data):\n"
+        "    os.unlink(data['socket'])\n"
+        "    os.mkdir(data['socket'])\n"
+        "    for n in range(50):\n"
+        "        open(os.path.join(data['socket'], 'f%d' % n), 'w').close()\n"
+        "    return {'headline': 'ok'}\n"
+    )
+    worker = threading.Thread(target=lambda: _swallow(first.post_run,
+        {"language": "python", "code": code, "data": {"socket": first.socket_path},
+         "timeout_seconds": 30}, timeout=60), daemon=True)
+    worker.start()
+    assert first.proc.wait(timeout=20) == 3
+    assert os.path.isdir(first.socket_path)
+
+    second = start_runner({"RUNNER_LISTEN": "unix:" + first.socket_path,
+                           "RUNNER_SOCKET_DIR_EXCLUSIVE": "true"})
+    assert second.health()["ok"] is True
+    assert stat.S_ISSOCK(os.lstat(first.socket_path).st_mode)
+    assert os.listdir(os.path.dirname(first.socket_path)) == ["runner.sock"]
+
+
+def _can_mount_tmpfs() -> bool:
+    if os.geteuid() != 0 or shutil.which("unshare") is None:
+        return False
+    probe = subprocess.run(["unshare", "-m", "--propagation", "private", "sh", "-c",
+                            "d=$(mktemp -d) && mount -t tmpfs -o size=64k tmpfs \"$d\" "
+                            "&& umount \"$d\"; rmdir \"$d\""], capture_output=True)
+    return probe.returncode == 0
+
+
+_INODE_FLOOD = r'''
+import errno, http.client, json, os, socket, subprocess, sys, tempfile, time
+
+runner_py, python, exclusive = sys.argv[1], sys.argv[2], sys.argv[3]
+mnt = tempfile.mkdtemp(prefix="xr-flood-")
+subprocess.run(["mount", "-t", "tmpfs", "-o", "size=1m,nr_inodes=64,mode=0770", "tmpfs", mnt],
+               check=True)
+planted = 0
+try:
+    while True:
+        os.mkdir(os.path.join(mnt, "p%d" % planted))
+        planted += 1
+except OSError as exc:
+    assert exc.errno == errno.ENOSPC, exc
+jobs = tempfile.mkdtemp(prefix="xr-jobs-")
+env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+       "RUNNER_LISTEN": "unix:" + os.path.join(mnt, "runner.sock"),
+       "RUNNER_SOCKET_DIR_EXCLUSIVE": exclusive, "RUNNER_TMP_DIR": jobs,
+       "RUNNER_PYTHON": python, "RUNNER_JULIA": "/nonexistent/julia", "RUNNER_MIN_FREE_MB": "1"}
+proc = subprocess.Popen([python, "-I", runner_py], env=env, stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT)
+healthy = False
+deadline = time.monotonic() + 60
+while time.monotonic() < deadline and proc.poll() is None:
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        sock.connect(os.path.join(mnt, "runner.sock"))
+        conn = http.client.HTTPConnection("localhost")
+        conn.sock = sock
+        conn.request("GET", "/health")
+        healthy = json.loads(conn.getresponse().read()).get("ok") is True
+        conn.close()
+        if healthy:
+            break
+    except OSError:
+        time.sleep(0.1)
+if proc.poll() is None:
+    proc.terminate()
+out = proc.communicate(timeout=30)[0].decode("utf-8", "replace")
+left = sorted(os.listdir(mnt))
+subprocess.run(["umount", mnt])
+print(json.dumps({"planted": planted, "healthy": healthy, "code": proc.returncode,
+                  "left": left, "log": out[-2000:]}))
+'''
+
+
+@pytest.mark.skipif(not _can_mount_tmpfs(), reason="needs root and unshare to mount a tmpfs")
+@pytest.mark.parametrize("exclusive", ["true", "false"])
+def test_a_socket_volume_without_free_inodes(tmp_path, exclusive):
+    # The other form of the attack: every inode of the small socket tmpfs is
+    # used up, so bind() fails with ENOSPC. Emptying the directory frees them;
+    # without it (the control run) the start fails, as it did before.
+    script = tmp_path / "flood.py"
+    script.write_text(_INODE_FLOOD)
+    done = subprocess.run(["unshare", "-m", "--propagation", "private", sys.executable,
+                           str(script), str(RUNNER_DIR / "runner.py"), sys.executable, exclusive],
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stdout + done.stderr
+    result = json.loads(done.stdout.strip().splitlines()[-1])
+    assert result["planted"] > 10
+    if exclusive == "true":
+        assert result["healthy"] is True, result["log"]
+        assert result["left"] == [], result["left"]           # the socket went at shutdown
+    else:
+        assert result["healthy"] is False
+        assert result["code"] == 1, result["log"]
+        assert "Cannot listen" in result["log"]
+
+
 def test_healthcheck_command(py_runner, tmp_path):
     env = dict(py_runner.env)
     ok = subprocess.run([sys.executable, "-I", str(RUNNER_DIR / "runner.py"), "--healthcheck"],
@@ -226,6 +390,34 @@ def test_python_failures_have_fixed_messages(py_runner, code, message, needle):
     assert result["output"] is None
     assert result["error"] == message
     assert needle in result["logs"], result["logs"]
+
+
+def test_a_refused_fork_is_explained_in_the_logs(py_runner):
+    # RLIMIT_NPROC counts every process and thread of the runner's uid, so a
+    # job can meet EAGAIN because of other jobs (review-deploy-2). The log
+    # then says so instead of leaving the author to suspect the code.
+    code = ("import errno, os\n\ndef evaluate(data):\n"
+            "    raise BlockingIOError(errno.EAGAIN, os.strerror(errno.EAGAIN))\n")
+    result = py_runner.run("python", code)
+    assert result["ok"] is False
+    assert result["error"] == R.MSG_EXCEPTION
+    assert "Resource temporarily unavailable" in result["logs"]
+    assert result["logs"].endswith(R.NOTE_EAGAIN)
+    # Not for other failures.
+    other = py_runner.run("python", "def evaluate(data):\n    raise ValueError('x')\n")
+    assert R.NOTE_EAGAIN not in other["logs"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root is exempt from RLIMIT_NPROC")
+def test_a_fork_over_the_process_limit_is_explained_in_the_logs(py_runner):
+    code = ("import os, resource\n\ndef evaluate(data):\n"
+            "    resource.setrlimit(resource.RLIMIT_NPROC, (1, 1))\n"
+            "    pid = os.fork()\n"
+            "    if pid == 0:\n        os._exit(0)\n"
+            "    return {}\n")
+    result = py_runner.run("python", code)
+    assert result["ok"] is False
+    assert R.NOTE_EAGAIN in result["logs"], result["logs"]
 
 
 def test_python_output_over_8_mb_is_refused(py_runner):

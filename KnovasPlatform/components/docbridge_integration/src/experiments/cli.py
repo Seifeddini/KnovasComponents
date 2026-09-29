@@ -116,7 +116,7 @@ def _runner(settings: Any):
 
 
 def cmd_status(ctx: _Context, args: argparse.Namespace) -> int:
-    from experiments import labels
+    from experiments import labels, tasks
 
     settings = ctx.settings
     queue = jobs.JobQueue(ctx.conn)
@@ -133,6 +133,9 @@ def cmd_status(ctx: _Context, args: argparse.Namespace) -> int:
         "jobs": queue.counts(),
         "index": _index_counts(ctx.conn),
         "index_documents": _recorded_pointers(ctx.conn),
+        # Documents of deleted experiments whose deletion in Knovas has not
+        # succeeded yet (the maintenance repeats it).
+        "index_orphans": tasks.orphan_count(ctx.conn),
         "failures": queue.recent_failures(10),
     }
     if args.json:
@@ -165,6 +168,9 @@ def cmd_status(ctx: _Context, args: argparse.Namespace) -> int:
     ctx.out("Indexstand: " + ", ".join(
         f"{labels.INDEX_STATE_LABELS.get(k, k)} {v}" for k, v in report["index"].items()))
     ctx.out(f"Dokumente in Knovas (erfasst): {report['index_documents']}")
+    if report["index_orphans"]:
+        ctx.out(f"Gel\u00f6schte Experimente noch in Knovas: {report['index_orphans']} "
+                "(die Wartung wiederholt das L\u00f6schen)")
     if report["failures"]:
         ctx.out("Letzte Fehler:")
         for failure in report["failures"]:
@@ -206,10 +212,13 @@ def cmd_reindex(ctx: _Context, args: argparse.Namespace) -> int:
                 continue
             ids.append(str(snapshot["id"]))
     for experiment_id in ids:
+        # The experiment row before the job's dedupe slot, the order every
+        # writer keeps (service._queue_index): the other order can deadlock
+        # with an edit of the same experiment.
         with conn.transaction():
+            store.set_index_state(conn, experiment_id, "pending")
             queue.enqueue("index", {"experiment_id": experiment_id},
                           dedupe_key=f"index:{experiment_id}", priority=priority)
-            store.set_index_state(conn, experiment_id, "pending")
     ctx.out(f"{len(ids)} Experiment(e) zum Indexieren eingereiht.")
     if not settings.worker_enabled:
         ctx.out("Hinweis: die Hintergrundarbeit ist ausgeschaltet; "
@@ -220,6 +229,33 @@ def cmd_reindex(ctx: _Context, args: argparse.Namespace) -> int:
     return 0
 
 
+def _recorded_experiment_ids(conn: Any) -> set:
+    """Experiments that still have a document recorded in Knovas."""
+    rows = conn.execute("SELECT DISTINCT experiment_id::text FROM exp_index_documents "
+                        "WHERE experiment_id IS NOT NULL").fetchall()
+    return {str(r[0]) for r in rows}
+
+
+def _mark_purged_off(conn: Any) -> int:
+    """Set every experiment without a recorded Knovas document to 'off'.
+
+    Runs after purge_all whatever its outcome, so the index state matches
+    what was deleted: an experiment whose document is gone never reads
+    "aktuell", and one whose deletion failed keeps its state (it is still in
+    Knovas). 'off' also keeps the maintenance from uploading the experiments
+    again right after the purge."""
+    store = _store()
+    keep = _recorded_experiment_ids(conn)
+    marked = 0
+    states = ("indexed", "pending", "error")
+    for experiment_id in store.experiments_for_reindex(conn, states=states) or []:
+        if str(experiment_id) in keep:
+            continue
+        store.set_index_state(conn, str(experiment_id), "off")
+        marked += 1
+    return marked
+
+
 def cmd_purge_index(ctx: _Context, args: argparse.Namespace) -> int:
     from experiments import indexer
 
@@ -227,25 +263,39 @@ def cmd_purge_index(ctx: _Context, args: argparse.Namespace) -> int:
     recorded = _recorded_pointers(conn)
     if not args.yes:
         ctx.out(f"{recorded} erfasste Experiment-Dokumente w\u00fcrden aus Knovas gel\u00f6scht, "
-                f"dazu alles, was Knovas unter {ctx.settings.pointer_prefix}/ noch f\u00fchrt.")
+                f"dazu nicht erfasste Dokumente unter {ctx.settings.pointer_prefix}/, soweit "
+                "Knovas sie ohne Anmeldung auflistet (Dokumente mit Zugriffsgruppe findet nur "
+                "die Erfassung).")
         ctx.out("Nichts gel\u00f6scht. Zum L\u00f6schen: python -m experiments purge-index --yes")
         return 1
     client = indexer.make_index_client(ctx.config)
     # Nothing may upload the documents again right after they are removed.
     cancelled = jobs.JobQueue(conn).cancel_pending(("index",))
+    notes: List[str] = []
+    failure: Optional[str] = None
+    deleted: Optional[int] = None
     try:
-        deleted = indexer.purge_all(conn, client, ctx.settings)
+        deleted = indexer.purge_all(conn, client, ctx.settings, notes=notes)
     except ExperimentsError as exc:
-        ctx.out(f"Abgebrochen: {exc.message}")
-        return 1
-    store = _store()
-    marked = 0
-    for experiment_id in store.experiments_for_reindex(conn, states=("indexed", "pending", "error")) or []:
-        store.set_index_state(conn, str(experiment_id), "off")
-        marked += 1
+        failure = exc.message
+    finally:
+        # Also when the purge stopped half way (or with an unexpected error):
+        # what was deleted must not keep reading "aktuell".
+        try:
+            marked = _mark_purged_off(conn)
+        except Exception:  # noqa: BLE001 - do not hide why the purge stopped
+            logger.exception("purge-index: marking the purged experiments failed.")
+            marked = 0
     remaining = _recorded_pointers(conn)
+    if deleted is None:
+        deleted = max(0, recorded - remaining)
     ctx.out(f"{deleted} Dokument(e) aus Knovas gel\u00f6scht; {cancelled} wartende "
             f"Index-Auftr\u00e4ge verworfen; {marked} Experiment(e) auf \u00abaus\u00bb gesetzt.")
+    if failure is not None:
+        ctx.out(f"Abgebrochen: {failure}")
+        return 1
+    for note in notes:
+        ctx.out(note)
     if remaining:
         ctx.out(f"{remaining} Dokument(e) konnten nicht gel\u00f6scht werden (siehe Protokoll); "
                 "der Befehl kann wiederholt werden.")
@@ -255,7 +305,9 @@ def cmd_purge_index(ctx: _Context, args: argparse.Namespace) -> int:
                 "hochladen; f\u00fcr ein endg\u00fcltiges Entfernen zuerst "
                 "EXPERIMENTS_INDEX_ENABLED=false setzen. Neu indexieren mit "
                 "\u00abpython -m experiments reindex --all\u00bb.")
-    return 0
+    # A listing Knovas refused: the recorded documents are gone, the rest
+    # could not be searched.
+    return 1 if notes else 0
 
 
 def cmd_install_pack(ctx: _Context, args: argparse.Namespace) -> int:
@@ -330,7 +382,7 @@ def cmd_worker(ctx: _Context, args: argparse.Namespace) -> int:
         halt.set()
 
     previous = {sig: signal.signal(sig, _signal) for sig in (signal.SIGTERM, signal.SIGINT)}
-    workers = [
+    workers: List[jobs.JobWorker] = [
         jobs.JobWorker(connect=ctx.connect, handlers=handlers, on_dead=on_dead,
                        kinds=jobs.INDEX_THREAD_KINDS,
                        lease_seconds=jobs.INDEX_THREAD_LEASE_SECONDS,
@@ -347,11 +399,9 @@ def cmd_worker(ctx: _Context, args: argparse.Namespace) -> int:
         while not halt.wait(1.0):
             pass
     finally:
-        for worker in workers:
-            worker.stop()
-        for worker in workers:
-            if worker.is_alive():
-                worker.join(timeout=30)
+        # A job still running after the wait goes back to the queue unfinished
+        # instead of blocking its experiment until the lease runs out.
+        jobs.stop_workers(workers, timeout=30)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
     ctx.out("Hintergrundarbeit beendet.")

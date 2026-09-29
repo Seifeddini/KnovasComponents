@@ -42,7 +42,11 @@ with client.run("ENG-12", variant="candidate", name="PR 481", commit=sha,
         run.add_row("ndcg_at_10", scores["ndcg"], dims={"query": query_id})
         run.add_row("recall_at_20", scores["recall"], dims={"query": query_id})
     run.log(latency_p95_ms=212.0)                    # ein Wert je Lauf
-    run.log(error_rate={"value": 3, "count": 1200})  # Anteil: Fehler von Anfragen
+
+# Ein Anteil (Fehler von Anfragen) in einem Feature-Rollout: dort ist die
+# Fehlerrate Primärmetrik; die Offline-Evaluation ENG-12 hat sie nicht
+client.log_run("ENG-20", name="Rollout 10 %", variant="an",
+               metrics={"error_rate": {"value": 3, "count": 1200}})
 
 # Auswertungen des Typs ausführen und das Urteil lesen
 for e in client.evaluate("ENG-12"):
@@ -84,6 +88,13 @@ Messart bedeuten, steht in der Tabelle «Messarten» der
 Zahl (`latency_p95_ms=212`); die anderen Arten brauchen ein Objekt
 (`{"value": 3, "count": 1200}` für einen Anteil, `{"value": 840.0,
 "denominator": 12}` für ein Verhältnis).
+
+**Nur zugeordnete Metriken.** Jede Metrik in `metrics` und in den Messzeilen
+muss dem Experiment zugeordnet sein – die Metriken seines Typs oder unter
+**Experiment → Metriken** ergänzte. Sonst weist die Platform den ganzen Aufruf
+mit HTTP 400 ab («Die Metrik «…» ist diesem Experiment nicht zugeordnet.»,
+`ValidationError`) und speichert nichts; im `with`-Block von `run(...)`
+wirft das Verlassen des Blocks diesen Fehler.
 
 **`run(...)`** sammelt mit `log(**metrics)`, `add_rows(rows)` und
 `add_row(metric, value, ...)` und meldet den Lauf **einmal**, wenn der
@@ -152,8 +163,9 @@ Platform.
 Das Beispiel misst Ausgangsstand und Kandidat auf demselben Anfragesatz, meldet
 je einen Lauf mit einer Zeile je Anfrage und Metrik an das Experiment `ENG-12`
 (Typ «Offline-Evaluation» aus dem Paket Engineering) und lässt den Job
-fehlschlagen, sobald eine Auswertung `worse` meldet – auch eine verletzte
-Leitplanke (z. B. Latenz p95 über 250 ms) ergibt `worse`.
+fehlschlagen, sobald eine Auswertung **dieses Pushes** `worse` meldet oder
+scheitert – auch eine verletzte Leitplanke (Latenz p95 des neuesten Laufs über
+250 ms) ergibt `worse`.
 
 Im Repository unter **Settings → Secrets and variables → Actions**:
 Secret `KNOVAS_EXPERIMENTS_TOKEN`, Variable `KNOVAS_URL`. Den Schlüssel am
@@ -251,9 +263,12 @@ def main():
     report(client, "baseline", "baseline.jsonl", os.environ["BASE_SHA"])
     report(client, "candidate", "candidate.jsonl", os.environ["HEAD_SHA"])
 
+    # Jeder Schritt wertet nur den neuesten abgeschlossenen Lauf je Variante
+    # aus, also diesen Push -- auch die Beschreibung mit der Leitplanke.
     # Eingebaute Auswerter sind fertig, wenn evaluate() zurückkommt; Python- und
     # Julia-Auswerter laufen in der Rechenumgebung, wait_for wartet auf sie.
-    evaluations = client.wait_for(KEY, client.evaluate(KEY), timeout=900)
+    evaluations = client.wait_for(KEY, client.evaluate(KEY, scope={"runs": "latest"}),
+                                  timeout=900)
 
     failed = False
     for e in evaluations:
@@ -279,9 +294,24 @@ Warum das so aufgebaut ist:
 - **Eine Zeile je Anfrage** (`dims.query`) statt eines Mittelwerts: der
   gepaarte t-Test des Typs vergleicht Anfrage für Anfrage und erkennt so
   kleine Verbesserungen, die im Rauschen der Mittelwerte untergingen.
-- **Scope «neuester Lauf je Variante»** (im Typ voreingestellt): jeder Push
-  meldet neue Läufe, ausgewertet wird immer der neueste abgeschlossene Lauf
-  jeder Variante. Ein abgebrochener Lauf (`failed`) zählt nicht.
+- **Scope «neuester Lauf je Variante»** (`scope={"runs": "latest"}`): jeder
+  Push meldet neue Läufe; jede Auswertung – der gepaarte t-Test ebenso wie
+  die Beschreibung, die die Leitplanke Latenz p95 prüft – nimmt je Variante
+  nur den neuesten abgeschlossenen Lauf mit Werten der Metrik, also diesen
+  Push. Ein abgebrochener Lauf (`failed`) zählt nicht. Das Skript gibt den
+  Scope ausdrücklich mit: der aktuelle Typ sieht ihn zwar für alle Schritte
+  vor, aber ein Experiment bleibt bei der Typ-Version, mit der es angelegt
+  wurde, und in früheren Versionen galt er nur für den t-Test. Ohne ihn
+  mittelte die Beschreibung eines solchen Experiments die Latenz über alle
+  Pushes: ein behobener Push bliebe rot, ein neuer Ausreisser ginge im Mittel
+  unter.
+- **Geprüft wird, was `evaluate` zurückgibt**, nicht `client.evaluations(KEY)`:
+  das ist der Verlauf des Experiments und enthält noch die Urteile früherer
+  Pushes.
+- Die Kennzeichnung «Leitplanke verletzt» auf der Seite des Experiments und in
+  der Liste rechnet über **alle** Messwerte des Experiments, nicht nur über den
+  neuesten Lauf. Sie kann deshalb vom Urteil des CI-Jobs abweichen; massgeblich
+  für den Push ist die Auswertung mit Scope «neuester Lauf je Variante».
 - **Beide Varianten im selben Job**: Ausgangsstand und Kandidat laufen auf
   derselben Maschine gegen denselben Anfragesatz; die Latenz ist so
   vergleichbar.

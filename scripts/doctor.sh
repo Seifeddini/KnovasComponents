@@ -57,6 +57,30 @@ for svc in docbridge-web docbridge-web-nginx platform-db experiments-runner; do
     | tail -c 600 | sed 's/^/       /'
 done
 
+# Docker refuses to create a container whose CPU limit is above the host's CPU
+# count ("range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs
+# available"). With the experiments profile on a small host, start.sh then
+# stops at `up` and experiments-runner never exists -- so this is checked from
+# knovas.env, before anything that needs the stack running. Compose reads
+# COMPOSE_PROFILES and the limit from the shell first, then from knovas.env.
+exp_profiles="${COMPOSE_PROFILES:-$(read_env_var COMPOSE_PROFILES "" "$KNOVAS_ENV")}"
+if [[ ",${exp_profiles// /}," == *,experiments,* ]]; then
+  runner_cpus="${EXPERIMENTS_RUNNER_CPUS:-$(read_env_var EXPERIMENTS_RUNNER_CPUS "" "$KNOVAS_ENV")}"
+  runner_cpus="${runner_cpus:-2}"
+  # docker info prints 0 when it cannot reach the daemon: then nothing is said.
+  host_cpus="$(docker info --format '{{.NCPU}}' 2>/dev/null)"
+  if [[ "$host_cpus" =~ ^[1-9][0-9]*$ ]]; then
+    if [[ ! "$runner_cpus" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      warn "EXPERIMENTS_RUNNER_CPUS=$runner_cpus is not a number of CPUs (e.g. 2 or 1.5)."
+    elif awk -v want="$runner_cpus" -v have="$host_cpus" 'BEGIN { exit !(want + 0 > have + 0) }'; then
+      bad "EXPERIMENTS_RUNNER_CPUS=$runner_cpus, but Docker has only $host_cpus CPU(s): the experiments-runner container cannot be created."
+      echo "       Set EXPERIMENTS_RUNNER_CPUS=$host_cpus (or less) in knovas.env, then ./scripts/start.sh."
+    else
+      ok "experiments-runner CPU limit $runner_cpus of the host's $host_cpus CPU(s)"
+    fi
+  fi
+fi
+
 # nginx resolves the app once at startup unless it is running the config with a
 # resolver directive. A recreate of docbridge-web alone leaves an older nginx
 # pointing at an address nothing answers on, which reads as "search broke".
@@ -405,6 +429,19 @@ def check():
     states = dict(conn.execute(
         "SELECT index_state, count(*)::int FROM exp_experiments GROUP BY index_state").fetchall())
     print("in Knovas: " + (", ".join(f"{k} {v}" for k, v in sorted(states.items())) or "no experiments yet"))
+    # Documents of deleted experiments that are still in Knovas and that no
+    # job is deleting right now: their deletion failed (for example during a
+    # long Knovas outage). The maintenance repeats it by itself; this keeps it
+    # visible after the dead job has been cleared away.
+    orphans, deleting = conn.execute(
+        "SELECT count(*)::int, count(*) FILTER (WHERE EXISTS (SELECT 1 FROM exp_jobs j "
+        "  WHERE j.dedupe_key = 'unindex:' || d.pointer AND j.status IN ('pending', 'running')))::int "
+        "FROM exp_index_documents d "
+        "WHERE NOT EXISTS (SELECT 1 FROM exp_experiments e WHERE e.id = d.experiment_id)").fetchone()
+    if orphans > deleting:
+        say("WARN", f"{orphans - deleting} deleted experiment(s) are still in Knovas: deleting them there has failed so far.",
+            "The maintenance repeats the deletion by itself; if the number stays, check the Knovas",
+            "connection: docker compose --env-file knovas.env exec docbridge-web python -m experiments status")
     if settings.index_enabled and states.get("error"):
         say("WARN", f"{states['error']} experiment(s) could not be written to Knovas, for example:")
         for key, error in conn.execute(

@@ -17,6 +17,12 @@
     const API = KEY ? `/api/experiments/${KEY}` : null;
     const POLL_MS = 3000;
     const POLL_LIMIT_MS = 10 * 60 * 1000;
+    /** "In Knovas: ausstehend" wird alle 4 s nachgefragt, hoechstens 5 Minuten
+        lang (Standard-Verzoegerung 60 s plus Abholen durch den Worker). */
+    const INDEX_POLL_MS = 4000;
+    const INDEX_POLL_LIMIT_MS = 5 * 60 * 1000;
+    /** Editoren, deren Inhalt auf einer row_version beruht (state.bases). */
+    const VERSIONED_EDITORS = ['title', 'hypothesis', 'description', 'fields', 'variants', 'metrics'];
     const VARIANT_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/;
     const DIM_KEY_RE = /^[A-Za-z0-9_.-]{1,40}$/;
     const MEAN_LIKE = new Set(['mean', 'duration', 'currency']);
@@ -57,6 +63,18 @@
         polls: new Map(),
         importNote: null,
         catalog: null,
+        /** Eine Anfrage lief schon, als load() erneut gerufen wurde: danach
+            noch einmal lesen (sie kann vor der eigenen Aenderung gelesen haben). */
+        reloadAgain: false,
+        /** Hoechste row_version, die eine eigene Aenderung bestaetigt hat; ein
+            aelterer Stand aus einem GET ist ueberholt und wird nicht gezeigt. */
+        minVersion: 0,
+        indexTimer: null,
+        indexPollStarted: null,
+        /** "Fruehere Auswertungen" aufgeklappt (bleibt beim Neuzeichnen). */
+        earlierOpen: false,
+        /** ids der ueberholten Auswertungen der gezeichneten Liste. */
+        supersededIds: new Set(),
     };
 
     const $ = (id) => document.getElementById(id);
@@ -108,6 +126,15 @@
     function blockHead(title, actions) {
         return el('div', { class: 'kx-block-head' }, el('h3', { text: title }),
             actions ? el('div', { class: 'kx-section-actions' }, actions) : null);
+    }
+
+    /** Fehler eines Editors in seinem Meldungskasten: die Meldung und die
+        Feldfehler, die sie nicht schon woertlich enthaelt. */
+    function showEditorError(box, err, unmatched) {
+        const extra = unmatched || Object.keys((err && err.fields) || {}).map((k) => `${k}: ${err.fields[k]}`);
+        clear(box);
+        KX.errorLines(err, extra).forEach((line) => box.appendChild(el('p', { text: line })));
+        box.hidden = false;
     }
 
     function guardrailText(m) {
@@ -167,19 +194,100 @@
                 type: 'button', class: 'btn btn-outline btn-sm', text: 'Neu laden',
                 onClick: () => {
                     box.hidden = true;
-                    // Neu laden heisst: auf dem neuen Stand weiterarbeiten.
-                    state.editors.clear();
-                    state.bases.clear();
-                    load();
+                    reloadKeepingDrafts();
                 },
             })));
         box.hidden = false;
         box.scrollIntoView({ block: 'nearest' });
     }
 
-    function reportError(err) {
+    /**
+     * "Neu laden" nach einem 409: der neue Stand wird geladen, ohne dass eine
+     * Eingabe verloren geht. Notiz- und Entscheidungsentwurf haengen an keiner
+     * Fassung und bleiben stehen. Offene Editoren bleiben offen, ruecken auf
+     * die neue Fassung und zeigen den aktuellen Stand zum Abgleich: Speichern
+     * setzt den Entwurf dann bewusst durch, "Entwurf verwerfen" zeigt den
+     * neuen Stand.
+     */
+    async function reloadKeepingDrafts() {
+        const open = VERSIONED_EDITORS.filter((name) => state.editors.has(name));
+        await load();
+        if (!state.exp) return;
+        open.forEach((name) => {
+            if (!state.editors.has(name)) return;
+            state.bases.set(name, state.exp.row_version);
+            markStaleDraft(name);
+        });
+    }
+
+    const BLOCK_RENDERERS = {
+        hypothesis: () => renderHypothesis(),
+        description: () => renderDescription(),
+        fields: () => renderFields(),
+        variants: () => renderVariants(),
+        metrics: () => renderMetrics(),
+        title: () => renderHeader(),
+    };
+    const EDITOR_BOXES = {
+        hypothesis: 'kxHypothesis', description: 'kxDescription', fields: 'kxFields',
+        variants: 'kxVariants', metrics: 'kxMetrics',
+    };
+
+    /** Einen offenen Editor als "beruht auf einer aelteren Fassung" markieren. */
+    function markStaleDraft(name) {
+        const container = name === 'title'
+            ? $('kxHeader').querySelector('.kx-title-edit') : $(EDITOR_BOXES[name]);
+        if (!container) return;
+        const textual = name === 'title' || name === 'hypothesis' || name === 'description';
+        if (textual) {
+            const input = container.querySelector(name === 'title' ? 'input' : 'textarea');
+            const draft = input ? input.value.trim() : '';
+            if (input && draft === String(state.exp[name] || '').trim()) {
+                // Der Entwurf ist inzwischen der Stand: nichts abzugleichen.
+                closeEditor(name);
+                BLOCK_RENDERERS[name]();
+                return;
+            }
+        }
+        const old = container.querySelector('.kx-draft-note');
+        if (old) old.remove();
+        const current = !textual ? null
+            : name === 'description' && state.exp.description ? KX.renderMarkdown(state.exp.description)
+                : el('p', { class: 'kx-prose', text: String(state.exp[name] || '') || DASH });
+        const note = el('div', { class: 'kx-banner kx-banner--info kx-draft-note', role: 'status' },
+            el('div', null,
+                el('p', { text: textual
+                    ? 'Ihr Entwurf beruht auf einer älteren Fassung. Der aktuelle Stand ist geladen – '
+                        + 'bitte abgleichen und erneut speichern.'
+                    : 'Ihre Eingaben hier beruhen auf einer älteren Fassung. Der aktuelle Stand ist geladen – '
+                        + 'bitte prüfen und erneut speichern, oder den Entwurf verwerfen, um ihn zu sehen.' }),
+                current ? el('details', { class: 'kx-details', open: true },
+                    el('summary', { text: 'Aktueller Stand' }), current) : null,
+                el('div', { class: 'kx-form-actions' }, el('button', {
+                    type: 'button', class: 'btn btn-outline btn-sm', text: 'Entwurf verwerfen',
+                    onClick: () => {
+                        closeEditor(name);
+                        BLOCK_RENDERERS[name]();
+                    },
+                }))));
+        if (name === 'title') container.appendChild(note);
+        else container.insertBefore(note, container.children[1] || null);
+    }
+
+    /**
+     * Fehler melden. Ein 404 mit `gone` betrifft ein Teilstueck (Erfassung,
+     * Notiz, Auswertung), das inzwischen fehlt -- das Experiment gibt es noch;
+     * die Seite laedt neu und zeigt den aktuellen Stand (oder, falls doch das
+     * Experiment fehlt, dass es es nicht mehr gibt).
+     */
+    function reportError(err, gone) {
         if (err && err.status === 409) {
             showConflict(KX.errorMessage(err));
+            return;
+        }
+        if (err && err.status === 404 && gone) {
+            KX.toast(gone, 'error');
+            load();
             return;
         }
         if (err && err.status === 404 && err.message === 'Nicht gefunden.') {
@@ -189,17 +297,26 @@
         KX.toast(KX.errorMessage(err), 'error');
     }
 
-    /** Eine Antwort mit Experiment uebernehmen. Enthaelt sie nicht alles, was
-        die Seite braucht (Definition, Uebergaenge), wird neu geladen. */
+    /**
+     * Die Antwort einer eigenen Aenderung uebernehmen. Ihre row_version ist
+     * der Stand nach dem Speichern: offene Editoren ruecken hier mit, und kein
+     * spaeter eintreffender, aelterer GET darf ihn wieder verdecken
+     * (state.minVersion). Enthaelt die Antwort nicht alles, was die Seite
+     * braucht (Definition, Uebergaenge), wird neu geladen.
+     */
     async function applySnapshot(exp, sentVersion) {
-        if (exp && exp.key === KEY && exp.definition && Array.isArray(exp.transitions)) {
+        if (exp && exp.key === KEY && typeof exp.row_version === 'number') {
             rebaseEditors(sentVersion, exp.row_version);
+            state.minVersion = Math.max(state.minVersion, exp.row_version);
+        }
+        if (exp && exp.key === KEY && exp.definition && Array.isArray(exp.transitions)) {
             state.exp = exp;
             render();
             loadActivity();
+            scheduleIndexPoll(true);
             return;
         }
-        await load(sentVersion);
+        await load();
     }
 
     /**
@@ -242,18 +359,33 @@
 
     // ── Laden ───────────────────────────────────────────────────────────
 
-    async function load(sentVersion) {
+    /**
+     * Den Stand lesen und zeigen. Laeuft schon eine Anfrage, wird nach ihr
+     * noch einmal gelesen und erst dann gezeichnet: sie kann vor der Aenderung
+     * gelesen haben, fuer die der zweite Aufruf neu laedt. Ein Stand unter
+     * state.minVersion (aelter als eine bestaetigte eigene Aenderung) wird nie
+     * gezeigt.
+     */
+    async function load() {
         if (!API) {
             renderMissing();
             return;
         }
-        if (state.loading) return state.loading;
+        if (state.loading) {
+            state.reloadAgain = true;
+            return state.loading;
+        }
         state.loading = (async () => {
             try {
-                const data = await KX.api('GET', API);
-                const exp = data.experiment || null;
-                if (!exp) throw new KX.ApiError('Nicht gefunden.', 404);
-                rebaseEditors(sentVersion, exp.row_version);
+                let exp = null;
+                for (let attempt = 0; attempt < 5; attempt += 1) {
+                    state.reloadAgain = false;
+                    const data = await KX.api('GET', API);
+                    exp = data.experiment || null;
+                    if (!exp) throw new KX.ApiError('Nicht gefunden.', 404);
+                    const outdated = typeof exp.row_version === 'number' && exp.row_version < state.minVersion;
+                    if (!state.reloadAgain && !outdated) break;
+                }
                 state.exp = exp;
                 if (state.runsFor !== exp.run_count) {
                     // Neue Laeufe: die nachgeladene Liste waere veraltet.
@@ -262,6 +394,7 @@
                 }
                 render();
                 loadActivity();
+                scheduleIndexPoll(true);
             } catch (err) {
                 if (err && err.status === 404) renderMissing();
                 else if (!state.exp) renderLoadError(err);
@@ -289,7 +422,40 @@
         header.setAttribute('aria-busy', 'false');
         clear(header).appendChild(el('div', { class: 'kx-banner kx-banner--error', role: 'alert' },
             el('p', { text: KX.errorMessage(err) }),
-            el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'Erneut versuchen', onClick: load })));
+            el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'Erneut versuchen', onClick: () => load() })));
+    }
+
+    /**
+     * Solange der Knovas-Stand "ausstehend" ist, nur ihn nachfragen und den
+     * Kopf neu zeichnen (row_version, Editoren und die uebrigen Abschnitte
+     * bleiben unberuehrt). `restart` beginnt die 5-Minuten-Frist neu -- nach
+     * jedem vollen Laden, also nach jeder eigenen Aenderung.
+     */
+    function scheduleIndexPoll(restart) {
+        const idx = state.exp && state.exp.index;
+        if (!idx || idx.state !== 'pending') {
+            window.clearTimeout(state.indexTimer);
+            state.indexTimer = null;
+            state.indexPollStarted = null;
+            return;
+        }
+        if (restart || !state.indexPollStarted) state.indexPollStarted = Date.now();
+        if (state.indexTimer) return;
+        if (Date.now() - state.indexPollStarted > INDEX_POLL_LIMIT_MS) return;
+        state.indexTimer = window.setTimeout(async () => {
+            state.indexTimer = null;
+            if (document.visibilityState !== 'hidden') {
+                try {
+                    const data = await KX.api('GET', API);
+                    const next = data.experiment && data.experiment.index;
+                    if (next && state.exp && !state.loading) {
+                        state.exp.index = next;
+                        renderHeader();
+                    }
+                } catch (_) { /* weiter versuchen, bis die Frist um ist */ }
+            }
+            scheduleIndexPoll(false);
+        }, INDEX_POLL_MS);
     }
 
     /** Neu laden, ausser ein Dialog ist offen (er liest den Stand beim
@@ -392,6 +558,11 @@
             el('span', { class: 'kx-section-actions' },
                 el('button', {
                     type: 'button', class: 'btn btn-outline btn-sm', text: 'Neu indexieren',
+                    // Aus, wenn die Uebertragung nach Knovas ausgeschaltet ist
+                    // (der Server plant dann nichts ein).
+                    disabled: Boolean(state.meta && state.meta.index_enabled === false),
+                    title: state.meta && state.meta.index_enabled === false
+                        ? 'Die Übertragung nach Knovas ist ausgeschaltet.' : null,
                     onClick: (e) => reindex(e.currentTarget),
                 }),
                 el('button', {
@@ -461,8 +632,14 @@
     async function reindex(button) {
         button.disabled = true;
         try {
-            await KX.api('POST', `${API}/reindex`, {});
-            KX.toast('Die Übertragung nach Knovas ist eingeplant.', 'success');
+            const data = await KX.api('POST', `${API}/reindex`, {});
+            // {queued: false}: die Uebertragung ist ausgeschaltet, der Server
+            // hat nur den Stand auf "aus" gesetzt.
+            if (data && data.result && data.result.queued) {
+                KX.toast('Die Übertragung nach Knovas ist eingeplant.', 'success');
+            } else {
+                KX.toast('Die Übertragung nach Knovas ist ausgeschaltet; es wurde nichts eingeplant.', 'info');
+            }
             await load();
         } catch (err) {
             reportError(err);
@@ -557,26 +734,53 @@
         return wrap;
     }
 
+    function stateLabel(key) {
+        const s = (definition().states || []).find((x) => x.key === key);
+        return (s && s.label) || (key == null ? DASH : String(key));
+    }
+
+    /**
+     * Beschriftung des Dialogs zu einem Statuswechsel. Fuehrt er in die Phase
+     * "stopped", heisst die Aktion ausdruecklich "Experiment abbrechen" und ist
+     * als gefaehrlich markiert, und der Knopf zum Schliessen heisst "Zurueck"
+     * -- sonst stuenden zwei Knoepfe "Abbrechen" nebeneinander, von denen einer
+     * das Experiment endgueltig beendet.
+     */
+    function transitionDialogText(t) {
+        const target = (definition().states || []).find((s) => s.key === t.to) || {};
+        const stops = target.phase === 'stopped';
+        return {
+            stops,
+            title: stops ? 'Experiment abbrechen' : (t.label || 'Status wechseln'),
+            confirm: stops ? 'Experiment abbrechen' : (t.label || 'Wechseln'),
+            back: 'Zurück',
+            intro: `Der Status wechselt von «${stateLabel(state.exp.status)}» zu «${stateLabel(t.to)}».`,
+            final: stops ? 'Ein abgebrochenes Experiment lässt sich nicht fortsetzen.' : null,
+        };
+    }
+
     async function runTransition(t) {
-        const states = definition().states || [];
-        const from = (states.find((s) => s.key === state.exp.status) || {}).label || state.exp.status;
-        const to = (states.find((s) => s.key === t.to) || {}).label || t.to;
+        const text0 = transitionDialogText(t);
+        const to = stateLabel(t.to);
         const comment = KX.textarea({ name: 'comment', rows: 3, maxlength: 5000 });
+        const intro = el('p', { text: text0.intro });
         const body = el('div', null,
-            el('p', { text: `Der Status wechselt von «${from}» zu «${to}».` }),
+            intro,
+            text0.final ? el('p', { class: 'kx-help', text: text0.final }) : null,
             KX.field({
                 label: t.needs_comment ? 'Grund' : 'Kommentar (optional)', input: comment, name: 'comment',
                 required: Boolean(t.needs_comment),
                 help: 'Wird als Notiz gespeichert und ist in der Suche auffindbar.',
             }));
         await KX.dialog({
-            title: t.label || 'Status wechseln',
+            title: text0.title,
             body,
             actions: [
-                { label: 'Abbrechen', value: null },
+                { label: text0.back, value: null },
                 {
-                    label: t.label || 'Wechseln',
+                    label: text0.confirm,
                     primary: true,
+                    danger: text0.stops,
                     onClick: async () => {
                         const text = comment.value.trim();
                         if (t.needs_comment && !text) {
@@ -591,8 +795,17 @@
                             data = await KX.api('POST', `${API}/transition`, payload);
                         } catch (err) {
                             if (err.status === 409) {
-                                showConflict(err.message);
-                                return true;
+                                // Den neuen Stand laden, der Dialog samt Grund
+                                // bleibt offen; ein zweites Bestaetigen sendet
+                                // die neue row_version.
+                                await load();
+                                intro.textContent = transitionDialogText(t).intro;
+                                const still = (state.exp.transitions || []).some((x) => x.to === t.to);
+                                throw new KX.ApiError(still
+                                    ? 'Das Experiment wurde inzwischen geändert; der neue Stand ist geladen. '
+                                        + 'Bitte prüfen und erneut bestätigen.'
+                                    : 'Das Experiment wurde inzwischen geändert; dieser Statuswechsel ist '
+                                        + 'nicht mehr möglich.', 409);
                             }
                             throw err;
                         }
@@ -740,10 +953,7 @@
                     showConflict(err.message);
                     return;
                 }
-                const unmatched = KX.showFieldErrors(form, err.fields);
-                clear(error);
-                [KX.errorMessage(err)].concat(unmatched).forEach((line) => error.appendChild(el('p', { text: line })));
-                error.hidden = false;
+                showEditorError(error, err, KX.showFieldErrors(form, err.fields));
             }
         });
         clear(box).appendChild(blockHead('Angaben'));
@@ -885,6 +1095,11 @@
             });
             if (variants.length < rules.min) problems.push(`Dieser Typ braucht mindestens ${rules.min} Varianten.`);
             if (variants.length > rules.max) problems.push(`Dieser Typ erlaubt höchstens ${rules.max} Varianten.`);
+            // Eingegeben wird in Prozent; die Summe darf 100 % nicht uebersteigen.
+            const total = variants.reduce((sum, v) => sum + (v.allocation || 0), 0);
+            if (total > 1 + 1e-9) {
+                problems.push(`Die Zuteilungen ergeben zusammen ${KX.fmtPlain(total * 100, 2)} %, mehr als 100 %.`);
+            }
             if (problems.length) {
                 clear(error);
                 problems.forEach((p) => error.appendChild(el('p', { text: p })));
@@ -904,10 +1119,7 @@
                     showConflict(err.message);
                     return;
                 }
-                clear(error);
-                [KX.errorMessage(err)].concat(Object.keys(err.fields || {}).map((k) => `${k}: ${err.fields[k]}`))
-                    .forEach((line) => error.appendChild(el('p', { text: line })));
-                error.hidden = false;
+                showEditorError(error, err);
             }
         });
         clear(box).appendChild(blockHead('Varianten'));
@@ -956,28 +1168,56 @@
                     : el('span', { class: 'kx-muted', text: DASH }))))))));
     }
 
-    async function loadCatalog() {
-        if (state.catalog) return state.catalog;
+    /** Die waehlbaren Metriken des Bereichs (und globale). `fresh` fragt eine
+        leere Liste neu ab: legt jemand unter Verwaltung eine Metrik an, sieht
+        man sie beim naechsten Oeffnen des Editors. */
+    async function loadCatalog(fresh) {
+        if (state.catalog && (state.catalog.length || !fresh)) return state.catalog;
         const domain = (state.exp.domain || {}).key || '';
         const data = await KX.api('GET', `/api/experiments/metrics?domain=${encodeURIComponent(domain)}`);
         state.catalog = (data.metrics || []).filter((m) => !m.archived);
         return state.catalog;
     }
 
+    /**
+     * Hinweis, wenn der Bereich keine einzige Metrik hat: Experimentierende
+     * koennen keine anlegen (nur Verantwortliche, unter Verwaltung ->
+     * Metriken), und ohne Metrik gibt es keine Messwerte und keine Auswertung.
+     */
+    function emptyCatalogState() {
+        const domain = state.exp.domain || {};
+        return KX.emptyState(null,
+            `Für den Bereich «${domain.name || domain.key || ''}» gibt es noch keine Metriken. `
+            + (state.canManage ? 'Legen Sie zuerst eine an.'
+                : 'Metriken legen Verantwortliche der Experimente unter Verwaltung → Metriken an.'),
+            state.canManage ? [el('a', {
+                class: 'btn btn-outline btn-sm', href: '/experiments/verwaltung#metriken',
+                text: 'Metrik unter Verwaltung → Metriken anlegen',
+            })] : null);
+    }
+
     async function openMetricsEditor() {
         const box = $('kxMetrics');
         let catalog;
         try {
-            catalog = await loadCatalog();
+            catalog = await loadCatalog(true);
         } catch (err) {
             reportError(err);
             return;
         }
-        openEditor('metrics');
         // Zugeordnete Metriken bleiben waehlbar, auch wenn sie inzwischen archiviert sind.
         const byKey = new Map(catalog.map((m) => [m.key, m]));
         (state.exp.metrics || []).forEach((m) => { if (!byKey.has(m.key)) byKey.set(m.key, m); });
         const options = Array.from(byKey.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'));
+        if (!options.length) {
+            // Nichts zu waehlen: keine leere Auswahlliste, sondern wer weiterhilft.
+            clear(box).appendChild(blockHead('Metriken'));
+            box.appendChild(emptyCatalogState());
+            box.appendChild(el('div', { class: 'kx-form-actions' },
+                el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'Schliessen', onClick: renderMetrics })));
+            return;
+        }
+        openEditor('metrics');
         const tbody = el('tbody');
 
         function addRow(m) {
@@ -1037,6 +1277,7 @@
         const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true, style: { margin: '12px 0 0' } });
         const add = el('button', {
             type: 'button', class: 'btn btn-outline btn-sm', text: 'Metrik hinzufügen',
+            disabled: !options.length,
             onClick: () => addRow(null).querySelector('select').focus(),
         });
         const save = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'Metriken speichern' });
@@ -1078,10 +1319,7 @@
                     showConflict(err.message);
                     return;
                 }
-                clear(error);
-                [KX.errorMessage(err)].concat(Object.keys(err.fields || {}).map((k) => `${k}: ${err.fields[k]}`))
-                    .forEach((line) => error.appendChild(el('p', { text: line })));
-                error.hidden = false;
+                showEditorError(error, err);
             }
         });
         clear(box).appendChild(blockHead('Metriken'));
@@ -1135,18 +1373,23 @@
         }
         const baseField = KX.field({ label: 'Basisrate (%)', input: base, name: 'base', help: 'Heutiger Anteil, z. B. 1,2 für 1,2 %.' });
         const sdField = KX.field({ label: 'Standardabweichung', input: sd, name: 'sd' });
-        const mdeField = KX.field({ label: 'Kleinster relevanter Unterschied', input: mde, name: 'mde' });
+        // Die Einheit steht unter dem Feld, nicht im Label: ein zweizeiliges
+        // Label schoebe das Feld aus der Reihe der uebrigen.
+        const mdeField = KX.field({
+            label: 'Kleinster relevanter Unterschied', input: mde, name: 'mde',
+            help: 'In Prozentpunkten, z. B. 0,3.',
+        });
         const sync = () => {
             const isProp = kind.value === 'proportion';
             baseField.hidden = !isProp;
             sdField.hidden = isProp;
-            mdeField.querySelector('.kx-label').textContent = isProp
-                ? 'Kleinster relevanter Unterschied (Pp.)' : 'Kleinster relevanter Unterschied';
+            const help = mdeField.querySelector('.kx-help');
+            if (help) help.textContent = isProp ? 'In Prozentpunkten, z. B. 0,3.' : 'In der Einheit der Metrik.';
         };
         kind.addEventListener('change', sync);
         sync();
         const form = el('form', { noValidate: true },
-            el('div', { class: 'kx-form-row' },
+            el('div', { class: 'kx-form-row kx-form-row--aligned' },
                 KX.field({ label: 'Art der Metrik', input: kind, name: 'kind' }),
                 baseField, sdField, mdeField,
                 KX.field({ label: 'Signifikanzniveau', input: alpha, name: 'alpha' }),
@@ -1184,7 +1427,9 @@
             try {
                 const data = await KX.api('GET', `/api/experiments/sample-size?${params.toString()}`);
                 const n = data.result && KX.finite(data.result.per_variant);
-                const count = Math.max(2, (exp.variants || []).length);
+                // Die Varianten von jetzt, nicht die vom Aufbau des Rechners:
+                // er bleibt stehen, auch wenn Varianten dazukommen.
+                const count = Math.max(2, ((state.exp && state.exp.variants) || []).length);
                 result.textContent = n === null || n === undefined ? DASH
                     : `Rund ${KX.fmtNumber(n, 0)} je Variante, bei ${count} Varianten ${KX.fmtNumber(n * count, 0)} insgesamt.`;
             } catch (err) {
@@ -1214,7 +1459,13 @@
         renderImportNote();
         const box = clear($('kxMeasurements'));
         if (!metrics.length) {
-            box.appendChild(KX.emptyState(null, 'Zuerst unter «Varianten und Metriken» eine Metrik zuordnen.'));
+            const hint = KX.emptyState(null, 'Zuerst unter «Varianten und Metriken» eine Metrik zuordnen.');
+            box.appendChild(hint);
+            // Hat der Bereich gar keine Metrik, fuehrt der Hinweis ins Leere:
+            // dann sagen, wer eine anlegen kann.
+            loadCatalog().then((catalog) => {
+                if (!catalog.length && hint.parentNode === box) box.replaceChild(emptyCatalogState(), hint);
+            }).catch(() => null);
             return;
         }
         if (!(Number(exp.measurement_count) > 0)) {
@@ -1246,16 +1497,32 @@
             })));
     }
 
-    /** Intervall je Variante aus der neuesten fertigen Auswertung dieser Metrik. */
-    function intervalsFor(metricKey) {
+    /**
+     * 95-%-Intervall je Variante fuer die Tabelle einer Metrik. Die Spalten n
+     * und Schaetzung zeigen alle Daten (aggregates); ein Intervall daneben
+     * muss ueber dieselben Daten gerechnet sein. Also nur aus der neuesten
+     * fertigen, nicht ueberholten Auswertung ohne Datenbereich (scope {}) und
+     * mit dem Niveau 95 % (alpha 0,05), und je Variante nur, wenn ihr n noch
+     * dem der Aggregate entspricht (sonst sind seither Messwerte dazugekommen
+     * oder weggefallen). Ohne passendes Intervall bleibt die Zelle leer.
+     */
+    function intervalsFor(metricKey, aggregates) {
+        const nByVariant = {};
+        (aggregates || []).forEach((a) => {
+            if (a && a.variant != null) nByVariant[a.variant] = Number(a.n);
+        });
         const out = {};
-        for (const ev of state.exp.evaluations || []) {
+        for (const ev of KX.splitEvaluations(state.exp.evaluations).current) {
             if (ev.status !== 'done' || ev.metric_key !== metricKey) continue;
+            if (ev.scope && typeof ev.scope === 'object' && Object.keys(ev.scope).length) continue;
+            const alpha = KX.finite((ev.params || {}).alpha);
+            if (alpha !== null && Math.abs(alpha - 0.05) > 1e-9) continue;
             const output = (state.evalDetails.get(ev.id) || {}).output || ev.output;
             const variants = output && Array.isArray(output.variants) ? output.variants : [];
             let found = false;
             variants.forEach((v) => {
-                if (v && KX.finite(v.ci_low) !== null && KX.finite(v.ci_high) !== null && !(v.variant in out)) {
+                if (v && KX.finite(v.ci_low) !== null && KX.finite(v.ci_high) !== null && !(v.variant in out)
+                        && Number(v.n) === nByVariant[v.variant]) {
                     out[v.variant] = [v.ci_low, v.ci_high];
                     found = true;
                 }
@@ -1269,7 +1536,7 @@
         const spec = kindSpec(m.kind);
         const dec = decimalsOf(m);
         const aggregates = Array.isArray(m.aggregates) ? m.aggregates : [];
-        const intervals = intervalsFor(m.key);
+        const intervals = intervalsFor(m.key, aggregates);
         const levels = m.definition && m.definition.levels && typeof m.definition.levels === 'object' ? m.definition.levels : null;
         const card = el('article', { class: 'kx-card kx-metric-card', 'aria-labelledby': `kx-metric-${m.key}` });
         const head = el('div', { class: 'kx-metric-head' },
@@ -1538,7 +1805,8 @@
                 + `Höchstens ${KX.fmtNumber(maxRows, 0)} Zeilen und 20 MB je Datei. Zahlen mit Dezimalkomma oder -punkt; `
                 + 'Daten als JJJJ-MM-TT oder TT.MM.JJJJ.' }),
             el('p', { class: 'kx-subhead', text: 'Langes Format' }),
-            el('p', { text: 'Eine Zeile je Messwert mit den Spalten metric, variant, value, count, denominator, sum_sq, observed_at, run und dim.<name>.' }),
+            el('p', { text: 'Eine Zeile je Messwert mit den Spalten metric, variant, value, count, denominator, sum_sq, observed_at, '
+                + 'run (Lauf-ID aus der Tabelle «Läufe», dort mit «ID kopieren») und dim.<name>.' }),
             el('pre', { class: 'kx-pre', text: 'metric;variant;value;count;observed_at\nctr;A;129;10688;2026-09-14\nctr;B;175;10714;2026-09-14' }),
             el('p', { class: 'kx-subhead', text: 'Breites Format' }),
             el('p', { text: 'Ohne Spalte metric: eine Spalte je Metrik (ihr Schlüssel) und <schlüssel>.count, <schlüssel>.denominator, <schlüssel>.sum_sq. Zum Beispiel wöchentliche LinkedIn-Zahlen:' }),
@@ -1649,7 +1917,7 @@
             KX.toast(`${KX.fmtNumber(deleted || 0, 0)} Messwerte gelöscht.`, 'success');
             await load();
         } catch (err) {
-            reportError(err);
+            reportError(err, 'Diese Erfassung gibt es nicht mehr.');
         }
     }
 
@@ -1686,13 +1954,29 @@
         }
     }
 
+    /** Die Lauf-ID in die Zwischenablage (fuer die CSV-Spalte run). */
+    async function copyRunId(id) {
+        const ok = await KX.copyText(id);
+        KX.toast(ok ? 'Lauf-ID kopiert.' : `Lauf-ID: ${id}`, ok ? 'success' : 'info');
+    }
+
     function runRow(r) {
         const params = r.params && typeof r.params === 'object' ? Object.keys(r.params) : [];
         const metrics = r.metrics && typeof r.metrics === 'object' ? Object.keys(r.metrics) : [];
         const when = r.ended_at || r.started_at || r.created_at;
+        const id = r.id ? String(r.id) : '';
         return el('tr', null,
             el('th', { scope: 'row' }, el('span', { text: r.name || 'ohne Namen' }),
-                el('span', { class: 'kx-sub', text: `${KX.fmtDateTime(when)} · ${KX.label('sources', r.source)}` })),
+                el('span', { class: 'kx-sub', text: `${KX.fmtDateTime(when)} · ${KX.label('sources', r.source)}` }),
+                // Die ID braucht die CSV-Spalte run; gezeigt wird der Anfang,
+                // kopiert (und im Tooltip) die ganze.
+                id ? el('span', { class: 'kx-sub kx-run-id' },
+                    el('span', { class: 'kx-mono', title: id, text: `ID ${id.slice(0, 8)}…` }),
+                    el('button', {
+                        type: 'button', class: 'kx-link-button', text: 'ID kopieren',
+                        'aria-label': `Lauf-ID von «${r.name || 'ohne Namen'}» kopieren`,
+                        onClick: () => copyRunId(id),
+                    })) : null),
             el('td', { text: r.variant ? variantLabel(r.variant) : DASH }),
             el('td', null, KX.chip(r.status_label || KX.label('run_statuses', r.status),
                 r.status === 'failed' ? 'bad' : r.status === 'running' ? 'running' : 'muted')),
@@ -1721,18 +2005,29 @@
         return text && text.length > 60 ? `${text.slice(0, 59)}…` : text;
     }
 
+    /**
+     * Weitere Laeufe anhaengen. Die Tabelle beginnt mit den Laeufen des
+     * Stands (store.SNAPSHOT_RUNS) und liest hinter dem letzten weiter
+     * (runs_next_after). Liefert der Server diesen Cursor nicht, beginnt die
+     * erste Seite wieder oben -- mit 200 Laeufen, mehr als der Stand zeigt --,
+     * und doppelte werden nach id zusammengefuehrt: die Liste waechst immer
+     * und schrumpft nie.
+     */
     async function loadMoreRuns(button) {
         button.disabled = true;
         try {
-            const cursor = state.runsNext ? `?after=${encodeURIComponent(state.runsNext)}` : '';
-            const data = await KX.api('GET', `${API}/runs${cursor}`);
+            if (!state.runs) {
+                state.runs = (state.exp.runs || []).slice();
+                state.runsNext = state.exp.runs_next_after || null;
+            }
+            const url = state.runsNext
+                ? `${API}/runs?limit=100&after=${encodeURIComponent(state.runsNext)}`
+                : `${API}/runs?limit=200`;
+            const data = await KX.api('GET', url);
             const result = data.result || {};
             const items = Array.isArray(result.items) ? result.items : [];
-            if (!state.runsNext) {
-                state.runs = items;
-            } else {
-                state.runs = (state.runs || []).concat(items);
-            }
+            const seen = new Set(state.runs.map((r) => r && r.id));
+            state.runs = state.runs.concat(items.filter((r) => r && !seen.has(r.id)));
             state.runsNext = result.next_after || null;
             state.runsFor = state.exp.run_count;
             if (!state.runsNext && state.runs.length < (Number(state.exp.run_count) || 0)) {
@@ -1743,6 +2038,38 @@
             button.disabled = false;
             reportError(err);
         }
+    }
+
+    /**
+     * Fehler zu einem Lauf auf die Felder des Formulars beziehen. Aeltere
+     * Server nennen die Messwerte eines Laufs "Messwert 1" und schluesseln sie
+     * als rows.<i>.<feld>; Zeile i ist die i-te Metrik des gesendeten Objekts
+     * metrics (der Server behaelt dessen Reihenfolge). Neuere senden schon
+     * metrics.<schluessel> -- dann bleibt der Fehler, wie er ist.
+     */
+    function runErrorForForm(err, order) {
+        if (!err || err.status !== 400 || !err.fields || !order.length) return err;
+        const fields = {};
+        let changed = false;
+        Object.keys(err.fields).forEach((k) => {
+            const m = /^rows\.(\d+)\.([A-Za-z_]+)$/.exec(k);
+            const i = m ? Number(m[1]) : -1;
+            if (m && i < order.length) {
+                const base = `metrics.${order[i]}`;
+                fields[['value', 'row', 'metric'].indexOf(m[2]) !== -1 ? base : `${base}.${m[2]}`] = err.fields[k];
+                changed = true;
+            } else {
+                fields[k] = err.fields[k];
+            }
+        });
+        if (!changed) return err;
+        const message = String(err.message).replace(/Messwert (\d+):/g, (all, n) => {
+            const key = order[Number(n) - 1];
+            if (!key) return all;
+            const metric = metricByKey(key);
+            return `«${(metric && metric.name) || key}»:`;
+        });
+        return new KX.ApiError(message, err.status, fields);
     }
 
     async function openRunDialog() {
@@ -1832,8 +2159,14 @@
                         });
                         if (Object.keys(errors).length) throw new KX.ApiError('Bitte die markierten Angaben prüfen.', 400, errors);
                         if (Object.keys(metrics).length) payload.metrics = metrics;
-                        await KX.api('POST', `${API}/runs`, payload);
-                        KX.toast('Lauf gespeichert.', 'success');
+                        let data;
+                        try {
+                            data = await KX.api('POST', `${API}/runs`, payload);
+                        } catch (err) {
+                            throw runErrorForForm(err, Object.keys(metrics));
+                        }
+                        const saved = (data && data.run) || {};
+                        KX.toast(saved.id ? `Lauf gespeichert. Lauf-ID: ${saved.id}` : 'Lauf gespeichert.', 'success');
                         state.runs = null;
                         state.runsNext = null;
                         await load();
@@ -1864,8 +2197,23 @@
                 'Noch keine Auswertung. «Alle Auswertungen des Typs ausführen» startet die vorgesehenen.'));
             return;
         }
+        // Oben nur das aktuelle Ergebnis je Auswerter, Metrik, Parameter und
+        // Datenbereich; was eine neuere Auswertung derselben Art abgeloest hat
+        // (fruehere Daten, wiederholte Laeufe), steht zugeklappt darunter.
+        const { current, earlier } = KX.splitEvaluations(evaluations);
+        state.supersededIds = new Set(earlier.map((ev) => ev.id));
+        current.forEach((ev) => box.appendChild(evaluationCard(ev)));
+        if (earlier.length) {
+            const details = el('details', { class: 'kx-details kx-earlier-evaluations', open: state.earlierOpen },
+                el('summary', { text: `Frühere Auswertungen (${KX.fmtNumber(earlier.length, 0)})` }),
+                el('p', { class: 'kx-help', text: 'Abgelöst von einer neueren Auswertung mit demselben Auswerter, '
+                    + 'derselben Metrik, denselben Parametern und demselben Datenbereich. Sie beschreiben einen '
+                    + 'früheren Stand der Daten.' }),
+                earlier.map((ev) => evaluationCard(ev)));
+            details.addEventListener('toggle', () => { state.earlierOpen = details.open; });
+            box.appendChild(details);
+        }
         evaluations.forEach((ev) => {
-            box.appendChild(evaluationCard(ev));
             if (ev.status === 'queued' || ev.status === 'running') startPoll(ev.id);
         });
     }
@@ -1876,8 +2224,10 @@
         const metric = metricByKey(ev.metric_key);
         const custom = ev.language && ev.language !== 'builtin';
         const pending = ev.status === 'queued' || ev.status === 'running';
+        const superseded = Boolean(state.supersededIds && state.supersededIds.has(ev.id));
         const card = el('article', {
-            class: 'kx-card kx-eval-card', dataset: { evaluationId: ev.id },
+            class: ['kx-card', 'kx-eval-card', superseded ? 'kx-eval-card--superseded' : ''],
+            dataset: { evaluationId: ev.id },
             'aria-busy': pending ? 'true' : 'false',
         });
         const metaParts = [
@@ -1897,7 +2247,10 @@
                 el('h3', { class: 'kx-eval-title' },
                     el('span', { text: ev.evaluator_name || ev.evaluator_key }),
                     custom ? KX.chip(ev.language, 'lang') : null,
-                    el('span', { class: 'kx-muted', text: `· ${metric ? metric.name : (ev.metric_key || 'ohne Metrik')}` })),
+                    el('span', { class: 'kx-muted', text: `· ${metric ? metric.name : (ev.metric_key || 'ohne Metrik')}` }),
+                    superseded ? KX.chip('überholt', 'muted', {
+                        title: 'Eine neuere Auswertung derselben Art hat diese abgelöst.',
+                    }) : null),
                 el('p', { class: 'kx-eval-meta', text: metaParts.join(' · ') })),
             statusNode));
         if (ev.headline) card.appendChild(el('p', { class: 'kx-headline', text: ev.headline }));
@@ -2038,7 +2391,7 @@
             return data.evaluation;
         } catch (err) {
             if (button) button.disabled = false;
-            reportError(err);
+            reportError(err, 'Diese Auswertung gibt es nicht mehr.');
             return null;
         }
     }
@@ -2057,7 +2410,7 @@
                 ev = data.evaluation || {};
                 state.evalDetails.set(id, ev);
             } catch (err) {
-                reportError(err);
+                reportError(err, 'Diese Auswertung gibt es nicht mehr.');
                 return;
             } finally {
                 button.disabled = false;
@@ -2358,7 +2711,7 @@
             KX.toast('Notiz gelöscht.', 'success');
             await load();
         } catch (err) {
-            reportError(err);
+            reportError(err, 'Diese Notiz gibt es nicht mehr.');
         }
     }
 
@@ -2419,8 +2772,10 @@
         const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true, style: { margin: '12px 0 0' } });
         const t = decidesTransition();
         const form = el('form', { class: 'kx-card kx-decision-box', noValidate: true },
+            // Der Name des Zielstatus ("Entschieden"), nicht die Beschriftung
+            // des Uebergangs ("Entscheiden").
             el('p', { class: 'kx-help', text: t
-                ? `Mit der Entscheidung wechselt der Status zu «${t.label || t.to}».`
+                ? `Mit der Entscheidung wechselt der Status zu «${stateLabel(t.to)}».`
                 : 'Die Entscheidung wird festgehalten; der Status bleibt.' }),
             el('div', { class: 'kx-form-row kx-form-row--narrow', style: { 'margin-top': '10px' } },
                 KX.field({ label: 'Entscheidung', input: verdict, name: 'verdict', required: true })),
@@ -2460,13 +2815,13 @@
             } catch (err) {
                 save.disabled = false;
                 if (err.status === 409) {
+                    // Der Entwurf bleibt beim Neu laden stehen; erneut
+                    // festhalten sendet dann die neue row_version.
+                    state.editors.add('decision');
                     showConflict(err.message);
                     return;
                 }
-                const unmatched = KX.showFieldErrors(form, err.fields);
-                clear(error);
-                [KX.errorMessage(err)].concat(unmatched).forEach((line) => error.appendChild(el('p', { text: line })));
-                error.hidden = false;
+                showEditorError(error, err, KX.showFieldErrors(form, err.fields));
             }
         });
         return form;
@@ -2497,6 +2852,106 @@
 
     let activitySeq = 0;
 
+    /** Namen der geaenderten Angaben (detail.changed von experiment.update). */
+    const CHANGED_LABELS = {
+        title: 'Titel', hypothesis: 'Hypothese', description: 'Beschreibung',
+        fields: 'Angaben des Typs', tags: 'Schlagwörter', owner_id: 'Verantwortlich', archived: 'Archivierung',
+    };
+
+    function listText(values, max) {
+        const shown = values.slice(0, max || 5).map(String);
+        return values.length > shown.length ? `${shown.join(', ')} …` : shown.join(', ');
+    }
+
+    function metricNames(keys) {
+        return keys.map((k) => {
+            const m = metricByKey(k);
+            return m && m.name ? m.name : String(k);
+        });
+    }
+
+    /**
+     * Ein Eintrag der Aktivitaet in Worten. Die API liefert zu jeder Aktion
+     * eine feste Beschriftung und die Einzelheiten (detail): was geaendert
+     * wurde, von welchem zu welchem Status, wie viele Messwerte. Ohne sie
+     * hiesse jede Bearbeitung "Angaben geaendert" -- wie der Kasten der
+     * Typ-Angaben --, und ein Statuswechsel sagte nicht, wohin.
+     */
+    function describeActivity(a) {
+        const item = a || {};
+        const d = item.detail && typeof item.detail === 'object' ? item.detail : {};
+        const base = String(item.label || item.action || '');
+        const count = (n) => KX.fmtNumber(Number(n) || 0, 0);
+        switch (item.action) {
+        case 'experiments.experiment.update': {
+            const changed = Array.isArray(d.changed) ? d.changed.map(String) : [];
+            if (changed.length === 1 && changed[0] === 'archived') {
+                if (d.archived === true) return 'Archiviert';
+                if (d.archived === false) return 'Wiederhergestellt';
+                return 'Archiviert oder wiederhergestellt';
+            }
+            if (!changed.length) return base;
+            return `Geändert: ${changed.map((k) => CHANGED_LABELS[k] || k).join(', ')}`;
+        }
+        case 'experiments.experiment.transition':
+            if (d.from == null && d.to == null) return base;
+            return `Status «${stateLabel(d.from)}» → «${stateLabel(d.to)}»`;
+        case 'experiments.experiment.decide': {
+            const verdict = d.verdict ? KX.label('decision_verdicts', d.verdict) : '';
+            const moved = d.to != null && d.to !== d.from
+                ? `; Status «${stateLabel(d.from)}» → «${stateLabel(d.to)}»` : '';
+            return `${base}${verdict ? `: ${verdict}` : ''}${moved}`;
+        }
+        case 'experiments.experiment.variants': {
+            const added = Array.isArray(d.added) ? d.added : [];
+            const removed = Array.isArray(d.removed) ? d.removed : [];
+            if (!added.length && !removed.length) return 'Varianten gespeichert (ohne neue oder entfernte)';
+            const parts = [];
+            if (added.length) parts.push(`neu: ${listText(added)}`);
+            if (removed.length) parts.push(`entfernt: ${listText(removed)}`);
+            return `${base} (${parts.join('; ')})`;
+        }
+        case 'experiments.experiment.metrics': {
+            const metrics = Array.isArray(d.metrics) ? d.metrics : [];
+            const removed = Array.isArray(d.removed) ? d.removed : [];
+            const parts = [`${count(metrics.length)} zugeordnet`];
+            if (removed.length) parts.push(`entfernt: ${listText(metricNames(removed))}`);
+            return `${base} (${parts.join('; ')})`;
+        }
+        case 'experiments.measurements.add':
+        case 'experiments.measurements.import': {
+            if (d.rows == null) return base;
+            const metrics = Array.isArray(d.metrics) ? d.metrics : [];
+            const rows = Number(d.rows) || 0;
+            return `${base}: ${count(rows)} ${rows === 1 ? 'Messwert' : 'Messwerte'}`
+                + `${metrics.length ? ` (${listText(metricNames(metrics))})` : ''}`;
+        }
+        case 'experiments.batch.delete':
+            return d.rows == null ? base : `${base}: ${count(d.rows)}`;
+        case 'experiments.run.add': {
+            const parts = [];
+            if (d.status) parts.push(KX.label('run_statuses', d.status));
+            if (Number(d.rows)) parts.push(`${count(d.rows)} ${Number(d.rows) === 1 ? 'Messwert' : 'Messwerte'}`);
+            return parts.length ? `${base} (${parts.join(', ')})` : base;
+        }
+        case 'experiments.evaluation.run': {
+            if (!d.evaluator) return base;
+            const evaluator = ((state.exp && state.exp.evaluators) || []).find((e) => e && e.key === d.evaluator);
+            const name = (evaluator && evaluator.name) || String(d.evaluator);
+            return `${base}: ${name}${d.metric ? ` auf ${listText(metricNames([d.metric]))}` : ''}`;
+        }
+        case 'experiments.pipeline.run':
+            return d.created == null ? base : `${base} (${count(d.created)} neu)`;
+        case 'experiments.note.add':
+        case 'experiments.note.delete':
+            return d.kind ? `${base} (${KX.label('note_kinds', d.kind)})` : base;
+        case 'experiments.experiment.reindex':
+            return d.queued === false ? `${base} (Übertragung ausgeschaltet)` : base;
+        default:
+            return base;
+        }
+    }
+
     async function loadActivity() {
         const box = $('kxActivity');
         const seq = ++activitySeq;
@@ -2511,7 +2966,7 @@
             }
             box.appendChild(el('ul', { class: 'kx-activity' }, items.map((a) => el('li', null,
                 el('time', { datetime: a.at || null, text: KX.fmtDateTime(a.at) }),
-                el('span', null, el('span', { text: a.label || a.action || '' }),
+                el('span', null, el('span', { text: describeActivity(a) }),
                     a.actor ? el('span', { class: 'kx-muted', text: ` · ${a.actor}` }) : null)))));
         } catch (err) {
             if (seq !== activitySeq) return;
@@ -2524,8 +2979,10 @@
     function init() {
         KX.meta().then((m) => {
             state.meta = m;
-            // Beschriftungen aus meta: Entscheidungs- und Notizarten neu zeichnen.
+            // Beschriftungen aus meta: Entscheidungs- und Notizarten neu
+            // zeichnen; der Kopf kennt jetzt index_enabled.
             if (state.exp) {
+                renderHeader();
                 renderNotes();
                 renderDecision();
             }

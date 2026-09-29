@@ -37,7 +37,7 @@ using HTTP
 using JSON3
 
 export Client, ExperimentsError, ping, experiment, create_experiment, log_run,
-       add_measurements, add_note, evaluate, evaluations
+       add_measurements, add_note, evaluate, evaluations, wait_for
 
 const SDK_VERSION = "1.0.0"
 const API_PREFIX = "/api/experiments/v1"
@@ -47,6 +47,8 @@ const TOKEN_RE = r"^kxp_[A-Za-z0-9_-]{16,200}$"
 const KEY_RE = r"^[A-Z][A-Z0-9]{1,7}-[0-9]{1,9}$"
 const RUN_STATUSES = ("finished", "failed", "cancelled")
 const MAX_EVALUATIONS_LIMIT = 60
+# Evaluations that still wait for the runner (Python and Julia evaluators).
+const PENDING_EVALUATION_STATUSES = ("queued", "running")
 # The Platform's answer on every module path while EXPERIMENTS_ENABLED is off.
 const MSG_SWITCHED_OFF = "Experimente sind nicht eingeschaltet."
 
@@ -62,6 +64,7 @@ Every error this client throws. `kind` says what went wrong:
 - `:auth` 401, `:forbidden` 403, `:not_found` 404, `:conflict` 409,
   `:unavailable` 503, `:server` other 5xx, `:http` any other status
 - `:disabled` 404 because the module is switched off on that Platform
+- `:timeout` `wait_for` gave up while evaluations were still queued or running
 
 `fields` holds per-field messages of a refused input.
 """
@@ -438,8 +441,9 @@ end
     evaluate(client, key; scope=nothing) -> Vector
 
 Runs the evaluations the experiment's type defines. Built-in evaluators are
-done when the call returns; Python and Julia evaluators are queued (poll with
-`evaluations`). `scope` overrides the type's, e.g. `Dict("runs" => "latest")`.
+done when the call returns; Python and Julia evaluators are queued (wait for
+them with `wait_for`). `scope` overrides the scope of every step of the type,
+e.g. `Dict("runs" => "latest")`.
 """
 function evaluate(c::Client, key; scope=nothing)
     path = _path(key) * "/pipeline"
@@ -459,6 +463,51 @@ function evaluations(c::Client, key; metric=nothing, limit::Integer=20)
     query = ["metric" => metric, "limit" => clamp(limit, 1, MAX_EVALUATIONS_LIMIT)]
     result = _request(c, "GET", path; query=query, key="evaluations")
     return result === nothing ? Any[] : result
+end
+
+"""
+    wait_for(client, key, evaluations; timeout=600, interval=5) -> Vector
+
+Polls until none of `evaluations` -- what `evaluate` returned -- is queued or
+running any more, and returns them in the same order with the current state
+of each. Entries without an id (a step that was skipped) come back unchanged.
+Throws `ExperimentsError(:timeout, ...)` after `timeout` seconds.
+
+A CI gate judges this list, the evaluations of this push, and not
+`evaluations(client, key)`: that one is the experiment's history and still
+holds the verdicts of earlier pushes.
+"""
+function wait_for(c::Client, key, evs; timeout::Real=600, interval::Real=5)
+    k = _key(key)
+    return _wait_for(() -> evaluations(c, k; limit=MAX_EVALUATIONS_LIMIT), evs;
+                     timeout=timeout, interval=interval)
+end
+
+_has_id(e) = e isa AbstractDict && !isempty(string(something(get(e, "id", nothing), "")))
+_is_pending(e) = _has_id(e) && get(e, "status", nothing) in PENDING_EVALUATION_STATUSES
+_seconds(t::Real) = isinteger(t) ? string(Int(t)) : string(t)
+
+# The polling itself, apart from HTTP: `fetch()` returns the experiment's
+# newest evaluations; `pause` and `clock` are replaceable for tests.
+function _wait_for(fetch, evs; timeout::Real=600, interval::Real=5, pause=sleep, clock=time)
+    (isfinite(timeout) && isfinite(interval)) || throw(ExperimentsError(:validation,
+        "timeout und interval m\u00fcssen endliche Zahlen (Sekunden) sein."))
+    current = Any[e isa AbstractDict ? Dict{String,Any}(string(k) => v for (k, v) in e) : e
+                  for e in evs]
+    deadline = clock() + max(0.0, Float64(timeout))
+    step = max(0.2, Float64(interval))
+    while true
+        waiting = count(_is_pending, current)
+        waiting == 0 && return current
+        clock() >= deadline && throw(ExperimentsError(:timeout,
+            "$(waiting) Auswertung(en) nach $(_seconds(timeout)) s noch nicht fertig."))
+        pause(step)
+        latest = Dict{String,Any}()
+        for e in fetch()
+            _has_id(e) && (latest[string(e["id"])] = e)
+        end
+        current = Any[_has_id(e) ? get(latest, string(e["id"]), e) : e for e in current]
+    end
 end
 
 end # module

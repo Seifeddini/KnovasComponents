@@ -475,13 +475,15 @@ def test_measurements_are_all_or_nothing_with_row_errors(w):
              "dims": {"query": 17}},
         ]})
     message = info.value.message
-    assert message.startswith("Messwert 2: Es kann nicht mehr Erfolge als Versuche geben.")
-    for fragment in ("Messwert 3: Die Metrik \u00abdemo_request_rate\u00bb ist diesem Experiment nicht zugeordnet.",
-                     "Messwert 4: Unbekannte Variante \u00abZ\u00bb.",
-                     "Messwert 5: Diesen Lauf gibt es in diesem Experiment nicht.",
-                     "Messwert 6: Unbekannte Angabe \u00abcolour\u00bb.",
-                     "Messwert 7: Der Wert muss eine endliche Zahl sein.",
-                     "Messwert 8: Der Nenner fehlt.",
+    # One list: each error without its own period, "; " between, one at the end.
+    assert message.startswith("Messwert 2: Es kann nicht mehr Erfolge als Versuche geben; ")
+    assert ".;" not in message and message.endswith(".")
+    for fragment in ("Messwert 3: Die Metrik \u00abdemo_request_rate\u00bb ist diesem Experiment nicht zugeordnet;",
+                     "Messwert 4: Unbekannte Variante \u00abZ\u00bb;",
+                     "Messwert 5: Diesen Lauf gibt es in diesem Experiment nicht;",
+                     "Messwert 6: Unbekannte Angabe \u00abcolour\u00bb;",
+                     "Messwert 7: Der Wert muss eine endliche Zahl sein;",
+                     "Messwert 8: Der Nenner fehlt;",
                      "Messwert 9: Kein g\u00fcltiger Zeitpunkt"):
         assert fragment in message
     assert "Messwert 11" not in message
@@ -737,7 +739,9 @@ def test_execute_evaluation_outcomes(w, monkeypatch):
         service_mod.execute_evaluation(w.conn, later, settings=SETTINGS, runner=w.runner)
     assert info.value.delay_seconds == 60
     assert svc.get_evaluation(key, later)["status"] == "queued"
-    w.conn.execute("UPDATE exp_evaluations SET created_at = now() - interval '31 minutes' WHERE id = %s",
+    # The give-up clock counts from the first attempt (started_at), not from
+    # creation: see test_runner_give_up_counts_from_the_first_attempt.
+    w.conn.execute("UPDATE exp_evaluations SET started_at = now() - interval '31 minutes' WHERE id = %s",
                    (later,))
     service_mod.execute_evaluation(w.conn, later, settings=SETTINGS, runner=w.runner)
     assert svc.get_evaluation(key, later)["error"] == "Die Rechenumgebung war 30 Minuten nicht erreichbar."
@@ -1213,7 +1217,7 @@ def test_sample_size(w):
     svc = w.experimenter
     assert svc.sample_size({"kind": "proportion", "base": "0,05", "mde": "0.01"})["per_variant"] > 7000
     assert svc.sample_size({"kind": "mean", "sd": 1, "mde": 0.5, "alpha": 0.05, "power": 0.8}) == {
-        "per_variant": 64}
+        "per_variant": 64, "alpha_used": 0.05, "comparisons": 1}
     for bad in ({"kind": "ratio"}, {"kind": "proportion", "mde": 0.01}, {"kind": "proportion", "base": 2,
                                                                          "mde": 0.1},
                 {"kind": "mean", "sd": 0, "mde": 1}, {"kind": "mean", "sd": 1e9, "mde": 1e-3},

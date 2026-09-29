@@ -37,11 +37,13 @@ import logging
 import math
 import os
 import re
+import threading
 import uuid
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from flask import Blueprint, abort, g, jsonify, render_template, request
-from werkzeug.exceptions import HTTPException, InternalServerError
+from werkzeug.exceptions import HTTPException, InternalServerError, MethodNotAllowed
+from werkzeug.exceptions import NotFound as HTTPNotFound
 
 from experiments import kinds, labels, permissions, schema, store
 from experiments.errors import ExperimentsError, NotFound, ValidationError
@@ -60,6 +62,16 @@ API_ENDPOINT_PREFIX = "experiments_api."
 #: before the body is read, and against the file itself after.
 MAX_CSV_BYTES = 20 * 1024 * 1024
 
+#: CSV imports this process runs at the same time. A maximal import (20 MB,
+#: 200'000 rows) is parsed, prepared and copied inside the request thread and
+#: holds a few hundred MB while it does; more than one at a time per gunicorn
+#: worker would take the threads and the memory the search needs. Another
+#: import meanwhile is refused with 503 at once, before its upload is read.
+CSV_IMPORTS_PER_PROCESS = 1
+_CSV_IMPORT_SLOTS = threading.BoundedSemaphore(CSV_IMPORTS_PER_PROCESS)
+#: Seconds a refused import is told to wait (Retry-After).
+CSV_BUSY_RETRY_AFTER = 10
+
 #: GET /v1/experiments/<key>/evaluations: default and ceiling of ``limit``.
 #: The snapshot holds the newest 60 evaluations, so more cannot be asked for.
 EVALUATIONS_DEFAULT_LIMIT = 20
@@ -76,6 +88,8 @@ MSG_BAD_JSON = "Die Anfrage ist kein g\u00fcltiges JSON."
 MSG_BAD_REQUEST = "Die Anfrage ist ung\u00fcltig."
 MSG_METHOD = "Diese Methode ist hier nicht erlaubt."
 MSG_FAILED = "Die Anfrage konnte nicht bearbeitet werden."
+MSG_CSV_BUSY = ("Es l\u00e4uft gerade schon ein CSV-Import. Bitte in einem Moment noch "
+                "einmal versuchen.")
 
 _HTTP_MESSAGES = {
     400: MSG_BAD_REQUEST,
@@ -209,11 +223,12 @@ def _is_api_path() -> bool:
 
 def _client_ip() -> Optional[str]:
     """The same address identity.webauth records for a session, so the audit
-    log and the session list name the same caller."""
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip() or None
-    return request.remote_addr
+    log and the session list name the same caller: the X-Forwarded-For entry
+    the trusted proxy added (PLATFORM_TRUSTED_PROXY_HOPS), never the one the
+    client wrote itself."""
+    from identity.webauth import client_ip
+
+    return client_ip()
 
 
 def _request_meta(token_id: Optional[str] = None) -> Dict[str, Any]:
@@ -598,13 +613,22 @@ def create_experiments_blueprint(gate: Any, *, settings: Any, runner: Any = None
         # parsed (MAX_CONTENT_LENGTH alone would let it through up to 32 MB).
         if request.content_length is not None and request.content_length > MAX_CSV_BYTES:
             return _error(413, MSG_CSV_TOO_LARGE)
-        upload = request.files.get("file")
-        if upload is None:
-            raise ValidationError(MSG_NO_FILE, fields={"file": MSG_NO_FILE})
-        content = upload.read(MAX_CSV_BYTES + 1)
-        if len(content) > MAX_CSV_BYTES:
-            return _error(413, MSG_CSV_TOO_LARGE)
-        return _ok("result", service().import_csv(key, content, upload.filename), 201)
+        # Before request.files, which is what reads and parses the upload.
+        if not _CSV_IMPORT_SLOTS.acquire(blocking=False):
+            logger.info("Experiments: CSV import into %s refused, another one is running.", key)
+            response, status = _error(503, MSG_CSV_BUSY)
+            response.headers["Retry-After"] = str(CSV_BUSY_RETRY_AFTER)
+            return response, status
+        try:
+            upload = request.files.get("file")
+            if upload is None:
+                raise ValidationError(MSG_NO_FILE, fields={"file": MSG_NO_FILE})
+            content = upload.read(MAX_CSV_BYTES + 1)
+            if len(content) > MAX_CSV_BYTES:
+                return _error(413, MSG_CSV_TOO_LARGE)
+            return _ok("result", service().import_csv(key, content, upload.filename), 201)
+        finally:
+            _CSV_IMPORT_SLOTS.release()
 
     @bp.route("/api/experiments/<key>/batches", methods=["GET"])
     @_json_view
@@ -822,6 +846,11 @@ def create_experiments_api_blueprint(gate: Any, *, settings: Any, runner: Any = 
         ]
         return _ok("evaluations", items[:_evaluations_limit(request.args.get("limit"))])
 
+    # The root itself (/v1 and /v1/) too: <path:rest> never matches an empty
+    # rest, and /api/experiments/v1 would otherwise be taken for the session
+    # API's /api/experiments/<key> -- whose gate asks a CI job to sign in.
+    @bp.route("/", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], defaults={"rest": ""},
+              strict_slashes=False)
     @bp.route("/<path:rest>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     def unknown(rest: str):
         """Any other path or method under /v1, once the token checked out: a
@@ -830,6 +859,62 @@ def create_experiments_api_blueprint(gate: Any, *, settings: Any, runner: Any = 
         return _error(404, MSG_NOT_FOUND)
 
     return bp
+
+
+# -- wrong methods -------------------------------------------------------------------
+
+
+def _session_module_path(path: str) -> bool:
+    """A path of the ``experiments`` blueprint: its pages and /api/experiments.
+
+    Not the machine API: its catch-all takes every method there itself.
+    """
+    if path in ("/experiments", "/api/experiments"):
+        return True
+    if path.startswith("/api/experiments/"):
+        return not (path == "/api/experiments/v1" or path.startswith("/api/experiments/v1/"))
+    return path.startswith("/experiments/")
+
+
+def _install_method_not_allowed(app: Any, gate: Any) -> None:
+    """Answer a wrong method on a module route the way the module answers.
+
+    A MethodNotAllowed is raised while routing, before any blueprint is
+    chosen, so neither the viewing-role gate nor the blueprint's JSON error
+    handlers see it, and Flask would send its HTML 405 to everyone. That
+    would tell a person without a viewing role that the address exists
+    (for them the module answers every route with a 404), and hand a viewer
+    HTML where the API promises a JSON failure body. The rest of the app
+    keeps Flask's default. Signed-out callers never get here: the login
+    gate runs before the route is dispatched.
+    """
+
+    def experiments_method_not_allowed(exc: MethodNotAllowed):
+        path = request.path or ""
+        if not _session_module_path(path):
+            return exc
+        try:
+            viewer = permissions.can_view(gate.current_user())
+        except Exception:  # noqa: BLE001 - same answer as a failing role gate
+            logger.error("Experiments request failed: %s %s", request.method, path,
+                         exc_info=True)
+            if _is_api_path():
+                response, status = _error(500, MSG_INTERNAL)
+                return _no_store(response), status
+            return InternalServerError()
+        if not viewer:
+            # What a GET gets there: the module is not there.
+            if _is_api_path():
+                response, status = _error(404, MSG_NOT_FOUND)
+                return _no_store(response), status
+            return HTTPNotFound()
+        if not _is_api_path():
+            return exc
+        response, status = _error(405, MSG_METHOD)
+        response.headers["Allow"] = ", ".join(sorted(exc.valid_methods or ()))
+        return _no_store(response), status
+
+    app.register_error_handler(MethodNotAllowed, experiments_method_not_allowed)
 
 
 # -- wiring --------------------------------------------------------------------------
@@ -911,6 +996,7 @@ def install_experiments(app: Any, *, config: Any, settings: Any, gate: Any, api_
         csrf_token=csrf_token, page_context=page_context))
     app.register_blueprint(create_experiments_api_blueprint(gate, settings=settings, runner=runner))
     gate.allow_bearer_endpoints(bearer_endpoints(app.view_functions))
+    _install_method_not_allowed(app, gate)
 
     workers: List[Any] = []
     if settings.worker_enabled:
