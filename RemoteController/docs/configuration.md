@@ -26,10 +26,10 @@ with `RC_SYNC_CONFIG_API_ENABLED=true`; with the default `false` the API answers
 
 ### Search context sidecars
 
-Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). RemoteController writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.
+Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). Knovas Connector writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.
 
 Backfill existing corpora without re-uploading. In the unified stack, run it in
-a one-off RemoteController container from the repository root; `--identifier-prefix`
+a one-off Knovas Connector container from the repository root; `--identifier-prefix`
 must be the prefix the documents were ingested with (`KNOVAS_IDENTIFIER_PREFIX`),
 or the Platform never finds the text:
 
@@ -109,7 +109,7 @@ Omit the key for unrestricted folders. An *absent* key lets the Secure API
 apply whatever folder rule covers the pointer; an explicit empty array means
 "deliberately unrestricted" and overrides that rule.
 
-**Caveat:** with `sequential_subfolders` enabled, RemoteController processes
+**Caveat:** with `sequential_subfolders` enabled, Knovas Connector processes
 one source per cycle (`sync_executor.py` logs `sequential_subfolders requires
 exactly one source; using first only`). In that mode the first source's
 `access_groups` applies. Use one profile per walled folder if you need
@@ -256,7 +256,7 @@ Knovas. Folder rules and manual edits are not affected.
 
 ## Supported document formats
 
-RemoteController converts the following extensions to text (with per-sentence citations) before chunking and upload. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
+Knovas Connector converts the following extensions to text (with per-sentence citations) before chunking and upload. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
 
 | Extension | Backend |
 |-----------|---------|

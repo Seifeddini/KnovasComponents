@@ -1,6 +1,6 @@
-# Local setup — run Remote Controller on your machine only
+# Local setup — run Knovas Connector on your machine only
 
-This guide is for developers who want Remote Controller (RC) on **their own PC**, with the API reachable only at `http://127.0.0.1:5001` — not from other machines on the network or the internet.
+This guide is for developers who want Knovas Connector (RC) on **their own PC**, with the API reachable only at `http://127.0.0.1:5001` — not from other machines on the network or the internet.
 
 You will still call **Knovas APIs outbound** when you sync files. Nothing in this guide exposes RC to remote clients.
 

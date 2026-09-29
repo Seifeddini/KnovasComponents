@@ -6,7 +6,7 @@
 | **Document version** | 1.0                                                                               |
 | **Last updated**     | July 2026                                                                         |
 | **Audience**         | Customer IT / operations teams deploying and operating Knovas-hosted components   |
-| **Scope**            | RemoteController and KnovasPlatform as delivered in the Knovas Components package |
+| **Scope**            | Knovas Connector and KnovasPlatform as delivered in the Knovas Components package |
 
 
 ---
@@ -15,14 +15,14 @@
 
 This document describes the runtime, network, credential, and storage requirements for the two customer-hosted components:
 
-- **RemoteController** — discovers local documents, converts them for indexing, and ingests them into your Knovas tenant.
+- **Knovas Connector** — discovers local documents, converts them for indexing, and ingests them into your Knovas tenant.
 - **KnovasPlatform** — provides the search web application for the same tenant.
 
-Both components are normally deployed together: RemoteController first (ingestion), then KnovasPlatform (search). They may also run on separate hosts.
+Both components are normally deployed together: Knovas Connector first (ingestion), then KnovasPlatform (search). They may also run on separate hosts.
 
 Neither component is intended for direct exposure to the public internet.
 
-**RemoteController** supports two control models:
+**Knovas Connector** supports two control models:
 
 - **Remote operator access** — Knovas or your operators reach RC over HTTPS (private link or VPN) using JWT-protected routes. Requires the NGINX edge, `RC_INSTANCE_TOKEN`, and employee JWTs.
 - **Local-only control** — RC is bound to `127.0.0.1:5001` on the host. Operators run `/discover`, `/sync`, and other control routes from the same machine (or via SSH) without exposing RC to the network and without `RC_INSTANCE_TOKEN` or employee JWTs. Document ingestion still uses outbound mTLS to the Knovas tenant API when you sync.
@@ -35,7 +35,7 @@ Neither component is intended for direct exposure to the public internet.
 flowchart TB
     subgraph customer["Customer environment"]
         share["Document share\n(SMB / NFS / local)"]
-        RC["RemoteController\n(ingestion)"]
+        RC["Knovas Connector\n(ingestion)"]
         KP["KnovasPlatform\n(search UI)"]
         users["End-user browsers"]
         operator["Local operator\n(localhost / SSH)"]
@@ -64,12 +64,12 @@ flowchart TB
 | Item                                             | Provided by Knovas | Provided by customer                 |
 | ------------------------------------------------ | ------------------ | ------------------------------------ |
 | Tenant mTLS certificate, key, and CA             | Yes                | Install on each host                 |
-| `RC_CLIENT_ID`                                     | Yes                | Configure in RemoteController `.env` |
-| `RC_INSTANCE_TOKEN`                                | Yes (remote-operator mode only) | Configure in RemoteController `.env` |
+| `RC_CLIENT_ID`                                     | Yes                | Configure in Knovas Connector `.env` |
+| `RC_INSTANCE_TOKEN`                                | Yes (remote-operator mode only) | Configure in Knovas Connector `.env` |
 | Knovas API base URLs                             | Yes (per tenant)   | Configure egress firewall rules      |
 | `WEB_SECRET_KEY`, `COMPANY_LOGIN_*`              | —                  | Choose locally for KnovasPlatform    |
 | Docker host(s), document share, internal DNS/TLS | —                  | Yes                                  |
-| Edge TLS certificate for RemoteController NGINX  | —                  | Yes, if using remote-operator mode (or internal CA) |
+| Edge TLS certificate for Knovas Connector NGINX  | —                  | Yes, if using remote-operator mode (or internal CA) |
 | Employee JWT for RC operator routes              | Issued by Knovas (remote-operator mode only) | Used by operators, or not required in local-only mode |
 
 
@@ -77,7 +77,7 @@ flowchart TB
 
 ---
 
-## 1. RemoteController
+## 1. Knovas Connector
 
 Customer-hosted Flask service that walks watched directories, converts documents to Markdown, and pushes them to the Knovas ingestion API over mTLS.
 
@@ -113,7 +113,7 @@ Binary formats are converted to Markdown for indexing. The original path is pres
 
 ### 1.4 Network
 
-RemoteController has two inbound models. Outbound access to the Knovas tenant API is required whenever you ingest documents.
+Knovas Connector has two inbound models. Outbound access to the Knovas tenant API is required whenever you ingest documents.
 
 
 | Direction | Port / target | Remote-operator mode | Local-only control mode |
@@ -141,11 +141,11 @@ See `RemoteController/docs/network-and-firewall.md` for the full ingress/egress 
 | `SEMANTIX_CA_CERT_PATH`     | CA root for verifying the Knovas API     |
 
 
-Certificates are mounted read-only into the container (default host path: `certs/` adjacent to the RemoteController directory). File permissions must be **0600**, owner `rcuser` (uid 10001). Use `RemoteController/scripts/install_tenant_certs.sh` to install and verify permissions.
+Certificates are mounted read-only into the container (default host path: `certs/` adjacent to the Knovas Connector directory, `RemoteController/`). File permissions must be **0600**, owner `rcuser` (uid 10001). Use `RemoteController/scripts/install_tenant_certs.sh` to install and verify permissions.
 
 > **Note:** Environment variables prefixed with `SEMANTIX_` are the configured names for the Knovas secured API.
 
-**RemoteController instance / operator auth** (inbound control routes such as `/discover` and `/sync`):
+**Knovas Connector instance / operator auth** (inbound control routes such as `/discover` and `/sync`):
 
 | Item | Remote-operator mode | Local-only control mode |
 | ---- | -------------------- | ----------------------- |
@@ -258,7 +258,7 @@ Logs: structured JSON (no secrets, file basenames only) via `docker compose logs
 
 ### 1.10 Deployment topologies
 
-Defined by Docker Compose overlays in the RemoteController directory:
+Defined by Docker Compose overlays in the Knovas Connector directory (`RemoteController/`):
 
 
 | Topology | Compose files | Control model | Description |
@@ -507,23 +507,23 @@ At idle, the stack typically uses ≤1 GB RAM.
 
 These apply regardless of which component you deploy.
 
-- **Tenant provisioning.** Both components require mTLS material issued by Knovas. RemoteController always needs `RC_CLIENT_ID`. `RC_INSTANCE_TOKEN` is required only in remote-operator mode. KnovasPlatform additionally needs locally chosen `WEB_SECRET_KEY` and `COMPANY_LOGIN_*` credentials.
-- **Knovas API reachability.** Outbound HTTPS from each host to your tenant API URL is required for document ingestion and search. In remote-operator mode, RemoteController also needs the verify URL (`KNOVAS_INTERNAL_API_URL`). In local-only control mode, the verify URL is not used for operator routes. Confirm firewall rules using `RemoteController/docs/network-and-firewall.md`.
-- **Docker + Compose v2** on each host. RemoteController may require merging compose overlays on the command line (`-f docker-compose.yml -f docker-compose.internal.yml`, etc.).
+- **Tenant provisioning.** Both components require mTLS material issued by Knovas. Knovas Connector always needs `RC_CLIENT_ID`. `RC_INSTANCE_TOKEN` is required only in remote-operator mode. KnovasPlatform additionally needs locally chosen `WEB_SECRET_KEY` and `COMPANY_LOGIN_*` credentials.
+- **Knovas API reachability.** Outbound HTTPS from each host to your tenant API URL is required for document ingestion and search. In remote-operator mode, Knovas Connector also needs the verify URL (`KNOVAS_INTERNAL_API_URL`). In local-only control mode, the verify URL is not used for operator routes. Confirm firewall rules using `RemoteController/docs/network-and-firewall.md`.
+- **Docker + Compose v2** on each host. Knovas Connector may require merging compose overlays on the command line (`-f docker-compose.yml -f docker-compose.internal.yml`, etc.).
 - **Time synchronization (NTP).** mTLS handshakes and JWT validation require accurate system clocks.
 - **Certificate layout.** If components run on separate hosts, install an identical copy of the tenant certificate bundle on each host.
-- **Document share consistency.** RemoteController watches originals for ingestion; KnovasPlatform resolves client paths based on how end-user PCs see the same share. Align `RC_WATCH_ROOTS`, `AUTODOC_MOUNT_PATH`, `OPEN_UNC_ROOT`, `OPEN_CLIENT_LOCAL_ROOT`, and `OPEN_LOCAL_ROOT`.
+- **Document share consistency.** Knovas Connector watches originals for ingestion; KnovasPlatform resolves client paths based on how end-user PCs see the same share. Align `RC_WATCH_ROOTS`, `AUTODOC_MOUNT_PATH`, `OPEN_UNC_ROOT`, `OPEN_CLIENT_LOCAL_ROOT`, and `OPEN_LOCAL_ROOT`.
 - **Network exposure.**
-  - **RemoteController (remote-operator mode)** must accept inbound HTTPS from operators. The NGINX edge must be reachable over a private interconnect, VPN, or peering — not necessarily the public internet.
-  - **RemoteController (local-only control mode)** does not accept inbound connections from the network. The API is available on `127.0.0.1:5001` only; operators control RC from the host. Outbound mTLS to the Knovas ingestion API is still required when syncing.
+  - **Knovas Connector (remote-operator mode)** must accept inbound HTTPS from operators. The NGINX edge must be reachable over a private interconnect, VPN, or peering — not necessarily the public internet.
+  - **Knovas Connector (local-only control mode)** does not accept inbound connections from the network. The API is available on `127.0.0.1:5001` only; operators control RC from the host. Outbound mTLS to the Knovas ingestion API is still required when syncing.
   - **KnovasPlatform** is intranet-only. In production (mode B) or localhost-only (mode C), no application port is exposed beyond loopback or internal HTTPS on port 443.
-- **Logs and metrics.** Both components produce structured logs via `docker compose logs`. RemoteController additionally exposes Prometheus metrics at `/metrics`.
+- **Logs and metrics.** Both components produce structured logs via `docker compose logs`. Knovas Connector additionally exposes Prometheus metrics at `/metrics`.
 
 ---
 
 ## 4. Go-live checklist
 
-### RemoteController
+### Knovas Connector
 
 Choose the checklist that matches your control model.
 
@@ -554,7 +554,7 @@ Full guides: `RemoteController/docs/onboarding-checklist.md` (remote-operator), 
 
 ### KnovasPlatform (production intranet)
 
-- [ ] Documents indexed in Knovas (RemoteController ingestion complete)
+- [ ] Documents indexed in Knovas (Knovas Connector ingestion complete)
 - [ ] mTLS files in the repo root `certs/` (`client-cert.pem`, `client-key.pem`, `ca-root.pem`)
 - [ ] Internal DNS: FQDN → server IP
 - [ ] Internal TLS certificate issued and trusted on client PCs
@@ -572,7 +572,7 @@ Full guide: `KnovasPlatform/docs/deployment/checklist-host-nginx.md`.
 ## 5. Operations & maintenance
 
 
-| Task                 | RemoteController                                 | KnovasPlatform                                                           |
+| Task                 | Knovas Connector                                 | KnovasPlatform                                                           |
 | -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
 | View logs            | `docker compose logs -f remote-controller`       | `docker compose logs -f docbridge-web`                                   |
 | Health check         | `GET /health`                                    | `GET /health` (via NGINX)                                                |
@@ -588,7 +588,7 @@ Full guide: `KnovasPlatform/docs/deployment/checklist-host-nginx.md`.
 
 ## 6. Troubleshooting (common issues)
 
-### RemoteController
+### Knovas Connector
 
 
 | Symptom                        | Likely cause / fix                                                                                         |
@@ -611,7 +611,7 @@ Guide: `RemoteController/docs/operations.md`.
 | Login page missing         | Set real secrets in `knovas.env`, re-run `./scripts/setup.sh && ./scripts/start.sh`                                                                                |
 | Open / Öffnen does nothing | Share not mounted on client PC; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT` / `OPEN_LOCAL_ROOT`; browser may block `file:` links from HTTPS — try companion mode |
 | Open-token wrong host      | Set `OPEN_PUBLIC_BASE_URL=https://<fqdn>` and recreate `docbridge-web`                                                                                              |
-| Search returns no results  | Confirm RemoteController ingestion completed; verify `SEMANTIX_API_URL` and mTLS certs                                                                              |
+| Search returns no results  | Confirm Knovas Connector ingestion completed; verify `SEMANTIX_API_URL` and mTLS certs                                                                              |
 
 
 Guide: `KnovasPlatform/docs/integration/troubleshooting.md`.
@@ -620,7 +620,7 @@ Guide: `KnovasPlatform/docs/integration/troubleshooting.md`.
 
 ## 7. Further documentation
 
-### RemoteController
+### Knovas Connector
 
 
 | Document                                        | Purpose                                 |

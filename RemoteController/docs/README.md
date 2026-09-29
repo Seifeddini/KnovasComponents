@@ -1,4 +1,4 @@
-# Remote Controller docs
+# Knovas Connector docs
 
 ## Start here
 

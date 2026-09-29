@@ -1,7 +1,7 @@
 # Demo-Korpus für Kanzlei-Demos
 
 Baut ~8.800 lizenzsaubere Rechtsdokumente als Einzeldateien und legt sie so ab,
-dass der Remote Controller sie als Watch-Root einliest.
+dass der Knovas Connector sie als Watch-Root einliest.
 
 ## Drei getrennte Schritte
 
@@ -10,7 +10,7 @@ dass der Remote Controller sie als Watch-Root einliest.
 | **Dokumente herunterladen** | `fetch_demo_corpus.py build` | Nein |
 | **Korpus prüfen** | `fetch_demo_corpus.py verify` | Nein |
 | **Korpus auf anderen Server kopieren** | `fetch_demo_corpus.py upload` (rsync) | Nein |
-| **Remote Controller starten** | `setup_server_corpus.sh` | Ja — mTLS, `.env`, Docker |
+| **Knovas Connector starten** | `setup_server_corpus.sh` | Ja — mTLS, `.env`, Docker |
 
 Nur Dokumente holen → `build`. Nicht `setup_server_corpus.sh` und nicht `upload`
 (außer der Korpus wurde auf einer **anderen** Maschine gebaut und muss per rsync
@@ -68,7 +68,7 @@ Ausliefern eines vorbefüllten Tenants), GDPRhub (Freiwilligen-Wiki ohne klare
 Weiterverbreitungslizenz), Enron (echte private Korrespondenz nicht
 einwilligender Personen).
 
-## Verwendung mit dem Remote Controller
+## Verwendung mit dem Knovas Connector
 
 `docker-compose.corpus.yml` mountet `KnovasComponents/corpus/` nach
 `/data/corpus`, und `setup_server_corpus.sh` setzt `RC_WATCH_ROOTS=/data/corpus`.
@@ -133,7 +133,7 @@ regelmässig sichtbar. In der Demo also „gerichtsanonymisiert" sagen, nicht
 
 ## 30-day freshness trap
 
-The Remote Controller default incremental sync body sets
+The Knovas Connector default incremental sync body sets
 `max_document_age_seconds` to 30 days **on file mtime**, not on dates inside
 the documents. A corpus built more than 30 days before the demo syncs nothing
 on that default body. Refresh mtimes (`demo_kanzlei` `touch`, or `touch` the

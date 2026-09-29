@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.
+
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
 Takes effect only for a tenant where Knovas has enabled Document Fields. Against any other server the bodies, the outcomes and the indexing are as in 0.2.0.

@@ -530,7 +530,7 @@ if ! "${DC[@]}" exec -T docbridge-web test -d "$STORE" 2>/dev/null; then
   bad "that directory does not exist in the container — every result will show a title and no text."
   echo "       Sidecars are written during ingestion. Either point this at an existing store,"
   echo "       e.g. SEARCH_CONTEXT_STORE_PATH=/mnt/autodoc/preview_storage in knovas.env,"
-  echo "       or re-run ingestion so RemoteController fills the current one."
+  echo "       or re-run ingestion so Knovas Connector fills the current one."
 else
   COUNT="$("${DC[@]}" exec -T docbridge-web sh -c "find '$STORE' -type f 2>/dev/null | head -1000 | wc -l" 2>/dev/null | tr -d '[:space:]')"
   if [[ "${COUNT:-0}" -gt 0 ]]; then
@@ -576,9 +576,9 @@ try:
                 continue
 except OSError:
     raise SystemExit(
-        "   FAIL  RemoteController has not published the OneDrive/SharePoint links yet, so no\n"
+        "   FAIL  Knovas Connector has not published the OneDrive/SharePoint links yet, so no\n"
         "         result can be opened or previewed. It writes them at the end of every sync\n"
-        "         cycle -- see the RemoteController section below."
+        "         cycle -- see the Knovas Connector section below."
     )
 if not rows:
     raise SystemExit("   WARN  the links file is empty: nothing in the folder was indexable yet.")
@@ -591,7 +591,7 @@ if covered == len(sample):
     print(f"     OK  all {len(sample)} sampled documents have snippet text")
 else:
     print(f"   WARN  {covered} of {len(sample)} sampled documents have snippet text so far.")
-    print("         RemoteController writes it as it indexes each file; the first pass over a")
+    print("         Knovas Connector writes it as it indexes each file; the first pass over a")
     print("         large folder takes a while, and the rest shows a title only until then.")
 PY
 echo "  Öffnen goes to OneDrive/SharePoint, which shows the file to whoever may see it there."
@@ -675,22 +675,22 @@ if not rc_prefix:
     except (OSError, ValueError, AttributeError):
         rc_prefix = ""
 if not rc_prefix and os.environ.get("DOCTOR_RC_UP") != "true":
-    print("   WARN  RemoteController is not running, so the prefix it ingests with cannot be")
-    print("         compared — see the RemoteController section below.")
+    print("   WARN  Knovas Connector is not running, so the prefix it ingests with cannot be")
+    print("         compared — see the Knovas Connector section below.")
 elif not rc_prefix:
-    print("   WARN  RemoteController has no sync request and no automatic sync, so nothing")
+    print("   WARN  Knovas Connector has no sync request and no automatic sync, so nothing")
     print("         is being ingested and the prefix cannot be compared.")
     if os.environ.get("DOCTOR_IDENTITY") == "true":
         print("         Save one in Verwaltung -> Übernahme.")
     else:
         print("         The unified stack starts one by itself: re-run ./scripts/setup.sh and")
-        print("         ./scripts/start.sh, then check the RemoteController section below.")
+        print("         ./scripts/start.sh, then check the Knovas Connector section below.")
 elif not app_prefixes:
-    print(f"   FAIL  RemoteController ingests as '{rc_prefix}/…' and the app strips nothing.")
+    print(f"   FAIL  Knovas Connector ingests as '{rc_prefix}/…' and the app strips nothing.")
     print(f"         Every pointer resolves to {root}/{rc_prefix}/… which does not exist.")
     print(f"         Set KNOVAS_IDENTIFIER_PREFIX={rc_prefix} in knovas.env, then setup + start.")
 elif not any(p.lower() == rc_prefix.lower() for p in app_prefixes):
-    print(f"   FAIL  prefix mismatch: RemoteController ingests as '{rc_prefix}/…', the app")
+    print(f"   FAIL  prefix mismatch: Knovas Connector ingests as '{rc_prefix}/…', the app")
     print(f"         strips '{','.join(app_prefixes)}'. Results still carry text, because the")
     print("         snippets come from the sidecars — but no file is ever found, so the")
     print("         thumbnail, the preview and Öffnen all fail on every hit.")
@@ -702,7 +702,7 @@ elif not any(p.lower() == rc_prefix.lower() for p in app_prefixes):
         print("         Both come from KNOVAS_IDENTIFIER_PREFIX in knovas.env: set it to the")
         print("         prefix the documents already in Knovas carry, then setup + start.")
 else:
-    print(f"     OK  the app strips the prefix RemoteController ingests with ('{rc_prefix}')")
+    print(f"     OK  the app strips the prefix Knovas Connector ingests with ('{rc_prefix}')")
 
 # The decisive check: one real file, through the code the endpoints use.
 if sample:
@@ -928,7 +928,7 @@ if src == "graph":
           "(ontology_graph.py:373) — entity-level relations work")
 PY
 
-head_ "RemoteController"
+head_ "Knovas Connector"
 # Whether anything new reaches the index, and whether the text under a result
 # exists at all: RemoteController writes the context sidecars as it reads each
 # file. Every section above passes while it stands still.
@@ -1187,7 +1187,7 @@ if m365:
         print("     OK  every top result opens in OneDrive/SharePoint")
     else:
         print(f"   FAIL  {len(top) - len(linked)} of the top {len(top)} results have no OneDrive/SharePoint link.")
-        print("         RemoteController publishes the links at the end of each sync cycle, under")
+        print("         Knovas Connector publishes the links at the end of each sync cycle, under")
         print("         the identifiers it ingests with; a result indexed under another Kennung")
         print("         has none. See 'Documents in OneDrive / SharePoint' above.")
     if linked:
@@ -1202,7 +1202,7 @@ if m365:
             print("     OK  the preview opens in Microsoft 365's viewer")
         else:
             print(f"   WARN  the Microsoft 365 preview answers HTTP {status}; the dialog shows the")
-            print("         indexed text instead. RemoteController's log says why.")
+            print("         indexed text instead. Knovas Connector's log says why.")
 elif len(on_share) == len(top):
     print("     OK  every top result is a file on the share")
 else:
@@ -1330,13 +1330,13 @@ if backfill:
     print(f"           {(os.environ.get('DOCTOR_BACKFILL_LAST') or '(nothing yet)')[:150]}")
     print("         Follow it with: docker logs -f knovas-snippet-backfill")
     raise SystemExit(0)
-print("         RemoteController writes the text as it syncs, by default only for files")
+print("         Knovas Connector writes the text as it syncs, by default only for files")
 print("         changed in the last 30 days. Build the rest from the files themselves —")
 print("         nothing is sent to Knovas, it runs in the background, and a run that is")
 print("         stopped picks up where it was:")
 prefix = seen or (prefixes[0] if prefixes else rc_prefix)
 if not str(store).startswith("/var/rc-state/"):
-    print(f"         (not from here: {store} is not on RemoteController's volume /var/rc-state)")
+    print(f"         (not from here: {store} is not on Knovas Connector's volume /var/rc-state)")
 elif not prefix:
     print("         (set KNOVAS_IDENTIFIER_PREFIX first — the text is filed under it)")
 else:

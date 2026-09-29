@@ -1,7 +1,7 @@
 # Knovas — API integration kit
 
 For developers integrating with Knovas **directly over HTTPS**, without hosting
-RemoteController or KnovasPlatform. You call the documented endpoints from your
+Knovas Connector or KnovasPlatform. You call the documented endpoints from your
 own application; everything behind them — databases, embeddings, orchestration —
 is Knovas-operated.
 
@@ -36,7 +36,7 @@ Knovas has enabled them.
 ## Certificates
 
 All three documents assume you already hold the tenant mTLS bundle. Raw `curl`
-lets you name those files anything — but if you also run RemoteController or
+lets you name those files anything — but if you also run Knovas Connector or
 KnovasPlatform, each expects its own filenames in its own directory. See
 [../certificates.md](../certificates.md).
 

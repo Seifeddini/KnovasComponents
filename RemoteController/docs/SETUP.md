@@ -1,6 +1,6 @@
-# Setup — clone to fully functional Remote Controller
+# Setup — clone to fully functional Knovas Connector
 
-Single ordered path from a fresh folder to a working Remote Controller (RC) in **production**. Use reference docs linked at each step.
+Single ordered path from a fresh folder to a working Knovas Connector (RC) in **production**. Use reference docs linked at each step.
 
 **For local-only development on your machine** (localhost `127.0.0.1:5001`, no HTTPS edge, no employee JWT), use [local-setup.md](local-setup.md) instead.
 
@@ -49,7 +49,7 @@ git clone https://github.com/Seifeddini/KnovasComponents.git
 cd KnovasComponents/RemoteController
 ```
 
-**Standalone Remote Controller repo:**
+**Standalone Knovas Connector repo:**
 
 ```bash
 git clone <your-remote-controller-repo-url>

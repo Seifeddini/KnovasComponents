@@ -1,4 +1,4 @@
-# Unified Knovas stack: RemoteController (localhost) + KnovasPlatform (localhost → host nginx HTTPS).
+# Unified Knovas stack: Knovas Connector (localhost) + KnovasPlatform (localhost → host nginx HTTPS).
 # Usage: ./scripts/setup.sh && ./scripts/start.sh
 #
 # No container_name on any service: Compose prefixes containers, volumes and
@@ -47,7 +47,7 @@ services:
       # With KNOVAS_DOCUMENTS_URL (OneDrive/SharePoint) there is no local folder:
       # an empty one stands in, and /mnt/documents only names the Microsoft 365
       # folder for sync profiles and the folder picker. setup.sh creates it, with
-      # a marker RemoteController refuses to sync from. With NEITHER setting the
+      # a marker Knovas Connector refuses to sync from. With NEITHER setting the
       # spec stays empty and compose refuses to start, as it always did: an empty
       # folder read as a share would prune every document from Knovas.
       - ${KNOVAS_DOCUMENTS_PATH:-${KNOVAS_DOCUMENTS_URL:+./data/no-local-documents}}:/mnt/documents:ro
@@ -56,10 +56,10 @@ services:
       # The Platform's broker key directory. It holds the PRIVATE key too, and
       # :ro does not hide it -- what makes it unreadable here is that
       # docbridge-web runs as root (KnovasPlatform/.../Dockerfile has no USER)
-      # and writes broker_ed25519.pem as root:root 0600, while RemoteController
+      # and writes broker_ed25519.pem as root:root 0600, while Knovas Connector
       # runs as uid 10001. Adding a USER to the Platform image, or running
-      # RemoteController as root, would expose the key that can assert any of
-      # the firm's people to Knovas. RemoteController refuses to start if it
+      # Knovas Connector as root, would expose the key that can assert any of
+      # the firm's people to Knovas. Knovas Connector refuses to start if it
       # can read the file (auth/platform_principal.py).
       - docbridge_broker_key:/app/secrets/broker:ro
     environment:

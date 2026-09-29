@@ -1,6 +1,6 @@
-# RemoteController setup on server_01_home (corpus)
+# Knovas Connector setup on server_01_home (corpus)
 
-Complete step-by-step record for configuring **RemoteController** on `server_01_home` to ingest the **KnovasInternal corpus** into Knovas.
+Complete step-by-step record for configuring **Knovas Connector** on `server_01_home` to ingest the **KnovasInternal corpus** into Knovas.
 
 **Server:** `server_01_home` → `192.168.1.16`, user `master`  
 **Monorepo path:** `/home/master/KnovasInternal`  
@@ -19,7 +19,7 @@ Before this setup, the following existed:
 | Corpus | `/home/master/KnovasInternal/corpus` | 8 subfolders: `court_decisions_ch`, `court_decisions_de`, `emails_synthetisch`, `eu_recht`, `gesetze_ch`, `gesetze_de`, `synthetisch`, `wikipedia_de` |
 | Tenant mTLS certs | `/home/master/KnovasInternal/certs/` | `client-cert.pem`, `client-key.pem`, `ca-root.pem` (optional `client-key.password.txt`) |
 | KnovasPlatform | `/home/master/KnovasInternal/KnovasPlatform` | Search UI running on `:8081` |
-| RemoteController | `/home/master/KnovasInternal/RemoteController` | Present but **not running**; `.env` had placeholder values |
+| Knovas Connector | `/home/master/KnovasInternal/RemoteController` | Present but **not running**; `.env` had placeholder values |
 
 **Organisation / tenant UUID** (set `RC_CLIENT_ID` in `.env`; optional `certs/organisation_id.txt`):
 
@@ -69,7 +69,7 @@ groups            # includes docker
 ## Download demo corpus (documents only)
 
 To **fetch or refresh** the lawyer demo corpus on disk — without touching mTLS certs,
-Docker, or RemoteController — use `fetch_demo_corpus.py` from the monorepo root.
+Docker, or Knovas Connector — use `fetch_demo_corpus.py` from the monorepo root.
 
 | Command | Purpose |
 |---------|---------|
@@ -99,7 +99,7 @@ Expect ~7 GB download, 30–60 minutes. `corpus/manifest.jsonl` confirms a succe
 `build`. Skip this section if `corpus/` is already complete.
 
 **Do not** run `scripts/setup_server_corpus.sh` for document download — that script
-deploys RemoteController (certs, `.env`, Docker).
+deploys Knovas Connector (certs, `.env`, Docker).
 
 ---
 
@@ -126,7 +126,7 @@ head -3 corpus/wikipedia_de/Pleite.txt
 
 ---
 
-## Step 3 — Inspect existing RemoteController state
+## Step 3 — Inspect existing Knovas Connector state
 
 ```bash
 cd /home/master/KnovasInternal/RemoteController
@@ -389,7 +389,7 @@ Open the platform in a browser and search for a known corpus term (e.g. a Wikipe
 
 ## Automated RC deploy (not document download)
 
-`scripts/setup_server_corpus.sh` **deploys RemoteController** with the corpus mount: tenant
+`scripts/setup_server_corpus.sh` **deploys Knovas Connector** with the corpus mount: tenant
 mTLS cert prep, `.env`, Docker build/start, health check. It does **not** download corpus
 files. Run `fetch_demo_corpus.py build` first if `corpus/` is empty or outdated.
 
@@ -398,7 +398,7 @@ cd /home/master/KnovasInternal/RemoteController
 ./scripts/setup_server_corpus.sh
 ```
 
-If the server's git checkout of RemoteController is older than your dev tree, upload the latest `src/sync/*` and `src/routes/sync*.py` files before building (the server copy was missing `effective_filters` and still imported `semantix_uploader`).
+If the server's git checkout of Knovas Connector is older than your dev tree, upload the latest `src/sync/*` and `src/routes/sync*.py` files before building (the server copy was missing `effective_filters` and still imported `semantix_uploader`).
 
 ---
 
@@ -460,7 +460,7 @@ See [SETUP.md](../SETUP.md) steps 6–8.
 
 ## Security notes
 
-- RemoteController listens on **127.0.0.1:5001 only** — not exposed to the LAN
+- Knovas Connector listens on **127.0.0.1:5001 only** — not exposed to the LAN
 - `RC_MTLS_DEV_BYPASS=true` is for internal testing only; disable before exposing an edge
 - Do not commit passwords, instance tokens, or private keys to git
 - Cert file permissions: `0600` on `tenant-client.key`

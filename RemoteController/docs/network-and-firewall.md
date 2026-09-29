@@ -1,6 +1,6 @@
 # Network and firewall
 
-Remote Controller runs on the **partner network**. Knovas employees reach the URL registered in Knovas admin.
+Knovas Connector runs on the **partner network**. Knovas employees reach the URL registered in Knovas admin.
 
 ## Partner network checklist
 
