@@ -1,5 +1,46 @@
 # Unreleased
 
+## Wissenstypen, Verzeichnisse und Wissensnetz
+
+Die Plattform zeigt den Wissensgraphen des Mandanten jetzt als Arbeitsflaeche,
+erzeugt aus den Feldern, die die Verwaltung fuer jeden Wissenstyp festlegt. Im
+Code steht kein einziger Typname: ein neuer Typ ist Dateneingabe, kein Release.
+Voraussetzung ist `ONTOLOGY_SOURCE=graph`; sonst sagen die Seiten, was fehlt.
+
+- **Verzeichnisse** in der Navigation: je Wissenstyp eine Seite mit allen
+  Eintraegen, durchsuchbar nach Namen, mit gewaehlten Feldern als Spalten und
+  dem Filter „nur mit Luecke“. „Neuer Eintrag“ baut das Formular aus den Feldern.
+- **Karte eines Eintrags**: Kopfzeile, Abschnitte und Seitenleiste nach dem
+  Kartenaufbau des Typs; Felder werden an Ort und Stelle geaendert (Datum mit
+  Genauigkeit, Betrag mit Waehrung, Verbindungen nach Zieltyp). Reiter fuer
+  Wissensnetz, Dokumente und Verlauf.
+- **Wissensnetz**: die Umgebung eines Eintrags in 1 bis 3 Schritten, Kanten mit
+  dem Namen des Verbindungsfelds, Suche ueber alle sichtbaren Eintraege. Kanten
+  entstehen nur zwischen Eintraegen, die die Person sehen darf.
+- **Bearbeiten duerfen** Eigentuemer, eingetragene Bearbeiter und
+  Administratoren; die Eigentuemerin oder der Eigentuemer vergibt und entzieht
+  Bearbeitungsrechte auf der Karte. Wer etwas sehen darf, entscheidet weiterhin
+  die Knovas-ACL.
+- **Verwaltung → Wissenstypen**: Felder mit Fuellgrad, Reihenfolge durch
+  Ziehen, stilllegen statt loeschen, und **Vorschlaege aus dem Bestand**
+  (ungenutzte Felder, ungenutzte Auswahlwerte, Daten in Textfeldern, Luecken in
+  Pflichtfeldern). Nichts davon passiert von selbst; ein verworfener Vorschlag
+  kommt nicht wieder. **Karte gestalten** mit Vorschau am echten Eintrag.
+- **Verwaltung → Verzeichnisse**: Titel, Adresse, Spalten und Reihenfolge der
+  Navigation; abschalten behaelt die Einstellungen.
+
+Neue Tabellen in der Plattform-Datenbank (Migration `0003_directories`, laeuft
+beim Start). Braucht die Knovas-API `GET /secured/graph/facts?node_type_id=`
+nicht: ohne diese Route liest die Plattform die Eintraege einzeln und sagt das.
+Beschreibung: [KnovasPlatform/docs/features/knowledge-directories.md](KnovasPlatform/docs/features/knowledge-directories.md).
+
+## RemoteController heisst jetzt Knovas Connector
+
+Nur der Name, den man liest: Dokumentation, Oberflaeche und Ausgaben der
+Skripte. Ordner `RemoteController/`, Docker-Dienst `remote-controller`, die
+`RC_*`-Einstellungen und die Konfigurationsschluessel bleiben, wie sie sind --
+eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
+
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
 
 Statt `KNOVAS_DOCUMENTS_PATH` kann `knovas.env` die Adresse eines OneDrive- oder
@@ -7,7 +48,7 @@ SharePoint-Ordners nennen, so wie der Browser sie zeigt, dazu `M365_CLIENT_ID`
 und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
 `Sites.Read.All`. Eine Einstellung fuer beide.
 
-- **Keine Kopie auf dem Server.** RemoteController fragt Microsoft Graph nach
+- **Keine Kopie auf dem Server.** Knovas Connector fragt Microsoft Graph nach
   Aenderungen, laedt nur neue und geaenderte Dateien in ein temporaeres
   Verzeichnis, indexiert sie und loescht sie wieder.
 - **Oeffnen und Vorschau in Microsoft 365.** Treffer oeffnen in
@@ -15,7 +56,7 @@ und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
   Seite der Fundstelle. Textauszuege und Fundstellen bleiben wie bisher.
 - **Uebernahme im Admin-Bereich** zeigt die Unterordner aus OneDrive/SharePoint;
   Zugriffsgruppen je Ordner funktionieren unveraendert.
-- Das Client-Secret gelangt nur in den RemoteController-Container, nie in die
+- Das Client-Secret gelangt nur in den Knovas-Connector-Container, nie in die
   generierten `.env.generated` und nie in die Plattform.
 - `start.sh` und `doctor.sh` pruefen Anmeldung, Adresse und Ordner.
 
@@ -36,7 +77,7 @@ Anleitung: [docs/microsoft-365.md](docs/microsoft-365.md).
 
 Schritt fuer Schritt: [docs/azure-server.md](docs/azure-server.md).
 
-Behoben dabei: Das Standardprofil von RemoteController uebernahm keine Dateien,
+Behoben dabei: Das Standardprofil von Knovas Connector uebernahm keine Dateien,
 die direkt im obersten Ordner liegen (`**/*.pdf` braucht vor Python 3.13 ein
 Unterverzeichnis).
 
