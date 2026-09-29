@@ -157,7 +157,10 @@ class Workbench:
                 nid = str(fact.get("node_id") or "")
                 if nid in by_node:
                     by_node[nid].append(fact)
-            return by_node, bool(bulk.get("complete", True))
+            if bulk.get("complete", True):
+                return by_node, True
+            # Capped: count only the entries the read reached as loaded.
+            return {nid: f for nid, f in by_node.items() if f}, False
         embedded = {gd.node_id(n): n["facts"] for n in nodes if isinstance(n.get("facts"), list)}
         if len(embedded) == len(ids):
             return embedded, True
@@ -185,8 +188,13 @@ class Workbench:
                 nid = str(fact.get("node_id") or "")
                 if nid in facts_by_node:
                     facts_by_node[nid].append(fact)
-        rows = [gd.directory_row(n, columns, live, facts_by_node.get(gd.node_id(n)) if bulk
-                                 is not None else None, names, counts.get(gd.node_id(n), 0))
+            if not bulk.get("complete", True):
+                # The bulk read stopped at its row cap. An entry with no fact
+                # in it may simply lie past the cap: load it like the fallback
+                # does, rather than show its fields as unfilled.
+                facts_by_node = {nid: f for nid, f in facts_by_node.items() if f}
+        rows = [gd.directory_row(n, columns, live, facts_by_node.get(gd.node_id(n)),
+                                 names, counts.get(gd.node_id(n), 0))
                 for n in nodes]
         return {
             "view": _public_view(view),

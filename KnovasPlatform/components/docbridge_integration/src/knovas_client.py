@@ -2020,6 +2020,7 @@ class KnovasAPIClient:
         """
         page_size = max(1, min(1000, int(page_size)))
         rows: List[Dict[str, Any]] = []
+        seen: set = set()
         offset = 0
         while True:
             payload = self._graph_request('GET', '/facts', params={
@@ -2027,7 +2028,13 @@ class KnovasAPIClient:
             if payload is None:
                 return None if not rows else {'facts': rows, 'complete': False}
             page = _graph_payload_list(payload, 'facts', strict=True)
-            rows.extend(page)
+            fresh = [f for f in page if str(f.get('id')) not in seen]
+            if page and not fresh:
+                # The same page again: an API that ignores limit/offset has
+                # already sent everything it has. Asking on would only loop.
+                return {'facts': rows, 'complete': True}
+            seen.update(str(f.get('id')) for f in fresh)
+            rows.extend(fresh)
             total = payload.get('count') if isinstance(payload, dict) else None
             if len(page) < page_size or (isinstance(total, int) and len(rows) >= total):
                 return {'facts': rows, 'complete': True}

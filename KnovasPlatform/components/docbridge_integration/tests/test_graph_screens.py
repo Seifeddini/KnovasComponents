@@ -248,6 +248,22 @@ class TestDirectories:
         assert [r["id"] for r in rows] == ["n1"]
         assert rows[0]["cells"]["a4"]["display"] == "84’500.00 CHF"
 
+    def test_entries_past_the_bulk_row_cap_load_in_batches(self, member_client, directory,
+                                                           seeded):
+        seeded.nodes["n2"] = {"id": "n2", "name": "Akte 2", "node_type_id": "t1"}
+        seeded.facts["n2"] = [{"id": "fx", "attribute_id": "a1", "value": "2026-0002"}]
+        original = seeded.graph_type_facts
+
+        def capped(type_id):
+            full = original(type_id)
+            return {"facts": [f for f in full["facts"] if f["node_id"] == "n1"], "complete": False}
+
+        seeded.graph_type_facts = capped
+        body = member_client.get("/api/graph/directories/mandate").get_json()
+        assert body["pending"] == ["n2"] and body["complete"] is False
+        loaded = {r["id"]: r["loaded"] for r in body["rows"]}
+        assert loaded == {"n1": True, "n2": False}
+
     def test_an_address_belongs_to_one_directory(self, admin_client, directory):
         response = admin_client.post("/api/graph/views", json={"node_type_id": "t2",
                                                                 "slug": "Mandate"})

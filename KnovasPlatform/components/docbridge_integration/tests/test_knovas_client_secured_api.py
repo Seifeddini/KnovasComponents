@@ -433,8 +433,13 @@ class TestTypeFactsAndHistory:
         requests_mock(json={"message": "Not Found"}, status=404)
         assert client.graph_type_facts("t1") is None
 
-    def test_type_facts_stops_at_the_row_cap_and_says_so(self, client, requests_mock):
-        requests_mock(json={"facts": [{"id": "f", "node_id": "n"}] * 5, "count": 50})
+    def test_type_facts_stops_at_the_row_cap_and_says_so(self, client):
+        def answer(method, url, **kwargs):
+            offset = kwargs["params"]["offset"]
+            return FakeResponse(200, {"facts": [{"id": f"f{offset + i}", "node_id": "n"}
+                                                for i in range(5)], "count": 50})
+
+        client._session = FakeSession(answer)
         result = client.graph_type_facts("t1", page_size=5, max_rows=10)
         assert len(result["facts"]) == 10 and result["complete"] is False
 
@@ -446,3 +451,11 @@ class TestTypeFactsAndHistory:
     def test_history_of_an_unknown_fact_is_none(self, client, requests_mock):
         requests_mock(json={}, status=404)
         assert client.graph_fact_history("weg") is None
+
+    def test_type_facts_stops_when_the_api_ignores_paging(self, client, requests_mock):
+        """The same page twice means the API already sent all it has; asking
+        on would loop until the row cap and fill the list with duplicates."""
+        requests_mock(json={"facts": [{"id": "f1", "node_id": "n1"}, {"id": "f2", "node_id": "n1"}]})
+        result = client.graph_type_facts("t1", page_size=2)
+        assert [f["id"] for f in result["facts"]] == ["f1", "f2"]
+        assert result["complete"] is True
