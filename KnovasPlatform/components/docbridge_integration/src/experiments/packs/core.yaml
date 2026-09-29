@@ -1,0 +1,567 @@
+# Grundausstattung der Experimente: wird beim Einschalten des Moduls
+# installiert (store.ensure_core_pack). Global, also ohne Bereich: der Typ
+# «Allgemeine Hypothese» steht in jedem Bereich zur Verfügung, auch in
+# Bereichen, die Verantwortliche selbst anlegen.
+#
+# Die beiden Beispiel-Auswerter sind Vorlagen für eigene Auswerter in Python
+# und Julia. Sie laufen nur in der Rechenumgebung (experiments-runner, Profil
+# «experiments»), nie im Webserver.
+pack: core
+title: Allgemein
+description: >-
+  Der Typ «Allgemeine Hypothese» für jeden Bereich und zwei Beispiel-Auswerter
+  (Python und Julia) als Vorlagen für eigene Auswertungen.
+version: 1
+
+metrics: []
+
+types:
+  - key: hypothesis
+    name: Allgemeine Hypothese
+    description: >-
+      Für jede Idee, die sich prüfen lässt – auch ohne Varianten, etwa bei
+      Abläufen, Recruiting oder Recherche. Metriken und Auswerter lassen sich
+      je Experiment ergänzen.
+    definition:
+      fields: []
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants: {min: 0, max: 10, defaults: []}
+      metrics: []
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+      decision: {require_learning: true}
+
+evaluators:
+  - key: example.bootstrap_mean_py
+    name: Bootstrap-Differenz (Python, Beispiel)
+    language: python
+    description: >-
+      Vorlage: Bootstrap-Intervall der Mittelwert-Differenz jeder Variante zur
+      Kontrolle, aus den einzelnen Messzeilen (eine Zeile = eine Einheit).
+      Für Mittelwerte, Dauern, Geldbeträge und Skalen.
+    input_kinds: [mean, duration, currency, ordinal]
+    params_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        alpha: {type: number, minimum: 0.001, maximum: 0.2}
+        draws: {type: integer, minimum: 200, maximum: 20000}
+        seed: {type: integer, minimum: 0, maximum: 2147483647}
+    code: |
+      """Beispiel-Auswerter: Bootstrap-Intervall der Mittelwert-Differenz (Python).
+
+      Vorlage für eigene Auswerter. Die Rechenumgebung (experiments-runner) ruft
+      evaluate(data) auf und erwartet ein dict mit den Schlüsseln des
+      Ausgabevertrags: verdict, headline, summary, comparisons, variants,
+      values, table, warnings. Verfügbar sind numpy, scipy, pandas und
+      statsmodels; ein Netzwerk gibt es nicht.
+
+      data enthält:
+        experiment  key, title, hypothesis, domain, type, status, fields, tags
+        metric      key, name, kind, unit, direction, role, definition, guardrail
+        variants    [{key, name, is_control}]
+        aggregates  je Variante: rows, n, value_sum, sum_sq, estimate, ...
+        rows        einzelne Messzeilen: variant, run, value, count,
+                    denominator, sum_sq, observed_at, dims
+        rows_truncated, scope, params
+
+      Methode: Jede Zeile ist eine Einheit (eine Anfrage, ein Lauf, eine
+      Person). Die Zeilen einer Variante werden mit Zurücklegen neu gezogen;
+      der Mittelwert einer Ziehung ist die Summe der Werte durch die Summe der
+      Anzahlen, so zählen auch vorab zusammengefasste Zeilen richtig. Das
+      Intervall der Differenz (Variante minus Kontrolle) ist das
+      Perzentil-Intervall der gezogenen Differenzen.
+      """
+
+      import math
+
+      import numpy as np
+
+      # Obergrenze für Ziehungen mal Zeilen: auch 100 000 Zeilen laufen so in
+      # wenigen Sekunden durch.
+      MAX_WORK = 50_000_000
+
+
+      def _fmt(x, digits=2):
+          """Zahl im Schweizer Format: 10'714,50 (Apostroph, Dezimalkomma)."""
+          if x is None or not math.isfinite(x):
+              return "–"
+          text = f"{abs(x):,.{digits}f}".replace(",", "'").replace(".", ",")
+          negative = x < 0 and any(ch not in "0'," for ch in text)
+          return ("-" if negative else "") + text
+
+
+      def _signed(x, digits=2):
+          text = _fmt(x, digits)
+          return text if text.startswith("-") or text == "–" else "+" + text
+
+
+      def _unit(text, unit):
+          return f"{text} {unit}" if unit and text != "–" else text
+
+
+      def _verdict(lo, hi, direction):
+          """better/worse, wenn das Intervall die Null nicht enthält."""
+          if direction == "none":
+              return "n/a"
+          if lo > 0:
+              return "better" if direction == "higher" else "worse"
+          if hi < 0:
+              return "worse" if direction == "higher" else "better"
+          return "inconclusive"
+
+
+      def evaluate(data):
+          metric = data.get("metric") or {}
+          params = data.get("params") or {}
+          alpha = float(params.get("alpha", 0.05))
+          draws = int(params.get("draws", 4000))
+          seed = int(params.get("seed", 7))
+          kind = metric.get("kind")
+          direction = metric.get("direction") or "higher"
+          unit = metric.get("unit") or ""
+          digits = int((metric.get("definition") or {}).get("decimals", 2))
+          level = (1.0 - alpha) * 100.0
+          level_text = _fmt(level, 0 if abs(level - round(level)) < 1e-9 else 1)
+          warnings = []
+          if data.get("rows_truncated"):
+              warnings.append("Nur die neuesten Zeilen wurden ausgewertet (Zeilenlimit).")
+
+          # Summe und Anzahl je Zeile, nach Variante. Bei einer Skala (ordinal)
+          # ist value die Stufe und count die Zahl der Einheiten auf dieser Stufe.
+          sums, counts = {}, {}
+          for row in data.get("rows") or []:
+              key, value = row.get("variant"), row.get("value")
+              if key is None or value is None:
+                  continue
+              count = float(row.get("count") or 1)
+              total = float(value) * count if kind == "ordinal" else float(value)
+              sums.setdefault(key, []).append(total)
+              counts.setdefault(key, []).append(count)
+
+          total_rows = sum(len(v) for v in sums.values())
+          if total_rows and draws * total_rows > MAX_WORK:
+              reduced = max(200, MAX_WORK // total_rows)
+              if reduced < draws:
+                  warnings.append(f"Wegen der Datenmenge nur {reduced} Ziehungen.")
+                  draws = reduced
+
+          rng = np.random.default_rng(seed)
+
+          def bootstrap(key):
+              s, c = np.asarray(sums[key]), np.asarray(counts[key])
+              n = len(s)
+              out = np.empty(draws)
+              chunk = max(1, 2_000_000 // n)
+              for start in range(0, draws, chunk):
+                  size = min(chunk, draws - start)
+                  idx = rng.integers(0, n, size=(size, n))
+                  out[start:start + size] = s[idx].sum(axis=1) / c[idx].sum(axis=1)
+              return out
+
+          variants = data.get("variants") or []
+          control = next((v for v in variants if v.get("is_control")),
+                         variants[0] if variants else None)
+          control_key = control.get("key") if control else None
+
+          boots, means, variants_out, table_rows = {}, {}, [], []
+          for variant in variants:
+              key = variant.get("key")
+              s, c = sums.get(key, []), counts.get(key, [])
+              entry = {"variant": key, "n": int(sum(c)), "value": None, "sd": None,
+                       "sum": float(sum(s)) if s else None, "ci_low": None, "ci_high": None}
+              if c:
+                  means[key] = sum(s) / sum(c)
+                  entry["value"] = float(means[key])
+              if len(s) >= 2:
+                  boots[key] = bootstrap(key)
+                  lo, hi = np.quantile(boots[key], [alpha / 2, 1 - alpha / 2])
+                  entry["ci_low"], entry["ci_high"] = float(lo), float(hi)
+                  if all(x == 1 for x in c):
+                      entry["sd"] = float(np.std(np.asarray(s), ddof=1))
+              else:
+                  warnings.append(f"Variante {key}: zu wenige Zeilen (mindestens 2).")
+              variants_out.append(entry)
+              table_rows.append([
+                  str(key), str(len(s)), _fmt(entry["n"], 0),
+                  _unit(_fmt(entry["value"], digits), unit),
+                  (f"{_fmt(entry['ci_low'], digits)} bis {_fmt(entry['ci_high'], digits)}"
+                   if entry["ci_low"] is not None else "–"),
+              ])
+
+          comparisons = []
+          if control_key is not None and control_key in boots:
+              for variant in variants:
+                  key = variant.get("key")
+                  if key == control_key or key not in boots:
+                      continue
+                  diff = boots[key] - boots[control_key]
+                  lo, hi = (float(q) for q in np.quantile(diff, [alpha / 2, 1 - alpha / 2]))
+                  estimate = float(means[key] - means[control_key])
+                  if direction == "none":
+                      prob = None
+                  elif direction == "lower":
+                      prob = float(np.mean(diff < 0))
+                  else:
+                      prob = float(np.mean(diff > 0))
+                  p_value = 2.0 * min(float(np.mean(diff <= 0)), float(np.mean(diff >= 0)))
+                  base = means[control_key]
+                  comparisons.append({
+                      "variant": key, "baseline": control_key, "label": "Differenz",
+                      "estimate": estimate, "ci_low": lo, "ci_high": hi,
+                      "p_value": min(1.0, max(p_value, 1.0 / draws)),
+                      "prob_better": prob,
+                      "relative": float(estimate / base) if base else None,
+                      "unit": unit, "verdict": _verdict(lo, hi, direction),
+                  })
+          elif control_key is not None:
+              warnings.append(f"Die Kontrolle {control_key} hat zu wenige Daten; kein Vergleich.")
+
+          def describe(c):
+              return (f"{_unit(_signed(c['estimate'], digits), unit)} "
+                      f"({level_text} %-KI {_signed(c['ci_low'], digits)} "
+                      f"bis {_signed(c['ci_high'], digits)})")
+
+          better = [c for c in comparisons if c["verdict"] == "better"]
+          worse = [c for c in comparisons if c["verdict"] == "worse"]
+          if not comparisons:
+              verdict, headline = "inconclusive", "Zu wenige Daten für einen Vergleich."
+          elif direction == "none":
+              verdict = "n/a"
+              headline = f"Differenzen zu {control_key} berechnet (Metrik ohne Richtung)."
+          elif better:
+              best = max(better, key=lambda c: c["prob_better"] or 0.0)
+              verdict = "better"
+              headline = f"{best['variant']} besser als {control_key}: {describe(best)}"
+          elif worse:
+              worst = min(worse, key=lambda c: c["prob_better"] or 0.0)
+              verdict = "worse"
+              headline = f"{worst['variant']} schlechter als {control_key}: {describe(worst)}"
+          else:
+              verdict = "inconclusive"
+              headline = f"Kein klarer Unterschied zu {control_key}."
+
+          lines = [
+              f"**Bootstrap** mit {draws} Ziehungen je Variante; eine Messzeile ist "
+              f"eine Einheit. Intervalle: {level_text} %-Perzentil-Intervalle.",
+              "",
+          ]
+          if comparisons:
+              lines += [f"| Variante | Differenz zu {control_key} | P(besser) |", "|---|---|---|"]
+              for c in comparisons:
+                  prob = "–" if c["prob_better"] is None else f"{_fmt(c['prob_better'] * 100, 1)} %"
+                  lines.append(f"| {c['variant']} | {describe(c)} | {prob} |")
+
+          values = {"draws": draws, "alpha": alpha}
+          if control_key is not None:
+              values["control"] = str(control_key)
+          probs = [c["prob_better"] for c in comparisons if c["prob_better"] is not None]
+          if probs:
+              values["prob_better"] = max(probs)
+
+          return {
+              "verdict": verdict,
+              "headline": headline,
+              "summary": "\n".join(lines),
+              "comparisons": comparisons,
+              "variants": variants_out,
+              "values": values,
+              "table": {
+                  "headers": ["Variante", "Zeilen", "n", "Mittel", f"{level_text} %-KI"],
+                  "rows": table_rows,
+              },
+              "warnings": warnings,
+          }
+
+  - key: example.beta_binomial_jl
+    name: Beta-Binomial (Julia, Beispiel)
+    language: julia
+    description: >-
+      Vorlage: P(besser) jeder Variante gegenüber der Kontrolle aus
+      Beta-Posteriors, gezogen nur mit der Standardbibliothek Random. Für
+      Anteile.
+    input_kinds: [proportion]
+    params_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        threshold: {type: number, minimum: 0.5, maximum: 0.999}
+        prior_a: {type: number, minimum: 0.01, maximum: 1000}
+        prior_b: {type: number, minimum: 0.01, maximum: 1000}
+        draws: {type: integer, minimum: 1000, maximum: 200000}
+        seed: {type: integer, minimum: 0, maximum: 2147483647}
+    code: |
+      # Beispiel-Auswerter: Bayes-Vergleich von Anteilen (Julia).
+      #
+      # Vorlage für eigene Auswerter. Die Rechenumgebung (experiments-runner)
+      # ruft evaluate(data) auf; data ist ein Dict{String,Any} mit experiment,
+      # metric, variants, aggregates, rows, rows_truncated, scope und params.
+      # Zurück kommt ein Dict mit den Schlüsseln des Ausgabevertrags: verdict,
+      # headline, summary, comparisons, variants, values, table, warnings.
+      # `nothing` wird zu JSON null. Installiert sind JSON3, Distributions,
+      # HypothesisTests, StatsBase und DataFrames; dieses Beispiel braucht nur
+      # die Standardbibliothek Random.
+      #
+      # Methode: Der Anteil einer Variante ist a posteriori
+      # Beta(prior_a + Erfolge, prior_b + Misserfolge) verteilt. Aus den
+      # Verteilungen wird gezogen; P(besser) ist der Anteil der Ziehungen, in
+      # denen die Variante besser ist als die Kontrolle (bei «tiefer ist
+      # besser» also tiefer). Beta-Ziehungen entstehen aus zwei
+      # Gamma-Ziehungen (Marsaglia und Tsang, 2000).
+
+      using Random
+
+      # Gamma(shape, 1). Für shape < 1: Gamma(shape + 1) * U^(1/shape).
+      function gamma_draw(rng::AbstractRNG, shape::Float64)
+          if shape < 1.0
+              u = rand(rng)
+              return gamma_draw(rng, shape + 1.0) * u^(1.0 / shape)
+          end
+          d = shape - 1.0 / 3.0
+          c = 1.0 / sqrt(9.0 * d)
+          while true
+              x = randn(rng)
+              v = 1.0 + c * x
+              if v <= 0.0
+                  continue
+              end
+              v = v * v * v
+              u = rand(rng)
+              if u < 1.0 - 0.0331 * x^4 || log(u) < 0.5 * x * x + d * (1.0 - v + log(v))
+                  return d * v
+              end
+          end
+      end
+
+      function beta_draw(rng::AbstractRNG, a::Float64, b::Float64)
+          x = gamma_draw(rng, a)
+          y = gamma_draw(rng, b)
+          s = x + y
+          return s > 0.0 ? x / s : 0.5
+      end
+
+      # Wert aus dem JSON: Zahl oder nothing (null).
+      num(x, default::Float64 = 0.0) = x === nothing ? default : Float64(x)
+
+      # Quantil einer sortierten Liste (lineare Interpolation).
+      function quantile_sorted(v::Vector{Float64}, p::Float64)
+          n = length(v)
+          h = (n - 1) * p + 1.0
+          lo = floor(Int, h)
+          hi = min(lo + 1, n)
+          return v[lo] + (h - lo) * (v[hi] - v[lo])
+      end
+
+      # Zahl im Schweizer Format: 10'714,5 (Apostroph, Dezimalkomma).
+      function group3(s::String)
+          n = length(s)
+          n <= 3 && return s
+          head = n % 3 == 0 ? 3 : n % 3
+          parts = String[s[1:head]]
+          i = head + 1
+          while i <= n
+              push!(parts, s[i:i+2])
+              i += 3
+          end
+          return join(parts, "'")
+      end
+
+      function fmt(x, places::Int = 1)
+          x === nothing && return "–"
+          v = Float64(x)
+          isfinite(v) || return "–"
+          abs(v) >= 1e15 && return string(v)
+          scale = 10^places
+          scaled = round(Int64, abs(v) * scale)
+          text = group3(string(div(scaled, scale)))
+          if places > 0
+              text *= "," * lpad(string(rem(scaled, scale)), places, '0')
+          end
+          return (v < 0 && scaled != 0 ? "-" : "") * text
+      end
+
+      pct(x, places::Int = 1) = x === nothing ? "–" : fmt(100.0 * x, places) * " %"
+
+      function pp(x, places::Int = 2)
+          text = fmt(100.0 * x, places)
+          return (startswith(text, "-") ? text : "+" * text) * " Pp."
+      end
+
+      function evaluate(data)
+          metric = something(get(data, "metric", nothing), Dict{String,Any}())
+          params = something(get(data, "params", nothing), Dict{String,Any}())
+          direction = string(something(get(metric, "direction", nothing), "higher"))
+          threshold = num(get(params, "threshold", nothing), 0.95)
+          prior_a = num(get(params, "prior_a", nothing), 1.0)
+          prior_b = num(get(params, "prior_b", nothing), 1.0)
+          draws = round(Int, num(get(params, "draws", nothing), 20000.0))
+          seed = round(Int, num(get(params, "seed", nothing), 7.0))
+          rng = MersenneTwister(seed)
+          warnings = String[]
+
+          # Erfolge (value_sum) und Versuche (n) je Variante aus den Aggregaten.
+          successes = Dict{String,Float64}()
+          trials = Dict{String,Float64}()
+          for agg in something(get(data, "aggregates", nothing), Any[])
+              key = get(agg, "variant", nothing)
+              key === nothing && continue
+              successes[string(key)] = num(get(agg, "value_sum", nothing))
+              trials[string(key)] = num(get(agg, "n", nothing))
+          end
+
+          variants = something(get(data, "variants", nothing), Any[])
+          order = String[string(v["key"]) for v in variants]
+          control = nothing
+          for v in variants
+              if get(v, "is_control", false) == true
+                  control = string(v["key"])
+                  break
+              end
+          end
+          if control === nothing && !isempty(order)
+              control = order[1]
+          end
+          control_text = control === nothing ? "–" : control
+
+          # Ziehungen aus der Posterior-Verteilung jeder Variante mit Daten.
+          samples = Dict{String,Vector{Float64}}()
+          variants_out = Any[]
+          table_rows = Any[]
+          for key in order
+              s = get(successes, key, 0.0)
+              n = get(trials, key, 0.0)
+              if n <= 0.0
+                  push!(warnings, "Variante $(key) hat noch keine Daten.")
+                  push!(variants_out, Dict{String,Any}(
+                      "variant" => key, "n" => 0, "value" => nothing, "sd" => nothing,
+                      "sum" => nothing, "ci_low" => nothing, "ci_high" => nothing))
+                  push!(table_rows, Any[key, "0", "–", "–"])
+                  continue
+              end
+              a = prior_a + s
+              b = prior_b + max(n - s, 0.0)
+              draws_v = sort([beta_draw(rng, a, b) for _ in 1:draws])
+              samples[key] = draws_v
+              lo = quantile_sorted(draws_v, 0.025)
+              hi = quantile_sorted(draws_v, 0.975)
+              push!(variants_out, Dict{String,Any}(
+                  "variant" => key, "n" => round(Int, n), "value" => s / n,
+                  "sd" => nothing, "sum" => s, "ci_low" => lo, "ci_high" => hi))
+              interval = pct(lo, 2) * " bis " * pct(hi, 2)
+              push!(table_rows, Any[key, fmt(n, 0), pct(s / n, 2), interval])
+          end
+
+          # Jede Variante gegen die Kontrolle, Ziehung für Ziehung.
+          comparisons = Any[]
+          if control !== nothing && haskey(samples, control)
+              # Für den paarweisen Vergleich frisch (unsortiert) ziehen.
+              fresh = Dict{String,Vector{Float64}}()
+              for key in order
+                  haskey(samples, key) || continue
+                  s = successes[key]
+                  n = trials[key]
+                  a = prior_a + s
+                  b = prior_b + max(n - s, 0.0)
+                  fresh[key] = [beta_draw(rng, a, b) for _ in 1:draws]
+              end
+              pc = fresh[control]
+              rate_c = successes[control] / trials[control]
+              for key in order
+                  (key == control || !haskey(fresh, key)) && continue
+                  pv = fresh[key]
+                  diffs = sort(pv .- pc)
+                  if direction == "lower"
+                      prob = count(i -> pv[i] < pc[i], eachindex(pv)) / length(pv)
+                  else
+                      prob = count(i -> pv[i] > pc[i], eachindex(pv)) / length(pv)
+                  end
+                  rate_v = successes[key] / trials[key]
+                  if direction == "none"
+                      verdict = "n/a"
+                  elseif prob >= threshold
+                      verdict = "better"
+                  elseif prob <= 1.0 - threshold
+                      verdict = "worse"
+                  else
+                      verdict = "inconclusive"
+                  end
+                  push!(comparisons, Dict{String,Any}(
+                      "variant" => key, "baseline" => control, "label" => "Differenz",
+                      "estimate" => sum(diffs) / length(diffs),
+                      "ci_low" => quantile_sorted(diffs, 0.025),
+                      "ci_high" => quantile_sorted(diffs, 0.975),
+                      "p_value" => nothing,
+                      "prob_better" => direction == "none" ? nothing : prob,
+                      "relative" => rate_c > 0.0 ? (rate_v - rate_c) / rate_c : nothing,
+                      "unit" => "Pp.", "verdict" => verdict))
+              end
+          elseif control !== nothing
+              push!(warnings, "Die Kontrolle $(control) hat noch keine Daten; kein Vergleich.")
+          end
+
+          better = [c for c in comparisons if c["verdict"] == "better"]
+          worse = [c for c in comparisons if c["verdict"] == "worse"]
+          if isempty(comparisons)
+              verdict = "inconclusive"
+              headline = "Zu wenige Daten für einen Vergleich."
+          elseif direction == "none"
+              verdict = "n/a"
+              headline = "Anteile gegenüber $(control_text) berechnet (Metrik ohne Richtung)."
+          elseif !isempty(better)
+              best = better[argmax([c["prob_better"] for c in better])]
+              verdict = "better"
+              headline = "P($(best["variant"]) besser als $(control_text)) = $(pct(best["prob_better"]))"
+          elseif !isempty(worse)
+              worst = worse[argmin([c["prob_better"] for c in worse])]
+              verdict = "worse"
+              headline = "P($(worst["variant"]) besser als $(control_text)) = $(pct(worst["prob_better"]))"
+          else
+              top = comparisons[argmax([c["prob_better"] for c in comparisons])]
+              verdict = "inconclusive"
+              headline = "P($(top["variant"]) besser als $(control_text)) = $(pct(top["prob_better"])) – noch offen"
+          end
+
+          prior_text = "Beta($(fmt(prior_a, 2)); $(fmt(prior_b, 2)))"
+          intro = "**Bayes-Vergleich** mit $(prior_text)-Prior und $(draws) Ziehungen je Variante; Schwelle $(pct(threshold))."
+          lines = String[intro, ""]
+          if !isempty(comparisons)
+              push!(lines, "| Variante | Differenz zu $(control_text) (95 %-Intervall) | P(besser) |")
+              push!(lines, "|---|---|---|")
+              for c in comparisons
+                  diff_text = "$(pp(c["estimate"])) ($(pp(c["ci_low"])) bis $(pp(c["ci_high"])))"
+                  push!(lines, "| $(c["variant"]) | $(diff_text) | $(pct(c["prob_better"])) |")
+              end
+          end
+
+          values_out = Dict{String,Any}("draws" => draws, "threshold" => threshold)
+          probs = [c["prob_better"] for c in comparisons if c["prob_better"] !== nothing]
+          if !isempty(probs)
+              values_out["prob_better"] = maximum(probs)
+          end
+
+          return Dict{String,Any}(
+              "verdict" => verdict,
+              "headline" => headline,
+              "summary" => join(lines, "\n"),
+              "comparisons" => comparisons,
+              "variants" => variants_out,
+              "values" => values_out,
+              "table" => Dict{String,Any}(
+                  "headers" => ["Variante", "n", "Anteil", "95 %-Intervall"],
+                  "rows" => table_rows),
+              "warnings" => warnings)
+      end
+
+requires_metrics: []

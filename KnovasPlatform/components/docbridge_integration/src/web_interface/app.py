@@ -867,6 +867,9 @@ def create_app(config_path: Optional[str] = None):
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(
         seconds=config.get_int('web.session_lifetime', 3600)
     )
+    # Upper bound for any request body (JSON, CSV import). Without it a
+    # client could stream an unbounded body into a worker's memory.
+    app.config['MAX_CONTENT_LENGTH'] = config.get_int('web.max_request_bytes', 32 * 1024 * 1024)
 
     # Same-origin UI: no CORS by default. Only enable (scoped) when explicit
     # origins are configured; never emit a wildcard Access-Control-Allow-Origin.
@@ -884,6 +887,8 @@ def create_app(config_path: Optional[str] = None):
         path = request.path or ''
         if (
             path in ('/', '/login', '/ontology')
+            or path == '/experiments'
+            or path.startswith('/experiments/')
             or path.endswith('.js')
             or path.endswith('.css')
             or path.startswith('/static/')
@@ -1006,6 +1011,36 @@ def create_app(config_path: Optional[str] = None):
             str(config.get('remote_controller.base_url', 'http://remote-controller:5001')),
             principal_broker=principal_broker,
         )
+
+    # Experimente (docs/superpowers/plans/2026-09-28-experiments-module.md).
+    # Off unless EXPERIMENTS_ENABLED, and never without per-user identity: the
+    # module is built on roles. The search integration exists either way,
+    # because experiment hits are stripped from every search -- switching the
+    # module off must not put the documents it wrote to Knovas on everyone's
+    # result list.
+    from experiments.search import SearchIntegration
+    from experiments.settings import load_settings as load_experiments_settings
+
+    experiments_settings = load_experiments_settings(config, identity_enabled=identity_enabled)
+    if not identity_enabled and load_experiments_settings(config).enabled:
+        logger.warning(
+            'EXPERIMENTS_ENABLED is on but identity.enabled is false; Experimente needs '
+            'per-user accounts and stays off.'
+        )
+    experiments_search = SearchIntegration(
+        settings=experiments_settings,
+        connection=identity_gate.connection if identity_gate is not None else (lambda: None),
+        current_user=identity_gate.current_user if identity_gate is not None else (lambda: None),
+        enabled=experiments_settings.enabled,
+    )
+    app.extensions['experiments'] = {
+        'settings': experiments_settings,
+        'search': experiments_search,
+        'index_client': None,
+        'runner': None,
+        'workers': [],
+    }
+
     weak_secret_values = {
         '',
         'change-me',
@@ -1241,6 +1276,26 @@ def create_app(config_path: Optional[str] = None):
         return None
 
     @app.before_request
+    def refuse_experiments_when_switched_off():
+        """One gate over every Experimente path while the module is off.
+
+        Registered before the login gate, so the answer is the same for
+        everyone: the pages go back to the search, the API (the machine API
+        for CI included) says the module is off rather than asking a CI job
+        to sign in. The blueprints are not even registered then; this gate
+        makes a kept bookmark land somewhere sensible instead of on a 404.
+        """
+        if experiments_settings.enabled:
+            return None
+        path = request.path or ''
+        if path == '/api/experiments' or path.startswith('/api/experiments/'):
+            return jsonify({'success': False,
+                            'error': 'Experimente sind nicht eingeschaltet.'}), 404
+        if path == '/experiments' or path.startswith('/experiments/'):
+            return redirect(url_for('index'))
+        return None
+
+    @app.before_request
     def require_company_login():
         """Require a login before serving the search UI and APIs.
 
@@ -1307,6 +1362,11 @@ def create_app(config_path: Optional[str] = None):
         # doing anything. This gate expects a header and would reject them all.
         if request.endpoint.startswith('admin.'):
             return None
+        # The Experimente machine API (CI) authenticates every request with a
+        # bearer token and never reads the session cookie, so there is no
+        # ambient credential for a forged request to ride on.
+        if request.endpoint.startswith('experiments_api.'):
+            return None
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
@@ -1350,6 +1410,10 @@ def create_app(config_path: Optional[str] = None):
         doc_id = (request.view_args or {}).get('doc_id')
         if not doc_id:
             return None
+        # Experiment documents are Knovas copies of database rows, not files:
+        # they are never served from disk, whatever a grant says.
+        if str(doc_id).strip().lstrip('/').startswith(experiments_settings.pointer_prefix + '/'):
+            return jsonify({'success': False, 'error': 'Not found'}), 404
         user = identity_gate.current_user()
         if user is None:
             return None  # the login gate above already refused this request
@@ -1594,6 +1658,20 @@ def create_app(config_path: Optional[str] = None):
                     getattr(user, 'email', '?'), sorted(roles) or ['-'])
         return None
 
+    def _experiments_nav() -> bool:
+        """Whether the sidebar offers Experimente: module on and the signed-in
+        person holds a viewing role. Presentation only -- the routes refuse on
+        their own -- so a failure hides the item instead of breaking the page."""
+        if not experiments_settings.enabled or identity_gate is None:
+            return False
+        try:
+            from experiments.permissions import can_view
+
+            return can_view(identity_gate.current_user())
+        except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
+            logger.warning('Experimente-Eintrag nicht ermittelbar: %s', exc)
+            return False
+
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
         return {
@@ -1601,6 +1679,7 @@ def create_app(config_path: Optional[str] = None):
             'feedback_url': feedback_url,
             'console_url': _console_url(),
             'cortex_enabled': cortex_enabled,
+            'experiments_nav': _experiments_nav(),
         }
 
     @app.route('/')
@@ -1714,6 +1793,26 @@ def create_app(config_path: Optional[str] = None):
             graph_mode=lambda: _ontology_source_is_graph(),
         ))
 
+        if experiments_settings.enabled:
+            from web_interface.experiments_routes import install_experiments
+
+            app.extensions['experiments'].update(install_experiments(
+                app,
+                config=config,
+                settings=experiments_settings,
+                gate=identity_gate,
+                # The experiments search asks Knovas as the signed-in person,
+                # through the same principal-signed client the search uses.
+                api_client=api_client,
+                csrf_token=_ensure_csrf_token,
+                page_context=lambda: {
+                    **_sidebar_context(),
+                    'app_title': web_app_title,
+                    'brand': web_brand,
+                    'asset_version': _static_asset_version(),
+                },
+            ))
+
     @app.route('/api/search', methods=['POST'])
     def search():
         """
@@ -1763,6 +1862,12 @@ def create_app(config_path: Optional[str] = None):
                     filters={k: v for k, v in (filters or {}).items()
                              if k not in _LOCAL_ONLY_FILTERS},
                 )
+
+            # Experiment documents (Experimente) are taken out for everyone,
+            # with the module on or off, pointers in the semantix block
+            # included. They come back further down as experiment rows, and
+            # only for people allowed to see them.
+            results, experiment_hits = experiments_search.split(results)
 
             is_test_data = use_test_results or (
                 isinstance(results.get('semantix'), dict)
@@ -1839,6 +1944,16 @@ def create_app(config_path: Optional[str] = None):
                                 spellings.append(str(raw))
                                 spellings.append(_rel_path_for_autodoc(str(raw)))
                     document_grants.grant(str(searcher.id), spellings)
+
+            # Experiment rows, rendered from the Platform database. Merged
+            # after the grants loop, so an experiment pointer never becomes a
+            # file grant, and after the open hints: they link to the
+            # experiment page, never to a file.
+            experiment_rows = experiments_search.rows(experiment_hits)
+            if experiment_rows:
+                experiment_rows = _apply_search_refinement(
+                    {'results': experiment_rows}, query, filters, config)['results']
+                final_results = _merge_experiment_rows(final_results, experiment_rows, limit)
 
             # Whether the words the person typed actually occur in anything we
             # are about to show them. A vector search answers "related to", and
@@ -2955,6 +3070,32 @@ def _apply_search_refinement(
     refined['results'] = out
     refined['total'] = len(out)
     return refined
+
+
+def _merge_experiment_rows(
+    results: List[Dict[str, Any]],
+    rows: List[Dict[str, Any]],
+    limit: Any,
+) -> List[Dict[str, Any]]:
+    """Document hits and experiment rows in one list: best score first, cut to
+    the requested page size so experiments take places rather than add them.
+
+    The sort is stable, so documents with equal scores keep the order the
+    refinement gave them.
+    """
+
+    def score(row: Dict[str, Any]) -> float:
+        try:
+            return float(row.get('score') or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    merged = sorted(list(results) + list(rows), key=lambda r: -score(r))
+    try:
+        cap = max(1, int(limit))
+    except (TypeError, ValueError):
+        return merged
+    return merged[:cap]
 
 
 def _enrichment_title_matches_query(

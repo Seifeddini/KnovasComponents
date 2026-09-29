@@ -91,14 +91,18 @@ Ingest of ~640 files is rate-limited; the first hits appear before the full set 
 | Results look right, but **Öffnen** fails and there is no preview | The files are not where the Platform looks. `./scripts/doctor.sh` names which of the two it is: a `KNOVAS_DOCUMENTS_PATH` that is not the ingested folder, or a Kennung on the Übernahme profile that is not `KNOVAS_IDENTIFIER_PREFIX` |
 | **Öffnen** says `Open mapping not configured` | Expected when the documents live only on this server. **Öffnen** starts the file on the *user's* PC, so that PC needs its own path to it: `KNOVAS_SHARE_UNC=\\fileserver\share`, or `OPEN_CLIENT_LOCAL_ROOT=` the path they mount it at. No share at all? Put `OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN=true` in `knovas.env` for a Download button instead |
 
-## Two switches you may want
+## Switches you may want
 
-Both go in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
+All go in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
 
 | Setting | What it does |
 |---------|--------------|
 | `CORTEX_ENABLED=false` | Takes Cortex out of the navigation and refuses its routes. For a firm that only wants the search. |
 | `IDENTITY_ENABLED=false` plus `COMPANY_LOGIN_NAME=` / `COMPANY_LOGIN_PASSWORD=` | One shared login for the whole firm instead of per-person accounts. Simpler to run; the audit record then says "the company" rather than who, and everyone who signs in can open every document. |
+| `EXPERIMENTS_ENABLED=true` | Switches on **Experimente** (hypotheses, measurements, evaluations, decisions). Off by default and needs per-user accounts. Only people with the role `experimenter` or `experiments_manager` (Verwaltung → Personen) see it; for everyone else it does not exist. |
+| `EXPERIMENTS_ACCESS_GROUPS=` | The Knovas access group(s), comma-separated, that every experiment written to Knovas carries. Every experimenter needs them too, under Verwaltung → Personen. Empty (the default): nothing is written to Knovas and the module searches its own database only. |
+| `EXPERIMENTS_INDEX_UNRESTRICTED=true` | Writes experiments to Knovas without an access group, so every user of the tenant can find them there. Only with a Knovas folder rule that restricts the `experiments/` prefix. |
+| `COMPOSE_PROFILES=experiments` plus `EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock` | Builds and starts the sandbox for Python and Julia evaluators: its own container without any network, reached over a socket. `EXPERIMENTS_RUNNER_MEMORY` (default `3g`) and `EXPERIMENTS_RUNNER_CPUS` (default `2`) set its limits. Without it the built-in evaluators still work. |
 
 ## When a search looks wrong
 

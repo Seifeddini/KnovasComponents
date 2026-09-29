@@ -94,6 +94,52 @@ Was indexiert wird, wann und hinter welcher Wand, wird jetzt in der Verwaltung
 eingestellt — mit Vorschau, Versionen und Wiederherstellung. Der RemoteController
 akzeptiert dafür die Anmeldung der Kanzlei selbst.
 
+### Experimente
+
+Ein neues Modul hält Experimente fest — Hypothese, Varianten, Messwerte,
+Auswertungen, Entscheidung und Erkenntnis —, für Suchqualität und Technik,
+Marketing, Vertrieb und Produkt ebenso wie für selbst angelegte Bereiche. Jedes
+Experiment wird zusätzlich als Dokument in Knovas indexiert, sodass die normale
+Suche beantwortet, was schon versucht wurde und was dabei herauskam.
+
+Das Modul ist **standardmässig aus** (`EXPERIMENTS_ENABLED=false`). Auch
+eingeschaltet sehen es nur Personen mit einer der neuen Rollen `experimenter`
+oder `experiments_manager`: alle anderen haben keinen Menüpunkt, keine
+Experiment-Treffer in der Suche und erhalten auf jeder Adresse des Moduls
+«Nicht gefunden». Für bestehende Installationen ändert sich nichts, solange es
+aus bleibt; die Tabellen legt die Migration beim Start trotzdem an.
+
+Einschalten:
+
+1. Unter Verwaltung → Zugriffsgruppen eine Gruppe für Experimente anlegen.
+2. In `knovas.env` `EXPERIMENTS_ENABLED=true` und
+   `EXPERIMENTS_ACCESS_GROUPS=<Gruppe>` setzen. **Ohne Zugriffsgruppe lädt das
+   Modul nichts nach Knovas hoch** — ein Experiment-Dokument ohne Gruppe wäre
+   für den ganzen Mandanten sichtbar.
+3. Unter Verwaltung → Personen die Rollen vergeben und jeder Person mit einer
+   Experimente-Rolle die Gruppe zusätzlich zu ihren bisherigen geben.
+4. `./scripts/setup.sh && ./scripts/start.sh`; `./scripts/doctor.sh` prüft
+   den neuen Abschnitt «Experimente».
+
+- Mitgeliefert sind Pakete für Engineering, Marketing, Vertrieb und Produkt;
+  Bereiche, Typen, Metriken und Auswerter sind Konfiguration und lassen sich als
+  YAML exportieren und importieren.
+- Messwerte kommen von Hand, als CSV oder aus CI: über persönliche
+  Zugangsschlüssel und den Python- bzw. Julia-Client unter
+  `KnovasPlatform/experiments-sdk/`.
+- Die eingebauten Auswertungen rechnen in der Plattform. Eigene Auswerter in
+  Python und Julia laufen nur im neuen Dienst `experiments-runner` — ohne
+  Netzwerk, erreichbar allein über einen Unix-Socket — und nur mit dem
+  Compose-Profil `experiments` (`COMPOSE_PROFILES=experiments`,
+  `EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock`).
+- Alle Daten liegen in der Plattform-Datenbank und sind in deren Sicherung
+  enthalten. `python -m experiments purge-index --yes` im Container
+  `docbridge-web` entfernt die Knovas-Kopien wieder, auch bei ausgeschaltetem
+  Modul.
+
+Beschreibung, Einstellungen und Sicherheitsmodell:
+[KnovasPlatform/docs/features/experiments.md](KnovasPlatform/docs/features/experiments.md)
+
 ## RemoteController
 
 Discover and sync local text files to Knovas (employee JWT; tenant mTLS for ingestion).

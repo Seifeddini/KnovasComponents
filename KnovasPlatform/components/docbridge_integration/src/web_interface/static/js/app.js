@@ -11,7 +11,13 @@ const LUCIDE_ICONS = {
     'mail': '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
     'download': '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     'clipboard': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+    // Experimente: derselbe Kolben wie in der Seitenleiste.
+    'flask': '<path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10"/>',
 };
+
+/** Ein Experiment-Treffer fuehrt nur auf /experiments/<KEY>; alles andere
+    (fremder Host, "//", "..", ein anderer Pfad) gilt nicht als Link. */
+const EXPERIMENT_APP_URL = /^\/experiments\/[A-Z][A-Z0-9]{1,7}-[0-9]{1,9}$/;
 
 /** @param {keyof LUCIDE_ICONS} name */
 function lucide(name) {
@@ -180,6 +186,7 @@ class DocumentSearchApp {
             const idx = parseInt(card.getAttribute('data-index') || '-1', 10);
             if (idx < 0) return;
             e.preventDefault();
+            if (this._openExperimentHit(idx)) return;
             this.openPreview(idx);
         });
     }
@@ -199,6 +206,7 @@ class DocumentSearchApp {
             if (openCard) {
                 const idx = parseInt(openCard.getAttribute('data-index') || '-1', 10);
                 if (idx >= 0) {
+                    if (this._openExperimentHit(idx)) return;
                     this.openPreview(idx);
                     return;
                 }
@@ -815,20 +823,55 @@ class DocumentSearchApp {
         this.previewFindingsNav.hidden = true;
     }
 
-    /** Blaettert relativ zum aktuellen Treffer, ohne ueber die Enden zu laufen. */
+    /** Blaettert relativ zum aktuellen Treffer, ohne ueber die Enden zu laufen.
+        Experiment-Treffer haben keine Vorschau und werden uebersprungen. */
     stepPreview(delta) {
         if (this._previewIndex == null) return;
-        const next = this._previewIndex + delta;
-        if (next < 0 || next >= this.currentResults.length) return;
+        const next = this._previewNeighbour(this._previewIndex, delta);
+        if (next == null) return;
         this.openPreview(next);
     }
 
-    /** Zaehler und Pfeil-Zustaende an die Position anpassen. */
+    /** Naechster Treffer in Richtung delta, der eine Vorschau hat, oder null. */
+    _previewNeighbour(index, delta) {
+        const step = delta < 0 ? -1 : 1;
+        for (let i = index + step; i >= 0 && i < this.currentResults.length; i += step) {
+            if (this.currentResults[i]?.result_kind !== 'experiment') return i;
+        }
+        return null;
+    }
+
+    /** Zaehler und Pfeil-Zustaende an die Position anpassen. Gezaehlt werden
+        nur Treffer mit Vorschau, sonst stuende "3 von 10" bei acht Dokumenten. */
     _updatePreviewPosition(index) {
-        const total = this.currentResults.length;
-        this.previewPosition.textContent = total ? `${index + 1} von ${total}` : '';
-        this.previewPrev.disabled = index <= 0;
-        this.previewNext.disabled = index >= total - 1;
+        const previewable = this.currentResults
+            .map((doc, i) => (doc?.result_kind === 'experiment' ? -1 : i))
+            .filter((i) => i >= 0);
+        const total = previewable.length;
+        const position = previewable.indexOf(index);
+        this.previewPosition.textContent = total && position >= 0 ? `${position + 1} von ${total}` : '';
+        this.previewPrev.disabled = this._previewNeighbour(index, -1) == null;
+        this.previewNext.disabled = this._previewNeighbour(index, 1) == null;
+    }
+
+    /** app_url eines Experiment-Treffers, wenn er einer ist und sie gueltig ist. */
+    _experimentHitUrl(doc) {
+        if (!doc || doc.result_kind !== 'experiment') return null;
+        const url = typeof doc.app_url === 'string' ? doc.app_url : '';
+        return EXPERIMENT_APP_URL.test(url) ? url : null;
+    }
+
+    /**
+     * Experiment-Treffer oeffnen die Experimentseite statt der Vorschau: es
+     * gibt keine Datei dahinter. true, wenn der Treffer ein Experiment ist
+     * (auch mit ungueltiger Adresse -- dann passiert bewusst nichts).
+     */
+    _openExperimentHit(idx) {
+        const doc = this.currentResults[idx];
+        if (!doc || doc.result_kind !== 'experiment') return false;
+        const url = this._experimentHitUrl(doc);
+        if (url) window.location.assign(url);
+        return true;
     }
 
     /** Hebt die Karte hervor, deren Dokument gerade im Panel steht. */
@@ -843,6 +886,8 @@ class DocumentSearchApp {
     async openPreview(index) {
         const doc = this.currentResults[index];
         if (!doc) return;
+        // Experimente haben keine Datei und keine Vorschau.
+        if (doc.result_kind === 'experiment') return;
 
         // Laufende Anfrage abbrechen, damit ein schneller Kartenwechsel nicht
         // die Antwort des vorherigen Dokuments einblendet.
@@ -1256,11 +1301,51 @@ class DocumentSearchApp {
         return '';
     }
 
+    /**
+     * Karte eines Experiment-Treffers: Kolben statt Vorschaubild, Einordnung
+     * statt Dateiformat, der Titel so, wie der Server ihn liefert ("KEY ·
+     * Titel"), kein Dateihinweis -- es gibt keine Datei. Jeder Servertext
+     * geht escaped hinein.
+     */
+    _experimentCardHtml(doc) {
+        const exp = doc.experiment && typeof doc.experiment === 'object' ? doc.experiment : {};
+        const meta = ['Experiment', exp.domain_name, exp.status_label]
+            .filter((part) => part != null && String(part).trim() !== '')
+            .map((part) => this.escapeHtml(String(part)));
+        const snippetRaw = typeof doc.snippet === 'string' ? doc.snippet
+            : (typeof doc.context_snippet === 'string' ? doc.context_snippet : '');
+        const snippet = snippetRaw.trim()
+            ? `<div class="document-context-snippet-text">${this.escapeHtml(snippetRaw.trim())}</div>`
+            : '';
+        const title = String(doc.title || exp.key || 'Experiment');
+        return `
+            <div class="document-thumb document-thumb--icon document-thumb--experiment">${lucide('flask')}</div>
+            <div class="document-body">
+                <div class="document-headline">
+                    <div class="document-headline-text">
+                        <div class="document-metaline">${meta.join(' · ')}</div>
+                        <div class="document-title">${this.escapeHtml(title)}</div>
+                    </div>
+                </div>
+                ${snippet}
+            </div>
+        `;
+    }
+
     createDocumentCard(doc, index) {
         const card = document.createElement('div');
         card.className = 'document-card';
         card.setAttribute('tabindex', '0');
         card.setAttribute('data-index', index);
+
+        if (doc && doc.result_kind === 'experiment') {
+            // Ein Link, keine Vorschau: fuer Screenreader als solcher benannt.
+            card.classList.add('document-card--experiment');
+            card.setAttribute('role', 'link');
+            card.setAttribute('data-result-kind', 'experiment');
+            card.innerHTML = this._experimentCardHtml(doc);
+            return card;
+        }
         
         const title = this.displayTitle(doc);
         const docId = doc.doc_id || 'N/A';

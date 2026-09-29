@@ -1,0 +1,224 @@
+# Paket «Marketing»: A/B-Tests, Kampagnen und Content-Tests.
+#
+# Werbedaten kommen meist als Tages- oder Wochenzeilen (z. B. ein Export aus
+# LinkedIn Campaign Manager): eine CSV-Zeile je Variante und Tag mit
+# ctr (Klicks), ctr.count (Impressionen), cost_per_click (Kosten) und
+# cost_per_click.denominator (Klicks).
+pack: marketing
+title: Marketing
+description: A/B-Tests, Kampagnen und Content-Tests.
+version: 1
+
+domain:
+  key: marketing
+  name: Marketing
+  id_prefix: MKT
+  color: "#eb6834"
+  description: >-
+    Anzeigen, Posts, Landingpages, Newsletter und Kampagnen: was wirkt bei
+    Kanzleien und Rechtsabteilungen, und was kostet es.
+
+metrics:
+  - key: ctr
+    name: Klickrate
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Klicks von Impressionen – Wert = Klicks, Anzahl = Impressionen.
+    definition: {decimals: 2}
+  - key: conversion_rate
+    name: Konversionsrate
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Konversionen (z. B. Registrierungen) von Besuchen – Wert = Konversionen, Anzahl = Besuche.
+    definition: {decimals: 2}
+  - key: demo_request_rate
+    name: Demo-Anfragequote
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Demo-Anfragen von erreichten Kontakten – Wert = Anfragen, Anzahl = Kontakte oder Besuche.
+    definition: {decimals: 2}
+  - key: bounce_rate
+    name: Absprungrate
+    kind: proportion
+    unit: "%"
+    direction: lower
+    description: Absprünge von Besuchen – Wert = Absprünge, Anzahl = Besuche.
+    definition: {decimals: 1}
+  - key: cost_per_click
+    name: Kosten pro Klick
+    kind: ratio
+    unit: CHF
+    direction: lower
+    description: Wert = Kosten, Nenner = Klicks; eine Zeile je Tag oder Woche.
+    definition: {decimals: 2}
+  - key: cost_per_lead
+    name: Kosten pro Lead
+    kind: ratio
+    unit: CHF
+    direction: lower
+    description: Wert = Kosten, Nenner = Leads; eine Zeile je Tag oder Woche (auch mit 0 Leads).
+    definition: {decimals: 2}
+
+types:
+  - key: ab_test
+    name: A/B-Test
+    description: >-
+      Zwei oder mehr Varianten einer Anzeige, eines Posts, einer E-Mail oder
+      einer Seite gleichzeitig gegeneinander testen.
+    definition:
+      fields:
+        - key: channel
+          label: Kanal
+          type: enum
+          options: [LinkedIn, Google Ads, E-Mail, Website, Webinar, Messe, Sonstiges]
+          required: false
+          help: Wo die Varianten laufen.
+        - key: audience
+          label: Zielgruppe
+          type: text
+          required: false
+          help: Wer die Varianten sieht, z. B. «Partner in Kanzleien, DACH».
+        - key: budget
+          label: Budget (CHF)
+          type: number
+          min: 0
+          required: false
+          help: Geplantes Budget für den ganzen Test.
+        - key: campaign_ref
+          label: Kampagnen-Referenz
+          type: text
+          required: false
+          help: Name oder ID der Kampagne im Werbekonto.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: A, name: Kontrolle, is_control: true}
+          - {key: B, name: Variante B}
+      metrics:
+        - {metric: ctr, role: primary}
+        - {metric: conversion_rate, role: secondary}
+        - {metric: cost_per_click, role: secondary}
+        - {metric: bounce_rate, role: guardrail, op: max, value: 0.7}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.bayes_proportion, metric: primary}
+        - {evaluator: builtin.two_proportion, metric: primary}
+        - {evaluator: builtin.ratio_delta, metric: cost_per_click}
+      decision: {require_learning: true}
+
+  - key: campaign
+    name: Kampagne
+    description: >-
+      Eine Kampagne ohne Kontrollgruppe begleiten: Ziel, Budget, Ergebnisse
+      und Erkenntnisse festhalten, damit die nächste Kampagne davon lernt.
+    definition:
+      fields:
+        - key: channel
+          label: Kanal
+          type: enum
+          options: [LinkedIn, Google Ads, E-Mail, Website, Webinar, Messe, Sonstiges]
+          required: false
+          help: Wo die Kampagne läuft.
+        - key: audience
+          label: Zielgruppe
+          type: text
+          required: false
+          help: Wen die Kampagne erreichen soll.
+        - key: budget
+          label: Budget (CHF)
+          type: number
+          min: 0
+          required: false
+          help: Geplantes Budget für die ganze Kampagne.
+        - key: goal
+          label: Ziel
+          type: longtext
+          required: false
+          help: Was die Kampagne erreichen soll, möglichst messbar.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants: {min: 0, max: 10, defaults: []}
+      metrics:
+        - {metric: demo_request_rate, role: primary}
+        - {metric: ctr, role: secondary}
+        - {metric: cost_per_lead, role: secondary}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+      decision: {require_learning: true}
+
+  - key: content_test
+    name: Content-Test
+    description: >-
+      Formate und Inhalte gegeneinander testen, z. B. Text- gegen
+      Karussell-Posts auf LinkedIn.
+    definition:
+      fields:
+        - key: channel
+          label: Kanal
+          type: enum
+          options: [LinkedIn, Google Ads, E-Mail, Website, Webinar, Messe, Sonstiges]
+          required: false
+          help: Wo die Inhalte erscheinen.
+        - key: format
+          label: Format
+          type: enum
+          options: [Text, Bild, Karussell, Video, Dokument]
+          required: false
+          help: Das Format, das getestet wird.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: A, name: Kontrolle, is_control: true}
+          - {key: B, name: Variante B}
+      metrics:
+        - {metric: ctr, role: primary}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.bayes_proportion, metric: primary}
+      decision: {require_learning: true}
+
+evaluators: []
+
+requires_metrics: []

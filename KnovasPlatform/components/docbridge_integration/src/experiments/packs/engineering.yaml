@@ -1,0 +1,237 @@
+# Paket «Engineering»: Suchqualität, Performance und Rollouts.
+#
+# Gedacht für Messwerte aus CI: ein Benchmark-Lauf meldet über die API einen
+# Lauf (run) je Variante mit einer Zeile je Anfrage (dims.query), die
+# gepaarten t-Tests vergleichen dann Anfrage für Anfrage den neuesten Lauf
+# jeder Variante.
+pack: engineering
+title: Engineering
+description: Suchqualität, Performance und Rollouts – Messwerte aus CI und Benchmarks.
+version: 1
+
+domain:
+  key: engineering
+  name: Engineering
+  id_prefix: ENG
+  color: "#2a78d6"
+  description: >-
+    Experimente an Suche, Ingestion, Vorschau und Plattform: Offline-Evaluationen
+    gegen einen festen Anfragesatz, Performance-Änderungen und Feature-Rollouts.
+
+metrics:
+  - key: recall_at_20
+    name: Recall@20
+    kind: mean
+    unit: ""
+    direction: higher
+    description: Ein Messwert je Anfrage (dims.query) und Lauf.
+    definition: {decimals: 3, min: 0, max: 1}
+  - key: ndcg_at_10
+    name: NDCG@10
+    kind: mean
+    unit: ""
+    direction: higher
+    description: Ein Messwert je Anfrage (dims.query) und Lauf.
+    definition: {decimals: 3, min: 0, max: 1}
+  - key: mrr
+    name: MRR
+    kind: mean
+    unit: ""
+    direction: higher
+    description: Ein Messwert je Anfrage (dims.query) und Lauf.
+    definition: {decimals: 3, min: 0, max: 1}
+  - key: latency_p95_ms
+    name: Latenz p95
+    kind: duration
+    unit: ms
+    direction: lower
+    description: >-
+      Ein Messwert je Benchmark-Lauf: das 95. Perzentil dieses Laufs. Die
+      Schätzung ist das Mittel über die Läufe.
+    definition: {decimals: 0}
+  - key: latency_ms
+    name: Latenz (Mittel)
+    kind: duration
+    unit: ms
+    direction: lower
+    description: Ein Wert je Anfrage.
+    definition: {}
+  - key: index_size_gb
+    name: Indexgrösse
+    kind: mean
+    unit: GB
+    direction: lower
+    description: Ein Wert je Lauf.
+    definition: {}
+  - key: ci_minutes
+    name: CI-Dauer
+    kind: duration
+    unit: min
+    direction: lower
+    description: Ein Wert je Pipeline-Lauf.
+    definition: {}
+  - key: error_rate
+    name: Fehlerrate
+    kind: proportion
+    unit: "%"
+    direction: lower
+    description: Wert = Fehler, Anzahl = Anfragen.
+    definition: {}
+
+types:
+  - key: offline_eval
+    name: Offline-Evaluation
+    description: >-
+      Vergleicht einen Kandidaten mit dem Ausgangsstand auf einem festen
+      Anfragesatz. Je Lauf und Variante ein Messwert je Anfrage (dims.query);
+      ausgewertet wird gepaart über den neuesten Lauf jeder Variante.
+    definition:
+      fields:
+        - key: component
+          label: Komponente
+          type: enum
+          options: [Suche, Ingestion, Vorschau, Cortex, RemoteController, Plattform, Sonstiges]
+          required: false
+          help: Welcher Teil des Produkts sich ändert.
+        - key: query_set
+          label: Anfragesatz
+          type: text
+          required: false
+          help: Name und Version des Anfragesatzes, z. B. «kanzlei-gold v3».
+        - key: baseline_ref
+          label: Referenz Ausgangsstand
+          type: text
+          required: false
+          help: Commit, Branch oder Release des Ausgangsstands.
+        - key: candidate_ref
+          label: Referenz Kandidat
+          type: text
+          required: false
+          help: Commit, Branch oder Pull Request des Kandidaten.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: baseline, name: Ausgangsstand, is_control: true}
+          - {key: candidate, name: Kandidat}
+      metrics:
+        - {metric: ndcg_at_10, role: primary}
+        - {metric: recall_at_20, role: secondary}
+        - {metric: mrr, role: secondary}
+        - {metric: latency_p95_ms, role: guardrail, op: max, value: 250}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.paired_t, metric: ndcg_at_10, params: {pair_by: query}, scope: {runs: latest}}
+        - {evaluator: builtin.paired_t, metric: recall_at_20, params: {pair_by: query}, scope: {runs: latest}}
+        - {evaluator: builtin.paired_t, metric: mrr, params: {pair_by: query}, scope: {runs: latest}}
+      decision: {require_learning: true}
+
+  - key: performance
+    name: Performance-Änderung
+    description: >-
+      Vorher-nachher-Vergleich von Latenz und Fehlern nach einer technischen
+      Änderung (Caching, Index-Layout, Abhängigkeiten, Infrastruktur).
+    definition:
+      fields:
+        - key: component
+          label: Komponente
+          type: enum
+          options: [Suche, Ingestion, Vorschau, Cortex, RemoteController, Plattform, Sonstiges]
+          required: false
+          help: Welcher Teil des Produkts sich ändert.
+        - key: environment
+          label: Umgebung
+          type: enum
+          options: [lokal, CI, Staging, Produktion]
+          required: false
+          help: Wo gemessen wird.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: vorher, name: Vorher, is_control: true}
+          - {key: nachher, name: Nachher}
+      metrics:
+        - {metric: latency_p95_ms, role: primary}
+        - {metric: error_rate, role: guardrail, op: max, value: 0.01}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.welch_t, metric: primary}
+      decision: {require_learning: true}
+
+  - key: rollout
+    name: Feature-Rollout
+    description: >-
+      Ein Feature-Flag schrittweise einschalten und Fehlerrate sowie Latenz
+      gegen die Gruppe ohne Flag prüfen.
+    definition:
+      fields:
+        - key: feature_flag
+          label: Feature-Flag
+          type: text
+          required: false
+          help: Name des Flags, z. B. «search.hybrid_rerank».
+        - key: rollout_percent
+          label: Rollout-Anteil (%)
+          type: number
+          min: 0
+          max: 100
+          required: false
+          help: Anteil der Anfragen oder Nutzer mit eingeschaltetem Flag.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: aus, name: Flag aus, is_control: true}
+          - {key: an, name: Flag an}
+      metrics:
+        - {metric: error_rate, role: primary}
+        - {metric: latency_p95_ms, role: guardrail, op: max, value: 300}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.two_proportion, metric: primary}
+        - {evaluator: builtin.bayes_proportion, metric: primary}
+      decision: {require_learning: true}
+
+evaluators: []
+
+requires_metrics: []

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from flask import g, jsonify, redirect, request, session, url_for
 
@@ -55,6 +55,22 @@ class IdentityGate:
 
     def __init__(self, connect: Callable[[], Any] | None = None) -> None:
         self._connect = connect or _default_connect
+        #: Endpoints that authenticate each request themselves with a bearer
+        #: token (the experiments machine API for CI). The gate stands aside
+        #: for them without reading the session cookie: a CI job has none, and
+        #: a browser's cookie must never be what authorises such a call.
+        self.bearer_endpoints: frozenset[str] = frozenset()
+
+    def allow_bearer_endpoints(self, names: Iterable[str]) -> None:
+        """Exempt ``names`` from the session requirement.
+
+        Only for endpoints that refuse every request without a valid bearer
+        token of their own; anything else listed here would be public.
+        """
+        if isinstance(names, str):
+            # A bare string would be read as a set of single characters.
+            raise TypeError("allow_bearer_endpoints takes an iterable of endpoint names")
+        self.bearer_endpoints = self.bearer_endpoints | frozenset(str(n) for n in names)
 
     # ── per-request connection ─────────────────────────────────────────────
 
@@ -123,6 +139,8 @@ class IdentityGate:
         following a redirect into an XHR is worse than an honest status code.
         """
         if request.endpoint in PUBLIC_ENDPOINTS:
+            return None
+        if request.endpoint is not None and request.endpoint in self.bearer_endpoints:
             return None
 
         current = self.current_session()

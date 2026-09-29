@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Verwaltung · {{ brand }} Experimente</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/experiments.css') }}?v={{ asset_version }}">
+</head>
+<body class="kx-body">
+    {% set can_manage = experiments_can_manage if experiments_can_manage is defined else false %}
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        <div class="container kx-page" id="kxManagePage">
+            <header class="site-header kx-header">
+                <h1 class="site-greeting">Verwaltung<br>
+                    <span class="site-greeting-question">
+                        {%- if can_manage %}Bereiche, Typen, Metriken, Auswerter und Zugangsschlüssel der Experimente.
+                        {%- else %}Ihre Zugangsschlüssel für CI und Skripte.{% endif -%}
+                    </span>
+                </h1>
+                <div class="kx-header-actions">
+                    <a class="btn btn-outline btn-sm" href="{{ url_for('experiments.list_page') }}">Zu den Experimenten</a>
+                </div>
+            </header>
+
+            <main>
+                {# Die Reiter fuer Verantwortliche werden fuer alle anderen gar nicht
+                   gezeichnet; die Kontrolle ist trotzdem die Route (403), nicht
+                   dieser Reiter. #}
+                <div class="kx-tabs" role="tablist" aria-label="Verwaltung der Experimente" id="kxTabs">
+                    {% if can_manage %}
+                    <button type="button" class="kx-tab" role="tab" id="kxTab-bereiche" data-tab="bereiche"
+                            aria-controls="kxPanel-bereiche" aria-selected="false" tabindex="-1">Bereiche</button>
+                    <button type="button" class="kx-tab" role="tab" id="kxTab-typen" data-tab="typen"
+                            aria-controls="kxPanel-typen" aria-selected="false" tabindex="-1">Typen</button>
+                    <button type="button" class="kx-tab" role="tab" id="kxTab-metriken" data-tab="metriken"
+                            aria-controls="kxPanel-metriken" aria-selected="false" tabindex="-1">Metriken</button>
+                    <button type="button" class="kx-tab" role="tab" id="kxTab-auswerter" data-tab="auswerter"
+                            aria-controls="kxPanel-auswerter" aria-selected="false" tabindex="-1">Auswerter</button>
+                    {% endif %}
+                    <button type="button" class="kx-tab" role="tab" id="kxTab-zugangsschluessel" data-tab="zugangsschluessel"
+                            aria-controls="kxPanel-zugangsschluessel" aria-selected="false" tabindex="-1">Zugangsschlüssel</button>
+                    {% if can_manage %}
+                    <button type="button" class="kx-tab" role="tab" id="kxTab-index" data-tab="index"
+                            aria-controls="kxPanel-index" aria-selected="false" tabindex="-1">Index</button>
+                    {% endif %}
+                </div>
+
+                {% if can_manage %}
+                <section class="kx-panel" role="tabpanel" id="kxPanel-bereiche" aria-labelledby="kxTab-bereiche" tabindex="0" hidden></section>
+                <section class="kx-panel" role="tabpanel" id="kxPanel-typen" aria-labelledby="kxTab-typen" tabindex="0" hidden></section>
+                <section class="kx-panel" role="tabpanel" id="kxPanel-metriken" aria-labelledby="kxTab-metriken" tabindex="0" hidden></section>
+                <section class="kx-panel" role="tabpanel" id="kxPanel-auswerter" aria-labelledby="kxTab-auswerter" tabindex="0" hidden></section>
+                {% endif %}
+                <section class="kx-panel" role="tabpanel" id="kxPanel-zugangsschluessel" aria-labelledby="kxTab-zugangsschluessel" tabindex="0" hidden></section>
+                {% if can_manage %}
+                <section class="kx-panel" role="tabpanel" id="kxPanel-index" aria-labelledby="kxTab-index" tabindex="0" hidden></section>
+                {% endif %}
+                <noscript><p class="kx-hint">Für die Verwaltung wird JavaScript benötigt.</p></noscript>
+            </main>
+        </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="false"></div>
+    <script type="application/json" id="kxPageData">{
+        "page": "manage",
+        "canManage": {{ can_manage|tojson }},
+        "pointerPrefix": {{ (pointer_prefix if pointer_prefix is defined else 'experiments')|tojson }}
+    }</script>
+    <script src="{{ url_for('static', filename='js/markdown.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/experiments_common.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/experiments_manage.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>
