@@ -19,6 +19,20 @@ maintenance, `purge_all(notes=)` and the shutdown hand-back are in §12; the sea
 `PLATFORM_TRUSTED_PROXY_HOPS` are in §13; the runner runs as uid 10101 with
 `RUNNER_SOCKET_DIR_EXCLUSIVE` (§15).
 
+**Values added to selection fields** (after revision 3, from "I can't add new segments"): migration
+`0004_experiments_field_options.sql` adds `exp_field_options (domain_id, field_key, value)`, unique
+per `lower(value)`. The values belong to the domain, not to a type version: `schema.validate_field_values(...,
+extra_options=store.field_option_values(conn, domain_id))` accepts them for every `enum`/`multi_enum`
+field with that key unless the field says `extensible: false` (`schema.is_extensible`,
+`schema.effective_options`). `ExperimentService.list_field_options` / `add_field_option` (viewers;
+the field must be an extensible selection field of a type usable in the domain, or of the
+experiment named in `experiment`; another spelling of an existing value returns it; at most
+`store.MAX_FIELD_OPTIONS` = 200 per field) / `delete_field_option` (managers; refused with 409 while
+an experiment uses the value). Routes: `GET|POST /api/experiments/domains/<key>/field-options`,
+`DELETE .../field-options/<id>`. The snapshot carries `field_options` (field key -> values); the
+forms offer "+ Neuer Wert …". Packs: `domain.field_options` (export writes it, import adds values
+and never removes one). Audit: `experiments.field_option.create` / `.delete`.
+
 This document is the contract every part of the implementation codes against. Where it names a
 function, a key, a table column, a JSON field or a German UI string, use exactly that name. The
 migration `src/identity/migrations/0003_experiments.sql` is part of the contract: read it.
@@ -208,7 +222,8 @@ A type version's `definition` has exactly this shape:
 Rules (`schema.validate_type_definition` enforces; `ValidationError(fields={path: message})`):
 
 - `fields[].type`: `text` (<= 500 chars), `longtext` (<= 20000), `number`, `integer`, `enum`
-  and `multi_enum` (need `options`, 1-50 unique strings <= 80), `date` (`YYYY-MM-DD`), `url`
+  and `multi_enum` (need `options`, 1-50 unique strings <= 80; optional `extensible`, default true:
+  the domain's added values count as options, see revision 3), `date` (`YYYY-MM-DD`), `url`
   (http/https, <= 2000), `boolean`. Optional `min`/`max` for number/integer. `key`
   `^[a-z][a-z0-9_]{0,39}$`, unique; <= 40 fields; `label` 1-80; `help` <= 300; `required` bool.
 - `states`: 2-12, keys `^[a-z][a-z0-9_]{0,31}$`, unique; `label` 1-40; `phase` optional, one of

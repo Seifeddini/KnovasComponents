@@ -470,18 +470,33 @@ oder eine neue Beschreibung allein legt keine an); **Kopieren nach …**
 Teile:
 
 **`fields`** – Angaben des Experiments (höchstens 40). `key`
-(`^[a-z][a-z0-9_]{0,39}$`), `label`, `type`, `required`, `help`:
+(`^[a-z][a-z0-9_]{0,39}$`), `label`, `type`, `required`, `help`, bei
+Auswahlfeldern `options` und optional `extensible` (Vorgabe `true`, siehe
+unten):
 
 | `type` | Wert |
 |---|---|
 | `text` | bis 500 Zeichen |
 | `longtext` | bis 20'000 Zeichen |
 | `number`, `integer` | Zahl; optional `min`, `max` |
-| `enum` | eine aus `options` (1–50 Einträge) |
-| `multi_enum` | mehrere aus `options` |
+| `enum` | eine aus `options` (1–50 Einträge) oder aus den im Bereich hinzugefügten Werten |
+| `multi_enum` | mehrere davon |
 | `date` | Datum (`JJJJ-MM-TT`) |
 | `url` | http- oder https-Adresse |
 | `boolean` | ja/nein |
+
+**Auswahllisten erweitern.** Bei einem Auswahlfeld (`enum`, `multi_enum`)
+bietet das Formular eines Experiments am Ende der Liste **+ Neuer Wert …** an.
+Der Wert – etwa ein neues Segment wie «Notariat» – gehört danach zum
+**Bereich**: er steht in allen Experimenten des Bereichs zur Auswahl, deren Typ
+ein Feld mit diesem Schlüssel hat, auch in bestehenden und in solchen mit einer
+älteren Typversion. Eine neue Typversion braucht es dafür nicht. Hinzufügen darf
+jede Person, die Experimente führt; eine andere Schreibweise eines vorhandenen
+Werts («notariat») ergibt den vorhandenen. Soll eine Liste fest bleiben, setzt
+der Typ beim Feld `extensible: false`. Verantwortliche sehen die hinzugefügten
+Werte unter **Verwaltung → Bereiche → Werte** und entfernen dort nicht
+verwendete (etwa einen Tippfehler); verwendete bleiben. **Exportieren** nimmt
+sie als `domain.field_options` ins Paket auf, **Importieren** ergänzt sie.
 
 **`states`** – 2 bis 12 Status. Höchstens ein Status je `phase`: `running`
 (das erste Betreten setzt «gestartet am»), `decided` (setzt «entschieden am»
