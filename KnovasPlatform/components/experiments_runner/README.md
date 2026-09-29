@@ -27,7 +27,8 @@ EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock
 
 Optional: `EXPERIMENTS_RUNNER_MEMORY` (default `3g`) and `EXPERIMENTS_RUNNER_CPUS`
 (default `2`; at most the host's CPU count, `nproc` -- Docker refuses to create
-the container otherwise, so set `1` on a 1-vCPU host; `doctor.sh` checks it)
+the container otherwise; on a 1-vCPU host `setup.sh` writes `1` into a
+`knovas.env` that sets no value, and `doctor.sh` checks a value that is set)
 for the container, `EXPERIMENTS_RUNNER_MAX_CONCURRENT` (default 2)
 for jobs at once, `EXPERIMENTS_RUNNER_TIMEOUT` (default 90 s) for the time limit
 of one evaluation -- the Platform asks for it and the runner caps every job at

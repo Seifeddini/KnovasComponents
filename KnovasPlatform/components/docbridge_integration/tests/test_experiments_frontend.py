@@ -374,7 +374,7 @@ class TestScriptsStatic:
             "Neuester Lauf je Variante", "Zeitraum", "Protokoll", "Messwert erfassen",
             "CSV importieren", "R\u00fcckg\u00e4ngig", "Lauf erfassen", "Neu indexieren",
             "In Knovas: ", "variant;observed_at;ctr;ctr.count;cost_per_click;cost_per_click.denominator",
-            "Neue Bereiche starten mit dem Typ \u00abAllgemeine Hypothese\u00bb.", "Pakete",
+            "Neue Bereiche starten mit dem Typ \u00abAllgemeine Hypothese\u00bb und den allgemeinen ", "Pakete",
             "Pr\u00fcfen", "Als neue Version speichern", "Kopieren nach \u2026", "Testen",
             "Experimente in meiner normalen Suche zeigen", "Alles neu indexieren",
             "Experimente in der normalen Suche zeigen", "Grund", "Begr\u00fcndung", "Erkenntnis",

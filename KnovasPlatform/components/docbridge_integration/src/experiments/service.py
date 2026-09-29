@@ -2602,7 +2602,7 @@ class ExperimentService:
         self._manage()
         if not self.settings.index_enabled:
             return {"queued": 0}
-        ids = sorted(store.experiments_for_reindex(self.conn))
+        ids = sorted(store.experiments_for_reindex(self.conn, include_purged=True))
         queued = 0
         # Chunks of their own: a person's edit never waits long behind a
         # transaction that holds the row locks of every experiment.

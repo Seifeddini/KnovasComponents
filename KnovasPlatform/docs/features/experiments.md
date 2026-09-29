@@ -21,23 +21,66 @@ siehe [Rollen und Sichtbarkeit](#rollen-und-sichtbarkeit).
 
 ## Inhalt
 
-1. [Begriffe](#begriffe)
-2. [Einschalten, Schritt für Schritt](#einschalten-schritt-für-schritt)
-3. [Rollen und Sichtbarkeit](#rollen-und-sichtbarkeit)
-4. [Die Knovas-Zugriffsgruppe](#die-knovas-zugriffsgruppe)
-5. [Python und Julia: das Profil «experiments»](#python-und-julia-das-profil-experiments)
-6. [Bereiche, Typen, Metriken, Auswerter](#bereiche-typen-metriken-auswerter)
-7. [Messarten](#messarten)
-8. [Echte Fälle erfassen](#echte-fälle-erfassen)
-9. [CSV-Formate](#csv-formate)
-10. [Auswertungen und Scope](#auswertungen-und-scope)
-11. [Entscheidungen und Erkenntnisse](#entscheidungen-und-erkenntnisse)
-12. [Suchen mit Knovas](#suchen-mit-knovas)
-13. [Zugangsschlüssel, API und SDK](#zugangsschlüssel-api-und-sdk)
-14. [Betrieb](#betrieb)
-15. [Sicherheitsmodell der Rechenumgebung](#sicherheitsmodell-der-rechenumgebung)
-16. [Grenzen](#grenzen)
-17. [Wenn etwas nicht geht](#wenn-etwas-nicht-geht)
+1. [Schnellstart für Knovas](#schnellstart-für-knovas)
+2. [Begriffe](#begriffe)
+3. [Einschalten, Schritt für Schritt](#einschalten-schritt-für-schritt)
+4. [Rollen und Sichtbarkeit](#rollen-und-sichtbarkeit)
+5. [Die Knovas-Zugriffsgruppe](#die-knovas-zugriffsgruppe)
+6. [Python und Julia: das Profil «experiments»](#python-und-julia-das-profil-experiments)
+7. [Bereiche, Typen, Metriken, Auswerter](#bereiche-typen-metriken-auswerter)
+8. [Messarten](#messarten)
+9. [Echte Fälle erfassen](#echte-fälle-erfassen)
+10. [CSV-Formate](#csv-formate)
+11. [Auswertungen und Scope](#auswertungen-und-scope)
+12. [Entscheidungen und Erkenntnisse](#entscheidungen-und-erkenntnisse)
+13. [Suchen mit Knovas](#suchen-mit-knovas)
+14. [Zugangsschlüssel, API und SDK](#zugangsschlüssel-api-und-sdk)
+15. [Betrieb](#betrieb)
+16. [Sicherheitsmodell der Rechenumgebung](#sicherheitsmodell-der-rechenumgebung)
+17. [Grenzen](#grenzen)
+18. [Wenn etwas nicht geht](#wenn-etwas-nicht-geht)
+
+## Schnellstart für Knovas
+
+Für die eigenen Experimente von Knovas – Suchqualität, Marketing, Vertrieb,
+Produkt – genügen diese Schritte; jeder ist unter [Einschalten, Schritt für
+Schritt](#einschalten-schritt-für-schritt) ausführlich beschrieben.
+
+1. **Einschalten.** In `knovas.env` `EXPERIMENTS_ENABLED=true` und
+   `EXPERIMENTS_ACCESS_GROUPS=experimente` setzen. Die Gruppe vorher unter
+   **Verwaltung → Zugriffsgruppen → Gruppe anlegen** anlegen und jeder Person,
+   die mit Experimenten arbeitet, unter **Verwaltung → Personen → Verwalten →
+   Zugriffsgruppen** zusätzlich zu ihren bisherigen geben. Ohne Gruppe am
+   Dokument: `EXPERIMENTS_INDEX_UNRESTRICTED=true` zusammen mit einer
+   Ordnerregel auf `experiments/` – sie schützt erst, wenn Knovas Ordnerregeln
+   durchsetzt ([Die Knovas-Zugriffsgruppe](#die-knovas-zugriffsgruppe)). Dann
+   `./scripts/setup.sh && ./scripts/start.sh`.
+2. **Rollen vergeben.** Unter **Verwaltung → Personen → Verwalten → Rollen**
+   `experimenter` für alle, die Experimente führen, `experiments_manager` für
+   die, die Bereiche, Typen, Metriken und Auswerter pflegen.
+3. **Pakete installieren.** Unter **Experimente → Verwaltung → Bereiche →
+   Pakete** Engineering, Marketing, Vertrieb und Produkt installieren – oder im
+   Container:
+
+   ```bash
+   for pack in engineering marketing sales product; do
+     docker compose --env-file knovas.env exec docbridge-web python -m experiments install-pack "$pack"
+   done
+   ```
+
+4. **Optional: Python- und Julia-Auswerter.** `COMPOSE_PROFILES=experiments`
+   und `EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock` in
+   `knovas.env`, dann `./scripts/setup.sh && ./scripts/start.sh` ([Python und
+   Julia](#python-und-julia-das-profil-experiments)).
+5. **Eigener Bereich.** Unter **Experimente → Verwaltung → Bereiche → Neuer
+   Bereich**. Er hat sofort den Typ «Allgemeine Hypothese» und die
+   allgemeinen Metriken des Grundpakets (Erfolgsquote, Dauer, Bewertung …).
+6. **Wieder ausschalten.** `EXPERIMENTS_ENABLED=false`, dann
+   `./scripts/setup.sh && ./scripts/start.sh`. Die Daten bleiben in der
+   Plattform-Datenbank; Experiment-Dokumente erscheinen in keiner Suche der
+   Plattform mehr. Im Knovas-Mandanten liegen sie aber weiter, bis
+   `purge-index --yes` sie löscht ([Ausschalten und
+   entfernen](#ausschalten-und-entfernen)).
 
 ## Begriffe
 
@@ -110,8 +153,9 @@ siehe [Rollen und Sichtbarkeit](#rollen-und-sichtbarkeit).
      python -m experiments install-pack engineering --as max@firma.ch
    ```
 
-   Das Grundpaket `core` (Typ «Allgemeine Hypothese», zwei Beispiel-Auswerter)
-   ist immer da.
+   Das Grundpaket `core` ist immer da: der Typ «Allgemeine Hypothese», fünf
+   allgemeine Metriken für jeden Bereich (siehe [Bereiche und
+   Pakete](#bereiche-und-pakete)) und zwei Beispiel-Auswerter.
 7. **Prüfen.** **Experimente → Verwaltung → Index** zeigt, ob jemandem die
    Zugriffsgruppe fehlt («Personen ohne Zugriffsgruppe») und ob die Rechenumgebung
    erreichbar ist. Ein erstes Experiment anlegen: **Experimente → Neues
@@ -139,7 +183,7 @@ gesetzte, aber leere Variable (`EXPERIMENTS_INDEX_ENABLED=`) gilt als «Vorgabe�
 | `EXPERIMENTS_MAX_CSV_ROWS` | `200000` | Zeilen je CSV-Import (1000–1'000'000). |
 | `COMPOSE_PROFILES` | – | `experiments` baut und startet die Rechenumgebung `experiments-runner`. |
 | `EXPERIMENTS_RUNNER_MEMORY` | `3g` | Speichergrenze der Rechenumgebung. |
-| `EXPERIMENTS_RUNNER_CPUS` | `2` | CPU-Grenze der Rechenumgebung. Höchstens die Zahl der CPUs des Rechners (`nproc`): sonst legt Docker den Container nicht an («range of CPUs is from 0.01 to 1.00 …»), und `start.sh` bricht ab. Auf einem Rechner mit einer CPU `1` setzen; `doctor.sh` prüft das. |
+| `EXPERIMENTS_RUNNER_CPUS` | `2` | CPU-Grenze der Rechenumgebung. Höchstens die Zahl der CPUs des Rechners (`nproc`): sonst legt Docker den Container nicht an («range of CPUs is from 0.01 to 1.00 …»), und `start.sh` bricht ab. Auf einem Rechner mit einer CPU schreibt `setup.sh` `EXPERIMENTS_RUNNER_CPUS=1` in `knovas.env`, wenn dort kein Wert steht; einen gesetzten Wert prüft `doctor.sh`. |
 | `EXPERIMENTS_RUNNER_MAX_CONCURRENT` | `2` | Gleichzeitige Python-/Julia-Auswertungen. |
 
 ### Ausschalten und entfernen
@@ -159,6 +203,15 @@ gesetzte, aber leere Variable (`EXPERIMENTS_INDEX_ENABLED=`) gilt als «Vorgabe�
 
   Bei eingeschaltetem Modul vorher `EXPERIMENTS_INDEX_ENABLED=false` setzen,
   sonst kann ein gerade laufender Auftrag ein Dokument wieder hochladen.
+  Danach stehen die Experimente auf «aus». Wieder hinauf nach Knovas bringt
+  sie nur **Alles neu indexieren** (oder `reindex --all`), **Neu indexieren**
+  auf der Seite des Experiments oder eine Änderung am Experiment selbst,
+  solange die Indexierung eingeschaltet ist (auch neue Messwerte, Notizen,
+  Auswertungen und Entscheide). Die Wartung, Änderungen bei ausgeschalteter
+  Indexierung, Umbenennungen von Bereichen, Typen oder Metriken und
+  Paket-Importe lassen sie aus.
+  Einzelheiten und Meldungen: `purge-index` unter
+  [Kommandozeile](#kommandozeile).
 
 ## Rollen und Sichtbarkeit
 
@@ -260,16 +313,35 @@ keine Programmierung: neue Bereiche und Typen brauchen kein neues Release.
 
 | Paket | Bereich | Kürzel | Typen |
 |---|---|---|---|
-| `core` | (global) | – | Allgemeine Hypothese; Beispiel-Auswerter in Python und Julia |
+| `core` | (global) | – | Allgemeine Hypothese; fünf allgemeine Metriken (unten); Beispiel-Auswerter in Python und Julia |
 | `engineering` | Engineering | `ENG` | Offline-Evaluation, Performance-Änderung, Feature-Rollout |
 | `marketing` | Marketing | `MKT` | A/B-Test, Kampagne, Content-Test |
 | `sales` | Vertrieb | `SAL` | Playbook-Test, Preis-Test |
 | `product` | Produkt | `PRD` | Nutzertest, Feature-Rollout |
 
+Die allgemeinen Metriken des Grundpakets (Version 3) stehen in jedem Bereich
+zur Verfügung, auch in selbst angelegten:
+
+| Schlüssel | Name | Messart | Richtung | Wert / Anzahl |
+|---|---|---|---|---|
+| `generic_success_rate` | Erfolgsquote | Anteil (%) | höher ist besser | Erfolge / Versuche |
+| `generic_events_per_period` | Ereignisse je Zeitraum | Rate | höher ist besser | Ereignisse / Zeiträume (etwa Tage) |
+| `generic_duration_s` | Dauer in Sekunden | Dauer (s) | tiefer ist besser | ein Wert je Vorgang |
+| `generic_score` | Messwert | Mittelwert | höher ist besser | ein Wert je Person, Anfrage oder Lauf |
+| `generic_rating` | Bewertung 1–5 | Skala (1 sehr schlecht … 5 sehr gut) | höher ist besser | Stufe / Personen auf dieser Stufe |
+
+Für Fehler oder Abbrüche («weniger ist besser») eine eigene Metrik mit
+`direction: lower` anlegen. Eine bestehende Installation erhält die
+allgemeinen Metriken beim nächsten Start; von Verantwortlichen geänderte
+Metriken bleiben, wie sie sind.
+
 Ein **eigener Bereich** entsteht unter **Bereiche → Neuer Bereich** mit
 Schlüssel (`^[a-z][a-z0-9-]{1,31}$`), Name, Kürzel (2–8 Grossbuchstaben oder
 Ziffern, beginnt mit einem Buchstaben) und Farbe. Er startet mit dem Typ
-«Allgemeine Hypothese»; eigene Typen und Metriken kommen dazu. **Exportieren**
+«Allgemeine Hypothese» und den allgemeinen Metriken oben: ein Experiment
+lässt sich sofort anlegen und im Abschnitt «Varianten und Metriken» über
+**Metriken bearbeiten** mit ihnen ausstatten. Eigene Typen und Metriken
+kommen dazu. **Exportieren**
 lädt den Bereich mit seinen Metriken, Typen und den benutzten eigenen
 Auswertern als YAML-Paket herunter, **Importieren** liest ein solches Paket
 wieder ein – so wandert eine Konfiguration zwischen Installationen oder in ein
@@ -381,10 +453,13 @@ Texte mit Komma oder Doppelpunkt in Anführungszeichen setzen, wie beim
 
 ### Typen
 
-Unter **Typen** steht jeder Typ als YAML- oder JSON-Text. **Prüfen** meldet
-Fehler je Feld; **Als neue Version speichern** legt eine neue Version an
-(laufende Experimente behalten ihre); **Kopieren nach …** übernimmt einen Typ in
-einen anderen Bereich. Eine Typdefinition hat diese Teile:
+Unter **Typen** zeigt der Editor die Definition des gewählten Typs als YAML,
+die Einträge in der gewohnten Reihenfolge (`key`, `label` …); JSON nimmt er
+ebenso an. **Prüfen** meldet Fehler je Feld; **Als neue Version speichern**
+legt eine neue Version an (laufende Experimente behalten ihre; ein neuer Name
+oder eine neue Beschreibung allein legt keine an); **Kopieren nach …**
+übernimmt einen Typ in einen anderen Bereich. Eine Typdefinition hat diese
+Teile:
 
 **`fields`** – Angaben des Experiments (höchstens 40). `key`
 (`^[a-z][a-z0-9_]{0,39}$`), `label`, `type`, `required`, `help`:
@@ -468,17 +543,21 @@ oder ein Metrik-Schlüssel), `params` und optional `scope`.
 
 | Schlüssel | Name | Messarten | Parameter | Was er rechnet |
 |---|---|---|---|---|
-| `builtin.describe` | Beschreibung je Variante | alle | `target` | n, Schätzwert und 95 %-Intervall je Variante (Wilson für Anteile, t-Intervall für Mittelwerte und Skalen, exakt für Raten); haben die Werte einer Variante keine Streuung (alle gleich), gibt es für sie kein Intervall, nur eine Warnung; prüft Leitplanken; mit `target`: «besser», wenn das ganze Intervall auf der guten Seite des Ziels liegt, ohne Intervall «offen» («Ziel … nicht belegt») |
+| `builtin.describe` | Beschreibung je Variante | alle | `target` | n, Schätzwert und 95 %-Intervall je Variante (Wilson für Anteile, t-Intervall für Mittelwerte und Skalen, exakt für Raten); haben die Werte einer Variante keine Streuung (alle gleich), gibt es für sie kein Intervall, nur die Warnung «B: keine Streuung in den Daten; kein Konfidenzintervall.»; prüft Leitplanken; mit `target`: «besser», wenn das ganze Intervall auf der guten Seite des Ziels liegt, ohne Intervall «offen» («Ziel … nicht belegt»). Für Anteile ist das Ziel ein Bruch (0,8 für 80 %); ein Ziel ausserhalb 0..1 ergibt kein Urteil, nur die Warnung «Ziel ausserhalb 0..1 – für Anteile 0,8 statt 80 angeben.» |
 | `builtin.two_proportion` | Zwei-Anteile-Test | Anteil | `alpha`, `correction` | Differenz in Prozentpunkten mit Intervall und z-Test |
 | `builtin.bayes_proportion` | Bayes-Vergleich (Anteile) | Anteil | `threshold`, `prior_a`, `prior_b` | Wahrscheinlichkeit, dass eine Variante besser ist als die Kontrolle, erwarteter Verlust |
 | `builtin.welch_t` | Welch-t-Test | Mittelwert, Dauer, Geldbetrag, Skala | `alpha`, `correction` | Mittelwert-Differenz mit Intervall; braucht Einzelwerte oder die Quadratsumme |
 | `builtin.paired_t` | Gepaarter t-Test | Mittelwert, Dauer, Geldbetrag, Skala | `alpha`, `correction`, `pair_by` | Paare mit gleichem Merkmal (`dims.query`) in Kontrolle und Variante |
 | `builtin.poisson_rate` | Raten-Vergleich | Rate | `alpha`, `correction` | Verhältnis der Ereignisraten mit exaktem Intervall |
 | `builtin.ratio_delta` | Verhältnis-Vergleich | Verhältnis | `alpha`, `correction` | Differenz von Verhältnissen (Delta-Methode, jede Zeile eine Einheit) |
-| `builtin.chi_square` | Chi-Quadrat-Test | Kategorie, Skala | `alpha`, `correction`, `expected` | Verteilungen zwischen Varianten; mit einer Gruppe gegen gleiche oder erwartete Anteile |
+| `builtin.chi_square` | Chi-Quadrat-Test | Kategorie, Skala | `alpha`, `correction`, `expected` | Verteilungen zwischen Varianten; mit einer Gruppe gegen gleiche oder erwartete Anteile. Sagt, ob sich die Verteilungen unterscheiden, nie welche Variante besser ist – Urteil «–», auch bei Skalen (die mittlere Stufe vergleicht `welch_t`). Hat eine getestete Gruppe mehr als 50 verschiedene Werte (eine Skala ohne definierte Stufen), «nicht anwendbar: mehr als 50 Stufen» |
 
 `alpha` 0,001–0,2 (Vorgabe 0,05); `correction` `holm` (Vorgabe) oder `none`;
-`threshold` 0,5–0,999 (Vorgabe 0,95).
+`threshold` 0,5–0,999 (Vorgabe 0,95). Ein `target`, das die Metrik nicht
+annehmen kann – für einen Anteil ausserhalb 0..1 («Für Anteile das Ziel als
+Bruch angeben (0.8 für 80 %).»), sonst ausserhalb ihres `min`/`max` –, weist
+**Auswertung starten** ab; in den Auswertungen des Typs wird der Schritt mit
+dieser Meldung übersprungen.
 
 **Eigene Auswerter** (Python oder Julia) legen Verantwortliche unter
 **Auswerter → Neuer Auswerter** an. Das Formular ist mit einer Vorlage
@@ -517,7 +596,7 @@ Der Code definiert `evaluate(data)` und gibt ein Objekt zurück. `data`:
 {
   "verdict": "better | worse | inconclusive | n/a",
   "headline": "Eine Zeile, höchstens 200 Zeichen",
-  "summary": "Markdown, höchstens 20'000 Zeichen – wird in Knovas indexiert",
+  "summary": "Markdown ohne Tabellen (Tabellen in table), höchstens 20'000 Zeichen – wird in Knovas indexiert",
   "comparisons": [{"variant": "candidate", "baseline": "baseline", "label": "Differenz",
                    "estimate": 0.021, "ci_low": 0.004, "ci_high": 0.038, "p_value": 0.014,
                    "prob_better": null, "relative": 0.042, "unit": "", "verdict": "better"}],
@@ -528,6 +607,12 @@ Der Code definiert `evaluate(data)` und gibt ein Objekt zurück. `data`:
   "warnings": []
 }
 ```
+
+`summary` zeigt die Plattform mit einem schlichten Markdown: Überschriften
+(`#`), Aufzählungen (`-` oder `*`), **fett**, *kursiv*, `Code` und Links
+(`https:`, `mailto:`); jede Zeile wird ein eigener Absatz. Tabellen,
+nummerierte Listen und Codeblöcke erscheinen als Text – Zahlen in Tabellenform
+gehören in `table`.
 
 Die Plattform prüft jede Ausgabe: unbekannte Felder mit einfachen Werten
 wandern nach `values`, andere werden verworfen (mit Warnung), Texte und Listen
@@ -888,8 +973,13 @@ B;22.09.2026;22;118;7;118;0;118
 
 Das Feld «Geplante Kontakte je Variante» (`planned_n`) sperrt «Zur
 Auswertung», bis jede Variante so viele Kontakte hat (`n_planned:planned_n`). Der
-Stichprobenrechner unter **Metriken** schätzt die nötige Zahl aus Basisrate und
-kleinstem relevantem Unterschied. Beträge (`pipeline_value`, `deal_value`) je
+Stichprobenrechner **Stichprobe planen** (im Abschnitt «Varianten und Metriken»
+eines Experiments, bis es gestartet ist) schätzt die nötige Zahl je Variante aus
+Basisrate und kleinstem relevantem Unterschied. Bei mehr als zwei Varianten
+rechnet er mit dem strengeren Niveau je Vergleich mit der Kontrolle (Bonferroni:
+`alpha` geteilt durch die Zahl der Vergleiche, bei drei Varianten also 0,025)
+und nennt es unter dem Ergebnis – so behält die Stichprobe ihre Teststärke,
+wenn die Auswertung die p-Werte später nach Holm korrigiert. Beträge (`pipeline_value`, `deal_value`) je
 Kontakt oder Angebot erfassen, **auch 0** – sonst wäre das Mittel zu
 optimistisch.
 
@@ -909,7 +999,7 @@ oder keine.
 | `variant` | wenn das Experiment Varianten hat | Varianten-Schlüssel; leer = ohne Variante |
 | `count`, `denominator`, `sum_sq` | je nach Messart | siehe [Messarten](#messarten) |
 | `observed_at` | nein | Zeitpunkt |
-| `run` | nein | ID eines erfassten Laufs |
+| `run` | nein | ID eines erfassten Laufs oder sein Name, wenn ihn kein anderer Lauf des Experiments trägt |
 | `dim.<name>` | nein | Merkmal, z. B. `dim.query` (höchstens 20 Spalten) |
 
 **Breites Format** – ohne Spalte `metric`: eine Spalte je Metrik, benannt nach
@@ -930,20 +1020,31 @@ jeder Zelle einer Metrik-Spalte mit Wert wird eine Messwert-Zeile.
   Import dem Experiment zu (Abschnitt **Metriken**), sonst erscheint sie weder in
   den Karten noch in den Auswertungen.
 - Fehler nennen die Zeile: «Zeile 5: Erfolge müssen eine ganze Zahl sein.» (bis
-  zu 20 Fehler auf einmal).
+  zu 20 Fehler auf einmal). Ein Laufname, den mehrere Läufe tragen, wird
+  abgewiesen («2 Läufe heissen «…»; bitte die Lauf-ID angeben.»).
+- Je Web-Prozess läuft ein CSV-Import zur selben Zeit. Kommt ein zweiter
+  dazu, antwortet die Platform sofort mit HTTP 503 «Es läuft gerade schon ein
+  CSV-Import. Bitte in einem Moment noch einmal versuchen.» und liest die
+  Datei gar nicht erst; nach ein paar Sekunden erneut hochladen.
 
 ## Auswertungen und Scope
 
 - **Eingebaute Auswerter** rechnen sofort; die Karte ist gleich fertig.
 - **Python- und Julia-Auswerter** warten auf die Rechenumgebung («wartet»,
   «läuft»); die Karte aktualisiert sich selbst. Ist die Rechenumgebung
-  30 Minuten lang nicht erreichbar, schlägt die Auswertung fehl.
+  30 Minuten lang (ab dem ersten Versuch) nicht erreichbar, schlägt die
+  Auswertung fehl.
 - **Automatisch nach neuen Daten**: 30 Sekunden nach jeder Erfassung laufen die
   Auswertungen des Typs («Pipeline»). Hat sich an den Eingaben nichts geändert
   (gleiche Daten, gleiche Auswerter-Version, gleiche Parameter und gleicher
-  Scope), wird die bestehende Auswertung wiederverwendet statt neu gerechnet.
-  Von den automatischen Auswertungen je Auswerter, Metrik, Parameter und Scope
-  bleiben die neuesten 10; von Hand gestartete bleiben alle.
+  Scope), wird die bestehende Auswertung wiederverwendet statt neu gerechnet –
+  aber nur die neueste ihrer Art (Auswerter, Metrik, Parameter, Scope) und
+  nur, wenn sie nicht fehlgeschlagen ist. Eine ältere derselben Art ist
+  abgelöst: die Seite zeigt sie zugeklappt unter «Frühere Auswertungen», und
+  weder die Liste noch Knovas nehmen sie als Ergebnis. Von den automatischen
+  Auswertungen – der Pipeline und aus CI
+  über die API – bleiben je Auswerter, Metrik, Parameter und Scope die
+  neuesten 10; von Hand gestartete bleiben alle.
 - **Von Hand**: **Auswertung starten** (Auswerter, Metrik, Scope, Parameter
   als JSON) oder **Alle Auswertungen des Typs ausführen**.
 
@@ -1207,9 +1308,12 @@ Plattform-Datenbank. Jeder Web-Prozess (gunicorn-Worker) hat zwei
 Hintergrund-Threads: einen für Index und Pipeline, einen für Auswertungen in
 der Rechenumgebung. Aufträge werden mit Lease vergeben (ein abgestürzter
 Prozess gibt sie nach Ablauf frei), mit wachsendem Abstand wiederholt (bis zu
-8 Versuche) und danach als «gescheitert» markiert. Gleiche Aufträge werden
-zusammengefasst: zehn Änderungen in einer Minute ergeben einen Upload. Etwa alle
-zehn Minuten
+8 Versuche) und danach als «gescheitert» markiert. Endet ein Prozess regulär
+(Neustart, Update), gibt er die Aufträge, an denen seine Threads gerade
+arbeiten, sofort an die Warteschlange zurück, ohne dass ein Versuch zählt;
+nur ein hart beendeter Prozess lässt sie bis zum Ablauf der Lease liegen.
+Gleiche Aufträge werden zusammengefasst: zehn Änderungen in einer Minute
+ergeben einen Upload. Etwa alle zehn Minuten
 
 - wiederholt die Wartung **gescheiterte Löschungen**: jedes Knovas-Dokument
   eines gelöschten Experiments, das noch erfasst ist (`exp_index_documents`)
@@ -1220,21 +1324,33 @@ zehn Minuten
   bei `EXPERIMENTS_INDEX_ENABLED=false` (Löschungen laufen immer weiter),
   solange ein Knovas-Zugang eingerichtet ist. Antwortet Knovas 401 oder 403
   (etwa während ein Zertifikat erneuert wird), gilt das als vorübergehend;
-- stellt sie liegengebliebene Experimente erneut ein: «ausstehend», und
-  «Fehler», wenn der Grund vorübergehend sein kann (Knovas nicht erreichbar,
-  keine Zugriffsgruppe, Upload nicht abgeschlossen). Ein Dokument, das Knovas
-  abgelehnt hat, geht erst mit der nächsten Änderung oder **Alles neu
-  indexieren** wieder hinaus;
+- stellt sie liegengebliebene Experimente erneut ein – nur bei eingeschalteter
+  Indexierung mit Zugriffsgruppe (oder `EXPERIMENTS_INDEX_UNRESTRICTED`):
+  «ausstehend», und «Fehler», wenn der Grund vorübergehend sein kann (Knovas
+  nicht erreichbar, keine Zugriffsgruppe, Upload nicht abgeschlossen). Ein
+  Dokument, das Knovas abgelehnt hat, schickt sie nicht wieder: es geht erst
+  mit der nächsten Änderung, **Neu indexieren** oder **Alles neu indexieren**
+  hinaus;
+- lädt sie nach dem Wiedereinschalten der Indexierung
+  (`EXPERIMENTS_INDEX_ENABLED=true`) die Experimente hoch, die in der
+  Zwischenzeit auf «aus» gesetzt wurden – je Durchgang bis zu 500, hinter
+  allen anderen Uploads. Die von `purge-index` entfernten lässt sie aus; sie
+  kommen erst mit **Alles neu indexieren**, **Neu indexieren** oder der
+  nächsten Änderung am Experiment bei eingeschalteter Indexierung zurück;
 - räumt sie erledigte Aufträge nach sieben Tagen weg.
 
-`python -m experiments status` und `doctor.sh` zeigen, wie viele gelöschte
-Experimente noch in Knovas liegen («Gelöschte Experimente noch in Knovas»).
+Wie viele gelöschte Experimente noch in Knovas liegen, zeigen die Seite
+**Index** («Gelöschte Experimente noch in Knovas: … – die Wartung löscht sie
+erneut.»), `python -m experiments status` und `doctor.sh` (Warnung).
 
 ### Index
 
 **Experimente → Verwaltung → Index** (Verantwortliche) zeigt:
 
 - Anzahl Experimente je Stand (aktuell, ausstehend, Fehler, aus),
+- gelöschte Experimente, deren Dokument noch in Knovas liegt («Gelöschte
+  Experimente noch in Knovas: … – die Wartung löscht sie erneut.»; nur wenn es
+  welche gibt),
 - Aufträge je Status und die letzten Fehler,
 - **Personen ohne Zugriffsgruppe**: Personen mit Experimente-Rolle, denen eine
   Gruppe aus `EXPERIMENTS_ACCESS_GROUPS` fehlt,
@@ -1246,10 +1362,11 @@ Experimente noch in Knovas liegen («Gelöschte Experimente noch in Knovas»).
 |---|---|
 | aktuell | Die Knovas-Kopie entspricht dem letzten Stand. |
 | ausstehend | Ein Upload ist eingeplant (Entprellung, Uploadrate). |
-| Fehler: Für Experimente ist keine Knovas-Zugriffsgruppe festgelegt (EXPERIMENTS_ACCESS_GROUPS). | Gruppe setzen, dann **Alles neu indexieren**. |
-| Fehler: Knovas war nicht erreichbar. | Alle Versuche sind gescheitert. Verbindung prüfen (`doctor.sh`); die Wartung versucht es wieder. |
-| Fehler: Knovas hat das Dokument abgelehnt (HTTP …). | Knovas weist das Dokument ab; Protokoll von `docbridge-web` ansehen. |
-| aus | Indexierung ausgeschaltet (`EXPERIMENTS_INDEX_ENABLED=false`) oder nach `purge-index`. |
+| Fehler: Für Experimente ist keine Knovas-Zugriffsgruppe festgelegt (EXPERIMENTS_ACCESS_GROUPS). | Gruppe setzen, `setup.sh` und `start.sh`; die Wartung stellt die Experimente danach wieder ein, **Alles neu indexieren** sofort. |
+| Fehler: Knovas war nicht erreichbar. | Alle Versuche sind gescheitert – auch HTTP 401 und 403 zählen dazu, sie gelten als vorübergehend (etwa während ein Zertifikat erneuert wird). Verbindung prüfen (`doctor.sh`); die Wartung versucht es wieder. |
+| Fehler: Der Upload wurde nicht abgeschlossen (Details im Protokoll). | Ein unerwarteter Fehler, eine Bearbeitung, die wiederholt nicht fertig wurde (abgelaufene Lease), oder ein Upload, der zu lange zurückgestellt war. Den Grund nennt das Protokoll von `docbridge-web`; die Wartung versucht es wieder. |
+| Fehler: Knovas hat das Dokument abgelehnt (HTTP …). | Knovas weist das Dokument selbst ab; den Grund nennt das Protokoll von `docbridge-web`. Die Wartung schickt es nicht wieder: nach der Behebung das Experiment bearbeiten, **Neu indexieren** oder **Alles neu indexieren**. |
+| aus | Indexierung ausgeschaltet (`EXPERIMENTS_INDEX_ENABLED=false`): nach dem Wiedereinschalten lädt die Wartung diese Experimente von selbst hoch. Oder aus Knovas entfernt mit `purge-index`: diese bleiben aus, bis jemand **Alles neu indexieren** oder **Neu indexieren** wählt oder das Experiment bei eingeschalteter Indexierung ändert. |
 
 ### doctor.sh
 
@@ -1289,7 +1406,7 @@ $DC exec docbridge-web python -m experiments worker --once     # fällige Auftr�
 |---|---|
 | `status` | Schalter, Zugriffsgruppen, Aufträge je Status, Indexstand, erfasste Knovas-Dokumente, gelöschte Experimente noch in Knovas (die Wartung wiederholt das Löschen), letzte Fehler, Rechenumgebung |
 | `reindex KEY … \| --all` | Experimente zum Hochladen einreihen (einzeln mit hoher, alle mit niedriger Priorität) |
-| `purge-index [--yes]` | Alle Experiment-Dokumente aus Knovas löschen – jedes erfasste und alles, was Knovas unter dem Präfix noch führt; ohne `--yes` nur anzeigen. Geht auch bei ausgeschaltetem Modul. |
+| `purge-index [--yes]` | Alle Experiment-Dokumente aus Knovas löschen: jedes erfasste (`exp_index_documents`), dazu die nicht erfassten, die Knovas unter dem Präfix ohne Anmeldung auflistet – ein Dokument mit Zugriffsgruppe findet nur die Erfassung. Ohne `--yes` nur anzeigen. Verweigert Knovas die Liste, sind die erfassten trotzdem gelöscht; der Befehl endet mit Exit-Code 1 und «Knovas hat die Liste der Dokumente abgelehnt (HTTP …); nicht erfasste Experiment-Dokumente wurden nicht gesucht.». Ist Knovas nicht erreichbar, bricht er mit Exit-Code 1 ab («Abgebrochen: Knovas nicht erreichbar.», beim Auflisten «Abgebrochen: Knovas konnte die Liste der Experiment-Dokumente nicht liefern; der Befehl kann wiederholt werden.»). Experimente, deren Dokument gelöscht ist, stehen danach auf «aus» – auch nach einem Abbruch –, und die Wartung lädt sie nicht wieder hoch ([was sie zurückbringt](#ausschalten-und-entfernen)). Geht auch bei ausgeschaltetem Modul. |
 | `install-pack NAME [--as E-MAIL]` | Paket installieren, als ein Konto mit Verwalter-Rolle (Vorgabe `PLATFORM_ADMIN_EMAIL`) |
 | `worker [--once] [--max-jobs N]` | Hintergrundarbeit im Vordergrund; mit `--once` nur die fälligen Aufträge |
 
@@ -1389,6 +1506,8 @@ als Eingabe) und laufen ohne Rechenumgebung.
 |---|---|
 | Messwerte | ausgelegt auf 10⁸ Zeilen (Aggregation über einen deckenden Index) |
 | Zeilen je API-Aufruf oder Lauf | 10'000 |
+| Anzahl (`count`) je Zeile | 10¹² |
+| Stufen je Variante in einer Verteilung | 50; eine Skala ohne definierte Stufen mit mehr verschiedenen Werten hat keine Verteilung (Chi-Quadrat-Test «nicht anwendbar») |
 | Anfrage | 32 MB |
 | CSV-Import | `EXPERIMENTS_MAX_CSV_ROWS` (200'000) Zeilen, 20 MB |
 | Zeilen für einen eigenen Auswerter | 100'000 (die neuesten; Aggregate immer vollständig) |
@@ -1422,14 +1541,17 @@ KI-Zusammenfassungen.
 | Der Client meldet eine Umleitung | Die Adresse stimmt nicht (meist `http://` statt `https://`, oder ein Pfad fehlt). |
 | «In Knovas: Fehler: … keine Knovas-Zugriffsgruppe …» | `EXPERIMENTS_ACCESS_GROUPS` setzen (oder Ordnerregel + `EXPERIMENTS_INDEX_UNRESTRICTED`), dann **Alles neu indexieren**. |
 | Suche im Modul sagt «Datenbanksuche» mit Hinweis auf die Zugriffsgruppe | Ihnen fehlt die Gruppe: **Verwaltung → Personen → Zugriffsgruppen** ergänzen. |
+| Keine Experiment-Treffer in der normalen Suche | Ausgeschaltet – für Sie allein (**Experimente → Verwaltung → Zugangsschlüssel → «Experimente in meiner normalen Suche zeigen»**) oder für alle (**Experimente → Verwaltung → Index → «Experimente in der normalen Suche zeigen»**, Vorgabe an). Sonst: das Experiment steht noch nicht in Knovas (Stand im Kopf des Experiments), oder Ihnen fehlt die Zugriffsgruppe. |
 | Experimente stehen lange auf «ausstehend» | Uploadrate (2 pro Minute) nach einer Massenänderung; `python -m experiments status` zeigt die Warteschlange. Sind Aufträge «gescheitert», `doctor.sh`. |
 | Python-/Julia-Auswerter ausgegraut | Profil `experiments` und `EXPERIMENTS_RUNNER_URL` setzen; `docker compose --env-file knovas.env ps experiments-runner` muss «healthy» zeigen. |
-| `start.sh` bricht ab mit «range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs available» | `EXPERIMENTS_RUNNER_CPUS` liegt über der Zahl der CPUs des Rechners (Vorgabe 2). In `knovas.env` höchstens `nproc` setzen, z. B. `EXPERIMENTS_RUNNER_CPUS=1`, dann `start.sh`. |
+| `start.sh` bricht ab mit «range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs available» | `EXPERIMENTS_RUNNER_CPUS` liegt über der Zahl der CPUs des Rechners (Vorgabe 2). Ohne Wert in `knovas.env` setzt ihn `setup.sh` auf einem Rechner mit einer CPU selbst; einen gesetzten Wert auf höchstens `nproc` senken, z. B. `EXPERIMENTS_RUNNER_CPUS=1`, dann `setup.sh` und `start.sh`. |
 | Rechenumgebung startet nach einem Update nicht: «Permission denied» im Protokoll | Das Socket-Volume stammt aus einem früheren Bau mit anderer uid; Docker behält die Optionen eines Volumes. `docker compose --env-file knovas.env down`, dann `docker volume rm <projekt>_experiments_runner_socket` und `start.sh`. |
 | Auswertung bleibt auf «wartet» | Rechenumgebung nicht erreichbar oder ausgelastet; nach 30 Minuten schlägt sie fehl. |
 | «Zeitlimit überschritten.» | Auswerter zu langsam für `EXPERIMENTS_RUNNER_TIMEOUT`; Code beschleunigen oder Zeilen per Scope eingrenzen. |
 | CSV: «Zeile 5: …» | Die Meldung nennt das Problem; die Datei wurde nicht übernommen (alles oder nichts). |
 | CSV: Spalten «ignoriert» | Metrik nicht zugeordnet oder Spaltenname weicht vom Metrik-Schlüssel ab. |
+| CSV: «Es läuft gerade schon ein CSV-Import. Bitte in einem Moment noch einmal versuchen.» (HTTP 503) | Im selben Web-Prozess läuft ein anderer Import; nach ein paar Sekunden erneut hochladen. |
 | «Das Experiment wurde inzwischen geändert. Bitte neu laden.» | Jemand anderes hat gleichzeitig gespeichert; neu laden und die Änderung wiederholen. |
+| «Gleichzeitige Änderung; bitte erneut versuchen.» (HTTP 409) | Zwei Änderungen sind in der Datenbank zusammengestossen; es wurde nichts gespeichert. Den Schritt einfach wiederholen. |
 | Knopf für einen Statuswechsel gesperrt | Die Zeile darunter nennt, was fehlt (Hypothese, Messwerte, Stichprobe …). |
 | `welch_t` meldet «offen» mit Hinweis auf die Streuung | Zusammengefasste Zeilen ohne Quadratsumme: Einzelwerte oder `sum_sq` liefern. |

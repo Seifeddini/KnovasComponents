@@ -293,9 +293,9 @@
         }
         const body = el('div', null,
             editing ? null : el('div', { class: 'kx-banner kx-banner--info' },
-                el('p', { text: 'Neue Bereiche starten mit dem Typ «Allgemeine Hypothese». '
-                    + 'Legen Sie danach unter «Metriken» die Metriken des Bereichs an – ohne sie gibt es '
-                    + 'keine Messwerte.' })),
+                el('p', { text: 'Neue Bereiche starten mit dem Typ «Allgemeine Hypothese» und den allgemeinen '
+                    + 'Metriken des Grundpakets (Erfolgsquote, Dauer, Bewertung …). Eigene Metriken kommen '
+                    + 'unter «Metriken» dazu.' })),
             KX.field({ label: 'Name', input: name, name: 'name', required: true }),
             el('div', { class: 'kx-form-row', style: { 'margin-top': '14px' } },
                 KX.field({ label: 'Schlüssel', input: key, name: 'key', required: !editing, help: editing ? 'Lässt sich nicht ändern.' : 'Kleinbuchstaben, Ziffern, Bindestrich.' }),
@@ -560,8 +560,14 @@
         }
         const name = KX.input({ name: 'name', maxlength: 80, value: type.name });
         const description = KX.textarea({ name: 'description', rows: 2, maxlength: 2000 }, type.description || '');
+        // Der Server liefert die Definition als YAML in der gewohnten
+        // Reihenfolge (definition_yaml); das JSON der Antwort ist alphabetisch
+        // sortiert (ein Uebergang endet mit "to"). Ohne YAML (aeltere Server)
+        // bleibt es bei JSON.
+        const initialText = typeof type.definition_yaml === 'string' && type.definition_yaml.trim()
+            ? type.definition_yaml : JSON.stringify(type.definition || {}, null, 2);
         const text = KX.textarea({ name: 'definition_text', rows: 22, class: 'kx-input kx-textarea kx-code', 'aria-label': 'Definition' },
-            JSON.stringify(type.definition || {}, null, 2));
+            initialText);
         KX.codeEditor(text);
         const result = el('div', { 'aria-live': 'polite' });
         const preview = el('div', null, definitionPreview(type.definition));
@@ -600,7 +606,11 @@
             const trigger = e.currentTarget;
             trigger.disabled = true;
             try {
-                const payload = { definition_text: text.value };
+                // Die Definition nur, wenn sich ihr Text geaendert hat: sonst
+                // prueft der Server sie erneut, und ein neuer Name scheitert
+                // etwa an einer inzwischen archivierten Metrik.
+                const payload = {};
+                if (text.value !== initialText) payload.definition_text = text.value;
                 if (name.value.trim() && name.value.trim() !== type.name) payload.name = name.value.trim();
                 if (description.value.trim() !== (type.description || '')) payload.description = description.value.trim();
                 const data = await KX.api('POST', `/api/experiments/types/${encodeURIComponent(type.id)}/versions`, payload);
@@ -921,7 +931,7 @@
                             if (unit.value.trim() !== (metric.unit || '')) changes.unit = unit.value.trim();
                             if (direction.value !== metric.direction) changes.direction = direction.value;
                             if (description.value.trim() !== (metric.description || '')) changes.description = description.value.trim();
-                            if (JSON.stringify(definition) !== JSON.stringify(def)) changes.definition = definition;
+                            if (KX.canonicalJson(definition) !== KX.canonicalJson(def)) changes.definition = definition;
                             if (archived.checked !== Boolean(metric.archived)) changes.archived = archived.checked;
                             if (!Object.keys(changes).length) return true;
                             await KX.api('PATCH', `/api/experiments/metrics/${encodeURIComponent(metric.id)}`, changes);
@@ -1505,7 +1515,7 @@
                     try {
                         const data = await KX.api('POST', '/api/experiments/index/reindex', {});
                         const n = data.result && Number(data.result.queued);
-                        KX.toast(`${KX.fmtNumber(n || 0, 0)} Experimente zur Übertragung eingeplant.`, 'success');
+                        KX.toast(`${experimentCount(n)} zur Übertragung eingeplant.`, 'success');
                         renderIndexTab();
                     } catch (err) {
                         KX.toast(KX.errorMessage(err), 'error');
@@ -1529,6 +1539,12 @@
         box.appendChild(el('p', { class: 'kx-subhead', text: 'Stand der Experimente' }));
         box.appendChild(el('dl', { class: 'kx-stats' }, ['indexed', 'pending', 'error', 'off'].map((s) => el('div', { class: 'kx-stat' },
             el('dt', { text: KX.label('index_states', s) }), el('dd', { text: KX.fmtNumber(Number(counts[s]) || 0, 0) })))));
+        // Dokumente geloeschter Experimente, deren Loeschen in Knovas noch
+        // aussteht; ohne Angabe (aeltere Server) oder bei 0 kein Hinweis.
+        const orphans = Number(index.orphans);
+        if (Number.isFinite(orphans) && orphans > 0) {
+            box.appendChild(el('p', { class: 'kx-help', text: `Gelöschte Experimente noch in Knovas: ${KX.fmtNumber(orphans, 0)} – die Wartung löscht sie erneut.` }));
+        }
         const jobs = index.jobs && typeof index.jobs === 'object' ? index.jobs : {};
         const jobLabels = { pending: 'wartend', running: 'laufend', done: 'erledigt', dead: 'aufgegeben' };
         box.appendChild(el('p', { class: 'kx-subhead', text: 'Hintergrundaufträge' }));
@@ -1553,7 +1569,7 @@
         box.appendChild(el('p', { class: 'kx-subhead', text: 'Rechenumgebung' }));
         box.appendChild(el('p', {
             text: !runner.configured ? 'Nicht eingerichtet.'
-                : runner.ok ? `Erreichbar${KX.finite(runner.busy) !== null ? `, ${KX.fmtNumber(runner.busy, 0)} Aufträge laufen` : ''}.`
+                : runner.ok ? `Erreichbar${KX.finite(runner.busy) !== null ? `, ${KX.fmtNumber(runner.busy, 0)} ${runner.busy === 1 ? 'Auftrag läuft' : 'Aufträge laufen'}` : ''}.`
                     : 'Eingerichtet, aber nicht erreichbar.',
         }));
         const settingsBox = el('div', { class: 'kx-card', style: { 'margin-top': '20px' } });

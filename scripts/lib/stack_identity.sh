@@ -95,6 +95,14 @@ knovas_pick_host_port() {
   printf '%s' "$port"
 }
 
+# True when a DOCBRIDGE_WEB_BIND value keeps the port on this machine only.
+knovas_is_loopback_bind() {
+  case "$1" in
+    ""|localhost|127.*|::1|"[::1]") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 knovas_upsert_env() {
   local file="$1" key="$2" value="$3"
   local tmp

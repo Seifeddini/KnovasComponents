@@ -92,6 +92,15 @@ services:
       # Account lockout after repeated failures. 0 attempts switches it off.
       IDENTITY_ACCOUNT_LOCKOUT_ATTEMPTS: ${IDENTITY_ACCOUNT_LOCKOUT_ATTEMPTS:-5}
       IDENTITY_ACCOUNT_LOCKOUT_MINUTES: ${IDENTITY_ACCOUNT_LOCKOUT_MINUTES:-15}
+      # Reverse proxies in front of gunicorn that append to X-Forwarded-For:
+      # the host nginx of deploy/host-nginx and docbridge-web-nginx below, both
+      # with $proxy_add_x_forwarded_for. The address recorded for a session and
+      # in the audit log is the entry that many places from the right; the
+      # entries before it are whatever the client sent. With docbridge-web-nginx
+      # published directly (DOCBRIDGE_WEB_BIND=0.0.0.0, no host nginx) it must
+      # be 1, or every client can choose the address it is recorded with:
+      # setup.sh writes 1 into knovas.env then, and doctor.sh warns about 2.
+      PLATFORM_TRUSTED_PROXY_HOPS: ${PLATFORM_TRUSTED_PROXY_HOPS:-2}
       PLATFORM_BROKER_KEY_DIR: ${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}
     secrets:
       - platform_db_password
@@ -241,8 +250,9 @@ services:
     pids_limit: 256
     mem_limit: ${EXPERIMENTS_RUNNER_MEMORY:-3g}
     # At most the host's CPU count (nproc): Docker refuses to create the
-    # container otherwise ("range of CPUs is from 0.01 to 1.00"). doctor.sh
-    # checks it; on a 1-vCPU host set EXPERIMENTS_RUNNER_CPUS=1 in knovas.env.
+    # container otherwise ("range of CPUs is from 0.01 to 1.00"). On a 1-vCPU
+    # host setup.sh writes EXPERIMENTS_RUNNER_CPUS=1 into a knovas.env without
+    # a value; doctor.sh checks the value that is set.
     cpus: ${EXPERIMENTS_RUNNER_CPUS:-2}
     environment:
       RUNNER_MAX_CONCURRENT: ${EXPERIMENTS_RUNNER_MAX_CONCURRENT:-2}

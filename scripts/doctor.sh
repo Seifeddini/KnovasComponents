@@ -81,6 +81,19 @@ if [[ ",${exp_profiles// /}," == *,experiments,* ]]; then
   fi
 fi
 
+# The address recorded for a session and in the audit log is the entry
+# PLATFORM_TRUSTED_PROXY_HOPS places from the right of X-Forwarded-For. The
+# compose default of 2 expects host nginx in front of docbridge-web-nginx;
+# with docbridge-web-nginx published on the network and nothing in front,
+# every browser could choose the address it is recorded with.
+web_bind="$(read_env_var DOCBRIDGE_WEB_BIND "" "$KNOVAS_ENV")"
+proxy_hops="${PLATFORM_TRUSTED_PROXY_HOPS:-$(read_env_var PLATFORM_TRUSTED_PROXY_HOPS "" "$KNOVAS_ENV")}"
+proxy_hops="${proxy_hops:-2}"
+if ! knovas_is_loopback_bind "$web_bind" && [[ "$proxy_hops" =~ ^[0-9]+$ ]] && (( proxy_hops >= 2 )); then
+  warn "DOCBRIDGE_WEB_BIND=$web_bind publishes docbridge-web-nginx, but PLATFORM_TRUSTED_PROXY_HOPS=$proxy_hops expects host nginx in front of it: browsers can choose the address their session is recorded with."
+  echo "       Without host nginx in front, set PLATFORM_TRUSTED_PROXY_HOPS=1 in knovas.env, then ./scripts/start.sh."
+fi
+
 # nginx resolves the app once at startup unless it is running the config with a
 # resolver directive. A recreate of docbridge-web alone leaves an older nginx
 # pointing at an address nothing answers on, which reads as "search broke".

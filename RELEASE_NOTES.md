@@ -72,6 +72,28 @@ das Volume mit dem Broker-Schluessel.
 - Deploy: [KnovasPlatform/docs/setup.md](KnovasPlatform/docs/setup.md)
 - API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)
 
+### Adresse hinter Proxys: `PLATFORM_TRUSTED_PROXY_HOPS`
+
+Die Plattform hält zu jeder Sitzung und in den Audit-Einträgen der Experimente
+die Adresse fest, von der eine Anfrage kam. Bisher nahm sie dafür den ersten
+Eintrag von `X-Forwarded-For` – den jeder Browser selbst setzen kann. Jetzt
+zählt sie von rechts so viele Einträge ab, wie Proxys vor ihr stehen und
+anhängen: `PLATFORM_TRUSTED_PROXY_HOPS`, in `docker-compose.yml` mit der
+Vorgabe `2` (Host-NGINX vor dem `docbridge-web-nginx` des Stacks).
+
+Beim Upgrade:
+
+- Mit Host-NGINX davor, der üblichen Einrichtung, ist nichts zu tun.
+- Wer `docbridge-web-nginx` direkt ins LAN stellt (`DOCBRIDGE_WEB_BIND=0.0.0.0`,
+  kein Host-NGINX), braucht `PLATFORM_TRUSTED_PROXY_HOPS=1` in `knovas.env` –
+  sonst kann jeder Browser die Adresse wählen, mit der er festgehalten wird.
+  `./scripts/setup.sh` schreibt diese `1`, wenn `DOCBRIDGE_WEB_BIND` keine
+  Loopback-Adresse ist und `knovas.env` noch keinen Wert hat;
+  `./scripts/doctor.sh` warnt, wenn dort trotzdem `2` gilt.
+- Danach `./scripts/setup.sh && ./scripts/start.sh`.
+
+Einzelheiten: [KnovasPlatform/docs/deployment/host-nginx-internal.md](KnovasPlatform/docs/deployment/host-nginx-internal.md#client-addresses-behind-two-proxies)
+
 ### Dokumentverwaltung und Ordner-Zugriffsrechte
 
 Die Verwaltung zeigt jetzt alle hochgeladenen Dokumente des Mandanten und
@@ -129,7 +151,10 @@ Einschalten:
 
 - Mitgeliefert sind Pakete für Engineering, Marketing, Vertrieb und Produkt;
   Bereiche, Typen, Metriken und Auswerter sind Konfiguration und lassen sich als
-  YAML exportieren und importieren.
+  YAML exportieren und importieren. Das immer installierte Grundpaket bringt
+  fünf allgemeine Metriken für jeden Bereich mit (Erfolgsquote, Ereignisse je
+  Zeitraum, Dauer in Sekunden, Messwert, Bewertung 1–5), sodass auch ein selbst
+  angelegter Bereich sofort messen kann.
 - Messwerte kommen von Hand, als CSV oder aus CI: über persönliche
   Zugangsschlüssel und den Python- bzw. Julia-Client unter
   `KnovasPlatform/experiments-sdk/`.
@@ -139,8 +164,9 @@ Einschalten:
   Compose-Profil `experiments` (`COMPOSE_PROFILES=experiments`,
   `EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock`).
   `EXPERIMENTS_RUNNER_CPUS` (Vorgabe 2) darf nicht über der Zahl der CPUs des
-  Rechners liegen, sonst legt Docker den Container nicht an; auf einem Rechner
-  mit einer CPU `EXPERIMENTS_RUNNER_CPUS=1` setzen (`doctor.sh` prüft das).
+  Rechners liegen, sonst legt Docker den Container nicht an. Auf einem Rechner
+  mit einer CPU schreibt `setup.sh` `EXPERIMENTS_RUNNER_CPUS=1` in eine
+  `knovas.env` ohne eigenen Wert; einen gesetzten Wert prüft `doctor.sh`.
 - Alle Daten liegen in der Plattform-Datenbank und sind in deren Sicherung
   enthalten. `python -m experiments purge-index --yes` im Container
   `docbridge-web` entfernt die Knovas-Kopien wieder, auch bei ausgeschaltetem

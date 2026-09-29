@@ -324,6 +324,18 @@ def test_run_names_are_only_read_when_a_cell_is_not_an_id():
     assert parsed["rows"][0]["run_id"] == run and calls == []
 
 
+def test_a_run_named_like_a_hash_is_found_by_its_name():
+    # A 32-digit hash is a valid uuid.UUID() input, but only the canonical
+    # 8-4-4-4-12 form counts as an id when the run names are at hand.
+    run = "22222222-2222-2222-2222-222222222222"
+    metrics = {"ctr": {"kind": "proportion", "definition": {}, "name": "CTR"}}
+    for name in ("0123456789abcdef0123456789abcdef", "{0123456789abcdef0123456789abcdef}"):
+        parsed = csv_import.parse_csv(f"metric,value,count,run\nctr,1,10,{name}\n".encode(),
+                                      metrics=metrics, variants=set(), max_rows=10,
+                                      runs=lambda n=name: {n: [run]})
+        assert parsed["rows"][0]["run_id"] == run
+
+
 # -- type editor readability ----------------------------------------------------------------
 
 

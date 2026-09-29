@@ -652,8 +652,13 @@ def metric_has_measurements(conn: Any, metric_id: str) -> bool:
 
 
 def experiments_using_metric(conn: Any, metric_id: str) -> List[str]:
+    """Experiments that use the metric, except those purge-index took out of
+    Knovas: a metric rename must not upload them again."""
     return [r[0] for r in conn.execute(
-        "SELECT experiment_id::text FROM exp_experiment_metrics WHERE metric_id = %s", (metric_id,)
+        "SELECT em.experiment_id::text FROM exp_experiment_metrics em "
+        "JOIN exp_experiments e ON e.id = em.experiment_id "
+        "WHERE em.metric_id = %s AND (e.index_state <> 'off' OR e.index_error IS DISTINCT FROM %s)",
+        (metric_id, INDEX_OFF_PURGED),
     ).fetchall()]
 
 
@@ -2519,7 +2524,9 @@ def set_index_state(conn: Any, experiment_id: str, state: str, error: Optional[s
     ``if_updated_at`` no longer matches (a newer edit keeps 'pending').
     ``error`` is kept for 'error' and for 'off' (purge-index passes
     INDEX_OFF_PURGED); 'off' without it means "indexing was switched off",
-    which maintenance uploads again once it is back on."""
+    which maintenance uploads again once it is back on. It never replaces
+    the purge marker: a change made while indexing is off keeps a purged
+    experiment out of Knovas until someone reindexes it."""
     if state not in labels.INDEX_STATE_LABELS:
         raise ValueError(f"unknown index state {state!r}")
     ident = canonical_uuid(experiment_id)
@@ -2536,6 +2543,13 @@ def set_index_state(conn: Any, experiment_id: str, state: str, error: Optional[s
         conn.execute(sql, params)
         return
     message = _clip_text(error, MAX_INDEX_ERROR_CHARS) if state in ("error", "off") else None
+    if state == "off" and message is None:
+        conn.execute(
+            "UPDATE exp_experiments SET index_state = 'off', index_error = CASE "
+            "WHEN index_state = 'off' AND index_error = %s THEN index_error END WHERE id = %s",
+            (INDEX_OFF_PURGED, ident),
+        )
+        return
     conn.execute(
         "UPDATE exp_experiments SET index_state = %s, index_error = %s WHERE id = %s",
         (state, message, ident),
@@ -2584,13 +2598,20 @@ def index_documents(conn: Any, after: Optional[str] = None, limit: int = 500) ->
 def experiments_for_reindex(conn: Any, *, domain_id: Optional[str] = None,
                             type_id: Optional[str] = None,
                             states: Optional[Sequence[str]] = None,
-                            switched_off: bool = False) -> List[str]:
+                            switched_off: bool = False,
+                            include_purged: bool = False) -> List[str]:
     """Experiment ids, newest change first. ``states`` limits them to those
     index states; ``switched_off`` adds the ones turned 'off' while indexing
     was switched off (index_error NULL, unlike after purge-index): their
-    Knovas copy is missing or stale once indexing is back on."""
+    Knovas copy is missing or stale once indexing is back on. Experiments
+    purge-index took out of Knovas are left out unless ``include_purged``:
+    only an explicit reindex brings them back, never a rename or pack
+    import that re-queues many experiments."""
     where: List[str] = []
     params: List[Any] = []
+    if not include_purged:
+        where.append("(index_state <> 'off' OR index_error IS DISTINCT FROM %s)")
+        params.append(INDEX_OFF_PURGED)
     if domain_id is not None:
         where.append("domain_id = %s")
         params.append(domain_id)

@@ -359,13 +359,19 @@ def _metric_row(kind: str, definition: Dict[str, Any], raw: Dict[str, Any]) -> D
         raise _LineError(exc.message) from None
 
 
+_CANONICAL_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
 def _run_id(cell: str, runs: Optional[_RunIndex]) -> str:
     """The run a ``run`` cell names: a run id, or -- when ``runs`` (name ->
-    ids) is given -- the name of exactly one of the experiment's runs."""
-    try:
-        return str(uuid.UUID(cell))
-    except ValueError:
-        pass
+    ids) is given -- the name of exactly one of the experiment's runs. With
+    names at hand only the canonical id form counts as an id, so a run named
+    after a 32-digit hash is still found by its name."""
+    if runs is None or _CANONICAL_UUID.match(cell):
+        try:
+            return str(uuid.UUID(cell))
+        except ValueError:
+            pass
     if runs is None:
         raise _LineError(f"\u00ab{cell[:40]}\u00bb ist keine g\u00fcltige Lauf-ID.")
     ids = runs.ids(cell)

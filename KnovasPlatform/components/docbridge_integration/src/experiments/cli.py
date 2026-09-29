@@ -89,7 +89,7 @@ def _yes_no(flag: bool) -> str:
 
 def _index_counts(conn: Any) -> dict:
     store = _store()
-    return {state: len(store.experiments_for_reindex(conn, states=(state,)) or [])
+    return {state: len(store.experiments_for_reindex(conn, states=(state,), include_purged=True) or [])
             for state in INDEX_STATES}
 
 
@@ -199,7 +199,7 @@ def cmd_reindex(ctx: _Context, args: argparse.Namespace) -> int:
     queue = jobs.JobQueue(conn)
     missing: List[str] = []
     if args.all:
-        ids = [str(i) for i in (store.experiments_for_reindex(conn) or [])]
+        ids = [str(i) for i in (store.experiments_for_reindex(conn, include_purged=True) or [])]
         priority = 200
     else:
         ids = []

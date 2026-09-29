@@ -1,9 +1,23 @@
 # Plan: Experiments module (Experimente) inside KnovasPlatform
 
-Date: 2026-09-28 (revision 2, after a four-lens review of revision 1)
+Date: 2026-09-28 (revision 2, after a four-lens review of revision 1); revision 3 on 2026-09-29
 Design: [../specs/2026-09-28-experiment-platform-design.md](../specs/2026-09-28-experiment-platform-design.md)
 Component: `KnovasPlatform/components/docbridge_integration` (the Platform web app) plus an optional
 sandbox service `KnovasPlatform/components/experiments_runner`.
+
+**Revision 3** records what the verification rounds changed; the sections below are corrected in
+place. In short: aggregates sum counts as `float8` and a row's count is at most 10**12 (§1, §3);
+a level kind with more than 50 distinct values has `levels: None` (§3); the core pack is version 3
+with five global `generic_*` metrics, and `offline_eval` describes with scope `{runs: latest}` too
+(§5); `sample_size` takes `comparisons` (Bonferroni) and answers `alpha_used` (§8); summaries carry
+`status_phase`, list pages may append `moved` items, evaluations carry `superseded`, and reuse and
+retention follow the group rules in §8; `reindex` answers `{"queued": bool}`; the snapshot has
+`runs_next_after` (§9); CSV imports are one per process (503) and may name a run (§8, §10); a
+deadlock or serialization failure is a 409, wrong methods and the `/api/experiments/v1` root answer
+in JSON, a too deeply nested JSON body is a 400 everywhere (§10); the index `on_dead` hook, the
+maintenance, `purge_all(notes=)` and the shutdown hand-back are in §12; the search over-fetch and
+`PLATFORM_TRUSTED_PROXY_HOPS` are in §13; the runner runs as uid 10101 with
+`RUNNER_SOCKET_DIR_EXCLUSIVE` (§15).
 
 This document is the contract every part of the implementation codes against. Where it names a
 function, a key, a table column, a JSON field or a German UI string, use exactly that name. The
@@ -61,8 +75,10 @@ Conventions for all parts:
   (`NotFound()` default text "Nicht gefunden.").
 - psycopg 3: rows are tuples; `%s` placeholders; JSONB via `psycopg.types.json.Jsonb(...)` or
   `json.dumps`; autocommit connections, `with conn.transaction():` for multi-statement writes.
-  Aggregates cast in SQL so Python sees only int/float/str/None: `sum(count)::bigint`,
-  `count(*)::int`, `sum(...)::float8`, ids `::text`. Never return `Decimal`.
+  Aggregates cast in SQL so Python sees only int/float/str/None: `sum(count)::float8`
+  (a BIGINT sum can overflow; float8 is exact to 2**53, and `kinds.MAX_COUNT` = 10**12 per
+  row keeps sums exact), `count(*)::int`, `sum(...)::float8`, ids `::text`. Never return
+  `Decimal`.
 - JSON: timestamps ISO 8601 with timezone, ids strings, no NaN/Infinity anywhere (reject on
   input, `None` on output).
 - Tests: `cd KnovasPlatform/components/docbridge_integration &&
@@ -114,7 +130,7 @@ batch, optionally one variant and one run of the same experiment. Columns by met
 
 | kind | value | count | denominator | sum_sq | estimate per variant |
 |---|---|---|---|---|---|
-| `proportion` | successes, integer, 0 <= value <= count | trials | NULL | NULL | sum(value)/sum(count) |
+| `proportion` | successes, integer, 0 <= value <= count | trials (every kind: integer 1..10**12) | NULL | NULL | sum(value)/sum(count) |
 | `mean`, `duration`, `currency` | sum of the observations | number of observations | NULL | sum of squares (count = 1: exactly value^2, filled in automatically; count > 1: optional, must be >= value^2/count) | sum(value)/sum(count) |
 | `count` | number of events, integer >= 0 | exposure units | NULL | NULL | sum(value)/sum(count) (a rate) |
 | `ratio` | numerator sum (>= 0 for costs, any finite otherwise) | units (usually 1 per row) | denominator sum, >= 0 (0 allowed, e.g. a week without leads) | NULL | sum(value)/sum(denominator); NULL while sum(denominator) = 0 |
@@ -147,7 +163,10 @@ this metric, plus rows without a run for variants that have no such run.
 `n` = sum(count). `value_sum`: sum(value), except ordinal sum(value*count). `sum_sq`: for
 mean-like kinds sum(sum_sq) with count=1 rows contributing value^2; NULL if any count>1 row
 lacks sum_sq; ordinal sum(value*value*count); others NULL. `levels`: ordinal/categorical
-`{level_key: units}` (level_key = `kinds.level_key(value)`), else NULL. `estimate` =
+`{level_key: units}` (level_key = `kinds.level_key(value)`), else NULL; also NULL for a level
+kind whose group has more than `kinds.MAX_AGGREGATE_LEVELS` (50) distinct values (an ordinal
+metric without defined levels) -- evaluators read that as "no distribution", not "no data"
+(`chi_square`: n/a "nicht anwendbar: mehr als 50 Stufen"). `estimate` =
 `kinds.estimate(kind, aggregate)`.
 
 ## 4. Experiment type definitions (part A validates, part C stores)
@@ -271,7 +290,12 @@ stopped "Abgebrochen" (phase stopped); transitions draft→running "Starten", ru
 analysis→running "Weiterlaufen lassen", *→stopped "Abbrechen". `decision.require_learning: true`
 everywhere. Every evaluation list starts with `{evaluator: builtin.describe, metric: all}`.
 
-- `core` (global): type `hypothesis` "Allgemeine Hypothese" — no fields; A/B states with
+- `core` (global, version 3): five global metrics any domain resolves, also new ones —
+  `generic_success_rate` "Erfolgsquote" (proportion, higher, "%"), `generic_events_per_period`
+  "Ereignisse je Zeitraum" (count, higher), `generic_duration_s` "Dauer in Sekunden" (duration,
+  lower, "s", min 0), `generic_score` "Messwert" (mean, higher), `generic_rating` "Bewertung 1–5"
+  (ordinal, higher, levels 1–5); `ensure_core_pack` adds missing ones at every start and keeps
+  edited ones. Type `hypothesis` "Allgemeine Hypothese" — no fields; A/B states with
   draft→running requires [hypothesis]; variants {min 0, max 10, defaults []}; metrics [];
   evaluation [describe/all]. Evaluators `example.bootstrap_mean_py` (Python, kinds mean,
   duration, currency, ordinal: bootstrap 95 % CI of each variant's mean difference to the
@@ -291,8 +315,9 @@ everywhere. Every evaluation list starts with `{evaluator: builtin.describe, met
   Cortex, RemoteController, Plattform, Sonstiges], query_set text, baseline_ref text,
   candidate_ref text; variants min 2 defaults `baseline` "Ausgangsstand" (control),
   `candidate` "Kandidat"; metrics primary ndcg_at_10, secondary recall_at_20, mrr, guardrail
-  latency_p95_ms max 250; evaluation describe/all, `builtin.paired_t` on ndcg_at_10,
-  recall_at_20, mrr with params {pair_by: query} and scope {runs: latest}),
+  latency_p95_ms max 250; evaluation describe/all and `builtin.paired_t` on ndcg_at_10,
+  recall_at_20, mrr with params {pair_by: query}, every step with scope {runs: latest} (pack
+  version 2; version 1 had it on the t-tests only, so CI passes the scope explicitly)),
   `performance` "Performance-Änderung" (fields component, environment enum [lokal, CI,
   Staging, Produktion]; variants `vorher` "Vorher" (control), `nachher` "Nachher"; primary
   latency_p95_ms, guardrail error_rate max 0.01; evaluation describe, welch_t on primary),
@@ -536,15 +561,22 @@ threshold (default 0.95), `worse` when <= 1-threshold; frequentist `better`/`wor
 (Holm-adjusted when > 1 comparison and correction != "none", with warning "p-Werte nach Holm
 korrigiert.") p_value < alpha (default 0.05). Overall verdict: `better` if any comparison is
 better (headline names the best), else `worse` if any is worse, else `inconclusive`.
-`describe`: per variant n, estimate, 95 % interval (Wilson for proportion, t for mean-like when
-variance is known, exact Poisson for count, none for ratio/categorical), `sum`; guardrail check
+`describe`: per variant n, estimate, 95 % interval (Wilson for proportion, t for mean-like and
+ordinal when variance is known and > 0 -- zero spread gives no interval and the warning
+"<label>: keine Streuung in den Daten; kein Konfidenzintervall.", exact Poisson for count, none
+for ratio/categorical), `sum`; guardrail check
 (metric.guardrail: a variant whose estimate violates it gets the warning "Leitplanke verletzt:
 Variante B 78,0 % > 70,0 %." and `values.guardrail_ok = false`, verdict `worse`); with param
 `target`, verdict better/worse when every variant's interval lies on the good/bad side of the
 target (respecting direction), else inconclusive, headline e.g. "Aufgabenerfolg 75,0 %
-(95 %-KI 40,9–92,9 %) – Ziel 80,0 % nicht belegt."; else verdict `n/a`. `chi_square`: with
+(95 %-KI 40,9–92,9 %) – Ziel 80,0 % nicht belegt."; a proportion target outside 0..1 gives no
+target verdict, only the warning "Ziel ausserhalb 0..1 – für Anteile 0,8 statt 80 angeben." (the
+service refuses such a target first); else verdict `n/a`. `chi_square`: with
 >= 2 variants having data independence test, else goodness of fit against equal shares (or
-`expected`), with the exact binomial test when 2 categories and n < 30. `paired_t`: pairs control
+`expected`), with the exact binomial test when 2 categories and n < 30; every comparison's
+verdict is `n/a`, and so is the overall one when there is a comparison (a distribution test has
+no direction, also on a scale: the mean level is `welch_t`'s question); a tested group with `levels` None gives `n/a` "Chi-Quadrat-Test:
+nicht anwendbar: mehr als 50 Stufen" ("… Kategorien"). `paired_t`: pairs control
 and variant rows with the same `dims[pair_by]` (row values averaged per key and variant);
 warning "N Zeilen ohne Partner ignoriert." Too little data (n < 2, no pairs, missing variance)
 gives `inconclusive` with a German warning, never an exception.
@@ -597,11 +629,15 @@ def timeseries(conn, experiment_id: str, metric_id: str, *, kind: str, bucket: s
 def set_index_state(conn, experiment_id: str, state: str, error: str | None = None, *,
                     if_updated_at: str | None = None) -> None
     # 'indexed' sets indexed_at=now() and is skipped when if_updated_at is given and the row's
-    # updated_at differs (a newer edit keeps 'pending'); error text <= 500 chars (German, fixed)
+    # updated_at differs (a newer edit keeps 'pending'); error text <= 500 chars (German, fixed),
+    # kept for 'error' and 'off': purge-index writes 'off' with INDEX_OFF_PURGED, while 'off'
+    # without a text means "indexing was switched off" (maintenance re-uploads those, §12)
 def record_index_document(conn, pointer: str, experiment_id: str | None) -> None   # upsert exp_index_documents
 def forget_index_document(conn, pointer: str) -> None
 def index_documents(conn, after: str | None = None, limit: int = 500) -> list[str]  # pointers, ordered
-def experiments_for_reindex(conn, *, domain_id=None, type_id=None, states=None) -> list[str]  # experiment ids
+def experiments_for_reindex(conn, *, domain_id=None, type_id=None, states=None,
+                            switched_off=False) -> list[str]
+    # experiment ids, newest change first; switched_off adds the 'off' rows without a text
 def resolve_api_token(conn, plaintext: str) -> dict | None
     # {"token_id","user_id"} for an unrevoked, unexpired token (hash compare in SQL on the
     # SHA-256 hex); updates last_used_at at most once a minute
@@ -623,14 +659,18 @@ def ensure_core_pack(conn) -> None             # installs packs.load_pack('core'
 `src/experiments/csv_import.py` (Flask-free):
 
 ```python
-def parse_csv(content: bytes, *, metrics: dict[str, dict], variants: set[str], max_rows: int) -> dict
-    # -> {"rows": [row dicts as for add_measurements], "ignored_columns": [...]} or
-    # ValidationError listing <= 20 errors "Zeile 5: ...".
+def parse_csv(content: bytes, *, metrics: dict[str, dict], variants: set[str], max_rows: int,
+              runs=None) -> dict
+    # -> {"rows": [row dicts as for add_measurements], "ignored_columns": [...], "lines": [...]}
+    # or ValidationError listing <= 20 errors "Zeile 5: ...". runs: {name: [run ids]} (or a
+    # callable returning it, called once) so the run column may name a run.
 ```
 
 UTF-8 (BOM tolerated), delimiter sniffed among `,` `;` tab. Header required, names
 `^[A-Za-z0-9_. -]{1,60}$`. **Long format** (header has `metric`): columns metric, variant,
-value, count, denominator, sum_sq, observed_at, run (run id), `dim.<name>`. **Wide format** (no
+value, count, denominator, sum_sq, observed_at, run (a run id, or the name of exactly one of the
+experiment's runs; a shared name is refused "N Läufe heissen «…»; bitte die Lauf-ID angeben."),
+`dim.<name>`. **Wide format** (no
 `metric` column): a column named exactly a metric key is that metric's value;
 `<key>.count`, `<key>.denominator`, `<key>.sum_sq` its other fields; plus variant,
 observed_at, run, `dim.<name>`; one row per metric column with a non-empty value. Unknown
@@ -679,6 +719,7 @@ list_types(domain=None, include_archived=False) -> list[dict]
     # {"id","key","name","description","domain_key"|None,"current_version","archived","definition",
     #  "experiment_count"}; domain=<key> -> that domain's plus global
 get_type(type_id) -> dict          # + "versions": [{"version","created_at","created_by": display name}]
+                                   # + "definition_yaml" (the editor's text, natural key order)
 validate_type(data) -> dict        # [manage] {definition|definition_text, domain} -> normalised
                                    # definition; checks metric/evaluator resolution and params
 create_type(data) -> dict          # [manage] domain (key|None), key, name, description?,
@@ -707,7 +748,9 @@ test_evaluator(evaluator_id, data) -> dict   # [manage] experiment (KEY), metric
     # scope?, code? (unsaved); runner.run with timeout min(settings.runner_timeout_seconds, 60);
     # audits "experiments.evaluator.test" {experiment, metric, code_sha256, unsaved};
     # -> {"ok","output","error","logs","duration_ms"}
-sample_size(data) -> dict                    # {kind: proportion|mean, base|sd, mde, alpha?, power?} -> {"per_variant": n}
+sample_size(data) -> dict                    # {kind: proportion|mean, base|sd, mde, alpha?, power?,
+    # comparisons? (1..50, default 1: variants compared with the control)} -> {"per_variant": n,
+    # "alpha_used": alpha / comparisons (Bonferroni), "comparisons"}
 # experiments
 list_experiments(*, domain=None, status=None, q=None, tag=None, include_archived=False,
                  after=None, limit=50) -> dict
@@ -715,8 +758,12 @@ list_experiments(*, domain=None, status=None, q=None, tag=None, include_archived
     #  "status_label","archived","tags","domain": {"key","name","color"},"type": {"key","name"},
     #  "owner": {"id","display_name"}|None,"primary_metric": {"key","name","unit","kind"}|None,
     #  "latest": {"headline","verdict","finished_at"}|None, "guardrail_violations": int,
-    #  "updated_at","index_state"}; order updated_at DESC, id DESC; q ILIKE on key/title/hypothesis
-    # latest = newest done evaluation of the primary metric with verdict <> 'n/a', else newest done
+    #  "updated_at","index_state","status_phase"}; order updated_at DESC, id DESC; q ILIKE on
+    #  key/title/hypothesis. The cursor carries when its page was served; the next page appends,
+    #  flagged "moved": true, up to `limit` experiments above the cursor changed since then (clients
+    #  merge items by key).
+    # latest = among the primary metric's current evaluations (not superseded, see run_pipeline:
+    # the newest of each group) that are done, the newest with verdict <> 'n/a', else the newest
 create_experiment(data) -> dict   # snapshot; domain (key), type (id or key), title, hypothesis?,
                                   # description?, fields?, tags?, variants?, metrics? (defaults from type)
 get_experiment(key) -> dict       # snapshot + "definition" + "transitions" [{"to","label","allowed",
@@ -757,8 +804,10 @@ run_evaluation(key, data, trigger='manual') -> dict   # evaluator (key), metric 
     # status queued + 'evaluate' job (dedupe f"evaluate:{evaluation_id}")
 run_pipeline(key, data=None, trigger='manual') -> list[dict]   # the type's evaluation list (optional
     # scope override): describe first; builtins now; custom queued (skipped with a warning
-    # entry when the runner is missing); unchanged input (same input_digest, same evaluator
-    # version, params, scope) -> the existing evaluation is returned instead of a new one
+    # entry when the runner is missing). Reuse: the newest evaluation of the group (evaluator,
+    # metric, params, scope), when it is not failed and has the same input_digest and evaluator
+    # version, is returned instead of a new one; an older one of the group is `superseded` (a
+    # newer one exists in any status) and never reused. trigger 'api' also prunes (as the job)
 get_evaluation(key, evaluation_id) -> dict        # includes logs
 decide(key, data) -> dict        # verdict, rationale?, learning? (required if the type says so),
     # row_version?; allowed only when the current state has a transition to the 'decided'-phase
@@ -770,7 +819,8 @@ delete_experiment(key) -> dict   # [manage] one transaction: enqueue 'unindex' {
     # "experiment_id"} (delay 330 s, priority 10) when index_state <> 'off' or indexed_at is set,
     # DELETE pending 'index:<id>'/'pipeline:<id>' jobs, DELETE the experiment -> {"deleted": KEY}
 reindex(key) -> dict             # enqueue with priority 10 and no delay (ON CONFLICT pulls an existing
-                                 # pending job forward) -> {"queued": true}
+                                 # pending job forward) -> {"queued": true}; with indexing off
+                                 # records 'off' -> {"queued": false}
 activity(key, limit=50) -> list[dict]   # audit_log target experiment KEY: {"at","action","label" (German),
                                         # "actor" (display name, "Gelöschtes Konto" if gone), "detail"}
 get_timeseries(key, metric_key, bucket='week', scope=None) -> list[dict]
@@ -793,6 +843,7 @@ update_preferences(data) -> dict # {"show_in_search": bool}
 get_settings() -> dict           # {"show_in_search": bool}  (global)
 update_settings(data) -> dict    # [manage] exactly {"show_in_search": bool}, else ValidationError
 index_status() -> dict           # [manage] {"enabled","unrestricted","access_groups","counts": {state: n},
+    # "orphans": documents of deleted experiments still recorded (tasks.orphan_count),
     # "jobs": {status: n}, "failures": [{"kind","error","at"}], "access_warnings":
     # [{"user","missing_groups"}], "runner": runner.health() or {"configured": false}}
 reindex_all() -> dict            # [manage] priority 200 -> {"queued": n}
@@ -808,12 +859,14 @@ def execute_evaluation(conn, evaluation_id: str, *, settings, runner) -> None
     # missing evaluation -> return. runner None -> mark failed "Die Rechenumgebung ist nicht
     # eingerichtet.". Builds the input (store.aggregates / store.evaluator_rows with the scope,
     # <= settings.evaluator_max_rows) in one short transaction, then calls the runner outside any
-    # transaction, then writes in a new one. runner raises Unavailable: if the evaluation is older
-    # than 30 min mark failed "Die Rechenumgebung war 30 Minuten nicht erreichbar.", else raise
+    # transaction, then writes in a new one. runner raises Unavailable: if its first attempt
+    # started more than 30 min ago (started_at is kept across retries; time in the queue does not
+    # count) mark failed "Die Rechenumgebung war 30 Minuten nicht erreichbar.", else raise
     # jobs.RetryLater(60). Output through sanitize_output; queues index.
 def run_pipeline_job(conn, experiment_id: str, *, settings, runner) -> None
     # run_pipeline without actor (trigger 'pipeline', audit actor None); missing experiment -> return;
-    # keeps the newest 10 done pipeline evaluations per (evaluator, metric, params, scope), deletes older
+    # keeps the newest 10 done automatic evaluations (trigger 'pipeline' or 'api') per (evaluator,
+    # metric, params, scope), deletes older; 'manual' ones are all kept
 def on_evaluation_dead(conn, evaluation_id: str) -> None   # mark failed "Die Auswertung konnte nicht ausgeführt werden."
 ```
 
@@ -836,13 +889,15 @@ def on_evaluation_dead(conn, evaluation_id: str) -> None   # mark failed "Die Au
   "evaluations": [{"id","evaluator_key","evaluator_name","language","evaluator_version","metric_key",
                    "params","scope","trigger","status","status_label","verdict","headline",
                    "output","error","created_at","finished_at","duration_ms",
-                   "requested_by": {"display_name"}|null}],
-      // newest first, <= 60; "output" only for the newest 20 (else null); never "logs"
+                   "requested_by": {"display_name"}|null,"superseded"}],
+      // newest first, <= 60; "output" only for the newest 20 (else null); never "logs";
+      // superseded: a newer evaluation of the same (evaluator, metric, params, scope) exists
   "decisions": [{"id","verdict","verdict_label","rationale","learning",
                  "decided_by": {"id","display_name"}|null,"decided_at"}],     // newest first
   "notes": [{"id","kind","kind_label","body","variant","run_id",
              "created_by": {"id","display_name"}|null,"created_at","can_delete"}],   // newest first, <= 200
   "runs": [/* run dicts, newest first, <= 100 */],
+  "runs_next_after": null,   // cursor for list_runs after the last shown run, null when all are shown
   "run_count": 0, "measurement_count": 0, "batch_count": 0,
   "created_at","updated_at","started_at","ended_at","decided_at",
   "row_version": 3,
@@ -858,7 +913,18 @@ exceptions 500 `"Interner Serverfehler"` (logged with exc_info). Session routes:
 (global gate), X-CSRF-Token on non-GET (global gate), viewing role (else 404 page / JSON
 "Nicht gefunden."). Route parameters are never named `doc_id`; bodies never use the key
 `access_groups`. `app.config['MAX_CONTENT_LENGTH'] = 32 MB`; the CSV route also refuses
-`request.content_length > 20 MB` with 413 "Die Datei ist grösser als 20 MB.".
+`request.content_length > 20 MB` with 413 "Die Datei ist grösser als 20 MB.", and runs at most
+one import per process (`CSV_IMPORTS_PER_PROCESS`): another one meanwhile gets 503 "Es läuft
+gerade schon ein CSV-Import. Bitte in einem Moment noch einmal versuchen." with `Retry-After: 10`
+before its upload is read. A rolled-back transaction, serialization failure or deadlock (SQLSTATE
+40000, 40001 or 40P01: psycopg's TransactionRollback, SerializationFailure, DeadlockDetected,
+matched by sqlstate because psycopg 3 has no common base class) is a 409 "Gleichzeitige Änderung;
+bitte erneut versuchen." (nothing was written); 40002 and 40003 (commit outcome unknown) stay 500. A JSON body nested beyond the parser's recursion limit is a 400 "Die Anfrage ist
+kein gültiges JSON." on every route of the app, not a 500. A wrong method on a module route
+answers like the module: 404 "Nicht gefunden." (JSON on `/api/...`, the 404 page otherwise) for
+callers without a viewing role, a JSON 405 "Diese Methode ist hier nicht erlaubt." with `Allow`
+on `/api/experiments...` for viewers, Flask's own 405 on pages; the rest of the app is
+unchanged.
 
 Pages (blueprint `experiments`): `GET /experiments` (`experiments.list_page`,
 `experiments_list.html`), `GET /experiments/verwaltung` (`experiments.manage_page`,
@@ -874,7 +940,7 @@ Pages (blueprint `experiments`): `GET /experiments` (`experiments.list_page`,
 | POST `` | create_experiment | `experiment` (201) |
 | GET `/meta` | (see below) | `meta` |
 | GET `/search?q=&limit=` | search | `result` |
-| GET `/sample-size?kind=&base=&sd=&mde=&alpha=&power=` | sample_size | `result` |
+| GET `/sample-size?kind=&base=&sd=&mde=&alpha=&power=&comparisons=` | sample_size | `result` |
 | GET/PUT `/preferences` | get_preferences / update_preferences | `preferences` |
 | GET/PUT `/settings` | get_settings / update_settings | `settings` |
 | GET `/<key>` | get_experiment | `experiment` |
@@ -944,6 +1010,10 @@ Machine API (blueprint `experiments_api`, prefix `/api/experiments/v1`, bearer t
 | POST `/experiments/<key>/pipeline` | run_pipeline(trigger='api') | `evaluations` |
 | GET `/experiments/<key>/evaluations?metric=&limit=20` | snapshot evaluations (no logs), filtered | `evaluations` |
 
+After the token check, any other path or method under `/api/experiments/v1` -- the root `/v1`
+and `/v1/` included, which would otherwise route to the session API's `/<key>` -- is a JSON 404
+"Nicht gefunden." (a CI job with a typo is never told to sign in).
+
 Bearer rules (part E): header `Authorization: Bearer kxp_...` only (the session cookie is never
 read); `store.resolve_api_token` -> `UserRepository(conn).get(user_id)`; admitted only if
 `user.is_active and not user.is_locked and not user.must_change_password and can_view(user)`;
@@ -1003,7 +1073,9 @@ Experiment im Bereich <domain> · Typ <type> · Status <status_label> · aktuali
   404 = done; then `forget_index_document`.
 - Error mapping (handlers; exception text only to the log): connection error/timeout, HTTP
   5xx other than 503 -> retry with backoff and message "Knovas nicht erreichbar."; HTTP 429/503
-  -> `RetryLater(Retry-After or 60)`; HTTP 408/409/425 -> retry; other 4xx -> dead,
+  -> `RetryLater(Retry-After or 60)`; HTTP 401/403/408/409/425 -> retry ("Knovas hat die Anfrage
+  vorübergehend nicht angenommen (HTTP <code>)."; 401/403 come from the credentials, e.g. a
+  certificate being renewed, not from the document); other 4xx -> dead,
   `index_state 'error'` "Knovas hat das Dokument abgelehnt (HTTP <code>)."
 
 ## 12. Part D module APIs
@@ -1035,7 +1107,9 @@ class JobQueue:
     def defer(self, job, delay_seconds, reason="") -> bool   # attempts - 1; dead with "Zu lange
                                                             # zurückgestellt." when job older than 24 h
     def fail(self, job, error: str) -> bool      # dead
-        # All four: fenced with WHERE id AND status='running' AND locked_by AND attempts; False =
+    def release(self, job) -> bool               # shutdown hand-back: pending now, attempt not
+                                                 # counted, no 24 h defer cap
+        # All five: fenced with WHERE id AND status='running' AND locked_by AND attempts; False =
         # lease lost (log, do nothing). Putting a job back to pending when another pending job
         # with the same dedupe_key exists closes this one as done ("superseded") instead; a
         # UniqueViolation race takes the same path (savepoint).
@@ -1062,7 +1136,14 @@ class JobWorker(threading.Thread):
     def run_once(self, conn) -> bool
 def start_workers_once(*, settings, connect, handlers, on_dead, maintenance) -> list[JobWorker]
     # at most once per process (guard keyed by os.getpid()): thread A kinds ('index','unindex',
-    # 'pipeline') lease 600 s; thread B kinds ('evaluate',) lease runner_timeout_seconds + 120
+    # 'pipeline') lease 600 s; thread B kinds ('evaluate',) lease runner_timeout_seconds + 120;
+    # registers an atexit hook (_shutdown_at_exit, only in the pid that started the threads, so
+    # not in a child forked by gunicorn --preload) that calls shutdown_workers()
+def stop_workers(workers, *, timeout=5.0) -> int
+    # stop, join up to `timeout` in all, then JobWorker.release_unfinished() (JobQueue.release
+    # over a connection of its own) for every thread still busy; returns how many jobs were
+    # handed back; never raises. cli `worker` uses it too.
+def shutdown_workers(timeout=5.0) -> int      # stop_workers for this process's threads
 ```
 
 `src/experiments/tasks.py`:
@@ -1073,19 +1154,40 @@ def build_handlers(*, settings, index_client, runner) -> tuple[dict, dict, Calla
     #           'unindex' -> indexer.unindex_pointer(conn, client, job.payload['pointer'])
     #           'evaluate' -> service.execute_evaluation(conn, job.payload['evaluation_id'], ...)
     #           'pipeline' -> service.run_pipeline_job(conn, job.payload['experiment_id'], ...)
-    # on_dead: 'index' -> set_index_state('error', "Knovas war nicht erreichbar.");
-    #          'evaluate' -> service.on_evaluation_dead(...); others log
-    # maintenance(conn): re-enqueue 'index' (priority 100) for experiments with index_state in
-    #   ('pending','error') that have no pending/running job, when indexing is on and groups are set
+    # on_dead: 'index' -> skipped while a newer job with its dedupe key is active; else one guarded
+    #          UPDATE (mark_index_dead): 'error' unless the experiment is 'indexed' with indexed_at
+    #          >= the dead job's created_at (a later job uploaded it). Message "Knovas war nicht
+    #          erreichbar." when the last error says unreachable/busy/temporary (401/403 included),
+    #          else "Der Upload wurde nicht abgeschlossen (Details im Protokoll)." (unexpected
+    #          error, expired leases, deferred too long);
+    #          'evaluate' -> service.on_evaluation_dead(...); 'unindex', 'pipeline' log
+    # maintenance(conn), in this order:
+    #   1. whenever an index client exists (also with indexing off): an 'unindex' job (priority
+    #      100, dedupe "unindex:<pointer>") for each orphan -- a pointer in exp_index_documents
+    #      whose experiment is gone and that no pending/running job deletes; after a dead job
+    #      only 1 h later, 24 h after a refusal ("Knovas hat das Löschen abgelehnt"); <= 500 a pass.
+    #      orphan_count(conn) feeds `status`, index_status and doctor.sh;
+    #   2. only with indexing on, a client and groups (or unrestricted): re-enqueue 'index'
+    #      (priority 100) for 'pending' experiments and for 'error' ones whose index_error is in
+    #      RETRYABLE_INDEX_ERRORS (unreachable, upload incomplete, no access group) or NULL, unless
+    #      a job is active -- never a refusal by Knovas or a bad key;
+    #   3. then the switched-off ones ('off' with index_error NULL, not INDEX_OFF_PURGED): set
+    #      'pending' and enqueue at priority 200, <= 500 a pass, row before job slot
 ```
 
 `src/experiments/indexer.py`: `make_index_client(config)`, `pointer_for(settings, domain_key,
 key)`, `render_markdown(snapshot)`, `split_parts(markdown, max_chars=40000)`,
 `document_for(snapshot, settings) -> {"identifier","title","description","path","parts",
 "access_groups"}`, `index_experiment(conn, experiment_id, client, settings)`,
-`unindex_pointer(conn, client, pointer)`, `purge_all(conn, client, settings, *, knovas_listing=True)
--> int` (deletes every pointer in exp_index_documents, then every document Knovas lists under
-the prefix via `client.iter_documents(prefix=...)` when available).
+`unindex_pointer(conn, client, pointer)`, `purge_all(conn, client, settings, *, knovas_listing=True,
+notes=None) -> int` (deletes every pointer in exp_index_documents, then every document Knovas
+lists under the prefix via `client.iter_documents(prefix=...)` when available -- the unsigned
+client sees only documents listed without an access group; a refused listing appends a German
+note to `notes` and ends the listing pass, Knovas unreachable raises Unavailable
+"Knovas konnte die Liste der Experiment-Dokumente nicht liefern; der Befehl kann wiederholt
+werden."). cli `purge-index` first cancels pending index jobs, then -- whatever the outcome --
+sets every experiment without a recorded document to 'off' with `store.INDEX_OFF_PURGED`, and
+exits 1 after a failure, a remaining document or a note.
 
 `src/experiments/runner_client.py`:
 
@@ -1148,7 +1250,13 @@ with `PLATFORM_DB_DSN` or `identity.db.connect()`.
    `PLATFORM_DB_DSN` (if set) else `identity.db.connect`. Everything in
    `app.extensions['experiments'] = {"settings", "search", "index_client", "runner", "workers"}`.
 7. `/api/search`: right after results are obtained (Knovas and test fixtures alike):
-   `results, experiment_hits = experiments_search.split(results)` (always, also when disabled);
+   `results, experiment_hits = experiments_search.split(results)` (always, also when disabled).
+   So that the hits `split` takes out do not leave the page short, Knovas is asked for
+   `max(limit, min(200, limit + min(limit, 20)))` hits (`_search_fetch_size`) and, when experiment
+   hits came back, the page is still short and Knovas filled the question, once more for
+   `min(200, 2 * fetch)` (a failed second question keeps the first answer); the document hits are
+   cut back to `limit`, and the answer's `has_more` says whether Knovas may hold more (it filled
+   the question, documents were cut, or experiment rows displaced some);
    after the grants loop and the OneDrive loop, just before `literal_hits`, merge
    `rows = experiments_search.rows(experiment_hits)` passed through
    `_apply_search_refinement({'results': rows}, query, filters, config)['results']` into
@@ -1159,6 +1267,14 @@ with `PLATFORM_DB_DSN` or `identity.db.connect()`.
 10. `webauth.IdentityGate`: attribute `bearer_endpoints` (frozenset, default empty), method
     `allow_bearer_endpoints(names)`, `guard()` returns None for them.
 11. `admin.ASSIGNABLE_ROLES` gains `experimenter`, `experiments_manager`.
+12. `identity.webauth.client_ip()` is the address recorded for a session (`sessions.ip`) and in
+    the module's audit rows (`request_meta["ip"]`): the X-Forwarded-For entry
+    `PLATFORM_TRUSTED_PROXY_HOPS` places from the right (read per request; default 1, negative
+    = 0), the connection's address when the header has fewer entries or the entry is not an
+    address; never the leftmost entry, which the client writes. Root `docker-compose.yml` sets
+    `${PLATFORM_TRUSTED_PROXY_HOPS:-2}` for docbridge-web: host nginx and docbridge-web-nginx
+    both append (`$proxy_add_x_forwarded_for`); 1 when docbridge-web-nginx is published directly,
+    0 without a proxy (knovas.env.example, docs/deployment/host-nginx-internal.md).
 
 ## 14. UI (part F)
 
@@ -1211,7 +1327,8 @@ dialog: Bereich, Typ (domain + global), Titel, Hypothese, the type's fields; POS
   laden").
 - Varianten (editable table: key, name, description, control radio, allocation; `has_data`
   rows cannot be removed) and Metriken (assign metric with role, guardrail op/value; small
-  sample-size calculator for draft experiments via `/sample-size`).
+  sample-size calculator "Stichprobe planen" until the experiment starts, via `/sample-size`,
+  with `comparisons` = variants − 1 when there are more than two, showing `alpha_used`).
 - Messwerte: per metric a card with aggregates per variant (n, estimate, interval if an
   evaluation has one), guardrail chip, week/day/month line chart (`/timeseries`); forms
   "Messwert erfassen" (labels from the kind; select of level labels when the metric has levels),
@@ -1235,8 +1352,8 @@ dialog: Bereich, Typ (domain + global), Titel, Hypothese, the type's fields; POS
 - Aktivität.
 
 `/experiments/verwaltung` tabs: "Bereiche" [manage] (list, create with note "Neue Bereiche
-starten mit dem Typ «Allgemeine Hypothese».", edit, archive, export (download .yaml), import
-(textarea), "Pakete"), "Typen" [manage] (per domain; YAML/JSON editor textarea; "Prüfen" ->
+starten mit dem Typ «Allgemeine Hypothese» und den allgemeinen Metriken des Grundpakets …", edit, archive, export (download .yaml), import
+(textarea), "Pakete"), "Typen" [manage] (per domain; YAML/JSON editor textarea, opened with the type's `definition_yaml`; "Prüfen" ->
 `/types/validate` showing field errors; "Als neue Version speichern"; "Kopieren nach …"; version
 list; read-only preview of fields/states/transitions), "Metriken" [manage] (create/edit incl.
 levels, min, max, decimals), "Auswerter" [manage] (list incl. builtins; create/edit python/julia
@@ -1244,7 +1361,7 @@ with code textarea pre-filled from a template returning every contract key; Tab 
 spaces; "Testen" against experiment + metric shows output + logs; runner status), "Zugangsschlüssel"
 (every viewer: own tokens, create shows the token once with copy button and curl + Python SDK
 example, revoke; checkbox "Experimente in meiner normalen Suche zeigen" -> `/preferences`),
-"Index" [manage] (counts, jobs, failures, access warnings, "Alles neu indexieren", global
+"Index" [manage] (counts, `orphans` when > 0, jobs, failures, access warnings, "Alles neu indexieren", global
 checkbox "Experimente in der normalen Suche zeigen" -> `/settings`).
 
 `app.js`: in `_onResultsClick` and the results keydown handler, when
@@ -1263,13 +1380,18 @@ snippet escaped, no file badge. Keep class method names unique (test_frontend_st
   packages into the depot's default environment at build: `RUN JULIA_DEPOT_PATH=/opt/julia-depot
   julia --startup-file=no -e 'using Pkg; Pkg.add(["JSON3","Distributions","HypothesisTests",
   "StatsBase","DataFrames"]); Pkg.precompile()'` (default optimisation level; the harness runs
-  with default flags too), then `chmod -R a+rX /opt/julia-depot`; `useradd -u 10001 runner`;
-  `mkdir -p /run/experiments-runner && chown 10001:10001 /run/experiments-runner`; `USER 10001`;
+  with default flags too), then `chmod -R a+rX /opt/julia-depot`; `groupadd --gid 10101 runner`,
+  `useradd --uid 10101 --gid 10101 runner` (a uid no other image of the stack uses:
+  RemoteController is 10001, and RLIMIT_NPROC counts per uid across the host);
+  `mkdir -p /run/experiments-runner && chown 10101:10101 /run/experiments-runner`; `USER 10101`;
   `CMD ["/opt/venv/bin/python3", "-I", "/app/runner.py"]`. No `ENV JULIA_DEPOT_PATH` with a
   shared writable entry.
 - `runner.py` (stdlib only): listens on `RUNNER_LISTEN` (default
   `unix:/run/experiments-runner/runner.sock`; `tcp:0.0.0.0:8090` for development), socket mode
-  0660. Exits (so the container restarts) if the socket file disappears. `GET /health` ->
+  0660. Exits (so the container restarts) if the socket file disappears. With
+  `RUNNER_SOCKET_DIR_EXCLUSIVE` true (default for `/run/experiments-runner`; compose sets it) the
+  socket directory is the runner's alone and is emptied at start, so nothing a job planted there
+  outlives the restart it causes. `GET /health` ->
   `{"ok": true, "languages": {"python": "...", "julia": "..."}, "busy": n, "max_concurrent": n}`.
   `POST /v1/run` `{"language", "code" (<= 200000), "data" (object), "timeout_seconds"}`
   (body <= 64 MB) -> 200 `{"ok","output","error","logs","duration_ms"}`; 400 bad request; 503
@@ -1281,7 +1403,9 @@ snippet escaped, no file badge. Keep class method names unique (test_frontend_st
   JULIA_DEPOT_PATH=<jobdir>/depot:/opt/julia-depot:, JULIA_LOAD_PATH=@:@v#.#:@stdlib (packages
   resolve from the read-only depot's default environment); preexec rlimits CPU = timeout + 5 s,
   AS 1.5 GB for Python and 6 GB for Julia (which reserves address space; plus
-  `--heap-size-hint=1G`), FSIZE 64 MB, NOFILE 256, NPROC 128, CORE 0, and oom_score_adj 1000;
+  `--heap-size-hint=1G`), FSIZE 64 MB, NOFILE 256, NPROC 128 (the kernel counts it per uid on
+  the host: all jobs, the server and a second stack's runner share it), CORE 0, and
+  oom_score_adj 1000;
   wall-clock timeout -> SIGKILL the process group; after every job SIGKILL every process of the
   runner uid whose session id is neither the server's nor a running job's; stdout+stderr
   captured to <= 64 KB; `output.json` opened with `O_NOFOLLOW`, must be a regular file <= 8 MB;
@@ -1297,13 +1421,17 @@ snippet escaped, no file badge. Keep class method names unique (test_frontend_st
 `docker-compose.yml`: service `experiments-runner`, `profiles: [experiments]`, build
 `./KnovasPlatform/components/experiments_runner`, image `knovas-experiments-runner:0.1.0`,
 `network_mode: none`, `volumes: [experiments_runner_socket:/run/experiments-runner]`,
-`user: "10001:10001"`, `read_only: true`, `tmpfs: ["/tmp:size=1g,mode=1777"]`, `cap_drop:
+`user: "10101:10101"`, `read_only: true`, `tmpfs: ["/tmp:size=1g,mode=1777"]`, `cap_drop:
 [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 256`, `mem_limit:
-${EXPERIMENTS_RUNNER_MEMORY:-3g}`, `cpus: ${EXPERIMENTS_RUNNER_CPUS:-2}`, environment
-`RUNNER_MAX_CONCURRENT`, `RUNNER_MAX_SECONDS`, healthcheck (python over the socket), `restart:
-unless-stopped`. docbridge-web mounts `experiments_runner_socket:/run/experiments-runner` (always;
-harmless when the profile is off). New named volume `experiments_runner_socket`. No
-`container_name`, no `${X:?}`, no plain `depends_on` on the profiled service.
+${EXPERIMENTS_RUNNER_MEMORY:-3g}`, `cpus: ${EXPERIMENTS_RUNNER_CPUS:-2}` (at most the host's
+CPUs; setup.sh writes 1 on a 1-CPU host when knovas.env has no value, doctor.sh checks a set
+one), environment `RUNNER_MAX_CONCURRENT`, `RUNNER_SOCKET_DIR_EXCLUSIVE: "true"`,
+`RUNNER_MAX_SECONDS: ${EXPERIMENTS_RUNNER_TIMEOUT:-90}`, healthcheck (python over the socket),
+`restart: unless-stopped`. docbridge-web mounts `experiments_runner_socket:/run/experiments-runner:ro`
+(always; harmless when the profile is off). New named volume `experiments_runner_socket`: a
+tmpfs (`size=1m,nr_inodes=1024,uid=10101,gid=10101,mode=0770,nosuid,nodev,noexec`; a volume
+created with another uid must be removed once). No `container_name`, no `${X:?}`, no plain
+`depends_on` on the profiled service.
 
 CI: runner pytest (Python 3.11); compose config with the fixture env still passes; `docker
 compose --env-file scripts/lib/fixtures/knovas.env.fixture --profile experiments build

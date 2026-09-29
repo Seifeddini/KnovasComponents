@@ -13,6 +13,7 @@ Full guide: [host-nginx-internal.md](host-nginx-internal.md).
 
 - [ ] `cp knovas.env.example knovas.env` — `KNOVAS_API_URL`, `KNOVAS_PLATFORM_URL=https://<fqdn>`, `KNOVAS_DOCUMENTS_PATH`, `PLATFORM_ADMIN_EMAIL`
 - [ ] No `COMPANY_LOGIN_*` in `knovas.env` (per-user identity is on by default)
+- [ ] `PLATFORM_TRUSTED_PROXY_HOPS` not set, or `2` (host nginx in front of the stack; see [client addresses](host-nginx-internal.md#client-addresses-behind-two-proxies))
 - [ ] `./scripts/setup.sh && ./scripts/start.sh` (binds `127.0.0.1` only)
 - [ ] First admin password: `PLATFORM_ADMIN_PASSWORD` in `knovas.env`, or read `/app/data/platform-admin-bootstrap` in the container; `./scripts/admin-password.sh` resets it
 - [ ] `curl -fsS http://127.0.0.1:8081/health` → `ok`

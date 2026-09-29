@@ -940,7 +940,7 @@ class RecordingStore:
         self.calls.append(("set_index_state", experiment_id, state, error))
 
     def experiments_for_reindex(self, conn, *, domain_id=None, type_id=None, states=None,
-                                switched_off=False):
+                                switched_off=False, include_purged=False):
         self.calls.append(("experiments_for_reindex", tuple(states or ())))
         return list(self.reindex_ids)
 
@@ -1229,7 +1229,7 @@ class CliStore(RecordingStore):
         self.pointers.remove(pointer)
 
     def experiments_for_reindex(self, conn, *, domain_id=None, type_id=None, states=None,
-                                switched_off=False):
+                                switched_off=False, include_purged=False):
         self.calls.append(("experiments_for_reindex", tuple(states or ())))
         if states == ("pending",):
             return ["p1"]

@@ -257,8 +257,10 @@ evaluate(client, "MKT-58")
 | Sales (`SAL`) | Playbook test, Pricing test | reply rate, meeting rate, pilot conversion, win rate, unsubscribe rate, pipeline value, deal value, cycle days | CSV (weekly per variant), manual entry |
 | Product (`PRD`) | Usability test, Feature rollout | task success, SUS, time to value, satisfaction, preferred option | manual entry, CSV; interviews as notes |
 
-A global `core` pack provides the generic type "Allgemeine Hypothese" (every new domain
-starts with it) and two commented example evaluators, one in Python and one in Julia.
+A global `core` pack provides the generic type "Allgemeine Hypothese" and five generic
+metrics -- success rate, events per period, duration in seconds, a mean score and a 1-5
+rating (`generic_*`) -- so every new domain can measure from its first experiment, and two
+commented example evaluators, one in Python and one in Julia.
 Connectors to LinkedIn Ads, GA4, HubSpot or Salesforce are not part of the first version.
 
 ## Search and the learnings library

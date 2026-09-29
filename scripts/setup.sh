@@ -78,6 +78,29 @@ source "$ROOT_DIR/scripts/lib/stack_identity.sh"
 echo "==> Stack identity (project name and host ports)"
 knovas_prepare_stack "$KNOVAS_ENV" "$ROOT_DIR"
 
+# The experiments-runner's CPU limit defaults to 2, and Docker refuses to
+# create a container whose limit exceeds the host's CPUs -- start.sh would stop
+# there once the "experiments" profile is on. On a 1-CPU host, write the CPU
+# count unless knovas.env already sets a value (doctor.sh checks one it sets).
+RUNNER_CPUS="$(read_env_var EXPERIMENTS_RUNNER_CPUS "" "$KNOVAS_ENV")"
+HOST_CPUS="$(nproc 2>/dev/null || echo 0)"
+if [[ -z "$RUNNER_CPUS" && "$HOST_CPUS" =~ ^[0-9]+$ ]] && (( HOST_CPUS >= 1 && HOST_CPUS < 2 )); then
+  knovas_upsert_env "$KNOVAS_ENV" EXPERIMENTS_RUNNER_CPUS "$HOST_CPUS"
+  echo "    EXPERIMENTS_RUNNER_CPUS=$HOST_CPUS written to knovas.env (this host has $HOST_CPUS CPU)."
+fi
+
+# PLATFORM_TRUSTED_PROXY_HOPS defaults to 2 in docker-compose.yml: host nginx
+# in front of docbridge-web-nginx. With docbridge-web-nginx published on the
+# network (DOCBRIDGE_WEB_BIND not loopback) and no value set, only one proxy
+# stands in front of the app and 2 would let every browser choose the address
+# its session and audit entries are recorded with -- write the safe 1 instead.
+WEB_BIND="$(read_env_var DOCBRIDGE_WEB_BIND "" "$KNOVAS_ENV")"
+PROXY_HOPS="$(read_env_var PLATFORM_TRUSTED_PROXY_HOPS "" "$KNOVAS_ENV")"
+if [[ -n "$WEB_BIND" && -z "$PROXY_HOPS" ]] && ! knovas_is_loopback_bind "$WEB_BIND"; then
+  knovas_upsert_env "$KNOVAS_ENV" PLATFORM_TRUSTED_PROXY_HOPS 1
+  echo "    PLATFORM_TRUSTED_PROXY_HOPS=1 written to knovas.env (docbridge-web-nginx is published on $WEB_BIND)."
+fi
+
 echo "==> Expanding knovas.env"
 bash "$ROOT_DIR/scripts/lib/expand_knovas_env.sh" "$KNOVAS_ENV"
 
