@@ -20,6 +20,11 @@ read_knovas() {
 KNOVAS_API_URL="$(read_knovas KNOVAS_API_URL)"
 KNOVAS_PLATFORM_URL="$(read_knovas KNOVAS_PLATFORM_URL)"
 KNOVAS_DOCUMENTS_PATH="$(read_knovas KNOVAS_DOCUMENTS_PATH)"
+# The other place documents can be: a OneDrive or SharePoint folder, named by
+# the address the browser shows for it, read by an Entra app.
+KNOVAS_DOCUMENTS_URL="$(read_knovas KNOVAS_DOCUMENTS_URL)"
+M365_CLIENT_ID="$(read_knovas M365_CLIENT_ID)"
+M365_CLIENT_SECRET="$(read_knovas M365_CLIENT_SECRET)"
 PLATFORM_ADMIN_EMAIL="$(read_knovas PLATFORM_ADMIN_EMAIL)"
 KNOVAS_TENANT_ID="$(read_knovas KNOVAS_TENANT_ID)"
 KNOVAS_IDENTIFIER_PREFIX="$(read_knovas KNOVAS_IDENTIFIER_PREFIX tenant)"
@@ -39,13 +44,46 @@ COMPANY_LOGIN_PASSWORD="$(read_knovas COMPANY_LOGIN_PASSWORD)"
 missing=()
 [[ -z "$KNOVAS_API_URL" ]] && missing+=("KNOVAS_API_URL")
 [[ -z "$KNOVAS_PLATFORM_URL" ]] && missing+=("KNOVAS_PLATFORM_URL")
-[[ -z "$KNOVAS_DOCUMENTS_PATH" ]] && missing+=("KNOVAS_DOCUMENTS_PATH")
+if [[ -z "$KNOVAS_DOCUMENTS_PATH" && -z "$KNOVAS_DOCUMENTS_URL" ]]; then
+  missing+=("KNOVAS_DOCUMENTS_PATH or KNOVAS_DOCUMENTS_URL")
+fi
 # docker-compose.yml refuses to start without it; failing here names the file
 # to edit instead of surfacing as a compose interpolation error at `up`.
 [[ -z "$PLATFORM_ADMIN_EMAIL" ]] && missing+=("PLATFORM_ADMIN_EMAIL")
 if (( ${#missing[@]} > 0 )); then
   echo "Missing required values in $KNOVAS_ENV: ${missing[*]}" >&2
   exit 1
+fi
+
+# One source of documents. Both set would leave it to whichever component
+# looked first; say so instead.
+DOCUMENT_SOURCE=files
+if [[ -n "$KNOVAS_DOCUMENTS_URL" ]]; then
+  if [[ -n "$KNOVAS_DOCUMENTS_PATH" ]]; then
+    echo "Both KNOVAS_DOCUMENTS_PATH and KNOVAS_DOCUMENTS_URL are set in $KNOVAS_ENV." >&2
+    echo "Documents come from one place: keep the folder on this server (PATH) or the" >&2
+    echo "OneDrive/SharePoint folder (URL), and remove the other." >&2
+    exit 1
+  fi
+  case "$KNOVAS_DOCUMENTS_URL" in
+    https://*.sharepoint.*) ;;
+    *)
+      echo "KNOVAS_DOCUMENTS_URL must be a OneDrive or SharePoint folder address," >&2
+      echo "https://<firm>.sharepoint.com/... or https://<firm>-my.sharepoint.com/...," >&2
+      echo "copied from the browser's address bar while the folder is open." >&2
+      exit 1
+      ;;
+  esac
+  m365_missing=()
+  [[ -z "$M365_CLIENT_ID" ]] && m365_missing+=("M365_CLIENT_ID")
+  [[ -z "$M365_CLIENT_SECRET" ]] && m365_missing+=("M365_CLIENT_SECRET")
+  if (( ${#m365_missing[@]} > 0 )); then
+    echo "KNOVAS_DOCUMENTS_URL needs the Entra app that reads it: ${m365_missing[*]} in $KNOVAS_ENV." >&2
+    echo "The app needs the Microsoft Graph application permission Sites.Read.All" >&2
+    echo "with admin consent. See docs/microsoft-365.md." >&2
+    exit 1
+  fi
+  DOCUMENT_SOURCE=m365
 fi
 
 # Both doors open is the one configuration the Platform will not start in, and
@@ -116,7 +154,8 @@ fi
 # session cookie, a Cortex fixture path, a tuned worker count -- had nowhere to
 # put it, because .env.generated is rewritten on every setup.sh.
 CONSUMED_KEYS="
-KNOVAS_API_URL KNOVAS_PLATFORM_URL KNOVAS_DOCUMENTS_PATH KNOVAS_TENANT_ID
+KNOVAS_API_URL KNOVAS_PLATFORM_URL KNOVAS_DOCUMENTS_PATH KNOVAS_DOCUMENTS_URL
+M365_CLIENT_ID M365_CLIENT_SECRET M365_TENANT_ID KNOVAS_TENANT_ID
 KNOVAS_IDENTIFIER_PREFIX KNOVAS_SHARE_UNC WEB_SECRET_KEY IDENTITY_ENABLED
 COMPANY_LOGIN_NAME COMPANY_LOGIN_PASSWORD PLATFORM_ADMIN_EMAIL
 PLATFORM_ADMIN_PASSWORD PLATFORM_ADMIN_BOOTSTRAP_PATH PLATFORM_DB_NAME
@@ -181,6 +220,16 @@ EOF
 
 passthrough_overrides rc >> "$RC_TMP"
 
+# The Microsoft 365 credentials are NOT written into these files: they are
+# world-readable (644, see below). docker-compose.yml hands them to
+# RemoteController alone, straight from knovas.env. What the Platform needs is
+# only the mode, and where RemoteController publishes the web links.
+M365_LINES=""
+if [[ "$DOCUMENT_SOURCE" == "m365" ]]; then
+  M365_LINES="DOCUMENT_SOURCE=m365
+SEARCH_ENRICHMENT_PATH=/var/rc-state/m365/links.jsonl"
+fi
+
 OPEN_UNC_LINE=""
 if [[ -n "$KNOVAS_SHARE_UNC" ]]; then
   OPEN_UNC_LINE="OPEN_UNC_ROOT=${KNOVAS_SHARE_UNC}"
@@ -224,6 +273,7 @@ AUTODOC_MOUNT_PATH=${KNOVAS_DOCUMENTS_PATH}
 AUTODOC_IDENTIFIER_PREFIX=${KNOVAS_IDENTIFIER_PREFIX}
 SEARCH_CONTEXT_STORE_PATH=/var/rc-state/search_context
 ${OPEN_UNC_LINE}
+${M365_LINES}
 EOF
 
 passthrough_overrides platform >> "$KP_TMP"

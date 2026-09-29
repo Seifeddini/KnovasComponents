@@ -138,3 +138,23 @@ Scanned PDFs without a text layer are OCR'd automatically when `RC_PDF_OCR_ENABL
 **Docker build:** `knovas-extract` 0.3.0 (OCR) may not be on PyPI yet. The Dockerfile installs it from `git+https://github.com/Seifeddini/knovas-extract-python.git@main` by default. After PyPI publish, use `docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller` to install from PyPI instead.
 
 Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
+
+## Microsoft 365 (OneDrive / SharePoint) as the document source
+
+| Variable | Meaning |
+|----------|---------|
+| `M365_FOLDER_URL` | The folder's address as the browser shows it. When set, the folder **is** the watch root: `/mnt/documents` stands for the folder, `/mnt/documents/Akten` for its subfolder `Akten`, so sync bodies and `/discover` work unchanged. |
+| `M365_CLIENT_ID` / `M365_CLIENT_SECRET` | Entra app with the Microsoft Graph application permission `Sites.Read.All` (admin consent). |
+| `M365_TENANT_ID` | Optional; derived from the address (`contoso.sharepoint.com` -> `contoso.onmicrosoft.com`). |
+| `M365_STATE_DIR` | Default `<dir of RC_SYNC_STATE_PATH>/m365`: resolution cache, item inventory, delta position. |
+| `M365_LINKS_PATH` | Default `$M365_STATE_DIR/links.jsonl`: identifier -> web URL for the Platform. |
+
+Files are fetched from Microsoft Graph only when new or changed, into a temporary
+directory removed after upload; the server keeps no copy. The inventory follows
+Graph's delta feed by item id (delta carries no paths; a folder rename reports
+the folder alone). A failed refresh stops the cycle before anything is pruned.
+Routes: `/discover` lists the folder; `POST /m365/preview` returns Graph's
+embeddable viewer URL for a published identifier. Diagnose with
+`python -m m365.check`. In the unified stack these come from
+`KNOVAS_DOCUMENTS_URL` / `M365_*` in `knovas.env`; see `docs/microsoft-365.md`.
+The legacy `ONEDRIVE_*` mirror is not started while `M365_FOLDER_URL` is set.

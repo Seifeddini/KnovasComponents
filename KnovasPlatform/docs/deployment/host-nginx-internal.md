@@ -55,12 +55,14 @@ all variables.
 ### Client addresses behind two proxies
 
 A request passes two nginx layers: host nginx, then `docbridge-web-nginx` in
-Docker (`127.0.0.1:8081`), then the app. Both append the address they saw to
-`X-Forwarded-For` (`$proxy_add_x_forwarded_for`), so the header reaching the
-app ends with the user's address and then the one host nginx connected from
-(the Docker network's gateway). The address recorded with each session and in
-the audit entries of Experimente is the entry `PLATFORM_TRUSTED_PROXY_HOPS`
-places from the right; everything further left is whatever the client sent.
+Docker (`127.0.0.1:8081`), then the app. Host nginx sets `X-Forwarded-For` to
+the address it saw (the template in `deploy/host-nginx`; older copies of it
+appended with `$proxy_add_x_forwarded_for`), and `docbridge-web-nginx` appends
+the address host nginx connected from (the Docker network's gateway). The
+header reaching the app therefore ends with the user's address and then the
+gateway. The address recorded with each session and in the audit entries of
+Experimente is the entry `PLATFORM_TRUSTED_PROXY_HOPS` places from the right;
+anything further left is whatever the client sent.
 
 | Setup | `PLATFORM_TRUSTED_PROXY_HOPS` |
 |-------|-------------------------------|
@@ -93,9 +95,14 @@ curl -fsS http://127.0.0.1:8081/health
 
 ## 3. Configure host nginx
 
-Copy the template and edit hostname + certificate paths:
+With a public name and Let's Encrypt, `sudo ./scripts/host-https.sh <fqdn> <email>`
+(repo root) does this whole step. With internal PKI, by hand:
+
+Copy the template and edit hostname + certificate paths. Copy the login throttle's
+zone too; the site refers to it:
 
 ```bash
+sudo cp deploy/host-nginx/knovas-login-limit.conf /etc/nginx/conf.d/
 sudo cp deploy/host-nginx/knovas-platform.conf.example /etc/nginx/sites-available/knovas
 sudo nano /etc/nginx/sites-available/knovas
 ```

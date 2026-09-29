@@ -34,6 +34,12 @@ WEB_SESSION_COOKIE_SECURE=false
 PLATFORM_TRUSTED_PROXY_HOPS=1
 ```
 
+**Documents in OneDrive or SharePoint instead?** Replace the `KNOVAS_DOCUMENTS_PATH`
+line with `KNOVAS_DOCUMENTS_URL=<the folder's address from the browser>` plus
+`M365_CLIENT_ID` and `M365_CLIENT_SECRET`, and skip step 3. Nothing is copied to
+the server; results open and preview in OneDrive/SharePoint. See
+[../microsoft-365.md](../microsoft-365.md).
+
 `KNOVAS_DOCUMENTS_PATH` is the **host** folder of the Akten (create it in the next step). `DOCBRIDGE_WEB_BIND=0.0.0.0` is what makes the UI reachable at `http://192.168.1.15:8081` from another machine; without it Docker listens on loopback only. A second checkout on this server keeps that bind and moves the port (8082); set `KNOVAS_PLATFORM_URL` to that same IP with the new port, or let setup rewrite the port if the URL already has one. `PLATFORM_TRUSTED_PROXY_HOPS=1` says that only the stack's own nginx stands in front of the app here; the default, 2, expects host nginx in front of it as well and would let a browser choose the address its session is recorded with.
 
 ## 3. Generate the files (once)

@@ -64,6 +64,14 @@ class DeltaTokenInvalid(RuntimeError):
     """
 
 
+def _json_or_empty(resp: requests.Response) -> dict[str, Any]:
+    try:
+        data = resp.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 class GraphClient:
     """Application-only Graph client (client_credentials grant)."""
 
@@ -77,6 +85,7 @@ class GraphClient:
         max_attempts: int = 8,
         backoff: float = 2.0,
         jitter: float = 1.0,
+        adapter_retries: int = 4,
     ) -> None:
         if not (tenant_id and client_id and client_secret):
             raise ValueError(
@@ -89,6 +98,7 @@ class GraphClient:
         self._max_attempts = max(1, int(max_attempts))
         self._backoff = max(0.0, float(backoff))
         self._jitter = max(0.0, float(jitter))
+        self._adapter_retries = max(0, int(adapter_retries))
 
         self._token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
@@ -98,7 +108,7 @@ class GraphClient:
     def _build_session(self) -> requests.Session:
         session = requests.Session()
         retry = Retry(
-            total=4,
+            total=self._adapter_retries,
             backoff_factor=self._backoff,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET", "POST"],
@@ -176,6 +186,7 @@ class GraphClient:
         *,
         stream: bool = False,
         timeout: Optional[float] = None,
+        json_body: Optional[dict[str, Any]] = None,
     ) -> requests.Response:
         # Never attach the Bearer token to a non-Graph host. Guards against a
         # persisted/forged nextLink or deltaLink pointing off to an attacker.
@@ -189,8 +200,14 @@ class GraphClient:
         timeout = timeout if timeout is not None else self._request_timeout
         for attempt in range(1, self._max_attempts + 1):
             try:
+                extra = {"json": json_body} if json_body is not None else {}
                 resp = self._session.request(
-                    method, url, headers=self._headers(), stream=stream, timeout=timeout
+                    method,
+                    url,
+                    headers=self._headers(),
+                    stream=stream,
+                    timeout=timeout,
+                    **extra,
                 )
             except requests.RequestException:
                 if attempt >= self._max_attempts:
@@ -210,6 +227,16 @@ class GraphClient:
         return last
 
     # ---------------------------------------------------------------- public
+    def get_json(self, url: str) -> tuple[int, dict[str, Any]]:
+        """GET a Graph URL; returns (status, parsed body or {})."""
+        resp = self._request("GET", url)
+        return resp.status_code, _json_or_empty(resp)
+
+    def post_json(self, url: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """POST JSON to a Graph URL; returns (status, parsed body or {})."""
+        resp = self._request("POST", url, json_body=body)
+        return resp.status_code, _json_or_empty(resp)
+
     def test_drive(self, drive_id: str) -> None:
         resp = self._request("GET", f"{GRAPH_BASE_URL}/drives/{drive_id}")
         if resp.status_code != 200:
@@ -320,7 +347,11 @@ class GraphClient:
         return written
 
     def delta_pages(
-        self, drive_id: str, delta_url: Optional[str] = None
+        self,
+        drive_id: str,
+        delta_url: Optional[str] = None,
+        *,
+        select: Optional[str] = None,
     ) -> Iterator[tuple[list[dict], Optional[str]]]:
         """Iterate Graph ``/root/delta`` pages.
 
@@ -335,11 +366,14 @@ class GraphClient:
                 call again with ``delta_url=None`` to restart enumeration.
             GraphRequestError: for any other non-200 Graph response.
         """
-        url: Optional[str] = (
-            delta_url
-            if delta_url
-            else f"{GRAPH_BASE_URL}/drives/{drive_id}/root/delta"
-        )
+        if delta_url:
+            url: Optional[str] = delta_url
+        else:
+            url = f"{GRAPH_BASE_URL}/drives/{drive_id}/root/delta"
+            if select:
+                # Graph keeps the query in the links it hands back, so the
+                # narrowed item shape holds for every later page and cycle.
+                url += f"?$select={quote(select, safe=',')}"
         seen: set[str] = set()
         pages = 0
         while url:

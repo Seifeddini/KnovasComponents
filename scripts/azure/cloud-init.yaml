@@ -1,0 +1,46 @@
+#cloud-config
+# First boot of a Knovas client server (see docs/azure-server.md).
+# Installs what the stack needs and nothing else; the stack itself is
+# configured and started by hand, because it needs the client's certificates
+# and Microsoft 365 app secret, which never belong in a VM's custom data.
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - openssl
+  - nginx
+  - certbot
+  - unattended-upgrades
+
+write_files:
+  # Security updates install by themselves; a reboot they need happens at
+  # night. Every container has restart: unless-stopped and comes back.
+  - path: /etc/apt/apt.conf.d/52knovas-unattended
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "03:30";
+  # Container logs are bounded, or a chatty service fills the OS disk.
+  - path: /etc/docker/daemon.json
+    content: |
+      {"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "5"}}
+
+runcmd:
+  # Docker Engine and the Compose plugin from Docker's own repository: the
+  # stack needs a current Compose (nested ${...} defaults, tmpfs options).
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - sh -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list'
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable --now docker
+  - usermod -aG docker knovas
+  # No nginx welcome page on the bare IP; scripts/host-https.sh adds the one site.
+  - rm -f /etc/nginx/sites-enabled/default
+  - systemctl reload nginx
+  - git clone https://github.com/Seifeddini/KnovasComponents.git /opt/knovas
+  - mkdir -p /opt/knovas/certs
+  - chown -R knovas:knovas /opt/knovas
+  - touch /var/lib/cloud/instance/knovas-ready

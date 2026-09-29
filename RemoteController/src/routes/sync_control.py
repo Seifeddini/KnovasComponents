@@ -68,13 +68,19 @@ def sync_status():
             if request.args.get("deep_scan") == "1":
                 from sync.sync_executor import scan_document_inventory, _max_scan_entries_per_cycle
 
+                from m365.source import M365Error
+
                 sync_cfg = load_sync_config()
                 max_scan = _max_scan_entries_per_cycle(sync_cfg) or 5000
-                status["document_sync"] = scan_document_inventory(
-                    body, sync_config=sync_cfg, max_scan_entries=max_scan
-                ).as_dict()
-                if max_scan > 0:
-                    status["document_sync"]["scan_capped_at"] = max_scan
+                try:
+                    status["document_sync"] = scan_document_inventory(
+                        body, sync_config=sync_cfg, max_scan_entries=max_scan
+                    ).as_dict()
+                except M365Error as exc:
+                    status["document_sync_error"] = str(exc)
+                else:
+                    if max_scan > 0:
+                        status["document_sync"]["scan_capped_at"] = max_scan
             else:
                 store = SyncStateStore()
                 try:

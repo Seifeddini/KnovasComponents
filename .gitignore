@@ -83,3 +83,6 @@ secrets/
 # Agent scratch (task briefs, reports)
 .superpowers/
 
+
+# Stand-in for KNOVAS_DOCUMENTS_PATH when documents are in OneDrive/SharePoint
+/data/

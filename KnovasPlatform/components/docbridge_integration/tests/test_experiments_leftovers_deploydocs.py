@@ -55,22 +55,20 @@ def _compose_hops() -> int:
     return int(match.group(1))
 
 
-def _appending_proxies() -> list:
+def _adding_proxies() -> list:
     """The nginx layers between the user and gunicorn in the documented
-    production setup, each checked to append (never replace) the header."""
+    production setup, each checked to add exactly one entry to the header:
+    host nginx sets it to the address it saw, docbridge-web-nginx appends."""
     nginx = _service(_read(COMPOSE), "docbridge-web-nginx")
     mounted = re.search(r"\./(\S+\.conf):/etc/nginx/conf\.d/default\.conf", nginx)
     assert mounted, "docbridge-web-nginx mounts no config"
-    configs = [HOST_NGINX, REPO / mounted.group(1)]
-    for config in configs:
+    for config, value in ((HOST_NGINX, "$remote_addr"), (REPO / mounted.group(1), "$proxy_add_x_forwarded_for")):
         text = _read(config)
         passes = re.findall(r"^\s*proxy_pass\s", text, re.M)
-        appends = re.findall(
-            r"^\s*proxy_set_header\s+X-Forwarded-For\s+\$proxy_add_x_forwarded_for;", text, re.M)
-        others = re.findall(
-            r"^\s*proxy_set_header\s+X-Forwarded-For\s+(?!\$proxy_add_x_forwarded_for;)", text, re.M)
-        assert passes and len(appends) == len(passes) and not others, config
-    return configs
+        headers = re.findall(r"^\s*proxy_set_header\s+X-Forwarded-For\s+(\S+);", text, re.M)
+        # One header line per location or one for the server block, never another value.
+        assert passes and headers and set(headers) == {value}, (config, headers)
+    return [HOST_NGINX, REPO / mounted.group(1)]
 
 
 @pytest.fixture
@@ -93,15 +91,17 @@ def ip_in(monkeypatch):
 # -- PLATFORM_TRUSTED_PROXY_HOPS ------------------------------------------------------
 
 
-def test_compose_trusts_exactly_the_proxies_that_append():
+def test_compose_trusts_exactly_the_proxies_that_add_an_entry():
     # Too high lets a browser choose its address, too low records a proxy.
-    assert _compose_hops() == len(_appending_proxies()) == 2
+    assert _compose_hops() == len(_adding_proxies()) == 2
 
 
 def test_behind_both_proxies_the_users_address_is_recorded(ip_in):
     hops = _compose_hops()
-    # What reaches gunicorn: the browser's own entry, host nginx's (the
-    # user), docbridge-web-nginx's (the Docker gateway host nginx came from).
+    # What reaches gunicorn: host nginx's entry (the user) and
+    # docbridge-web-nginx's (the Docker gateway host nginx came from). An
+    # older host nginx template appended, keeping the browser's own entry in
+    # front; the result is the same.
     assert ip_in("203.0.113.7, 172.18.0.1", hops=hops) == "203.0.113.7"
     assert ip_in("6.6.6.6, 203.0.113.7, 172.18.0.1", hops=hops) == "203.0.113.7"
     # The code's own default, which the compose value replaces.

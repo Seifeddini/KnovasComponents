@@ -46,6 +46,9 @@ SCHEDULER_RUNNING_STATES = frozenset({
 #: into a gunicorn timeout (M4).
 STATUS_TIMEOUT_SECONDS = 5.0
 DISCOVER_TIMEOUT_SECONDS = 10.0
+#: A preview is someone waiting in front of an empty dialog; Graph answers in
+#: well under a second, and past this the dialog falls back to the indexed text.
+PREVIEW_TIMEOUT_SECONDS = 8.0
 
 
 class RemoteControllerError(RuntimeError):
@@ -91,6 +94,13 @@ class RemoteControllerClient:
     def discover(self, root: str | None = None, max_depth: int = 3) -> dict:
         return self._call("GET", "/discover", query={"root": root, "max_depth": max_depth},
                           timeout=DISCOVER_TIMEOUT_SECONDS)
+
+    def m365_preview(self, doc_id: str, page: int | None = None) -> dict:
+        """Microsoft's embeddable viewer URL for an indexed OneDrive/SharePoint file."""
+        body: dict[str, Any] = {"doc_id": doc_id}
+        if page:
+            body["page"] = int(page)
+        return self._call("POST", "/m365/preview", body=body, timeout=PREVIEW_TIMEOUT_SECONDS)
 
     def status(self) -> dict:
         return self._call("GET", "/sync/status", timeout=STATUS_TIMEOUT_SECONDS)

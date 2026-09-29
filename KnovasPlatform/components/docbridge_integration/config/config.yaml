@@ -255,6 +255,14 @@ performance:
 remote_controller:
   base_url: "${RC_BASE_URL:-http://remote-controller:5001}"
 
+# Where the documents live. "files": a folder on this server (the share
+# mounted at /mnt/autodoc). "m365": a OneDrive or SharePoint folder that
+# RemoteController reads through Microsoft Graph -- nothing is kept here, so
+# "Öffnen" goes to OneDrive/SharePoint and the preview is Microsoft's own
+# viewer. setup.sh sets it from KNOVAS_DOCUMENTS_URL in knovas.env.
+documents:
+  source: "${DOCUMENT_SOURCE:-files}"
+
 # Per-user identity (Pflichtenheft B1/B2). **On by default.** The shared
 # COMPANY_LOGIN_* credential is refused while this is on -- the app will not
 # start with both doors open -- and the Platform signs each user into every

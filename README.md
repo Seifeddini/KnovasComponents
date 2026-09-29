@@ -25,6 +25,15 @@ cp knovas.env.example knovas.env   # fill 5 values, add certs to certs/
 
 Unified stack (RC + Platform): one `knovas.env`, shared document mount, RC on `127.0.0.1:5001` only.
 
+**Documents in OneDrive or SharePoint?** Set `KNOVAS_DOCUMENTS_URL` (the folder's
+address from the browser) plus `M365_CLIENT_ID` / `M365_CLIENT_SECRET` instead of
+`KNOVAS_DOCUMENTS_PATH`. Nothing is copied onto the server; results open and
+preview in OneDrive/SharePoint. See [docs/microsoft-365.md](docs/microsoft-365.md).
+
+**A dedicated Azure server for one client:** `./scripts/azure/create-server.sh`, then
+`setup.sh`, `start.sh` and `sudo ./scripts/host-https.sh <name> <email>` on the server.
+About an hour, step by step: [docs/azure-server.md](docs/azure-server.md).
+
 The fifth value is `PLATFORM_ADMIN_EMAIL`. There is no default account: first start creates
 that administrator and writes a one-time password to `/app/data/platform-admin-bootstrap` inside
 the `docbridge-web` container — read it with

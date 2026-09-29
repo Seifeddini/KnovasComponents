@@ -80,6 +80,29 @@ jobs:
           docker compose --env-file scripts/lib/fixtures/knovas.env.fixture config --quiet
           docker compose --env-file scripts/lib/fixtures/knovas.env.fixture build docbridge-web
 
+      # OneDrive/SharePoint: no KNOVAS_DOCUMENTS_PATH, the app secret handed to
+      # RemoteController alone and never to the internet-facing Platform.
+      - name: Compose contract (Microsoft 365 documents)
+        working-directory: .
+        run: |
+          bash scripts/lib/expand_knovas_env.sh scripts/lib/fixtures/knovas.env.m365.fixture
+          docker compose --env-file scripts/lib/fixtures/knovas.env.m365.fixture config --format json > m365-compose.json
+          python3 - <<'PY'
+          import json
+          services = json.load(open("m365-compose.json"))["services"]
+          rc, web = services["remote-controller"]["environment"], services["docbridge-web"]
+          assert rc["M365_FOLDER_URL"].startswith("https://contoso.sharepoint.com/"), rc
+          assert rc["M365_CLIENT_SECRET"], "RemoteController did not get the app secret"
+          assert "not-a-real-secret" not in json.dumps(web), "the app secret reached the Platform"
+          assert web["environment"]["DOCUMENT_SOURCE"] == "m365"
+          PY
+          # Neither a share nor a Microsoft 365 folder: compose must refuse,
+          # never mount the empty stand-in as if it were the share.
+          grep -v '^KNOVAS_DOCUMENTS_PATH=' scripts/lib/fixtures/knovas.env.fixture > no-documents.env
+          if docker compose --env-file no-documents.env config --quiet 2>/dev/null; then
+            echo "compose started with no document source"; exit 1
+          fi
+
   # The sandbox for user-written Python and Julia evaluators (Experimente).
   # Its isolation is only real in the image with compose's settings, so this
   # job builds the image and runs code in it, not just the unit tests.

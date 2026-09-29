@@ -71,6 +71,10 @@ class DocumentSearchApp {
         this.currentResults = [];
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
         this.onedriveEnrichmentLoaded = !!cfg.onedriveEnrichmentLoaded;
+        /** Dokumente liegen in OneDrive/SharePoint: Vorschau und Öffnen dort. */
+        this.m365Mode = !!cfg.m365Mode;
+        /** Die gerade gezeigte Microsoft-365-Vorschau (fuer den Seitensprung). */
+        this._m365Preview = null;
         /** CSRF token for state-changing requests (server enforces it on every POST). */
         this.csrfToken = cfg.csrfToken || '';
         /** Wieviele Treffer angefragt werden. Waechst ueber "Mehr laden". */
@@ -246,6 +250,14 @@ class DocumentSearchApp {
         return `<div class="mail-header">${body}</div>`;
     }
 
+    /** "OneDrive" oder "SharePoint" -- was die Leute in der Adresse wiedererkennen. */
+    _externalSourceLabel(url) {
+        const u = String(url || '');
+        if (/-my\.sharepoint\./i.test(u)) return 'OneDrive';
+        if (/\.sharepoint\./i.test(u)) return 'SharePoint';
+        return 'OneDrive';
+    }
+
     _previewActionsHtml(doc) {
         const docId = doc.doc_id || '';
         const path = doc.path || '';
@@ -259,8 +271,9 @@ class DocumentSearchApp {
             const alsoDownload = cfgExternal.allowDegradedDownloadOpen
                 ? `<button type="button" class="btn btn-secondary" onclick="app.downloadDocument('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Download</button>`
                 : '';
-            const copyExternal = `<button type="button" class="btn btn-secondary" onclick="app.copyDocumentPath('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Pfad kopieren</button>`;
-            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${lucide('external-link')}In OneDrive öffnen</a>${alsoDownload}${copyExternal}`;
+            const copyExternal = `<button type="button" class="btn btn-secondary" onclick="app.copyDocumentPath('${this.escapeJsString(docId)}', '${this.escapeJsString(path)}')">Link kopieren</button>`;
+            const label = this._externalSourceLabel(externalUrl);
+            return `<a class="btn btn-success" href="${this.escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${lucide('external-link')}In ${label} öffnen</a>${alsoDownload}${copyExternal}`;
         }
         // Der degradierte Download hing frueher als dritter Knopf an der Karte.
         // Mit den Karten-Aktionen waere er ersatzlos entfallen und
@@ -682,6 +695,18 @@ class DocumentSearchApp {
         if (!Number.isInteger(index) || index < 0 || index >= this._findings.length) return;
         this._markActiveFinding(index);
         const page = this._findings[index].page;
+        if (this._m365Preview) {
+            // Microsofts Viewer nimmt die Seite nur beim Oeffnen entgegen:
+            // fuer eine andere Seite eine neue Vorschau-Adresse holen.
+            if (page && page !== this._m365Preview.page) {
+                const { doc, docId, path, index: shown } = this._m365Preview;
+                const controller = new AbortController();
+                if (this._previewAbort) this._previewAbort.abort();
+                this._previewAbort = controller;
+                this._renderM365Preview(doc, docId, path, shown, controller, page);
+            }
+            return;
+        }
         if (!this._pdfBaseSrc) {
             // Fliesstext: zur entsprechenden Markierung im Dokument scrollen.
             const shown = this._scrollToFinding(this._findings[index], index);
@@ -719,7 +744,7 @@ class DocumentSearchApp {
     _renderDocData(doc) {
         const rows = [];
         const external = doc.external_url || doc.open_mode === 'external';
-        rows.push(['Quelle', external ? 'OneDrive' : 'Dateiablage']);
+        rows.push(['Quelle', external ? this._externalSourceLabel(doc.external_url) : 'Dateiablage']);
         const changed = doc.modified_at || doc.document_date || doc.date;
         if (changed) rows.push(['Geändert', this._formatDateShort(changed)]);
         if (doc.akten_id) rows.push(['Akte', String(doc.akten_id)]);
@@ -752,15 +777,23 @@ class DocumentSearchApp {
         const text = doc.external_url
             || doc.client_open_unc || doc.client_open_path || path || docId;
         const copied = await this._copyTextOptional(text);
+        const what = doc.external_url ? 'Link' : 'Pfad';
         this.showToast(
-            copied ? `Pfad kopiert: ${text}` : `Pfad: ${text}`,
+            copied ? `${what} kopiert: ${text}` : `${what}: ${text}`,
             copied ? 'success' : 'info',
         );
     }
 
     /** Hinweis über der Lesefassung, wenn die Datei selbst nicht mehr da ist. */
-    _indexNoticeHtml(fromIndex) {
+    _indexNoticeHtml(fromIndex, externalLabel) {
         if (!fromIndex) return '';
+        if (externalLabel) {
+            // Microsoft 365: die Datei ist da, nur ihre Vorschau gerade nicht.
+            return '<p class="preview-index-notice">Die Vorschau aus '
+                + this.escapeHtml(externalLabel) + ' ist gerade nicht erreichbar. Gezeigt '
+                + 'wird der Text, wie er bei der Aufnahme gelesen wurde — „In '
+                + this.escapeHtml(externalLabel) + ' öffnen“ zeigt das Original.</p>';
+        }
         return '<p class="preview-index-notice">Die Datei liegt nicht mehr auf dem '
             + 'Dokumentenspeicher. Gezeigt wird der Text, wie er bei der Aufnahme '
             + 'gelesen wurde — Öffnen und Download stehen dafür nicht zur Verfügung.</p>';
@@ -770,7 +803,7 @@ class DocumentSearchApp {
      * Holt die Lesefassung aus dem Suchindex. Rückgabe sagt, ob etwas kam --
      * der Aufrufer zeigt sonst seine eigene Fehlermeldung.
      */
-    async _renderIndexedText(docId, path, index, controller) {
+    async _renderIndexedText(docId, path, index, controller, externalLabel) {
         try {
             const url = `/api/document/${encodeURIComponent(docId)}/preview-content`
                 + `?path=${encodeURIComponent(path)}`;
@@ -782,7 +815,7 @@ class DocumentSearchApp {
             if (this._previewIndex !== index) return true;
             this.previewBody.classList.remove('is-pdf');
             this.previewMeta.textContent = 'Lesefassung aus dem Suchindex';
-            this.previewBody.innerHTML = this._indexNoticeHtml(true)
+            this.previewBody.innerHTML = this._indexNoticeHtml(true, externalLabel)
                 + window.KnovasMarkdown.render(data.markdown);
             this._markPassagesInBody();
             this._markTermsInBody();
@@ -807,6 +840,7 @@ class DocumentSearchApp {
             this._previewAbort = null;
         }
         this._previewIndex = null;
+        this._m365Preview = null;
         this._markActiveCard(null);
         this.previewBody.classList.remove('is-pdf');
         this.previewBody.innerHTML = '';
@@ -883,6 +917,66 @@ class DocumentSearchApp {
         if (card) card.classList.add('is-active');
     }
 
+    /**
+     * Die Vorschau aus Microsoft 365 selbst -- dieselbe, die OneDrive und
+     * SharePoint zeigen, eingebettet und auf der Seite der Fundstelle
+     * geoeffnet. Die Adresse ist kurzlebig und wird je Oeffnen neu geholt.
+     * Klappt es nicht, bleibt der Text aus dem Suchindex.
+     */
+    async _renderM365Preview(doc, docId, path, index, controller, page) {
+        const label = this._externalSourceLabel(doc.external_url);
+        const url = `/api/document/${encodeURIComponent(docId)}/m365-preview`
+            + `?path=${encodeURIComponent(path || docId)}`
+            + (Number.isInteger(page) && page > 0 ? `&page=${page}` : '');
+        try {
+            const response = await fetch(url, { credentials: 'same-origin', signal: controller.signal });
+            if (this._redirectIfLoginRequired(response)) return;
+            const data = await response.json().catch(() => ({}));
+            if (this._previewIndex !== index) return;
+            if (!response.ok || !data.success || !(data.embed_url || data.post_url)) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            this._m365Preview = { doc, docId, path, index, page: page || null };
+            this.previewMeta.textContent = `Vorschau aus ${label}`;
+            this.previewBody.classList.add('is-pdf');
+            const title = this.escapeAttr(`Vorschau aus ${label}`);
+            if (data.embed_url) {
+                this.previewBody.innerHTML = `<iframe src="${this.escapeAttr(data.embed_url)}" `
+                    + `title="${title}" referrerpolicy="no-referrer" allowfullscreen></iframe>`;
+                return;
+            }
+            // Manche Formate bietet Microsoft nur per POST an.
+            const frameName = `m365-preview-${Date.now()}`;
+            this.previewBody.innerHTML = `<iframe name="${frameName}" title="${title}" `
+                + 'referrerpolicy="no-referrer" allowfullscreen></iframe>';
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = data.post_url;
+            form.target = frameName;
+            form.hidden = true;
+            new URLSearchParams(data.post_params || '').forEach((value, key) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = value;
+                form.appendChild(input);
+            });
+            this.previewBody.appendChild(form);
+            form.submit();
+            form.remove();
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            this._m365Preview = null;
+            this.previewBody.classList.remove('is-pdf');
+            if (await this._renderIndexedText(docId, path, index, controller, label)) return;
+            this.previewBody.innerHTML =
+                `<p class="preview-error">Vorschau nicht verfügbar (${this.escapeHtml(error.message)}). `
+                + `Nutzen Sie „In ${this.escapeHtml(label)} öffnen“.</p>`;
+        } finally {
+            if (this._previewAbort === controller) this._previewAbort = null;
+        }
+    }
+
     async openPreview(index) {
         const doc = this.currentResults[index];
         if (!doc) return;
@@ -915,6 +1009,14 @@ class DocumentSearchApp {
         this.previewBody.classList.remove('is-pdf');
         this.previewBody.innerHTML =
             '<div class="preview-skeleton"><span></span><span></span><span></span><span></span></div>';
+        this._m365Preview = null;
+
+        if (this.m365Mode && doc.external_url) {
+            this._pdfBaseSrc = '';
+            const firstPage = (this._findings[0] || {}).page;
+            await this._renderM365Preview(doc, docId, path, index, controller, firstPage);
+            return;
+        }
 
         if (path.toLowerCase().endsWith('.pdf')) {
             const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};

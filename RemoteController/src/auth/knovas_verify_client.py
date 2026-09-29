@@ -303,6 +303,18 @@ def require_operator_or_tenant_admin(func):
     presenting the Platform-signed principal in X-Platform-Principal with
     the admin or ingestion_manager role (KC-IN-1). Each route declares which
     principals it accepts by using this decorator."""
+    return _require_operator_or_principal(func, roles=ADMIN_ROLES)
+
+
+def require_operator_or_tenant_user(func):
+    """Like ``require_operator_or_tenant_admin``, but any signed-in person of
+    the firm qualifies. Only for read-only routes that serve what the
+    Platform already shows that person (a document preview), never for
+    anything that changes what is synced."""
+    return _require_operator_or_principal(func, roles=None)
+
+
+def _require_operator_or_principal(func, *, roles):
     operator_path = require_internal_access(func)
 
     @wraps(func)
@@ -333,7 +345,7 @@ def require_operator_or_tenant_admin(func):
             )
         except InvalidPrincipalError:
             return jsonify({"error": "Not authorized", "status": "error"}), 401
-        if not (set(principal.roles) & ADMIN_ROLES):
+        if roles is not None and not (set(principal.roles) & roles):
             return jsonify({"error": "Not authorized", "status": "error"}), 403
         g.rc_client_id = cfg.rc_client_id
         g.rc_principal = principal

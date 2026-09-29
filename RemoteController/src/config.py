@@ -124,6 +124,14 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
             )
             sys.exit(1)
 
+    if validate:
+        m365_problems = _m365_config_problems()
+        if m365_problems:
+            print("Microsoft 365 document source misconfigured:", file=sys.stderr)
+            for problem in m365_problems:
+                print(f"  - {problem}", file=sys.stderr)
+            sys.exit(1)
+
     roots_raw = (os.environ.get("RC_WATCH_ROOTS") or "").strip()
     roots = tuple(r.strip() for r in roots_raw.split(",") if r.strip())
 
@@ -174,6 +182,30 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         testing=_env_bool("TESTING", False),
     )
     return _config
+
+
+def _m365_config_problems() -> list[str]:
+    """Fail at boot, with the reason, rather than on every sync cycle."""
+    folder_url = (os.environ.get("M365_FOLDER_URL") or "").strip()
+    if not folder_url:
+        return []
+    from m365.location import LocationError, default_tenant_for_host, parse_folder_url
+
+    problems: list[str] = []
+    hostname = ""
+    try:
+        hostname = parse_folder_url(folder_url).hostname
+    except LocationError as exc:
+        problems.append(f"M365_FOLDER_URL: {exc}")
+    if not (os.environ.get("M365_CLIENT_ID") or "").strip():
+        problems.append("M365_CLIENT_ID is not set")
+    if not (os.environ.get("M365_CLIENT_SECRET") or "").strip():
+        problems.append("M365_CLIENT_SECRET is not set")
+    if hostname and not (
+        (os.environ.get("M365_TENANT_ID") or "").strip() or default_tenant_for_host(hostname)
+    ):
+        problems.append("M365_TENANT_ID is not set and cannot be derived from the address")
+    return problems
 
 
 def _internal_local_bypass_enabled() -> bool:

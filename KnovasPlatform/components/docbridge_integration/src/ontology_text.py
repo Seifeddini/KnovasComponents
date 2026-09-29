@@ -47,15 +47,28 @@ def _split_sentences(flat: str) -> List[str]:
 class DocumentTextResolver:
     """Pointer -> Seitentext bzw. belegte Fundstelle. Cached per (Pfad, mtime)."""
 
-    def __init__(self, resolve_path: Optional[Callable[[str], Optional[str]]] = None):
+    def __init__(
+        self,
+        resolve_path: Optional[Callable[[str], Optional[str]]] = None,
+        indexed_pages: Optional[Callable[[str], Dict[int, str]]] = None,
+    ):
         self._resolve_path = resolve_path
+        # Liegt die Datei nicht auf diesem Server (OneDrive/SharePoint), bleibt
+        # der Text, wie ihn die Aufnahme gelesen hat -- woertlich, mit Seiten.
+        self._indexed_pages = indexed_pages
         self._cache: Dict[Tuple[str, float], Dict[int, str]] = {}
 
     def _pages(self, pointer: str) -> Dict[int, str]:
         """Seitentexte eines Dokuments; leer, wenn nicht lesbar."""
         abs_path = self._resolve_path(pointer) if self._resolve_path else None
         if not abs_path or not os.path.isfile(abs_path):
-            return {}
+            if self._indexed_pages is None:
+                return {}
+            try:
+                return self._indexed_pages(pointer) or {}
+            except Exception as exc:  # ein kaputter Index darf nie eskalieren
+                logger.warning("Indexierter Text nicht lesbar (%s): %s", pointer, exc)
+                return {}
         try:
             mtime = os.stat(abs_path).st_mtime
         except OSError:
