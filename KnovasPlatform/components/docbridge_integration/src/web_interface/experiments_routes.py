@@ -478,7 +478,7 @@ def create_experiments_blueprint(gate: Any, *, settings: Any, runner: Any = None
     @bp.route("/api/experiments/domains/<domain_key>/field-options", methods=["GET"])
     @_json_view
     def list_field_options(domain_key: str):
-        return _ok("result", service().list_field_options(domain_key))
+        return _ok("result", service().list_field_options(domain_key, request.args.get("usage", "0")))
 
     @bp.route("/api/experiments/domains/<domain_key>/field-options", methods=["POST"])
     @_json_view

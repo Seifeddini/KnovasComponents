@@ -386,6 +386,15 @@ def allocate_experiment_key(conn: Any, domain_id: str) -> str:
 MAX_FIELD_OPTIONS = 200
 
 
+def lock_field_options(conn: Any, domain_id: str, *, shared: bool) -> None:
+    """Serialise the domain's added values inside the caller's transaction:
+    adding or removing one takes the lock exclusively, writing an
+    experiment's field values shares it, so a value cannot disappear between
+    an experiment's check and its insert."""
+    fn = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
+    conn.execute(f"SELECT {fn}(hashtext('exp_field_options:' || %s::text))", (domain_id,))
+
+
 def field_option_values(conn: Any, domain_id: Optional[str]) -> Dict[str, List[str]]:
     """field key -> the values added in the domain, in the order they came."""
     if domain_id is None:
@@ -398,46 +407,94 @@ def field_option_values(conn: Any, domain_id: Optional[str]) -> Dict[str, List[s
     return out
 
 
-_FIELD_OPTION_USE = (
-    "(SELECT count(*)::int FROM exp_experiments e WHERE e.domain_id = o.domain_id AND ("
-    "  (jsonb_typeof(e.fields -> o.field_key) = 'string' AND e.fields ->> o.field_key = o.value) OR"
-    "  (jsonb_typeof(e.fields -> o.field_key) = 'array' AND (e.fields -> o.field_key) ? o.value)))"
-)
+def selection_fields(conn: Any, domain_id: str,
+                     extra_definitions: Sequence[Dict[str, Any]] = ()) -> Dict[str, Dict[str, Any]]:
+    """field key -> {label, options, extensible, everywhere} over the selection
+    fields of the domain: its usable types (current versions), every type
+    version its experiments still use, and ``extra_definitions``.
+
+    ``extensible``: some field with that key takes added values.
+    ``everywhere``: the casefolded options every extensible one has built in;
+    such a value needs no row of its own."""
+    definitions = [t["definition"] for t in list_types(conn, domain_id=domain_id, restrict=True)]
+    definitions.extend(r[0] for r in conn.execute(
+        "SELECT DISTINCT tv.definition FROM exp_experiments e JOIN exp_type_versions tv "
+        "ON tv.type_id = e.type_id AND tv.version = e.type_version WHERE e.domain_id = %s",
+        (domain_id,)).fetchall())
+    definitions.extend(d for d in extra_definitions if d)
+    out: Dict[str, Dict[str, Any]] = {}
+    for definition in definitions:
+        for field in (definition or {}).get("fields") or []:
+            if field.get("type") not in ("enum", "multi_enum"):
+                continue
+            entry = out.setdefault(field["key"], {"label": field.get("label") or field["key"],
+                                                  "options": [], "extensible": False,
+                                                  "everywhere": None})
+            options = [str(o) for o in field.get("options") or []]
+            known = {o.casefold() for o in entry["options"]}
+            entry["options"].extend(o for o in options if o.casefold() not in known)
+            if schema.is_extensible(field):
+                entry["extensible"] = True
+                folded = {o.casefold() for o in options}
+                entry["everywhere"] = folded if entry["everywhere"] is None else entry["everywhere"] & folded
+    for entry in out.values():
+        entry["everywhere"] = entry["everywhere"] or set()
+    return out
 
 
-def list_field_options(conn: Any, domain_id: str) -> List[Dict[str, Any]]:
-    """The values added in a domain, each with how many experiments use it."""
+def field_option_usage(conn: Any, domain_id: str, field_keys: Sequence[str]) -> Dict[Tuple[str, str], int]:
+    """(field key, value) -> how many experiments of the domain hold it, in
+    one pass over the domain's experiments."""
+    if not field_keys:
+        return {}
     rows = conn.execute(
-        "SELECT o.id::text, o.field_key, o.value, o.created_at, u.id::text, u.display_name, "
-        + _FIELD_OPTION_USE + " FROM exp_field_options o "
-        "LEFT JOIN users u ON u.id = o.created_by WHERE o.domain_id = %s "
-        "ORDER BY o.field_key, lower(o.value)", (domain_id,)).fetchall()
-    return [{"id": r[0], "field": r[1], "value": r[2], "created_at": iso(r[3]),
-             "created_by": _person(r[4], r[5]), "used": int(r[6])} for r in rows]
+        "SELECT f.key, x.v, count(DISTINCT e.id)::int FROM exp_experiments e "
+        "CROSS JOIN LATERAL jsonb_each(e.fields) f "
+        "CROSS JOIN LATERAL ("
+        "  SELECT f.value #>> '{}' AS v WHERE jsonb_typeof(f.value) = 'string' "
+        "  UNION ALL SELECT jsonb_array_elements_text(f.value) WHERE jsonb_typeof(f.value) = 'array'"
+        ") x WHERE e.domain_id = %s AND f.key = ANY(%s::text[]) GROUP BY 1, 2",
+        (domain_id, list(field_keys))).fetchall()
+    return {(r[0], r[1]): int(r[2]) for r in rows}
+
+
+def list_field_options(conn: Any, domain_id: str, *, with_usage: bool = False) -> List[Dict[str, Any]]:
+    """The values added in a domain; with ``with_usage`` each with how many
+    experiments hold it (the managers' list only: it reads every experiment)."""
+    rows = conn.execute(
+        "SELECT o.id::text, o.field_key, o.value, o.created_at, u.id::text, u.display_name "
+        "FROM exp_field_options o LEFT JOIN users u ON u.id = o.created_by "
+        "WHERE o.domain_id = %s ORDER BY o.field_key, lower(o.value)", (domain_id,)).fetchall()
+    out = [{"id": r[0], "field": r[1], "value": r[2], "created_at": iso(r[3]),
+            "created_by": _person(r[4], r[5])} for r in rows]
+    if with_usage:
+        usage = field_option_usage(conn, domain_id, sorted({o["field"] for o in out}))
+        for option in out:
+            option["used"] = usage.get((option["field"], option["value"]), 0)
+    return out
 
 
 def add_field_option(conn: Any, domain_id: str, field_key: str, value: str,
                      actor_id: Optional[str]) -> Tuple[str, bool]:
     """(the stored spelling, whether it is new). An existing value in another
-    spelling ("kanzlei Mittel") is returned as it is stored."""
+    spelling ("kanzlei Mittel", "STRASSE" for "Strasse") is returned as it is
+    stored; the check casefolds like schema does."""
     with conn.transaction():
-        # One writer per field at a time, so the limit below holds.
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext('exp_field_options:' || %s::text || ':' || %s::text))",
-                     (domain_id, field_key))
-        found = conn.execute(
-            "SELECT value FROM exp_field_options WHERE domain_id = %s AND field_key = %s "
-            "AND lower(value) = lower(%s)", (domain_id, field_key, value)).fetchone()
-        if found is not None:
-            return found[0], False
-        count = conn.execute(
-            "SELECT count(*)::int FROM exp_field_options WHERE domain_id = %s AND field_key = %s",
-            (domain_id, field_key)).fetchone()[0]
-        if count >= MAX_FIELD_OPTIONS:
+        lock_field_options(conn, domain_id, shared=False)
+        existing = [r[0] for r in conn.execute(
+            "SELECT value FROM exp_field_options WHERE domain_id = %s AND field_key = %s",
+            (domain_id, field_key)).fetchall()]
+        for stored in existing:
+            if stored.casefold() == value.casefold():
+                return stored, False
+        if len(existing) >= MAX_FIELD_OPTIONS:
             raise Conflict(f"Dieses Feld hat schon {MAX_FIELD_OPTIONS} hinzugef\u00fcgte Werte.",
                            fields={"value": "Keine weiteren Werte m\u00f6glich."})
+        # clock_timestamp(): values added in one transaction (a pack import)
+        # keep their order; now() would give them all the same time.
         conn.execute(
-            "INSERT INTO exp_field_options (domain_id, field_key, value, created_by) "
-            "VALUES (%s, %s, %s, %s)", (domain_id, field_key, value, actor_id))
+            "INSERT INTO exp_field_options (domain_id, field_key, value, created_by, created_at) "
+            "VALUES (%s, %s, %s, %s, clock_timestamp())", (domain_id, field_key, value, actor_id))
     return value, True
 
 
@@ -446,11 +503,13 @@ def get_field_option(conn: Any, option_id: Any) -> Optional[Dict[str, Any]]:
     if ident is None:
         return None
     row = conn.execute(
-        "SELECT o.id::text, o.domain_id::text, o.field_key, o.value, " + _FIELD_OPTION_USE +
-        " FROM exp_field_options o WHERE o.id = %s", (ident,)).fetchone()
+        "SELECT o.id::text, o.domain_id::text, o.field_key, o.value FROM exp_field_options o "
+        "WHERE o.id = %s", (ident,)).fetchone()
     if row is None:
         return None
-    return {"id": row[0], "domain_id": row[1], "field": row[2], "value": row[3], "used": int(row[4])}
+    usage = field_option_usage(conn, row[1], [row[2]])
+    return {"id": row[0], "domain_id": row[1], "field": row[2], "value": row[3],
+            "used": usage.get((row[2], row[3]), 0)}
 
 
 def delete_field_option(conn: Any, option_id: str) -> None:
@@ -961,10 +1020,6 @@ def install_pack(conn: Any, pack: Dict[str, Any], *, actor_id: Optional[str] = N
         if domain:
             domain_id, changed = _install_domain(conn, pack, domain, actor_id, update_existing)
             counts["domain"] = 1 if changed else 0
-            # Added values only accumulate: an import never removes one.
-            for field_key, values in (domain.get("field_options") or {}).items():
-                for value in values:
-                    add_field_option(conn, domain_id, field_key, value, actor_id)
 
         for evaluator in pack.get("evaluators") or []:
             if _install_evaluator(conn, evaluator, actor_id, update_existing):
@@ -983,9 +1038,42 @@ def install_pack(conn: Any, pack: Dict[str, Any], *, actor_id: Optional[str] = N
                 counts["types"] += 1
             if renamed:
                 reindex["type_ids"].append(type_id)
+        if domain and domain.get("field_options"):
+            counts["field_options"] = _install_field_options(conn, domain_id, domain["field_options"],
+                                                             actor_id)
     if changed_out is not None:
         changed_out.update(reindex)
     return counts
+
+
+def _install_field_options(conn: Any, domain_id: str, field_options: Dict[str, List[str]],
+                           actor_id: Optional[str]) -> int:
+    """Add a pack's domain.field_options after its types: only to fields that
+    take added values, without the ones the types have built in everywhere.
+    Values only accumulate; an import never removes one. Returns how many
+    are new."""
+    fields = selection_fields(conn, domain_id)
+    wanted: Dict[str, List[str]] = {}
+    for field_key, values in field_options.items():
+        entry = fields.get(field_key)
+        if entry is None or not entry["extensible"]:
+            continue    # e.g. a field an archived type had; nothing offers it
+        wanted[field_key] = [v for v in values if v.casefold() not in entry["everywhere"]]
+    present = field_option_values(conn, domain_id)
+    for field_key, values in wanted.items():
+        known = {v.casefold() for v in present.get(field_key, [])}
+        fresh = {v.casefold() for v in values} - known
+        if len(known) + len(fresh) > MAX_FIELD_OPTIONS:
+            raise ValidationError(
+                "Das Paket bringt zu viele Werte.",
+                fields={f"domain.field_options.{field_key}":
+                        f"Zusammen mit den vorhandenen mehr als {MAX_FIELD_OPTIONS} Werte."})
+    created = 0
+    for field_key, values in wanted.items():
+        for value in values:
+            if add_field_option(conn, domain_id, field_key, value, actor_id)[1]:
+                created += 1
+    return created
 
 
 def _install_domain(conn: Any, pack: Dict[str, Any], domain: Dict[str, Any],

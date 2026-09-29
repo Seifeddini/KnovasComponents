@@ -30,8 +30,15 @@ experiment named in `experiment`; another spelling of an existing value returns 
 `store.MAX_FIELD_OPTIONS` = 200 per field) / `delete_field_option` (managers; refused with 409 while
 an experiment uses the value). Routes: `GET|POST /api/experiments/domains/<key>/field-options`,
 `DELETE .../field-options/<id>`. The snapshot carries `field_options` (field key -> values); the
-forms offer "+ Neuer Wert …". Packs: `domain.field_options` (export writes it, import adds values
-and never removes one). Audit: `experiments.field_option.create` / `.delete`.
+forms show a "+ Neuer Wert …" button under the field (not a list entry: arrowing through the list
+must not open a dialog). A value built into every type version with that key needs no row; one built
+into only some is stored in that spelling. Duplicates compare with casefold, rows keep their order
+(`clock_timestamp()`), adding/removing takes `store.lock_field_options` exclusively and writing an
+experiment's fields takes it shared. `GET .../field-options?usage=1` adds the per-value experiment
+count (one pass over the domain) for the managers' list only. Packs: `domain.field_options` (export
+writes it; import adds values only to extensible selection fields of the domain, skips built-in
+ones, refuses at `domain.field_options.<key>` beyond the limit, reports `field_options` in its
+counts, and never removes a value). Audit: `experiments.field_option.create` / `.delete`.
 
 This document is the contract every part of the implementation codes against. Where it names a
 function, a key, a table column, a JSON field or a German UI string, use exactly that name. The

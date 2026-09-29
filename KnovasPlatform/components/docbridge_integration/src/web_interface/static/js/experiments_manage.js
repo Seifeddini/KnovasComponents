@@ -303,6 +303,7 @@
         add(r.types, 'Typ', 'Typen');
         add(r.metrics, 'Metrik', 'Metriken');
         add(r.evaluators, 'Auswerter', 'Auswerter');
+        add(r.field_options, 'Auswahlwert', 'Auswahlwerte');
         return parts.length ? `${parts.join(', ')} neu` : 'nichts zu ergänzen';
     }
 
@@ -315,7 +316,7 @@
             clear(listBox).appendChild(KX.spinnerText());
             let options;
             try {
-                options = ((await KX.api('GET', url)).result || {}).options || [];
+                options = ((await KX.api('GET', `${url}?usage=1`)).result || {}).options || [];
             } catch (err) {
                 clear(listBox).appendChild(el('p', { class: 'kx-dialog-error', role: 'alert', text: KX.errorMessage(err) }));
                 return;

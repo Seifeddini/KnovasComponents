@@ -143,7 +143,8 @@ def test_only_managers_remove_and_only_unused_values(w):
     w.experimenter.add_field_option("sales", {"field": "segment", "value": "Notariat"})
     w.experimenter.add_field_option("sales", {"field": "segment", "value": "Notarait"})   # a typo
     _sales_experiment(w, segment="Notariat")
-    listed = {o["value"]: o for o in w.manager.list_field_options("sales")["options"]}
+    assert "used" not in w.manager.list_field_options("sales")["options"][0]   # counting is opt-in
+    listed = {o["value"]: o for o in w.manager.list_field_options("sales", usage=True)["options"]}
     assert listed["Notariat"]["used"] == 1 and listed["Notarait"]["used"] == 0
     assert listed["Notariat"]["field_label"] == "Segment"
     with pytest.raises(Forbidden):
@@ -169,7 +170,7 @@ def test_multi_select_values_count_as_used(w):
         "domain": "sales", "type": "multi", "title": "Kan\u00e4le",
         "fields": {"channels": ["linkedin", "Telefon"]}})
     assert created["field_values"]["channels"] == ["Telefon", "LinkedIn"]
-    used = {o["value"]: o["used"] for o in w.manager.list_field_options("sales")["options"]}
+    used = {o["value"]: o["used"] for o in w.manager.list_field_options("sales", usage=True)["options"]}
     assert used == {"LinkedIn": 1}
 
 
@@ -210,6 +211,114 @@ def test_routes(exp_manager_client, experimenter_client, exp_member_client):
     assert exp_manager_client.delete(f"{url}/{option_id}").status_code == 200
 
 
+# -- review findings ------------------------------------------------------------------------
+
+
+@db
+def test_a_value_built_into_only_some_types_is_stored_for_the_others(w):
+    old = _sales_experiment(w)                           # playbook version 1, no "Notariat"
+    playbook = store.find_type(w.conn, store.get_domain(w.conn, "sales")["id"], "playbook")
+    newer = dict(playbook["definition"])
+    newer["fields"] = [dict(f, options=f["options"] + ["Notariat"]) if f["key"] == "segment" else f
+                       for f in newer["fields"]]
+    store.add_type_version(w.conn, playbook["id"], schema.validate_type_definition(newer), None)
+    added = w.experimenter.add_field_option("sales", {"field": "segment", "value": "notariat"})
+    assert added == {"field": "segment", "value": "Notariat", "created": True}
+    w.experimenter.update_experiment(old["key"], {"row_version": old["row_version"],
+                                                  "fields": {"segment": "Notariat"}})
+    pricing = w.experimenter.create_experiment({"domain": "sales", "type": "pricing", "title": "Preis",
+                                                "fields": {"segment": "Notariat"}})
+    assert pricing["field_values"]["segment"] == "Notariat"
+
+
+@db
+def test_a_value_every_type_has_built_in_needs_no_row(w):
+    assert w.experimenter.add_field_option("sales", {"field": "segment", "value": "KANZLEI GROSS"}) == {
+        "field": "segment", "value": "Kanzlei gross", "created": False}
+    assert w.experimenter.list_field_options("sales")["by_field"] == {}
+
+
+@db
+def test_spellings_are_compared_like_the_schema_compares_them(w):
+    first = w.experimenter.add_field_option("sales", {"field": "segment", "value": "Stra\u00dfe"})
+    second = w.experimenter.add_field_option("sales", {"field": "segment", "value": "STRASSE"})
+    assert first["created"] and second == {"field": "segment", "value": "Stra\u00dfe", "created": False}
+    assert w.experimenter.list_field_options("sales")["by_field"] == {"segment": ["Stra\u00dfe"]}
+
+
+@db
+def test_removing_waits_for_an_experiment_being_written(w, open_conn):
+    import psycopg
+
+    w.experimenter.add_field_option("sales", {"field": "segment", "value": "Notariat"})
+    option = w.manager.list_field_options("sales")["options"][0]
+    domain_id = store.get_domain(w.conn, "sales")["id"]
+    writer = open_conn()
+    with writer.transaction():
+        store.lock_field_options(writer, domain_id, shared=True)    # an experiment being saved
+        w.conn.execute("SET lock_timeout = '300ms'")
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            w.manager.delete_field_option("sales", option["id"])
+    w.conn.execute("SET lock_timeout = 0")
+    assert w.manager.delete_field_option("sales", option["id"]) == {"deleted": True}
+
+
+@pytest.fixture
+def open_conn(platform_db):
+    import psycopg
+
+    from conftest import PLATFORM_DB_TEST_DSN
+
+    schema_name = platform_db.execute("SELECT current_schema()").fetchone()[0]
+    opened = []
+
+    def _open():
+        conn = psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True,
+                               options=f"-c search_path={schema_name}")
+        opened.append(conn)
+        return conn
+
+    yield _open
+    for conn in opened:
+        if not conn.closed:
+            conn.close()
+
+
+def _sales_pack_with(field_options):
+    pack = packs.validate_pack(packs.load_pack("sales"))
+    pack["domain"] = dict(pack["domain"], field_options=field_options)
+    return pack
+
+
+@db
+def test_a_pack_import_keeps_order_counts_and_skips_what_no_field_takes(w):
+    values = [f"Wert {i:02d}" for i in range(12)]
+    counts = store.install_pack(w.conn, _sales_pack_with({
+        "segment": values + ["kanzlei MITTEL"], "sequence": ["frei"], "nichtda": ["x"]}),
+        actor_id=None, update_existing=True)
+    assert counts["field_options"] == 12
+    assert w.experimenter.list_field_options("sales")["by_field"] == {"segment": values}
+
+
+@db
+def test_a_pack_import_over_the_limit_names_the_field(w, monkeypatch):
+    monkeypatch.setattr(store, "MAX_FIELD_OPTIONS", 2)
+    w.experimenter.add_field_option("sales", {"field": "segment", "value": "Notariat"})
+    with pytest.raises(ValidationError) as caught:
+        store.install_pack(w.conn, _sales_pack_with({"segment": ["Beh\u00f6rde", "Verband"]}),
+                           actor_id=None, update_existing=True)
+    assert "domain.field_options.segment" in caught.value.fields
+    assert w.experimenter.list_field_options("sales")["by_field"] == {"segment": ["Notariat"]}
+
+
+def test_a_pack_field_key_with_a_trailing_newline_is_refused():
+    pack = packs.load_pack("sales")
+    pack["domain"] = dict(pack["domain"], field_options={"segment\n": ["Notariat"]})
+    with pytest.raises(ValidationError) as caught:
+        packs.validate_pack(pack)
+    assert any(k.startswith("domain.field_options") for k in caught.value.fields)
+
+
 # -- the form -----------------------------------------------------------------------------------
 
 
@@ -217,34 +326,45 @@ def _form(body):
     return _run_page(None, r"""
     const def = { key: 'segment', label: 'Segment', type: 'enum', options: ['Kanzlei klein', 'Kanzlei mittel'] };
     const labels = (row) => row.querySelectorAll('option').map((o) => o.textContent);
+    const addButton = (row) => row.querySelectorAll('button').filter((b) => b.textContent === '+ Neuer Wert \u2026')[0] || null;
     """ + body)
 
 
 @needs_node
 class TestForm:
-    def test_added_values_and_the_add_entry_are_offered(self):
+    def test_added_values_and_the_add_button_are_offered(self):
         result = _form(r"""
         const row = KX.renderFieldInput(def, 'Notariat', { extra: ['Notariat', 'kanzlei MITTEL'], onAdd: async () => null });
         const locked = KX.renderFieldInput(Object.assign({}, def, { extensible: false }), null, { extra: ['Notariat'], onAdd: async () => null });
         const without = KX.renderFieldInput(def, null, { extra: ['Notariat'] });
-        out({ open: labels(row), value: KX.readFieldInput(def, row), locked: labels(locked), without: labels(without) });
+        out({ open: labels(row), value: KX.readFieldInput(def, row), button: Boolean(addButton(row)),
+              locked: labels(locked), lockedButton: Boolean(addButton(locked)),
+              without: labels(without), withoutButton: Boolean(addButton(without)) });
         """)
-        assert result["open"][1:] == ["Kanzlei klein", "Kanzlei mittel", "Notariat", "+ Neuer Wert \u2026"]
-        assert result["value"] == "Notariat"
-        assert result["locked"][1:] == ["Kanzlei klein", "Kanzlei mittel"]
+        # The list holds only real values: arrowing through it never opens a dialog.
+        assert result["open"][1:] == ["Kanzlei klein", "Kanzlei mittel", "Notariat"]
+        assert result["value"] == "Notariat" and result["button"] is True
+        assert result["locked"][1:] == ["Kanzlei klein", "Kanzlei mittel"] and result["lockedButton"] is False
         assert result["without"][1:] == ["Kanzlei klein", "Kanzlei mittel", "Notariat"]
+        assert result["withoutButton"] is False
 
-    def test_choosing_the_add_entry_adds_and_selects_the_value(self):
+    def test_the_add_button_adds_and_selects_the_value(self):
         result = _form(r"""
         let asked = 0;
         const row = KX.renderFieldInput(def, 'Kanzlei klein', { onAdd: async () => { asked += 1; return asked === 1 ? 'Notariat' : null; } });
-        const select = row.querySelector('select');
-        const pick = async (value) => { select.value = value; await select.dispatch('change'); await tick(); };
-        await pick('__kx_new_option__');
+        const button = addButton(row);
+        await button.dispatch('click'); await tick();
         const first = { value: KX.readFieldInput(def, row), labels: labels(row) };
-        await pick('__kx_new_option__');          // cancelled: the choice stays
+        await button.dispatch('click'); await tick();          // cancelled: the choice stays
         out({ first, second: KX.readFieldInput(def, row), asked });
         """)
         assert result["first"]["value"] == "Notariat"
-        assert result["first"]["labels"][-2:] == ["Notariat", "+ Neuer Wert \u2026"]
+        assert result["first"]["labels"][-1] == "Notariat"
         assert result["second"] == "Notariat" and result["asked"] == 2
+
+    def test_a_stored_value_named_like_anything_is_just_a_value(self):
+        result = _form(r"""
+        const row = KX.renderFieldInput(def, '__kx_new_option__', { onAdd: async () => null });
+        out({ value: KX.readFieldInput(def, row), labels: labels(row) });
+        """)
+        assert result["value"] == "__kx_new_option__"

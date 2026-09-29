@@ -327,6 +327,12 @@ def validate_pack(pack: Dict[str, Any], *, known_metrics: Iterable[str] = (),
         }
         field_options: Dict[str, List[str]] = {}
         for field_key, values in (domain.get("field_options") or {}).items():
+            # jsonschema's pattern is a search, and "$" matches before a final
+            # newline there; the table's CHECK is stricter.
+            if not re.fullmatch(schema.FIELD_KEY_PATTERN.rstrip("$").lstrip("^"), field_key):
+                schema.add_error(errors, f"domain.field_options.{field_key.strip()[:40]}",
+                                 "Kein g\u00fcltiger Feldschl\u00fcssel.")
+                continue
             cleaned: List[str] = []
             for value in values:
                 text = _clean(value)

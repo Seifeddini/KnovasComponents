@@ -485,8 +485,8 @@ unten):
 | `url` | http- oder https-Adresse |
 | `boolean` | ja/nein |
 
-**Auswahllisten erweitern.** Bei einem Auswahlfeld (`enum`, `multi_enum`)
-bietet das Formular eines Experiments am Ende der Liste **+ Neuer Wert …** an.
+**Auswahllisten erweitern.** Unter einem Auswahlfeld (`enum`, `multi_enum`)
+steht im Formular eines Experiments **+ Neuer Wert …**.
 Der Wert – etwa ein neues Segment wie «Notariat» – gehört danach zum
 **Bereich**: er steht in allen Experimenten des Bereichs zur Auswahl, deren Typ
 ein Feld mit diesem Schlüssel hat, auch in bestehenden und in solchen mit einer
@@ -496,7 +496,8 @@ Werts («notariat») ergibt den vorhandenen. Soll eine Liste fest bleiben, setzt
 der Typ beim Feld `extensible: false`. Verantwortliche sehen die hinzugefügten
 Werte unter **Verwaltung → Bereiche → Werte** und entfernen dort nicht
 verwendete (etwa einen Tippfehler); verwendete bleiben. **Exportieren** nimmt
-sie als `domain.field_options` ins Paket auf, **Importieren** ergänzt sie.
+sie als `domain.field_options` ins Paket auf, **Importieren** ergänzt sie –
+nur bei Feldern, die Werte annehmen, und ohne die, die jeder Typ schon kennt.
 
 **`states`** – 2 bis 12 Status. Höchstens ein Status je `phase`: `running`
 (das erste Betreten setzt «gestartet am»), `decided` (setzt «entschieden am»

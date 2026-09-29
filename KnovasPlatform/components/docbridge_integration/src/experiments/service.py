@@ -986,37 +986,17 @@ class ExperimentService:
 
     # -- values added to selection fields -------------------------------------
 
-    def _selection_fields(self, domain: Dict[str, Any],
-                          extra_definitions: Sequence[Dict[str, Any]] = ()) -> Dict[str, Dict[str, Any]]:
-        """field key -> {label, options, extensible} over the selection fields of
-        the types usable in the domain (current versions) and ``extra_definitions``
-        (the version an experiment was created with). A field is extensible when
-        any type with that key lets people add values."""
-        definitions = [t["definition"] for t in store.list_types(self.conn, domain_id=domain["id"],
-                                                                  restrict=True)]
-        definitions.extend(d for d in extra_definitions if d)
-        out: Dict[str, Dict[str, Any]] = {}
-        for definition in definitions:
-            for field in (definition or {}).get("fields") or []:
-                if field.get("type") not in ("enum", "multi_enum"):
-                    continue
-                entry = out.setdefault(field["key"], {"label": field.get("label") or field["key"],
-                                                      "options": [], "extensible": False})
-                entry["extensible"] = entry["extensible"] or schema.is_extensible(field)
-                for option in field.get("options") or []:
-                    if option.casefold() not in {o.casefold() for o in entry["options"]}:
-                        entry["options"].append(option)
-        return out
-
-    def list_field_options(self, key: Any) -> Dict[str, Any]:
+    def list_field_options(self, key: Any, usage: Any = False) -> Dict[str, Any]:
         """The values added to the domain's selection fields; ``by_field`` is
-        what the forms add to a field's own options."""
+        what the forms add to a field's own options. ``usage`` adds to each
+        how many experiments hold it (reads every experiment of the domain,
+        so only the managers' list asks for it)."""
         self._view()
         domain = store.get_domain(self.conn, key) if isinstance(key, str) else None
         if domain is None:
             raise NotFound("Den Bereich gibt es nicht.")
-        options = store.list_field_options(self.conn, domain["id"])
-        fields = self._selection_fields(domain)
+        options = store.list_field_options(self.conn, domain["id"], with_usage=_truthy(usage))
+        fields = store.selection_fields(self.conn, domain["id"])
         for option in options:
             option["field_label"] = (fields.get(option["field"]) or {}).get("label") or option["field"]
         return {"options": options, "by_field": store.field_option_values(self.conn, domain["id"])}
@@ -1039,7 +1019,7 @@ class ExperimentService:
                 raise _refuse("experiment", "Das Experiment geh\u00f6rt zu einem anderen Bereich.")
             extra.append(row["definition"])
         field_key = data.get("field")
-        fields = self._selection_fields(domain, extra)
+        fields = store.selection_fields(self.conn, domain["id"], extra)
         field = fields.get(field_key) if isinstance(field_key, str) else None
         if field is None:
             raise _refuse("field", "Ein Auswahlfeld mit diesem Schl\u00fcssel gibt es in diesem Bereich nicht.",
@@ -1049,10 +1029,12 @@ class ExperimentService:
                                    "verantwortliche Person im Typ an.", field["label"])
         value = _text(data, "value", limit=80, label=field["label"], required=True)
         own = {o.casefold(): o for o in field["options"]}
-        if value.casefold() in own:
+        # Built into every type (version) with that field: nothing to add. Built
+        # into only some: store it, in that spelling, so the others offer it too.
+        if value.casefold() in field["everywhere"]:
             return {"field": field_key, "value": own[value.casefold()], "created": False}
-        stored, created = store.add_field_option(self.conn, domain["id"], field_key, value,
-                                                 self._actor_id)
+        stored, created = store.add_field_option(self.conn, domain["id"], field_key,
+                                                 own.get(value.casefold(), value), self._actor_id)
         if created:
             self._audit("experiments.field_option.create", "exp_domain", domain["key"],
                         {"field": field_key, "value": stored})
@@ -1065,6 +1047,8 @@ class ExperimentService:
         if domain is None:
             raise NotFound("Den Bereich gibt es nicht.")
         with self.conn.transaction():
+            # Exclusive: no experiment may take the value between the check and the delete.
+            store.lock_field_options(self.conn, domain["id"], shared=False)
             option = store.get_field_option(self.conn, option_id)
             if option is None or option["domain_id"] != domain["id"]:
                 raise NotFound("Diesen Wert gibt es nicht.")
@@ -1827,6 +1811,13 @@ class ExperimentService:
         metrics = self._metric_entries(raw_metrics, domain["id"], set())
         status = schema.initial_state(definition)
         with self.conn.transaction():
+            if fields:
+                # Values added to the domain must still exist when the row goes
+                # in: hold them (shared) and check again against the current set.
+                store.lock_field_options(self.conn, domain["id"], shared=True)
+                fields = schema.validate_field_values(
+                    definition, fields, partial=False,
+                    extra_options=store.field_option_values(self.conn, domain["id"]))
             key = store.allocate_experiment_key(self.conn, domain["id"])
             experiment_id = store.insert_experiment(
                 self.conn, key=key, domain_id=domain["id"], type_id=type_["id"],
@@ -1860,6 +1851,7 @@ class ExperimentService:
                 changes["description"] = _text(data, "description", limit=MAX_DESCRIPTION,
                                                label="Beschreibung", multiline=True)
             if "fields" in data:
+                store.lock_field_options(self.conn, row["domain_id"], shared=True)
                 updates = schema.validate_field_values(
                     row["definition"], data["fields"] or {}, partial=True,
                     extra_options=store.field_option_values(self.conn, row["domain_id"]))

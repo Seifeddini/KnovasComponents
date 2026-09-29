@@ -644,8 +644,6 @@
         return unmatched;
     }
 
-    const NEW_OPTION = '__kx_new_option__';
-
     /** Ob man einem Auswahlfeld Werte hinzufuegen darf (schema.is_extensible). */
     function isExtensible(fieldDef) {
         const f = fieldDef || {};
@@ -725,6 +723,7 @@
         }
         const empty = value === null || value === undefined || value === '';
         let control;
+        let addButton = null;
         switch (f.type) {
         case 'longtext':
             control = textarea({ name: key, rows: 4, maxlength: 20000 }, empty ? '' : value);
@@ -741,25 +740,18 @@
             // A stored value the lists no longer offer stays visible and chosen.
             if (!empty && !list.includes(String(value))) list.push(String(value));
             const opts = [{ value: '', label: DASH }].concat(list.map((c) => ({ value: c, label: c })));
-            if (canAdd) opts.push({ value: NEW_OPTION, label: '+ Neuer Wert …' });
             control = select({ name: key }, opts, empty ? '' : value);
+            // "+ Neuer Wert" is a button of its own, not an entry of the list:
+            // arrowing through the choices must never open a dialog.
             if (canAdd) {
-                let previous = control.value;
-                control.addEventListener('change', async () => {
-                    if (control.value !== NEW_OPTION) {
-                        previous = control.value;
-                        return;
-                    }
-                    control.value = previous;
+                const select_ = control;
+                addButton = el('button', { type: 'button', class: 'kx-link-button kx-add-option', text: '+ Neuer Wert …' });
+                addButton.addEventListener('click', async () => {
                     const added = await o.onAdd(f);
                     if (!added) return;
-                    const exists = Array.from(control.querySelectorAll('option')).some((x) => x.value === added);
-                    if (!exists) {
-                        const all = control.querySelectorAll('option');
-                        control.insertBefore(el('option', { value: added }, added), all[all.length - 1]);
-                    }
-                    control.value = added;
-                    previous = added;
+                    const exists = Array.from(select_.querySelectorAll('option')).some((x) => x.value === added);
+                    if (!exists) select_.appendChild(el('option', { value: added }, added));
+                    select_.value = added;
                 });
             }
             break;
@@ -810,6 +802,7 @@
             label, input: control, name: key, aliases: [`fields.${key}`],
             help: helpParts.join(' ') || null, required: Boolean(f.required),
         });
+        if (addButton) row.appendChild(addButton);
         row.dataset.fieldKey = key;
         row.dataset.fieldType = String(f.type || 'text');
         return row;
@@ -831,7 +824,6 @@
         const control = row.querySelector('input, select, textarea');
         if (!control) return null;
         const raw = String(control.value == null ? '' : control.value);
-        if (raw === NEW_OPTION) return null;
         const trimmed = raw.trim();
         if (trimmed === '') return null;
         switch (f.type) {
