@@ -1,8 +1,9 @@
 {# Reiterleiste der Verwaltung: eine Quelle fuer alle Konsolenseiten (SS-387).
-   Erwartet: admin_tab ('people' | 'documents' | 'access_groups' | 'ingestion'
-   | 'approvals'), me, ingestion_enabled.
-   Zwei Sichtbarkeitsregeln, beide nur Darstellung: Personen, Dokumente und
-   Zugriffsgruppen sind fuer ein me ohne 'admin' ausgeblendet; Ingestion
+   Erwartet: admin_tab ('people' | 'documents' | 'access_groups' | 'types' |
+   'dirs' | 'ingestion' | 'system' | 'approvals'), me, ingestion_enabled.
+   Zwei Sichtbarkeitsregeln, beide nur Darstellung: Personen, Dokumente,
+   Zugriffsgruppen, Wissenstypen und Verzeichnisse sind fuer ein me ohne
+   'admin' ausgeblendet; Ingestion
    erscheint fuer admin und ingestion_manager, wenn ingestion_enabled gilt
    (d.h. eine RemoteController-URL konfiguriert ist). Freigaben ist immer da.
    Die Kontrolle ist der Rollen-Gate auf der Route, nicht der gezeichnete
@@ -18,6 +19,12 @@
     <a href="{{ url_for('admin.access_groups') }}"
        class="{% if admin_tab == 'access_groups' %}active{% endif %}"
        {% if admin_tab == 'access_groups' %}aria-current="page"{% endif %}>Zugriffsgruppen</a>
+    <a href="{{ url_for('graph_pages.types') }}"
+       class="{% if admin_tab == 'types' %}active{% endif %}"
+       {% if admin_tab == 'types' %}aria-current="page"{% endif %}>Wissenstypen</a>
+    <a href="{{ url_for('graph_pages.directories_admin') }}"
+       class="{% if admin_tab == 'dirs' %}active{% endif %}"
+       {% if admin_tab == 'dirs' %}aria-current="page"{% endif %}>Verzeichnisse</a>
     {% endif %}
     {% if ingestion_enabled is defined and ingestion_enabled and (me is not defined or not me or 'admin' in me.roles or 'ingestion_manager' in me.roles) %}
     <a href="{{ url_for('admin.ingestion') }}"

@@ -1561,3 +1561,21 @@ mark.context-snippet-match,
     font-weight: 400;
     color: var(--text-secondary);
 }
+
+/* Verzeichnisse in der Leiste: eine Gruppe unter Cortex, je aktivem
+   Verzeichnis ein Eintrag. Die Ueberschrift steht nur, wenn es eines gibt. */
+.app-nav-group { display: flex; flex-direction: column; gap: 2px; margin: 10px 0 2px; }
+.app-nav-group-label {
+    padding: 4px 10px 2px;
+    font-family: var(--font-heading);
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-secondary);
+}
+.app-nav-sub { font-size: 0.88rem; }
+@media (max-width: 900px) {
+    .app-nav-group { flex-direction: row; flex-wrap: wrap; margin: 0; }
+    .app-nav-group-label { display: none; }
+}

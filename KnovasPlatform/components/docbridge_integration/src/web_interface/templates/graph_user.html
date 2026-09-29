@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ page_title }} · {{ brand }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/graph.css') }}?v={{ asset_version }}">
+</head>
+<body>
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <div class="app-content">
+    <div class="container container-wide">
+        <main class="kg" id="kg-root" data-kg-page="{{ kg_page }}" data-slug="{{ slug }}"
+              data-node="{{ node_id }}" data-admin="{{ 'true' if is_admin else 'false' }}"
+              aria-live="polite">
+            {% if not graph_mode %}
+            <h1>{{ page_title }}</h1>
+            <div class="kg-unavailable" data-kg-unavailable>
+                <strong>Wissensnetz-Modus erforderlich</strong>
+                Verzeichnisse und Karten lesen den Wissensgraphen des Mandanten. Diese Installation
+                läuft mit der lokalen Cortex-Vorlage (<code>ONTOLOGY_SOURCE=fixture</code>); mit
+                <code>ONTOLOGY_SOURCE=graph</code> erscheinen sie hier.
+            </div>
+            {% elif missing %}
+            <h1>Verzeichnis nicht gefunden</h1>
+            <p class="kg-hint">Unter <code>/verzeichnis/{{ slug }}</code> ist kein Verzeichnis eingerichtet.
+                Vielleicht wurde seine Adresse geändert oder es wurde entfernt.</p>
+            {% else %}
+            {% if kg_page == 'directory' and view %}<h1>{{ view.title }}</h1>{% endif %}
+            <p class="kg-loading">Wird geladen …</p>
+            {% endif %}
+        </main>
+    </div>
+    </div>
+</div>
+{% if graph_mode and not missing %}
+<script src="{{ url_for('static', filename='js/graph_core.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/graph_directory.js') }}?v={{ asset_version }}"></script>
+{% endif %}
+</body>
+</html>

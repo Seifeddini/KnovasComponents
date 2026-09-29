@@ -9,8 +9,8 @@ Two halves, deliberately:
   four decorators today. They are ordinary tests and they fail when a gate
   breaks — the module's own docstring promised this shape and it is the only
   coverage the gates have until D1-D3 land.
-* The xfail classes below describe the real endpoints. They are the acceptance
-  criteria for D1-D3 and they are expected to fail until then.
+* The classes after them describe the real endpoints: the acceptance
+  criteria D1-D3 were written against, now passing.
 
 Alloy: models/alloy/node_grants.als (WriteGateMechanism, ReadGateMechanism).
 """
@@ -21,12 +21,6 @@ from flask import Flask, jsonify
 
 from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
 from web_interface.graph_routes import create_graph_blueprint
-
-# C2 builds the blueprint and its four gates; the routes they guard arrive in
-# D1-D3, so until then every call below lands on 404. The mark comes off class
-# by class as each task adds its routes — it is not strict, because a class may
-# start passing one route before the next.
-_AWAITING_ROUTES = pytest.mark.xfail(reason="routes arrive in D1-D3", strict=False)
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +73,9 @@ def _app_with_gates(*, user=None, may_write=True, graph_mode=True):
     def _admin_only():
         return jsonify({"success": True}), 201
 
-    @bp.route("/nodes/<node_id>", methods=["PATCH"])
+    # Under /gate/: the blueprint now carries the real PATCH /nodes/<node_id>,
+    # and a dummy on the same rule would never be reached.
+    @bp.route("/gate/nodes/<node_id>", methods=["PATCH"])
     @bp.require_node_write
     def _write(node_id):
         return jsonify({"success": True, "node_id": node_id})
@@ -141,21 +137,21 @@ class TestTheAdminGate:
 class TestTheNodeWriteGate:
     def test_an_anonymous_caller_is_refused_before_the_store_is_asked(self):
         client, grants = _app_with_gates(user=None)
-        assert client.patch(f"/api/graph/nodes/{uuid.uuid4()}").status_code == 401
+        assert client.patch(f"/api/graph/gate/nodes/{uuid.uuid4()}").status_code == 401
         assert grants.asked == []
 
     def test_the_store_decides_and_a_no_is_a_403(self):
         client, grants = _app_with_gates(user=_User({"member"}), may_write=False)
-        response = client.patch(f"/api/graph/nodes/{uuid.uuid4()}")
+        response = client.patch(f"/api/graph/gate/nodes/{uuid.uuid4()}")
         assert response.status_code == 403
         assert response.get_json()["error"] == \
-            "Keine Bearbeitungsrechte für diesen Knoten."
+            "Keine Bearbeitungsrechte für diesen Eintrag."
         assert len(grants.asked) == 1
 
     def test_a_yes_reaches_the_view(self):
         node = str(uuid.uuid4())
         client, grants = _app_with_gates(user=_User({"member"}), may_write=True)
-        response = client.patch(f"/api/graph/nodes/{node}")
+        response = client.patch(f"/api/graph/gate/nodes/{node}")
         assert response.status_code == 200
         assert response.get_json()["node_id"] == node
 
@@ -164,14 +160,14 @@ class TestTheNodeWriteGate:
         about a different node than the one being written is not a gate."""
         node = str(uuid.uuid4())
         client, grants = _app_with_gates(user=_User({"member"}))
-        client.patch(f"/api/graph/nodes/{node}")
+        client.patch(f"/api/graph/gate/nodes/{node}")
         assert grants.asked[0][0] == node
 
     def test_a_malformed_id_is_the_store_s_refusal_not_an_exception(self):
         """NodeGrantStore.may_write returns False for an id that cannot name a
         node; the guard must turn that into 403 rather than let it through."""
         client, grants = _app_with_gates(user=_User({"member"}), may_write=False)
-        assert client.patch("/api/graph/nodes/n1").status_code == 403
+        assert client.patch("/api/graph/gate/nodes/n1").status_code == 403
         assert grants.asked[0][0] == "n1"
 
     def test_the_path_parameter_can_be_named_something_else(self):
@@ -207,7 +203,7 @@ class TestTheFixtureModeGate:
 
 
 # ---------------------------------------------------------------------------
-# The real endpoints. Acceptance criteria for D1-D3; expected to fail today.
+# The real endpoints: the acceptance criteria for D1-D3.
 # ---------------------------------------------------------------------------
 
 _DB = pytest.mark.skipif(
@@ -216,7 +212,6 @@ _DB = pytest.mark.skipif(
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestAuthentication:
     def test_an_anonymous_caller_gets_401(self, anon_client):
         """XPASSes today, and not because of this blueprint: the app-wide
@@ -231,19 +226,19 @@ class TestAuthentication:
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestAdminGate:
     def test_a_member_may_not_create_a_node_type(self, member_client):
         response = member_client.post("/api/graph/node-types", json={"name": "Mandat"})
         assert response.status_code == 403
 
     def test_an_admin_may_create_a_node_type(self, admin_client):
-        response = admin_client.post("/api/graph/node-types", json={"name": "Mandat"})
+        # "Frist", not "Mandat": the fake already has a Mandat, and a second
+        # type of the same name is refused (409) rather than created.
+        response = admin_client.post("/api/graph/node-types", json={"name": "Frist"})
         assert response.status_code == 201
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestNodeWriteGate:
     def test_a_non_editor_may_not_patch_a_node(self, member_client, node_owned_by_alice):
         response = member_client.patch(f"/api/graph/nodes/{node_owned_by_alice}",
@@ -262,7 +257,6 @@ class TestNodeWriteGate:
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestCsrf:
     def test_a_state_changing_request_without_the_header_is_refused(
             self, admin_client_no_csrf):
@@ -272,7 +266,6 @@ class TestCsrf:
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestFixtureMode:
     def test_every_graph_route_refuses_in_fixture_mode(self, fixture_mode_client):
         response = fixture_mode_client.get("/api/graph/node-types")

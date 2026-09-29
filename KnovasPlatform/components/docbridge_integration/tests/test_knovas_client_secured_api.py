@@ -404,3 +404,45 @@ class TestFactsAndNeighbours:
         which every caller reads as "the write did not happen"."""
         requests_mock(json=None, status=204)
         assert client.graph_delete_fact("f1")
+
+
+class TestTypeFactsAndHistory:
+    """The bulk read behind directory columns and fill rates, and fact history."""
+
+    def test_type_facts_asks_for_one_type_page_by_page(self, client, capture):
+        pages = [[{"id": f"f{i}", "node_id": "n1"} for i in range(2)],
+                 [{"id": "f9", "node_id": "n2"}]]
+
+        def answer(method, url, **kwargs):
+            capture.calls.append(_GraphCall(method, url, kwargs.get("params"), kwargs.get("json")))
+            offset = kwargs["params"]["offset"]
+            return FakeResponse(200, {"facts": pages[0] if offset == 0 else pages[1],
+                                      "count": 3})
+
+        client._session = FakeSession(answer)
+        result = client.graph_type_facts("t1", page_size=2)
+        assert [c.params for c in capture.calls] == [
+            {"node_type_id": "t1", "limit": 2, "offset": 0},
+            {"node_type_id": "t1", "limit": 2, "offset": 2}]
+        assert [f["id"] for f in result["facts"]] == ["f0", "f1", "f9"]
+        assert result["complete"] is True
+
+    def test_type_facts_is_none_when_the_api_has_no_such_route(self, client, requests_mock):
+        """None, not an empty list: the caller must fall back to single entries
+        instead of rendering every column as unfilled."""
+        requests_mock(json={"message": "Not Found"}, status=404)
+        assert client.graph_type_facts("t1") is None
+
+    def test_type_facts_stops_at_the_row_cap_and_says_so(self, client, requests_mock):
+        requests_mock(json={"facts": [{"id": "f", "node_id": "n"}] * 5, "count": 50})
+        result = client.graph_type_facts("t1", page_size=5, max_rows=10)
+        assert len(result["facts"]) == 10 and result["complete"] is False
+
+    def test_history_reads_the_events_of_one_fact(self, client, capture, requests_mock):
+        requests_mock(json={"history": [{"event_type": "created"}]})
+        assert client.graph_fact_history("f1") == [{"event_type": "created"}]
+        assert capture.last.url.endswith("/secured/graph/facts/f1/history")
+
+    def test_history_of_an_unknown_fact_is_none(self, client, requests_mock):
+        requests_mock(json={}, status=404)
+        assert client.graph_fact_history("weg") is None

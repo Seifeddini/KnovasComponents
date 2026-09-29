@@ -322,7 +322,12 @@ class FakeGraphApi(DummyKnovasClient):
     Instance state, seeded by tests through the `fake_graph` fixture; the app
     holds the same instance because create_app constructs exactly one client.
     Response shapes follow Knowledge_Graph_API.md (`{"node": …}`,
-    `{"attribute": …}`, `{"neighbors": …, "edges": …}`).
+    `{"attribute": …}`, `{"neighbors": …, "edges": …}`). Writes change the
+    state, and an entity_ref fact materialises an edge the way the backend's
+    fact_derived edges do, so a screen test sees what a user would.
+
+    ``bulk_facts = False`` models an API without GET /facts?node_type_id=,
+    ``histories`` the answers of GET /facts/<id>/history (absent -> 404).
     """
 
     current = None
@@ -337,11 +342,27 @@ class FakeGraphApi(DummyKnovasClient):
         self.schema = {}
         self.nodes = {"n1": {"id": "n1", "name": "Müller AG", "node_type_id": "t1"}}
         self.facts = {"n1": []}
+        self.edges = []
         self.neighbours = {}
+        self.histories = {}
+        self.bulk_facts = True
         self.last_attribute = self.last_node_filters = None
         self.last_fact = self.last_neighbours = None
         self.deprecated = []
+        self._seq = 0
         FakeGraphApi.current = self
+
+    def _next(self, prefix):
+        self._seq += 1
+        return f"{prefix}{self._seq}"
+
+    # topology
+    def graph_export(self):
+        return {"node_types": list(self.node_types), "nodes": list(self.nodes.values()),
+                "edges": list(self.edges)}
+
+    def graph_edges(self):
+        return list(self.edges)
 
     # node types + schema
     def graph_node_types(self):
@@ -358,11 +379,12 @@ class FakeGraphApi(DummyKnovasClient):
     def graph_schema(self, type_id, include_deprecated=False):
         # None for a type that does not exist, [] for a type without fields —
         # the distinction the real client makes since it stopped folding 404
-        # into an empty list.
+        # into an empty list. Deprecated attributes only when asked, as the API.
         known = {t["id"] for t in self.node_types}
         if type_id not in known:
             return None
-        return list(self.schema.get(type_id, []))
+        return [dict(a) for a in self.schema.get(type_id, [])
+                if include_deprecated or not a.get("deprecated_at")]
 
     def graph_create_schema_attribute(self, type_id, name, datatype="entity_ref",
                                       required=False, description=None, sort_order=0,
@@ -370,16 +392,27 @@ class FakeGraphApi(DummyKnovasClient):
         attribute = {"id": f"a{sum(len(v) for v in self.schema.values()) + 1}",
                      "name": name, "datatype": datatype, "required": required,
                      "sort_order": sort_order, "enum_values": enum_values,
+                     "description": description,
                      "target_node_type_id": target_node_type_id}
         self.schema.setdefault(type_id, []).append(attribute)
         self.last_attribute = attribute
         return {"attribute": attribute}
 
+    def _attribute(self, type_id, attribute_id):
+        return next((a for a in self.schema.get(type_id, []) if a["id"] == attribute_id), None)
+
     def graph_update_schema_attribute(self, type_id, attribute_id, **fields):
-        return {"attribute": {"id": attribute_id, **fields}}
+        attribute = self._attribute(type_id, attribute_id)
+        if attribute is None:
+            return {"attribute": {"id": attribute_id, **fields}}
+        attribute.update(fields)
+        return {"attribute": dict(attribute)}
 
     def graph_deprecate_schema_attribute(self, type_id, attribute_id):
         self.deprecated.append((type_id, attribute_id))
+        attribute = self._attribute(type_id, attribute_id)
+        if attribute is not None:
+            attribute["deprecated_at"] = "2026-09-29T12:00:00+00:00"
         return {"status": "success"}
 
     # nodes
@@ -401,7 +434,8 @@ class FakeGraphApi(DummyKnovasClient):
 
     def graph_node(self, node_id):
         node = self.nodes.get(node_id)
-        return None if node is None else {"node": node, "facts": self.facts.get(node_id, [])}
+        return None if node is None else {"node": node, "facts": self.facts.get(node_id, []),
+                                          "assignments": node.get("assignments", [])}
 
     def graph_update_node(self, node_id, **fields):
         # Mirrors the real client: a PATCH with nothing to write is a caller
@@ -421,6 +455,26 @@ class FakeGraphApi(DummyKnovasClient):
             return None
         return list(self.facts.get(node_id, []))
 
+    def graph_type_facts(self, node_type_id):
+        if not self.bulk_facts:
+            return None
+        rows = [dict(f, node_id=nid) for nid, facts in self.facts.items()
+                if self.nodes.get(nid, {}).get("node_type_id") == node_type_id for f in facts]
+        return {"facts": rows, "complete": True}
+
+    def graph_fact_history(self, fact_id):
+        return self.histories.get(fact_id)
+
+    def _derive_edge(self, node_id, fact):
+        value = fact.get("value")
+        if isinstance(value, dict) and value.get("node_id") and fact.get("attribute_id"):
+            type_id = self.nodes[node_id].get("node_type_id")
+            attribute = self._attribute(type_id, fact["attribute_id"]) or {}
+            self.edges.append({"id": f"e-{fact['id']}", "node_lo": node_id,
+                               "node_hi": value["node_id"],
+                               "relation": attribute.get("name", ""),
+                               "edge_source": "fact_derived", "fact_id": fact["id"]})
+
     def graph_create_fact(self, node_id, value, attribute_id=None, label=None):
         # The server's CHECK, mirrored: a fake that accepted a fact with
         # neither would let a route ship what the real client refuses.
@@ -428,22 +482,55 @@ class FakeGraphApi(DummyKnovasClient):
             raise ValueError("a fact needs an attribute_id or a label")
         if node_id not in self.nodes:
             return None
-        fact = {"id": f"f{len(self.facts[node_id]) + 1}", "attribute_id": attribute_id,
+        fact = {"id": self._next("f"), "attribute_id": attribute_id,
                 "label": label, "value": value}
         self.facts[node_id].append(fact)
         self.last_fact = fact
+        self._derive_edge(node_id, fact)
         return {"fact": fact}
 
+    def _find_fact(self, fact_id):
+        for node_id, facts in self.facts.items():
+            for fact in facts:
+                if fact["id"] == fact_id:
+                    return node_id, fact
+        return None, None
+
     def graph_update_fact(self, fact_id, **fields):
-        return {"fact": {"id": fact_id, **fields}}
+        node_id, fact = self._find_fact(fact_id)
+        if fact is None:
+            return None
+        fact.update(fields)
+        self.edges = [e for e in self.edges if e.get("fact_id") != fact_id]
+        self._derive_edge(node_id, fact)
+        self.last_fact = fact
+        return {"fact": dict(fact)}
 
     def graph_delete_fact(self, fact_id):
+        node_id, fact = self._find_fact(fact_id)
+        if fact is None:
+            return None
+        self.facts[node_id].remove(fact)
+        self.edges = [e for e in self.edges if e.get("fact_id") != fact_id]
         return {"status": "success"}
 
     def graph_neighbors(self, node_id, depth=1, include_edges=False):
         self.last_neighbours = {"node_id": node_id, "depth": depth,
                                 "include_edges": include_edges}
-        return self.neighbours.get(node_id, {"neighbors": [], "edges": []})
+        if node_id in self.neighbours:
+            return self.neighbours[node_id]
+        hops, frontier = {node_id: 0}, [node_id]
+        for hop in range(1, depth + 1):
+            reached = []
+            for edge in self.edges:
+                for a, b in ((edge["node_lo"], edge["node_hi"]), (edge["node_hi"], edge["node_lo"])):
+                    if a in frontier and b not in hops and b in self.nodes:
+                        hops[b] = hop
+                        reached.append(b)
+            frontier = reached
+        neighbours = [dict(self.nodes[n], hop=h) for n, h in hops.items() if n != node_id]
+        edges = [e for e in self.edges if e["node_lo"] in hops and e["node_hi"] in hops]
+        return {"neighbors": neighbours, "edges": edges if include_edges else []}
 
 
 class _ApiClient:
@@ -466,6 +553,9 @@ class _ApiClient:
 
     def patch(self, *a, **kw):
         return self.open(*a, method="PATCH", **kw)
+
+    def put(self, *a, **kw):
+        return self.open(*a, method="PUT", **kw)
 
     def delete(self, *a, **kw):
         return self.open(*a, method="DELETE", **kw)
@@ -498,6 +588,8 @@ def _person(identity_repo, email, display_name, role):
 @pytest.fixture
 def workbench_app(platform_db, tmp_path, monkeypatch):
     monkeypatch.setenv("ONTOLOGY_SOURCE", "graph")
+    # Every request reads the fake as it is now: tests change it between calls.
+    monkeypatch.setenv("ONTOLOGY_CACHE_TTL", "0")
     return _identity_app(platform_db, tmp_path, monkeypatch, client_cls=FakeGraphApi)
 
 

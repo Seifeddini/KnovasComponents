@@ -132,6 +132,8 @@ class GraphOntologySource:
         # (cached_at, last_access, payload, generation)
         self._export_by_subject: Dict[str, tuple[float, float, Dict[str, Any], int]] = {}
         self._export_lock = threading.Lock()
+        # (subject, name) -> (cached_at, value, generation); see cached().
+        self._reads: Dict[tuple, tuple] = {}
         self._marker = marker_path or GENERATION_MARKER
         self.warnings: List[str] = []
 
@@ -380,6 +382,46 @@ class GraphOntologySource:
     # nicht selbst ab, wir legen sie an. Darauf setzen die automatischen
     # Teile (Filter, Identifiers) erst auf.
 
+    # -- shared with the directory and card screens -----------------------
+
+    def topology(self) -> Dict[str, Any]:
+        """{node_types, nodes, edges} for the signed-in person, cached.
+
+        The directory and card screens read names, types and edges from the
+        same cached export Cortex uses: one call per TTL instead of one per
+        screen, under a limit of about one request a second.
+        """
+        return self._export()
+
+    def cached(self, name: str, loader: Callable[[], Any]) -> Any:
+        """A read of the signed-in person's graph, cached like the export.
+
+        Same keying (per subject: two people may see different graphs), same
+        TTL and the same generation marker, so a write in any worker
+        invalidates it. ``None`` results are not cached: they mean "unknown"
+        and are cheap to ask again.
+        """
+        key = self._export_cache_key()
+        if key is None or self._ttl <= 0:
+            return loader()
+        now, generation = self._now(), self._generation()
+        slot = (key, name)
+        with self._export_lock:
+            hit = self._reads.get(slot)
+            if hit is not None and now - hit[0] < self._ttl and hit[2] == generation:
+                return hit[1]
+        value = loader()
+        if value is not None:
+            with self._export_lock:
+                if len(self._reads) >= self._max_cache_subjects * 32:
+                    self._reads.clear()
+                self._reads[slot] = (now, value, generation)
+        return value
+
+    def invalidate(self) -> None:
+        """After a write through the directory or card screens."""
+        self._invalidate()
+
     def _invalidate(self) -> None:
         """Drop this worker's copy and tell the others to drop theirs.
 
@@ -394,6 +436,8 @@ class GraphOntologySource:
             return
         with self._export_lock:
             self._export_by_subject.pop(key, None)
+            for slot in [s for s in self._reads if s[0] == key]:
+                self._reads.pop(slot, None)
 
     def create_type(self, label: str) -> Optional[Dict[str, Any]]:
         """POST /secured/graph/node-types - Typ-Vokabular erweitern."""
