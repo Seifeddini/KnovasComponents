@@ -154,12 +154,12 @@ curl --cert client_cert.pem --key client_key.pem --cacert ca_root_cert.pem \
 
 `jq` is available in most Linux/macOS environments (`apt install jq` / `brew install jq`). On Windows use WSL or replace with `python3 -c "import sys,json; print(json.load(sys.stdin)['<field>'])"`.
 
-> **If you also run RemoteController or KnovasPlatform**, those components expect
+> **If you also run Knovas Connector or KnovasPlatform**, those components expect
 > these same three files under **different filenames in their own directories**.
 > With raw `curl` the names above are arbitrary; with the components they are not.
 > Mapping:
 >
-> | Response field | This guide | RemoteController | KnovasPlatform |
+> | Response field | This guide | Knovas Connector | KnovasPlatform |
 > |---|---|---|---|
 > | `certificate_pem` | `client_cert.pem` | `client-cert.pem` | `client.crt` |
 > | `private_key` | `client_key.pem` | `client-key.pem` | `client.key` |

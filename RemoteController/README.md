@@ -1,4 +1,9 @@
-# Remote Controller
+# Knovas Connector
+
+*Formerly RemoteController.* Only the name people read changed: the folder
+`RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings
+and the `remote_controller.*` config keys keep their names, so an existing
+installation upgrades without touching `knovas.env`.
 
 Customer-hosted service: discover local files and sync them to **Knovas** (employee JWT; tenant mTLS for ingestion). Supports `.md`, `.txt`, `.docx`, `.pdf`, `.eml`, and `.msg` — binary formats are converted to Markdown for search while document identifiers keep the original path for open/download in KnovasPlatform.
 

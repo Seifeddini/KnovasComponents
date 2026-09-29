@@ -214,7 +214,7 @@
     loadFolders(null).then(function (result) {
         var body = result.body;
         if (!result.ok) {
-            setStatus(String(body.error || 'RemoteController ist nicht erreichbar.'));
+            setStatus(String(body.error || 'Der Knovas Connector ist nicht erreichbar.'));
             return;
         }
         var rootPath = String(body.root || '');
@@ -254,7 +254,7 @@
         }
         refreshAddButtons();
     }).catch(function () {
-        setStatus('RemoteController ist nicht erreichbar.');
+        setStatus('Der Knovas Connector ist nicht erreichbar.');
     });
 
     syncEmpty();

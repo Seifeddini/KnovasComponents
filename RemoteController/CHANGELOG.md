@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.
 - Scanned/image-only PDFs are OCR'd via `knovas-extract>=0.3` + Tesseract (`RC_PDF_OCR_ENABLED`, `RC_TESSERACT_LANG`). RC Docker image installs `tesseract-ocr` language packs.
 - Corrupt or mislabeled documents (e.g. invalid `.docx`, empty PDFs) are skipped in incremental sync instead of crashing the scheduler worker.
 - Employee auth for `/discover`, `/sync`, and sync control endpoints is **JWT only** (Bearer token with operator UUID claim). Employee RC client certificates and `RC_MTLS_DEV_*` settings are removed.

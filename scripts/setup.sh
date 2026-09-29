@@ -36,7 +36,7 @@ else
   echo "      list it. An older version of the installer left it that way — taking it back."
 fi
 
-echo "==> Installing tenant certs for RemoteController"
+echo "==> Installing tenant certs for Knovas Connector"
 bash "$ROOT_DIR/RemoteController/scripts/install_tenant_certs.sh"
 
 echo "==> Platform cert symlinks"
@@ -123,7 +123,7 @@ else
 fi
 echo "  Administrator: $ADMIN_EMAIL"
 echo "  Compose project: ${PROJECT:-$(basename "$ROOT_DIR")}"
-echo "  Host ports:   UI ${WEB_PORT}, RemoteController ${RC_PORT}"
+echo "  Host ports:   UI ${WEB_PORT}, Knovas Connector ${RC_PORT}"
 echo ""
 echo "On first start the Platform writes a one-time password for that account to"
 echo "the docbridge-web container at /app/data/platform-admin-bootstrap (a named"

@@ -3,7 +3,7 @@
 **Demo-Kanzlei (client pack):** [../../docs/client/](../../docs/client/). This page is the full production path.
 
 Monorepo path: `KnovasComponents/`. The Platform has no stack of its own any
-more: RemoteController, the identity database and the search UI come up together
+more: Knovas Connector, the identity database and the search UI come up together
 from the repo root, driven by one `knovas.env`. Run every command below from
 `KnovasComponents/`, not from `KnovasPlatform/`.
 
@@ -11,7 +11,7 @@ from the repo root, driven by one `knovas.env`. Run every command below from
 
 This folder is a **search web app** for your Knovas tenant (Docker). It does **not** index documents.
 
-Ingest and sync documents first with [RemoteController](../../RemoteController/), then complete this guide.
+Ingest and sync documents first with [Knovas Connector](../../RemoteController/), then complete this guide.
 
 ## 2. Before you start
 
@@ -80,7 +80,7 @@ chmod 600 certs/client-key.pem
 ```
 
 `./scripts/setup.sh` creates the `client.crt` / `client.key` / `ca.crt` names the
-Platform expects as symlinks beside them, and hands RemoteController the `.pem`
+Platform expects as symlinks beside them, and hands Knovas Connector the `.pem`
 spelling it wants — so there is no renaming to get wrong. Cross-component
 reference: [docs/certificates.md](../../docs/certificates.md).
 
@@ -171,7 +171,7 @@ Clients only need share access + a normal browser. Details: [integration/opening
 ## 7. Optional: production hardening
 
 - **Internal DNS + TLS on host nginx:** follow [deployment/host-nginx-internal.md](deployment/host-nginx-internal.md) — nginx template in `deploy/host-nginx/`, checklist in [deployment/checklist-host-nginx.md](deployment/checklist-host-nginx.md)
-- The stack binds **`127.0.0.1` only** — both the UI (`8081`) and RemoteController (`5001`). Reaching it from another machine means putting a reverse proxy in front; there is no mode that exposes it directly
+- The stack binds **`127.0.0.1` only** — both the UI (`8081`) and Knovas Connector (`5001`). Reaching it from another machine means putting a reverse proxy in front; there is no mode that exposes it directly
 - Firewall: allow **443** at nginx; 8081 and 5001 stay unreachable from other hosts
 - Use a strong `WEB_SECRET_KEY`; restrict `/api/open-tokens/redeem` to client subnets when possible
 - Multiple Gunicorn workers weaken one-time token replay protection — prefer one worker or sticky sessions

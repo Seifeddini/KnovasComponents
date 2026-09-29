@@ -310,7 +310,7 @@ def execute_ingestion_change(payload: Mapping[str, Any], actor, *, conn, rc_clie
         # the role gap from RemoteController's 403.
         raise RemoteControllerError(
             "Die Ausfuehrung braucht die Rolle admin oder ingestion_manager; ein "
-            "reiner Pruefer kann das Profil nicht an RemoteController uebertragen.",
+            "reiner Pruefer kann das Profil nicht an den Knovas Connector uebertragen.",
             status=None,
         )
     return apply_profile(payload, actor, conn=conn, rc_client=rc_client,
@@ -335,7 +335,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         try:
             rc_status = rc_client_factory().status()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("RemoteController-Status nicht abrufbar: %s", exc)
+            logger.warning("Knovas-Connector-Status nicht abrufbar: %s", exc)
             rc_status = {"scheduler_state": "unbekannt"}
         groups = []
         try:
@@ -437,7 +437,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             )
         except (RemoteControllerError, PermissionError) as exc:
             return _page(form_from_profile(profile),
-                         error=f"RemoteController hat das Profil nicht uebernommen: {exc}", status=502)
+                         error=f"Der Knovas Connector hat das Profil nicht uebernommen: {exc}", status=502)
         if outcome.queued:
             return _page(form_from_profile(profile), notice=_queued_notice(outcome.request))
         return _page(notice=(f"Profil gespeichert und uebertragen "

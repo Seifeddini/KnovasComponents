@@ -29,7 +29,7 @@ Clients do **not** connect to port 8081 on the network.
 | Internal CA | Server cert in nginx; CA trusted on client PCs |
 | Docker + Compose | On Debian/Ubuntu — see [platforms/debian.md](../platforms/debian.md) |
 | Knovas mTLS | Repo root `certs/` — [certs/README.md](../../certs/README.md) |
-| Indexed documents | Ingest with [RemoteController](../../../RemoteController/) first |
+| Indexed documents | Ingest with [Knovas Connector](../../../RemoteController/) first |
 | Outbound HTTPS | From container to Knovas API (often port 8443) |
 
 ## 1. Configure `knovas.env`
