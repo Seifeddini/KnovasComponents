@@ -884,6 +884,7 @@ def create_app(config_path: Optional[str] = None):
         path = request.path or ''
         if (
             path in ('/', '/login', '/ontology')
+            or path.startswith(('/verzeichnis/', '/eintrag/', '/admin/'))
             or path.endswith('.js')
             or path.endswith('.css')
             or path.startswith('/static/')
@@ -1601,6 +1602,26 @@ def create_app(config_path: Optional[str] = None):
                     getattr(user, 'email', '?'), sorted(roles) or ['-'])
         return None
 
+    def _sidebar_directories() -> List[Dict[str, str]]:
+        """Die aktiven Verzeichnisse fuer die Leiste, in ihrer Reihenfolge.
+
+        Nur im Wissensnetz-Modus: in der Fixture-Vorlage gibt es keinen
+        Wissensgraphen, den ein Verzeichnis auflisten koennte. Faellt die
+        Plattform-Datenbank aus, fehlt die Gruppe, statt dass jede Seite bricht.
+        """
+        if identity_gate is None or not _ontology_source_is_graph():
+            return []
+        try:
+            if identity_gate.current_user() is None:
+                return []
+            from identity.directories import DirectoryStore
+
+            return [{'slug': v['slug'], 'title': v['title']}
+                    for v in DirectoryStore(identity_gate.connection()).active_views()]
+        except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
+            logger.warning('Verzeichnisse fuer die Leiste nicht lesbar: %s', exc)
+            return []
+
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
         return {
@@ -1608,6 +1629,7 @@ def create_app(config_path: Optional[str] = None):
             'feedback_url': feedback_url,
             'console_url': _console_url(),
             'cortex_enabled': cortex_enabled,
+            'directories': _sidebar_directories(),
         }
 
     @app.route('/')
@@ -1706,20 +1728,38 @@ def create_app(config_path: Optional[str] = None):
             },
         ))
 
+        from identity.directories import DirectoryStore
         from identity.node_grants import NodeGrantStore
+        from web_interface.graph_pages import create_graph_pages
         from web_interface.graph_routes import create_graph_blueprint
 
         # The grant store is built per request: identity_gate.connection() is
         # request-scoped and teardown_request closes it, so a store made once
-        # here would hold a connection the first request already closed.
+        # here would hold a connection the first request already closed. The
+        # same holds for the directory store.
         app.register_blueprint(create_graph_blueprint(
             identity_gate,
             lambda: NodeGrantStore(identity_gate.connection()),
             lambda: api_client,
-            # _ontology_source_is_graph is defined further down create_app;
-            # naming it here rather than calling it through a lambda would read
-            # it before it is bound.
+            # _ontology_source_is_graph and _ontology_source are defined further
+            # down create_app; naming them here rather than calling them
+            # through a lambda would read them before they are bound.
             graph_mode=lambda: _ontology_source_is_graph(),
+            topology=lambda: _ontology_source(),
+            directories=lambda: DirectoryStore(identity_gate.connection()),
+        ))
+        app.register_blueprint(create_graph_pages(
+            identity_gate,
+            graph_mode=lambda: _ontology_source_is_graph(),
+            directories=lambda: DirectoryStore(identity_gate.connection()),
+            page_context=lambda: {
+                **_sidebar_context(),
+                'app_title': web_app_title,
+                'brand': web_brand,
+                'asset_version': _static_asset_version(),
+                'csrf_token': _ensure_csrf_token(),
+                'ingestion_enabled': rc_client is not None,
+            },
         ))
 
     @app.route('/api/search', methods=['POST'])
@@ -2641,9 +2681,13 @@ def create_app(config_path: Optional[str] = None):
         if not _ontology_source_is_graph():
             return get_ontology(path_exists=_ontology_path_exists)
         if 'source' not in _cortex_text_resolver:
-            from ontology_graph import GraphOntologySource
+            from ontology_graph import DEFAULT_TTL_SECONDS, GraphOntologySource
+            try:
+                ttl = int(os.getenv('ONTOLOGY_CACHE_TTL') or DEFAULT_TTL_SECONDS)
+            except ValueError:
+                ttl = DEFAULT_TTL_SECONDS
             _cortex_text_resolver['source'] = GraphOntologySource(
-                api_client, text_resolver=_document_text_resolver())
+                api_client, text_resolver=_document_text_resolver(), ttl_seconds=ttl)
         return _cortex_text_resolver['source']
 
     def _ontology_filter_engine():

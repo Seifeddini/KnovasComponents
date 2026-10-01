@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ page_title }} · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/graph.css') }}?v={{ asset_version }}">
+</head>
+<body class="admin-page">
+<div class="app-shell">
+{% include '_sidebar.html' %}
+<div class="app-content">
+
+{# The header and the tabs are the console's own; the screen below sits NEXT to
+   main.admin rather than in it, because the console styles bare buttons,
+   inputs and tables under .admin and the knowledge screens bring their own. #}
+<main class="admin kg-admin-head">
+    <header class="admin-page-header">
+        <div>
+            <h1 id="kg-title">{{ page_title }}</h1>
+            <p class="hint" id="kg-lede">{{ page_hint }}</p>
+        </div>
+    </header>
+    {% include '_admin_tabs.html' %}
+</main>
+<div class="kg kg-console" id="kg-root" data-kg-page="{{ kg_page }}" data-type="{{ type_id }}"
+     data-admin="true" aria-live="polite">
+    {% if not graph_mode %}
+    <div class="kg-unavailable" data-kg-unavailable>
+        <strong>Wissensnetz-Modus erforderlich</strong>
+        Wissenstypen, Felder und Verzeichnisse stehen im Wissensgraphen des Mandanten. Diese
+        Installation läuft mit der lokalen Cortex-Vorlage (<code>ONTOLOGY_SOURCE=fixture</code>).
+    </div>
+    {% else %}
+    <p class="kg-loading">Wird geladen …</p>
+    {% endif %}
+</div>
+</div>
+</div>
+{% if graph_mode %}
+<script src="{{ url_for('static', filename='js/graph_core.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/graph_admin.js') }}?v={{ asset_version }}"></script>
+{% endif %}
+</body>
+</html>

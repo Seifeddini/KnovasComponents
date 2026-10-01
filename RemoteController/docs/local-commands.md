@@ -1,6 +1,6 @@
 # Local commands — run, sync, test
 
-API reference and pytest for Remote Controller. **First-time local setup:** follow [local-setup.md](local-setup.md) step by step. **Production setup:** [SETUP.md](SETUP.md).
+API reference and pytest for Knovas Connector. **First-time local setup:** follow [local-setup.md](local-setup.md) step by step. **Production setup:** [SETUP.md](SETUP.md).
 
 ## Run the service
 

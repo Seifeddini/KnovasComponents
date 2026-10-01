@@ -1561,3 +1561,28 @@ mark.context-snippet-match,
     font-weight: 400;
     color: var(--text-secondary);
 }
+
+/* Verzeichnisse in der Leiste: eine Gruppe unter Cortex, je aktivem
+   Verzeichnis ein Eintrag. Die Ueberschrift steht nur, wenn es eines gibt. */
+.app-nav-group { display: flex; flex-direction: column; gap: 2px; margin: 10px 0 2px; }
+.app-nav-group-label {
+    padding: 4px 10px 2px;
+    font-family: var(--font-heading);
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-secondary);
+}
+.app-nav-sub { font-size: 0.88rem; }
+@media (max-width: 900px) {
+    /* The navigation scrolls in its own row instead of pushing the page
+       sideways: with a directory or two it no longer fits a phone. */
+    .app-nav { flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+    .app-nav > *, .app-nav-group > * { flex: none; }
+    /* The shell stacks here, and flex-start would size the content column by
+       its widest table rather than by the screen. */
+    .app-content { align-self: stretch; }
+    .app-nav-group { flex-direction: row; margin: 0; }
+    .app-nav-group-label { display: none; }
+}

@@ -17,9 +17,10 @@
 | Debian host notes | [platforms/debian.md](platforms/debian.md) |
 | Windows host notes | [platforms/windows.md](platforms/windows.md) |
 | Administer documents and folder access rules | [features/document-administration.md](features/document-administration.md) |
+| Knowledge types, directories, cards, Wissensnetz | [features/knowledge-directories.md](features/knowledge-directories.md) |
 | Open Office/UNC files from the browser | [integration/opening-documents.md](integration/opening-documents.md) |
 | Open-token HTTP API | [integration/open-tokens-api.md](integration/open-tokens-api.md) |
 | Common errors | [integration/troubleshooting.md](integration/troubleshooting.md) |
 | Knovas API (mTLS, ingestion) | [docs/KnovasAPI](../../docs/KnovasAPI/README.md) |
 | mTLS certificates (filenames, permissions) | [docs/certificates.md](../../docs/certificates.md) |
-| Index documents before search | [RemoteController](../../RemoteController/README.md) |
+| Index documents before search | [Knovas Connector](../../RemoteController/README.md) |

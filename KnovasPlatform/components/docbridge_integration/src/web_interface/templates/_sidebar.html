@@ -1,6 +1,7 @@
 {# Plattform-Seitenleiste: eine Quelle fuer alle Module.
-   Erwartet: active_nav ('suche' | 'cortex' | 'einstellungen' | 'admin'),
-   company_name, optional console_url (nur fuer Administratoren gesetzt). #}
+   Erwartet: active_nav ('suche' | 'cortex' | 'einstellungen' | 'admin' |
+   'dir:<slug>'), company_name, optional console_url (nur fuer Administratoren
+   gesetzt) und directories (aktive Verzeichnisse, sonst leer). #}
 <aside class="app-sidebar">
     <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
         <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
@@ -33,6 +34,29 @@
             </svg>
             Cortex
         </a>
+        {% endif %}
+        {# Verzeichnisse: eine Seite je Wissenstyp, in der Verwaltung angelegt und
+           geordnet. Die Liste kommt aus _sidebar_context und ist leer, solange
+           keins aktiv ist -- dann steht auch keine Ueberschrift da. #}
+        {% if directories is defined and directories %}
+        <div class="app-nav-group" role="group" aria-labelledby="nav-directories">
+            <span class="app-nav-group-label" id="nav-directories">Verzeichnisse</span>
+            {% for d in directories %}
+            {% set here = active_nav == 'dir:' ~ d.slug %}
+            <a href="{{ url_for('graph_pages.directory', slug=d.slug) }}"
+               class="app-nav-item app-nav-sub{% if here %} active{% endif %}"
+               {% if here %}aria-current="page"{% endif %}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true" focusable="false">
+                    <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+                    <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                </svg>
+                {{ d.title }}
+            </a>
+            {% endfor %}
+        </div>
         {% endif %}
         <a href="{{ url_for('settings_page') }}" class="app-nav-item{% if active_nav == 'einstellungen' %} active{% endif %}"
            {% if active_nav == 'einstellungen' %}aria-current="page"{% endif %}>

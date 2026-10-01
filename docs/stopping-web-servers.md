@@ -1,8 +1,8 @@
 # Stopping web servers
 
-How to shut down Knovas Platform and Remote Controller HTTP services (Docker and local dev).
+How to shut down Knovas Platform and Knovas Connector HTTP services (Docker and local dev).
 
-## Knovas stack (search UI, RemoteController, identity DB)
+## Knovas stack (search UI, Knovas Connector, identity DB)
 
 One Compose project at the repo root covers all of it. From `KnovasComponents/`:
 
@@ -45,9 +45,9 @@ docker compose --env-file knovas.env ps
 
 ---
 
-## Remote Controller on its own
+## Knovas Connector on its own
 
-RemoteController is part of the root stack above, so `./scripts/stop.sh` already
+Knovas Connector is part of the root stack above, so `./scripts/stop.sh` already
 stops it. Only a **standalone** RC checkout (its own Compose project, for
 component development) needs this, from `KnovasComponents/RemoteController/`:
 
@@ -65,8 +65,8 @@ If you started processes directly on the host, stop them in the terminal where t
 
 | Component | Typical command | Port (default) |
 |-----------|-----------------|----------------|
-| Remote Controller (Gunicorn) | `gunicorn -b 127.0.0.1:5001 ...` | `5001` (`RC_API_PORT`) |
-| Remote Controller (Flask dev) | `python src/app.py` | from `.env` |
+| Knovas Connector (Gunicorn) | `gunicorn -b 127.0.0.1:5001 ...` | `5001` (`RC_API_PORT`) |
+| Knovas Connector (Flask dev) | `python src/app.py` | from `.env` |
 | Docbridge (unusual on host) | Gunicorn inside container only in this bundle | — |
 
 **Find stray listeners (Linux):**
@@ -108,5 +108,5 @@ you also started a standalone RC project for component development.
 ## Related
 
 - Start platform: [KnovasPlatform/docs/setup.md](../KnovasPlatform/docs/setup.md)
-- Start Remote Controller: [RemoteController/docs/SETUP.md](../RemoteController/docs/SETUP.md)
+- Start Knovas Connector: [RemoteController/docs/SETUP.md](../RemoteController/docs/SETUP.md)
 - Demo mock API: [KnovasPlatform/docs/demo.md](../KnovasPlatform/docs/demo.md)

@@ -5,11 +5,11 @@ Customer-hosted components for the Knovas platform.
 | Folder | Purpose |
 |--------|---------|
 | [KnovasPlatform/](KnovasPlatform/) | Search web app (Docker) — query indexed documents |
-| [RemoteController/](RemoteController/) | Discover and sync local files into Knovas |
+| [Knovas Connector](RemoteController/) — folder `RemoteController/` | Discover and sync local files into Knovas |
 
 **Send to clients:** [docs/client/](docs/client/) — one page, Demo-Kanzlei from files to search.
 
-**Typical setup:** ingest with RemoteController, then deploy KnovasPlatform for search. Both need credentials from Knovas (mTLS, tokens).
+**Typical setup:** ingest with Knovas Connector, then deploy KnovasPlatform for search. Both need credentials from Knovas (mTLS, tokens).
 
 Both components use the **same** mTLS bundle but expect different filenames in
 different directories. Read [docs/certificates.md](docs/certificates.md) before
@@ -23,7 +23,7 @@ cp knovas.env.example knovas.env   # fill 5 values, add certs to certs/
 ./scripts/setup.sh && ./scripts/start.sh
 ```
 
-Unified stack (RC + Platform): one `knovas.env`, shared document mount, RC on `127.0.0.1:5001` only.
+Unified stack (Knovas Connector + Platform): one `knovas.env`, shared document mount, the Connector on `127.0.0.1:5001` only.
 
 **Documents in OneDrive or SharePoint?** Set `KNOVAS_DOCUMENTS_URL` (the folder's
 address from the browser) plus `M365_CLIENT_ID` / `M365_CLIENT_SECRET` instead of

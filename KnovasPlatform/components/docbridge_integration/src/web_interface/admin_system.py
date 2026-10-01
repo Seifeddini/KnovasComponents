@@ -223,7 +223,7 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
 
     # ── RemoteController ───────────────────────────────────────────────────
     if rc_client_factory is None:
-        checks.append(Check("rc", "RemoteController", SKIP, "Nicht konfiguriert",
+        checks.append(Check("rc", "Knovas Connector", SKIP, "Nicht konfiguriert",
                             hint="Ohne ihn fehlt der Reiter Ingestion."))
     else:
         def _rc_ping():
@@ -235,7 +235,7 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
 
         _, ms, exc = _timed(_rc_ping)
         checks.append(Check(
-            "rc", "RemoteController",
+            "rc", "Knovas Connector",
             OK if exc is None else WARN,
             "antwortet" if exc is None else _short(exc), ms=ms,
             hint="" if exc is None else "Betrifft nur den Reiter Ingestion.",

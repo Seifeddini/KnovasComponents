@@ -2,7 +2,7 @@
 
 Ready-to-run **search web app** for your Knovas tenant (Docker), usually on a Linux server. **Öffnen** uses the browser to open files on each user's PC via the shared drive — no client install ([docs/integration/opening-documents.md](docs/integration/opening-documents.md)).
 
-**Ingest documents first** with [RemoteController](../RemoteController/) (or your own pipeline). This app only searches already-indexed content.
+**Ingest documents first** with [Knovas Connector](../RemoteController/) (or your own pipeline). This app only searches already-indexed content.
 
 ## Get started
 

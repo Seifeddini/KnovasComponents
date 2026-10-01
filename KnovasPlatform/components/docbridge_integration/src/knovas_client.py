@@ -2003,6 +2003,56 @@ class KnovasAPIClient:
             return None
         return _graph_payload_list(payload, 'facts')
 
+    def graph_type_facts(self, node_type_id: str, *, page_size: int = 500,
+                         max_rows: int = 5000) -> Optional[Dict[str, Any]]:
+        """GET /secured/graph/facts?node_type_id= - alle sichtbaren Fakten eines Typs.
+
+        Eine Verzeichnisliste und die Fuellgrade der Verwaltung brauchen die
+        Werte aller Eintraege eines Typs. Pro Eintrag einmal GET /nodes/<id>
+        waeren bei rund einer Anfrage pro Sekunde vierzig Sekunden fuer vierzig
+        Mandate; diese Route liefert sie seitenweise.
+
+        Liefert {"facts": [...], "complete": bool} - complete ist False, wenn
+        max_rows erreicht wurde. None, wenn die Route mit 404 antwortet: eine
+        API ohne diese Route (Part KB-D) oder ein unbekannter Typ. Der Aufrufer
+        faellt dann auf einzelne Knoten zurueck und sagt das, statt leere
+        Spalten als "nicht ausgefuellt" auszugeben.
+        """
+        page_size = max(1, min(1000, int(page_size)))
+        rows: List[Dict[str, Any]] = []
+        seen: set = set()
+        offset = 0
+        while True:
+            payload = self._graph_request('GET', '/facts', params={
+                'node_type_id': node_type_id, 'limit': page_size, 'offset': offset})
+            if payload is None:
+                return None if not rows else {'facts': rows, 'complete': False}
+            page = _graph_payload_list(payload, 'facts', strict=True)
+            fresh = [f for f in page if str(f.get('id')) not in seen]
+            if page and not fresh:
+                # The same page again: an API that ignores limit/offset has
+                # already sent everything it has. Asking on would only loop.
+                return {'facts': rows, 'complete': True}
+            seen.update(str(f.get('id')) for f in fresh)
+            rows.extend(fresh)
+            total = payload.get('count') if isinstance(payload, dict) else None
+            if len(page) < page_size or (isinstance(total, int) and len(rows) >= total):
+                return {'facts': rows, 'complete': True}
+            if len(rows) >= max_rows:
+                return {'facts': rows[:max_rows], 'complete': False}
+            offset += len(page)
+
+    def graph_fact_history(self, fact_id: str) -> Optional[List[Dict[str, Any]]]:
+        """GET /secured/graph/facts/<fid>/history - Ereignisse eines Fakts.
+
+        None bei 404 (Fakt unbekannt, fremd, oder eine API ohne Verlauf).
+        """
+        payload = self._graph_request(
+            'GET', f'/facts/{quote(str(fact_id), safe="")}/history')
+        if payload is None:
+            return None
+        return _graph_payload_list(payload, 'history', 'events', strict=True)
+
     def graph_create_fact(self, node_id: str, value: Any,
                           attribute_id: Optional[str] = None,
                           label: Optional[str] = None) -> Optional[Dict[str, Any]]:
