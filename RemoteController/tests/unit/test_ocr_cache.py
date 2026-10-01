@@ -142,3 +142,27 @@ def test_memory_cache_counts_hits_and_misses():
     m.put("k", "v")
     assert m.get("k") == "v"
     assert (m.hits, m.misses) == (1, 1)
+
+
+def test_cache_is_usable_from_worker_threads(tmp_path, caplog):
+    """The library's OCR scheduler calls get/put from its worker threads: a
+    connection opened on the main thread must serve them (no SQLite
+    same-thread ProgrammingError turned into silent misses)."""
+    import logging
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sync.ocr_cache import OcrDiskCache
+
+    cache = OcrDiskCache(tmp_path / "ocr-cache.db", 1024 * 1024)
+    cache.put("warm", "x" * 10)  # opens the connection on this thread
+
+    def worker(i: int) -> str | None:
+        cache.put(f"k{i}", f"v{i}")
+        return cache.get(f"k{i}")
+
+    with caplog.at_level(logging.WARNING, logger="sync.ocr_cache"):
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            got = list(pool.map(worker, range(16)))
+    assert got == [f"v{i}" for i in range(16)]
+    assert cache.hits == 16 and cache.misses == 0
+    assert not [r for r in caplog.records if "OCR cache" in r.getMessage()]

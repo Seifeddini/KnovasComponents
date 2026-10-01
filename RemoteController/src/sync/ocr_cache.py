@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -112,6 +113,10 @@ class OcrDiskCache:
         self._max_bytes = max(0, int(max_bytes))
         self._conn: Optional[sqlite3.Connection] = None
         self._pid: Optional[int] = None
+        # The library's OCR scheduler calls get/put from its worker THREADS;
+        # a connection is shared across them under this lock (SQLite's own
+        # same-thread check is disabled for that reason).
+        self._lock = threading.RLock()
         self.hits = 0
         self.misses = 0
 
@@ -166,7 +171,7 @@ class OcrDiskCache:
                 os.chmod(self._path, 0o600)
             except OSError:
                 pass
-            conn = sqlite3.connect(str(self._path), timeout=30.0)
+            conn = sqlite3.connect(str(self._path), timeout=30.0, check_same_thread=False)
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.executescript(_SCHEMA)
             self._conn = conn
@@ -174,11 +179,12 @@ class OcrDiskCache:
         return self._conn
 
     def close(self) -> None:
-        if self._conn is not None:
-            if self._pid == os.getpid():
-                self._conn.close()
-            self._conn = None
-            self._pid = None
+        with self._lock:
+            if self._conn is not None:
+                if self._pid == os.getpid():
+                    self._conn.close()
+                self._conn = None
+                self._pid = None
 
     # ----- cache protocol (duck-typed) -----------------------------------
 
@@ -186,20 +192,25 @@ class OcrDiskCache:
         if not self.enabled:
             self.misses += 1
             return None
-        try:
-            conn = self._connect()
-            row = conn.execute("SELECT value FROM entries WHERE key = ?", (str(key),)).fetchone()
-            if row is None:
+        with self._lock:
+            try:
+                conn = self._connect()
+                row = conn.execute(
+                    "SELECT value FROM entries WHERE key = ?", (str(key),)
+                ).fetchone()
+                if row is None:
+                    self.misses += 1
+                    return None
+                conn.execute(
+                    "UPDATE entries SET last_used_at = ? WHERE key = ?", (time.time(), str(key))
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                logger.warning("OCR cache read failed: %s", type(exc).__name__)
                 self.misses += 1
                 return None
-            conn.execute("UPDATE entries SET last_used_at = ? WHERE key = ?", (time.time(), str(key)))
-            conn.commit()
-        except sqlite3.Error as exc:
-            logger.warning("OCR cache read failed: %s", type(exc).__name__)
-            self.misses += 1
-            return None
-        self.hits += 1
-        return str(row[0])
+            self.hits += 1
+            return str(row[0])
 
     def put(self, key: str, value: str, *, relative_path: Optional[str] = None) -> None:
         if not self.enabled or not isinstance(value, str):
@@ -208,22 +219,23 @@ class OcrDiskCache:
         if size > self._max_bytes:
             return
         now = time.time()
-        try:
-            conn = self._connect()
-            conn.execute(
-                "INSERT OR REPLACE INTO entries (key, value, size_bytes, created_at, last_used_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (str(key), value, size, now, now),
-            )
-            if relative_path:
+        with self._lock:
+            try:
+                conn = self._connect()
                 conn.execute(
-                    "INSERT OR IGNORE INTO documents (key, relative_path) VALUES (?, ?)",
-                    (str(key), str(relative_path)),
+                    "INSERT OR REPLACE INTO entries (key, value, size_bytes, created_at, last_used_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (str(key), value, size, now, now),
                 )
-            self._evict_locked(conn)
-            conn.commit()
-        except sqlite3.Error as exc:
-            logger.warning("OCR cache write failed: %s", type(exc).__name__)
+                if relative_path:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO documents (key, relative_path) VALUES (?, ?)",
+                        (str(key), str(relative_path)),
+                    )
+                self._evict_locked(conn)
+                conn.commit()
+            except sqlite3.Error as exc:
+                logger.warning("OCR cache write failed: %s", type(exc).__name__)
 
     # ----- housekeeping --------------------------------------------------
 
