@@ -1,4 +1,3 @@
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -193,3 +192,136 @@ def test_upload_conversion_error(mock_config, tmp_path):
     assert result.status == "error"
     assert result.parts == 0
     req.assert_not_called()
+
+
+# --- page markers, PDF tables and the sidecar (plan §5 M3, GI-INGEST-17) -----
+
+
+def _two_page_pdf_doc():
+    from knovas_extract.result import Page, Sentence
+
+    from sync.document_text import ExtractedDocument
+
+    text = "Seite eins.\n\nSeite zwei."
+    pages = [
+        Page(index=0, text="Seite eins.", line_start=1, line_end=1),
+        Page(index=1, text="Seite zwei.", line_start=3, line_end=3),
+    ]
+    sentences = [
+        Sentence(index=0, text="Seite eins.", char_start=0, char_end=11, line_start=1, line_end=1,
+                 page_index=0, page_number=1, section_index=None),
+        Sentence(index=1, text="Seite zwei.", char_start=13, char_end=24, line_start=3, line_end=3,
+                 page_index=1, page_number=2, section_index=None),
+    ]
+    tables = [{"client_table_hint": "t1", "headers": ["H"], "rows": [["v"]], "_char_start": 0}]
+    return ExtractedDocument(text=text, sentences=sentences, pages=pages, tables=tables)
+
+
+def test_pdf_part_carries_page_break_marker_and_no_tables(mock_config, tmp_path, monkeypatch):
+    monkeypatch.delenv("RC_PAGE_BREAK_MARKERS", raising=False)
+    monkeypatch.delenv("RC_SEND_PDF_TABLES", raising=False)
+    pdf = tmp_path / "zwei.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    uploader = SemantixUploader()
+    sync_body = {"ingestion": {"identifier_prefix": "corpus"}}
+    captured: dict = {}
+
+    def fake_sidecar(store_dir, pointer, path, text, sentences):
+        captured.update(pointer=pointer, text=text, sentences=sentences)
+        return True
+
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=_two_page_pdf_doc()
+    ), patch("sync.knovas_uploader.write_context_sidecar", side_effect=fake_sidecar):
+        req.side_effect = [_ok_response(), _ok_response()]
+        result = uploader.upload_file(pdf, "akten/zwei.pdf", sync_body)
+
+    assert result.status == "ok" and result.partial is None
+    part_json = req.call_args_list[1].kwargs["json_body"]
+    assert part_json["snippet"] == "Seite eins.\n\n\fSeite zwei."
+    assert part_json["page_number"] == 1 and part_json["sentence_number"] == 1
+    assert "tables" not in part_json, "the server drops PDF tables at the Redis buffer anyway"
+    # the sidecar is built from the UNMARKED text
+    assert captured["text"] == "Seite eins.\n\nSeite zwei."
+    assert "\f" not in captured["text"]
+    assert captured["pointer"] == "corpus/akten/zwei.pdf"
+
+
+def test_page_markers_and_pdf_tables_can_be_switched(mock_config, tmp_path, monkeypatch):
+    monkeypatch.setenv("RC_PAGE_BREAK_MARKERS", "false")
+    monkeypatch.setenv("RC_SEND_PDF_TABLES", "true")
+    pdf = tmp_path / "zwei.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=_two_page_pdf_doc()
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response(), _ok_response()]
+        uploader.upload_file(pdf, "akten/zwei.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
+    part_json = req.call_args_list[1].kwargs["json_body"]
+    assert "\f" not in part_json["snippet"]
+    assert part_json["tables"][0]["client_table_hint"] == "t1"
+
+
+def test_docx_tables_are_still_sent(mock_config, tmp_path, monkeypatch):
+    monkeypatch.delenv("RC_SEND_PDF_TABLES", raising=False)
+    docx = tmp_path / "tab.docx"
+    docx.write_bytes(b"PK stub")
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=_two_page_pdf_doc()
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response(), _ok_response()]
+        uploader.upload_file(docx, "akten/tab.docx", {"ingestion": {"identifier_prefix": "corpus"}})
+    assert req.call_args_list[1].kwargs["json_body"]["tables"]
+
+
+def test_upload_result_partial_is_filled_from_metadata_extra(mock_config, tmp_path, monkeypatch):
+    from sync.document_text import ExtractedDocument
+
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "true")
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    doc = ExtractedDocument(
+        text="Deckblatt.", sentences=None,
+        extra={"pdf:ocr_pages_skipped": 12, "pdf:ocr_pages": 40, "pdf:ocr_backend": "tesserocr",
+               "rc:ocr_cache_hits": 2, "rc:ocr_cache_misses": 40},
+    )
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=doc
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response(), _ok_response()]
+        result = uploader.upload_file(pdf, "akten/scan.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
+    assert result.status == "ok"
+    assert result.partial == {"ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr"}
+
+
+def test_upload_result_partial_when_no_ocr_backend_but_ocr_expected(mock_config, tmp_path, monkeypatch):
+    from sync.document_text import ExtractedDocument
+
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "true")
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    doc = ExtractedDocument(text="Deckblatt.", sentences=None, extra={"pdf:ocr_backend": "none"})
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=doc
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response(), _ok_response()]
+        result = uploader.upload_file(pdf, "akten/scan.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
+    assert result.partial == {"reason": "ocr_backend_none", "ocr_backend": "none"}
+
+
+def test_uploader_passes_the_relative_path_as_cache_key(mock_config, tmp_path):
+    """The OCR cache indexes entries by the sync-relative path (not the temp
+    copy a Microsoft 365 file is read from), so purge-on-delete finds them."""
+    pdf = tmp_path / "x.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=_two_page_pdf_doc()
+    ) as guarded, patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response(), _ok_response()]
+        uploader.upload_file(pdf, "akten/x.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
+    assert guarded.call_args.kwargs["document_key"] == "akten/x.pdf"

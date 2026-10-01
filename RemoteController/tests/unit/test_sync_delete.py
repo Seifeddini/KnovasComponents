@@ -1,7 +1,5 @@
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from sync.sync_executor import _prune_removed_documents, _pointer_for_relative
 from sync.sync_state import SyncStateStore
@@ -16,6 +14,12 @@ def test_pointer_for_relative():
 def test_prune_removed_documents(tmp_path, monkeypatch):
     state_path = tmp_path / "state.json"
     monkeypatch.setenv("RC_SYNC_STATE_PATH", str(state_path))
+    # Reload the config, or SyncStateStore() keeps using the path it was
+    # loaded with and this test writes into the repository's state file.
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
     state = SyncStateStore()
     state.record_upload("gone.txt", "2026-01-01T00:00:00Z", 10, "key-1")
     state.record_upload("stay.txt", "2026-01-01T00:00:00Z", 10, "key-2")

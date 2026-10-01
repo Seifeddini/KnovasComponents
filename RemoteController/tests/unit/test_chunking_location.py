@@ -54,3 +54,14 @@ def test_iter_text_chunks_with_location_without_sentences_yields_none():
     text = "just some text without citation lookup"
     parts = list(iter_text_chunks_with_location(text, 10))
     assert all(p[1] is None and p[2] is None for p in parts)
+
+
+def test_page_markers_default_off_keeps_the_wire_unchanged():
+    from knovas_extract.result import Page
+
+    text = "Seite eins.\n\nSeite zwei."
+    pages = [Page(index=0, text="Seite eins.", line_start=1, line_end=1), Page(index=1, text="Seite zwei.", line_start=3, line_end=3)]
+    plain = list(iter_text_chunks_with_location(text, 10_000, pages=pages))
+    marked = list(iter_text_chunks_with_location(text, 10_000, pages=pages, page_markers=True))
+    assert plain[0][0] == text and "\f" not in plain[0][0]
+    assert marked[0][0] == "Seite eins.\n\n\fSeite zwei."

@@ -78,7 +78,7 @@ To prevent sync from auto-starting after a container restart, set `"enabled": fa
 
 ## Scanned PDFs (OCR)
 
-Image-only PDFs are ingested via Tesseract when `knovas-extract>=0.3` and `tesseract-ocr` are present in the RC image (`RC_PDF_OCR_ENABLED=true` by default; `RC_TESSERACT_LANG=deu+eng`).
+Image pages of PDFs are ingested via Tesseract when `knovas-extract>=0.3` and `tesseract-ocr` are present in the RC image (`RC_PDF_OCR_ENABLED=true` by default; `RC_TESSERACT_LANG=deu+eng`). The tuning variables (`RC_OCR_*`, `RC_EXTRACT_*`, `RC_PDF_TEXT_MODE`) are listed in [configuration.md](configuration.md#extraction-ocr-and-page-markers).
 
 PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite and will not retry until those rows are removed:
 
@@ -89,10 +89,55 @@ sqlite3 /var/rc-state/.rc-sync-state.db \
 
 Then restart continuous sync or wait for the next cycle.
 
+### Documents parked by the markdown expansion guard
+
+Releases before 0.2.0 asked the extractor for markdown on every document. Its expansion guard raised `resource limit exceeded: markdown expansion ratio` on mixed PDFs (digital cover + scanned body) and on DOCX with large tables, and on `.eml`/`.msg` with HTML bodies, and the RC parked each such file as `skip:unconvertible` — forever. 0.2.0 no longer requests markdown. The SQLite state keeps only the `skip:` key, not the message, so the recipe re-queues every parked file of these types (one that is genuinely unconvertible is parked again after one extraction):
+
+```bash
+sqlite3 /var/rc-state/.rc-sync-state.db \
+  "DELETE FROM documents WHERE transmission_key_id LIKE 'skip:%' AND (
+     LOWER(relative_path) LIKE '%.pdf' OR LOWER(relative_path) LIKE '%.docx'
+     OR LOWER(relative_path) LIKE '%.eml' OR LOWER(relative_path) LIKE '%.msg');"
+```
+
+The messages that identify the parked files are in the RC log (`Upload failed path=… error=resource limit exceeded: markdown expansion ratio …`). Then wait for the next cycle.
+
+### Partial documents and the backfill
+
+A document whose text landed only in part is recorded **partial**, not parked (GI-EXTRACT-02):
+
+- the OCR page or time budget tripped on a long scan — the library returned the text pages with the skipped pages COUNTED (`ocr_pages_skipped`), the document was uploaded as is;
+- the extraction child was killed on the wall-clock ceiling or died (`extractor died (exit -9)`) `RC_EXTRACT_MAX_RETRIES` times in a row — note `extract_retries_exhausted`;
+- OCR is configured but the library reported no OCR backend (`ocr_backend_none`).
+
+A partial file is not re-uploaded by the incremental cycle (its fingerprint is stored; `document_sync` counts it as `synced`) but stays listed for the nightly pass. `POST /sync` responses carry `partial` on the transmission entry; `/metrics` has `rc_ocr_partial_total`, `rc_extract_retry_total`, `rc_ocr_backend_degraded_total`, `rc_skip_unconvertible_total`.
+
+```bash
+# what is recorded, nothing uploaded
+docker compose --env-file knovas.env run --rm remote-controller \
+  python /app/scripts/backfill_partial_ocr.py --dry-run
+# the pass: a budget trip is re-extracted with a 5000-page / 1800 s budget,
+# exhausted retries with OCR disabled; a clean upload clears the note
+docker compose --env-file knovas.env run --rm remote-controller \
+  python /app/scripts/backfill_partial_ocr.py
+```
+
+Run it outside the sync window (one document at a time, full OCR). Inspect the notes directly: `sqlite3 /var/rc-state/.rc-sync-state.db "SELECT relative_path, note_json FROM partial_documents;"`. Removing a row from `partial_documents` forgets the note without touching the fingerprint.
+
+### OCR disk cache
+
+OCR output is cached per page image in `/var/rc-state/.rc-ocr-cache.db` (beside `RC_SYNC_STATE_PATH`, mode 0600, SQLite), so a re-sync of a synced folder, the backfill and the shadow run's second rendering perform no OCR for pages already seen. The key includes the engine, language, dpi and preprocessing fingerprint, so a changed `RC_OCR_ENGINE` or `RC_TESSERACT_LANG` never serves stale text.
+
+- **Retention:** least-recently-used entries are evicted above `RC_OCR_CACHE_MAX_MB` (default 512 MiB). A document's entries are purged when it is removed from Knovas (pruned from the share, `remove_tracked`); an entry two documents share stays until the last of them goes.
+- **Off-switch:** `RC_OCR_CACHE_MAX_MB=0` — no file is created and every lookup misses. Delete an existing file by hand after switching it off: `rm /var/rc-state/.rc-ocr-cache.db`.
+- **Reset:** when you reset the sync state by hand (`DELETE FROM documents …`), remove the cache file as well; it is a copy of document text at rest and belongs to the same lifecycle. Code paths that reset the state (`SyncStateStore.reset_all`) drop it.
+- The cache is opened only in the forked extraction child; the API worker never holds it open.
+
 ## Upgrades
 
 1. Stop continuous worker (`POST /sync/stop` — remember the `-d '{}'` body).
 2. Replace image or package; preserve `.env`, certs, state, and config volumes.
 3. Verify `/health`, then run a test `GET /discover`.
+4. Rerun `scripts/build_context_sidecars.py --force` when the release changes extraction (see [configuration.md](configuration.md#search-context-sidecars)), and re-queue files the previous release parked (above).
 
 Use a **single** Gunicorn worker (`-w 1`) when running from source; multiple workers conflict on scheduler state.

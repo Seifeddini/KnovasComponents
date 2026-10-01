@@ -47,6 +47,11 @@ rewrites them all). `--jobs` is how many documents are extracted at once, one CP
 core each. `./scripts/doctor.sh` reports how much of the share has text, and
 whether a backfill is running.
 
+**Rerun it after an upgrade of the RC image** (`--force`): the sidecar holds the
+extractor's text, and a release that changes extraction — per-page OCR, the
+layout mode — changes the text the Platform shows under a hit. The sidecar is
+always built from the unmarked text; page-break markers exist only on the wire.
+
 ## Scheduler config file
 
 Path: `RC_SYNC_CONFIG_PATH` (default `config/remote_controller_sync.json`).
@@ -118,7 +123,7 @@ RemoteController converts the following extensions to text (with per-sentence ci
 |-----------|---------|
 | `.md`, `.txt` | Plain text (chardet encoding detection) |
 | `.docx` | `python-docx` + `mammoth` |
-| `.pdf` | `pymupdf` (per-page text; sentence page back-pointers) |
+| `.pdf` | `pymupdf` (per-page text; sentence page back-pointers; per-page OCR of image pages via Tesseract) |
 | `.eml` | Standard library `email` (subject → transmission title) |
 | `.msg` | `extract-msg` (subject → transmission title) |
 
@@ -133,9 +138,35 @@ Align deployment with KnovasPlatform:
 - Mount the same tree of originals on RC watch roots and `AUTODOC_MOUNT_PATH`.
 - Set `ingestion.identifier_prefix` equal to `AUTODOC_IDENTIFIER_PREFIX` (e.g. both `corpus`).
 
-Scanned PDFs without a text layer are OCR'd automatically when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs.
+Scanned PDF pages without a text layer are OCR'd when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs. Markdown is never requested from the extractor (it cost ~8 s per document and parked mixed PDFs and large-table DOCX as "markdown expansion ratio" — see [operations.md](operations.md#documents-parked-by-the-markdown-expansion-guard)).
 
-**Docker build:** `knovas-extract` 0.3.0 (OCR) may not be on PyPI yet. The Dockerfile installs it from `git+https://github.com/Seifeddini/knovas-extract-python.git@main` by default. After PyPI publish, use `docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller` to install from PyPI instead.
+**Docker build:** the Dockerfile installs `knovas-extract` from git. `KNOVAS_EXTRACT_REF` (default `main`) selects the revision — pin it to a tag or sha per RC release: `docker compose build --build-arg KNOVAS_EXTRACT_REF=v0.4.0a1 remote-controller`. `--build-arg KNOVAS_EXTRACT_FROM_GIT=` installs from PyPI instead. The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
+
+### Extraction, OCR and page markers
+
+All read from the environment by `src/sync/document_text.py`, `knovas_uploader.py`, `sync_executor.py` and `ocr_cache.py` (not by `config.py`). Keywords the installed `knovas-extract` does not take are withheld, so the same image runs against 0.3 (today) and 0.4 (`text_mode=`, `ocr=`).
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `RC_PDF_OCR_ENABLED` | `true` | OCR image pages of PDFs (`use_ocr="auto"`). `false` keeps text layers only. |
+| `RC_TESSERACT_LANG` | `deu+eng` | Tesseract language packs (at most two; `deu+fra`, `deu+ita` per tenant). |
+| `RC_PDF_TEXT_MODE` | `plain` | `plain` — today's text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with a warning when the library has no `text_mode`. |
+| `RC_OCR_ENGINE` | `auto` | `auto` / `tesserocr` / `cli` / `mupdf` (knovas-extract ≥ 0.4). |
+| `RC_OCR_DPI` | `300` | Render dpi ceiling; the library never upsamples a lower-resolution scan. |
+| `RC_OCR_WORKERS` | `max(1, cores − 2)` | OCR pages in parallel, at most 8. |
+| `RC_OCR_MAX_PAGES` | `500` | OCR page budget per document. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and recorded `partial` for the backfill. |
+| `RC_OCR_TIME_BUDGET_SECONDS` | `min(240, timeout − 30)` | OCR time budget per document; never more than `timeout − workers × page_timeout − 10` so the partial result reaches the parent before the wall-clock kill. |
+| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `60` | Ceiling for one page's OCR. |
+| `RC_OCR_CACHE_MAX_MB` | `512` | OCR disk cache cap (`.rc-ocr-cache.db` beside `RC_SYNC_STATE_PATH`, LRU, mode 0600). `0` disables it: no file, every lookup misses. See [operations.md](operations.md#ocr-disk-cache). |
+| `RC_EXTRACT_TIMEOUT_SECONDS` | `300` | Wall-clock ceiling for one document's extraction (child process). `0` extracts in-process without a ceiling. |
+| `RC_EXTRACT_TIMEOUT_PER_PAGE_SECONDS` | `2` | For PDFs the ceiling is at least this × page count (the child reports the count first). |
+| `RC_EXTRACT_TIMEOUT_MAX_SECONDS` | `1800` | Cap of the page-scaled ceiling. |
+| `RC_EXTRACT_MAX_RETRIES` | `3` | Retryable extraction failures (wall-clock kill, killed child, transient error) a file may collect; after the cap it is recorded `partial` (`extract_retries_exhausted`) and the backfill runs it with OCR disabled. Secure API failures never count. |
+| `RC_EXTRACT_RLIMIT_AS_MB` | `2048` | Address-space limit of the extraction child (`RLIMIT_AS`); `0` disables. The child also runs at `nice 10`. |
+| `RC_PAGE_BREAK_MARKERS` | `true` | Form feed(s) before every text-page start inside a part so the server serves a hit on its own page (GI-INGEST-17). The part's `page_number` stays the page of its first character; the context sidecar is written from the unmarked text. |
+| `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are still sent. |
+| `RC_UPLOAD_ORDER` | `small_first` | Order of a cycle's upload queue: smallest file first (`scan` keeps the directory order). |
+| `RC_SENTENCE_EMIT_MAX_BYTES` | `2097152` | Inputs above this skip sentence emission (citations and context previews), the text is still uploaded. |
 
 Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
 

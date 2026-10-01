@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "remote-controller"
-version = "0.1.1"
+version = "0.2.0"
 description = "Customer-hosted Knovas Remote Controller — discover and sync local files to Semantix"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,12 +15,13 @@ dependencies = [
     "jsonschema>=4.21,<5",
     "prometheus-client>=0.20,<1",
     "gunicorn>=22.0,<24",
-    # `html` is required even though RC never syncs .html files: sync always
-    # calls extract(..., emit_markdown=True) (sync/document_text.py), and the
-    # DOCX/EML/MSG markdown path parses through selectolax, which ships in
-    # [html]. Older knovas-extract releases omit selectolax from [markdown],
-    # so keep [html] listed explicitly rather than relying on that fix.
-    "knovas-extract[pdf,docx,msg,html,markdown,sentences]>=0.2",
+    # No [markdown]: sync never asks for emit_markdown (sync/document_text.py)
+    # — it cost ~8 s per document and parked mixed PDFs and large-table DOCX
+    # through the expansion guard — and the extra pulled the PolyForm-NC
+    # pymupdf-layout into the customer image. [html] stays: EML/MSG HTML
+    # bodies are converted through selectolax. The Docker image adds [ocr]
+    # (tesserocr; Linux wheels only) — see Dockerfile KNOVAS_EXTRACT_EXTRAS.
+    "knovas-extract[pdf,docx,msg,html,sentences]>=0.2",
 ]
 
 [project.optional-dependencies]

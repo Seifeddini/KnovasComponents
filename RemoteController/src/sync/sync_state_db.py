@@ -19,7 +19,24 @@ CREATE TABLE IF NOT EXISTS documents (
     last_uploaded_at TEXT,
     transmission_key_id TEXT
 );
+CREATE TABLE IF NOT EXISTS partial_documents (
+    relative_path TEXT PRIMARY KEY NOT NULL,
+    note_json TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS extract_retries (
+    relative_path TEXT PRIMARY KEY NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    updated_at TEXT
+);
 """
+
+_MAX_LAST_ERROR_CHARS = 500
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def json_state_path_to_db(path: Path) -> Path:
@@ -186,6 +203,79 @@ class SyncStateDatabase:
     def remove_tracked(self, relative_path: str, *, fingerprints: Optional[dict[str, tuple[str, int]]] = None) -> None:
         conn = self._connect()
         conn.execute("DELETE FROM documents WHERE relative_path = ?", (relative_path,))
+        conn.execute("DELETE FROM partial_documents WHERE relative_path = ?", (relative_path,))
+        conn.execute("DELETE FROM extract_retries WHERE relative_path = ?", (relative_path,))
         conn.commit()
         if fingerprints is not None:
             fingerprints.pop(relative_path, None)
+
+    def remove_all(self) -> None:
+        conn = self._connect()
+        conn.execute("DELETE FROM documents")
+        conn.execute("DELETE FROM partial_documents")
+        conn.execute("DELETE FROM extract_retries")
+        conn.commit()
+
+    # ----- partial documents (GI-EXTRACT-02) ---------------------------------
+
+    def set_partial(self, relative_path: str, note: dict[str, Any]) -> None:
+        conn = self._connect()
+        conn.execute(
+            "INSERT OR REPLACE INTO partial_documents (relative_path, note_json, recorded_at) VALUES (?, ?, ?)",
+            (relative_path, json.dumps(note, ensure_ascii=False, sort_keys=True), _now_iso()),
+        )
+        conn.commit()
+
+    def clear_partial(self, relative_path: str) -> None:
+        conn = self._connect()
+        conn.execute("DELETE FROM partial_documents WHERE relative_path = ?", (relative_path,))
+        conn.commit()
+
+    def get_partial(self, relative_path: str) -> Optional[dict[str, Any]]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT note_json FROM partial_documents WHERE relative_path = ?", (relative_path,)
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            note = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return note if isinstance(note, dict) else {}
+
+    def list_partial_paths(self) -> list[str]:
+        conn = self._connect()
+        cur = conn.execute("SELECT relative_path FROM partial_documents ORDER BY relative_path")
+        return [row[0] for row in cur]
+
+    def count_partial(self) -> int:
+        conn = self._connect()
+        row = conn.execute("SELECT COUNT(*) FROM partial_documents").fetchone()
+        return int(row[0]) if row else 0
+
+    # ----- extraction retries ----------------------------------------------
+
+    def get_retry_count(self, relative_path: str) -> int:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT retry_count FROM extract_retries WHERE relative_path = ?", (relative_path,)
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def increment_retry(self, relative_path: str, *, error: Optional[str] = None) -> int:
+        conn = self._connect()
+        current = self.get_retry_count(relative_path)
+        count = current + 1
+        conn.execute(
+            "INSERT OR REPLACE INTO extract_retries (relative_path, retry_count, last_error, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (relative_path, count, (error or "")[:_MAX_LAST_ERROR_CHARS] or None, _now_iso()),
+        )
+        conn.commit()
+        return count
+
+    def clear_retries(self, relative_path: str) -> None:
+        conn = self._connect()
+        conn.execute("DELETE FROM extract_retries WHERE relative_path = ?", (relative_path,))
+        conn.commit()

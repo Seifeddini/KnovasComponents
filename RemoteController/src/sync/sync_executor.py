@@ -15,6 +15,7 @@ import requests
 from discover.filesystem import resolve_root
 from m365.inventory import RemoteFile
 from m365.source import M365Source, active_m365_source, m365_configured, watch_root_subpath
+from sync import ocr_metrics
 from sync.document_text import (
     DEFAULT_INCLUDE_GLOBS,
     is_syncable_extension,
@@ -36,6 +37,50 @@ from sync.sync_state import (
 logger = logging.getLogger(__name__)
 
 
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %d", name, raw, default)
+        return default
+
+
+#: Retryable extraction failures (wall-clock kill, killed child, transient
+#: error) a file may collect before it is recorded partial for the
+#: OCR-disabled backfill pass instead of burning the full timeout every
+#: cycle (GI-EXTRACT-02). `RC_EXTRACT_MAX_RETRIES`, read once at import.
+MAX_EXTRACT_RETRIES = _env_int("RC_EXTRACT_MAX_RETRIES", 3, minimum=1)
+
+#: The partial note recorded when the retry cap is reached.
+RETRIES_EXHAUSTED_NOTE = {"reason": "extract_retries_exhausted"}
+
+UPLOAD_ORDERS = ("small_first", "scan")
+DEFAULT_UPLOAD_ORDER = "small_first"
+
+
+def upload_order() -> str:
+    """`RC_UPLOAD_ORDER`: small_first (default) uploads the cycle's queue
+    smallest file first, so one 300-page scan does not hold back the
+    letters behind it; `scan` keeps the directory order."""
+    raw = (os.environ.get("RC_UPLOAD_ORDER") or "").strip().lower()
+    if not raw:
+        return DEFAULT_UPLOAD_ORDER
+    if raw in UPLOAD_ORDERS:
+        return raw
+    logger.warning("Invalid RC_UPLOAD_ORDER=%r; using %s", raw, DEFAULT_UPLOAD_ORDER)
+    return DEFAULT_UPLOAD_ORDER
+
+
+def _ordered_upload_queue(queue: list[tuple[Any, str, str, int, tuple[str, ...]]], order: str):
+    if order == "small_first":
+        # Stable: files of equal size keep their scan order.
+        return sorted(queue, key=lambda item: int(item[3]))
+    return list(queue)
+
+
 def _matches_globs(rel_posix: str, patterns: list[str]) -> bool:
     path = Path(rel_posix)
     return any(path.match(g) or fnmatch.fnmatch(rel_posix, g) for g in patterns)
@@ -46,6 +91,8 @@ class SyncRunResult:
     files_scanned: int = 0
     files_uploaded: int = 0
     files_skipped: int = 0
+    files_partial: int = 0
+    files_retry: int = 0
     ingestion_requests_sent: int = 0
     transmissions: list[dict[str, Any]] = field(default_factory=list)
     transmissions_truncated: bool = False
@@ -383,6 +430,83 @@ def _should_skip_failed_upload(upload: UploadResult, mode: str) -> bool:
     if mode != "incremental" or upload.status != "error":
         return False
     return is_unconvertible_error(upload.error or "")
+
+
+def _is_server_side_error(error: str) -> bool:
+    """Errors from the Secure API, not from extraction: they never count
+    toward the extraction retry cap."""
+    lowered = error.lower()
+    return (
+        lowered.startswith("init failed:")
+        or (lowered.startswith("part ") and " failed:" in lowered)
+        or "rate limit" in lowered
+    )
+
+
+def record_upload_outcome(
+    state: SyncStateStore,
+    relative_path: str,
+    mtime_iso: str,
+    size_bytes: int,
+    upload: UploadResult,
+    mode: str,
+) -> str:
+    """Record one upload's outcome in the sync state; returns the outcome.
+
+    Alloy: ``mechanisms/client_pipeline.als::RcRecordingMechanism`` (model
+    ``data_plane/ocr_budget_failsoft.als``), pinned by
+    ``tests/unit/test_sync_executor_partial.py``:
+
+    * ``"partial"`` — the library returned, OCR pages were skipped (or no OCR
+      backend was available): fingerprint stored so the next cycle does not
+      re-upload the file, note kept for ``scripts/backfill_partial_ocr.py``;
+    * ``"synced"`` — clean upload;
+    * ``"skipped"`` — the library flagged the input unconvertible: parked as
+      ``skip:unconvertible`` (incremental mode only);
+    * ``"retry"`` — anything else: a transient error, the RC's wall-clock
+      kill, a killed child, a Secure API failure. Extraction-side failures
+      are counted; past ``MAX_EXTRACT_RETRIES`` the file is recorded partial
+      with ``{"reason": "extract_retries_exhausted"}`` so the backfill runs
+      an OCR-disabled pass and the text pages land instead of looping.
+
+    Full mode records nothing (as before): it re-uploads everything anyway.
+    """
+    incremental = mode == "incremental"
+    if upload.status == "ok":
+        key = upload.transmission_key_id
+        if upload.partial:
+            if incremental:
+                state.record_partial(
+                    relative_path, mtime_iso, size_bytes, key or "partial", dict(upload.partial)
+                )
+            ocr_metrics.OCR_PARTIAL.inc()
+            return "partial"
+        if incremental and key:
+            state.record_upload(relative_path, mtime_iso, size_bytes, key)
+        return "synced"
+
+    error = upload.error or "upload failed"
+    if not incremental:
+        return "retry"
+    if _should_skip_failed_upload(upload, mode):
+        state.record_skip(relative_path, mtime_iso, size_bytes, reason="unconvertible")
+        ocr_metrics.SKIP_UNCONVERTIBLE.inc()
+        return "skipped"
+    if _is_server_side_error(error):
+        return "retry"
+    attempts = state.increment_retry_count(relative_path, error=error)
+    ocr_metrics.EXTRACT_RETRIES.inc()
+    if attempts > MAX_EXTRACT_RETRIES:
+        state.record_partial(
+            relative_path,
+            mtime_iso,
+            size_bytes,
+            "partial:extract_retries_exhausted",
+            dict(RETRIES_EXHAUSTED_NOTE),
+        )
+        ocr_metrics.OCR_PARTIAL.inc()
+        return "partial"
+    return "retry"
 
 
 @dataclass
@@ -777,7 +901,10 @@ def run_sync_work(
             # cursor from advancing over the unscanned tail of this subfolder.
             result.paused_reason = "cycle_time_limit"
 
-        for abs_path, rel, mtime_iso, size_bytes, access_groups in plan.upload_queue:
+        mode = sync_body.get("mode", "incremental")
+        for abs_path, rel, mtime_iso, size_bytes, access_groups in _ordered_upload_queue(
+            plan.upload_queue, upload_order()
+        ):
             if should_stop():
                 result.paused_reason = "stop_requested"
                 break
@@ -812,23 +939,35 @@ def run_sync_work(
                 )
             result.ingestion_requests_sent += upload.ingestion_requests
 
+            outcome = record_upload_outcome(state, rel, mtime_iso, size_bytes, upload, mode)
             tx_entry: dict[str, Any]
             if upload.status == "ok":
                 result.files_uploaded += 1
-                if sync_body.get("mode") == "incremental" and upload.transmission_key_id:
-                    state.record_upload(rel, mtime_iso, size_bytes, upload.transmission_key_id)
                 tx_entry = {
                     "path": rel,
                     "transmission_key_id": upload.transmission_key_id,
                     "parts": upload.parts,
                     "status": "ok",
                 }
+                if outcome == "partial":
+                    result.files_partial += 1
+                    tx_entry["partial"] = upload.partial
+                    logger.info("Recorded partial document for the backfill: %s %s", rel, upload.partial)
             else:
                 err = upload.error or "upload failed"
                 logger.warning("Upload failed path=%s error=%s", rel, err)
-                if _should_skip_failed_upload(upload, sync_body.get("mode", "incremental")):
-                    state.record_skip(rel, mtime_iso, size_bytes, reason="unconvertible")
+                if outcome == "skipped":
                     logger.info("Marked unconvertible path as skipped: %s", rel)
+                elif outcome == "partial":
+                    result.files_partial += 1
+                    logger.warning(
+                        "Extraction retries exhausted (%d); recorded partial for the "
+                        "OCR-disabled backfill pass: %s",
+                        MAX_EXTRACT_RETRIES,
+                        rel,
+                    )
+                else:
+                    result.files_retry += 1
                 result.errors.append({"path": rel, "error": err})
                 tx_entry = {"path": rel, "status": "error", "parts": upload.parts}
 

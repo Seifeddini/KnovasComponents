@@ -110,6 +110,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Tesseract (OCR tests run against the real engine)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu
+          tesseract --version | head -1
+
       - name: Install dependencies
         # Der Korpusgenerator unter scripts/demo_kanzlei/ ist ein Werkzeug und
         # steht nicht in den Paketabhaengigkeiten -- seine Tests sammelt pytest
@@ -148,6 +154,28 @@ jobs:
 
       - name: Build image
         run: docker build -t remote-controller:ci .
+
+      - name: Image carries Tesseract models and the OMP/TESSDATA env (GI-EXTRACT-05)
+        run: |
+          docker run --rm remote-controller:ci sh -c '
+            test "$OMP_THREAD_LIMIT" = "1" || { echo "OMP_THREAD_LIMIT is not 1"; exit 1; }
+            test -d "$TESSDATA_PREFIX" || { echo "TESSDATA_PREFIX $TESSDATA_PREFIX missing"; exit 1; }
+            for lang in deu eng fra ita; do
+              test -f "$TESSDATA_PREFIX/$lang.traineddata" || { echo "$lang.traineddata missing"; exit 1; }
+            done
+            tesseract --list-langs 2>&1 | tail -n +2 | sort | tr "\n" " "; echo'
+
+      - name: No pymupdf-layout (PolyForm-NC) in the customer image
+        # Advisory until knovas-extract 0.4.0a1 is pinned (plan M0, [C-reg-9]):
+        # the current library's [pdf] extra still drags pymupdf4llm -> pymupdf-
+        # layout in. Once KNOVAS_EXTRACT_REF points at a release whose [pdf]
+        # extra is clean, drop `continue-on-error` and let this gate the build.
+        continue-on-error: true
+        run: |
+          if docker run --rm remote-controller:ci pip show pymupdf-layout >/dev/null 2>&1; then
+            echo "pymupdf-layout is installed in the image"; exit 1
+          fi
+          echo "pymupdf-layout absent"
 
       - name: Boot with valid env and probe health
         run: |

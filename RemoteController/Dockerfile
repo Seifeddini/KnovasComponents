@@ -5,10 +5,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml README.md ./
 
-# knovas-extract>=0.3 (PDF OCR) may lag PyPI. Default: install from git main.
-# After 0.3.0 is published, rebuild with an empty ref to use PyPI instead:
+# knovas-extract is installed from git until the release the RC needs is on
+# PyPI. KNOVAS_EXTRACT_REF selects the revision: pin it to a tag or sha per
+# RC release (e.g. --build-arg KNOVAS_EXTRACT_REF=v0.4.0a1) — `main` is the
+# development default only. An empty KNOVAS_EXTRACT_FROM_GIT installs from
+# PyPI instead:
 #   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller
-ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git@main
+ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git
+ARG KNOVAS_EXTRACT_REF=main
+# Extras: [pdf,ocr,docx,msg,html,sentences]. No [markdown]: the RC never asks
+# for emit_markdown any more (it cost ~8 s/document and parked mixed PDFs and
+# large-table DOCX through the expansion guard), and the PolyForm-NC
+# pymupdf-layout it pulled in must not be in the customer image (CI asserts
+# `pip show pymupdf-layout` fails once knovas-extract 0.4.0a1 is pinned).
+ARG KNOVAS_EXTRACT_EXTRAS=pdf,ocr,docx,msg,html,sentences
 RUN python - <<'PY'
 import subprocess
 import tomllib
@@ -20,30 +30,41 @@ if other:
 PY
 RUN if [ -n "${KNOVAS_EXTRACT_FROM_GIT}" ]; then \
       pip install --no-cache-dir \
-        "knovas-extract[pdf,docx,msg,html,markdown,sentences] @ git+https://${KNOVAS_EXTRACT_FROM_GIT}"; \
+        "knovas-extract[${KNOVAS_EXTRACT_EXTRAS}] @ git+https://${KNOVAS_EXTRACT_FROM_GIT}@${KNOVAS_EXTRACT_REF}"; \
     else \
       pip install --no-cache-dir \
-        "knovas-extract[pdf,docx,msg,html,markdown,sentences]>=0.3"; \
+        "knovas-extract[${KNOVAS_EXTRACT_EXTRAS}]>=0.3"; \
     fi
 
 FROM python:3.12-slim AS runtime
+# Tesseract + the language packs OCR may be configured with (RC_TESSERACT_LANG:
+# deu+eng default, fra / ita per tenant). Models ship in the image: extraction
+# performs no network I/O (GI-EXTRACT-05).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-deu \
     tesseract-ocr-eng \
     tesseract-ocr-fra \
+    tesseract-ocr-ita \
     && rm -rf /var/lib/apt/lists/*
+# TESSDATA_PREFIX: where the Debian packages put the models, for tesserocr and
+# the CLI alike. OMP_THREAD_LIMIT=1: one Tesseract thread per OCR worker — the
+# RC parallelises per page, and OpenMP's own threads only fight each other.
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
+    OMP_THREAD_LIMIT=1
 RUN useradd --create-home --uid 10001 rcuser
 WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY src ./src
 COPY contracts ./contracts
+COPY scripts/backfill_partial_ocr.py scripts/build_context_sidecars.py ./scripts/
 # Create writable data dirs for the unprivileged runtime user. This also seeds
 # the rc-config and rc-state named volumes with rcuser ownership when they are
 # mounted, so no post-start chown is required.
 RUN mkdir -p /app/config /var/rc-state && chown rcuser:rcuser /app/config /var/rc-state
-# Default the sync state into the writable, volume-backed directory.
+# Default the sync state into the writable, volume-backed directory. The OCR
+# disk cache (.rc-ocr-cache.db) lives beside it.
 ENV RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json
 USER rcuser
 ENV PYTHONPATH=/app/src

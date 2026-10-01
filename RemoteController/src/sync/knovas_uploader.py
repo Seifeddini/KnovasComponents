@@ -6,21 +6,43 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import requests
 
 from config import get_config
+from sync import ocr_metrics
 from sync.ingest_rate_limit import acquire_chars, acquire_request
 from sync.rate_metrics import IngestRateMetrics
 from sync.chunking import PART_MAX_CHARS, build_transmission_parts
 from sync.context_sidecar import context_store_dir_from_env, write_context_sidecar
-from sync.document_text import ConversionError, extract_document_guarded
+from sync.document_text import (
+    ConversionError,
+    ExtractedDocument,
+    _env_flag,
+    extract_document_guarded,
+    partial_note_for,
+    pdf_ocr_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
 RETRY_STATUS = {429, 503, 504}
 MAX_BACKOFF = 30.0
+
+
+def page_break_markers_enabled() -> bool:
+    """`RC_PAGE_BREAK_MARKERS` (default true): form feeds before every text
+    page start inside a part, so the server serves hits on their own page
+    (GI-INGEST-17)."""
+    return _env_flag("RC_PAGE_BREAK_MARKERS", True)
+
+
+def send_pdf_tables_enabled() -> bool:
+    """`RC_SEND_PDF_TABLES` (default false): the server drops `tables` at
+    the Redis buffer — only snippet, page and sentence survive — so for PDFs
+    the rows have to live in the text and the payload is wasted bytes."""
+    return _env_flag("RC_SEND_PDF_TABLES", False)
 
 
 @dataclass
@@ -31,6 +53,20 @@ class UploadResult:
     status: str
     ingestion_requests: int
     error: Optional[str] = None
+    #: Counts and reasons when the text landed only in part (OCR pages
+    #: skipped on a budget trip, no OCR backend although one was configured);
+    #: None for a complete document. Recorded by the executor (GI-EXTRACT-02).
+    partial: Optional[dict[str, Any]] = None
+
+
+def _record_cache_metrics(doc: ExtractedDocument) -> None:
+    extra = doc.extra or {}
+    hits = extra.get("rc:ocr_cache_hits")
+    misses = extra.get("rc:ocr_cache_misses")
+    if isinstance(hits, int) and hits > 0:
+        ocr_metrics.OCR_CACHE_HITS.inc(hits)
+    if isinstance(misses, int) and misses > 0:
+        ocr_metrics.OCR_CACHE_MISSES.inc(misses)
 
 
 def _transmit_part_body(
@@ -144,18 +180,25 @@ class SemantixUploader:
         part_max = min(int(ingestion.get("part_max_chars", PART_MAX_CHARS)), PART_MAX_CHARS)
         identifier = f"{prefix}/{relative_path.replace(chr(92), '/')}"
 
+        ext = file_path.suffix.lower()
         try:
-            doc = extract_document_guarded(file_path)
+            doc = extract_document_guarded(file_path, document_key=relative_path)
             text, sentences = doc.text, doc.sentences
             extracted_title = doc.title
+            tables = doc.tables
+            if ext == ".pdf" and not send_pdf_tables_enabled():
+                tables = None
             parts = build_transmission_parts(
                 text,
                 part_max,
                 sentences=sentences,
                 sections=doc.sections,
                 pages=doc.pages,
-                tables=doc.tables,
+                tables=tables,
+                page_markers=page_break_markers_enabled(),
             )
+            # Always from the UNMARKED text: the sidecar's offsets are the
+            # extractor's, the markers exist only on the wire.
             write_context_sidecar(
                 context_store_dir_from_env(),
                 identifier,
@@ -164,6 +207,10 @@ class SemantixUploader:
                 sentences,
             )
             part_count = len(parts)
+            partial = partial_note_for(doc, expect_ocr=(ext == ".pdf" and bool(pdf_ocr_enabled())))
+            _record_cache_metrics(doc)
+            if partial and partial.get("reason") == "ocr_backend_none":
+                ocr_metrics.OCR_BACKEND_DEGRADED.inc()
         except Exception as exc:
             return UploadResult(
                 relative_path=relative_path,
@@ -263,13 +310,19 @@ class SemantixUploader:
                 error=str(exc),
             )
 
-        logger.info("Uploaded file basename=%s parts=%d status=ok", file_path.name, part_count)
+        logger.info(
+            "Uploaded file basename=%s parts=%d status=ok%s",
+            file_path.name,
+            part_count,
+            f" partial={partial}" if partial else "",
+        )
         return UploadResult(
             relative_path=relative_path,
             transmission_key_id=key,
             parts=part_count,
             status="ok",
             ingestion_requests=ingestion_count,
+            partial=partial,
         )
 
     def delete_by_pointer(self, pointer: str) -> tuple[bool, Optional[str]]:

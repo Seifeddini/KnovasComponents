@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from config import get_config
+from sync.ocr_cache import OcrDiskCache
 from sync.sync_state_db import SyncStateDatabase, json_state_path_to_db
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,8 @@ class SyncStateStore:
         size_bytes: int,
         transmission_key_id: str,
     ) -> None:
+        """Record a clean upload: fingerprint stored, any partial note and
+        retry counter for the path cleared."""
         fp_map = self.load_fingerprints()
         self._db.record_upload(
             relative_path,
@@ -117,6 +120,8 @@ class SyncStateStore:
             transmission_key_id,
             fingerprints=fp_map,
         )
+        self._db.clear_partial(relative_path)
+        self._db.clear_retries(relative_path)
 
     def record_skip(
         self,
@@ -128,6 +133,64 @@ class SyncStateStore:
     ) -> None:
         """Mark a path handled so incremental sync does not retry it forever."""
         self.record_upload(relative_path, mtime_iso, size_bytes, f"skip:{reason}")
+
+    # ----- partial documents (GI-EXTRACT-02) ---------------------------------
+
+    def record_partial(
+        self,
+        relative_path: str,
+        mtime_iso: str,
+        size_bytes: int,
+        transmission_key_id: str,
+        note: dict[str, Any],
+    ) -> None:
+        """Record a document whose text landed only in part.
+
+        The fingerprint is stored like a clean upload, so the incremental
+        cycle does not re-upload the file every time; the note keeps it
+        listed for ``scripts/backfill_partial_ocr.py`` until a clean upload
+        or a removal clears it. The note carries counts and reasons only.
+        """
+        fp_map = self.load_fingerprints()
+        self._db.record_upload(
+            relative_path,
+            mtime_iso,
+            size_bytes,
+            transmission_key_id,
+            fingerprints=fp_map,
+        )
+        self._db.set_partial(relative_path, dict(note or {}))
+        self._db.clear_retries(relative_path)
+
+    def partial_paths(self) -> list[str]:
+        return self._db.list_partial_paths()
+
+    def partial_note(self, relative_path: str) -> Optional[dict[str, Any]]:
+        return self._db.get_partial(relative_path)
+
+    def clear_partial(self, relative_path: str) -> None:
+        self._db.clear_partial(relative_path)
+
+    def count_partial_paths(self) -> int:
+        return self._db.count_partial()
+
+    # ----- extraction retries ----------------------------------------------
+
+    def retry_count(self, relative_path: str) -> int:
+        return self._db.get_retry_count(relative_path)
+
+    def increment_retry_count(self, relative_path: str, *, error: Optional[str] = None) -> int:
+        """Count one retryable extraction failure; returns the new count."""
+        return self._db.increment_retry(relative_path, error=error)
+
+    def clear_retries(self, relative_path: str) -> None:
+        self._db.clear_retries(relative_path)
+
+    def status_for(self, relative_path: str, mtime_iso: str, size_bytes: int) -> str:
+        """``synced`` / ``pending`` / ``modified`` for the file's current
+        fingerprint. A partial document counts as synced here (it is not
+        re-uploaded by the incremental cycle) but stays in ``partial_paths``."""
+        return self.document_status(relative_path, mtime_iso, size_bytes)
 
     def summarize(
         self,
@@ -167,8 +230,26 @@ class SyncStateStore:
         return self._db.list_tracked_paths()
 
     def remove_tracked(self, relative_path: str) -> None:
+        """Forget a document (deleted on the share / pruned from Knovas):
+        fingerprint, partial note, retry counter and its OCR cache entries."""
         fp_map = self.load_fingerprints()
         self._db.remove_tracked(relative_path, fingerprints=fp_map)
+        self._purge_ocr_cache(relative_path)
+
+    def reset_all(self) -> None:
+        """Forget every document and drop the OCR cache file."""
+        self._db.remove_all()
+        self._fingerprints = None
+        try:
+            OcrDiskCache.beside_state_path(self._json_path).purge_all()
+        except Exception as exc:  # noqa: BLE001 - never fail a reset over the cache
+            logger.warning("OCR cache not purged on reset: %s", type(exc).__name__)
+
+    def _purge_ocr_cache(self, relative_path: str) -> None:
+        try:
+            OcrDiskCache.beside_state_path(self._json_path).purge_document(relative_path)
+        except Exception as exc:  # noqa: BLE001 - never fail a prune over the cache
+            logger.warning("OCR cache not purged for a removed document: %s", type(exc).__name__)
 
     def close(self) -> None:
         self._db.close()

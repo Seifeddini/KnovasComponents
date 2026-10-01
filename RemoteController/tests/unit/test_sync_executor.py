@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from sync.sync_config import effective_filters
 from sync.sync_executor import (
@@ -237,5 +236,120 @@ def test_run_sync_work_skips_bad_docx_without_crashing(tmp_watch_root, tmp_path,
             .replace("+00:00", "Z")
         )
         assert store.should_skip("bad.docx", mtime_iso, stat.st_size)
+    finally:
+        store.close()
+
+
+# --- upload order (plan §5 M3: small-first) ----------------------------------
+
+
+def _run_with_fake_uploader(root, tmp_path, monkeypatch, order_env):
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("RC_SYNC_STATE_PATH", str(state_path))
+    if order_env is None:
+        monkeypatch.delenv("RC_UPLOAD_ORDER", raising=False)
+    else:
+        monkeypatch.setenv("RC_UPLOAD_ORDER", order_env)
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    body = {
+        "mode": "incremental",
+        "sources": [{"path": str(root), "recursive": True}],
+        "filters": {"include_globs": ["*.md"]},
+        "ingestion": {"identifier_prefix": "rc"},
+    }
+    from sync.knovas_uploader import SemantixUploader
+
+    uploaded: list[str] = []
+    uploader = MagicMock(spec=SemantixUploader)
+
+    def fake_upload(local_path, rel, sync_body, access_groups=()):
+        uploaded.append(rel)
+        return UploadResult(rel, "tk", 1, "ok", 1)
+
+    uploader.upload_file.side_effect = fake_upload
+    uploader._rate_metrics = None
+    run_sync_work(body, uploader)
+    return uploaded
+
+
+def test_small_files_are_uploaded_first_by_default(tmp_watch_root, tmp_path, monkeypatch):
+    root = tmp_watch_root
+    (root / "sample.md").unlink()
+    (root / "big.md").write_text("x" * 3000, encoding="utf-8")
+    (root / "mid.md").write_text("x" * 300, encoding="utf-8")
+    (root / "tiny.md").write_text("x" * 3, encoding="utf-8")
+    assert _run_with_fake_uploader(root, tmp_path, monkeypatch, None) == ["tiny.md", "mid.md", "big.md"]
+
+
+def test_scan_order_keeps_the_directory_order(tmp_watch_root, tmp_path, monkeypatch):
+    root = tmp_watch_root
+    (root / "sample.md").unlink()
+    (root / "big.md").write_text("x" * 3000, encoding="utf-8")
+    (root / "tiny.md").write_text("x" * 3, encoding="utf-8")
+    # The plan's order, read before the run records the files as synced.
+    plan_order = [item[1] for item in _collect_files(
+        {"mode": "incremental", "sources": [{"path": str(root), "recursive": True}],
+         "filters": {"include_globs": ["*.md"]}, "ingestion": {"identifier_prefix": "rc"}},
+        should_stop=lambda: False,
+    )]
+    assert sorted(plan_order) == ["big.md", "tiny.md"]
+    order = _run_with_fake_uploader(root, tmp_path, monkeypatch, "scan")
+    assert order == plan_order
+
+
+def test_upload_order_env_validation(monkeypatch):
+    from sync.sync_executor import upload_order
+
+    monkeypatch.delenv("RC_UPLOAD_ORDER", raising=False)
+    assert upload_order() == "small_first"
+    monkeypatch.setenv("RC_UPLOAD_ORDER", "largest")
+    assert upload_order() == "small_first"
+    monkeypatch.setenv("RC_UPLOAD_ORDER", "scan")
+    assert upload_order() == "scan"
+
+
+def test_run_sync_work_records_partial_and_retry_counters(tmp_watch_root, tmp_path, monkeypatch):
+    root = tmp_watch_root
+    (root / "sample.md").unlink()
+    (root / "scan.md").write_text("a", encoding="utf-8")
+    (root / "hung.md").write_text("bb", encoding="utf-8")
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("RC_SYNC_STATE_PATH", str(state_path))
+    from config import load_config, reset_config
+
+    reset_config()
+    load_config(validate=False, force_reload=True)
+    body = {
+        "mode": "incremental",
+        "sources": [{"path": str(root), "recursive": True}],
+        "filters": {"include_globs": ["*.md"]},
+        "ingestion": {"identifier_prefix": "rc"},
+    }
+    from sync.document_text import EXTRACT_TIMEOUT_ERROR_PREFIX
+    from sync.knovas_uploader import SemantixUploader
+
+    uploader = MagicMock(spec=SemantixUploader)
+
+    def fake_upload(local_path, rel, sync_body, access_groups=()):
+        if rel == "scan.md":
+            return UploadResult(rel, "tk", 1, "ok", 1, partial={"ocr_pages_skipped": 3, "ocr_pages": 9})
+        return UploadResult(rel, None, 0, "error", 0, error=f"{EXTRACT_TIMEOUT_ERROR_PREFIX} after 300s (child killed)")
+
+    uploader.upload_file.side_effect = fake_upload
+    uploader._rate_metrics = None
+    result = run_sync_work(body, uploader)
+    assert result.files_uploaded == 1 and result.files_partial == 1 and result.files_retry == 1
+    assert [t for t in result.transmissions if t["path"] == "scan.md"][0]["partial"] == {"ocr_pages_skipped": 3, "ocr_pages": 9}
+
+    store = SyncStateStore(str(state_path))
+    try:
+        assert store.partial_paths() == ["scan.md"]
+        assert store.retry_count("hung.md") == 1
+        stat = (root / "hung.md").stat()
+        mtime_iso = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        assert store.status_for("hung.md", mtime_iso, stat.st_size) == "pending", "retried next cycle"
     finally:
         store.close()
