@@ -144,3 +144,26 @@ Reihenfolge bleibt: erst die API, dann die UI.
   spürbar. Ungetestet, weil die Demo nie mehr Treffer liefert als das Limit.
 - **Leerzustand ungetestet.** Die Demo-Fixtures liefern auch bei Unsinn-Anfragen
   Treffer, der neue Leerzustand liess sich deshalb im Browser nicht auslösen.
+
+## 7. Nachtrag 2026-10-01 — Treuhand-Diagnose
+
+Die Untersuchung eines Treuhand-Mandanten („kein Trefferkontext", Tabellen als
+Zahlenketten, Suchen wie „Jahresabschluss von Müller AG" treffen nicht) ist in
+`docs/superpowers/specs/2026-10-01-fiduciary-search-diagnosis.md` festgehalten
+(Server-Seite: `KnowledgeBase/docs/superpowers/audits/2026-10-01-fiduciary-search-audit.md`).
+Für die Trefferliste sind drei Punkte daraus unmittelbar relevant:
+
+- **Die Plattform sortiert die Serverreihenfolge um** (`knovas_client.py:69-85`,
+  `app.py:3027-3030`): nach `cosine_similarity` statt nach dem gerankten
+  `final_score` — der ColBERT-Rerank und der Namens-Boost des Servers kommen
+  in der Liste nicht an. Fix: `server_rank` mitführen und danach sortieren.
+- **Trefferkontext kommt ausschliesslich aus den Sidecars** des RemoteControllers;
+  für Dateien über 2 MiB (Scans, MSG mit Anhängen) sind sie leer, der Anker trifft
+  bei Satznummern-Drift den Briefkopf, und Bilanzzeilen fallen durch den
+  „thin location"-Filter (`context_store.py:560-564`).
+- **Karten sind nicht unterscheidbar**: Titel = Dateistamm, kein Ordner, keine
+  Aktengruppierung ohne Anreicherungsdatei (siehe 3a). Fix: Breadcrumb aus
+  `row.path` („Müller AG › 2023 › Abschluss"), heute schon möglich.
+
+Punkt 5 (Facetten) bekommt damit einen konkreten Bedarf: Mandant, Jahr und
+Dokumentart als Filter, sobald der Server `filters` auswertet.
