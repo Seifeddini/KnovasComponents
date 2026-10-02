@@ -56,6 +56,7 @@ from identity.ingestion_compiler import (
     MAX_FIELD_TEMPLATES,
     METADATA_ITEMS,
     RC_TOO_OLD,
+    RC_UNREACHABLE,
     TEMPLATE_ERROR_TEXT,
     IngestionProfile,
     ProfileError,
@@ -166,11 +167,14 @@ def _labelled(table: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, str
 
 #: What each extractor metadata item does, as the form says it (spec 3.5).
 METADATA_LABELS = {
-    "language": "Sprache (aus Dokumenteigenschaften, oft Programmsprache)",
+    "language": ("Sprache (aus Dokumenteigenschaften von pdf/docx, oft Programmsprache; "
+                 ".eml: Content-Language)"),
     "email_date": "E-Mail-Datum als Dokumentdatum (nur .eml/.msg)",
     "email_doc_type": "E-Mails als Dokumentart \u201eE-Mail\u201c (nur .eml/.msg)",
     "email_author": "E-Mail-Absender als Autor (nur .eml/.msg)",
-    "document_author": "Autor aus Dokumenteigenschaften (pdf, docx, md)",
+    # .md and .txt carry no document properties (knovas-extract reads them as
+    # plain text), so the item yields nothing there.
+    "document_author": "Autor aus Dokumenteigenschaften (pdf, docx)",
 }
 
 #: RemoteController's default re-upload bound (RC_FIELDS_REUPLOAD_PER_CYCLE),
@@ -592,7 +596,10 @@ def check_profile_fields(profile: IngestionProfile, current: IngestionProfile | 
     try:
         if profile_uses_fields(profile):
             needed = required_capabilities(compile_profile(profile).sync_request)
-            if needed - rc_client.capabilities():
+            available = _advertised(rc_client)
+            if available is None:
+                raise ProfileError(RC_UNREACHABLE)
+            if needed - available:
                 raise ProfileError(RC_TOO_OLD)
             registry = _readable_registry(knovas_client, user_key)
             if registry is None:
@@ -618,6 +625,18 @@ def _reupload_note(check: FieldCheck) -> dict[str, int]:
     return {"reupload_folders": len(check.changed)} if check.changed else {}
 
 
+def _advertised(rc_client: Any) -> frozenset[str] | None:
+    """What RemoteController advertises; None when it cannot be asked, so
+    an unreachable one is not reported as too old. A client without
+    ``reachable_capabilities`` (an older test double) answers through
+    ``capabilities``."""
+    reachable = getattr(rc_client, "reachable_capabilities", None)
+    if callable(reachable):
+        return reachable()
+    capabilities = getattr(rc_client, "capabilities", None)
+    return capabilities() if callable(capabilities) else frozenset()
+
+
 def _require_rc_support(rc_client: Any, sync_request: Mapping[str, Any]) -> None:
     """Refuse before anything is saved or sent when RemoteController would
     refuse the body's document-field keys (spec 2.5). A body without them
@@ -625,8 +644,9 @@ def _require_rc_support(rc_client: Any, sync_request: Mapping[str, Any]) -> None
     needed = required_capabilities(sync_request)
     if not needed:
         return
-    capabilities = getattr(rc_client, "capabilities", None)
-    available = capabilities() if callable(capabilities) else frozenset()
+    available = _advertised(rc_client)
+    if available is None:
+        raise RemoteControllerError(RC_UNREACHABLE, status=None)
     if needed - available:
         raise RemoteControllerError(RC_TOO_OLD, status=None)
 

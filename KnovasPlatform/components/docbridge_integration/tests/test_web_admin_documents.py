@@ -535,7 +535,7 @@ class TestDocFieldsPure:
                 edit_ops_from_body(body, registry, roles=["member"], edit_roles={"member"})
 
     def test_the_audit_detail_carries_no_value(self):
-        from web_interface.admin_doc_fields import values_edit_audit_detail
+        from doc_fields_view import values_edit_audit_detail
 
         detail = values_edit_audit_detail(
             {"set": {"title": "Sentinel", "counterparty": "Sentinel AG"}, "unset": ["status"]},
@@ -754,8 +754,10 @@ class TestDocFieldsLive:
         assert body["view"]["version"] == 1
         assert {f["key"]: f["text"] for f in body["view"]["fields"]}["doc_type"] == "Vertrag"
         row = audit.recent(platform_db, action="document.values_edited")[0]
-        # audit_log admits ok/denied/error only; the conflict is named by code.
-        assert row["outcome"] == "error" and row["detail"]["code"] == "version_conflict"
+        # audit_log admits ok/denied/error only: a refusal -- a conflict
+        # included -- is "denied", named by Knovas's code; the search panel's
+        # edit route records the same (doc_fields_view).
+        assert row["outcome"] == "denied" and row["detail"]["code"] == "version_conflict"
         assert row["detail"]["version_to"] == 1
 
     @pytest.mark.parametrize("setup, status", [
@@ -780,7 +782,9 @@ class TestDocFieldsLive:
         assert response.get_json()["read_only"] is True
         row = audit.recent(platform_db, action="document.values_edited")[0]
         assert row["outcome"] == "denied"
-        assert row["detail"]["code"] in ("change_not_authorized", "anchor_quarantined")
+        assert row["detail"]["code"] == ("change_not_authorized" if setup == "denied"
+                                         else "anchor_quarantined")
+        assert row["detail"]["version_to"] is None
 
     def test_a_field_error_is_shown_at_the_field(self, build, admin):
         client = self._client(build("values"))

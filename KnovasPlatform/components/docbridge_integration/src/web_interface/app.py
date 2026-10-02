@@ -733,8 +733,10 @@ def _autodoc_alternatives(autodoc_path: str, rel: str):
     if head and tail:
         found = _autodoc_candidate(autodoc_path, tail)
         if found and os.path.exists(found):
+            # The prefix is configuration; the rest of the pointer is not
+            # logged (it names clients and matters).
             yield found, (
-                f"Pointer {rel!r} resolved only without its leading {head!r}. "
+                f"A pointer resolved only without its leading {head!r}. "
                 f"Set KNOVAS_IDENTIFIER_PREFIX={head} in knovas.env (or match the "
                 f"Kennung on the Übernahme profile) to stop guessing."
             )
@@ -1376,17 +1378,19 @@ def create_app(config_path: Optional[str] = None):
             given = _resolve_autodoc_path(str(supplied))
             wanted = _resolve_autodoc_path(_rel_path_for_autodoc(str(doc_id)))
             if given is None or wanted is None or given != wanted:
+                # The route's endpoint name, never request.path: the path is
+                # the pointer, and pointers name clients and matters.
                 logger.warning(
-                    "Refusing %s: path %r does not belong to pointer %r",
-                    request.path, str(supplied), str(doc_id),
+                    "Refusing %s: the supplied path does not belong to the pointer",
+                    request.endpoint,
                 )
                 return jsonify({'success': False, 'error': 'Not found'}), 404
 
         if not _readable_for_current_user(str(doc_id)):
             logger.info(
-                "Refusing %s: no live grant for %r. The document was not in "
-                "this person's search results, or the grant has aged out.",
-                request.path, str(doc_id),
+                "Refusing %s: no live grant for this document. It was not in "
+                "this person's search or listing results, or the grant has aged out.",
+                request.endpoint,
             )
             return jsonify({'success': False, 'error': 'Not found'}), 404
         return None

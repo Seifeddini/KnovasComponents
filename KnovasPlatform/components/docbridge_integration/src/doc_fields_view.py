@@ -693,6 +693,54 @@ def is_deadline_field(registry: Any, key: Any) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Audit of a value edit (both edit routes: search panel and admin drawer)
+# ---------------------------------------------------------------------------
+
+#: Knovas refusals of a value edit that are audited. ``audit_log.outcome``
+#: admits only ok / denied / error (0001_identity.sql CHECK). A refusal --
+#: a version conflict included -- is the backend saying no as designed, so it
+#: is ``denied`` with Knovas's code in ``detail.code``; ``error`` stays for
+#: failures (Knovas unreachable, an answer that makes no sense).
+VALUES_EDIT_REFUSALS = frozenset({"version_conflict", "change_not_authorized",
+                                  "anchor_quarantined"})
+AUDIT_OUTCOME_REFUSED = "denied"
+_EDIT_OPS = ("set", "unset", "add", "remove")
+
+
+def values_edit_audit_detail(ops: Mapping[str, Any], *, version_from: Any, version_to: Any,
+                             warning_codes: Iterable[str] = (),
+                             code: Optional[str] = None) -> Dict[str, Any]:
+    """The ``document.values_edited`` detail: keys, counts, versions,
+    warning codes and, for a refused edit, Knovas's error code -- never a
+    value (spec 4.6).
+
+    ``version_to`` is the version Knovas reported: the new one after an
+    edit, the current one with a ``version_conflict``, None otherwise.
+    """
+    typed: set = set()
+    for op in _EDIT_OPS:
+        part = ops.get(op) or ()
+        for key in (part if isinstance(part, (list, tuple)) else list(part)):
+            if key not in ("title", "description"):
+                typed.add(str(key))
+    set_part = ops.get("set") or {}
+
+    def _version(value: Any) -> Optional[int]:
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    return {
+        "keys": sorted(typed),
+        "ops": {op: len(ops.get(op) or ()) for op in _EDIT_OPS},
+        "title_changed": "title" in set_part,
+        "description_changed": "description" in set_part,
+        "version_from": _version(version_from),
+        "version_to": _version(version_to),
+        "warning_codes": sorted({str(c) for c in warning_codes or () if c}),
+        **({"code": str(code)} if code else {}),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Ingestion profiles
 # ---------------------------------------------------------------------------
 

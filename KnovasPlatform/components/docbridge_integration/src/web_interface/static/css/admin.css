@@ -1820,8 +1820,76 @@
 
 .doc-fields-layers li.is-effective { font-weight: 600; }
 
+/* Ingestion: Felder je Ordner, Vorlagen-Vorschau, Status der Dokumentfelder */
+
+.admin .folder-fields details > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.admin .folder-fields label {
+    display: block;
+    margin-top: 8px;
+}
+
+.admin .folder-fields label .hint {
+    display: block;
+    margin: 2px 0 4px;
+}
+
+.admin .folder-fields textarea {
+    width: 100%;
+    min-width: 16rem;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.admin .folder-fields fieldset {
+    display: grid;
+    gap: 4px;
+    margin: 10px 0 0;
+    padding: 0;
+    border: none;
+}
+
+.admin .folder-fields .template-test { margin-top: 6px; }
+.admin .template-test-result:empty { display: none; }
+.admin .template-test-result { margin-top: 6px; }
+
+/* Kompakt: steht in einer Tabellenzelle der Vorschau bzw. unter dem Ordner. */
+.admin-page .admin table.template-preview,
+.admin-page .admin .table-wrap table.template-preview {
+    min-width: 0;
+    margin: 8px 0 0;
+    font-size: 0.72rem;
+}
+
+.admin-page .admin table.template-preview thead th,
+.admin-page .admin table.template-preview tbody td {
+    padding: 5px 8px;
+}
+
+.admin-page .admin table.template-preview .ptr { max-width: 260px; }
+
+.admin .doc-fields-status ul {
+    margin: 6px 0 10px;
+    padding-left: 18px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.admin .doc-fields-status li + li { margin-top: 3px; }
+
 @media (max-width: 720px) {
     .rule-value-row {
         grid-template-columns: 1fr;
     }
+
+    .admin .folder-fields textarea { min-width: 0; }
 }

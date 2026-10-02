@@ -13,10 +13,13 @@ Day-to-day curl examples: [local-commands.md](local-commands.md). First-time set
 
 `GET /metrics` exposes Prometheus format. Unauthenticated — restrict at the network edge if needed.
 
+Document fields add four counters (see [Document fields](#document-fields)). Every label value comes from a closed set, anything else counts as `other`, so no field key, value, path or pointer can become a label.
+
 ## Logs
 
 - Structured logs use file **basenames** only (not full paths).
 - JWT, instance tokens, PEMs, and file contents are never logged.
+- Document-field code logs codes and counts only (`doc_fields outcome=staged staged=3 warnings=2`): never a value, a template capture, a relative path or a pointer.
 
 Docker logs:
 
@@ -61,6 +64,65 @@ The worker completes the **current file upload** before exiting (`pause_policy`:
 To prevent sync from auto-starting after a container restart, set `"enabled": false` in `remote_controller_sync.json` or leave `RC_SYNC_AUTO_START_CONTINUOUS=false` (default).
 
 **Do not confuse** `POST /sync/stop` with `docker compose down` — the latter kills the container and may interrupt an in-flight upload. Stop the worker first, then restart or upgrade the image.
+
+## Document fields
+
+Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Document fields work only once Knovas has enabled them for the tenant; until then the RemoteController sends them where configured, the server ignores them, and nothing else changes.
+
+### Status
+
+`GET /sync/status` (authenticated) carries two additions — keys, codes and counts, never values:
+
+```json
+"capabilities": ["source_fields_v1", "field_templates_v1", "metadata_fields_v1", "fields_requeue_v1"],
+"doc_fields": {
+  "enabled": true,
+  "server": "accepted",
+  "per_cycle": 100,
+  "documents": {"with_fields": 1234, "pending_reupload": 56, "refused": 3, "not_accepted": 0, "reupload_failed": 1},
+  "last_cycle": {"staged": 40, "not_accepted": 0, "cleared": 0, "none": 12,
+                 "refused": {"unknown_field": 2}, "reupload_failed": {}, "rel_collisions": 0, "requeued": 0},
+  "warnings": {"unresolved_entity": 12, "ambiguous_date": 1},
+  "dropped": {},
+  "unknown_keys": ["mandat"],
+  "suggest": {"mandat": ["mandant"]},
+  "template_errors": {"field_template_invalid": 0}
+}
+```
+
+- `capabilities` tells the Platform which sync-body keys this RemoteController understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("RemoteController zu alt").
+- `enabled` is `RC_DOC_FIELDS`. `server` is `accepted` once an answer carried the fields echo (or a fields refusal, which also shows the feature is on), `not_accepted` when fields were sent and no echo came back (feature off at Knovas, or an older server), `unknown` before either. "Not accepted" never means "stored".
+- `documents.pending_reupload` estimates the documents still to be re-sent (`fields_changed` from the last scan not yet done, or requeued since). `refused`, `not_accepted` and `reupload_failed` are the stored outcomes.
+- `unknown_keys` / `suggest` hold registry keys only (at most 20, from the last cycle): a configured key Knovas does not know, and the keys it suggests instead.
+- `document_sync.fields_changed` (also in `?live=1`) counts files whose content is synced but whose field configuration changed.
+
+`/health` is unchanged (it is unauthenticated). A `POST /sync` answer adds `document_sync.fields_changed`, a per-transmission `fields` entry `{outcome, staged, warning_codes}` when the init carried fields, and a top-level `doc_fields` summary of the run.
+
+Outcomes per document: `staged` (the echo came back), `cleared` (`{}` was sent and echoed: the document's upload-layer values were removed), `not_accepted` (fields sent, no echo), `refused:<code>` (indexed without fields after a refusal), `none` (nothing to send), `reupload_failed:<class>` (left the re-upload queue after `RC_FIELDS_REUPLOAD_MAX_ATTEMPTS`).
+
+### Re-send on request
+
+```bash
+curl -sS -X POST "$RC_BASE/sync/doc-fields/requeue" \
+  -H "Authorization: Bearer $EMPLOYEE_JWT" \
+  -H "Content-Type: application/json" -d '{"outcome": "not_accepted"}'
+# {"requeued": 140}
+```
+
+`outcome` is `not_accepted`, `refused`, `reupload_failed` or `all`; anything else is a 400. The matching documents become `fields_changed` and are re-sent within `RC_FIELDS_REUPLOAD_PER_CYCLE` per cycle; a running worker starts its next cycle at once. Same authorization as `/sync/start` (the Platform's Ingestion tab offers it as *Erneut senden*). **Each re-sent document is a full, billed upload with a fresh extraction and OCR** — see [configuration.md](configuration.md#re-uploads-and-what-they-cost). Documents recorded `not_accepted` are queued automatically the first time Knovas answers with an echo.
+
+### Metrics
+
+| Counter | Labels |
+|---------|--------|
+| `rc_doc_fields_uploads_total{outcome}` | `staged`, `cleared`, `not_accepted`, `none`, `refused`, `reupload_failed`, `other` |
+| `rc_doc_fields_refusals_total{code}` | `invalid_fields`, `unknown_field`, `ambiguous_field`, `fields_too_large`, `doc_fields_unavailable`, `doc_fields_ingest_unavailable`, `assertion_rejected`, `other` |
+| `rc_doc_fields_warnings_total{code}` | the echo warning codes (`invalid_value`, `checksum_failed`, `type_mismatch`, `restricted_identifier`, `cap_exceeded`, `ambiguous_date`, `unresolved_entity`, `ambiguous_entity`, `key_looks_personal`), `other` |
+| `rc_doc_fields_client_dropped_total{reason}` | values left out before sending: `system_key`, `value_too_long`, `cap_exceeded`, `too_large`, `invalid_value`, `other` |
+
+### State
+
+The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`, `fields_outcome`, `fields_warning_codes`, `fields_attempts`), added on first start; an older RemoteController ignores them. `fields_digest` is a hash of the configuration, never the values. Resetting the sync state (above) also forgets which documents had fields: the next full upload sends them again.
 
 ## Large corpora (100s of GB)
 
@@ -139,5 +201,6 @@ OCR output is cached per page image in `/var/rc-state/.rc-ocr-cache.db` (beside 
 2. Replace image or package; preserve `.env`, certs, state, and config volumes.
 3. Verify `/health`, then run a test `GET /discover`.
 4. Rerun `scripts/build_context_sidecars.py --force` when the release changes extraction (see [configuration.md](configuration.md#search-context-sidecars)), and re-queue files the previous release parked (above).
+5. 0.3.0 (document fields) needs nothing: the new state columns are added on start, and a document's empty digest equals "no fields configured", so nothing is re-sent until a source is configured with fields.
 
 Use a **single** Gunicorn worker (`-w 1`) when running from source; multiple workers conflict on scheduler state.

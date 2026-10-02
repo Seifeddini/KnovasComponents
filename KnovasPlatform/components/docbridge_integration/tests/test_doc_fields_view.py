@@ -535,6 +535,37 @@ class TestMessages:
         assert "keine Fristenkontrolle" in view.DEADLINE_BANNER
 
 
+class TestValuesEditAudit:
+    """One ``document.values_edited`` convention for both edit routes."""
+
+    def test_outcome_fits_the_audit_log_check(self):
+        # 0001_identity.sql: CHECK (outcome IN ('ok', 'denied', 'error')).
+        assert view.AUDIT_OUTCOME_REFUSED in ("ok", "denied", "error")
+        assert view.AUDIT_OUTCOME_REFUSED == "denied"
+        assert view.VALUES_EDIT_REFUSALS == {"version_conflict", "change_not_authorized",
+                                             "anchor_quarantined"}
+
+    def test_keys_counts_and_versions_never_values(self):
+        detail = view.values_edit_audit_detail(
+            {"set": {"title": "Sentinel", "party": "Sentinel AG"}, "unset": ["status"],
+             "add": {"tags": ["Sentinel-Tag"]}},
+            version_from=3, version_to=4, warning_codes=["unresolved_entity", "", None])
+        assert detail == {"keys": ["party", "status", "tags"],
+                          "ops": {"set": 2, "unset": 1, "add": 1, "remove": 0},
+                          "title_changed": True, "description_changed": False,
+                          "version_from": 3, "version_to": 4,
+                          "warning_codes": ["unresolved_entity"]}
+        assert "Sentinel" not in json.dumps(detail)
+
+    def test_a_refusal_names_the_code(self):
+        detail = view.values_edit_audit_detail({"set": {"doc_type": "x"}}, version_from=1,
+                                               version_to=True, code="version_conflict")
+        assert detail["code"] == "version_conflict"
+        assert detail["version_to"] is None, "a bool is not a version"
+        assert "code" not in view.values_edit_audit_detail({}, version_from=None,
+                                                           version_to=None)
+
+
 def test_new_modules_are_ascii_only():
     """scripts/check_ascii_py.py: umlauts go in templates or as escapes."""
     tests = Path(__file__).resolve().parent

@@ -58,6 +58,25 @@ backend name only, never text (GI-EXTRACT-04) — is logged, returned in the
 sync result (`partial`) and written into the document's sidecar, from where
 the search result carries it as `context_partial`.
 
+## Document fields
+
+Typed values per document (filters, listing, cards, the field panel, the
+*Dokumentfelder* admin tab and per-folder fields in the Ingestion tab) —
+shown only as far as Knovas serves them for the tenant, in secured mode only.
+Modules: `src/doc_fields_capability.py` (what Knovas serves; per-person
+registry cache), `src/doc_fields_view.py` (the honesty rules as pure
+functions), `src/web_interface/doc_fields_routes.py` (search side),
+`src/web_interface/admin_doc_fields.py` (admin). Guide:
+[docs/features/document-fields.md](../../docs/features/document-fields.md).
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DOC_FIELDS_UI` | `auto` | `off` hides all document-field UI. There is no `on`: what shows follows Knovas's answer. |
+| `DOC_FIELDS_EDIT_ROLES` | `admin` | Roles that may edit values (comma list of `admin`, `approver`, `ingestion_manager`, `member`); fields with sensitivity `special` stay admin-only. |
+
+The tests run the real client against the mock Knovas API in every server
+state (`tests/test_doc_fields_mock_contract.py`, `tests/test_doc_fields_render.py`).
+
 ## Hit context (`src/context_store.py`)
 
 The search card's snippet and "Fundstellen" come from the per-document

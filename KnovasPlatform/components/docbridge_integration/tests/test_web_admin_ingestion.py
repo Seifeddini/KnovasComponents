@@ -1253,6 +1253,26 @@ class TestCheckProfileFields:
         assert str(excinfo.value) == RC_TOO_OLD
         assert "RemoteController zu alt \u2013 bitte aktualisieren" in RC_TOO_OLD
 
+    def test_an_unreachable_remote_controller_is_not_called_too_old(self):
+        from identity.ingestion_compiler import RC_UNREACHABLE, ProfileError
+        from remote_controller_client import RemoteControllerError
+        from web_interface.admin_ingestion import _require_rc_support
+
+        class _Down(_RC):
+            def reachable_capabilities(self):
+                self.calls.append("reachable_capabilities")
+                return None
+
+        with pytest.raises(ProfileError) as excinfo:
+            self._check(_profile(_folder(fields={"doc_type": "invoice"})), rc=_Down())
+        assert str(excinfo.value) == RC_UNREACHABLE
+        assert "nicht erreichbar" in RC_UNREACHABLE and "zu alt" not in RC_UNREACHABLE
+        with pytest.raises(RemoteControllerError) as pushed:
+            _require_rc_support(_Down(), {"sources": [{"path": "/a", "fields": {"doc_type": "x"}}]})
+        assert "nicht erreichbar" in str(pushed.value)
+        # A body without fields asks nobody, reachable or not.
+        _require_rc_support(_Down(), {"sources": [{"path": "/a"}]})
+
     def test_keys_are_validated_and_enum_labels_stored_as_codes(self):
         check = self._check(_profile(_folder(fields={"doc_type": "Rechnung"},
                                               field_templates=("{mandant}/**",))))
@@ -1497,6 +1517,12 @@ class TestRemoteControllerClientDocFields:
         assert down.capabilities() == frozenset()
         nobody, session = self._client(self._Resp(200, {"capabilities": list(ALL_CAPS)}), user=None)
         assert nobody.capabilities() == frozenset() and session.calls == []
+        # reachable_capabilities tells "cannot be asked" (None) from "too old".
+        assert old.reachable_capabilities() == frozenset()
+        assert current.reachable_capabilities() == frozenset(ALL_CAPS)
+        assert broken.reachable_capabilities() is None
+        assert down.reachable_capabilities() is None
+        assert nobody.reachable_capabilities() is None
 
     def test_requeue_posts_the_outcome_in_the_body(self):
         client, session = self._client(self._Resp(200, {"requeued": 12}))

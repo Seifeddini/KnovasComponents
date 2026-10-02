@@ -472,10 +472,19 @@ class TestTheEdit:
         assert body["error_code"] == "version_conflict" and body["current_version"] == 1
         assert body["document"]["version"] == 1
         assert len(_calls(api, "patch_doc_values")) == 1, "not retried with the new version"
-        # audit_log.outcome allows ok/denied/error: a conflict is "denied"
-        # with its reason.
+        # audit_log.outcome allows ok/denied/error: a refusal -- a conflict
+        # included -- is "denied" with Knovas's code, the same detail the
+        # admin drawer records (doc_fields_view.values_edit_audit_detail).
         row = _audit_rows(platform_db)[-1]
-        assert row[2] == "denied" and row[3]["reason"] == "version_conflict"
+        detail = row[3] if isinstance(row[3], dict) else json.loads(row[3])
+        assert row[2] == "denied"
+        assert detail == {
+            "keys": ["doc_type"],
+            "ops": {"set": 1, "unset": 0, "add": 0, "remove": 0},
+            "title_changed": False, "description_changed": False,
+            "version_from": 0, "version_to": 1, "warning_codes": [],
+            "code": "version_conflict",
+        }
 
     def test_change_not_authorized_turns_read_only(self, admin, platform_db):
         client, api = admin
@@ -484,7 +493,8 @@ class TestTheEdit:
         assert response.status_code == 403
         assert response.get_json()["read_only"] is True
         row = _audit_rows(platform_db)[-1]
-        assert row[2] == "denied" and row[3]["reason"] == "change_not_authorized"
+        assert row[2] == "denied" and row[3]["code"] == "change_not_authorized"
+        assert row[3]["version_to"] is None and "reason" not in row[3]
 
     def test_held_values_are_said_to_be_held(self, admin):
         client, api = admin

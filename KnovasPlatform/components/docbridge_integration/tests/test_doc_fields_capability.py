@@ -329,6 +329,32 @@ class TestRegistryFor:
         assert cap.registry_for(client, "alice")[0]["label"] != "changed"
 
 
+class TestRegistryTargetsFor:
+    def test_target_ids_come_from_the_cached_entry(self):
+        client = FakeDocFieldsApi("values")
+        targets = cap.registry_targets_for(client, "alice")
+        cap.registry_for(client, "alice")
+        assert [c for c, _ in client.doc_calls].count("doc_fields") == 1
+        assert targets.get("mandant")
+        # The sanitized registry carries no target id at all.
+        assert all("target_node_type_id" not in spec for spec in cap.registry_for(client, "alice"))
+
+    def test_per_user_and_a_copy(self):
+        client = FakeDocFieldsApi("values")
+        mine = cap.registry_targets_for(client, "alice")
+        mine.clear()
+        assert cap.registry_targets_for(client, "alice")
+        cap.registry_targets_for(client, "bob")
+        assert [c for c, _ in client.doc_calls].count("doc_fields") == 2
+
+    def test_a_failure_is_raised_and_not_cached(self):
+        client = FakeDocFieldsApi("values")
+        client.fail_call("doc_fields", 503, "doc_fields_unavailable")
+        with pytest.raises(DocFieldsError):
+            cap.registry_targets_for(client, "alice")
+        assert cap.registry_targets_for(client, "alice")
+
+
 class TestEntityNamesFor:
     def test_names_of_the_target_type_without_q(self):
         client = FakeDocFieldsApi("values")

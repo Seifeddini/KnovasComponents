@@ -19,9 +19,9 @@
 | Doc | Use |
 |-----|-----|
 | [certificates.md](../../docs/certificates.md) | **mTLS bundle** — filenames per component, permissions, uid 10001, verification |
-| [configuration.md](configuration.md) | `.env` and sync scheduler JSON |
+| [configuration.md](configuration.md) | `.env` and sync scheduler JSON; per-source document fields and their re-upload cost |
 | [network-and-firewall.md](network-and-firewall.md) | Firewall, public URL, outbound rules |
-| [operations.md](operations.md) | Health, metrics, **stop sync**, upgrades |
+| [operations.md](operations.md) | Health, metrics, **stop sync**, document-fields status and requeue, upgrades |
 | [onboarding-checklist.md](onboarding-checklist.md) | Go-live checklist |
 | [../../docs/client/](../../docs/client/) | **Demo-Kanzlei** — the page we send clients |
 | [hosting/server_01_home-corpus-setup.md](hosting/server_01_home-corpus-setup.md) | server_01_home corpus ingest setup (detailed) |

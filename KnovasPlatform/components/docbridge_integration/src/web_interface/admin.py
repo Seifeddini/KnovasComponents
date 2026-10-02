@@ -22,9 +22,7 @@ import functools
 import logging
 from datetime import datetime
 
-from flask import (
-    Blueprint, abort, current_app, redirect, render_template, request, session, url_for
-)
+from flask import Blueprint, abort, redirect, render_template, request, url_for
 
 from identity import audit
 from identity.passwords import WeakPasswordError

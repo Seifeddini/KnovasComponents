@@ -17,6 +17,7 @@
 | Debian host notes | [platforms/debian.md](platforms/debian.md) |
 | Windows host notes | [platforms/windows.md](platforms/windows.md) |
 | Administer documents and folder access rules | [features/document-administration.md](features/document-administration.md) |
+| Document fields (Dokumentfelder): filters, listing, field panel, admin tab, ingestion fields | [features/document-fields.md](features/document-fields.md) |
 | Open Office/UNC files from the browser | [integration/opening-documents.md](integration/opening-documents.md) |
 | Open-token HTTP API | [integration/open-tokens-api.md](integration/open-tokens-api.md) |
 | Common errors | [integration/troubleshooting.md](integration/troubleshooting.md) |

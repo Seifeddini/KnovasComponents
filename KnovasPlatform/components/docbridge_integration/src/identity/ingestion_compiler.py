@@ -476,6 +476,10 @@ TEMPLATE_ERROR_TEXT = {
 #: Platform says so before it tries (spec 2.5, 4.8).
 RC_TOO_OLD = ("RemoteController zu alt \u2013 bitte aktualisieren: er meldet keine "
               "Unterst\u00fctzung f\u00fcr Dokumentfelder.")
+#: ...and when it cannot be asked at all, it is not called too old.
+RC_UNREACHABLE = ("RemoteController nicht erreichbar \u2013 ob er Dokumentfelder "
+                  "unterst\u00fctzt, l\u00e4sst sich jetzt nicht pr\u00fcfen. Bitte "
+                  "sp\u00e4ter erneut speichern.")
 
 
 def _source_value(source: Any, name: str) -> Any:

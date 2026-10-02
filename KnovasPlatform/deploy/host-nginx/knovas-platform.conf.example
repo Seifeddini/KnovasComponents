@@ -2,7 +2,8 @@
 #
 # With a public name and Let's Encrypt, ./scripts/host-https.sh <fqdn> <email>
 # does all of the following. By hand (internal PKI):
-# 1. Copy knovas-login-limit.conf to /etc/nginx/conf.d/ (the login throttle's zone).
+# 1. Copy knovas-login-limit.conf to /etc/nginx/conf.d/ (the login throttle's zone
+#    and the knovas_privacy access-log format this file uses).
 # 2. Copy this file to /etc/nginx/sites-available/knovas.
 # 3. Replace server_name and ssl_certificate* paths with your own.
 # 4. If DOCBRIDGE_WEB_PORT in knovas.env is not 8081, change both proxy_pass lines.
@@ -15,6 +16,8 @@ server {
     listen 80;
     server_name knovas.example.internal;
     server_tokens off;
+    # No request URI in the access log (format in knovas-login-limit.conf).
+    access_log /var/log/nginx/access.log knovas_privacy;
 
     # Let's Encrypt issuance and renewal (scripts/host-https.sh); harmless otherwise.
     location ^~ /.well-known/acme-challenge/ {
@@ -30,6 +33,10 @@ server {
     listen 443 ssl;
     server_name knovas.example.internal;
     server_tokens off;
+    # Replaces the http-level "combined" log, whose "$request" is the URI with
+    # its query string: Platform URLs carry document pointers. The format is
+    # defined once per host in knovas-login-limit.conf (http context).
+    access_log /var/log/nginx/access.log knovas_privacy;
 
     ssl_certificate     /etc/ssl/certs/knovas.example.internal-fullchain.pem;
     ssl_certificate_key /etc/ssl/private/knovas.example.internal.key;

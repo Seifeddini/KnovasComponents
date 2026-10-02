@@ -65,10 +65,6 @@ FILTER_FIELD_CODES = frozenset({
 _CALIBRATION_CODES = frozenset({"where_requires_calibration",
                                 "relevance_mode_calibration_missing"})
 
-# Knovas refusals of an edit that are audited (with the code as reason).
-_REFUSAL_REASONS = frozenset({"version_conflict", "change_not_authorized",
-                              "anchor_quarantined"})
-
 # Bounds on what the browser may send. Knovas validates the meaning; these
 # only keep an oversized body from leaving the Platform.
 POINTER_MAX = 1000
@@ -415,18 +411,19 @@ def doc_field_links(client: Any, user_key: Any,
     if not node_type_id:
         return []
     try:
-        # doc_fields_capability caches the target ids next to the sanitized
-        # registry (per person) but has no public reader for them yet.
-        entry = dfc._registry_entry(client, user_key)  # noqa: SLF001
+        # Both come from the same per-person cache entry; the target ids
+        # stay on the server.
+        fields = dfc.registry_for(client, user_key)
+        targets = dfc.registry_targets_for(client, user_key)
     except Exception as exc:  # noqa: BLE001 - the links are optional
         dfc.observe_exception(exc)
         logger.info("Cortex document-field links unavailable (%s)", type(exc).__name__)
         return []
     want = str(node_type_id)
     return [{"key": str(spec["key"]), "label": str(spec.get("label") or spec["key"])}
-            for spec in entry.fields
+            for spec in fields
             if spec.get("datatype") == "entity_ref" and spec.get("status") != "deprecated"
-            and entry.targets.get(str(spec.get("key"))) == want]
+            and targets.get(str(spec.get("key"))) == want]
 
 
 # ---------------------------------------------------------------------------
@@ -916,14 +913,6 @@ def attach(app: Any, *, config: Any, client_factory: Callable[[], Any], identity
                             code="unknown_field", field=key, field_label=key)
             if not dfv.can_edit(roles, settings.edit_roles, spec.get("sensitivity"), False, True):
                 return _err("edit_not_allowed", EDIT_NEEDS_ADMIN, 403, field=key)
-        typed = [k for k in keys if k not in _EDITABLE_SYSTEM_KEYS]
-        detail: Dict[str, Any] = {
-            "keys": sorted(typed),
-            "ops": {name: len(ops.get(name) or ()) for name in ("set", "unset", "add", "remove")},
-            "title_changed": "title" in (ops.get("set") or {}),
-            "description_changed": "description" in (ops.get("set") or {}),
-            "version_from": if_version,
-        }
         try:
             result = client.patch_doc_values(
                 pointer, if_version, set=ops.get("set"), unset=ops.get("unset"),
@@ -934,14 +923,17 @@ def attach(app: Any, *, config: Any, client_factory: Callable[[], Any], identity
                         getattr(exc, "status", "-"), getattr(exc, "error_code", "-"))
             payload, status = _edit_refusal(exc, registry)
             code = getattr(exc, "error_code", None)
-            if code in _REFUSAL_REASONS:
+            if code in dfv.VALUES_EDIT_REFUSALS:
                 # Refused by Knovas: the panel gets the current values, and the
-                # audit says why. audit_log.outcome allows ok/denied/error
-                # only, so a conflict is "denied" with its reason.
+                # audit says why -- "denied" with Knovas's code, the convention
+                # the admin drawer's edit route records too (doc_fields_view).
                 fresh = _fresh_read(client, pointer, registry, user)
                 if fresh is not None:
                     payload["document"] = fresh
-                _audit(user, fresh, "denied", dict(detail, reason=code))
+                details = getattr(exc, "details", None) or {}
+                current = details.get("current_version") if code == "version_conflict" else None
+                _audit(user, fresh, dfv.AUDIT_OUTCOME_REFUSED, dfv.values_edit_audit_detail(
+                    ops, version_from=if_version, version_to=current, code=code))
             return jsonify(payload), status
         if result is None:
             return _err("not_found", NOT_FOUND_TEXT, 404)
@@ -952,10 +944,9 @@ def attach(app: Any, *, config: Any, client_factory: Callable[[], Any], identity
             key = item.get("key") if isinstance(item.get("key"), str) else None
             warnings.append({"key": key, "label": dfv.field_label(specs, key) if key else None,
                              "code": item["code"], "text": dfv.warning_text(item["code"])})
-        version_to = result.get("version")
-        detail["version_to"] = (version_to if isinstance(version_to, int)
-                                and not isinstance(version_to, bool) else None)
-        detail["warning_codes"] = sorted({w["code"] for w in warnings})
+        detail = dfv.values_edit_audit_detail(
+            ops, version_from=if_version, version_to=result.get("version"),
+            warning_codes=[w["code"] for w in warnings])
         fresh = _fresh_read(client, pointer, registry, user)
         _audit(user, fresh, "ok", detail)
         logger.info("Document values edited: keys=%d warnings=%d", len(keys), len(warnings))

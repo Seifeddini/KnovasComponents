@@ -430,6 +430,14 @@ def registry_for(client: Any, user_key: Any) -> List[Dict[str, Any]]:
     return [dict(spec) for spec in _registry_entry(client, user_key).fields]
 
 
+def registry_targets_for(client: Any, user_key: Any) -> Dict[str, str]:
+    """``{key: target_node_type_id}`` of this user's registry: the entity
+    fields whose target node type the person can see, from the same cached
+    entry as ``registry_for``. Server-side only -- the ids never go to the
+    browser. A failure is raised and not cached; callers get a copy."""
+    return dict(_registry_entry(client, user_key).targets)
+
+
 def entity_names_for(client: Any, user_key: Any, field: Any) -> Optional[List[str]]:
     """Suggestion names for an entity field, or None for free text only.
 

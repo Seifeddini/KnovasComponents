@@ -986,35 +986,9 @@ def edit_warnings(warnings: Any, registry: Any) -> List[Dict[str, Any]]:
     return out
 
 
-#: ``audit_log.outcome`` admits only ok / denied / error (0001_identity.sql
-#: CHECK). A version conflict is recorded as ``error`` with the server's code
-#: in the detail; spec 4.6 calls that outcome "conflict".
-AUDIT_OUTCOME_CONFLICT = "error"
-
-
-def values_edit_audit_detail(ops: Mapping[str, Any], *, version_from: Any, version_to: Any,
-                             warning_codes: Iterable[str] = (),
-                             code: Optional[str] = None) -> Dict[str, Any]:
-    """The ``document.values_edited`` detail: keys, counts, versions,
-    warning codes and, for a refused edit, Knovas's error code -- never a
-    value (spec 4.6)."""
-    typed: set = set()
-    for op in _EDIT_OPS:
-        part = ops.get(op) or ()
-        for key in (part if isinstance(part, (list, tuple)) else list(part)):
-            if key not in ("title", "description"):
-                typed.add(str(key))
-    set_part = ops.get("set") or {}
-    return {
-        "keys": sorted(typed),
-        "ops": {op: len(ops.get(op) or ()) for op in _EDIT_OPS},
-        "title_changed": "title" in set_part,
-        "description_changed": "description" in set_part,
-        "version_from": version_from if isinstance(version_from, int) else None,
-        "version_to": version_to if isinstance(version_to, int) else None,
-        "warning_codes": sorted({str(c) for c in warning_codes or () if c}),
-        **({"code": str(code)} if code else {}),
-    }
+# The ``document.values_edited`` audit (outcome and detail) is shared with
+# the search panel's edit route, so both live in doc_fields_view:
+# AUDIT_OUTCOME_REFUSED, VALUES_EDIT_REFUSALS, values_edit_audit_detail.
 
 
 def where_from_pairs(pairs: Any, registry: Any) -> Dict[str, Any]:

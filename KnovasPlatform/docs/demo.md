@@ -26,6 +26,11 @@ The mock speaks the legacy unsecured API, so also set
 in `KnovasPlatform/.env.generated` after running setup — that file is
 regenerated on every `setup.sh`, so re-apply it if you re-run setup.
 
+Because the demo runs in legacy mode (no mTLS), it shows **no document-field
+UI** — no filters, listing or field panel ([features/document-fields.md](features/document-fields.md)).
+The mock's `MOCK_DOC_FIELDS` (`off` by default; `values`, `filters`) serves the
+automated tests, which drive the real client against it in secured mode.
+
 Verify with `./KnovasPlatform/scripts/verify_deploy.sh` (or
 `.\KnovasPlatform\scripts\verify_deploy.ps1` on Windows).
 

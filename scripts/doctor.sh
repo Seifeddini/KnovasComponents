@@ -592,8 +592,50 @@ else:
     print(f"   FAIL  /secured/health -> {code}: {body[:200]!r}")
     print("         Search cannot work until this does. Check the certs above and SEMANTIX_API_URL.")
 
-# The graph serves Cortex and nothing else; with Cortex switched off its state
-# cannot affect the firm, so it is not probed.
+# Dokumentfelder: which state Knovas serves this tenant. The same probe the
+# Platform sends -- POST find with an empty body -- which is never billed
+# (billing follows success, and {} never succeeds) and changes nothing. Only
+# the status and the error code are printed. doctor sends no person's
+# assertion, so a 401 means the "where" gate already passed: filters on, in a
+# BROKERED tenant. Whether search filters are calibrated cannot be probed;
+# the first filtered search says so.
+def probe_doc_fields():
+    req = urllib.request.Request(
+        base + "/secured/graph/doc-values/find", data=b"{}", method="POST",
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
+            return r.status, r.read(400)
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(400)
+    except Exception:
+        return None, b""
+
+code, body = probe_doc_fields()
+try:
+    answer = json.loads(body or b"{}")
+except ValueError:
+    answer = None
+answer = answer if isinstance(answer, dict) else {}
+error_code = answer.get("error_code")
+seen = f"HTTP {code}" + (f", error_code {error_code}" if isinstance(error_code, str) else "")
+if code == 404 and error_code not in ("NOT_FOUND", "pack_not_found"):
+    print(f"   info  Dokumentfelder: aus ({seen}) -- not enabled for this tenant at Knovas,")
+    print("         or the server predates them. The Platform shows no document-field UI.")
+elif code == 400 and error_code == "where_unsupported":
+    print(f"   info  Dokumentfelder: Werte, ohne Liste und Filter ({seen})")
+elif code == 400 and error_code == "invalid_value" and answer.get("path") == "where":
+    print(f"     OK  Dokumentfelder: Werte, Liste und Filter ({seen})")
+    print("         Whether search filters are calibrated cannot be probed; the first filtered")
+    print("         search says so (System tab: 'Kalibrierung bei Knovas fehlt').")
+elif code == 401:
+    print(f"     OK  Dokumentfelder: Filter an (BROKERED-Mandant; {seen})")
+else:
+    print(f"   WARN  Dokumentfelder: state unknown ({seen})")
+
+# The graph probe below is about Cortex; with Cortex switched off its state
+# cannot affect the firm, so it is not probed. (Dokumentfelder were probed
+# above, independently of Cortex.)
 if (os.environ.get("CORTEX_ENABLED") or "true").strip().lower() not in ("true", "yes", "1", "on"):
     raise SystemExit(0)
 

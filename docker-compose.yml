@@ -144,6 +144,10 @@ services:
     # page that renders perfectly, are both completely silent -- and an empty
     # `docker compose logs | grep` reads as "the request never arrived" when it
     # means "nothing here logs requests".
+    # --access-logformat keeps that line free of the request URI: time, method,
+    # status, size and duration, like the nginx in front (knovas_privacy). The
+    # default format's request line (%(r)s), path (%(U)s), query (%(q)s) and
+    # referer (%(f)s) carry document pointers and search text.
     command: >
       sh -c "mkdir -p $${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker} && gunicorn
       --workers=$${DOCBRIDGE_WEB_WORKERS:-2}
@@ -151,6 +155,7 @@ services:
       --timeout=$${DOCBRIDGE_WEB_TIMEOUT:-120}
       --bind=0.0.0.0:5000
       --access-logfile=-
+      --access-logformat='%(t)s %(m)s %(s)s %(b)s %(L)s'
       web_interface.wsgi:app"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/stats', timeout=5)"]

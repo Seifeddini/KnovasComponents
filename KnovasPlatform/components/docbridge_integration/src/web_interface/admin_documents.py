@@ -30,7 +30,9 @@ from flask import jsonify, render_template, request
 import doc_fields_capability as dfc
 from doc_fields_capability import Capability
 from doc_fields_view import (
+    AUDIT_OUTCOME_REFUSED,
     DEADLINE_BANNER,
+    VALUES_EDIT_REFUSALS,
     card_return_fields,
     error_message,
     filter_state,
@@ -39,12 +41,12 @@ from doc_fields_view import (
     listing_notice,
     resolved_chips,
     validate_where,
+    values_edit_audit_detail,
 )
 from identity import audit
 from identity.approvals import ApprovalService
 from knovas_client import DocFieldsError, DocFieldsUnavailable
 from web_interface.admin_doc_fields import (
-    AUDIT_OUTCOME_CONFLICT,
     OFF_TEXT,
     FormError,
     edit_ops_from_body,
@@ -53,7 +55,6 @@ from web_interface.admin_doc_fields import (
     knovas_message,
     path_key,
     sort_from_body,
-    values_edit_audit_detail,
     values_view,
     where_from_pairs,
 )
@@ -558,10 +559,13 @@ def attach_document_routes(
             logger.warning("Dokumentwerte nicht gespeichert: %s %s", failure.status, code)
             message, status = knovas_message(failure, registry)
             if code == "version_conflict":
-                _audit(AUDIT_OUTCOME_CONFLICT, details.get("current_version"), code=code)
                 status = 409
-            elif code in ("change_not_authorized", "anchor_quarantined"):
-                _audit("denied", None, code=code)
+            if code in VALUES_EDIT_REFUSALS:
+                # Refused by Knovas, as designed: "denied" with its code (one
+                # convention with the search panel's edit route).
+                _audit(AUDIT_OUTCOME_REFUSED,
+                       details.get("current_version") if code == "version_conflict" else None,
+                       code=code)
             return jsonify({
                 "success": False, "error": code, "message": message,
                 "field": path_key(details.get("path")),

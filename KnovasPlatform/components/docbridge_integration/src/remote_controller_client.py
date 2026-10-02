@@ -7,7 +7,7 @@ RemoteController's require_operator_or_tenant_admin. No session, no call.
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -156,11 +156,17 @@ class RemoteControllerClient:
         """What this RemoteController advertises; empty for an older one, and
         empty when it cannot be asked (nobody signed in, unreachable), since
         then nothing it does not list can be relied on either."""
+        return self.reachable_capabilities() or frozenset()
+
+    def reachable_capabilities(self) -> Optional[frozenset[str]]:
+        """``capabilities()``, but None when the RemoteController cannot be
+        asked (nobody signed in, unreachable, an error answer) -- so a caller
+        can tell "not reachable" from "too old" (empty)."""
         try:
             return capabilities_from_status(self.status())
         except (RemoteControllerError, PermissionError) as exc:
             logger.info("RemoteController-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
-            return frozenset()
+            return None
 
     def requeue_doc_fields(self, outcome: str) -> int:
         """Queue documents with this field outcome for re-upload; the count.
