@@ -593,11 +593,13 @@ def test_pdf_text_mode_env(monkeypatch):
     from sync.document_text import pdf_text_mode
 
     monkeypatch.delenv("RC_PDF_TEXT_MODE", raising=False)
-    assert pdf_text_mode() == "plain"
+    assert pdf_text_mode() == "layout", "markdown-lite layout is the default since 0.2.0"
     monkeypatch.setenv("RC_PDF_TEXT_MODE", "Shadow")
     assert pdf_text_mode() == "shadow"
-    monkeypatch.setenv("RC_PDF_TEXT_MODE", "rows")
+    monkeypatch.setenv("RC_PDF_TEXT_MODE", "plain")
     assert pdf_text_mode() == "plain"
+    monkeypatch.setenv("RC_PDF_TEXT_MODE", "rows")
+    assert pdf_text_mode() == "layout", "an invalid value falls back to the default"
 
 
 # --- shadow mode: one OCR pass, two renderings (plan decision D13) -----------

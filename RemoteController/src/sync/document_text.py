@@ -139,7 +139,7 @@ _OCR_BUDGET_RENDER_MARGIN_SECONDS = 10
 _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS = 30
 
 TEXT_MODES = ("plain", "shadow", "layout")
-DEFAULT_PDF_TEXT_MODE = "plain"
+DEFAULT_PDF_TEXT_MODE = "layout"
 
 PLAIN_TEXT_EXTENSIONS = frozenset({".md", ".txt"})
 

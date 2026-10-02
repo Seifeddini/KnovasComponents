@@ -141,7 +141,7 @@ _OCR_BUDGET_RENDER_MARGIN_SECONDS = 10
 _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS = 30
 
 TEXT_MODES = ("plain", "shadow", "layout")
-DEFAULT_PDF_TEXT_MODE = "plain"
+DEFAULT_PDF_TEXT_MODE = "layout"
 
 logger_ocr_warned = False
 logger_text_mode_warned = False

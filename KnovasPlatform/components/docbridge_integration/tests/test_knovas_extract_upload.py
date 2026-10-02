@@ -237,6 +237,7 @@ def test_ocr_options_are_not_sent_when_ocr_is_disabled(monkeypatch):
     extract_stub, seen = _signature_stub(ocr_options=True, text_mode=True, limits=True)
     monkeypatch.setattr(m, "extract", extract_stub)
     monkeypatch.setattr(m, "OcrOptions", _FakeOcrOptions)
+    monkeypatch.setenv("RC_PDF_TEXT_MODE", "plain")  # text mode is independent of OCR
     with pytest.raises(m.ExtractionError):
         m._extract_bytes(b"%PDF-1.4 stub", ".pdf", use_ocr=False)
     assert seen["use_ocr"] is False
@@ -244,11 +245,14 @@ def test_ocr_options_are_not_sent_when_ocr_is_disabled(monkeypatch):
 
 
 def test_pdf_text_mode_env(monkeypatch):
-    assert m.pdf_text_mode() == "plain"
+    monkeypatch.delenv("RC_PDF_TEXT_MODE", raising=False)
+    assert m.pdf_text_mode() == "layout", "markdown-lite layout is the default"
     monkeypatch.setenv("RC_PDF_TEXT_MODE", "Shadow")
     assert m.pdf_text_mode() == "shadow"
-    monkeypatch.setenv("RC_PDF_TEXT_MODE", "rows")
+    monkeypatch.setenv("RC_PDF_TEXT_MODE", "plain")
     assert m.pdf_text_mode() == "plain"
+    monkeypatch.setenv("RC_PDF_TEXT_MODE", "rows")
+    assert m.pdf_text_mode() == "layout", "an invalid value falls back to the default"
 
 
 def test_layout_mode_falls_back_to_plain_with_one_warning(monkeypatch, caplog):
