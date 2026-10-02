@@ -48,6 +48,11 @@ def _build_sync_response(scheduler_status: str, result) -> dict:
         response["transmissions_truncated"] = True
     if result.document_sync is not None:
         response["document_sync"] = result.document_sync.as_dict()
+    # Knovas document fields of this run (codes and counts), only when the
+    # run did anything with them: a run without fields answers as before.
+    doc_fields = getattr(result, "doc_fields", None)
+    if doc_fields is not None and doc_fields.active:
+        response["doc_fields"] = doc_fields.as_dict()
     return response
 
 

@@ -204,7 +204,12 @@ class SubfolderQueue:
         scan_truncated: bool,
         paused_reason: Optional[str],
     ) -> bool:
-        """Advance to next subfolder when current one has no remaining work."""
+        """Advance to next subfolder when current one has no remaining work.
+
+        ``modified`` includes the documents whose Knovas fields configuration
+        changed (``fields_changed``, counted by the sync executor), so a
+        subfolder completes only after their re-uploads are done.
+        """
         if scan_truncated:
             return False
         if paused_reason in (

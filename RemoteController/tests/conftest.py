@@ -1,4 +1,7 @@
+import atexit
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -33,6 +36,12 @@ os.environ.setdefault("SEMANTIX_SECURE_BASE_URL", "https://semantix:8443")
 os.environ.setdefault("SEMANTIX_CLIENT_CERT_PATH", "/certs/client.pem")
 os.environ.setdefault("SEMANTIX_CLIENT_KEY_PATH", "/certs/client.key")
 os.environ.setdefault("SEMANTIX_CA_CERT_PATH", "/certs/ca.pem")
+# Never the git-tracked .rc-sync-state.db next to the sources: a test that
+# does not set its own state path writes into a per-run temporary folder.
+if not os.environ.get("RC_SYNC_STATE_PATH"):
+    _STATE_DIR = tempfile.mkdtemp(prefix="rc-test-state-")
+    atexit.register(shutil.rmtree, _STATE_DIR, True)
+    os.environ["RC_SYNC_STATE_PATH"] = str(Path(_STATE_DIR) / ".rc-sync-state.json")
 
 from config import load_config  # noqa: E402
 

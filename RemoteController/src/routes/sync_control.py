@@ -4,10 +4,15 @@ from auth.knovas_verify_client import require_operator_or_tenant_admin, require_
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
 from sync.sync_config import load_sync_config
 from sync.sync_state import SyncStateStore
+from sync.sync_state_db import REQUEUE_OUTCOMES
 from sync.sync_scheduler import (
+    RC_CAPABILITIES,
     SyncRunContext,
+    doc_fields_status,
     get_scheduler_status,
     load_last_sync_body,
+    request_cycle_now,
+    requeue_doc_fields,
     save_last_sync_body,
     start_continuous,
     stop_continuous,
@@ -62,6 +67,11 @@ def sync_stop():
 @_apply_decorators
 def sync_status():
     status = get_scheduler_status()
+    # What this RemoteController understands in a sync body (the Platform
+    # refuses to push profile keys an older RC would answer 400 to), and the
+    # Knovas document-fields state: keys, codes and counts, never values.
+    status["capabilities"] = list(RC_CAPABILITIES)
+    status["doc_fields"] = doc_fields_status()
     if request.args.get("live") == "1":
         body = load_last_sync_body()
         if body:
@@ -94,7 +104,32 @@ def sync_status():
                     "pending": last.get("pending"),
                     "modified": last.get("modified"),
                     "excluded_max_age": last.get("excluded_max_age"),
+                    "fields_changed": last.get("fields_changed"),
                     "live_tracked_paths": tracked,
                     "deep_scan_required_for_full_inventory": True,
                 }
     return jsonify(status), 200
+
+
+@sync_control_bp.route("/sync/doc-fields/requeue", methods=["POST"])
+@_apply_decorators
+def sync_doc_fields_requeue():
+    """Re-send documents whose fields the server did not take.
+
+    ``{"outcome": "not_accepted" | "refused" | "reupload_failed" | "all"}``:
+    their stored digest is cleared, so the next cycles find them
+    ``fields_changed`` and re-upload them within RC_FIELDS_REUPLOAD_PER_CYCLE.
+    Answers ``{"requeued": n}``. Each re-upload is a full, billed upload.
+    """
+    body = request.get_json(silent=True) if request.is_json else None
+    outcome = body.get("outcome") if isinstance(body, dict) else None
+    if outcome not in REQUEUE_OUTCOMES:
+        return jsonify({
+            "error": "outcome must be one of: " + ", ".join(REQUEUE_OUTCOMES),
+            "status": "error",
+        }), 400
+    requeued = requeue_doc_fields(outcome)
+    if requeued:
+        # A running worker picks them up now rather than after its idle wait.
+        request_cycle_now()
+    return jsonify({"requeued": requeued}), 200

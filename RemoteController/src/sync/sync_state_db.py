@@ -7,7 +7,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,43 @@ CREATE TABLE IF NOT EXISTS extract_retries (
 """
 
 _MAX_LAST_ERROR_CHARS = 500
+
+#: Knovas document-fields columns of ``documents`` (spec 3.7), added in place
+#: to older files. Additive only: an older RemoteController reading the same
+#: file never names them, and its ``INSERT OR REPLACE`` resets them to these
+#: defaults, which the newer one reads as "nothing known".
+_FIELDS_COLUMNS = (
+    ("fields_digest", "TEXT"),
+    ("fields_sent", "INTEGER NOT NULL DEFAULT 0"),
+    ("fields_outcome", "TEXT"),
+    ("fields_warning_codes", "TEXT"),
+    ("fields_attempts", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+#: Stored instead of a digest when a document must come back for its fields
+#: although its governing digest may be "" (a clear the server never saw, a
+#: transient refusal). It never equals a sha256 or "", so the row counts as
+#: ``fields_changed`` on the next cycle.
+REQUEUE_DIGEST = "requeue"
+
+#: Requeue selectors (``POST /sync/doc-fields/requeue``) and the stored
+#: outcomes each one matches.
+REQUEUE_OUTCOMES = ("not_accepted", "refused", "reupload_failed", "all")
+_REQUEUE_WHERE = {
+    "not_accepted": "fields_outcome = 'not_accepted'",
+    "refused": "fields_outcome LIKE 'refused:%'",
+    "reupload_failed": "fields_outcome LIKE 'reupload_failed:%'",
+}
+_REQUEUE_WHERE["all"] = "(" + " OR ".join(_REQUEUE_WHERE.values()) + ")"
+
+
+class FieldsState(NamedTuple):
+    """The fields columns of one ``documents`` row."""
+
+    digest: Optional[str]
+    sent: bool
+    outcome: Optional[str]
+    attempts: int
 
 
 def _now_iso() -> str:
@@ -87,8 +124,24 @@ class SyncStateDatabase:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(_SCHEMA)
+            self._ensure_fields_columns()
             self._maybe_migrate_from_json()
         return self._conn
+
+    def _ensure_fields_columns(self) -> None:
+        conn = self._conn
+        assert conn is not None
+        present = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+        for name, decl in _FIELDS_COLUMNS:
+            if name in present:
+                continue
+            try:
+                conn.execute(f"ALTER TABLE documents ADD COLUMN {name} {decl}")
+            except sqlite3.OperationalError as exc:
+                # Another process added it between the PRAGMA and the ALTER.
+                if "duplicate column" not in str(exc).lower():
+                    raise
+        conn.commit()
 
     def close(self) -> None:
         if self._conn is not None:
@@ -180,20 +233,169 @@ class SyncStateDatabase:
         transmission_key_id: str,
         *,
         fingerprints: Optional[dict[str, tuple[str, int]]] = None,
+        fields: Any = None,
     ) -> None:
+        """Store the fingerprint of an upload.
+
+        An UPSERT naming its columns: the fields columns survive a write that
+        does not carry ``fields`` (a ``FieldsRecord``), where the former
+        ``INSERT OR REPLACE`` reset every column it did not name.
+        """
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         conn = self._connect()
         conn.execute(
             """
-            INSERT OR REPLACE INTO documents
+            INSERT INTO documents
             (relative_path, mtime_iso, size_bytes, last_uploaded_at, transmission_key_id)
             VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(relative_path) DO UPDATE SET
+                mtime_iso = excluded.mtime_iso,
+                size_bytes = excluded.size_bytes,
+                last_uploaded_at = excluded.last_uploaded_at,
+                transmission_key_id = excluded.transmission_key_id
             """,
             (relative_path, mtime_iso, size_bytes, now, transmission_key_id),
         )
+        if fields is not None:
+            self._write_fields(conn, relative_path, fields)
         conn.commit()
         if fingerprints is not None:
             fingerprints[relative_path] = (mtime_iso, size_bytes)
+
+    # ----- Knovas document fields (spec 3.7) ----------------------------------
+
+    @staticmethod
+    def _write_fields(conn: sqlite3.Connection, relative_path: str, record: Any) -> None:
+        """Write a ``FieldsRecord`` into an existing row (no-op without one).
+
+        ``digest`` / ``sent`` None keep the stored value; ``count_attempt``
+        adds one to ``fields_attempts``, anything else resets it to 0.
+        """
+        sets = [
+            "fields_outcome = ?",
+            "fields_warning_codes = ?",
+            "fields_attempts = CASE WHEN ? THEN fields_attempts + 1 ELSE 0 END",
+        ]
+        params: list[Any] = [
+            str(record.outcome),
+            json.dumps(list(record.warning_codes or ())),
+            1 if record.count_attempt else 0,
+        ]
+        if record.digest is not None:
+            sets.append("fields_digest = ?")
+            params.append(str(record.digest))
+        if record.sent is not None:
+            sets.append("fields_sent = ?")
+            params.append(1 if record.sent else 0)
+        params.append(relative_path)
+        conn.execute(f"UPDATE documents SET {', '.join(sets)} WHERE relative_path = ?", params)
+
+    def update_fields(self, relative_path: str, record: Any) -> Optional[int]:
+        """Write the fields columns of an existing row only (full mode, a
+        re-upload that left the queue); returns ``fields_attempts`` after the
+        write, or None when the path is not tracked."""
+        conn = self._connect()
+        self._write_fields(conn, relative_path, record)
+        conn.commit()
+        return self._attempts(conn, relative_path)
+
+    def increment_fields_attempts(self, relative_path: str) -> int:
+        """One more failed re-upload of a document whose fields changed."""
+        conn = self._connect()
+        conn.execute(
+            "UPDATE documents SET fields_attempts = fields_attempts + 1 WHERE relative_path = ?",
+            (relative_path,),
+        )
+        conn.commit()
+        return self._attempts(conn, relative_path) or 0
+
+    @staticmethod
+    def _attempts(conn: sqlite3.Connection, relative_path: str) -> Optional[int]:
+        row = conn.execute(
+            "SELECT fields_attempts FROM documents WHERE relative_path = ?", (relative_path,)
+        ).fetchone()
+        return int(row[0] or 0) if row else None
+
+    def load_fields_states(self) -> dict[str, FieldsState]:
+        """Every row's fields columns, once per scan cycle."""
+        conn = self._connect()
+        cur = conn.execute(
+            "SELECT relative_path, fields_digest, fields_sent, fields_outcome, fields_attempts "
+            "FROM documents"
+        )
+        return {
+            row[0]: FieldsState(row[1], bool(row[2]), row[3], int(row[4] or 0)) for row in cur
+        }
+
+    def fields_state(self, relative_path: str) -> Optional[FieldsState]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT fields_digest, fields_sent, fields_outcome, fields_attempts "
+            "FROM documents WHERE relative_path = ?",
+            (relative_path,),
+        ).fetchone()
+        if not row:
+            return None
+        return FieldsState(row[0], bool(row[1]), row[2], int(row[3] or 0))
+
+    def requeue_fields(self, outcome: str) -> int:
+        """Queue documents for a fields re-upload; returns how many.
+
+        The digest is cleared, so the next cycle finds the document
+        ``fields_changed`` and re-sends it within the per-cycle bound. A
+        document whose values were staged before gets ``REQUEUE_DIGEST``
+        instead of NULL: NULL equals "" and would never re-send a clear.
+        Rows already waiting are not counted twice.
+        """
+        where = _REQUEUE_WHERE.get(outcome)
+        if where is None:
+            raise ValueError("unknown requeue outcome")
+        conn = self._connect()
+        cur = conn.execute(
+            f"""
+            UPDATE documents SET
+                fields_digest = CASE WHEN fields_sent = 1 THEN ? ELSE NULL END,
+                fields_attempts = 0
+            WHERE {where}
+              AND fields_digest IS NOT NULL AND fields_digest != ?
+            """,
+            (REQUEUE_DIGEST, REQUEUE_DIGEST),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+    def count_fields_requeue_candidates(self, outcome: str) -> int:
+        """Rows ``requeue_fields(outcome)`` would queue now."""
+        where = _REQUEUE_WHERE.get(outcome)
+        if where is None:
+            raise ValueError("unknown requeue outcome")
+        conn = self._connect()
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM documents WHERE {where} "
+            "AND fields_digest IS NOT NULL AND fields_digest != ?",
+            (REQUEUE_DIGEST,),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def fields_counts(self) -> dict[str, int]:
+        """Document counts for ``/sync/status`` (no paths, no values)."""
+        conn = self._connect()
+        row = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN fields_sent = 1 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN fields_outcome LIKE 'refused:%' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN fields_outcome = 'not_accepted' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN fields_outcome LIKE 'reupload_failed:%' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN fields_outcome IN ('staged', 'cleared') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN fields_outcome IS NOT NULL
+                    AND (fields_digest IS NULL OR fields_digest = ?) THEN 1 ELSE 0 END), 0)
+            FROM documents
+            """,
+            (REQUEUE_DIGEST,),
+        ).fetchone()
+        keys = ("with_fields", "refused", "not_accepted", "reupload_failed", "accepted", "requeued")
+        return {key: int(value or 0) for key, value in zip(keys, row or ())}
 
     def list_tracked_paths(self) -> list[str]:
         conn = self._connect()

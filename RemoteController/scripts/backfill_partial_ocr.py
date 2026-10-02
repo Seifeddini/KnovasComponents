@@ -30,6 +30,7 @@ import logging
 import os
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -60,25 +61,38 @@ def _duration(seconds: float) -> str:
     return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"
 
 
-def _sources(body: dict[str, Any]) -> list[tuple[Path, tuple[str, ...]]]:
-    """(resolved root, access groups) per source of the saved sync body."""
-    from discover.filesystem import resolve_root
+def _sources(body: dict[str, Any]) -> list[tuple[Path, Any]]:
+    """(resolved root, SourceSpec) per source of the saved sync body.
 
-    out: list[tuple[Path, tuple[str, ...]]] = []
-    for spec in body.get("sources") or []:
-        root, err = resolve_root(spec.get("path"))
+    The spec carries the source's access groups and Knovas document-fields
+    configuration, built exactly as the sync cycle builds it; a source whose
+    field template does not compile is skipped, as the cycle skips it.
+    """
+    from config import doc_fields_enabled
+    from discover.filesystem import resolve_root
+    from sync.sync_executor import source_spec_or_none
+
+    fields_on = doc_fields_enabled()
+    out: list[tuple[Path, Any]] = []
+    for index, source in enumerate(body.get("sources") or []):
+        root, err = resolve_root(source.get("path"))
         if err or root is None:
-            logger.warning("Source %r skipped: %s", spec.get("path"), err)
+            logger.warning("Source %r skipped: %s", source.get("path"), err)
             continue
-        out.append((root, tuple(spec.get("access_groups") or ())))
+        spec = source_spec_or_none(source, index, fields_on=fields_on, template_errors=Counter())
+        if spec is None:
+            continue
+        out.append((root, spec))
     return out
 
 
-def _locate(rel: str, sources: list[tuple[Path, tuple[str, ...]]]) -> Optional[tuple[Path, tuple[str, ...]]]:
-    for root, groups in sources:
+def _locate(rel: str, sources: list[tuple[Path, Any]]) -> Optional[tuple[Path, Any]]:
+    """The file and the spec of the FIRST source that has it: the source
+    whose fields govern a relative path, as in the sync cycle."""
+    for root, spec in sources:
         candidate = root / rel
         if candidate.is_file():
-            return candidate, groups
+            return candidate, spec
     return None
 
 
@@ -122,13 +136,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
 
-    from config import get_config, load_config
+    from config import doc_fields_enabled, get_config, load_config
 
     load_config(validate=False)
     from m365.source import m365_configured
     from sync.default_sync_body import build_default_sync_body
+    from sync.doc_fields_payload import config_digest
     from sync.knovas_uploader import SemantixUploader
-    from sync.sync_executor import record_upload_outcome
+    from sync.sync_executor import fields_upload_kwargs, record_upload_outcome
     from sync.sync_scheduler import load_last_sync_body
     from sync.sync_state import SyncStateStore
 
@@ -161,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
                 counts["missing"] += 1
                 logger.warning("Not on the share any more (left for the prune): %s", rel)
                 continue
-            path, groups = located
+            path, spec = located
             env = _env_for(note, args)
             mode = "OCR disabled" if env.get("RC_PDF_OCR_ENABLED") == "false" else (
                 f"OCR up to {args.max_ocr_pages} pages / {args.ocr_time_budget}s"
@@ -169,10 +184,20 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("%s: %s -> %s", "Would re-upload" if args.dry_run else "Re-uploading", rel, mode)
             if args.dry_run or uploader is None:
                 continue
+            # The re-upload carries the document's current fields, so it
+            # records the governing digest like any cycle upload would.
+            fields_on = doc_fields_enabled()
+            fields_state = state.fields_state(rel) if fields_on else None
+            digest = config_digest(rel, spec) if fields_on else None
+            upload_kwargs = fields_upload_kwargs(
+                spec,
+                fields_on=fields_on,
+                previous_fields_sent=bool(fields_state is not None and fields_state.sent),
+            )
             saved = {k: os.environ.get(k) for k in env}
             os.environ.update(env)
             try:
-                upload = uploader.upload_file(path, rel, body, access_groups=groups)
+                upload = uploader.upload_file(path, rel, body, **upload_kwargs)
             finally:
                 for key, value in saved.items():
                     if value is None:
@@ -180,7 +205,9 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         os.environ[key] = value
             mtime_iso, size_bytes = _mtime_iso(path)
-            outcome = record_upload_outcome(state, rel, mtime_iso, size_bytes, upload, "incremental")
+            outcome = record_upload_outcome(
+                state, rel, mtime_iso, size_bytes, upload, "incremental", digest=digest
+            )
             counts[outcome] = counts.get(outcome, 0) + 1
             if upload.status != "ok":
                 logger.warning("Backfill failed (%s): %s: %s", outcome, rel, upload.error)
