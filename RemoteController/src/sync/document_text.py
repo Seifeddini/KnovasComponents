@@ -58,6 +58,7 @@ from knovas_extract import (
     UnsupportedFormatError,
     extract,
 )
+from knovas_extract import result as knovas_extract_result
 from knovas_extract.result import Page, Section, Sentence
 
 from sync.extract_content import description_from_metadata, payload_from_extraction_result
@@ -424,6 +425,43 @@ _OCR_OPTION_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+#: Budget fields that live on the library's `Limits` (knovas-extract >= 0.4),
+#: not on `OcrOptions`: ours -> the Limits field spellings.
+_OCR_LIMIT_ALIASES: dict[str, tuple[str, ...]] = {
+    "max_ocr_pages": ("max_ocr_pages",),
+    "time_budget_seconds": ("ocr_time_budget_seconds",),
+    "page_timeout_seconds": ("ocr_page_timeout_seconds",),
+    "workers": ("max_ocr_workers",),
+}
+
+
+def build_ocr_limits(options: dict[str, Any]) -> Any:
+    """Instantiate the library's `Limits` with the OCR budgets it holds.
+
+    `OcrOptions` carries engine/dpi/workers/cache; the page cap, the time
+    budget and the per-page timeout are `Limits` fields — passing them to
+    `OcrOptions` silently leaves them at the library defaults (found by the
+    Platform mirror). Returns None when the installed library has no
+    `Limits` or none of the fields.
+    """
+    limits_cls = getattr(knovas_extract_result, "Limits", None)
+    if limits_cls is None:
+        return None
+    try:
+        params = inspect.signature(limits_cls).parameters
+    except (TypeError, ValueError):
+        return None
+    accepted: dict[str, Any] = {}
+    for ours, value in options.items():
+        for name in _OCR_LIMIT_ALIASES.get(ours, ()):
+            if name in params:
+                accepted[name] = value
+                break
+    if not accepted:
+        return None
+    return limits_cls(**accepted)
+
+
 def build_ocr_options(options: dict[str, Any]) -> Any:
     """Instantiate the library's `OcrOptions` with the fields it accepts."""
     cls = OcrOptions
@@ -651,9 +689,14 @@ def _pdf_extract_kwargs(
         )
     if use_ocr and OcrOptions is not None and extract_accepts("ocr"):
         cache = ocr_cache_for_document(document_key)
-        options = build_ocr_options({**ocr_options_kwargs(timeout_seconds), "cache": cache})
+        ocr_kwargs = ocr_options_kwargs(timeout_seconds)
+        options = build_ocr_options({**ocr_kwargs, "cache": cache})
         if options is not None:
             kwargs["ocr"] = options
+        if extract_accepts("limits"):
+            limits = build_ocr_limits(ocr_kwargs)
+            if limits is not None:
+                kwargs["limits"] = limits
 
     mode = pdf_text_mode()
     if mode == "plain":

@@ -426,7 +426,7 @@ def test_emit_markdown_is_never_requested(monkeypatch):
 # --- 0.4 keywords (text_mode=, ocr=) are introspected ------------------------
 
 
-def _signature_stub(*, ocr_options: bool, text_mode: bool):
+def _signature_stub(*, ocr_options: bool, text_mode: bool, limits: bool = False):
     """A fake extract() whose signature matches the installed-library case."""
     seen: dict = {}
     params = ["raw", "*", "mime=None", "emit_markdown=False", "emit_sentences=False",
@@ -435,6 +435,8 @@ def _signature_stub(*, ocr_options: bool, text_mode: bool):
         params.append("ocr=None")
     if text_mode:
         params.append("text_mode='plain'")
+    if limits:
+        params.append("limits=None")
     src = (
         f"def extract({', '.join(params)}):\n"
         "    seen.update({k: v for k, v in locals().items() if k != 'raw'})\n"
@@ -497,6 +499,50 @@ def test_text_mode_and_ocr_options_are_sent_when_accepted(monkeypatch):
     # min(240, 300 - 30) = 240, then never more than 300 - 2*60 - 10 = 170
     assert opts.kwargs["time_budget_seconds"] == 170
     assert hasattr(opts.kwargs["cache"], "get") and hasattr(opts.kwargs["cache"], "put")
+
+
+def test_ocr_budgets_reach_the_library_limits(monkeypatch):
+    """GI-EXTRACT-01/02: in knovas-extract 0.4 the page cap, the time budget
+    and the per-page timeout are `Limits` fields, not `OcrOptions` fields —
+    sending them only to OcrOptions leaves the library at its defaults (a
+    500-page cap and 240 s on a host configured for 50 pages)."""
+    from knovas_extract.result import Limits
+
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=False, limits=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", _FakeOcrOptions)
+    monkeypatch.setenv("RC_OCR_WORKERS", "2")
+    monkeypatch.setenv("RC_OCR_MAX_PAGES", "77")
+    monkeypatch.setenv("RC_OCR_PAGE_TIMEOUT_SECONDS", "45")
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    monkeypatch.setenv("RC_EXTRACT_TIMEOUT_SECONDS", "300")
+    monkeypatch.delenv("RC_OCR_TIME_BUDGET_SECONDS", raising=False)
+
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    limits = seen["limits"]
+    assert isinstance(limits, Limits)
+    assert limits.max_ocr_pages == 77
+    assert limits.ocr_page_timeout_seconds == 45
+    assert limits.max_ocr_workers == 2
+    # min(240, 300 - 30) = 240, then never more than 300 - 2*45 - 10 = 200
+    assert limits.ocr_time_budget_seconds == 200
+    # the non-OCR limits keep the library defaults
+    assert limits.max_pages == Limits().max_pages
+
+
+def test_limits_are_withheld_when_the_library_does_not_take_them(monkeypatch):
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=False, limits=False)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", _FakeOcrOptions)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert "limits" not in seen
 
 
 def test_ocr_options_are_not_sent_when_ocr_is_disabled(monkeypatch):
