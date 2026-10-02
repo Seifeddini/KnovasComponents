@@ -18,23 +18,52 @@ _COLUMNS = ("id", "name", "version", "profile", "is_current", "created_at",
             "created_by", "approved_by", "pushed_at")
 
 
+def _source_to_json(source: SourceFolder) -> dict[str, Any]:
+    """One ``sources[]`` entry. The document-field keys are written only when
+    set, so a profile without them stores (and compares, see apply_profile)
+    exactly as it did before they existed."""
+    entry: dict[str, Any] = {"path": source.path, "recursive": bool(source.recursive),
+                             "access_groups": list(source.access_groups)}
+    if source.fields:
+        entry["fields"] = source.fields_json()
+    if source.field_templates:
+        entry["field_templates"] = list(source.field_templates)
+    if source.metadata_fields:
+        entry["metadata_fields"] = list(source.metadata_fields)
+    return entry
+
+
+def _source_from_json(s: Mapping[str, Any]) -> SourceFolder:
+    """Field by field, as before: an unknown key is ignored, and the
+    document-field keys default to empty for a row saved before them. A
+    shape this code does not understand reads as "not set" rather than
+    failing the whole profile."""
+    raw_fields = s.get("fields")
+    raw_templates = s.get("field_templates")
+    raw_items = s.get("metadata_fields")
+    return SourceFolder(
+        path=str(s["path"]), recursive=bool(s.get("recursive", True)),
+        access_groups=tuple(str(g) for g in (s.get("access_groups") or ())),
+        fields=raw_fields if isinstance(raw_fields, Mapping) else (),
+        field_templates=(tuple(str(t) for t in raw_templates)
+                         if isinstance(raw_templates, (list, tuple)) else ()),
+        metadata_fields=(tuple(str(m) for m in raw_items)
+                         if isinstance(raw_items, (list, tuple)) else ()),
+    )
+
+
 def profile_to_json(profile: IngestionProfile) -> dict[str, Any]:
     data = asdict(profile)
-    data["sources"] = [
-        {"path": s.path, "recursive": bool(s.recursive),
-         "access_groups": list(s.access_groups)}
-        for s in profile.sources
-    ]
+    # Document-field settings live inside sources[] only. A new top-level
+    # key would crash an older Platform reading this row back through
+    # IngestionProfile(**fields) (spec 2.5, "Platform downgrade").
+    data["sources"] = [_source_to_json(s) for s in profile.sources]
     return data
 
 
 def profile_from_json(data: Mapping[str, Any]) -> IngestionProfile:
     fields = dict(data)
-    fields["sources"] = [
-        SourceFolder(path=str(s["path"]), recursive=bool(s.get("recursive", True)),
-                     access_groups=tuple(str(g) for g in (s.get("access_groups") or ())))
-        for s in fields.get("sources") or []
-    ]
+    fields["sources"] = [_source_from_json(s) for s in fields.get("sources") or []]
     return IngestionProfile(**fields)
 
 
