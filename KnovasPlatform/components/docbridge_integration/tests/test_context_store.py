@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from context_store import (
     build_first_page_payload,
     build_sidecar_payload,
@@ -788,3 +786,116 @@ def test_a_rare_word_outweighs_a_name_that_stands_everywhere():
         _term_coverage("Die Abrechnung erfolgt nach Zeitaufwand.", terms, weights)
         > _term_coverage("Die Mandantin Alpenblick GmbH ist hier genannt.", terms, weights)
     )
+
+
+# --- Tabellenzeilen als Fundstellen, Sidecar-Version 2 (Plan §6, Diagnose P3) --
+
+from context_store import (  # noqa: E402
+    RECORD_KIND_ROW,
+    SIDECAR_VERSION,
+    SIDECAR_VERSION_ROWS,
+    _is_thin_location,
+    sidecar_partial_note,
+)
+
+
+class TestRowsAreContent:
+    def test_a_bilanz_row_is_not_thin(self):
+        assert not _is_thin_location("Total Aktiven | 2023: 1'234'567.00 | 2022: 987'654.30")
+        assert not _is_thin_location("Flüssige Mittel | 1'234'567.80 | 987'654.30")
+
+    def test_a_mwst_row_is_not_a_contact_line(self):
+        """MWST und UID stehen im Briefkopf -- und in der Erfolgsrechnung."""
+        assert not _is_thin_location("MWST 7.7 % | 123.45")
+        assert not _is_thin_location("UID: CHE-123.456.789 | 2023: 1'000.00")
+
+    def test_a_row_of_only_numbers_or_only_headers_stays_thin(self):
+        assert _is_thin_location("2023 | 2022 | 2021")
+        assert _is_thin_location("Aktiven | Passiven | Anhang")
+
+    def test_a_row_record_is_content_without_the_separator(self):
+        """Ein Rekord mit ``k: "row"`` zaehlt als Zeile, auch wenn der Text
+        selbst keinen Trenner traegt."""
+        assert not _is_thin_location("Total Aktiven 1'234'567.00", kind=RECORD_KIND_ROW)
+        assert _is_thin_location("Total Aktiven 1'234'567.00") is True
+
+    def test_a_letterhead_line_is_still_thin(self):
+        assert _is_thin_location("Muster Rechtsanwaelte AG, Raemistrasse 14, 8001 Zuerich")
+        assert _is_thin_location("Tel. +41 44 123 45 67")
+        assert _is_thin_location("IBAN CH93 0076 2011 6238 5295 7")
+        assert _is_thin_location("MWST 123 456 789")
+        assert _is_thin_location("UID 123.456.789")
+        assert _is_thin_location("Aktenzeichen: 2019-021")
+
+    def test_a_mwst_line_with_an_amount_is_content_even_without_a_separator(self):
+        assert not _is_thin_location("MWST 7.7 % auf CHF 1'000.00 ergibt 77.00")
+
+
+def test_bilanz_rows_win_their_place_as_locations():
+    sentences = [
+        {"i": 1, "t": "Muster Treuhand AG, Bahnhofstrasse 1, 8001 Zuerich", "p": 1},
+        {"i": 2, "t": "Total Aktiven | 2023: 1'234'567.00 | 2022: 987'654.30", "p": 2, "k": "row"},
+        {"i": 3, "t": "Die Erfolgsrechnung weist den Aufwand nach Kostenarten aus.", "p": 3},
+        {"i": 4, "t": "MWST 7.7 % | 123.45", "p": 3, "k": "row"},
+    ]
+    found = build_match_locations(
+        sentences, [{"sentence_number": n, "page_number": p} for n, p in ((1, 1), (2, 2), (4, 3))]
+    )
+    assert [f["sentence_number"] for f in found] == [2, 4]
+    assert all(f.get("kind") == "row" for f in found)
+
+
+def test_a_version_2_sidecar_is_read_and_its_partial_note_reaches_the_result(tmp_path: Path):
+    pointer = "corpus/mandant/bilanz.pdf"
+    data = {
+        "version": SIDECAR_VERSION_ROWS,
+        "pointer": pointer,
+        "path": pointer,
+        "sentences": [
+            {"i": 1, "t": "Jahresrechnung 2023 der Müller AG", "p": 1},
+            {"i": 2, "t": "Total Aktiven 1'234'567.00 987'654.30", "p": 3, "k": "row"},
+        ],
+        "first_page": {"page": 1, "text": "Jahresrechnung 2023 der Müller AG"},
+        "partial": {"ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr", "note": "x" * 200},
+    }
+    sidecar_path_for_pointer(tmp_path, pointer).write_text(json.dumps(data), encoding="utf-8")
+    loaded = load_context(str(tmp_path), [pointer])
+    assert loaded is not None and loaded["version"] == 2
+    assert sidecar_partial_note(loaded) == {"ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr"}
+
+    result = {"doc_id": pointer, "path": pointer, "top_chunks": [{"sentence_number": 2, "page_number": 3}]}
+    assert enrich_result_with_context(result, str(tmp_path), [pointer], context_radius=1)
+    assert result["context_partial"] == {"ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr"}
+    assert [loc["sentence_number"] for loc in result["match_locations"]] == [2]
+    assert result["match_locations"][0]["kind"] == "row"
+    assert result["context_snippet"]["match"].startswith("Total Aktiven")
+
+
+def test_a_version_1_sidecar_still_reads_and_has_no_partial_note(tmp_path: Path):
+    pointer = "corpus/alt.txt"
+    write_context_sidecar(str(tmp_path), pointer, pointer, "Alpha. Beta.", [_FakeSentence(0, 0), _FakeSentence(1, 7)])
+    loaded = load_context(str(tmp_path), [pointer])
+    assert loaded["version"] == SIDECAR_VERSION
+    assert sidecar_partial_note(loaded) is None
+    result = {"doc_id": pointer, "path": pointer, "sentence_number": 2}
+    assert enrich_result_with_context(result, str(tmp_path), [pointer], context_radius=1)
+    assert "context_partial" not in result
+
+
+def test_the_writer_tags_rows_and_bumps_the_version_only_then():
+    prose = build_sidecar_payload("p", "p", "Alpha. Beta.", [_FakeSentence(0, 0), _FakeSentence(1, 7)])
+    assert prose["version"] == SIDECAR_VERSION and all("k" not in s for s in prose["sentences"])
+
+    text = "Bilanz per 31.12.2023\nTotal Aktiven | 2023: 1'234'567.00 | 2022: 987'654.30"
+    rows = build_sidecar_payload("p", "p", text, [_FakeSentence(0, 0, 1), _FakeSentence(1, 22, 1)])
+    assert rows["version"] == SIDECAR_VERSION_ROWS
+    assert "k" not in rows["sentences"][0]
+    assert rows["sentences"][1]["k"] == RECORD_KIND_ROW
+
+    partial = build_sidecar_payload(
+        "p", "p", "Alpha.", [_FakeSentence(0, 0)],
+        partial={"ocr_pages_skipped": 2, "ocr_backend": "cli", "flag": True, "text": "x" * 100},
+    )
+    assert partial["version"] == SIDECAR_VERSION_ROWS
+    assert partial["partial"] == {"ocr_pages_skipped": 2, "ocr_backend": "cli"}, "counts and short names only"
+    assert "partial" not in build_sidecar_payload("p", "p", "Alpha.", [_FakeSentence(0, 0)], partial={})

@@ -33,7 +33,6 @@ from context_store import (
     enrich_result_with_context,
     indexed_text,
     load_context,
-    sentences_by_number,
     sentences_by_number_map,
 )
 from context_store import query_terms as context_query_terms
@@ -2957,6 +2956,41 @@ def _search_result_haystack(result: Dict[str, Any]) -> str:
     return ' '.join(str(p) for p in parts if p is not None and str(p).strip()).lower()
 
 
+def _keep_server_order_enabled() -> bool:
+    """``PLATFORM_KEEP_SERVER_ORDER`` (default true): keep the ranking the
+    server returned.
+
+    The server reranks with ColBERT and boosts name-prefilter hits; what it
+    returns is its final order. ``score`` on a row is the stage-1 cosine of
+    the best chunk, and re-sorting by it throws the rerank away (diagnosis
+    P1). ``false`` restores the old re-sort by score.
+    """
+    raw = (os.environ.get("PLATFORM_KEEP_SERVER_ORDER") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
+def _server_rank(r: Dict[str, Any]) -> float:
+    """The row's position in the server's response, or +inf for a row the
+    server did not return (a filename supplement, a demo row)."""
+    try:
+        rank = int(r.get("server_rank"))
+    except (TypeError, ValueError):
+        return float("inf")
+    return float(rank) if rank >= 1 else float("inf")
+
+
+def _result_sort_key(r: Dict[str, Any]) -> Tuple[Any, ...]:
+    """Server order first when it is kept; score and doc_id break ties and
+    order rows without a rank."""
+    score = -float(r.get('score') or 0)
+    doc_id = str(r.get('doc_id') or '')
+    if _keep_server_order_enabled():
+        return (_server_rank(r), score, doc_id)
+    return (score, doc_id)
+
+
 def _apply_search_refinement(
     enhanced: Dict[str, Any],
     query: str,
@@ -3024,10 +3058,9 @@ def _apply_search_refinement(
 
         out = [r for r in out if matches(r)]
 
-    # Highest similarity first; tie-break by doc_id for stable ordering.
-    out.sort(
-        key=lambda r: (-float(r.get('score') or 0), str(r.get('doc_id') or '')),
-    )
+    # The server's ranking first (PLATFORM_KEEP_SERVER_ORDER); otherwise the
+    # highest similarity first. Tie-break by doc_id for stable ordering.
+    out.sort(key=_result_sort_key)
 
     refined = enhanced.copy()
     refined['results'] = out
@@ -3134,7 +3167,7 @@ def _supplement_results_from_enrichment_filenames(
 
     merged = list(results) + extra
     merged.sort(
-        key=lambda r: (0 if r.get("match_supplement") == "filename" else 1, -float(r.get("score") or 0), str(r.get("doc_id") or "")),
+        key=lambda r: (0 if r.get("match_supplement") == "filename" else 1, *_result_sort_key(r)),
     )
     return merged
 
@@ -3469,7 +3502,6 @@ def _enhance_search_results(
         return enhanced_results
 
     for result in enhanced_results['results']:
-        doc_id = str(result.get("doc_id") or result.get("pointer") or "")
         meta = (
             _lookup_enrichment_meta(enrichment, result, exact_only=_m365_documents(config))
             if enrichment else None

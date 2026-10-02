@@ -436,12 +436,17 @@ def _secured_init_fields_from_document(document: Dict[str, Any]) -> Dict[str, st
     return out
 
 
-def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+def _secured_transmit_parts_from_document(
+    document: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, str], Optional[Dict[str, Any]]]:
     """
     Build init fields and transmit parts for secured single-document sync.
 
-    Uses extract_transmission_chunks when docbridge_sync is importable and
-    content_base64 is present; otherwise one Markdown fallback part.
+    Uses knovas_extract_upload when it is importable and content_base64 is
+    present (extraction runs in a guarded child process with a wall-clock
+    ceiling); otherwise one Markdown fallback part. The third value is the
+    extraction's partial note (counts only: OCR pages skipped, backend) or
+    None for a complete document.
     """
     init_fields = _secured_init_fields_from_document(document)
     identifier = str(document.get("doc_id") or document.get("path") or "unknown")
@@ -450,9 +455,9 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
 
     if b64 and ext:
         try:
-            from knovas_extract_upload import parts_from_base64
+            from knovas_extract_upload import extract_parts_from_base64
         except ImportError:
-            parts_from_base64 = None  # type: ignore[misc,assignment]
+            extract_parts_from_base64 = None  # type: ignore[misc,assignment]
         else:
             try:
                 use_ocr: bool | str = "auto"
@@ -463,7 +468,7 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
                     ocr_language = str(cfg.get("advanced.extraction.ocr_language") or ocr_language)
                 except Exception:
                     pass
-                parts = parts_from_base64(
+                extracted = extract_parts_from_base64(
                     str(b64),
                     ext,
                     pointer=identifier,
@@ -471,8 +476,8 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
                     use_ocr=use_ocr,
                     ocr_language=ocr_language,
                 )
-                if parts:
-                    return parts, init_fields
+                if extracted.parts:
+                    return extracted.parts, init_fields, extracted.partial
             except Exception as exc:
                 logger.warning("Secured single-doc extract failed for %s: %s", identifier, exc)
 
@@ -484,7 +489,7 @@ def _secured_transmit_parts_from_document(document: Dict[str, Any]) -> Tuple[Lis
         lines.append(f"Typ: {document.get('doc_type')}")
     snippet = "\n".join(lines)
     parts = enrich_transmit_parts_with_location([{"snippet": snippet}], full_text=snippet)
-    return parts, init_fields
+    return parts, init_fields, None
 
 
 _MAX_TABLES_PER_PART = 50
@@ -2413,7 +2418,12 @@ class KnovasAPIClient:
         for raw in raw_hits:
             if not isinstance(raw, dict):
                 continue
-            normalized_results.append(_secured_query_hit_to_row(raw))
+            row = _secured_query_hit_to_row(raw)
+            # The server's own ranking (ColBERT rerank, name-prefilter boost).
+            # `score` is the stage-1 cosine of the best chunk and sorts
+            # differently; the UI keeps this order (PLATFORM_KEEP_SERVER_ORDER).
+            row["server_rank"] = len(normalized_results) + 1
+            normalized_results.append(row)
 
         if normalized_results and all(
             r.get("page_number") is None
@@ -2447,7 +2457,13 @@ class KnovasAPIClient:
 
     def _sync_single_document_secured(self, document: Dict[str, Any]) -> Dict[str, Any]:
         identifier = str(document.get('doc_id') or document.get('path') or 'unknown')
-        parts, init_fields = _secured_transmit_parts_from_document(document)
+        parts, init_fields, partial = _secured_transmit_parts_from_document(document)
+        if partial:
+            logger.warning(
+                "Secured single document %s is partial: %s",
+                identifier,
+                " ".join(f"{k}={v}" for k, v in sorted(partial.items())),
+            )
 
         init_endpoint = self.endpoints.get('init_transmission', '/secured/init_document_transmission')
         init_body: Dict[str, Any] = {
@@ -2482,7 +2498,12 @@ class KnovasAPIClient:
             self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
 
         logger.info(f"Secured single document sync successful: {identifier}")
-        return {'status': 'success', 'identifier': identifier, 'mode': 'secured'}
+        result: Dict[str, Any] = {'status': 'success', 'identifier': identifier, 'mode': 'secured'}
+        if partial:
+            # Counts only (GI-EXTRACT-04): the caller can tell the operator
+            # that the scan pages did not all make it.
+            result['partial'] = dict(partial)
+        return result
 
 
 class BatchProcessor:

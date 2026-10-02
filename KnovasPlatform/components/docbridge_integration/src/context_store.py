@@ -16,7 +16,16 @@ import german_text
 
 logger = logging.getLogger(__name__)
 
+#: Version 1: ``{"i", "t", "p"}`` sentence records. Version 2 (RC plan §5
+#: M3, mirrored here) adds ``"k": "row"`` on table-row records and a
+#: document-level ``"partial"`` note (counts only: OCR pages skipped, backend).
+#: The reader accepts both; the writer emits 2 only when it has something
+#: version 1 cannot carry, so prose sidecars stay byte-identical.
 SIDECAR_VERSION = 1
+SIDECAR_VERSION_ROWS = 2
+SUPPORTED_SIDECAR_VERSIONS = frozenset({SIDECAR_VERSION, SIDECAR_VERSION_ROWS})
+#: Record kind of a table row (markdown-lite ``a | b | c`` line).
+RECORD_KIND_ROW = "row"
 MAX_SENTENCE_CHARS = 2000
 MAX_FIRST_PAGE_CHARS = 8000
 MAX_SIDEcar_SENTENCES = 50_000
@@ -62,8 +71,37 @@ def build_sentence_records_from_dicts(
         page = getattr(sent, "page_number", None)
         if page is not None and int(page) >= 1:
             entry["p"] = int(page)
+        if _looks_like_row(entry["t"]):
+            entry["k"] = RECORD_KIND_ROW
         records.append(entry)
     return records
+
+
+def _record_kind(sent: Any) -> Optional[str]:
+    """The ``k`` of a version-2 record (``"row"``), None for prose or for a
+    record in any other shape."""
+    if isinstance(sent, dict):
+        kind = sent.get("k")
+        if isinstance(kind, str) and kind.strip():
+            return kind.strip().lower()
+    return None
+
+
+def _sanitize_partial_note(raw: Any) -> Optional[Dict[str, Any]]:
+    """The document-level ``partial`` note, counts and short identifiers
+    only -- whatever an older or newer writer put there, never text."""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    note: Dict[str, Any] = {}
+    for key, value in raw.items():
+        name = str(key)[:64]
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, (int, float)):
+            note[name] = int(value)
+        elif isinstance(value, str) and len(value) <= 64:
+            note[name] = value
+    return note or None
 
 
 def _sentence_text(sent: Any) -> str:
@@ -119,15 +157,25 @@ def build_sidecar_payload(
     path: str,
     text: str,
     sentences: Optional[Sequence[Any]],
+    partial: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """The sidecar document. ``text`` is the extractor's UNMARKED text (page
+    break markers exist only on the wire). ``partial`` is the upload's
+    partial note (counts only) and makes this a version-2 sidecar, as does
+    any row record."""
     sentence_records = build_sentence_records_from_dicts(text, sentences or [])
-    return {
-        "version": SIDECAR_VERSION,
+    note = _sanitize_partial_note(partial)
+    has_rows = any("k" in record for record in sentence_records)
+    payload: Dict[str, Any] = {
+        "version": SIDECAR_VERSION_ROWS if (note or has_rows) else SIDECAR_VERSION,
         "pointer": str(pointer or "").strip(),
         "path": str(path or "").strip(),
         "sentences": sentence_records,
         "first_page": build_first_page_payload(sentence_records),
     }
+    if note:
+        payload["partial"] = note
+    return payload
 
 
 def write_context_sidecar(
@@ -136,6 +184,7 @@ def write_context_sidecar(
     path: str,
     text: str,
     sentences: Optional[Sequence[Any]],
+    partial: Optional[Dict[str, Any]] = None,
 ) -> bool:
     if not store_dir or not str(store_dir).strip():
         return False
@@ -145,7 +194,7 @@ def write_context_sidecar(
     root = Path(store_dir).resolve()
     try:
         root.mkdir(parents=True, exist_ok=True)
-        payload = build_sidecar_payload(pointer_s, path, text, sentences)
+        payload = build_sidecar_payload(pointer_s, path, text, sentences, partial=partial)
         target = sidecar_path_for_pointer(root, pointer_s)
         fd, tmp = tempfile.mkstemp(dir=root, suffix=".tmp")
         try:
@@ -199,8 +248,21 @@ def load_context(store_dir: Optional[str], pointer_candidates: Sequence[str]) ->
             continue
         data = _load_sidecar_file(str(path), mtime)
         if data:
+            version = data.get("version")
+            if version not in SUPPORTED_SIDECAR_VERSIONS:
+                # Read it anyway: every version so far keeps {"i","t","p"}
+                # records, and a snippet from a newer writer beats none.
+                logger.debug("Context sidecar %s has version %r; reading as best effort", path, version)
             return data
     return None
+
+
+def sidecar_partial_note(entry: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The document-level ``partial`` note of a version-2 sidecar (counts
+    only), None for a complete document or a version-1 sidecar."""
+    if not entry:
+        return None
+    return _sanitize_partial_note(entry.get("partial"))
 
 
 def first_page_text(entry: Optional[Dict[str, Any]], max_chars: int = MAX_FIRST_PAGE_CHARS) -> str:
@@ -357,9 +419,46 @@ _ADDRESS_LINE = _re_module.compile(
 
 # Telefon-, Fax- und Zahlungszeilen eines Briefkopfs.
 _CONTACT_LINE = _re_module.compile(
-    r"\b(?:tel|telefon|fax|iban|mwst|uid)\b\.?\s*:?\s*\+?\d",
+    r"\b(?:tel|telefon|fax|iban)\b\.?\s*:?\s*\+?\d",
     _re_module.IGNORECASE,
 )
+
+# Steuernummern im Briefkopf ("MWST-Nr. 123 456", "UID CHE-..."). Getrennt vom
+# Rest: auf einer Tabellenzeile ("MWST 7.7 % | 123.45", "UID: ... | 2023:
+# 1'234.00") stehen dieselben Woerter neben einem Betrag, und DAS ist Inhalt --
+# die Zeile, die eine Frage nach der Mehrwertsteuer beantwortet.
+_TAX_ID_LINE = _re_module.compile(
+    r"\b(?:mwst|uid)\b\.?\s*:?\s*\+?\d",
+    _re_module.IGNORECASE,
+)
+
+# Ein Betrag mit Rappen: 1'234'567.80, 987.654,30, 123.45. Ziffernfolgen
+# allein (Aktenzeichen, UID-Nummern, Telefonnummern) zaehlen nicht.
+_AMOUNT = _re_module.compile(r"\d{1,3}(?:['’.]\d{3})*[.,]\d{2}(?!\d)")
+
+# Irgendeine Zahl: Jahr, Betrag, Prozentsatz.
+_NUMBER = _re_module.compile(r"\d")
+
+# Zellentrenner der markdown-lite-Zeilen (knovas-extract ``text_mode=
+# "layout"``): "Fluessige Mittel | 2023: 1'234'567.80 | 2022: 987'654.30".
+ROW_CELL_SEPARATOR = " | "
+
+
+def _is_row_text(text: str) -> bool:
+    """Ob der Text eine Tabellenzeile ist: Zellen mit ``" | "`` getrennt."""
+    return ROW_CELL_SEPARATOR in str(text or "")
+
+
+def _row_has_content(text: str) -> bool:
+    """Eine Zeile mit mindestens einem Buchstabenwort UND einer Zahl: ein
+    Bilanzposten mit Betrag, eine MWST-Zeile mit Satz -- Inhalt, keine
+    Briefkopfzeile."""
+    return bool(_CONTENT_WORD.search(text)) and bool(_NUMBER.search(text))
+
+
+def _looks_like_row(text: str) -> bool:
+    """Ob ein Satzrekord als Tabellenzeile (``k: "row"``) geschrieben wird."""
+    return _is_row_text(text) and _row_has_content(text)
 
 
 # Nur intern: die Zahl der gesuchten Woerter in einem Trefferatz. Wird vor der
@@ -487,6 +586,9 @@ def _with_uncovered_sentences(
             "literal": True,
             _COVERAGE_KEY: covered,
         }
+        kind = _record_kind(sent)
+        if kind:
+            entry["kind"] = kind
         page = sent.get("p") if isinstance(sent, dict) else None
         try:
             page = int(page)
@@ -557,9 +659,25 @@ def _anchor_in_chunk(
     return best_number
 
 
-def _is_thin_location(text: str) -> bool:
-    """Ob dieser Satz zu wenig Inhalt hat, um als Fundstelle zu zaehlen."""
+def _is_thin_location(text: str, kind: Optional[str] = None) -> bool:
+    """Ob dieser Satz zu wenig Inhalt hat, um als Fundstelle zu zaehlen.
+
+    Eine Tabellenzeile -- ein Rekord mit ``k == "row"`` oder ein Text mit
+    ``" | "`` -- ist Inhalt, sobald sie ein Buchstabenwort und eine Zahl
+    traegt: "Fluessige Mittel | 1'234'567.80 | 987'654.30" hat zwei Woerter
+    und verlor bisher gegen jeden Prosasatz, obwohl sie die Frage nach den
+    fluessigen Mitteln beantwortet (Diagnose P3). Eine Zeile aus lauter
+    Zahlen oder lauter Zellenueberschriften bleibt duenn.
+
+    Briefkopfzeilen (Anschrift, Telefon, IBAN) bleiben duenn; MWST- und
+    UID-Zeilen nur, wenn kein Betrag danebensteht.
+    """
+    text = str(text or "")
+    if kind == RECORD_KIND_ROW or _is_row_text(text):
+        return not _row_has_content(text)
     if _ADDRESS_LINE.search(text) or _CONTACT_LINE.search(text):
+        return True
+    if _TAX_ID_LINE.search(text) and not _AMOUNT.search(text):
         return True
     return len(_CONTENT_WORD.findall(text)) < MIN_LOCATION_CONTENT_WORDS
 
@@ -648,6 +766,7 @@ def build_match_locations(
     candidates: List[Dict[str, Any]] = []
     seen: set = set()
     numbers_to_text = _sentences_by_number(sentences)
+    numbers_to_kind = _record_kinds_by_number(sentences)
     # Einmal je Dokument, nicht je Satz: die Gewichte haengen am Dokument.
     weights = _term_weights(terms, sentences) if terms else {}
     for chunk in top_chunks:
@@ -674,6 +793,9 @@ def build_match_locations(
             "match": window.get("match", ""),
             "after": window.get("after", ""),
         }
+        kind = numbers_to_kind.get(sentence_number)
+        if kind:
+            entry["kind"] = kind
         page = _location_page(chunk)
         if page is not None:
             entry["page"] = page
@@ -765,7 +887,11 @@ def _select_locations(
             continue
         # Ein Treffer, in dem ein gesuchtes Wort steht, bleibt immer. Wer nach
         # "Raemistrasse" sucht, meint die Adresszeile.
-        if drop_thin and not entry.get("literal") and _is_thin_location(entry["match"]):
+        if (
+            drop_thin
+            and not entry.get("literal")
+            and _is_thin_location(entry["match"], kind=entry.get("kind"))
+        ):
             continue
         page = entry.get("page")
         if per_page_used.get(page, 0) >= per_page:
@@ -858,6 +984,25 @@ def _sentences_by_number(sentences: Any) -> Dict[int, str]:
     return by_number
 
 
+def _record_kinds_by_number(sentences: Any) -> Dict[int, str]:
+    """Satznummer -> ``k`` der Version-2-Rekorde (nur die, die eines haben)."""
+    by_number: Dict[int, str] = {}
+    if not isinstance(sentences, list):
+        return by_number
+    for index, sent in enumerate(sentences):
+        kind = _record_kind(sent)
+        if not kind:
+            continue
+        raw = sent.get("i")
+        if raw is None:
+            raw = index + 1
+        try:
+            by_number[int(raw)] = kind
+        except (TypeError, ValueError):
+            continue
+    return by_number
+
+
 def sentences_by_number_map(
     entry: Optional[Dict[str, Any]],
     numbers: Sequence[int],
@@ -935,6 +1080,7 @@ def enrich_result_with_context(
             return False
         first = first_page_text(entry)
         sentences = entry.get("sentences")
+        partial = sidecar_partial_note(entry)
         snippet = None
         locations: List[Dict[str, Any]] = []
         if isinstance(sentences, list):
@@ -967,4 +1113,9 @@ def enrich_result_with_context(
         result["context_snippet"] = snippet
     if locations:
         result["match_locations"] = locations
+    if partial:
+        # Zahlen, keine Texte: "12 von 40 Seiten ohne OCR" gehoert auf die
+        # Karte, damit niemand ein Dokument fuer vollstaendig durchsucht haelt,
+        # dessen Scanseiten noch fehlen.
+        result["context_partial"] = partial
     return bool(first or snippet)

@@ -20,8 +20,16 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-deu \
     tesseract-ocr-eng \
     tesseract-ocr-fra \
+    tesseract-ocr-ita \
     git \
     && rm -rf /var/lib/apt/lists/*
+
+# OCR runs inside the admin upload's extraction child (knovas_extract_upload):
+# one Tesseract thread per worker (the pool parallelises per page, OMP would
+# oversubscribe the 4 cores shared with the search UI) and the Debian
+# tessdata folder the RC image uses as well. Mirrors RemoteController/Dockerfile.
+ENV OMP_THREAD_LIMIT=1 \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 
 # Install Microsoft ODBC Driver for SQL Server (if needed for Access alternative)
 # Note: For Access databases, you may need to install mdbtools
@@ -40,11 +48,15 @@ COPY requirements.txt .
 ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git@main
 
 # Install Python dependencies
+# Extras: `ocr` (tesserocr, knovas-extract >= 0.4; an older ref without the
+# extra only warns) for the admin upload, `markdown` is still needed by the
+# DOCX/EML/MSG preview (web_interface/preview.py) -- the upload path itself
+# never requests markdown (emit_markdown=False).
 RUN grep -v '^knovas-extract' requirements.txt > /tmp/requirements-other.txt \
     && pip install --no-cache-dir -r /tmp/requirements-other.txt \
     && if [ -n "${KNOVAS_EXTRACT_FROM_GIT}" ]; then \
          pip install --no-cache-dir \
-           "knovas-extract[pdf,docx,msg,html,markdown,sentences] @ git+https://${KNOVAS_EXTRACT_FROM_GIT}"; \
+           "knovas-extract[pdf,ocr,docx,msg,html,markdown,sentences] @ git+https://${KNOVAS_EXTRACT_FROM_GIT}"; \
        else \
          pip install --no-cache-dir "$(grep '^knovas-extract' requirements.txt)"; \
        fi
@@ -63,5 +75,9 @@ ENV PYTHONUNBUFFERED=1
 # Expose internal app port (NGINX proxies externally)
 EXPOSE 5000
 
-# Default command (can be overridden)
-CMD ["gunicorn", "--workers=2", "--threads=4", "--bind=0.0.0.0:5000", "web_interface.wsgi:app"]
+# Default command (can be overridden). --timeout must exceed the admin
+# upload's extraction ceiling (RC_EXTRACT_TIMEOUT_SECONDS, default 120 s):
+# the extraction child is killed by the request thread at that ceiling, and
+# gunicorn must not kill the worker first. The root docker-compose.yml passes
+# DOCBRIDGE_WEB_TIMEOUT for the same reason -- keep it above the ceiling.
+CMD ["gunicorn", "--workers=2", "--threads=4", "--timeout=180", "--bind=0.0.0.0:5000", "web_interface.wsgi:app"]

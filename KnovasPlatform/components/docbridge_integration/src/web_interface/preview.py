@@ -13,7 +13,8 @@ muss deshalb zuerst escapen und erst danach formatieren.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 # Jede Endung, die RemoteController standardmaessig aufnimmt
 # (sync/default_sync_body.py::_DEFAULT_INCLUDE_GLOBS), hat hier einen Eintrag.
@@ -120,6 +121,58 @@ PASSAGE_COLOUR = (0.851, 0.878, 0.969)
 ACTIVE_PASSAGE_COLOUR = (0.996, 0.839, 0.404)
 TERM_COLOUR = (0.647, 0.757, 0.976)
 
+# Ab wie vielen Zeichen eine einzelne Tabellenzelle als Suchtext taugt. Kuerzer
+# sind Jahreszahlen und Betraege, die auf jeder Bilanzseite stehen.
+MIN_CELL_CHARS = 12
+# Zellentrenner der markdown-lite-Zeilen (knovas-extract ``text_mode="layout"``).
+ROW_CELL_SEPARATOR = " | "
+# Ein Fold-Schluessel vor einer Zahl: "2023: 1'234'567.80", "Anhang: 2.1",
+# "2022: (12.00)". Er steht im Sidecar, nicht auf der Seite.
+_FOLD_KEY = re.compile(r"\b\S{1,16}: (?=[\d(-])")
+
+
+def search_spans(span: str) -> List[str]:
+    """Was auf der Seite gesucht wird, wenn ``span`` eine Fundstelle ist.
+
+    Eine Prosazeile steht so im PDF wie im Sidecar. Eine Tabellenzeile nicht:
+    der Sidecar traegt sie als ``Fluessige Mittel | 2023: 1'234'567.80 | 2022:
+    987'654.30`` -- Zellentrenner und Fold-Schluessel sind die Zutat des
+    Extraktors, auf der digitalen Seite stehen die Zellen durch Leerraum
+    getrennt. ``page.search_for`` der ganzen Zeile fand deshalb nichts, und
+    ein Klick auf die Fundstelle fuehrte nirgendwohin (Diagnose P6).
+
+    Reihenfolge: die Zeile selbst, dann ohne Trenner und Schluessel, dann
+    die laengste Zelle allein (ab ``MIN_CELL_CHARS``) -- eine Bilanzzeile
+    kann im PDF ueber zwei Spalten mit grossem Abstand gesetzt sein, die
+    Postenbezeichnung steht aber in einem Stueck.
+    """
+    raw = " ".join(str(span or "").split())
+    out: List[str] = []
+    if len(raw) >= MIN_CELL_CHARS:
+        out.append(raw)
+    if ROW_CELL_SEPARATOR not in raw and not _FOLD_KEY.search(raw):
+        return out
+    flat = " ".join(_FOLD_KEY.sub("", raw.replace(ROW_CELL_SEPARATOR, " ")).split())
+    if len(flat) >= MIN_CELL_CHARS and flat not in out:
+        out.append(flat)
+    cells = [
+        " ".join(_FOLD_KEY.sub("", cell).split())
+        for cell in raw.split(ROW_CELL_SEPARATOR)
+    ]
+    longest = max(cells, key=len) if cells else ""
+    if len(longest) >= MIN_CELL_CHARS and longest not in out:
+        out.append(longest)
+    return out
+
+
+def _search_page(page: Any, span: str) -> list:
+    """Die Rechtecke der ersten Fassung von ``span``, die auf der Seite steht."""
+    for candidate in search_spans(span):
+        rects = page.search_for(candidate)
+        if rects:
+            return rects
+    return []
+
 
 def passage_anchors(path: str, passages: dict) -> dict:
     """Wo die Trefferstellen im PDF stehen: Seite und Hoehe je Satznummer.
@@ -144,11 +197,11 @@ def passage_anchors(path: str, passages: dict) -> dict:
         with pymupdf.open(path) as doc:
             for number, text in passages.items():
                 span = str(text or "").strip()
-                if len(span) < 12:
+                if not search_spans(span):
                     continue
                 for index in range(min(doc.page_count, HIGHLIGHT_MAX_PAGES)):
                     page = doc[index]
-                    rects = page.search_for(span)
+                    rects = _search_page(page, span)
                     if not rects:
                         continue
                     top = page.rect.height - rects[0].y0 + ANCHOR_MARGIN
@@ -186,7 +239,7 @@ def highlight_pdf(path: str, terms, passages=None, active: str = "") -> Optional
     Aufrufer liefert dann die Originaldatei aus.
     """
     wanted = [t for t in (terms or []) if len(t) >= 2][:HIGHLIGHT_MAX_TERMS]
-    spans = [p for p in (passages or []) if len(p) >= 12][:HIGHLIGHT_MAX_PASSAGES]
+    spans = [p for p in (passages or []) if search_spans(p)][:HIGHLIGHT_MAX_PASSAGES]
     if not (wanted or spans) or preview_kind(path) != "pdf":
         return None
     try:
@@ -202,14 +255,18 @@ def highlight_pdf(path: str, terms, passages=None, active: str = "") -> Optional
                 # Erst die Trefferstelle als Ganzes, dann die Woerter darin --
                 # in dieser Reihenfolge, damit die Wortmarkierung obenauf liegt.
                 # Die aktive Stelle zuletzt, damit ihre Farbe obenauf liegt.
-                for span, colour in (
-                    [(s, PASSAGE_COLOUR) for s in spans if s != active]
-                    + [(w, TERM_COLOUR) for w in wanted]
-                    + ([(active, ACTIVE_PASSAGE_COLOUR)] if active else [])
+                # Trefferstellen ueber ``_search_page`` (Tabellenzeilen werden
+                # ohne Zellentrenner und Fold-Schluessel gesucht), die
+                # gesuchten Woerter woertlich.
+                for span, colour, is_passage in (
+                    [(s, PASSAGE_COLOUR, True) for s in spans if s != active]
+                    + [(w, TERM_COLOUR, False) for w in wanted]
+                    + ([(active, ACTIVE_PASSAGE_COLOUR, True)] if active else [])
                 ):
                     if on_page >= HIGHLIGHT_MAX_PER_PAGE:
                         break
-                    for rect in page.search_for(span) or []:
+                    rects = _search_page(page, span) if is_passage else page.search_for(span)
+                    for rect in rects or []:
                         annot = page.add_highlight_annot(rect)
                         annot.set_colors(stroke=colour)
                         annot.update()
