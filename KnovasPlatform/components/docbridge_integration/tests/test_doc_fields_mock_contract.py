@@ -114,7 +114,8 @@ class TestClientAgainstTheMock:
         patched = client.patch_doc_values("demo-001", view["version"],
                                           set={"title": "Mietvertrag Muster AG"},
                                           actor_ref="platform-user:1")
-        assert patched["fields"] == {} and patched["version"] == view["version"] + 1
+        # As on the server: the answer carries every effective field.
+        assert patched["fields"] == view["fields"] and patched["version"] == view["version"] + 1
 
     def test_filters_echo_and_fields(self):
         client, state = mock_client("filters")

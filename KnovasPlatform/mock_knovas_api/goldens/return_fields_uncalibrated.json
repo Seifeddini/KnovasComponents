@@ -1,6 +1,6 @@
 {
   "name": "return_fields_uncalibrated",
-  "description": "return_fields alone needs no calibration; without where there is no where echo.",
+  "description": "return_fields alone needs no relevance calibration and no where; without where there is no where echo and the gate is not forced.",
   "server_state": "filters_uncalibrated",
   "setup": [
     {
@@ -13,7 +13,8 @@
         "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
         "fields": {
           "doc_type": "invoice",
-          "period": "GJ 2024"
+          "period": "GJ 2024",
+          "amount": "CHF 1'234.50"
         }
       }
     }
@@ -33,6 +34,9 @@
     "body": {
       "status": "success",
       "result_count": 1,
+      "pointers": [
+        "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf"
+      ],
       "results": [
         {
           "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
@@ -41,13 +45,15 @@
           }
         }
       ],
+      "relevance_gate_applied": false,
       "return_fields": {
         "applied": true
       }
     }
   },
   "volatile": [
-    "query_session_id"
+    "query_session_id",
+    "results.*.document_uuid"
   ],
   "absent": [
     "where"

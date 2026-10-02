@@ -1,6 +1,6 @@
 {
   "name": "where_unsupported_query",
-  "description": "Query with where on a server with fields on and filters off.",
+  "description": "Query with where while Document Fields is on and field filters are off.",
   "server_state": "values",
   "setup": [],
   "request": {

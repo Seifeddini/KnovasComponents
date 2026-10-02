@@ -1,6 +1,6 @@
 {
   "name": "version_conflict",
-  "description": "PATCH with a stale if_version: 409 with the current version.",
+  "description": "PATCH with a stale if_version: 409 with the current version; read the values again and retry.",
   "server_state": "values",
   "setup": [
     {
@@ -13,7 +13,8 @@
         "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
         "fields": {
           "doc_type": "invoice",
-          "period": "GJ 2024"
+          "period": "GJ 2024",
+          "amount": "CHF 1'234.50"
         }
       }
     }
@@ -35,7 +36,7 @@
       "status": "error",
       "error_code": "version_conflict",
       "error": "The document values changed since they were read",
-      "current_version": 1
+      "current_version": 4
     }
   },
   "volatile": [],

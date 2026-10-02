@@ -1,6 +1,6 @@
 {
   "name": "http_404_feature_off",
-  "description": "Every doc-fields path answers the unknown-route 404 while the feature is off, for every method.",
+  "description": "Every Document Fields path answers the unknown-route 404 while the feature is off, for every method.",
   "server_state": "off",
   "setup": [],
   "request": {

@@ -1109,7 +1109,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
 | `filters` | Query `where` matches stored document `fields` by **exact equality only**: codes and strings as stored, entity names casefolded. The mock does not emulate the normaliser (dates, periods, fiscal years). Echo per §3 of the contract digest. Each hit gets `fields`. `no_strong_matches`, `relevance_gate_applied` and `no_results_reason` are set. `find` pages with `next_after`, `complete` (false on non-last pages) and `total_count` (first page only). Probe `{}` returns 400 `invalid_value` with path `where`. With `calibrated=False`, a query with `where` answers 503 `where_requires_calibration`, while `find` and `return_fields` work. |
 
 - `refuse_init_fields="<status>:<code>"` forces that refusal when `fields` is present.
-- `brokered=True` returns 401 `assertion_rejected` for entity keys sent without an assertion, and for `access_groups` without an assertion.
+- `brokered=True` returns 401 `assertion_rejected` for `access_groups` without an assertion (and, before S1, for entity keys sent without one; see §10).
 - GET doc-values reads the pointer from the body; with the pointer only in the query string it answers 400 `invalid_value` `path: "pointer"`.
 
 **Test helper (`MOCK:testing.py`):**
@@ -1601,9 +1601,21 @@ Where this section and the spec differ, this section describes what shipped.
 
 - The mock's goldens (`MOCK:goldens/*.json`) use the envelope `{name,
   description, server_state, setup[], request, response{status, body},
-  volatile[], absent[]}` and stay the mock's own: KnowledgeBase has no
-  `docs/Knovas_Developer_Kit/api/examples/doc_fields/` to copy them from (WP-I
-  replaced nothing, and `scripts/sync_knovas_api_docs.sh` was not written).
+  volatile[], absent[]}`. They are now the server's own: KnowledgeBase
+  `docs/Knovas_Developer_Kit/api/examples/doc_fields/` (KB 23febc0, pinned by
+  the server's `test_doc_fields_wire_goldens`) was copied over unchanged
+  (`scripts/sync_knovas_api_docs.sh` was not written; copy them again after a
+  server change). To satisfy them the mock now plays the server after S1/S2:
+  - a subset of the server's normaliser (`typed_value`): dates `{lo, hi,
+    precision}`, periods `{lo, hi, label}`, amounts `{amount, currency}`,
+    numbers as decimal text; dates and periods match as intervals;
+  - `mapped_keys` lists only keys that differ from the field key;
+  - a first stored upload leaves the anchor at version 4; a PATCH answers
+    every effective field;
+  - a BROKERED init without an assertion keeps entity names unlinked, drops
+    `{"node_id"}` and treats `register` as `ignore` (S1) instead of 401.
+  The mock stays stricter than the server in one place: GET doc-values
+  refuses a pointer in the query string, so a client test catches it.
 - `create_app(..., brokered=True)` also answers 401 `assertion_rejected` for a
   `find` without an assertion, so `doctor.sh`'s probe can be tested.
 

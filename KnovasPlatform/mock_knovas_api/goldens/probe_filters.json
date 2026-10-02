@@ -1,6 +1,6 @@
 {
   "name": "probe_filters",
-  "description": "Capability probe with fields and filters on: the empty body is refused as an invalid where.",
+  "description": "Capability probe with field filters on: the empty body is refused as a missing where. find never checks the relevance calibration, so this answer is the same without one.",
   "server_state": "filters",
   "setup": [],
   "request": {

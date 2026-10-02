@@ -1,6 +1,6 @@
 {
   "name": "patch_title_only",
-  "description": "A title-only PATCH answers fields {} (no typed key named): read the values again instead.",
+  "description": "A PATCH of the title only, with the version a GET returned: the answer carries every effective field value, not only the keys the PATCH named.",
   "server_state": "values",
   "setup": [
     {
@@ -13,7 +13,8 @@
         "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
         "fields": {
           "doc_type": "invoice",
-          "period": "GJ 2024"
+          "period": "GJ 2024",
+          "amount": "CHF 1'234.50"
         }
       }
     }
@@ -23,7 +24,7 @@
     "path": "/secured/graph/doc-values",
     "body": {
       "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
-      "if_version": 1,
+      "if_version": 4,
       "set": {
         "title": "Rechnung Muster AG"
       }
@@ -35,10 +36,22 @@
       "status": "success",
       "message": "Document values updated",
       "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
-      "version": 2,
+      "version": 5,
       "title": "Rechnung Muster AG",
       "title_source": "manual",
-      "fields": {},
+      "description": null,
+      "fields": {
+        "amount": {
+          "amount": "1234.50",
+          "currency": "CHF"
+        },
+        "doc_type": "invoice",
+        "period": {
+          "lo": "2024-01-01",
+          "hi": "2024-12-31",
+          "label": "2024"
+        }
+      },
       "warnings": []
     }
   },

@@ -1,6 +1,6 @@
 {
   "name": "probe_values",
-  "description": "Capability probe with fields on and filters off: 400 where_unsupported, before any principal is resolved.",
+  "description": "Capability probe with Document Fields on and field filters off: 400 where_unsupported, answered before the caller's clearance is resolved.",
   "server_state": "values",
   "setup": [],
   "request": {

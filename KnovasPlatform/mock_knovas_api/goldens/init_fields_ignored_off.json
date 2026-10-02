@@ -1,6 +1,6 @@
 {
   "name": "init_fields_ignored_off",
-  "description": "Init with fields on a server with document fields off: accepted, no fields echo.",
+  "description": "Init with fields while Document Fields is off: accepted exactly as an older server accepts it, with no fields echo.",
   "server_state": "off",
   "setup": [],
   "request": {

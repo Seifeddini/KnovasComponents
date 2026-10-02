@@ -162,7 +162,8 @@ def test_fields_are_staged_with_the_echo(rig, mode, calibrated):
     assert result.doc_fields.suggest == {"doctype": ["doc_type"]}
     upload = rig.state.anchors[POINTER]["upload"]
     assert upload["doc_type"]["values"] == ["invoice"]
-    assert upload["period"]["values"] == ["GJ 2024"]
+    # Knovas stores the period it parsed from the folder name.
+    assert upload["period"]["values"] == [{"lo": "2024-01-01", "hi": "2024-12-31", "label": "2024"}]
     assert rig.fields(REL).outcome == "staged" and rig.fields(REL).sent
     assert validate(_sync_response(result), "sync_response.schema.json") == []
     assert rig.run(rig.body(**SOURCE_FIELDS)).files_uploaded == 0
@@ -204,8 +205,22 @@ def test_a_forced_refusal_indexes_the_document_without_fields(rig, refusal, expe
 
 
 class TestBrokered:
-    def test_entity_values_without_assertion_fall_back(self, rig):
+    def test_entity_values_without_assertion_stay_unlinked(self, rig):
+        """Server S1: the RemoteController sends no assertion, so Knovas keeps
+        its entity names unlinked instead of refusing the upload."""
         rig.mock(doc_fields="values", brokered=True)
+        rig.write(REL)
+        result = rig.run(rig.body(**SOURCE_FIELDS))
+        assert result.files_uploaded == 1
+        tx = result.transmissions[0]
+        assert tx["fields"]["outcome"] == "staged"
+        assert tx["fields"]["warning_codes"] == ["unresolved_entity"]
+        assert rig.state.anchors[POINTER]["upload"]["party"]["values"] == [{"name": "Muster AG"}]
+        assert len(rig.init_requests()) == 1
+
+    def test_entity_values_without_assertion_fall_back_before_s1(self, rig):
+        state = rig.mock(doc_fields="values", brokered=True)
+        state.s1 = False
         rig.write(REL)
         result = rig.run(rig.body(**SOURCE_FIELDS))
         assert result.files_uploaded == 1
@@ -234,7 +249,7 @@ def test_the_server_starting_to_accept_requeues_not_accepted(rig):
     second = rig.run(rig.body(**SOURCE_FIELDS))
     assert second.document_sync.fields_changed == 1
     assert rig.fields(REL).outcome == "staged"
-    assert rig.state.anchors[POINTER]["upload"]["period"]["values"] == ["GJ 2024"]
+    assert rig.state.anchors[POINTER]["upload"]["period"]["values"] == [{"lo": "2024-01-01", "hi": "2024-12-31", "label": "2024"}]
 
 
 def test_mail_metadata_reaches_the_server(rig):

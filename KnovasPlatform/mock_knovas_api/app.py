@@ -18,18 +18,29 @@ state the mock plays. The shapes follow the server contract
   carrying `where` or `return_fields`, and `find`, answer 400
   `where_unsupported`.
 - `filters`: values, plus `where` and `return_fields` on query and `find`.
-  `where` matches stored values by exact equality (codes and strings as
-  stored, entity names casefolded); the mock does not emulate the server's
-  normaliser (dates, periods, fiscal years, money), so range operators
-  compare the stored text. `calibrated=False` makes a query with `where`
+  Dates, periods, amounts and numbers go through a subset of the server's
+  normaliser (`typed_value`: Swiss day/month/quarter/year forms, calendar
+  fiscal years, CHF/EUR amounts), so values and `where` operands have the
+  server's shapes and dates and periods match as intervals (`eq`/`overlaps`
+  meet, `gte` etc. certain or `match: "possible"`). Codes match exactly,
+  entity names casefolded. `calibrated=False` makes a query with `where`
   answer 503 `where_requires_calibration`, while `find` and `return_fields`
   alone keep working.
 
 `refuse_init_fields="<status>:<code>"` forces that refusal on every init that
 carries `fields` (values and filters). `brokered=True` plays a BROKERED
-tenant: without a `principal_assertion`, an init carrying `access_groups` or
-an entity value answers 401 `assertion_rejected`, and so do query and the
-graph routes (the assertion is required, not verified).
+tenant: without a `principal_assertion`, an init carrying `access_groups`
+answers 401 `assertion_rejected`, and so do query and the graph routes (the
+assertion is required, not verified). An init without one keeps entity names
+unlinked (`unresolved_entity`), drops `{"node_id"}` values (`invalid_value`)
+and treats `register` as `ignore` (server S1; `s1 = False` plays the
+release before it, which answers 401 there too).
+
+As on the server, `mapped_keys` lists only keys that differ from the field
+key, a first stored upload leaves the anchor at version 4, and a PATCH answers
+every effective field. Deliberately stricter than the server: GET doc-values
+refuses a pointer in the query string (the server still reads it there), so a
+client test catches a pointer that would land in gateway logs.
 
 Tests reach the state through `app.extensions["knovas_mock"]` (a
 `MockState`): the request log, the documents, seeded values and switches
@@ -49,7 +60,8 @@ import os
 import re
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -373,6 +385,213 @@ def _parse_refusal(spec: Optional[str]) -> Optional[Tuple[int, str]]:
     return int(status), code.strip()
 
 
+# -- typed values ----------------------------------------------------------
+# A subset of the server's normaliser (KB services/knowledge_graph/doc_fields/
+# typed_values.py), so stored values and `where` operands have the server's
+# shapes: date {lo, hi, precision}, period {lo, hi, label}, money
+# {amount: "1234.50", currency}, number "12.5". Calendar fiscal years only
+# (fy_start_month 1); no slash dates, no two-digit years outside "FY24".
+
+_MONTH_NAMES = {
+    "jan": 1, "januar": 1, "january": 1, "janvier": 1, "gennaio": 1,
+    "feb": 2, "februar": 2, "february": 2, "fevrier": 2, "f\u00e9vrier": 2, "febbraio": 2,
+    "mar": 3, "maerz": 3, "m\u00e4rz": 3, "march": 3, "mars": 3, "marzo": 3,
+    "apr": 4, "april": 4, "avril": 4, "aprile": 4,
+    "mai": 5, "may": 5, "maggio": 5,
+    "jun": 6, "juni": 6, "june": 6, "juin": 6, "giugno": 6,
+    "jul": 7, "juli": 7, "july": 7, "juillet": 7, "luglio": 7,
+    "aug": 8, "august": 8, "aout": 8, "ao\u00fbt": 8, "agosto": 8,
+    "sep": 9, "sept": 9, "september": 9, "septembre": 9, "settembre": 9,
+    "okt": 10, "oct": 10, "oktober": 10, "october": 10, "octobre": 10, "ottobre": 10,
+    "nov": 11, "november": 11, "novembre": 11,
+    "dez": 12, "dec": 12, "dezember": 12, "december": 12, "decembre": 12,
+    "d\u00e9cembre": 12, "dicembre": 12,
+}
+_CURRENCY_ALIASES = {"FR": "CHF", "SFR": "CHF", "\u20ac": "EUR", "$": "USD", "\u00a3": "GBP"}
+_DAY_RE = re.compile(r"^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})$")
+_ISO_DAY_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_MONTH_RE = re.compile(r"^(?:(\d{4})-(\d{2})|(\d{1,2})\.(\d{4}))$")
+_QUARTER_RE = re.compile(r"^(?:[Qq]([1-4])\s*(\d{4})|([1-4])\.\s*Quartal\s+(\d{4})|(\d{4})-Q([1-4]))$")
+_HALF_RE = re.compile(r"^(?:[Hh]([12])\s*(\d{4})|([12])\.\s*(?:Semester|Halbjahr)\s+(\d{4})"
+                      r"|(\d{4})-H([12]))$")
+_YEAR_RE = re.compile(r"^(\d{4})$")
+_FY_RE = re.compile(r"^(?:GJ|FY|Geschaeftsjahr|Gesch\u00e4ftsjahr|exercice|esercizio)\s*(\d{4}|\d{2})$",
+                    re.IGNORECASE)
+_NAMED_MONTH_RE = re.compile(r"^(?:(\d{1,2})(?:\.|er)?\s+)?([^\W\d_]+)\.?\s+(\d{4})$")
+_RANGE_RE = re.compile(r"^(.+?)\s*(?:\u2013|\u2014|\s-\s|\s+bis\s+)\s*(.+)$")
+_MONEY_RE = re.compile(r"^(?:(?P<pre>[A-Za-z]{3}|S?[Ff][Rr]\.?|\u20ac|\$|\u00a3)\s*(?P<a>[^A-Za-z]+?)"
+                       r"|(?P<b>[^A-Za-z]+?)\s*(?P<post>[A-Za-z]{3}|S?[Ff][Rr]\.?|\u20ac|\$|\u00a3))$")
+
+
+class _Refused(Exception):
+    def __init__(self, code: str = "invalid_value") -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def _last_day(y: int, m: int) -> date:
+    return (date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1))
+
+
+def _day(y: int, m: int, d: int) -> Tuple[date, date, str]:
+    try:
+        x = date(y, m, d)
+    except ValueError:
+        raise _Refused() from None
+    return x, x, "day"
+
+
+def _month(y: int, m: int) -> Tuple[date, date, str]:
+    if not 1 <= m <= 12:
+        raise _Refused()
+    return date(y, m, 1), _last_day(y, m), "month"
+
+
+def _point(s: str) -> Tuple[date, date, str]:
+    """One day, month, quarter, half or calendar year."""
+    for regex, build in (
+            (_DAY_RE, lambda g: _day(int(g[2]), int(g[1]), int(g[0]))),
+            (_ISO_DAY_RE, lambda g: _day(int(g[0]), int(g[1]), int(g[2]))),
+            (_MONTH_RE, lambda g: _month(int(g[0] or g[3]), int(g[1] or g[2]))),
+            (_QUARTER_RE, lambda g: (lambda y, n: (date(y, 3 * n - 2, 1), _last_day(y, 3 * n), "quarter"))(
+                int(g[1] or g[3] or g[4]), int(g[0] or g[2] or g[5]))),
+            (_HALF_RE, lambda g: (lambda y, n: (date(y, 6 * n - 5, 1), _last_day(y, 6 * n), "half"))(
+                int(g[1] or g[3] or g[4]), int(g[0] or g[2] or g[5]))),
+            (_YEAR_RE, lambda g: (date(int(g[0]), 1, 1), date(int(g[0]), 12, 31), "year"))):
+        m = regex.match(s)
+        if m:
+            return build(m.groups())
+    m = _NAMED_MONTH_RE.match(s)
+    if m and m.group(2).lower() in _MONTH_NAMES:
+        y, mo = int(m.group(3)), _MONTH_NAMES[m.group(2).lower()]
+        return _day(y, mo, int(m.group(1))) if m.group(1) else _month(y, mo)
+    raise _Refused()
+
+
+def _iso(x: Any) -> date:
+    if not isinstance(x, str) or not _ISO_DAY_RE.match(x):
+        raise _Refused()
+    return _day(*(int(p) for p in x.split("-")))[0]
+
+
+def _interval(raw: Any, datatype: str) -> Tuple[date, date, str]:
+    if isinstance(raw, dict):
+        allowed = {"lo", "hi", "precision"} if datatype == "date" else {"lo", "hi", "label"}
+        if not raw or not set(raw) <= allowed:
+            raise _Refused("type_mismatch")
+        lo, hi = _iso(raw.get("lo")), _iso(raw.get("hi", raw.get("lo")))
+        if lo > hi:
+            raise _Refused()
+        return lo, hi, ""
+    if not isinstance(raw, str):
+        raise _Refused("type_mismatch")
+    s = " ".join(raw.split())
+    if datatype == "period":
+        m = _FY_RE.match(s)
+        if m:
+            y = int(m.group(1))
+            y = 2000 + y if y < 100 else y
+            return date(y, 1, 1), date(y, 12, 31), "year"
+        r = _RANGE_RE.match(s)
+        if r:
+            lo, _h, _p = _point(r.group(1))
+            _l, hi, _p = _point(r.group(2))
+            if lo > hi:
+                raise _Refused()
+            return lo, hi, ""
+    return _point(s)
+
+
+def _period_label(lo: date, hi: date) -> str:
+    if lo == hi:
+        return lo.isoformat()
+    if lo == date(lo.year, 1, 1) and hi == date(lo.year, 12, 31):
+        return str(lo.year)
+    if lo.day == 1 and lo.year == hi.year and lo.month in (1, 7) and hi == _last_day(lo.year, lo.month + 5):
+        return f"{lo.year}-H{1 if lo.month == 1 else 2}"
+    if lo.day == 1 and lo.year == hi.year and lo.month in (1, 4, 7, 10) \
+            and hi == _last_day(lo.year, lo.month + 2):
+        return f"{lo.year}-Q{(lo.month + 2) // 3}"
+    if lo.day == 1 and hi == _last_day(lo.year, lo.month):
+        return f"{lo.year}-{lo.month:02d}"
+    return f"{lo.isoformat()}/{hi.isoformat()}"
+
+
+def _date_precision(lo: date, hi: date) -> str:
+    label = _period_label(lo, hi)
+    if lo == hi:
+        return "day"
+    if label == str(lo.year):
+        return "year"
+    if re.match(r"^\d{4}-Q[1-4]$", label):
+        return "quarter"
+    if re.match(r"^\d{4}-\d{2}$", label):
+        return "month"
+    raise _Refused()          # a date is a day, month, quarter or year
+
+
+def _decimal_text(d: Decimal) -> str:
+    if d == 0:
+        return "0"
+    out = format(d.normalize(), "f")
+    return out.rstrip("0").rstrip(".") if "." in out else out
+
+
+def _decimal(text: str, *, money: bool) -> Decimal:
+    t = text.strip().replace("'", "").replace("\u2019", "").replace(" ", "").replace("\u202f", "")
+    if t.endswith(".-") or t.endswith(".--"):
+        t = t.rstrip("-").rstrip(".")
+    if "," in t and "." in t:
+        t = t.replace(".", "").replace(",", ".") if t.rfind(",") > t.rfind(".") else t.replace(",", "")
+    elif "," in t or "." in t:
+        sep = "," if "," in t else "."
+        whole, _, frac = t.rpartition(sep)
+        if t.count(sep) > 1 or (money and len(frac) == 3 and whole.strip("0")):
+            t = t.replace(sep, "")          # thousands groups
+        else:
+            t = whole + "." + frac
+    if not re.match(r"^-?\d+(\.\d+)?$", t):
+        raise _Refused()
+    return Decimal(t)
+
+
+def _money(raw: Any) -> Dict[str, str]:
+    if isinstance(raw, dict):
+        if set(raw) != {"amount", "currency"} or isinstance(raw["amount"], bool):
+            raise _Refused("type_mismatch")
+        amount = raw["amount"] if isinstance(raw["amount"], str) else str(raw["amount"])
+        currency = str(raw["currency"])
+    elif isinstance(raw, str):
+        m = _MONEY_RE.match(" ".join(raw.split()))
+        if not m:
+            raise _Refused()          # a missing currency is invalid_value
+        amount = m.group("a") or m.group("b")
+        currency = m.group("pre") or m.group("post")
+    else:
+        raise _Refused("type_mismatch")
+    token = currency.strip().rstrip(".").upper()
+    token = _CURRENCY_ALIASES.get(token, token)
+    if not re.match(r"^[A-Z]{3}$", token):
+        raise _Refused()
+    whole, _, frac = _decimal_text(_decimal(amount, money=True)).partition(".")
+    return {"amount": f"{whole}.{frac.ljust(2, '0')}", "currency": token}
+
+
+def typed_value(datatype: str, raw: Any) -> Any:
+    """The stored shape of one date, period, money or number value; raises
+    _Refused(code) for a value the server refuses."""
+    if datatype in INTERVAL_TYPES:
+        lo, hi, kind = _interval(raw, datatype)
+        if datatype == "date":
+            return {"lo": lo.isoformat(), "hi": hi.isoformat(), "precision": _date_precision(lo, hi)}
+        return {"lo": lo.isoformat(), "hi": hi.isoformat(), "label": _period_label(lo, hi)}
+    if datatype == "money":
+        return _money(raw)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        raise _Refused("type_mismatch")
+    return _decimal_text(Decimal(str(raw)) if not isinstance(raw, str) else _decimal(raw, money=False))
+
+
 class MockState:
     """Everything one mock app knows. Nothing is shared between apps."""
 
@@ -393,6 +612,10 @@ class MockState:
         # pointer from the query string only, so a body pointer answers 400
         # invalid_value, path "pointer".
         self.pointer_in_body = True
+        # False plays a Knovas release before S1: a BROKERED init without an
+        # assertion answers 401 assertion_rejected for an entity value or a
+        # `register` key instead of keeping names unlinked.
+        self.s1 = True
         self.quarantined: set = set()
         self.change_forbidden: set = set()
 
@@ -555,23 +778,31 @@ class MockState:
                     return code, None
             return None, "invalid_value"
         if dt == "entity_ref":
-            if self.brokered and not asserted:
-                # The server resolves the uploader to link a name: a
-                # BROKERED tenant without an assertion refuses the init.
+            # S1: a BROKERED tenant's upload without an assertion has no
+            # principal to resolve against -- no node is read, a name stays
+            # unlinked and an explicit node id is dropped.
+            unasserted = self.brokered and not asserted
+            if unasserted and not self.s1:
                 raise _assertion_rejected()
             target = field.get("target_node_type_id")
-            if isinstance(raw, dict) and "node_id" in raw and set(raw) <= {"node_id", "name"}:
+            if isinstance(raw, dict) and raw.get("node_id") is not None \
+                    and set(raw) <= {"node_id", "name"}:
+                if unasserted:
+                    return None, "invalid_value"
                 node = self.nodes.get(str(raw["node_id"]))
                 if node is None or (target and node["node_type_id"] != target):
                     return None, "invalid_value"
                 return {"node_id": node["id"], "name": node["name"]}, None
-            if isinstance(raw, dict) and set(raw) == {"name"} and isinstance(raw["name"], str):
+            if isinstance(raw, dict) and set(raw) <= {"node_id", "name"} \
+                    and isinstance(raw.get("name"), str):
                 raw = raw["name"].strip()
             if not isinstance(raw, str):
                 return None, "type_mismatch"
             if not raw or len(raw) > 256:
                 return None, "invalid_value"
-            if target is None:
+            if field.get("link_policy") == "never":
+                return {"name": raw}, None
+            if target is None or unasserted:
                 return {"name": raw}, "unresolved_entity"
             hits = self.nodes_named(raw, target)
             if len(hits) == 1:
@@ -589,6 +820,11 @@ class MockState:
             return None, "type_mismatch"
         if dt == "money" and isinstance(raw, (int, float)):
             return None, "type_mismatch"
+        if dt in ("date", "period", "money", "number"):
+            try:
+                return typed_value(dt, raw), None
+            except _Refused as exc:
+                return None, exc.code
         if dt == "text":
             if isinstance(raw, dict):
                 return None, "type_mismatch"
@@ -861,16 +1097,20 @@ class MockState:
             out["resolved_nodes"] = len(clause["node_ids"])
             return out
         values = clause["operands"]
+        if field["datatype"] == "money":
+            values = [{"amount": _decimal_text(Decimal(v["amount"])), "currency": v["currency"]}
+                      for v in values]
         if op == "prefix":
             out["prefix"] = values[0]
         elif field["datatype"] in INTERVAL_TYPES:
-            # The mock does not parse dates: an operand is its own interval.
+            # planner._operand_echo: each operand as its [lo, hi]; a
+            # two-operand between/within as one interval.
             if op == "in":
-                out["intervals"] = [[v, v] for v in values]
+                out["intervals"] = [[v["lo"], v["hi"]] for v in values]
             elif len(values) == 2:
-                out["interval"] = [values[0], values[1]]
+                out["interval"] = [values[0]["lo"], values[1]["hi"]]
             else:
-                out["interval"] = [values[0], values[0]]
+                out["interval"] = [values[0]["lo"], values[0]["hi"]]
         elif op in ("in", "between"):
             out["values"] = values
         else:
@@ -888,8 +1128,39 @@ class MockState:
         except ValueError:
             return (1, str(value))
 
+    @staticmethod
+    def _interval_matches(op: str, operands: List[Dict[str, str]], value: Dict[str, str],
+                          possible: bool) -> bool:
+        """Dates and periods are intervals (ISO text compares as dates).
+        eq/in/overlaps: the intervals meet; within: inside the operand;
+        gt..between: the whole stored interval on the right side, or any
+        part of it with match "possible"."""
+        lo, hi = value["lo"], value["hi"]
+        if op in ("eq", "in", "overlaps"):
+            return any(lo <= o["hi"] and hi >= o["lo"] for o in operands)
+        if op in ("between", "within"):
+            a, b = operands[0]["lo"], operands[-1]["hi"]
+            if op == "between" and possible:
+                return lo <= b and hi >= a
+            return a <= lo and hi <= b
+        o = operands[0]
+        left, right = (hi, lo) if possible else (lo, hi)
+        return {"gt": left > o["hi"], "gte": left >= o["lo"],
+                "lt": right < o["lo"], "lte": right <= o["hi"]}[op]
+
     def _value_matches(self, clause: Dict[str, Any], value: Any) -> bool:
         op, operands = clause["op"], clause["operands"]
+        dt = clause["field"]["datatype"]
+        if dt in INTERVAL_TYPES:
+            return isinstance(value, dict) and self._interval_matches(
+                op, operands, value, clause["match"] == "possible")
+        if dt == "money":
+            # Never converted between currencies.
+            if not isinstance(value, dict) or any(o["currency"] != value["currency"] for o in operands
+                                                  if op not in ("eq", "in")):
+                return False
+            if op in ("eq", "in"):
+                return value in operands
         if clause["field"]["datatype"] == "entity_ref":
             if not isinstance(value, dict):
                 return False
@@ -1236,9 +1507,11 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
                     continue
                 if policy == "reject":
                     raise DocFieldError("unknown_field", 422, path)
-                if policy == "register":
-                    if state.brokered and not asserted:
+                if policy == "register" and state.brokered and not asserted:
+                    if not state.s1:
                         raise _assertion_rejected()
+                    policy = "ignore"           # S1: nobody to ask about the registry
+                if policy == "register":
                     key = normalize_key(raw_key)
                     if looks_personal(raw_key) or not KEY_RE.match(key or "-"):
                         warnings.append({"key": str(raw_key), "path": path,
@@ -1256,7 +1529,8 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             if field["id"] in taken:
                 raise DocFieldError("invalid_fields", 400, path)
             taken.add(field["id"])
-            mapped[raw_key] = field["key"]
+            if raw_key != field["key"]:
+                mapped[raw_key] = field["key"]
             if raw is None or raw == []:
                 staged[field["key"]] = []          # clears the key (merge)
                 continue
@@ -1305,7 +1579,9 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
                                              "source_ref": source_ref}
                 else:
                     anchor["upload"].pop(key, None)
-        anchor["version"] += 1
+        # The server's commit bumps the version several times; a first
+        # stored upload leaves it at 4. The number is opaque to clients.
+        anchor["version"] = 4 if anchor["version"] == 0 else anchor["version"] + 1
         if not any(d["doc_id"] == pointer for d in state.documents):
             state.documents.append({
                 "doc_id": pointer, "title": anchor.get("title") or _basename(pointer),
@@ -1456,8 +1732,8 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
         return _success("Document values updated", {
             "pointer": pointer, "version": anchor["version"], "title": title,
             "title_source": source, "description": description,
-            # As on the server: {} when the edit named no typed key.
-            "fields": state.fields_of(pointer, node_ids=True) if edit["typed_keys"] else {},
+            # As on the server: every effective field, edited or not.
+            "fields": state.fields_of(pointer, node_ids=True),
             "warnings": edit["warnings"],
         })
 

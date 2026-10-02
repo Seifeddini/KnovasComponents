@@ -1,6 +1,6 @@
 {
   "name": "init_echo",
-  "description": "Init fields echo: a label mapped to its code, an entity name kept unlinked (no target type), an unknown key listed, a system key dropped with a warning.",
+  "description": "Init fields echo (core pack only): labels and aliases mapped to their keys, an entity name kept unlinked (core party has no target node type), an unknown key listed, a system key dropped with invalid_value. No value is echoed.",
   "server_state": "values",
   "setup": [],
   "request": {
@@ -12,7 +12,9 @@
       "title": "Rechnung_17.pdf",
       "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
       "fields": {
-        "doc_type": "Rechnung",
+        "Dokumentart": "Rechnung",
+        "Datum": "15.03.2024",
+        "amount": "CHF 1'234.50",
         "party": "Beispiel GmbH",
         "mandat": "Muster AG",
         "title": "Rechnung 17"
@@ -25,10 +27,10 @@
       "status": "success",
       "message": "Transmission initialized",
       "fields": {
-        "staged": 2,
+        "staged": 4,
         "mapped_keys": {
-          "doc_type": "doc_type",
-          "party": "party"
+          "Dokumentart": "doc_type",
+          "Datum": "document_date"
         },
         "unknown_keys": [
           "mandat"

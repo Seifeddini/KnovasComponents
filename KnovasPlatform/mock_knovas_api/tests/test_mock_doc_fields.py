@@ -18,7 +18,9 @@ Goldens (`goldens/*.json`) are request/response pairs the mock must satisfy:
 
 "Contained" means every key of the golden body is in the actual body with an
 equal value (recursively; lists element by element, same length). The
-provisional goldens here are replaced by the server's own in WP-I.
+goldens are the server's own, copied from the KnowledgeBase Developer Kit
+(docs/Knovas_Developer_Kit/api/examples/doc_fields/), where the server's
+test_doc_fields_wire_goldens pins them against the real routes.
 """
 
 from __future__ import annotations
@@ -270,8 +272,8 @@ class TestValuesInit:
     def test_echo_shape(self):
         status, body = Mock(doc_fields="values").init(fields={"doc_type": "Rechnung", "keywords": ["a", "b"]})
         assert status == 201
-        assert body["fields"] == {"staged": 2, "mapped_keys": {"doc_type": "doc_type", "keywords": "keywords"},
-                                  "unknown_keys": [], "warnings": []}
+        # mapped_keys lists only keys that differ from the field key.
+        assert body["fields"] == {"staged": 2, "mapped_keys": {}, "unknown_keys": [], "warnings": []}
         assert body["transmission_key_id"]
 
     def test_unknown_key_with_suggestion_and_label_keys(self):
@@ -328,7 +330,8 @@ class TestValuesInit:
         assert (status, body["error_code"], body["path"]) == (422, "unknown_field", "fields.mandat")
         mock.state.settings["unknown_keys"] = "register"
         body = mock.init(fields={"aktenzeichen_intern": "A-1", "konto_12345": "x"})[1]
-        assert body["fields"]["mapped_keys"] == {"aktenzeichen_intern": "aktenzeichen_intern"}
+        assert body["fields"]["mapped_keys"] == {}
+        assert body["fields"]["staged"] == 1
         assert body["fields"]["unknown_keys"] == ["konto_12345"]
         assert mock.state.field_by_key("aktenzeichen_intern")["status"] == "provisional"
 
@@ -366,7 +369,8 @@ class TestValuesRead:
         status, body = mock.values()
         assert status == 200
         assert body["fields"] == {"doc_type": "invoice", "party": [{"name": "Muster AG"}]}
-        assert body["title_source"] == "upload" and body["version"] == 1
+        # A first stored upload leaves the (opaque) version at 4, as on the server.
+        assert body["title_source"] == "upload" and body["version"] == 4
         assert body["layers"]["doc_type"][0]["layer"] == "upload"
 
     def test_pointer_only_in_query_string_is_refused(self):
@@ -394,9 +398,9 @@ class TestValuesRead:
         mock.state.quarantined.add(POINTER)
         body = mock.values()[1]
         assert {k: body[k] for k in ("pointer", "acl_mode", "version")} == {
-            "pointer": POINTER, "acl_mode": "quarantined", "version": 1}
+            "pointer": POINTER, "acl_mode": "quarantined", "version": 4}
         assert "fields" not in body
-        assert mock.patch(if_version=1, set={"title": "x"})[1]["error_code"] == "anchor_quarantined"
+        assert mock.patch(if_version=4, set={"title": "x"})[1]["error_code"] == "anchor_quarantined"
 
     def test_linked_entity_shows_node_id(self):
         mock = Mock(doc_fields="values")
@@ -423,38 +427,40 @@ class TestValuesPatch:
             assert (body["error_code"], body["path"]) == ("invalid_value", "if_version")
         status, body = mock.patch(if_version=0, set={"title": "x"})
         assert status == 409
-        assert (body["error_code"], body["current_version"]) == ("version_conflict", 1)
+        assert (body["error_code"], body["current_version"]) == ("version_conflict", 4)
 
-    def test_title_only_answers_empty_fields(self):
-        status, body = self._mock().patch(if_version=1, set={"title": "Rechnung Muster AG"})
+    def test_title_only_answers_every_effective_field(self):
+        status, body = self._mock().patch(if_version=4, set={"title": "Rechnung Muster AG"})
         assert status == 200
-        assert body["fields"] == {} and body["title_source"] == "manual" and body["version"] == 2
+        assert body["fields"] == {"doc_type": "invoice", "keywords": ["a", "b"],
+                                  "period": {"lo": "2024-01-01", "hi": "2024-12-31", "label": "2024"}}
+        assert body["title_source"] == "manual" and body["version"] == 5
 
     def test_manual_beats_upload_and_null_reverts(self):
         mock = self._mock()
-        body = mock.patch(if_version=1, set={"period": "GJ 2023"})[1]
-        assert body["fields"]["period"] == "GJ 2023"
+        body = mock.patch(if_version=4, set={"period": "GJ 2023"})[1]
+        assert body["fields"]["period"] == {"lo": "2023-01-01", "hi": "2023-12-31", "label": "2023"}
         layers = mock.values()[1]["layers"]["period"]
         assert [(row["layer"], row["effective"]) for row in layers] == [("manual", True), ("upload", False)]
-        mock.patch(if_version=2, set={"period": None})
-        assert mock.values()[1]["fields"]["period"] == "GJ 2024"
+        mock.patch(if_version=5, set={"period": None})
+        assert mock.values()[1]["fields"]["period"] == {"lo": "2024-01-01", "hi": "2024-12-31", "label": "2024"}
 
     def test_unset_add_and_remove(self):
         mock = self._mock()
-        mock.patch(if_version=1, unset=["period"], add={"keywords": ["c"]}, remove={"keywords": ["a"]})
+        mock.patch(if_version=4, unset=["period"], add={"keywords": ["c"]}, remove={"keywords": ["a"]})
         fields = mock.values()[1]["fields"]
         assert "period" not in fields and fields["keywords"] == ["b", "c"]
 
     def test_non_strict_keeps_names_with_warnings(self):
         mock = self._mock()
-        status, body = mock.patch(if_version=1, set={"party": "Beispiel GmbH", "mandat": "x"})
+        status, body = mock.patch(if_version=4, set={"party": "Beispiel GmbH", "mandat": "x"})
         assert status == 200
         assert {(w["key"], w["code"]) for w in body["warnings"]} == {
             ("party", "unresolved_entity"), ("mandat", "unknown_field")}
         assert body["fields"]["party"] == [{"name": "Beispiel GmbH"}]
 
     def test_strict_refuses_with_the_specific_code(self):
-        status, body = self._mock().patch(if_version=1, set={"party": "Beispiel GmbH"}, fields_strict=True)
+        status, body = self._mock().patch(if_version=4, set={"party": "Beispiel GmbH"}, fields_strict=True)
         assert (status, body["error_code"], body["path"]) == (422, "unresolved_entity", "set.party")
 
     @pytest.mark.parametrize("body,code,path", [
@@ -466,7 +472,7 @@ class TestValuesPatch:
         ({"fields_strict": 1}, "invalid_value", "fields_strict"),
     ])
     def test_invalid_edits(self, body, code, path):
-        status, answer = self._mock().patch(if_version=1, **body)
+        status, answer = self._mock().patch(if_version=4, **body)
         assert (status, answer["error_code"], answer["path"]) == (400, code, path)
 
     def test_forbidden_change(self):
@@ -659,9 +665,29 @@ class TestFiltersQuery:
         mock = Mock(doc_fields="filters")
         assert mock.query(where={"Dokumentart": "Vertrag"})[1]["pointers"] == ["demo-001", "demo-002"]
         assert mock.query(where={"doc_type": ["memo", "invoice"]})[1]["pointers"] == ["demo-003"]
-        assert mock.query(where={"document_date": "2026-01-01"})[1]["pointers"] == ["demo-001"]
-        assert mock.query(where={"document_date": "01.01.2026"})[1]["pointers"] == []
+        # Values are parsed as on the server: dates are intervals.
+        for operand in ("2026-01-01", "01.01.2026", "Januar 2026"):
+            assert mock.query(where={"document_date": operand})[1]["pointers"] == ["demo-001"], operand
+        assert mock.query(where={"document_date": "2026"})[1]["pointers"] == [
+            "demo-001", "demo-002", "demo-003"]
+        assert mock.query(where={"document_date": {"gte": "Februar 2026"}})[1]["pointers"] == [
+            "demo-002", "demo-003"]
+        body = mock.query(where={"document_date": {"between": ["15.01.2026", "Q1 2026"]}})[1]
+        assert body["pointers"] == ["demo-002", "demo-003"]
+        assert body["where"]["resolved"] == [{"field": "document_date", "op": "between",
+                                              "interval": ["2026-01-15", "2026-03-31"]}]
         assert mock.query(where={"status": {"exists": True}})[1]["pointers"] == ["demo-002"]
+
+    def test_money_never_crosses_currencies(self):
+        mock = Mock(doc_fields="filters")
+        mock.init(fields={"amount": "CHF 1'234.50"})
+        mock.init(pointer="rc-sync/Beispiel GmbH/Rechnung_2.pdf", fields={"amount": "1234.50 EUR"})
+        assert mock.values()[1]["fields"]["amount"] == {"amount": "1234.50", "currency": "CHF"}
+        assert mock.query(where={"amount": "Fr. 1234.50"})[1]["pointers"] == [POINTER]
+        body = mock.query(where={"amount": {"gte": "CHF 1000"}})[1]
+        assert body["pointers"] == [POINTER]
+        assert body["where"]["resolved"] == [{"field": "amount", "op": "gte",
+                                              "value": {"amount": "1000", "currency": "CHF"}}]
 
     def test_return_fields_names_only(self):
         mock = Mock(doc_fields="filters")
@@ -802,7 +828,8 @@ class TestFind:
         status, first = mock.find(where={"doc_type": "invoice"}, limit=2, **extra)
         assert status == 200
         edited = first["documents"][-1]["pointer"]
-        assert mock.patch(pointer=edited, if_version=1, set={"doc_type": "memo"})[0] == 200
+        version = mock.values(edited)[1]["version"]
+        assert mock.patch(pointer=edited, if_version=version, set={"doc_type": "memo"})[0] == 200
         rest, after = [], first["next_after"]
         while after:
             status, page = mock.find(where={"doc_type": "invoice"}, limit=2, after=after, **extra)
@@ -867,14 +894,39 @@ class TestBrokered:
                             "error_code": "assertion_rejected"}
             assert mock.init(access_groups=["g"], principal_assertion="jws")[0] == 201
 
-    def test_entity_fields_need_an_assertion(self):
+    def test_entity_fields_without_an_assertion_stay_unlinked(self):
+        """S1: a BROKERED upload without an assertion (RemoteController) is
+        accepted; no node is read, names stay unlinked, node ids are dropped
+        and `register` counts as `ignore`."""
         mock = Mock(doc_fields="values", brokered=True)
+        mock.call("POST", "/secured/graph/doc-fields/packs/legal_ch/install",
+                  {"principal_assertion": "jws"})
+        mock.state.settings["unknown_keys"] = "register"
+        node = testing.mock_module().stable_id("node", "Muster AG")
+        status, body = mock.init(fields={"client": "Muster AG", "party": {"node_id": node},
+                                         "aktenzeichen_intern": "A-1"})
+        assert status == 201
+        assert {(w["key"], w["code"]) for w in body["fields"]["warnings"]} == {
+            ("client", "unresolved_entity"), ("party", "invalid_value")}
+        assert body["fields"]["unknown_keys"] == ["aktenzeichen_intern"]
+        assert mock.state.field_by_key("aktenzeichen_intern") is None
+        fields = mock.call("GET", "/secured/graph/doc-values",
+                           {"pointer": POINTER, "principal_assertion": "jws"})[1]["fields"]
+        assert fields["client"] == {"name": "Muster AG"} and "party" not in fields
+        # With the assertion the same name links.
+        body = mock.init(fields={"client": "Muster AG"}, principal_assertion="jws")[1]
+        assert body["fields"]["warnings"] == []
+        # Explicit access_groups still need the assertion.
+        assert mock.init(access_groups=["g1"])[0] == 401
+
+    def test_before_s1_entity_values_need_an_assertion(self):
+        mock = Mock(doc_fields="values", brokered=True)
+        mock.state.s1 = False
         status, body = mock.init(fields={"party": "Muster AG"})
         assert (status, body["error_code"]) == (401, "assertion_rejected")
         assert POINTER not in mock.state.stored_pointers
         assert mock.init(fields={"doc_type": "invoice"})[0] == 201
         assert mock.init(fields={"party": "Muster AG"}, principal_assertion="jws")[0] == 201
-        assert mock.init()[0] == 201
 
     def test_graph_and_query_need_an_assertion(self):
         mock = Mock(doc_fields="filters", brokered=True)
@@ -977,3 +1029,34 @@ def test_goldens_cover_the_server_states():
 def test_new_python_files_are_ascii():
     for name in ("app.py", "testing.py", "tests/test_mock_doc_fields.py"):
         (MOCK_DIR / name).read_bytes().decode("ascii")
+
+
+@pytest.mark.parametrize("datatype,raw,stored", [
+    ("period", "GJ 2024", {"lo": "2024-01-01", "hi": "2024-12-31", "label": "2024"}),
+    ("period", "Q3 2024", {"lo": "2024-07-01", "hi": "2024-09-30", "label": "2024-Q3"}),
+    ("period", "01.07.2023\u201330.06.2024",
+     {"lo": "2023-07-01", "hi": "2024-06-30", "label": "2023-07-01/2024-06-30"}),
+    ("date", "15.03.2024", {"lo": "2024-03-15", "hi": "2024-03-15", "precision": "day"}),
+    ("date", "M\u00e4rz 2024", {"lo": "2024-03-01", "hi": "2024-03-31", "precision": "month"}),
+    ("money", "CHF 1'234.50", {"amount": "1234.50", "currency": "CHF"}),
+    ("money", "Fr. 12.-", {"amount": "12.00", "currency": "CHF"}),
+    ("money", "1.500 \u20ac", {"amount": "1500.00", "currency": "EUR"}),
+    ("number", "1'234.50", "1234.5"),
+    ("number", "12,5", "12.5"),
+])
+def test_typed_values_have_the_server_shapes(datatype, raw, stored):
+    assert testing.mock_module().typed_value(datatype, raw) == stored
+
+
+@pytest.mark.parametrize("datatype,raw,code", [
+    ("money", "1234.50", "invalid_value"),          # no currency
+    ("date", "H1 2024", "invalid_value"),           # a date is no half-year
+    ("date", "irgendwann", "invalid_value"),
+    ("period", {"lo": "2024-12-31", "hi": "2024-01-01"}, "invalid_value"),
+    ("number", True, "type_mismatch"),
+])
+def test_typed_values_refused_as_on_the_server(datatype, raw, code):
+    module = testing.mock_module()
+    with pytest.raises(module._Refused) as refused:
+        module.typed_value(datatype, raw)
+    assert refused.value.code == code

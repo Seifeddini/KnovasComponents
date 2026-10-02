@@ -1,6 +1,6 @@
 {
   "name": "find_first_page",
-  "description": "First page of a listing: a cursor, complete false while a page follows, total_count on the first page only.",
+  "description": "First page of a listing (limit 2 of 3 matches): a cursor, complete false while a page follows, total_count on the first page only (to a caller who may read every document).",
   "server_state": "filters",
   "setup": [
     {

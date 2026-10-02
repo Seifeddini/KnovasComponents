@@ -1,6 +1,6 @@
 {
   "name": "doc_values_get",
-  "description": "GET doc-values with the pointer in the JSON body.",
+  "description": "GET doc-values with the pointer in the JSON body, so it stays out of the request line. fields holds each field's effective value, layers every stored row (here the upload layer). version is opaque: send back what you read (a first stored upload leaves 4 today).",
   "server_state": "values",
   "setup": [
     {
@@ -13,7 +13,8 @@
         "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
         "fields": {
           "doc_type": "invoice",
-          "period": "GJ 2024"
+          "period": "GJ 2024",
+          "amount": "CHF 1'234.50"
         }
       }
     }
@@ -32,20 +33,52 @@
       "message": "Document values",
       "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
       "acl_mode": "follows_document",
-      "version": 1,
+      "version": 4,
       "title": "Rechnung_17.pdf",
       "title_source": "upload",
-      "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
       "description": null,
+      "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
+      "warnings": [],
       "fields": {
+        "amount": {
+          "amount": "1234.50",
+          "currency": "CHF"
+        },
         "doc_type": "invoice",
-        "period": "GJ 2024"
+        "period": {
+          "lo": "2024-01-01",
+          "hi": "2024-12-31",
+          "label": "2024"
+        }
       },
       "layers": {
+        "amount": [
+          {
+            "layer": "upload",
+            "value": {
+              "amount": "1234.50",
+              "currency": "CHF"
+            },
+            "verified": false,
+            "effective": true
+          }
+        ],
         "doc_type": [
           {
             "layer": "upload",
             "value": "invoice",
+            "verified": false,
+            "effective": true
+          }
+        ],
+        "period": [
+          {
+            "layer": "upload",
+            "value": {
+              "lo": "2024-01-01",
+              "hi": "2024-12-31",
+              "label": "2024"
+            },
             "verified": false,
             "effective": true
           }
@@ -56,8 +89,12 @@
   "volatile": [
     "document_uuid",
     "ingested_at",
+    "layers.amount.*.created_at",
+    "layers.amount.*.source_ref",
     "layers.doc_type.*.created_at",
-    "layers.doc_type.*.source_ref"
+    "layers.doc_type.*.source_ref",
+    "layers.period.*.created_at",
+    "layers.period.*.source_ref"
   ],
   "absent": []
 }

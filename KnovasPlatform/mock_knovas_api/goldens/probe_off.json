@@ -1,6 +1,6 @@
 {
   "name": "probe_off",
-  "description": "Capability probe on a server with document fields off (or older than the feature): the unknown-route 404.",
+  "description": "Capability probe while Document Fields is off (or the server is older than the feature): the unknown-route 404.",
   "server_state": "off",
   "setup": [],
   "request": {
