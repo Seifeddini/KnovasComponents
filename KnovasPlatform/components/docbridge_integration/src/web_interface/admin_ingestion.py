@@ -43,7 +43,7 @@ from flask import jsonify, render_template, request
 
 import doc_fields_capability
 from doc_fields_capability import Capability
-from doc_fields_view import field_label, warning_text
+from doc_fields_view import field_label, requeue_audit, warning_text
 from identity import audit
 from identity.approvals import ApprovalService
 from identity.field_templates import (
@@ -82,6 +82,7 @@ from remote_controller_client import (
     CAP_SOURCE_FIELDS,
     REQUEUE_OUTCOMES,
     RemoteControllerError,
+    advertised_capabilities,
     capabilities_from_status,
     required_capabilities,
 )
@@ -618,23 +619,51 @@ def check_profile_fields(profile: IngestionProfile, current: IngestionProfile | 
                       tuple(warnings), tuple(notes))
 
 
-def _reupload_note(check: FieldCheck) -> dict[str, int]:
+def _reupload_note(check: FieldCheck, current: Any = None) -> dict[str, int]:
     """For the approval payload: how many folders the change re-sends, so a
-    second person confirms the cost too (a count, never a path). Absent
-    when nothing is re-sent, which keeps every other payload as it was."""
-    return {"reupload_folders": len(check.changed)} if check.changed else {}
+    second person confirms the cost too (a count, never a path), and the
+    version that count was taken against (``base_version``). Absent when
+    nothing is re-sent, which keeps every other payload as it was."""
+    if not check.changed:
+        return {}
+    return {"reupload_folders": len(check.changed),
+            "base_version": int(getattr(current, "version", 0) or 0)}
+
+
+STALE_REUPLOAD = (
+    "Das Profil wurde seit dieser Anfrage ge\u00e4ndert, und die \u00dcbernahme w\u00fcrde "
+    "Ordner erneut senden, die bei der Anfrage niemand best\u00e4tigt hat. Bitte die "
+    "\u00c4nderung neu beantragen."
+)
+
+
+def _refuse_unconfirmed_reupload(payload: Mapping[str, Any], current: Any,
+                                 profile: IngestionProfile) -> None:
+    """An approved change runs against the profile current *now*. When that
+    profile changed since the request (another save, an earlier approval),
+    pushing the requested one can revert someone's field configuration and
+    re-send whole folders -- billed uploads with OCR -- that neither the
+    requester confirmed nor the approver was shown. Refused then; a change
+    that re-sends nothing goes through as before."""
+    if current is None:
+        return
+    resend = field_config_changes(current.profile, profile)
+    if not resend:
+        return
+    base = payload.get("base_version")
+    if isinstance(base, int) and not isinstance(base, bool):
+        if base == current.version:
+            return
+    elif len(resend) <= int(payload.get("reupload_folders") or 0):
+        # A request from before base_version: its count still covers it.
+        return
+    raise ProfileError(STALE_REUPLOAD)
 
 
 def _advertised(rc_client: Any) -> frozenset[str] | None:
     """What RemoteController advertises; None when it cannot be asked, so
-    an unreachable one is not reported as too old. A client without
-    ``reachable_capabilities`` (an older test double) answers through
-    ``capabilities``."""
-    reachable = getattr(rc_client, "reachable_capabilities", None)
-    if callable(reachable):
-        return reachable()
-    capabilities = getattr(rc_client, "capabilities", None)
-    return capabilities() if callable(capabilities) else frozenset()
+    an unreachable one is not reported as too old."""
+    return advertised_capabilities(rc_client)
 
 
 def _require_rc_support(rc_client: Any, sync_request: Mapping[str, Any]) -> None:
@@ -825,6 +854,7 @@ def apply_profile(payload: Mapping[str, Any], actor, *, conn, rc_client,
     _require_rc_support(rc_client, compiled.sync_request)
     repo = IngestionProfileRepository(conn)
     current = repo.current()
+    _refuse_unconfirmed_reupload(payload, current, profile)
     if (current is not None and current.pushed_at is None
             and profile_to_json(current.profile) == payload["profile"]):
         version = current
@@ -905,7 +935,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             user_key=getattr(me, "id", None), strict=strict)
 
     def _doc_fields_context(form, rc_status, current, *, reupload_paths, restore_version,
-                            warnings, notes) -> dict[str, Any]:
+                            warnings, notes, rc_reachable=True) -> dict[str, Any]:
         """What the template needs for document fields. The inputs show while
         Knovas offers fields, and also whenever the form already carries
         some -- hiding them then would drop them on the next save."""
@@ -929,7 +959,10 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             "available": capability.shows_values,
             "registry": [f for f in registry or () if f.get("status") != "deprecated"],
             "metadata_items": [{"key": k, "label": METADATA_LABELS[k]} for k in METADATA_ITEMS],
-            "rc_supports": CAP_SOURCE_FIELDS in capabilities_from_status(rc_status),
+            # None: RemoteController could not be asked -- never reported as
+            # too old (it may well support fields).
+            "rc_supports": (CAP_SOURCE_FIELDS in capabilities_from_status(rc_status)
+                            if rc_reachable else None),
             "status": doc_fields_status(
                 rc_status, capability=capability,
                 schedule=running.schedule if running else "nightly",
@@ -947,11 +980,13 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         repo = IngestionProfileRepository(gate.connection())
         current = repo.current()
         rc_status: dict[str, Any] = {}
+        rc_reachable = True
         try:
             rc_status = rc_client_factory().status()
         except Exception as exc:  # noqa: BLE001
             logger.warning("RemoteController-Status nicht abrufbar: %s", exc)
             rc_status = {"scheduler_state": "unbekannt"}
+            rc_reachable = False
         groups = []
         try:
             groups = client_factory().access_groups()
@@ -974,7 +1009,8 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             support_json=support_json,
             doc_fields=_doc_fields_context(
                 form, rc_status, current, reupload_paths=reupload_paths,
-                restore_version=restore_version, warnings=field_warnings, notes=field_notes),
+                restore_version=restore_version, warnings=field_warnings, notes=field_notes,
+                rc_reachable=rc_reachable),
             me=gate.current_user(),
             error=error,
             notice=notice,
@@ -1063,8 +1099,9 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         # requested_by rides in the payload so an approved change records
         # the person who asked as the version author, not the approver who
         # clicks. The direct-execute path ignores it (it is the same person).
+        base = IngestionProfileRepository(gate.connection()).current()
         payload = {"profile": profile_to_json(profile), "requested_by": str(me.id),
-                   **_reupload_note(check)}
+                   **_reupload_note(check, base)}
         try:
             outcome = run_guarded(
                 _approvals(), me, kind=KIND, target_ref="ingestion_profile:default",
@@ -1100,7 +1137,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                          restore_version=version)
         me = gate.current_user()
         payload = {"profile": profile_to_json(check.profile), "requested_by": str(me.id),
-                   **_reupload_note(check)}
+                   **_reupload_note(check, repo.current())}
         try:
             outcome = run_guarded(
                 _approvals(), me, kind=KIND, target_ref=f"ingestion_profile:default@v{version}",
@@ -1169,9 +1206,11 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             count = rc_client_factory().requeue_doc_fields(outcome)
         except (RemoteControllerError, PermissionError) as exc:
             return _page(error=f"Erneut senden fehlgeschlagen: {exc}", status=502)
-        audit.record(gate.connection(), action="ingestion.doc_fields_requeued", actor=me,
-                     target_type="remote_controller", target_id="sync",
-                     detail={"outcome": outcome, "requeued": count})
+        audit.record(gate.connection(), actor=me, **requeue_audit(outcome, count))
+        if not count:
+            # Nothing the RemoteController's scan still reaches matched: say
+            # so instead of promising a re-send (spec 3.7).
+            return _page(notice="Keine Dokumente zum erneuten Senden vorgemerkt.")
         return _page(notice=(f"{count} Dokumente zum erneuten Senden vorgemerkt; "
                              "RemoteController sendet sie in den n\u00e4chsten Durchl\u00e4ufen, "
                              "je ein verrechneter Upload."))

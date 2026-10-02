@@ -38,6 +38,7 @@ from doc_fields_view import (
     filter_state,
     find_row,
     is_deadline_field,
+    listing_empty_text,
     listing_notice,
     resolved_chips,
     validate_where,
@@ -655,7 +656,14 @@ def attach_document_routes(
             "filter_state": state,
             "resolved": resolved_chips(where, page.get("where"), registry),
         }
-        if sort is not None and is_deadline_field(registry, sort["field"]):
+        if not documents:
+            # Only a walk Knovas calls complete may say "no document" (H8, H9).
+            empty = listing_empty_text(dict(page, documents=documents,
+                                            next_after=payload["next_after"]))
+            if empty:
+                payload["empty_text"] = empty
+        keys = [(sort or {}).get("field"), *(where or {})]
+        if any(is_deadline_field(registry, k) for k in keys):
             payload["deadline_banner"] = DEADLINE_BANNER
         return jsonify(payload)
 

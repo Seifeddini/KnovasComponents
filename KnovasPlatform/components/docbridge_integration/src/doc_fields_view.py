@@ -57,6 +57,17 @@ METADATA_TARGETS: Dict[str, str] = {
 # Texts the UI shows next to fields (spec 2.4 H9, 4.5). Kept here so the
 # wording is pinned by tests rather than scattered over templates.
 INCOMPLETE_LISTING = "Liste unvollst\u00e4ndig \u2013 Filter eingrenzen"
+# An empty listing whose walk ended at Knovas's scan budget: the documents
+# not yet checked may hold matches, so it never says "no document" (H8, H9).
+EMPTY_INCOMPLETE_LISTING = (
+    "Auf den gepr\u00fcften Dokumenten kein Treffer \u2013 "
+    "Liste unvollst\u00e4ndig, Filter eingrenzen."
+)
+# Under listing_only the rail's values apply to the listing only; a search
+# with a question runs without them, and says so (D2).
+RAIL_NOT_APPLIED_TO_SEARCH = (
+    "Ohne Feldangaben gesucht: sie gelten nur f\u00fcr \u201eListe anzeigen\u201c."
+)
 TITLE_NOT_SEARCHABLE = "Titel wird angezeigt, nicht durchsucht"
 PRIVILEGED_HINT = "Kennzeichnung, keine Zugriffsbeschr\u00e4nkung"
 DEADLINE_BANNER = (
@@ -532,6 +543,22 @@ def listing_notice(page: Any) -> Dict[str, Any]:
     }
 
 
+def listing_empty_text(page: Any) -> Optional[str]:
+    """What an empty listing says once the walk is over (H8, H9).
+
+    None while there is a next page or rows to show. "No visible document
+    meets these filters" only when Knovas says ``complete: true``; any other
+    end -- the scan budget ran out, or no ``complete`` at all -- says that
+    only the checked documents had no match.
+    """
+    page = page if isinstance(page, Mapping) else {}
+    if page.get("documents") or page.get("next_after") is not None:
+        return None
+    if page.get("complete") is True:
+        return _NO_RESULTS["empty_where"]
+    return EMPTY_INCOMPLETE_LISTING
+
+
 _OP_PREFIX = {
     "gt": "nach ", "gte": "ab ", "lt": "vor ", "lte": "bis ",
     "overlaps": "\u00fcberschneidet ", "within": "innerhalb ",
@@ -705,6 +732,19 @@ VALUES_EDIT_REFUSALS = frozenset({"version_conflict", "change_not_authorized",
                                   "anchor_quarantined"})
 AUDIT_OUTCOME_REFUSED = "denied"
 _EDIT_OPS = ("set", "unset", "add", "remove")
+
+
+#: One audit shape for "re-send uploads by field outcome", whichever tab
+#: asked (the Ingestion tab's buttons, the Dokumentfelder tab's offer after a
+#: registry write): each requeued document is a billed upload.
+REQUEUE_AUDIT_ACTION = "ingestion.doc_fields_requeued"
+
+
+def requeue_audit(outcome: str, count: int) -> Dict[str, Any]:
+    """``audit.record`` keywords of a requeue: the outcome and the count the
+    RemoteController reported, never a path."""
+    return {"action": REQUEUE_AUDIT_ACTION, "target_type": "remote_controller",
+            "target_id": "sync", "detail": {"outcome": str(outcome), "requeued": int(count)}}
 
 
 def values_edit_audit_detail(ops: Mapping[str, Any], *, version_from: Any, version_to: Any,

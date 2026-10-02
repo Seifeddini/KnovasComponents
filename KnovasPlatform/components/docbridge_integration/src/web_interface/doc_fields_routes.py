@@ -142,6 +142,20 @@ def capability_now(client: Any) -> Capability:
         return Capability.unknown
 
 
+def _deadline_banner(registry: Optional[List[Dict[str, Any]]], user_key: Any,
+                     keys: Iterable[Any]) -> bool:
+    """Whether a listing over ``keys`` (its sort field and ``where`` keys)
+    carries the deadline banner (H9). Without a registry read the person's
+    last one decides; without any, every listing sorted or filtered by a
+    field may be a Frist listing and carries it."""
+    if registry is None:
+        registry = dfc.last_known_registry(user_key)
+    wanted = [k for k in keys if k not in (None, "pointer")]
+    if registry is None:
+        return bool(wanted)
+    return any(dfv.is_deadline_field(registry, k) for k in wanted)
+
+
 def registry_or_none(client: Any, user_key: Any) -> Optional[List[Dict[str, Any]]]:
     """The person's sanitized registry, or None when Knovas could not give
     it. A feature-off answer is observed, so the capability follows."""
@@ -379,6 +393,10 @@ def document_fields_block(plan: SearchPlan, state: str, echo: Any,
     }
     if state == "partial":
         out["partial_hint"] = PARTIAL_HINT
+    if out["capability"] == Capability.listing_only.value:
+        # The rail's values never go with a search under listing_only; the
+        # browser shows this when the rail holds any (D2: never silently).
+        out["rail_not_applied"] = dfv.RAIL_NOT_APPLIED_TO_SEARCH
     return out
 
 
@@ -813,8 +831,15 @@ def attach(app: Any, *, config: Any, client_factory: Callable[[], Any], identity
         }
         if notice["total_count"] is not None:
             out["total_count"] = notice["total_count"]
+        if not rows:
+            # The empty state comes from here, never from the browser: only a
+            # walk Knovas calls complete may say "no document" (H8, H9).
+            empty = dfv.listing_empty_text(
+                dict(page, documents=rows, next_after=out["next_after"]))
+            if empty:
+                out["empty_text"] = empty
         sort_key = (sort or {}).get("field")
-        if any(dfv.is_deadline_field(registry or [], k) for k in [sort_key, *where]):
+        if _deadline_banner(registry, user_key, [sort_key, *where]):
             # H9: never a deadline control, never "complete" on its own say-so.
             out["deadline_banner"] = dfv.DEADLINE_BANNER
         logger.info("Listing page: rows=%d next=%s complete=%s", len(rows),

@@ -33,7 +33,10 @@ graph routes (the assertion is required, not verified).
 
 Tests reach the state through `app.extensions["knovas_mock"]` (a
 `MockState`): the request log, the documents, seeded values and switches
-for the 403/409 paths. Placeholder names only ("Muster AG", "Beispiel GmbH").
+for the 403/409 paths, and `pointer_in_body = False` for a Knovas release
+before S2 (GET doc-values reads the pointer from the query string only).
+`find` pages by keyset after the cursor's (sort key, pointer), as the
+server does, so an edit between pages never ends a walk early. Placeholder names only ("Muster AG", "Beispiel GmbH").
 """
 
 from __future__ import annotations
@@ -386,6 +389,10 @@ class MockState:
         self.registry_write_allowed = True
         self.relevance_gate_enabled = False
         self.find_scan_budget: Optional[int] = None
+        # False plays a Knovas release before S2: GET doc-values reads the
+        # pointer from the query string only, so a body pointer answers 400
+        # invalid_value, path "pointer".
+        self.pointer_in_body = True
         self.quarantined: set = set()
         self.change_forbidden: set = set()
 
@@ -1409,7 +1416,10 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
         # The pointer is read from the JSON body only (spec S2): a pointer in
         # the query string lands in the gateway's access log, so a client
         # that still sends it there gets 400 invalid_value, path "pointer".
-        pointer = _pointer(body.get("pointer"))
+        # `pointer_in_body=False` plays the release before S2, which reads
+        # the query string only.
+        pointer = _pointer(body.get("pointer") if state.pointer_in_body
+                           else request.args.get("pointer"))
         if not state.known(pointer):
             raise _not_found("Document")
         return _success("Document values", state.values_view(pointer))
@@ -1608,18 +1618,37 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
         rows = []
         if not resolved["empty_visible"]:
             rows = [(sort_value(p), p) for p in state.anchors if state.matches(p, resolved["clauses"])]
-        present = sorted((r for r in rows if r[0] is not None), reverse=order == "desc")
-        rows = present + sorted(r for r in rows if r[0] is None)          # NULLs last
+        descending = order == "desc"
+        # The server's listing order: the sort key NULLS LAST, then the
+        # pointer ascending; a pointer sort orders by the pointer alone.
         if sort_field is None:
-            rows = sorted(rows, key=lambda r: r[1], reverse=order == "desc")
+            rows = sorted(rows, key=lambda r: r[1], reverse=descending)
+        else:
+            present = sorted((r for r in rows if r[0] is not None), key=lambda r: r[1])
+            present.sort(key=lambda r: r[0], reverse=descending)       # stable: pointer asc
+            rows = present + sorted((r for r in rows if r[0] is None), key=lambda r: r[1])
         overflow = state.find_scan_budget is not None and len(rows) > state.find_scan_budget
         if overflow:
             rows = rows[:state.find_scan_budget]
-        start = 0
-        if position is not None:
-            start = next((i + 1 for i, r in enumerate(rows) if r[1] == position[1]), len(rows))
-        page = rows[start:start + limit]
-        more = start + limit < len(rows)
+
+        def beyond(row: Tuple[Optional[str], str]) -> bool:
+            """Keyset paging like the server: the rows strictly after the
+            cursor's (key, pointer) in listing order. The cursor's own
+            document need not match any more (an edit between pages)."""
+            key, pointer = position
+            if sort_field is None:
+                return row[1] < pointer if descending else row[1] > pointer
+            if key is None:
+                return row[0] is None and row[1] > pointer
+            if row[0] is None:
+                return True
+            if row[0] == key:
+                return row[1] > pointer
+            return row[0] < key if descending else row[0] > key
+
+        remaining = rows if position is None else [r for r in rows if beyond(r)]
+        page = remaining[:limit]
+        more = len(remaining) > limit
         next_after = _encode_cursor(token, order, page[-1][0], page[-1][1]) if more and page else None
         wanted = state.wanted_keys(resolved["return_keys"])
         documents = []

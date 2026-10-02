@@ -42,6 +42,30 @@ def capabilities_from_status(status: Any) -> frozenset[str]:
     return frozenset(c for c in raw if isinstance(c, str) and c)
 
 
+def advertised_capabilities(rc_client: Any) -> Optional[frozenset[str]]:
+    """What a RemoteController client advertises; None when it cannot be
+    asked, so an unreachable one is never reported as too old. A client
+    without ``reachable_capabilities`` (an older test double) answers
+    through ``capabilities``."""
+    reachable = getattr(rc_client, "reachable_capabilities", None)
+    if callable(reachable):
+        return reachable()
+    capabilities = getattr(rc_client, "capabilities", None)
+    return frozenset(capabilities() or ()) if callable(capabilities) else frozenset()
+
+
+def requeue_supported(rc_client: Any) -> Optional[bool]:
+    """Whether ``rc_client`` can re-send uploads by field outcome: True when
+    the RemoteController advertises ``fields_requeue_v1``, False for an
+    older one (or none configured), None when it cannot be asked now."""
+    if rc_client is None or not callable(getattr(rc_client, "requeue_doc_fields", None)):
+        return False
+    available = advertised_capabilities(rc_client)
+    if available is None:
+        return None
+    return CAP_FIELDS_REQUEUE in available
+
+
 def required_capabilities(sync_request: Mapping[str, Any]) -> frozenset[str]:
     """What a RemoteController must advertise to accept ``sync_request``.
 

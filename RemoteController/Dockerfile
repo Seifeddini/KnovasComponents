@@ -19,7 +19,7 @@ ARG KNOVAS_EXTRACT_REF=11ec1c38053cbbc914207c9e2f24636cde709617
 # for emit_markdown any more (it cost ~8 s/document and parked mixed PDFs and
 # large-table DOCX through the expansion guard), and the PolyForm-NC
 # pymupdf-layout it pulled in must not be in the customer image (CI asserts
-# `pip show pymupdf-layout` fails once knovas-extract 0.4.0a1 is pinned).
+# `pip show pymupdf-layout` fails in the built image; a failure blocks it).
 ARG KNOVAS_EXTRACT_EXTRAS=pdf,ocr,docx,msg,html,sentences
 RUN python - <<'PY'
 import subprocess

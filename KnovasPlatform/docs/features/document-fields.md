@@ -12,6 +12,19 @@ the Platform asks Knovas what it serves and shows only that. Against a tenant
 without the feature, or an older server, the Platform behaves exactly as
 before: no new UI, and no new keys in its requests.
 
+**Minimum Knovas release.** The field panel, the *Felder* drawer under
+*Dokumente* and every value edit need a Knovas release whose
+`GET /secured/graph/doc-values` reads the document pointer from the JSON body
+(integration change S2; the Platform never puts a pointer in a URL). Against
+an earlier release that has Document Fields, these places say *Knovas-Update
+nötig: der Server liest den Dokumentverweis noch nicht aus dem Anfragekörper*,
+and nothing can be edited; filters and lists are not affected.
+`./scripts/doctor.sh` names this case (`FAIL Dokumentfelder: Knovas-Update
+noetig`). In a BROKERED tenant, entity values sent by RemoteController (for
+example `client`) also need change S1; before it, Knovas refuses such an
+upload with `401 assertion_rejected` and RemoteController indexes the document
+without its fields (`refused:assertion_rejected`).
+
 Design and decisions: [`docs/superpowers/plans/2026-10-02-document-fields-integration.md`](../../../docs/superpowers/plans/2026-10-02-document-fields-integration.md).
 RemoteController side: [`RemoteController/docs/configuration.md`](../../../RemoteController/docs/configuration.md#per-source-document-fields-dokumentfelder).
 Customer one-pager: [`docs/client/document-fields.md`](../../../docs/client/document-fields.md).
@@ -218,6 +231,13 @@ automated tests.
   or query text goes into a log line, an audit entry, a support summary or a
   URL the new code builds. Routes that carry a pointer or a name are POST
   routes with a JSON body.
+- **Known limitation (application logs):** application log lines that predate
+  document fields still name document paths and pointers — opening,
+  downloading and previewing a document, a failed preview or thumbnail, the
+  legacy search (its query text), and RemoteController's upload-failure,
+  partial-OCR and removal lines. Folder names are where path-template values
+  come from, so these lines can carry field values too. Treat the Platform's
+  and RemoteController's container logs as confidential, like the documents.
 - **Access logs carry no URIs**: the bundled nginx and gunicorn log time,
   method, status, size and duration only (`knovas_privacy`); so does the host
   nginx template (`deploy/host-nginx`). Operators lose per-path access logs in
@@ -235,6 +255,7 @@ automated tests.
   `doc_field_rule.saved` / `.retired` (target: the rule id, never the folder),
   `document.values_edited` (target: the document id, never the pointer;
   outcome `ok`, or `denied` with Knovas's code in `detail.code` —
-  `version_conflict`, `change_not_authorized`, `anchor_quarantined`), and the
-  re-send requests `ingestion.doc_fields_requeued` /
-  `doc_fields.requeue_requested`.
+  `version_conflict`, `change_not_authorized`, `anchor_quarantined`), and every
+  re-send request, from the Ingestion tab or the *Dokumentfelder* tab, as
+  `ingestion.doc_fields_requeued` (target `remote_controller` / `sync`, detail
+  `{outcome, requeued}`: each requeued document is a billed upload).

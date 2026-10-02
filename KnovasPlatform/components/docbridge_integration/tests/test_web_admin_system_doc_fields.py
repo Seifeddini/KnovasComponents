@@ -108,8 +108,24 @@ class _RC:
 
 
 class _RCWithCaps(_RC):
+    """A RemoteController whose /sync/status (what health() returns) lists
+    its capabilities, as the real one does."""
+
+    def health(self):
+        return {"capabilities": sorted(self._caps or ())}
+
     def capabilities(self):
         return frozenset(self._caps or ())
+
+
+class _BusyRC(_RCWithCaps):
+    """The ping answered; a second status request would time out."""
+
+    def capabilities(self):
+        raise TimeoutError("RemoteController busy")
+
+    def reachable_capabilities(self):
+        return None
 
 
 class TestRemoteController:
@@ -126,6 +142,14 @@ class TestRemoteController:
         assert check["state"] == "warn"
         assert "nicht unterstuetzt" in check["detail"]
         assert "RemoteController aktualisieren" in check["hint"]
+
+    def test_the_ping_answer_decides_not_a_second_request(self):
+        """platform-admin-ingestion-5: a status request that fails after the
+        ping succeeded never turns a current RC into one "too old"."""
+        rc = _BusyRC({"source_fields_v1", "field_templates_v1"})
+        check = _rc(_collect(FakeDocFieldsApi("values"), rc))
+        assert check["state"] == "ok"
+        assert check["detail"] == "antwortet; Dokumentfelder: source_fields_v1, field_templates_v1"
 
     def test_with_fields_off_an_old_remote_controller_reads_as_before(self):
         check = _rc(_collect(FakeDocFieldsApi("off"), _RCWithCaps(set())))

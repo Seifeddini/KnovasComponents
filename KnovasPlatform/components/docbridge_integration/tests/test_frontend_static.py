@@ -204,3 +204,49 @@ def test_cortex_link_hands_over_without_a_url():
     handoff = _code(_method_body(_source(DOC_FIELDS_JS), "_applyHandoff"))
     assert "removeItem(DocFieldsUI.HANDOFF_KEY)" in handoff
     assert "static HANDOFF_KEY = 'knovas.docFieldsHandoff';" in _source(DOC_FIELDS_JS)
+
+
+def test_an_empty_listing_is_worded_by_the_server():
+    """platform-search-1: the browser never says "no document" on its own; an
+    empty listing shows the server's ``empty_text`` (H8, H9)."""
+    body = _code(_method_body(_source(APP_JS), "displayListing"))
+    assert "NO_RESULTS_TEXTS.empty_where" not in body
+    assert "emptyText ||" in body
+    pages = _code(_method_body(_source(DOC_FIELDS_JS), "_fetchPages"))
+    assert "emptyText: String(data.empty_text || '')" in pages
+    admin = _code(_source(STATIC_JS / "admin_documents.js"))
+    assert "Kein f\u00fcr Sie sichtbares Dokument" not in admin
+    assert "data.empty_text" in admin
+
+
+def test_the_rail_clear_never_leaves_filtered_results_unmarked():
+    """platform-search-2: "Filter entfernen" re-runs a filtered search
+    without its filters, and removes a listing (always filtered)."""
+    source = _source(DOC_FIELDS_JS)
+    assert "addEventListener('click', () => this.clearAndRefresh())" in source
+    body = _code(_method_body(source, "clearAndRefresh"))
+    assert "this.app.performSearch(this.app.currentQuery)" in body
+    assert "this.app.clearResults()" in body
+    assert "this.clearListingState()" in body
+    clear = _code(_method_body(_source(APP_JS), "clearResults"))
+    assert "this.resultsContainer.replaceChildren()" in clear
+    assert "this.resultsSection.style.display = 'none'" in clear
+
+
+def test_a_listing_only_search_says_the_rail_was_not_applied():
+    """platform-search-3: under listing_only the rail's values never go with
+    a search; when it holds any, the server's notice says so."""
+    body = _code(_method_body(_source(DOC_FIELDS_JS), "renderSearchState"))
+    assert "!this.showsFilters && this.showsListing && this.collectWhere()" in body
+    assert "df.rail_not_applied" in body
+
+
+def test_a_refusal_clears_the_listing_texts():
+    """platform-search-5: a refusal replaces the rows; the incomplete notice
+    and the deadline banner of an earlier listing go with them."""
+    refusal = _code(_method_body(_source(APP_JS), "displayRefusal"))
+    assert "this.docFields.clearListingState()" in refusal
+    clear = _code(_method_body(_source(DOC_FIELDS_JS), "clearListingState"))
+    assert "this._listing = null" in clear
+    assert "this._setText(this.listNotice, '')" in clear
+    assert "this._setText(this.banner, '')" in clear

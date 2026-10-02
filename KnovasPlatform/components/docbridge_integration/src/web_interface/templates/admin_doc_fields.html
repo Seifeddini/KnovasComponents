@@ -103,7 +103,7 @@
                         <td>{{ f.origin_label }}{% if f.pack %} <span class="sub">{{ f.pack }}</span>{% endif %}</td>
                         <td class="row-action">
                             {% if not f.deprecated and f.id %}
-                            <details class="field-edit">
+                            <details class="field-edit"{% if f.open %} open{% endif %}>
                                 <summary class="btn-outline compact">Bearbeiten</summary>
                                 <form method="post" class="field-edit-form"
                                       action="{{ url_for('admin.doc_fields_update', field_id=f.id) }}">
@@ -152,7 +152,7 @@
                                         </label>
                                         {% if f.in_use %}
                                         <label class="admin-check confirm-check">
-                                            <input type="checkbox" name="confirm_in_use" value="1" {% if confirm.update == f.id %}autofocus{% endif %}>
+                                            <input type="checkbox" name="confirm_in_use" value="1" {% if confirm['update'] == f.id %}autofocus{% endif %}>
                                             <span>„{{ f.key }}“ {{ texts.in_use_update }} — trotzdem ändern</span>
                                         </label>
                                         {% endif %}
@@ -170,7 +170,7 @@
                                         </p>
                                         {% if f.in_use %}
                                         <label class="admin-check confirm-check">
-                                            <input type="checkbox" name="confirm_in_use" value="1" {% if confirm.deprecate == f.id %}autofocus{% endif %}>
+                                            <input type="checkbox" name="confirm_in_use" value="1" {% if confirm['deprecate'] == f.id %}autofocus{% endif %}>
                                             <span>„{{ f.key }}“ {{ texts.in_use_deprecate }} — trotzdem stilllegen</span>
                                         </label>
                                         {% endif %}
@@ -290,7 +290,7 @@
         <h2>Einstellungen</h2>
         <form method="post" action="{{ url_for('admin.doc_fields_settings') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <fieldset {% if not writable %}disabled{% endif %}>
+            <fieldset {% if not writable or settings_ok is sameas false %}disabled{% endif %}>
                 <label>Upload mit unbekanntem Schlüssel
                     <select name="unknown_keys">
                         {% for value, label in unknown_key_modes %}
@@ -312,7 +312,7 @@
                     {% for k in unknown_profile_keys %}<code>{{ k }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
                 </p>
                 <label class="admin-check confirm-check">
-                    <input type="checkbox" name="confirm_reject" value="1" {% if confirm.reject %}autofocus{% endif %}>
+                    <input type="checkbox" name="confirm_reject" value="1" {% if confirm['reject'] %}autofocus{% endif %}>
                     <span>trotzdem „ablehnen“ speichern</span>
                 </label>
                 {% endif %}

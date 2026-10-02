@@ -789,6 +789,37 @@ class TestFind:
         assert pages[0]["total_count"] is None
         assert pages[-1]["next_after"] is None and pages[-1]["complete"] is False
 
+    @pytest.mark.parametrize("sort", [None, {"field": "pointer", "order": "desc"},
+                                      {"field": "document_date", "order": "asc"},
+                                      {"field": "document_date", "order": "desc"}])
+    def test_an_edit_between_pages_never_ends_the_walk(self, sort):
+        """Keyset paging, as the server does: the next page starts after the
+        cursor's (key, pointer), whether or not that document still matches."""
+        mock = self._mock()
+        extra = {"sort": sort} if sort else {}
+        everything = [d["pointer"] for p in self._walk(mock, where={"doc_type": "invoice"},
+                                                       limit=5, **extra) for d in p["documents"]]
+        status, first = mock.find(where={"doc_type": "invoice"}, limit=2, **extra)
+        assert status == 200
+        edited = first["documents"][-1]["pointer"]
+        assert mock.patch(pointer=edited, if_version=1, set={"doc_type": "memo"})[0] == 200
+        rest, after = [], first["next_after"]
+        while after:
+            status, page = mock.find(where={"doc_type": "invoice"}, limit=2, after=after, **extra)
+            assert status == 200
+            rest += [d["pointer"] for d in page["documents"]]
+            after = page["next_after"]
+        assert page["complete"] is True
+        assert rest == everything[2:], "the remaining matches, in order"
+
+    def test_a_deleted_cursor_document_never_ends_the_walk(self):
+        mock = self._mock()
+        status, first = mock.find(where={"doc_type": "invoice"}, limit=2)
+        mock.state.anchors.pop(first["documents"][-1]["pointer"])
+        status, page = mock.find(where={"doc_type": "invoice"}, limit=5, after=first["next_after"])
+        assert [d["pointer"].rsplit("_", 1)[1] for d in page["documents"]] == ["2.pdf", "3.pdf", "4.pdf"]
+        assert page["complete"] is True
+
     @pytest.mark.parametrize("body,code,path", [
         ({"after": "bm90LWEtY3Vyc29y"}, "invalid_cursor", "after"),
         ({"after": 7}, "invalid_cursor", "after"),
@@ -854,6 +885,17 @@ class TestBrokered:
         assert mock.query(Input="lease")[0] == 401
         assert mock.query(Input="lease", principal_assertion="jws")[0] == 200
         assert mock.call("GET", "/secured/graph/doc-fields")[0] == 401
+
+    def test_a_server_before_s2_reads_the_pointer_from_the_query_string_only(self):
+        mock = Mock(doc_fields="values")
+        mock.state.stored_pointers.add(POINTER)
+        mock.state.pointer_in_body = False
+        status, body = mock.values()
+        assert (status, body["error_code"], body["path"]) == (400, "invalid_value", "pointer")
+        status, _ = mock.call("GET", "/secured/graph/doc-values", query_string={"pointer": POINTER})
+        assert status == 200
+        mock.state.pointer_in_body = True
+        assert mock.values()[0] == 200
 
     def test_probe_order(self):
         # find checks the where gate before the principal: an unasserted

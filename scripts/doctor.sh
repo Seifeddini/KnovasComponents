@@ -596,12 +596,14 @@ else:
 # Platform sends -- POST find with an empty body -- which is never billed
 # (billing follows success, and {} never succeeds) and changes nothing. Only
 # the status and the error code are printed. doctor sends no person's
-# assertion, so a 401 means the "where" gate already passed: filters on, in a
-# BROKERED tenant. Whether search filters are calibrated cannot be probed;
-# the first filtered search says so.
-def probe_doc_fields():
+# assertion, so a 401 assertion_rejected means the "where" gate already
+# passed: filters on, in a BROKERED tenant. Any other 401 or 403 comes from
+# the certificate check, before any gate, and says nothing about the state.
+# Whether search filters are calibrated cannot be probed; the first filtered
+# search says so.
+def probe_doc_fields(path, method, payload):
     req = urllib.request.Request(
-        base + "/secured/graph/doc-values/find", data=b"{}", method="POST",
+        base + path, data=payload, method=method,
         headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
@@ -611,27 +613,60 @@ def probe_doc_fields():
     except Exception:
         return None, b""
 
-code, body = probe_doc_fields()
-try:
-    answer = json.loads(body or b"{}")
-except ValueError:
-    answer = None
-answer = answer if isinstance(answer, dict) else {}
+def answer_of(body):
+    try:
+        answer = json.loads(body or b"{}")
+    except ValueError:
+        answer = None
+    return answer if isinstance(answer, dict) else {}
+
+def seen_of(code, error_code):
+    return f"HTTP {code}" + (f", error_code {error_code}" if isinstance(error_code, str) else "")
+
+code, body = probe_doc_fields("/secured/graph/doc-values/find", "POST", b"{}")
+answer = answer_of(body)
 error_code = answer.get("error_code")
-seen = f"HTTP {code}" + (f", error_code {error_code}" if isinstance(error_code, str) else "")
+seen = seen_of(code, error_code)
+values_on = False
 if code == 404 and error_code not in ("NOT_FOUND", "pack_not_found"):
     print(f"   info  Dokumentfelder: aus ({seen}) -- not enabled for this tenant at Knovas,")
     print("         or the server predates them. The Platform shows no document-field UI.")
 elif code == 400 and error_code == "where_unsupported":
+    values_on = True
     print(f"   info  Dokumentfelder: Werte, ohne Liste und Filter ({seen})")
 elif code == 400 and error_code == "invalid_value" and answer.get("path") == "where":
+    values_on = True
     print(f"     OK  Dokumentfelder: Werte, Liste und Filter ({seen})")
     print("         Whether search filters are calibrated cannot be probed; the first filtered")
     print("         search says so (System tab: 'Kalibrierung bei Knovas fehlt').")
-elif code == 401:
+elif code == 401 and error_code == "assertion_rejected":
     print(f"     OK  Dokumentfelder: Filter an (BROKERED-Mandant; {seen})")
+    print("         Whether the server reads the document pointer from the request body")
+    print("         cannot be probed without a person's assertion.")
+elif code in (401, 403):
+    print(f"   WARN  Dokumentfelder: state unknown -- certificate or authentication refused ({seen})")
 else:
     print(f"   WARN  Dokumentfelder: state unknown ({seen})")
+
+# The field panel and every value edit need a Knovas release that reads the
+# document pointer of GET doc-values from the JSON body (the Platform never
+# puts it in the URL). An older one answers 400 invalid_value path=pointer,
+# and the Platform shows "Knovas-Update noetig". The probe asks for a pointer
+# that does not exist: a current server answers 404 and bills nothing.
+if values_on:
+    code, body = probe_doc_fields("/secured/graph/doc-values", "GET",
+                                  json.dumps({"pointer": "doctor-probe/none"}).encode())
+    answer = answer_of(body)
+    error_code = answer.get("error_code")
+    seen = seen_of(code, error_code)
+    if code == 400 and error_code == "invalid_value" and answer.get("path") == "pointer":
+        print(f"   FAIL  Dokumentfelder: Knovas-Update noetig ({seen}) -- the server reads the")
+        print("         document pointer only from the URL; the field panel and value edits")
+        print("         answer 'Knovas-Update noetig' until Knovas is updated.")
+    elif code == 404:
+        print(f"     OK  Dokumentfelder: the server reads the document pointer from the body ({seen})")
+    else:
+        print(f"   WARN  Dokumentfelder: field panel state unknown ({seen})")
 
 # The graph probe below is about Cortex; with Cortex switched off its state
 # cannot affect the firm, so it is not probed. (Dokumentfelder were probed

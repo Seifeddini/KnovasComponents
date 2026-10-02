@@ -17,7 +17,7 @@ from sync.sync_scheduler import (
     start_continuous,
     stop_continuous,
 )
-from util.schema import validate
+from util.schema import validate, validate_sync_request
 
 sync_control_bp = Blueprint("sync_control", __name__)
 
@@ -39,14 +39,18 @@ def _apply_decorators(func):
 @_apply_decorators
 def sync_start():
     body = request.get_json(silent=True) if request.is_json else None
-    if not body:
+    stored = not body
+    if stored:
         # No body, or an empty {} -- the Platform console starts with what it
         # stored via POST /sync/body; an employee may do the same after POST /sync.
         body = load_last_sync_body()
     if not body:
         return jsonify({"error": "No sync body available", "status": "error"}), 400
 
-    errors = validate(body, "sync_request.schema.json")
+    # A body sent with the request must have templates that compile. A body
+    # stored before this check still starts: a bad template skips only its
+    # own source per cycle (reported in /sync/status), never all of them.
+    errors = validate(body, "sync_request.schema.json") if stored else validate_sync_request(body)
     if errors:
         return jsonify({"error": errors[0], "status": "error"}), 400
 

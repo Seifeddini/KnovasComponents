@@ -579,7 +579,12 @@
         } else {
           more.hidden = true;
           if (!rowsEl.children.length) {
-            parts.push('Kein für Sie sichtbares Dokument erfüllt diese Filter.');
+            // The server words the empty state: "no document" only when
+            // Knovas called the walk complete (H8, H9).
+            if (data.empty_text) {
+              parts = parts.filter(function (part) { return part !== notice.text; });
+            }
+            parts.push(data.empty_text || 'Kein Dokument angezeigt.');
           }
         }
         statusEl.textContent = parts.join(' – ');

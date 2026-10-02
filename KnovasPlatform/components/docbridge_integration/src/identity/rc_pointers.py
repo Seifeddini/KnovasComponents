@@ -44,9 +44,13 @@ def _norm(path: object) -> str:
     A UNC root (``\\\\server\\share``) keeps its two leading slashes; that is
     what ``posixpath.normpath`` does with exactly two, and it is what tells
     ``//server/share`` from ``/server/share``.
+
+    Whitespace is kept: a folder name may end in a space, and RemoteController
+    keeps it in the pointer (``relative_to(...).as_posix()``). Only an
+    all-blank path is no path.
     """
-    text = str(path or "").strip().replace("\\", "/")
-    if not text:
+    text = str(path or "").replace("\\", "/")
+    if not text.strip():
         return ""
     normed = posixpath.normpath(text)
     return "" if normed == "." else normed.rstrip("/") or "/"

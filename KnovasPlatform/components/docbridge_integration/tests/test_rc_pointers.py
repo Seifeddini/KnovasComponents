@@ -113,3 +113,15 @@ def test_prefix_depth_counts_segments_only():
 def test_module_is_ascii_only():
     source = pathlib.Path(__file__).resolve().parents[1] / "src" / "identity" / "rc_pointers.py"
     assert source.read_bytes().isascii()
+
+
+def test_a_folder_name_ending_in_a_space_keeps_it():
+    """platform-admin-ingestion-7: RemoteController keeps the space in every
+    pointer (``relative_to(...).as_posix()``), so the rule prefix must too --
+    stripped, it would miss the folder and hit a sibling without the space."""
+    prefix, _ = prefix_for_folder("kanzlei", ["/data/corpus"], "/data/corpus/Muster AG ")
+    assert prefix == "kanzlei/Muster AG /"
+    assert "kanzlei/Muster AG /x.pdf".startswith(prefix)
+    assert not "kanzlei/Muster AG/y.pdf".startswith(prefix)
+    assert relative_folder("/data/corpus", "/data/corpus/ Beispiel GmbH") == " Beispiel GmbH"
+    assert relative_folder("   ", "/data/corpus") is None

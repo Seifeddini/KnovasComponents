@@ -26,7 +26,7 @@ from identity.approvals import (
     SelfApprovalError,
     UnknownRequestError,
 )
-from identity.ingestion_compiler import field_config_counts
+from identity.ingestion_compiler import ProfileError, field_config_counts
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +191,12 @@ def attach_approval_routes(
             ), None
         try:
             result = dict(execute(req.payload, me) or {})
+        except ProfileError as exc:
+            # The change no longer fits the current profile (stale): a retry
+            # would fail the same way, so the person reads why.
+            logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id,
+                           type(exc).__name__)
+            return None, f"Freigegeben, aber nicht ausgefuehrt: {exc}"
         except Exception as exc:  # noqa: BLE001 - surfaced, the request stays approved
             logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id, exc)
             return None, (

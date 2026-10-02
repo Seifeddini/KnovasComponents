@@ -54,3 +54,15 @@ def validate(data: Any, schema_file: str) -> list[str]:
     validator = _load_validator(schema_file)
     errors = sorted(validator.iter_errors(data), key=lambda e: e.path)
     return [_message(e) for e in errors]
+
+
+def validate_sync_request(body: Any) -> list[str]:
+    """A sync body as /sync, /sync/body and /sync/start take it: the schema
+    first, then every field template must compile (the schema only bounds
+    their length)."""
+    errors = validate(body, "sync_request.schema.json")
+    if errors:
+        return errors
+    from sync.field_templates import sync_body_template_errors
+
+    return sync_body_template_errors(body)

@@ -38,6 +38,13 @@ _idle_scan_multiplier: int = 1
 _last_doc_fields: Optional[DocFieldsCycle] = None
 _last_fields_changed: Optional[int] = None
 _fields_requeued_since_scan = 0
+# The server's answer in the latest cycle that got one (``accepted`` /
+# ``not_accepted``): an idle cycle sends nothing and must not make it unknown.
+_last_fields_answer: Optional[str] = None
+# Requeue candidates the last cycle's scan reached; the requeue endpoint
+# queues only these (None until a cycle ran: then it is not scoped). In
+# memory only, never reported.
+_requeue_reachable: Optional[frozenset] = None
 _doc_fields_lock = threading.Lock()
 
 #: What this RemoteController understands in a sync body, read by the
@@ -151,21 +158,37 @@ def _set_status(status: str) -> None:
     _current_status = status
 
 
-def _server_accepts_fields(last: Optional[DocFieldsCycle], counts: dict[str, int]) -> str:
+def _cycle_answer(cycle: Optional[DocFieldsCycle]) -> Optional[str]:
+    """What the server's answers in one cycle say, None without answers. A
+    refusal comes from the server's fields path, so it shows the feature is
+    on; only an answer without an echo is ``not_accepted``."""
+    if cycle is None:
+        return None
+    seen_on = (
+        cycle.outcomes.get("staged", 0) + cycle.outcomes.get("cleared", 0) + sum(cycle.refused.values())
+    )
+    if seen_on:
+        return "accepted"
+    if cycle.outcomes.get("not_accepted", 0):
+        return "not_accepted"
+    return None
+
+
+def _server_accepts_fields(
+    last: Optional[DocFieldsCycle], counts: dict[str, int], latest_answer: Optional[str] = None
+) -> str:
     """``accepted`` / ``not_accepted`` / ``unknown`` (spec 2.3): the last
-    cycle's answers first, then the stored outcomes. A refusal comes from the
-    server's fields path, so it shows the feature is on; only an answer
-    without an echo is ``not_accepted`` (H7: never reported as stored)."""
-    if last is not None:
-        seen_on = (
-            last.outcomes.get("staged", 0) + last.outcomes.get("cleared", 0) + sum(last.refused.values())
-        )
-        if seen_on:
-            return "accepted"
-        if last.outcomes.get("not_accepted", 0):
-            return "not_accepted"
+    cycle's answers first, then the latest cycle that got answers, then the
+    stored outcomes (H7: an answer without an echo is never reported as
+    stored). A ``not_accepted`` row already queued for re-sending is an old
+    answer and does not contradict rows the server accepted."""
+    answer = _cycle_answer(last) or latest_answer
+    if answer is not None:
+        return answer
     accepted = counts.get("accepted", 0) + counts.get("refused", 0)
     not_accepted = counts.get("not_accepted", 0)
+    if accepted:
+        not_accepted -= counts.get("not_accepted_requeued", 0)
     if accepted and not not_accepted:
         return "accepted"
     if not_accepted and not accepted:
@@ -177,8 +200,10 @@ def doc_fields_status() -> dict[str, Any]:
     """The ``doc_fields`` block of GET /sync/status: keys, codes and counts.
 
     ``pending_reupload`` is an estimate for the Platform's ETA: what the last
-    scan found ``fields_changed`` and the cycle did not finish, or the rows
-    re-queued since, whichever is larger.
+    scan found ``fields_changed`` and the cycle did not finish, plus the rows
+    re-queued since. Only before the first cycle (after a restart) do the
+    stored re-queued rows stand in for it: a row the scan never reaches again
+    must not be promised a re-send forever.
     """
     from sync.sync_state import SyncStateStore
 
@@ -191,15 +216,16 @@ def doc_fields_status() -> dict[str, Any]:
         last = _last_doc_fields
         changed = _last_fields_changed
         requeued_since = _fields_requeued_since_scan
-    remaining = 0
+        latest_answer = _last_fields_answer
     if last is not None and changed is not None:
-        remaining = max(0, changed - last.reuploads_done)
-    pending = max(remaining + requeued_since, counts.get("requeued", 0))
+        pending = max(0, changed - last.reuploads_done) + requeued_since
+    else:
+        pending = max(requeued_since, counts.get("requeued", 0))
     empty = DocFieldsCycle()
     cycle = last or empty
     return {
         "enabled": doc_fields_enabled(),
-        "server": _server_accepts_fields(last, counts),
+        "server": _server_accepts_fields(last, counts, latest_answer),
         "per_cycle": fields_reupload_per_cycle(),
         "documents": {
             "with_fields": counts.get("with_fields", 0),
@@ -223,9 +249,11 @@ def requeue_doc_fields(outcome: str) -> int:
     global _fields_requeued_since_scan
     from sync.sync_state import SyncStateStore
 
+    with _doc_fields_lock:
+        reachable = _requeue_reachable
     store = SyncStateStore()
     try:
-        count = store.requeue_fields(outcome)
+        count = store.requeue_fields(outcome, reachable)
     finally:
         store.close()
     with _doc_fields_lock:
@@ -354,6 +382,7 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
 
 def _remember_doc_fields(result: SyncRunResult) -> None:
     global _last_doc_fields, _last_fields_changed, _fields_requeued_since_scan
+    global _last_fields_answer, _requeue_reachable
     if result.doc_fields is None:
         return
     with _doc_fields_lock:
@@ -363,6 +392,9 @@ def _remember_doc_fields(result: SyncRunResult) -> None:
         )
         # Rows re-queued during the cycle came after its scan.
         _fields_requeued_since_scan = result.doc_fields.requeued
+        _last_fields_answer = _cycle_answer(result.doc_fields) or _last_fields_answer
+        if result.requeue_reachable is not None:
+            _requeue_reachable = result.requeue_reachable
 
 
 def _pending_work(result: SyncRunResult) -> int:

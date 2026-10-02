@@ -105,6 +105,65 @@ class TestSyncBody:
         assert start.call_count == 1
         assert start.call_args[0][0].sync_body == SYNC_BODY
 
+    @pytest.mark.parametrize("route", ["/sync/body", "/sync", "/sync/start"])
+    def test_a_template_that_does_not_compile_is_refused(self, rc_client, auth_headers,
+                                                         as_employee, tmp_path, monkeypatch,
+                                                         route):
+        """A stored body whose template RemoteController cannot compile
+        would skip its whole source every cycle -- no new file of it is
+        indexed. The routes refuse it, naming the JSON path and the code,
+        never the template."""
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        from sync.sync_scheduler import load_last_sync_body
+
+        good = {**SYNC_BODY["sources"][0], "field_templates": ["{mandant}/**"]}
+        bad = {**SYNC_BODY["sources"][0], "field_templates": ["{mandant}/**", "{Muster_AG}/**"]}
+        body = {**SYNC_BODY, "sources": [good, bad]}
+        with patch("routes.sync.run_one_time") as run_once, \
+             patch("routes.sync.start_continuous") as start, \
+             patch("routes.sync_control.start_continuous") as start_control:
+            resp = rc_client.post(route, json=body, headers=auth_headers)
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "$.sources[1].field_templates[1]: field_template_invalid (syntax)"
+        assert "Muster" not in resp.get_data(as_text=True)
+        assert run_once.call_count == start.call_count == start_control.call_count == 0
+        assert load_last_sync_body() is None
+
+    def test_templates_that_compile_are_stored(self, rc_client, auth_headers, as_employee,
+                                               tmp_path, monkeypatch):
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        body = {**SYNC_BODY, "sources": [{**SYNC_BODY["sources"][0],
+                                          "field_templates": ["*/{mandant}/{period}/**"]}]}
+        resp = rc_client.post("/sync/body", json=body, headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+
+    def test_start_with_a_stored_body_is_not_blocked_by_its_templates(
+        self, rc_client, auth_headers, as_employee, tmp_path, monkeypatch
+    ):
+        """A body stored before the check still starts: a bad template skips
+        only its own source per cycle, never every source."""
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        from sync.sync_scheduler import save_last_sync_body
+
+        body = {**SYNC_BODY, "sources": [{**SYNC_BODY["sources"][0], "field_templates": ["{A}"]}]}
+        save_last_sync_body(body)
+        with patch("routes.sync_control.start_continuous", return_value="running") as start:
+            resp = rc_client.post("/sync/start", json={}, headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+        assert start.call_count == 1
+
     def test_start_without_any_stored_body_is_still_a_400(self, rc_client, auth_headers,
                                                           as_employee, tmp_path, monkeypatch):
         monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))

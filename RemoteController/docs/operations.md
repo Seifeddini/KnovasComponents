@@ -92,7 +92,7 @@ Configuration and costs: [configuration.md](configuration.md#per-source-document
 
 - `capabilities` tells the Platform which sync-body keys this RemoteController understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("RemoteController zu alt").
 - `enabled` is `RC_DOC_FIELDS`. `server` is `accepted` once an answer carried the fields echo (or a fields refusal, which also shows the feature is on), `not_accepted` when fields were sent and no echo came back (feature off at Knovas, or an older server), `unknown` before either. "Not accepted" never means "stored".
-- `documents.pending_reupload` estimates the documents still to be re-sent (`fields_changed` from the last scan not yet done, or requeued since). `refused`, `not_accepted` and `reupload_failed` are the stored outcomes.
+- `documents.pending_reupload` estimates the documents still to be re-sent: `fields_changed` from the last scan not yet done, plus those requeued since (before the first cycle after a start, the stored requeued rows). `refused`, `not_accepted` and `reupload_failed` are the stored outcomes. `server` follows the latest cycle that got an answer, so idle cycles do not turn it back to `unknown`.
 - `unknown_keys` / `suggest` hold registry keys only (at most 20, from the last cycle): a configured key Knovas does not know, and the keys it suggests instead.
 - `document_sync.fields_changed` (also in `?live=1`) counts files whose content is synced but whose field configuration changed.
 
@@ -109,7 +109,7 @@ curl -sS -X POST "$RC_BASE/sync/doc-fields/requeue" \
 # {"requeued": 140}
 ```
 
-`outcome` is `not_accepted`, `refused`, `reupload_failed` or `all`; anything else is a 400. The matching documents become `fields_changed` and are re-sent within `RC_FIELDS_REUPLOAD_PER_CYCLE` per cycle; a running worker starts its next cycle at once. Same authorization as `/sync/start` (the Platform's Ingestion tab offers it as *Erneut senden*). **Each re-sent document is a full, billed upload with a fresh extraction and OCR** — see [configuration.md](configuration.md#re-uploads-and-what-they-cost). Documents recorded `not_accepted` are queued automatically the first time Knovas answers with an echo.
+`outcome` is `not_accepted`, `refused`, `reupload_failed` or `all`; anything else is a 400. The matching documents the last cycle's scan reached become `fields_changed` and are re-sent within `RC_FIELDS_REUPLOAD_PER_CYCLE` per cycle (a document no scan visits again — a completed subfolder of a sequential import, a removed file kept by `delete_on_remove: false` — is not queued and keeps its outcome; before the first cycle after a start the request is not limited); a running worker starts its next cycle at once. Same authorization as `/sync/start` (the Platform's Ingestion tab offers it as *Erneut senden*). **Each re-sent document is a full, billed upload with a fresh extraction and OCR** — see [configuration.md](configuration.md#re-uploads-and-what-they-cost). Documents recorded `not_accepted` are queued automatically the first time Knovas answers with an echo (those that cycle's scan reached). A fields re-send that keeps failing never counts toward the extraction retries of `RC_EXTRACT_MAX_RETRIES`: Knovas already holds its text, so it is not recorded partial and leaves the queue as `reupload_failed:extract`.
 
 ### Metrics
 

@@ -226,6 +226,100 @@ class TestPagingAndTheNotice:
         assert "deadline_banner" not in plain
 
 
+class TestEmptyListingHonesty:
+    """platform-search-1: an empty listing says "no document" only when
+    Knovas called the walk complete; one that ran out of scan budget says
+    only the checked documents had no match (H8, H9)."""
+
+    def test_an_exhausted_walk_with_no_rows_never_says_no_document(self, listing,
+                                                                    identity_repo):
+        app, api = listing
+        api.find_budget_exhausted = True
+        client = signed_in(app, identity_repo, role="member")
+        body = find(client, {"doc_type": "nonexistent_code_zz"}).get_json()
+        assert body["documents"] == [] and body["next_after"] is None
+        assert body["complete"] is False and body["notice"]["incomplete"] is True
+        assert body["empty_text"] == dfv.EMPTY_INCOMPLETE_LISTING
+        assert body["empty_text"] != dfv._NO_RESULTS["empty_where"]
+
+    def test_a_complete_walk_with_no_rows_says_no_document(self, listing, identity_repo):
+        app, api = listing
+        client = signed_in(app, identity_repo, role="member")
+        body = find(client, {"doc_type": "nonexistent_code_zz"}).get_json()
+        assert body["complete"] is True
+        assert body["empty_text"] == dfv._NO_RESULTS["empty_where"]
+
+    def test_rows_or_a_successor_carry_no_empty_text(self, listing, identity_repo):
+        app, api = listing
+        client = signed_in(app, identity_repo, role="member")
+        assert "empty_text" not in find(client, {"doc_type": "invoice"}).get_json()
+        api.scripted_pages = [
+            {"documents": [], "next_after": "c1", "complete": False, "total_count": 2,
+             "where": {"applied": True, "clauses": 1, "resolved": []}},
+        ]
+        assert "empty_text" not in find(client, {"doc_type": "invoice"}).get_json()
+
+    @pytest.mark.parametrize("page, expected", [
+        ({"documents": [], "next_after": None, "complete": True}, "empty_where"),
+        ({"documents": [], "next_after": None, "complete": False}, "incomplete"),
+        ({"documents": [], "next_after": None}, "incomplete"),
+        ({"documents": [], "next_after": "c"}, None),
+        ({"documents": [{"pointer": "p"}], "next_after": None, "complete": True}, None),
+    ])
+    def test_the_truth_table(self, page, expected):
+        texts = {"empty_where": dfv._NO_RESULTS["empty_where"],
+                 "incomplete": dfv.EMPTY_INCOMPLETE_LISTING, None: None}
+        assert dfv.listing_empty_text(page) == texts[expected]
+
+
+class TestDeadlineBannerWithoutRegistry:
+    """platform-search-4: a failed registry read never drops the H9 banner."""
+
+    @pytest.fixture
+    def with_deadline(self, listing):
+        app, api = listing
+        api.registry.append(field_def("deadline", "date", "Frist", display=True,
+                                      date_role="due", pack="legal_ch"))
+        return app, api
+
+    @pytest.mark.parametrize("status", [429, 503, 500])
+    def test_the_last_registry_decides(self, with_deadline, identity_repo, status,
+                                       monkeypatch):
+        import time
+
+        import doc_fields_capability as dfc
+
+        app, api = with_deadline
+        client = signed_in(app, identity_repo, role="member")
+        assert find(client, {"doc_type": "invoice"},
+                    sort={"field": "deadline", "order": "asc"}).get_json()["deadline_banner"]
+        later = time.monotonic() + 10_000
+        monkeypatch.setattr(dfc, "_now", lambda: later)   # the cached registry expired
+        api.fail_call("doc_fields", status)
+        body = find(client, {"doc_type": "invoice"},
+                    sort={"field": "deadline", "order": "asc"}).get_json()
+        assert body["document_fields"]["fields_unavailable"] is True
+        assert body["deadline_banner"] == dfv.DEADLINE_BANNER
+        api.fail_call("doc_fields", status)
+        filtered = find(client, {"deadline": {"gte": "01.10.2026"}}).get_json()
+        assert filtered["deadline_banner"] == dfv.DEADLINE_BANNER
+        api.fail_call("doc_fields", status)
+        plain = find(client, {"doc_type": "invoice"}).get_json()
+        assert "deadline_banner" not in plain, "the last registry knows doc_type"
+
+    def test_without_any_registry_every_field_listing_carries_it(self, with_deadline,
+                                                                  identity_repo):
+        import doc_fields_capability as dfc
+
+        app, api = with_deadline
+        client = signed_in(app, identity_repo, role="member")
+        dfc.invalidate()
+        api.fail_call("doc_fields", 503)
+        body = find(client, {"doc_type": "invoice"}).get_json()
+        assert body["document_fields"]["fields_unavailable"] is True
+        assert body["deadline_banner"] == dfv.DEADLINE_BANNER
+
+
 class TestRefusals:
     @pytest.mark.parametrize("status, code, details, browser_status, browser_code", [
         (400, "unknown_field", {"path": "where.mandnt", "suggest": ["mandant"]},

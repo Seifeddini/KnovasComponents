@@ -130,6 +130,10 @@ class SyncRunResult:
     #: Knovas document fields of this run (codes and counts); None while
     #: RC_DOC_FIELDS is off.
     doc_fields: Optional["DocFieldsCycle"] = None
+    #: Paths the requeue endpoint may queue until the next cycle: requeue
+    #: candidates this cycle's scan reached. In memory only -- never part of
+    #: a response, a status or a log line. None while RC_DOC_FIELDS is off.
+    requeue_reachable: Optional[frozenset] = field(default=None, repr=False)
 
 
 #: At most this many unknown keys / suggestions are kept per cycle.
@@ -729,7 +733,9 @@ def record_upload_outcome(
     fields columns of existing rows are updated. A ``retry`` records
     nothing, but for a ``fields_changed`` re-upload (``fields_reupload``) it
     counts an attempt, and at the cap the document leaves the queue as
-    ``reupload_failed:<class>``.
+    ``reupload_failed:<class>``. Such a re-upload never touches the
+    extraction retry counter and is never recorded partial for exhausted
+    retries: its text is already complete at Knovas.
     """
     incremental = mode == "incremental"
     fields_on = digest is not None
@@ -778,12 +784,21 @@ def record_upload_outcome(
         if fields_reupload and stats is not None:
             stats.reuploads_done += 1
         return "skipped"
-    if _is_server_side_error(error):
-        if fields_reupload and fields_on:
+    if fields_reupload:
+        # A ``fields_changed`` re-upload: the fingerprint is unchanged and
+        # Knovas already holds the document's text, so a failure here is no
+        # content failure. It never counts toward MAX_EXTRACT_RETRIES and
+        # never records the file partial (the backfill would re-send an
+        # intact document with OCR off, and the document would leave the
+        # queue as ``none``): only the fields attempts count, and at the cap
+        # the document leaves the queue as ``reupload_failed:<class>``.
+        if fields_on:
             if _count_reupload_failure(
                 state, relative_path, digest, _reupload_failure_class(error), stats
             ) and stats is not None:
                 stats.reuploads_done += 1
+        return "retry"
+    if _is_server_side_error(error):
         return "retry"
     attempts = state.increment_retry_count(relative_path, error=error)
     ocr_metrics.EXTRACT_RETRIES.inc()
@@ -797,14 +812,7 @@ def record_upload_outcome(
             fields=FieldsRecord(digest, OUTCOME_NONE) if fields_on else None,
         )
         ocr_metrics.OCR_PARTIAL.inc()
-        if fields_reupload and stats is not None:
-            stats.reuploads_done += 1
         return "partial"
-    if fields_reupload and fields_on:
-        if _count_reupload_failure(
-            state, relative_path, digest, _reupload_failure_class(error), stats
-        ) and stats is not None:
-            stats.reuploads_done += 1
     return "retry"
 
 
@@ -1370,9 +1378,13 @@ def run_sync_work(
                 # The server takes fields now: documents it ignored them for
                 # come back within the per-cycle bound (spec 2.3). Once per
                 # cycle, so an inconsistent server cannot loop a document.
+                # Only documents this cycle's scan reached: a row the scan
+                # never visits again (a completed sequential subfolder, a
+                # removed file kept tracked) would wait for good and be
+                # reported as pending forever.
                 requeue_checked = True
-                if state.count_fields_requeue_candidates(OUTCOME_NOT_ACCEPTED):
-                    stats.requeued += state.requeue_fields(OUTCOME_NOT_ACCEPTED)
+                if state.count_fields_requeue_candidates(OUTCOME_NOT_ACCEPTED, plan.scanned_paths):
+                    stats.requeued += state.requeue_fields(OUTCOME_NOT_ACCEPTED, plan.scanned_paths)
                     logger.info("doc_fields requeued=%d outcome=not_accepted", stats.requeued)
             tx_entry: dict[str, Any]
             if upload.status == "ok":
@@ -1411,6 +1423,14 @@ def run_sync_work(
                 result.transmissions_truncated = True
             else:
                 result.transmissions.append(tx_entry)
+
+        if stats is not None:
+            # What a requeue request may queue until the next cycle: a row
+            # this scan did not reach would wait for good (spec 3.7).
+            result.requeue_reachable = frozenset(
+                path for path in state.fields_requeue_candidate_paths()
+                if path in plan.scanned_paths
+            )
 
         can_prune = (
             _delete_on_remove_enabled(sync_body)

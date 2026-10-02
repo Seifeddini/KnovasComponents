@@ -235,6 +235,23 @@ class TestRoutesOnTheMock:
         })
         assert stale.status_code == 409 and stale.get_json()["error_code"] == "version_conflict"
 
+    def test_a_knovas_release_before_s2_says_update(self, platform_db, tmp_path, monkeypatch,
+                                                     identity_repo):
+        """The shipped server before S2 reads the GET doc-values pointer from
+        the query string only. The Platform never moves it there: the panel
+        says "Knovas-Update noetig" and nothing can be edited."""
+        app, state = _app_on_mock(platform_db, tmp_path, monkeypatch, "values")
+        state.pointer_in_body = False
+        client = signed_in(app, identity_repo, role="admin")
+        assert client.post("/api/search", json={"query": "lease"}).status_code == 200
+        answer = client.post("/api/document-fields/read", json={"doc_id": "demo-001"})
+        assert answer.status_code == 502
+        assert answer.get_json()["error_code"] == "knovas_update_needed"
+        reads = [r for r in state.requests
+                 if r["method"] == "GET" and r["path"] == "/secured/graph/doc-values"]
+        assert len(reads) == 1 and reads[0]["query"] == {}, "never retried with a URL pointer"
+        assert not [r for r in state.requests if r["method"] == "PATCH"]
+
     def test_filters_search_and_listing(self, platform_db, tmp_path, monkeypatch,
                                         identity_repo):
         app, state = _app_on_mock(platform_db, tmp_path, monkeypatch, "filters")

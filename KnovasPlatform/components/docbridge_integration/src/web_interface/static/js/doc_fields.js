@@ -56,10 +56,7 @@ class DocFieldsUI {
 
         if (this.listButton) this.listButton.addEventListener('click', () => this.showListing());
         if (this.clearButton) {
-            this.clearButton.addEventListener('click', () => {
-                this.clearFilters();
-                this._renderChips([]);
-            });
+            this.clearButton.addEventListener('click', () => this.clearAndRefresh());
         }
         this.ready = this.load();
     }
@@ -305,6 +302,30 @@ class DocFieldsUI {
         this._writeControls({});
     }
 
+    /**
+     * "Filter entfernen" der Leiste: gefilterte Treffer duerfen nicht als
+     * ungefilterte stehen bleiben. Eine gefilterte Suche laeuft ohne Filter
+     * neu; eine Liste (immer gefiltert) verschwindet.
+     */
+    clearAndRefresh() {
+        const filtered = !!(this.understood && !this.understood.hidden);
+        this.clearFilters();
+        this._renderChips([]);
+        this.clearListingState();
+        if (this.app._mode === 'listing') {
+            this.app.clearResults();
+        } else if (filtered && this.app.currentQuery) {
+            this.app.performSearch(this.app.currentQuery);
+        }
+    }
+
+    /** Hinweis, Fristbanner und Listenstand weg: sie beschreiben nichts mehr. */
+    clearListingState() {
+        this._listing = null;
+        this._setText(this.listNotice, '');
+        this._setText(this.banner, '');
+    }
+
     /** Namen zu einem Entitaetsfeld; der Text bleibt auf der Plattform. */
     async suggest(fieldKey, typed) {
         const text = String(typed || '').trim();
@@ -372,17 +393,22 @@ class DocFieldsUI {
         el.hidden = !text;
     }
 
-    /** Nach einer Suche: Chips nur, wenn der Server "applied" gesagt hat. */
+    /**
+     * Nach einer Suche: Chips nur, wenn der Server "applied" gesagt hat.
+     * Bei "listing_only" gehen Werte der Leiste nie mit der Suche: stehen
+     * welche drin, sagt der Hinweis des Servers, dass die Suche ohne sie lief.
+     */
     renderSearchState(documentFields) {
         const df = documentFields || {};
         const state = df.filter_state;
-        this._listing = null;
-        this._setText(this.listNotice, '');
-        this._setText(this.banner, '');
+        this.clearListingState();
         if (state === 'applied' || state === 'partial') {
             this._renderChips(df.resolved, state === 'partial');
         } else {
             this._renderChips([]);
+            if (!this.showsFilters && this.showsListing && this.collectWhere()) {
+                this._setText(this.listNotice, String(df.rail_not_applied || ''));
+            }
         }
         if (df.capability && df.capability !== this.capability) {
             // Knovas hat waehrend der Suche etwas anderes gesagt: neu laden.
@@ -421,7 +447,7 @@ class DocFieldsUI {
             box.appendChild(plain);
         }
         this._renderChips([]);
-        this.app.displayRefusal(box);
+        this.app.displayRefusal(box);   // leert auch Hinweis und Fristbanner
         if (code === 'filters_need_calibration' || code === 'filters_unavailable'
                 || code === 'filter_not_applied') {
             // Die Faehigkeit hat sich geaendert (oder ist unklar): neu fragen.
@@ -491,6 +517,7 @@ class DocFieldsUI {
                 }
                 this.app.displayListing(rows, {
                     append, totalCount: state.total, more: !!state.next,
+                    emptyText: String(data.empty_text || ''),
                 });
                 this._renderListingState(data);
                 return;

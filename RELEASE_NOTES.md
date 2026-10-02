@@ -15,6 +15,17 @@ Feldbereich der Vorschau.
   nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Filter in
   der Suche: Kalibrierung bei Knovas fehlt)` oder `Werte + Filter`.
   `./scripts/doctor.sh` prueft dasselbe.
+- **Mindestens noetige Knovas-Version:** Feldbereich, *Felder* unter
+  *Dokumente* und jede Wertbearbeitung brauchen eine Knovas-Version, die den
+  Dokumentverweis von `GET /secured/graph/doc-values` aus dem Anfragekoerper
+  liest (Aenderung S2; die Plattform setzt nie einen Verweis in eine Adresse).
+  Gegen eine aeltere Version mit Dokumentfeldern zeigen diese Stellen
+  *Knovas-Update noetig*, und nichts ist bearbeitbar; Filter und Listen sind
+  nicht betroffen. `./scripts/doctor.sh` meldet den Fall
+  (`FAIL Dokumentfelder: Knovas-Update noetig`). In einem BROKERED-Mandanten
+  brauchen Entitaetswerte von RemoteController (z.B. `client`) zusaetzlich
+  Aenderung S1; vorher lehnt Knovas solche Uploads mit `assertion_rejected`
+  ab, und RemoteController indexiert das Dokument ohne Felder.
 - **Was die Plattform zeigt**, je nach Stufe: den Feldbereich in der Vorschau
   (Werte, Herkunft *Manuell / Upload / Ordnervorgabe*, Hinweise) und den
   Reiter *Dokumentfelder* (Felder, Pakete `core` und `legal_ch`,
@@ -32,7 +43,9 @@ Feldbereich der Vorschau.
   (`schluessel = Wert; Wert2`), Pfadvorlagen (`{mandant}/{period}/**`) und
   gewaehlte Dateieigenschaften, als Upload-Werte bei jedem Upload. Felder
   blockieren nie die Indexierung: lehnt Knovas sie ab, wird ohne Felder
-  indexiert. `RC_DOC_FIELDS=off` schaltet das Senden ab.
+  indexiert, und eine Pfadvorlage, die RemoteController nicht uebersetzen
+  kann, lehnt er schon beim Speichern ab. `RC_DOC_FIELDS=off` schaltet das
+  Senden ab.
 - **Was erneutes Senden kostet:** Aendern sich die Felder eines Ordners,
   sendet RemoteController alle seine Dokumente erneut -- jedes ein
   verrechneter Upload mit erneuter Texterkennung --, hoechstens
@@ -54,8 +67,15 @@ Feldbereich der Vorschau.
   ein eigener Proxy davor muss ebenso ohne Adressen protokollieren, und das
   nginx-Fehlerprotokoll nennt die Adresse, wenn eine Anfrage an die Plattform
   scheitert.
-- Feldwerte, Titel, Pfade und Suchtexte erscheinen in keiner Logzeile, keinem
-  Audit-Eintrag und keiner neuen Adresse.
+- Der neue Code fuer Dokumentfelder schreibt keine Feldwerte, Titel, Pfade
+  oder Suchtexte in Logzeilen, Audit-Eintraege oder neue Adressen. Bekannte
+  Grenze: aeltere Logzeilen von Plattform und RemoteController nennen
+  weiterhin Dokumentpfade und Verweise (Oeffnen, Herunterladen und Vorschau
+  eines Dokuments, fehlgeschlagene Vorschau, die alte Suche mit ihrem
+  Suchtext, fehlgeschlagene oder teilweise Uploads, entfernte Dokumente).
+  Ordnernamen sind die Quelle von Pfadvorlagen-Werten, also koennen diese
+  Zeilen auch Feldwerte enthalten: Container-Logs vertraulich behandeln wie die
+  Dokumente.
 - Umbenennen oder Verschieben einer Datei macht sie bei Knovas zu einem neuen
   Dokument; manuelle Werte des alten werden nicht uebernommen. Ein Downgrade
   der Plattform verwirft die Felder je Ordner; uebertraegt die alte Plattform

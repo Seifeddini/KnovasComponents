@@ -214,6 +214,24 @@ class TestWhatGoesOut:
         # Display fields, never the special one (patient), title first.
         assert sent["return_fields"] == ["title", "doc_type", "document_date", "mandant"]
 
+    def test_listing_only_search_carries_the_rail_notice(self, platform_db, tmp_path,
+                                                         monkeypatch, identity_repo):
+        """platform-search-3: under listing_only the rail never filters a
+        search; the answer carries the text the page shows when the rail
+        holds values. Under filters it does not."""
+        import doc_fields_view as dfv
+
+        app, api = make_app(platform_db, tmp_path, monkeypatch, "listing_only")
+        seed(api)
+        client = signed_in(app, identity_repo, role="member")
+        # The probe says filters until a refused query teaches listing_only.
+        before = search(client).get_json()["document_fields"]
+        assert before["capability"] == "filters" and "rail_not_applied" not in before
+        assert search(client, where={"doc_type": "invoice"}).status_code == 409
+        block = search(client).get_json()["document_fields"]
+        assert block["capability"] == "listing_only"
+        assert block["rail_not_applied"] == dfv.RAIL_NOT_APPLIED_TO_SEARCH
+
     def test_listing_only_refuses_where_before_calling_knovas(
             self, platform_db, tmp_path, monkeypatch, identity_repo):
         app, api = make_app(platform_db, tmp_path, monkeypatch, "listing_only")

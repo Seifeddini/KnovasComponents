@@ -1304,9 +1304,13 @@ class DocumentSearchApp {
      * funktionieren -- die Liste gewaehrt die Dokumente wie die Suche.
      *
      * Leer heisst nur dann "kein Dokument", wenn die Liste zu Ende ist: eine
-     * leere Seite mit Fortsetzung sagt nichts ueber die folgenden.
+     * leere Seite mit Fortsetzung sagt nichts ueber die folgenden. Den Text
+     * des Leerzustands am Ende sagt der Server (emptyText): "kein Dokument"
+     * nur, wenn Knovas die Liste vollstaendig nennt (H8, H9).
      */
-    displayListing(rows, { append = false, totalCount = null, more = false } = {}) {
+    displayListing(rows, {
+        append = false, totalCount = null, more = false, emptyText = '',
+    } = {}) {
         if (!append) {
             this.closePreview();
             this.resultsContainer.replaceChildren();
@@ -1338,7 +1342,7 @@ class DocumentSearchApp {
             text.textContent = more
                 ? 'Auf den bisher geprüften Seiten ist kein passendes Dokument. '
                   + '„Mehr laden“ prüft die nächsten.'
-                : DocumentSearchApp.NO_RESULTS_TEXTS.empty_where;
+                : (emptyText || 'Kein Dokument angezeigt.');
             box.appendChild(text);
             this.resultsContainer.appendChild(box);
         }
@@ -1349,6 +1353,19 @@ class DocumentSearchApp {
         if (this.showListButton) this.showListButton.hidden = true;
     }
 
+    /** Keine Trefferliste mehr (die Liste nach Feldern ohne Felder). */
+    clearResults() {
+        this.closePreview();
+        this.currentResults = [];
+        this._mode = 'search';
+        this.resultsContainer.replaceChildren();
+        this.resultsCount.textContent = '';
+        this.resultsNotice.hidden = true;
+        this.loadMoreButton.hidden = true;
+        if (this.showListButton) this.showListButton.hidden = true;
+        this.resultsSection.style.display = 'none';
+    }
+
     /**
      * Ein abgelehnter Filter statt einer Trefferliste: keine Treffer, eine
      * Erklaerung, und wo sinnvoll die ausdrueckliche Wahl "Ohne Filter
@@ -1357,6 +1374,7 @@ class DocumentSearchApp {
     displayRefusal(box) {
         this.closePreview();
         this.currentResults = [];
+        if (this.docFields) this.docFields.clearListingState();
         this.resultsSection.style.display = 'block';
         this.resultsContainer.replaceChildren(box);
         this.resultsCount.textContent = '0 Ergebnisse';

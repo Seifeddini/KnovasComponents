@@ -143,8 +143,12 @@ against the **folders** of the path relative to the source folder (`\` counts
 as `/`; the file name is not part of it). Without `/**` the depth must match
 exactly; with it, deeper folders are allowed. Captures are sent as text — the
 server's normaliser reads "GJ 2024" or "Q1 2024" and returns warnings in the
-echo. A template that does not compile skips **that source** for the cycle
-(status `template_errors.field_template_invalid`); it never stops the cycle.
+echo. `/sync`, `/sync/body` and `/sync/start` refuse a body whose template does
+not compile (`400`, `$.sources[i].field_templates[j]: field_template_invalid
+(<code>)` — the position and the code, never the template). A body stored
+before that check still runs: its bad template skips **that source** for the
+cycle (status `template_errors.field_template_invalid`); it never stops the
+cycle.
 Golden vectors: [contracts/vectors/field_templates.json](../contracts/vectors/field_templates.json)
 (the Platform's preview runs the same vectors).
 
@@ -231,8 +235,8 @@ documents need 200 runs. There is no separate bound for `one_time` runs.
 
 **When the server starts accepting.** While the feature is off at Knovas,
 uploads with fields are recorded `not_accepted`. The first upload whose answer
-carries the fields echo (`staged`) queues every `not_accepted` document for a
-re-upload, within the bound. `POST /sync/doc-fields/requeue` does the same on
+carries the fields echo (`staged`) queues every `not_accepted` document that
+cycle's scan reached for a re-upload, within the bound. `POST /sync/doc-fields/requeue` does the same on
 request for `not_accepted`, `refused`, `reupload_failed` or `all`
 ([operations.md](operations.md#document-fields)).
 

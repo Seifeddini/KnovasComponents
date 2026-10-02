@@ -388,6 +388,55 @@ class OldRC(FakeRC):
     requeue_doc_fields = None
 
 
+class _Answer:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _OldServerSession:
+    """An older RemoteController behind the real client: its /sync/status
+    lists no capabilities, and it has no requeue route (404)."""
+
+    def __init__(self):
+        self.calls = []
+
+    def request(self, method, url, json=None, headers=None, timeout=None):
+        self.calls.append((method, url.rsplit("/", 3)[-2:]))
+        if url.endswith("/sync/status"):
+            return _Answer(200, {"scheduler_state": "not_running"})
+        return _Answer(404, {"error": "Not Found"})
+
+
+class _DownSession(_OldServerSession):
+    def request(self, method, url, json=None, headers=None, timeout=None):
+        import requests
+
+        self.calls.append((method, url.rsplit("/", 3)[-2:]))
+        raise requests.ConnectionError("connection refused")
+
+
+def _real_rc_on(monkeypatch, session_cls):
+    """The real RemoteControllerClient (a new Platform), talking to
+    ``session_cls`` (the RemoteController's side)."""
+    import remote_controller_client as rcc
+
+    real = rcc.RemoteControllerClient
+    sessions = []
+
+    class RealClient(real):
+        def __init__(self, base_url, *, principal_broker=None, session=None, timeout=20.0):
+            sessions.append(session_cls())
+            super().__init__(base_url, principal_broker=principal_broker,
+                             session=sessions[-1], timeout=timeout)
+
+    monkeypatch.setattr(rcc, "RemoteControllerClient", RealClient)
+    return sessions
+
+
 def _token(client):
     with client.session_transaction() as sess:
         return sess["csrf_token"]
@@ -458,6 +507,71 @@ def _signed_in(app, email):
 @pytest.fixture
 def as_admin(make_app, admin):
     return _signed_in(make_app("values"), admin.email)
+
+
+def test_an_untouched_enum_without_a_german_label_is_no_change():
+    """platform-admin-ingestion-3: the textarea shows another language's
+    label for a code without a German one; sent back unchanged it is no
+    change -- not a German label copied from French, and no in-use
+    confirmation for a change nobody made."""
+    from web_interface.admin_doc_fields import (
+        changes_from_form,
+        enum_lines,
+        needs_use_confirmation,
+    )
+
+    current = {"key": "belegart", "datatype": "enum", "labels": {"de": "Belegart"},
+               "display": False, "facet": False,
+               "enum_values": [{"code": "rechnung", "labels": {"fr": "Facture", "it": "Fattura"}},
+                               {"code": "offerte", "labels": {"de": "Offerte"}}]}
+    text = enum_lines(current["enum_values"])
+    assert text == "rechnung = Facture\nofferte = Offerte"
+    form = {"flags": "1", "display": "1", "label_de": "Belegart", "enum_values": text}
+    changes = changes_from_form(form, current)
+    assert changes == {"display": True}
+    assert not needs_use_confirmation(changes)
+    assert changes_from_form(dict(form, display=""), current) == {}
+    relabelled = changes_from_form(
+        dict(form, enum_values="rechnung = Rechnung\nofferte = Offerte"), current)
+    assert relabelled["enum_values"][0]["labels"] == {"fr": "Facture", "it": "Fattura",
+                                                      "de": "Rechnung"}
+    assert relabelled["enum_values"][1] == {"code": "offerte", "labels": {"de": "Offerte"}}
+
+
+@needs_db
+class TestUnknownIsNotOff:
+    """platform-admin-ingestion-6: an unclear probe hides the forms and
+    writes nothing, but never claims the feature is not enabled."""
+
+    @pytest.fixture
+    def unknown(self, monkeypatch):
+        monkeypatch.setattr(FakeDocFieldsApi, "doc_fields_probe", lambda self: "unknown")
+
+    def test_the_page_says_not_determinable(self, make_app, admin, unknown):
+        from web_interface.admin_doc_fields import OFF_TEXT, UNKNOWN_TEXT
+
+        client = _signed_in(make_app("values"), admin.email)
+        html = client.get("/admin/doc-fields").data.decode("utf-8")
+        assert UNKNOWN_TEXT in html and OFF_TEXT not in html
+        assert "doc-fields-settings" not in html
+
+    def test_a_write_is_refused_without_blaming_knovas(self, make_app, admin, unknown):
+        from web_interface.admin_doc_fields import OFF_TEXT, UNKNOWN_TEXT
+
+        client = _signed_in(make_app("values"), admin.email)
+        response = _post(client, "/admin/doc-fields/rules/save", pointer_prefix="kanzlei/a/",
+                         rule_key_0="doc_type", rule_value_0="invoice")
+        html = response.data.decode("utf-8")
+        assert response.status_code == 409
+        assert UNKNOWN_TEXT in html and OFF_TEXT not in html
+        assert _calls(FakeDocFieldsApi.current, "put_doc_field_rule") == []
+
+    def test_a_confirmed_off_still_says_off(self, make_app, admin):
+        from web_interface.admin_doc_fields import OFF_TEXT, UNKNOWN_TEXT
+
+        client = _signed_in(make_app("off"), admin.email)
+        html = client.get("/admin/doc-fields").data.decode("utf-8")
+        assert OFF_TEXT in html and UNKNOWN_TEXT not in html
 
 
 @needs_db
@@ -612,6 +726,37 @@ class TestRegistryWrites:
         assert response.status_code == 409
         assert "RemoteController aktualisieren" in response.data.decode("utf-8")
 
+    def test_an_older_remote_controller_server_is_not_offered_requeue(
+            self, platform_db, tmp_path, monkeypatch, admin):
+        """platform-admin-ingestion-4: the real client always has the method;
+        the offer follows what the RemoteController advertises."""
+        sessions = _real_rc_on(monkeypatch, _OldServerSession)
+        app = _identity_app(platform_db, tmp_path, monkeypatch,
+                            client_cls=FakeDocFieldsApi.bind("values"))
+        client = _signed_in(app, admin.email)
+        html = _post(client, "/admin/doc-fields/create", key="kostenstelle",
+                     datatype="text").data.decode("utf-8")
+        assert "angelegt" in html and "Abgelehnte Uploads erneut senden" not in html
+        response = _post(client, "/admin/doc-fields/requeue")
+        assert response.status_code == 409
+        assert "RemoteController aktualisieren" in response.data.decode("utf-8")
+        assert not [c for s in sessions for c in s.calls if c[0] == "POST"], "never asked"
+
+    def test_an_unreachable_remote_controller_is_not_called_too_old(
+            self, platform_db, tmp_path, monkeypatch, admin):
+        sessions = _real_rc_on(monkeypatch, _DownSession)
+        app = _identity_app(platform_db, tmp_path, monkeypatch,
+                            client_cls=FakeDocFieldsApi.bind("values"))
+        client = _signed_in(app, admin.email)
+        html = _post(client, "/admin/doc-fields/create", key="kostenstelle",
+                     datatype="text").data.decode("utf-8")
+        assert "Abgelehnte Uploads erneut senden" not in html
+        response = _post(client, "/admin/doc-fields/requeue")
+        body = response.data.decode("utf-8")
+        assert response.status_code == 502
+        assert "nicht erreichbar" in body and "RemoteController aktualisieren" not in body
+        assert not [c for s in sessions for c in s.calls if c[0] == "POST"]
+
     def test_the_full_clearance_refusal_is_explained(self, as_admin):
         FakeDocFieldsApi.current.registry_write_denied = True
         response = _post(as_admin, "/admin/doc-fields/create", key="kostenstelle",
@@ -697,6 +842,34 @@ class TestFieldsInUse:
         assert len(_calls(api, "update_doc_field")) == 1
 
 
+    def test_the_in_use_confirmation_keeps_the_edit_open(self, as_admin, platform_db, admin):
+        """platform-admin-ingestion-2: the 409 shows the posted edit again,
+        in an opened form with the confirmation focused; confirming it then
+        saves exactly that edit."""
+        _profile(platform_db, admin, fields={"doc_type": "invoice"})
+        api = FakeDocFieldsApi.current
+        field = next(f for f in api.registry if f["key"] == "doc_type")
+        posted = {"flags": "1", "label_de": "Belegart NEU", "sensitivity": "special",
+                  "display": "1"}
+        refused = _post(as_admin, f"/admin/doc-fields/{field['id']}/update", **posted)
+        assert refused.status_code == 409
+        assert _calls(api, "update_doc_field") == []
+        html = refused.data.decode("utf-8")
+        form = html[html.index(f'/admin/doc-fields/{field["id"]}/update') - 600:]
+        form = form[:form.index("</form>")]
+        assert '<details class="field-edit" open>' in form
+        assert 'name="label_de" value="Belegart NEU"' in form
+        assert '<option value="special" selected>' in form
+        assert re.search(r'name="confirm_in_use" value="1"\s+autofocus', form)
+        assert html.count('<details class="field-edit" open>') == 1, "only the edited field"
+        done = _post(as_admin, f"/admin/doc-fields/{field['id']}/update", confirm_in_use="1",
+                     **posted)
+        assert done.status_code == 200
+        changes = _calls(api, "update_doc_field")[0]["changes"]
+        assert changes["sensitivity"] == "special"
+        assert changes["labels"]["de"] == "Belegart NEU"
+
+
 @needs_db
 class TestPacksAndSettings:
     def test_a_pack_install_shows_skipped_fields_and_warnings(self, as_admin, platform_db):
@@ -731,6 +904,36 @@ class TestPacksAndSettings:
         assert api.settings["unknown_keys"] == "reject"
         row = audit.recent(platform_db, action="doc_field_settings.changed")[0]
         assert row["detail"] == {"unknown_keys": "reject", "date_order": "dmy"}
+
+    def test_the_reject_confirmation_keeps_the_choice(self, as_admin, platform_db, admin):
+        """platform-admin-ingestion-1: the 409 shows the values the person
+        chose, so ticking the box and saving stores "ablehnen" -- not the old
+        settings under "Einstellungen gespeichert"."""
+        _profile(platform_db, admin, fields={"kostenstelle": "4100"})
+        api = FakeDocFieldsApi.current
+        refused = _post(as_admin, "/admin/doc-fields/settings", unknown_keys="reject",
+                        date_order="mdy")
+        assert refused.status_code == 409
+        html = refused.data.decode("utf-8")
+        section = html[html.index("doc-fields-settings"):]
+        section = section[:section.index("</form>")]
+        assert '<option value="reject" selected>' in section
+        assert '<option value="mdy" selected>' in section
+        assert '<option value="ignore" selected>' not in section
+        selected = dict(re.findall(r'<select name="(\w+)">.*?<option value="(\w+)" selected>',
+                                   section, flags=re.DOTALL))
+        done = _post(as_admin, "/admin/doc-fields/settings", confirm_reject="1", **selected)
+        assert done.status_code == 200
+        assert api.settings == {"unknown_keys": "reject", "date_order": "mdy"}
+
+    def test_unread_settings_cannot_be_saved(self, as_admin):
+        api = FakeDocFieldsApi.current
+        api.fail_call("doc_field_settings", 503, "doc_fields_unavailable")
+        html = as_admin.get("/admin/doc-fields").data.decode("utf-8")
+        section = html[html.index("doc-fields-settings"):]
+        section = section[:section.index("</form>")]
+        assert "Die Einstellungen sind derzeit nicht abrufbar." in html
+        assert "<fieldset disabled>" in section.replace("<fieldset  disabled>", "<fieldset disabled>")
 
     def test_other_settings_need_no_confirmation(self, as_admin):
         response = _post(as_admin, "/admin/doc-fields/settings", unknown_keys="ignore",
@@ -777,6 +980,18 @@ class TestFolderRules:
         assert response.status_code == 200
         assert _calls(FakeDocFieldsApi.current, "put_doc_field_rule")[0]["prefix"] == \
             "kanzlei/Mandate/2024/"
+
+    def test_a_folder_name_ending_in_a_space_keeps_it(self, as_admin, platform_db, admin):
+        """platform-admin-ingestion-7: never stripped, so the rule matches the
+        picked folder's pointers and not a sibling without the space."""
+        _profile(platform_db, admin, prefix="kanzlei", sources=("/data/corpus",))
+        response = _post(as_admin, "/admin/doc-fields/rules/save",
+                         folder_path="/data/corpus/Muster AG ",
+                         rule_key_0="doc_type", rule_value_0="contract")
+        assert response.status_code == 200
+        prefix = _calls(FakeDocFieldsApi.current, "put_doc_field_rule")[0]["prefix"]
+        assert prefix == "kanzlei/Muster AG /"
+        assert not "kanzlei/Muster AG/y.pdf".startswith(prefix)
 
     def test_a_folder_outside_every_source_is_refused(self, as_admin, platform_db, admin):
         _profile(platform_db, admin, sources=("/data/corpus",))
@@ -845,8 +1060,11 @@ class TestRequeue:
         assert response.status_code == 200
         assert FakeRC.last.requeued == ["refused"]
         assert "3 abgelehnte(r) Upload(s)" in response.data.decode("utf-8")
-        row = audit.recent(platform_db, action="doc_fields.requeue_requested")[0]
-        assert row["detail"] == {"outcome": "refused", "count": 3}
+        # One audit shape for the same billed operation, whichever tab asked.
+        row = audit.recent(platform_db, action="ingestion.doc_fields_requeued")[0]
+        assert row["detail"] == {"outcome": "refused", "requeued": 3}
+        assert (row["target_type"], row["target_id"]) == ("remote_controller", "sync")
+        assert audit.recent(platform_db, action="doc_fields.requeue_requested") == []
 
 
 @needs_db

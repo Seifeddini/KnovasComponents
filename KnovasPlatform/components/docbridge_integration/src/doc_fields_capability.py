@@ -430,6 +430,16 @@ def registry_for(client: Any, user_key: Any) -> List[Dict[str, Any]]:
     return [dict(spec) for spec in _registry_entry(client, user_key).fields]
 
 
+def last_known_registry(user_key: Any) -> Optional[List[Dict[str, Any]]]:
+    """This user's last registry read, expired or not, without asking
+    Knovas; None when there is none (or it was invalidated). Only for
+    decisions that must not fail open when a fresh read fails -- the
+    deadline banner (H9)."""
+    with _CACHE_LOCK:
+        entry = _REGISTRY.get(_user(user_key))
+    return None if entry is None else [dict(spec) for spec in entry.fields]
+
+
 def registry_targets_for(client: Any, user_key: Any) -> Dict[str, str]:
     """``{key: target_node_type_id}`` of this user's registry: the entity
     fields whose target node type the person can see, from the same cached

@@ -63,6 +63,11 @@ the search result carries it as `context_partial`.
 Typed values per document (filters, listing, cards, the field panel, the
 *Dokumentfelder* admin tab and per-folder fields in the Ingestion tab) —
 shown only as far as Knovas serves them for the tenant, in secured mode only.
+The field panel, the *Felder* drawer and value edits need a Knovas release that
+reads the `GET /secured/graph/doc-values` pointer from the JSON body (S2);
+an earlier one answers `400 invalid_value` (`pointer`) and the Platform shows
+*Knovas-Update nötig* (`./scripts/doctor.sh` says so too). In a BROKERED
+tenant, RemoteController's entity values also need S1.
 Modules: `src/doc_fields_capability.py` (what Knovas serves; per-person
 registry cache), `src/doc_fields_view.py` (the honesty rules as pure
 functions), `src/web_interface/doc_fields_routes.py` (search side),
@@ -75,7 +80,8 @@ functions), `src/web_interface/doc_fields_routes.py` (search side),
 | `DOC_FIELDS_EDIT_ROLES` | `admin` | Roles that may edit values (comma list of `admin`, `approver`, `ingestion_manager`, `member`); fields with sensitivity `special` stay admin-only. |
 
 The tests run the real client against the mock Knovas API in every server
-state (`tests/test_doc_fields_mock_contract.py`, `tests/test_doc_fields_render.py`).
+state (`tests/test_doc_fields_mock_contract.py`, `tests/test_doc_fields_render.py`);
+the mock's `pointer_in_body = False` plays a Knovas release before S2.
 
 ## Hit context (`src/context_store.py`)
 

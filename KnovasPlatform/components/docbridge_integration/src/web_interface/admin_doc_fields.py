@@ -58,6 +58,7 @@ from doc_fields_view import (
     format_value,
     layer_label,
     profile_field_keys,
+    requeue_audit,
     sanitize_registry,
     warning_text,
 )
@@ -69,6 +70,7 @@ from identity.rc_pointers import (
     prefix_for_folder,
 )
 from knovas_client import DocFieldsError, DocFieldsUnavailable
+from remote_controller_client import requeue_supported
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +150,15 @@ OFF_HINT = (
     "Sobald Knovas die Funktion f\u00fcr diesen Mandanten freischaltet, erscheint "
     "hier das Feldverzeichnis. Suche und Ingestion laufen bis dahin wie bisher."
 )
+# The capability probe did not answer clearly (401/403/429/5xx, a network
+# error, an answer without its echo): nothing is shown and nothing written,
+# but nothing is claimed about Knovas's configuration either.
+UNKNOWN_TEXT = ("Ob Knovas Dokumentfelder f\u00fcr diesen Mandanten anbietet, ist derzeit "
+                "nicht feststellbar.")
+UNKNOWN_HINT = (
+    "Knovas hat auf die Abfrage nicht eindeutig geantwortet. Bitte sp\u00e4ter erneut "
+    "versuchen; bis dahin bleiben Feldverzeichnis und \u00c4nderungen ausgeblendet."
+)
 READ_ONLY_TEXT = (
     "Nur Mitglieder der Knovas-Administratorgruppe (oder Personen, die jedes "
     "Dokument des Mandanten sehen) d\u00fcrfen Felder, Pakete, Einstellungen und "
@@ -174,6 +185,10 @@ REQUEUE_OFFER = "Abgelehnte Uploads erneut senden"
 REQUEUE_UNSUPPORTED = (
     "Der RemoteController kennt das erneute Senden noch nicht \u2013 bitte "
     "RemoteController aktualisieren."
+)
+REQUEUE_UNREACHABLE = (
+    "Der RemoteController ist nicht erreichbar; es wurde nichts erneut gesendet. "
+    "Bitte sp\u00e4ter erneut versuchen."
 )
 UNSET_TEXT = "aufgehoben"
 HELD_TEXT = (
@@ -256,6 +271,16 @@ def _text(form: Mapping[str, Any], name: str) -> str:
     return str(form.get(name, "") or "").strip()
 
 
+def _folder_text(form: Mapping[str, Any]) -> str:
+    """The picked folder exactly as the tree sent it. Never stripped: a
+    folder name may end in a space (Linux, Samba, NAS shares), and
+    RemoteController keeps it in every pointer; a stripped path would make
+    the rule miss that folder and hit a sibling without the space. Only an
+    all-blank value counts as no folder."""
+    raw = str(form.get("folder_path", "") or "")
+    return raw if raw.strip() else ""
+
+
 def _checked(form: Mapping[str, Any], name: str) -> bool:
     return str(form.get(name, "") or "").strip().lower() in ("1", "on", "true", "yes", "ja")
 
@@ -295,6 +320,15 @@ def parse_enum_lines(text: Any) -> List[Tuple[str, str]]:
     return out
 
 
+def _shown_enum_label(labels: Any) -> str:
+    """The label the textarea shows for one code: ``de``, else the first
+    other language (so the code is recognisable), else nothing."""
+    labels = labels if isinstance(labels, Mapping) else {}
+    if labels.get("de"):
+        return str(labels["de"])
+    return str(next((labels.get(x) for x in LABEL_LANGS if labels.get(x)), ""))
+
+
 def enum_lines(enum_values: Any) -> str:
     """The textarea form of ``enum_values``: ``code = Bezeichnung (de)``."""
     lines: List[str] = []
@@ -302,8 +336,7 @@ def enum_lines(enum_values: Any) -> str:
         if isinstance(item, str):
             lines.append(item)
         elif isinstance(item, Mapping) and isinstance(item.get("code"), str):
-            labels = item.get("labels") if isinstance(item.get("labels"), Mapping) else {}
-            label = labels.get("de") or next((labels.get(x) for x in LABEL_LANGS if labels.get(x)), "")
+            label = _shown_enum_label(item.get("labels"))
             lines.append(f"{item['code']} = {label}" if label else item["code"])
     return "\n".join(lines)
 
@@ -341,8 +374,12 @@ def merge_enum(current: Any, items: Sequence[Tuple[str, str]]) -> List[Any]:
         old = by_code.get(code)
         if isinstance(old, dict):
             entry = dict(old)
-            if label:
-                entry["labels"] = {**dict(entry.get("labels") or {}), "de": label}
+            labels = dict(entry.get("labels") or {})
+            # A code without a German label shows another language's; that
+            # line sent back unchanged is no German label (and no change).
+            fallback = not labels.get("de") and label == _shown_enum_label(labels)
+            if label and not fallback:
+                entry["labels"] = {**labels, "de": label}
             out.append(entry)
         elif label:
             out.append({"code": code, "labels": {"de": label}})
@@ -599,6 +636,35 @@ def registry_rows(raw_fields: Any, node_types: Iterable[Mapping[str, Any]] = (),
             "deprecated": status == "deprecated",
         })
     return rows
+
+
+def refill_field_row(rows: List[Dict[str, Any]], field_id: Any, form: Mapping[str, Any]) -> None:
+    """Show what the person posted for ``field_id`` in its edit form again,
+    opened, after a 409 asking to confirm: the confirmation must not throw
+    the edit away. Only inputs the form carries; invalid choices keep the
+    stored value."""
+    row = next((r for r in rows if r.get("id") and r.get("id") == str(field_id or "")), None)
+    if row is None:
+        return
+    row["open"] = True
+    labels = dict(row.get("labels") or {})
+    for lang in LABEL_LANGS:
+        if f"label_{lang}" in form:
+            labels[lang] = _text(form, f"label_{lang}")
+    row["labels"] = labels
+    if "aliases" in form:
+        row["aliases_text"] = _text(form, "aliases")
+    if "enum_values" in form:
+        row["enum_text"] = str(form.get("enum_values") or "")
+    if "target_node_type_id" in form and not row.get("target_hidden"):
+        row["target_id"] = _text(form, "target_node_type_id")
+    if "date_role" in form and _text(form, "date_role") in ("", *DATE_ROLES):
+        row["date_role"] = _text(form, "date_role")
+    if "flags" in form:
+        row["display"] = _checked(form, "display")
+        row["facet"] = _checked(form, "facet")
+    if _text(form, "sensitivity") in SENSITIVITIES:
+        row["sensitivity"] = _text(form, "sensitivity")
 
 
 def pack_rows(packs: Any) -> List[Dict[str, Any]]:
@@ -1083,7 +1149,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             return dfc.capability_for(client)
         except Exception as exc:  # noqa: BLE001 - the page must render
             logger.warning("Document fields capability unavailable: %s", type(exc).__name__)
-            return Capability.off
+            return Capability.unknown
 
     def _profile():
         """The current ingestion profile (a ProfileVersion), or None."""
@@ -1104,8 +1170,14 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             logger.warning("RemoteController client unavailable: %s", type(exc).__name__)
             return None
 
-    def _can_requeue() -> bool:
-        return callable(getattr(_rc(), "requeue_doc_fields", None))
+    def _requeue_support() -> Optional[bool]:
+        """Whether the RemoteController advertises ``fields_requeue_v1``:
+        False for an older one or none, None when it cannot be asked."""
+        try:
+            return requeue_supported(_rc())
+        except Exception as exc:  # noqa: BLE001 - asked, not answered
+            logger.warning("RemoteController capabilities unavailable: %s", type(exc).__name__)
+            return None
 
     def _admin_member(client) -> Optional[bool]:
         me = gate.current_user()
@@ -1129,19 +1201,27 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             **context,
         ), status
 
-    def _off_page(*, error=None, status=200):
-        return _render({"enabled": False, "off_text": OFF_TEXT, "off_hint": OFF_HINT,
+    def _off_page(*, error=None, status=200, capability=None):
+        """No registry, no forms. "Not enabled" only when Knovas said so; an
+        unclear probe says it could not be determined (the System tab's
+        "nicht feststellbar")."""
+        unknown = capability is Capability.unknown
+        return _render({"enabled": False, "off_text": UNKNOWN_TEXT if unknown else OFF_TEXT,
+                        "off_hint": UNKNOWN_HINT if unknown else OFF_HINT,
                         "error": error, "notice": None, "warnings": []}, status)
 
     def _page(*, error=None, notice=None, warnings=None, status=200, offer_requeue=False,
-              confirm=None, rule_form=None):
+              confirm=None, rule_form=None, settings_form=None, field_form=None):
+        """``settings_form`` / ``field_form``: what the person posted, to show
+        again with a confirmation (409) instead of Knovas's stored values --
+        their own page only, never logged."""
         client = client_factory()
         capability = _capability(client)
         if not capability.shows_values:
-            return _off_page(error=error, status=status)
+            return _off_page(error=error, status=status, capability=capability)
         context: Dict[str, Any] = {
             "enabled": True, "error": error, "notice": notice, "warnings": list(warnings or []),
-            "offer_requeue": bool(offer_requeue and _can_requeue()),
+            "offer_requeue": bool(offer_requeue and _requeue_support() is True),
             "requeue_label": REQUEUE_OFFER,
             "confirm": {"update": None, "deprecate": None, "reject": False, **(confirm or {})},
             "rule_form": {"folder_path": "", "pointer_prefix": "", "rows": [],
@@ -1174,11 +1254,16 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             _log_failure("packs read", exc)
             problems.append("Die Feldpakete sind derzeit nicht abrufbar.")
         current_settings: Dict[str, Any] = {}
+        settings_ok = True
         try:
             current_settings = dict(client.doc_field_settings())
         except Exception as exc:  # noqa: BLE001
             _log_failure("settings read", exc)
             problems.append("Die Einstellungen sind derzeit nicht abrufbar.")
+            # Unread settings cannot be shown, so they cannot be saved: the
+            # selects would fall back to their first options and overwrite
+            # values nobody saw.
+            settings_ok = False
         rules: List[Dict[str, Any]] = []
         rules_state, rules_note = "ok", None
         try:
@@ -1202,13 +1287,17 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         profile = getattr(version, "profile", None)
         in_use = profile_field_keys(version) if version is not None else set()
         sources = [str(getattr(s, "path", "") or "") for s in getattr(profile, "sources", None) or ()]
+        rows = registry_rows(raw_fields, node_types, in_use)
+        if field_form:
+            refill_field_row(rows, field_form.get("id"), field_form.get("form") or {})
         context.update({
-            "fields": registry_rows(raw_fields, node_types, in_use),
+            "fields": rows,
             "rule_fields": [s for s in registry if s.get("status") != "deprecated"],
             "node_types": [{"id": str(t.get("id")), "name": str(t.get("name") or "")}
                            for t in node_types if isinstance(t, Mapping) and t.get("id")],
             "packs": pack_rows(packs),
-            "settings": current_settings,
+            "settings": {**current_settings, **(settings_form or {})},
+            "settings_ok": settings_ok,
             "unknown_profile_keys": unknown_profile_keys(in_use, raw_fields),
             "rules": rule_rows(rules, registry),
             "rules_state": rules_state,
@@ -1226,8 +1315,9 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         """CSRF first, then the capability. A response to return, or None."""
         if not _csrf_ok():
             return _page(error=EXPIRED_FORM, status=400)
-        if not _capability(client_factory()).shows_values:
-            return _off_page(status=409)
+        capability = _capability(client_factory())
+        if not capability.shows_values:
+            return _off_page(status=409, capability=capability)
         return None
 
     def _write_failed(action: str, exc: BaseException, registry: Any = None, **kw):
@@ -1299,7 +1389,8 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         if (key in _in_use() and needs_use_confirmation(changes)
                 and not _checked(request.form, "confirm_in_use")):
             return _page(error=f"\u201e{key}\u201c {IN_USE_UPDATE}. {CONFIRM_REQUIRED}",
-                         status=409, confirm={"update": field_id})
+                         status=409, confirm={"update": field_id},
+                         field_form={"id": field_id, "form": request.form})
         try:
             updated = client.update_doc_field(field_id, changes)
         except Exception as exc:  # noqa: BLE001
@@ -1397,7 +1488,8 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                     error=("Mit \u201eablehnen\u201c w\u00fcrden Uploads mit diesen "
                            "Schl\u00fcsseln der Ingestion-Konfiguration abgewiesen: "
                            + ", ".join(refused_keys) + ". " + CONFIRM_REQUIRED),
-                    status=409, confirm={"reject": True})
+                    status=409, confirm={"reject": True},
+                    settings_form={"unknown_keys": unknown_keys, "date_order": date_order})
         try:
             client.set_doc_field_settings(unknown_keys=unknown_keys, date_order=date_order)
         except Exception as exc:  # noqa: BLE001
@@ -1416,7 +1508,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         form = request.form
         rows = [{"key": _text(form, f"rule_key_{i}"), "value": _text(form, f"rule_value_{i}"),
                  "clear": _checked(form, f"rule_clear_{i}")} for i in range(RULE_ROWS)]
-        return {"folder_path": _text(form, "folder_path"),
+        return {"folder_path": _folder_text(form),
                 "pointer_prefix": _text(form, "pointer_prefix"), "rows": rows}
 
     @bp.route("/doc-fields/rules/save", methods=["POST"])
@@ -1436,7 +1528,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         profile = getattr(version, "profile", None)
         sources = [str(getattr(s, "path", "") or "") for s in getattr(profile, "sources", None) or ()]
         try:
-            folder = _text(form, "folder_path")
+            folder = _folder_text(form)
             if folder:
                 if profile is None:
                     raise FormError("Ohne Ingestion-Konfiguration bitte den Ordnerpfad bei Knovas eingeben.")
@@ -1527,25 +1619,28 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
     @require_admin
     def doc_fields_requeue():
         """Ask the RemoteController to send uploads Knovas refused again,
-        after the registry changed (WP-P4 adds the client method)."""
+        after the registry changed. Only a RemoteController that advertises
+        ``fields_requeue_v1`` is asked; one that cannot be asked now is
+        "nicht erreichbar", never "too old". Audited exactly like the
+        Ingestion tab's buttons (one billed operation, one shape)."""
         refused = _guard_write("requeue")
         if refused is not None:
             return refused
-        rc = _rc()
-        requeue = getattr(rc, "requeue_doc_fields", None)
-        if not callable(requeue):
+        support = _requeue_support()
+        if support is None:
+            return _page(error=REQUEUE_UNREACHABLE, status=502)
+        if not support:
             return _page(error=REQUEUE_UNSUPPORTED, status=409)
         try:
-            count = int(requeue("refused") or 0)
+            count = int(_rc().requeue_doc_fields("refused") or 0)
         except Exception as exc:  # noqa: BLE001
             logger.warning("doc-fields requeue failed: %s", type(exc).__name__)
             return _page(error="Der RemoteController hat das erneute Senden nicht angenommen.",
                          status=502)
-        audit.record(
-            gate.connection(), action="doc_fields.requeue_requested", actor=gate.current_user(),
-            target_type="remote_controller", target_id="-",
-            detail={"outcome": "refused", "count": count},
-        )
+        audit.record(gate.connection(), actor=gate.current_user(),
+                     **requeue_audit("refused", count))
+        if not count:
+            return _page(notice="Keine abgelehnten Uploads zum erneuten Senden vorgemerkt.")
         return _page(notice=(f"{count} abgelehnte(r) Upload(s) werden beim n\u00e4chsten "
                              "Durchlauf erneut gesendet."))
 

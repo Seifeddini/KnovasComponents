@@ -1612,6 +1612,11 @@ class TestTemplateFields:
         assert "RemoteController meldet keine Unterst\u00fctzung" in html
         assert "der erste Ordner" in html
 
+    def test_an_unreachable_remote_controller_is_not_called_too_old(self):
+        html = _render(doc_fields=_df(rc_supports=None))
+        assert "RemoteController ist nicht erreichbar" in html
+        assert "RemoteController meldet keine Unterst\u00fctzung" not in html
+
     def test_the_confirmation_sits_inside_the_profile_form(self):
         html = _render(doc_fields=_df(reupload={"paths": ["/a"], "text": "Alle Dokumente X",
                                                 "advice": "Ordnervorgabe Y"}))
@@ -1740,6 +1745,26 @@ class TestLiveDocumentFields:
         assert "RemoteController zu alt" in r.data.decode("utf-8")
         assert rc.last_instance.count("push") == 0
         assert platform_db.execute("SELECT count(*) FROM ingestion_profiles").fetchone()[0] == 0
+
+    def test_a_status_that_fails_is_unreachable_not_too_old(self, client, rc, monkeypatch,
+                                                             platform_db, identity_repo):
+        """platform-admin-ingestion-5: an RC that cannot be asked right now
+        is never told to update."""
+        from identity.ingestion_profiles import IngestionProfileRepository
+        from remote_controller_client import RemoteControllerError
+
+        IngestionProfileRepository(platform_db).save_new_version(
+            _profile(_folder("/mnt/autodoc/mandate", fields={"doc_type": "invoice"}),
+                     prefix="kanzlei"),
+            by=identity_repo.get_by_email("chef@kanzlei.ch"))
+
+        def timeout(self):
+            raise RemoteControllerError("RemoteController nicht erreichbar: timeout", status=None)
+
+        monkeypatch.setattr(FakeRemoteControllerClient, "status", timeout)
+        html = client.get("/admin/ingestion").data.decode("utf-8")
+        assert "RemoteController ist nicht erreichbar" in html
+        assert "RemoteController meldet keine Unterst\u00fctzung" not in html
 
     def test_an_old_remote_controller_still_takes_a_profile_without_fields(
         self, client, rc, monkeypatch
@@ -1924,3 +1949,123 @@ class TestLiveDocumentFieldsOff(TestLiveDocumentFields):
     test_preview_shows_the_captures_and_saves_nothing = None
     test_an_unknown_key_is_refused_before_anything_is_sent = None
     test_no_value_reaches_a_log_line_or_the_audit_row = None
+
+
+@pytest.mark.skipif(not platform_db_reachable(),
+                    reason="the approval path needs a real PostgreSQL")
+class TestStaleApprovalNeverResendsUnconfirmed:
+    """platform-admin-ingestion-8: an approved request runs against the
+    profile current at execution. When someone changed the field
+    configuration in between, the push would revert it and re-send whole
+    folders nobody confirmed and the approver was not shown -- refused."""
+
+    class _RC:
+        def __init__(self):
+            self.pushed = []
+
+        def capabilities(self):
+            return frozenset(ALL_CAPS)
+
+        def push(self, compiled):
+            self.pushed.append(compiled)
+            return {"applied": "stored"}
+
+    @staticmethod
+    def _profile(template, schedule):
+        from identity.ingestion_compiler import IngestionProfile, SourceFolder
+
+        return IngestionProfile(identifier_prefix="kanzlei", schedule=schedule, sources=[
+            SourceFolder(path="/mnt/x", recursive=True, field_templates=(template,))])
+
+    @pytest.fixture
+    def people(self, identity_repo):
+        from _console import PASSWORD
+
+        out = {}
+        for email, role in (("a@kanzlei.ch", "ingestion_manager"), ("b@kanzlei.ch", "admin"),
+                            ("c@kanzlei.ch", "admin")):
+            user = identity_repo.create(email=email, display_name=email, password=PASSWORD)
+            identity_repo.grant_role(user.id, role)
+            out[email[0]] = identity_repo.get(user.id)
+        return out
+
+    def _request(self, platform_db, identity_repo, requester, profile):
+        from identity.approvals import ApprovalService
+        from identity.ingestion_profiles import IngestionProfileRepository, profile_to_json
+        from web_interface import admin_ingestion
+
+        current = IngestionProfileRepository(platform_db).current()
+        changed = admin_ingestion.field_config_changes(current.profile, profile)
+        note = admin_ingestion._reupload_note(
+            admin_ingestion.FieldCheck(profile, tuple(changed)), current)
+        payload = {"profile": profile_to_json(profile), "requested_by": str(requester.id),
+                   **note}
+        return ApprovalService(platform_db, identity_repo).request(
+            requester, kind="ingestion_profile_change", target_ref="ingestion_profile:default",
+            payload=payload)
+
+    def _direct(self, platform_db, actor, profile, rc, **extra):
+        from identity.ingestion_profiles import profile_to_json
+        from web_interface import admin_ingestion
+
+        admin_ingestion.apply_profile({"profile": profile_to_json(profile), **extra}, actor,
+                                      conn=platform_db, rc_client=rc)
+
+    @pytest.mark.parametrize("requested_template", ["{mandant}/**", "{client}/**"])
+    def test_a_field_change_in_between_refuses_the_approved_push(
+            self, platform_db, identity_repo, people, requested_template):
+        from identity.approvals import ApprovalService
+        from identity.ingestion_compiler import ProfileError
+        from identity.ingestion_profiles import IngestionProfileRepository
+        from web_interface import admin_ingestion
+
+        rc = self._RC()
+        repo = IngestionProfileRepository(platform_db)
+        self._direct(platform_db, people["b"], self._profile("{mandant}/**", "nightly"), rc)
+        # A asks (needs approval): either a schedule-only change, or a field
+        # change with its re-upload confirmed against the version current now.
+        req = self._request(platform_db, identity_repo, people["a"],
+                            self._profile(requested_template, "continuous"))
+        # B changes the folder's fields directly in between.
+        self._direct(platform_db, people["b"], self._profile("{mandant}/{period}/**", "nightly"),
+                     rc, reupload_folders=1)
+        pushes = len(rc.pushed)
+        approved = ApprovalService(platform_db, identity_repo).approve(req.id, people["c"])
+        with pytest.raises(ProfileError) as refused:
+            admin_ingestion.execute_ingestion_change(approved.payload, people["c"],
+                                                     conn=platform_db, rc_client=rc)
+        assert str(refused.value) == admin_ingestion.STALE_REUPLOAD
+        assert len(rc.pushed) == pushes, "nothing pushed"
+        assert repo.current().profile.sources[0].field_templates == ("{mandant}/{period}/**",)
+
+    def test_an_unchanged_base_executes_as_confirmed(self, platform_db, identity_repo, people):
+        from identity.approvals import ApprovalService
+        from identity.ingestion_profiles import IngestionProfileRepository
+        from web_interface import admin_ingestion
+
+        rc = self._RC()
+        self._direct(platform_db, people["b"], self._profile("{mandant}/**", "nightly"), rc)
+        req = self._request(platform_db, identity_repo, people["a"],
+                            self._profile("{client}/**", "nightly"))
+        assert req.payload["reupload_folders"] == 1 and isinstance(req.payload["base_version"], int)
+        approved = ApprovalService(platform_db, identity_repo).approve(req.id, people["c"])
+        admin_ingestion.execute_ingestion_change(approved.payload, people["c"],
+                                                 conn=platform_db, rc_client=rc)
+        assert IngestionProfileRepository(platform_db).current().profile.sources[0] \
+            .field_templates == ("{client}/**",)
+
+    def test_a_change_without_fields_in_between_still_executes(self, platform_db, identity_repo,
+                                                               people):
+        from identity.approvals import ApprovalService
+        from identity.ingestion_profiles import IngestionProfileRepository
+        from web_interface import admin_ingestion
+
+        rc = self._RC()
+        self._direct(platform_db, people["b"], self._profile("{mandant}/**", "nightly"), rc)
+        req = self._request(platform_db, identity_repo, people["a"],
+                            self._profile("{mandant}/**", "continuous"))
+        self._direct(platform_db, people["b"], self._profile("{mandant}/**", "manual"), rc)
+        approved = ApprovalService(platform_db, identity_repo).approve(req.id, people["c"])
+        admin_ingestion.execute_ingestion_change(approved.payload, people["c"],
+                                                 conn=platform_db, rc_client=rc)
+        assert IngestionProfileRepository(platform_db).current().profile.schedule == "continuous"

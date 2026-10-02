@@ -194,11 +194,10 @@ jobs:
             tesseract --list-langs 2>&1 | tail -n +2 | sort | tr "\n" " "; echo'
 
       - name: No pymupdf-layout (PolyForm-NC) in the customer image
-        # Advisory until knovas-extract 0.4.0a1 is pinned (plan M0, [C-reg-9]):
-        # the current library's [pdf] extra still drags pymupdf4llm -> pymupdf-
-        # layout in. Once KNOVAS_EXTRACT_REF points at a release whose [pdf]
-        # extra is clean, drop `continue-on-error` and let this gate the build.
-        continue-on-error: true
+        # Gates the build (plan M0, [C-reg-9]): KNOVAS_EXTRACT_REF is pinned to
+        # knovas-extract 0.4.0a1, whose [pdf] extra is pymupdf alone
+        # (pymupdf4llm moved to the separate `pdf-markdown` extra). A later
+        # bump or extra that drags pymupdf-layout back in fails here.
         run: |
           if docker run --rm remote-controller:ci pip show pymupdf-layout >/dev/null 2>&1; then
             echo "pymupdf-layout is installed in the image"; exit 1

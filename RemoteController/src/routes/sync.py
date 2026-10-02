@@ -11,7 +11,7 @@ from sync.sync_scheduler import (
     save_last_sync_body,
     start_continuous,
 )
-from util.schema import validate
+from util.schema import validate, validate_sync_request
 
 sync_bp = Blueprint("sync", __name__)
 
@@ -63,7 +63,7 @@ def _validated_sync_body():
     body = request.get_json(silent=True)
     if body is None or not isinstance(body, dict):
         return None, (jsonify({"error": "JSON object required", "status": "error"}), 400)
-    errors = validate(body, "sync_request.schema.json")
+    errors = validate_sync_request(body)
     if errors:
         return None, (jsonify({"error": errors[0], "status": "error"}), 400)
     return body, None
@@ -103,7 +103,7 @@ def sync():
     if body is None or not isinstance(body, dict):
         return jsonify({"error": "JSON object required", "status": "error"}), 400
 
-    errors = validate(body, "sync_request.schema.json")
+    errors = validate_sync_request(body)
     if errors:
         return jsonify({"error": errors[0], "status": "error"}), 400
 

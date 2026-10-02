@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Collection, Literal, Optional
 
 from config import get_config
 from sync.ocr_cache import OcrDiskCache
@@ -217,13 +217,19 @@ class SyncStateStore:
     def increment_fields_attempts(self, relative_path: str) -> int:
         return self._db.increment_fields_attempts(relative_path)
 
-    def requeue_fields(self, outcome: str) -> int:
+    def requeue_fields(self, outcome: str, paths: Optional[Collection[str]] = None) -> int:
         """Queue documents with this stored outcome for a fields re-upload
-        (``not_accepted``, ``refused``, ``reupload_failed`` or ``all``)."""
-        return self._db.requeue_fields(outcome)
+        (``not_accepted``, ``refused``, ``reupload_failed`` or ``all``);
+        ``paths`` limits it to documents a scan reaches."""
+        return self._db.requeue_fields(outcome, paths)
 
-    def count_fields_requeue_candidates(self, outcome: str) -> int:
-        return self._db.count_fields_requeue_candidates(outcome)
+    def count_fields_requeue_candidates(
+        self, outcome: str, paths: Optional[Collection[str]] = None
+    ) -> int:
+        return self._db.count_fields_requeue_candidates(outcome, paths)
+
+    def fields_requeue_candidate_paths(self, outcome: str = "all") -> list[str]:
+        return self._db.fields_requeue_candidate_paths(outcome)
 
     def fields_counts(self) -> dict[str, int]:
         return self._db.fields_counts()

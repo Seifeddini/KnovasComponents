@@ -19,7 +19,9 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Mapping
+
+from remote_controller_client import capabilities_from_status
 
 logger = logging.getLogger(__name__)
 
@@ -126,22 +128,15 @@ def _doc_fields_check(client) -> tuple[Check, bool]:
     return Check("doc_fields", "Dokumentfelder", OK, "; ".join(parts), ms=ms), True
 
 
-def _rc_doc_fields_note(rc, doc_fields_on: bool) -> tuple[str, str]:
-    """``(detail suffix, hint)`` from the RemoteController's capabilities.
-
-    ``capabilities()`` arrives with the ingestion-profile work, so it is
-    looked up by name; an RC without it, or one that reports none, is an RC
-    that cannot carry field settings. That is called out only while Knovas
-    offers fields, so an older RC on a deployment without them keeps the
-    line it always had.
+def _rc_doc_fields_note(status: Any, doc_fields_on: bool) -> tuple[str, str]:
+    """``(detail suffix, hint)`` from the capabilities in the status the
+    ping just returned -- not from a second request, whose failure would
+    turn an RC that is merely busy into one "too old". An answer without
+    capabilities is an RC that cannot carry field settings. That is called
+    out only while Knovas offers fields, so an older RC on a deployment
+    without them keeps the line it always had.
     """
-    probe = getattr(rc, "capabilities", None)
-    caps: frozenset = frozenset()
-    if callable(probe):
-        try:
-            caps = frozenset(str(c) for c in (probe() or ()))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("RemoteController-Faehigkeiten nicht lesbar: %s", type(exc).__name__)
+    caps = capabilities_from_status(status) if isinstance(status, Mapping) else frozenset()
     known = [c for c in RC_DOC_FIELD_CAPABILITIES if c in caps]
     if known:
         return "; Dokumentfelder: " + ", ".join(known), ""
@@ -344,10 +339,10 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
                 raise RuntimeError("Client kennt keine Health-Pruefung")
             return probe()
 
-        _, ms, exc = _timed(_rc_ping)
+        answer, ms, exc = _timed(_rc_ping)
         suffix, rc_hint = ("", "")
         if exc is None:
-            suffix, rc_hint = _rc_doc_fields_note(rc_client_factory(), doc_fields_on)
+            suffix, rc_hint = _rc_doc_fields_note(answer, doc_fields_on)
         checks.append(Check(
             "rc", "RemoteController",
             OK if exc is None and not rc_hint else WARN,

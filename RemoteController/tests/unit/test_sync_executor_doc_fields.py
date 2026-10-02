@@ -377,6 +377,81 @@ class TestFieldsChanged:
         again = rc.run(changed)
         assert again.files_uploaded == 1 and rc.fields(rel).outcome == "staged"
 
+    @staticmethod
+    def _fail_extraction(rc) -> None:
+        def locked(*_a, **_k):
+            raise OSError("[Errno 13] Permission denied")
+
+        rc.monkeypatch.setattr("sync.knovas_uploader.extract_document_guarded", locked)
+
+    @staticmethod
+    def _extract_state(rc, rel: str):
+        store = rc.state()
+        try:
+            return store.retry_count(rel), store.partial_paths()
+        finally:
+            store.close()
+
+    @pytest.mark.parametrize("extract_max", [3, 1])
+    def test_a_failing_fields_reupload_never_marks_an_intact_document_partial(
+        self, rc, extract_max
+    ):
+        """rc-1: a ``fields_changed`` re-upload whose extraction fails (a
+        locked file, a wall-clock kill) counts fields attempts only. Knovas
+        holds the document's full text, so it is never recorded partial for
+        exhausted extraction retries -- the backfill would re-send it with
+        OCR off -- and it leaves the queue as ``reupload_failed:extract``,
+        also after a requeue."""
+        from sync.sync_scheduler import requeue_doc_fields
+
+        rc.monkeypatch.setattr("sync.sync_executor.MAX_EXTRACT_RETRIES", extract_max)
+        changed = self._seed(rc, 1)
+        rel = "Muster AG/GJ 2024/R0.txt"
+        self._fail_extraction(rc)
+        for _ in range(3):
+            assert rc.run(changed).files_retry == 1
+            assert self._extract_state(rc, rel) == (0, [])
+        assert rc.fields(rel).outcome == "reupload_failed:extract"
+        assert rc.run(changed).files_retry == 0, "left the queue"
+        assert requeue_doc_fields("reupload_failed") == 1
+        for _ in range(3):
+            assert rc.run(changed).files_retry == 1
+            assert self._extract_state(rc, rel) == (0, [])
+            assert rc.fields(rel).outcome == "reupload_failed:extract"
+        assert rc.run(changed).files_retry == 0, "left the queue again, not as none"
+        # A second configuration change: the same, never partial.
+        again = rc.body(rc.source(fields={"doc_type": "letter"}, field_templates=MANDATE["field_templates"]))
+        rc.run(again)
+        assert self._extract_state(rc, rel) == (0, [])
+        assert rc.fields(rel).outcome == "reupload_failed:extract"
+
+    def test_a_content_upload_still_uses_the_extraction_retries(self, rc):
+        """The counter stays for new and modified files: past
+        MAX_EXTRACT_RETRIES they are recorded partial for the backfill."""
+        rc.monkeypatch.setattr("sync.sync_executor.MAX_EXTRACT_RETRIES", 1)
+        rc.write(REL)
+        self._fail_extraction(rc)
+        body = rc.body(rc.source(**MANDATE))
+        assert rc.run(body).files_retry == 1
+        assert self._extract_state(rc, REL) == (1, [])
+        rc.run(body)
+        assert self._extract_state(rc, REL) == (0, [REL])
+        assert rc.fields(REL).outcome == "none"
+
+    def test_a_requeue_clears_a_stale_extraction_retry_counter(self, rc):
+        changed = self._seed(rc, 1)
+        rel = "Muster AG/GJ 2024/R0.txt"
+        store = rc.state()
+        try:
+            store.update_fields(rel, FieldsRecord("old", "reupload_failed:extract", sent=True))
+            store.increment_retry_count(rel, error="locked")
+            assert store.requeue_fields("reupload_failed") == 1
+            assert store.retry_count(rel) == 0
+        finally:
+            store.close()
+        assert rc.run(changed).files_uploaded == 1
+        assert rc.fields(rel).outcome == "staged"
+
     def test_a_transient_refusal_comes_back_and_is_bounded(self, rc):
         changed = self._seed(rc, 1)
         rel = "Muster AG/GJ 2024/R0.txt"
@@ -446,6 +521,109 @@ class TestServerStartsAccepting:
         assert requeue_doc_fields("not_accepted") == 0
         assert rc.run(body).files_uploaded == 1
         assert rc.fields(REL).outcome == "staged"
+
+
+class TestRequeueReachesOnlyScannedRows:
+    """rc-2: a requeue queues only rows a scan reaches. A row the scan never
+    visits again would otherwise be promised a re-send forever."""
+
+    @staticmethod
+    def _cycle(rc, body, **kwargs):
+        from sync.sync_scheduler import _remember_doc_fields
+
+        result = rc.run(body, **kwargs)
+        _remember_doc_fields(result)
+        return result
+
+    @staticmethod
+    def _status():
+        from sync.sync_scheduler import doc_fields_status
+
+        status = doc_fields_status()
+        return status["server"], status["documents"]
+
+    def test_a_completed_sequential_subfolder_is_not_requeued(self, rc):
+        from sync.sync_scheduler import requeue_doc_fields
+
+        a, b = "A/Muster AG/R.txt", "B/Beispiel GmbH/R.txt"
+        rc.write(a)
+        rc.write(b)
+        cfg = {"sequential_subfolders": True}
+        body = rc.body(rc.source(field_templates=["*/{mandant}/**"]))
+        rc.server.mode = "off"
+        for _ in range(2):
+            self._cycle(rc, body, sync_config=cfg)
+        assert rc.fields(a).outcome == "not_accepted"
+        rc.server.mode = "values"
+        cycles = [self._cycle(rc, body, sync_config=cfg) for _ in range(4)]
+        assert cycles[-1].subfolder_progress["completed"] is True
+        assert sum(c.doc_fields.requeued for c in cycles) == 0, "A lies outside every later scan"
+        assert rc.fields(a).outcome == "not_accepted" and rc.fields(a).digest is not None
+        server, documents = self._status()
+        assert server == "accepted", "the latest answering cycle, not an idle one"
+        assert documents["pending_reupload"] == 0, "nothing is promised that no scan re-sends"
+        assert documents["not_accepted"] == 1
+        assert requeue_doc_fields("not_accepted") == 0, "the endpoint does not queue it either"
+        assert rc.fields(a).digest is not None
+        assert self._status()[1]["pending_reupload"] == 0
+
+    def test_rows_the_scan_reaches_are_requeued_and_re_sent(self, rc):
+        body = rc.body(rc.source(**MANDATE))
+        rc.write(REL)
+        rc.server.mode = "off"
+        self._cycle(rc, body)
+        rc.server.mode = "values"
+        rc.write("Muster AG/GJ 2024/Neu.txt")
+        assert self._cycle(rc, body).doc_fields.requeued == 1
+        assert self._status()[1]["pending_reupload"] == 1
+        self._cycle(rc, body)
+        assert rc.fields(REL).outcome == "staged"
+        assert self._status() == ("accepted", {"with_fields": 2, "pending_reupload": 0,
+                                               "refused": 0, "not_accepted": 0,
+                                               "reupload_failed": 0})
+
+    def test_a_removed_file_kept_tracked_is_not_requeued_by_the_endpoint(self, rc):
+        from sync.sync_scheduler import requeue_doc_fields
+
+        other = "Muster AG/GJ 2024/Other.txt"
+        rc.write(REL)
+        rc.write(other)
+        body = rc.body(rc.source(**MANDATE))
+        body["ingestion"]["delete_on_remove"] = False
+        rc.server.mode = "off"
+        self._cycle(rc, body)
+        (rc.root / REL).unlink()
+        self._cycle(rc, body)
+        rc.server.mode = "values"
+        assert requeue_doc_fields("not_accepted") == 1, "only the file the scan still reaches"
+        self._cycle(rc, body)
+        assert rc.server.rels() == [other]
+        assert rc.fields(REL).outcome == "not_accepted" and rc.fields(REL).digest is not None
+        for _ in range(2):
+            self._cycle(rc, body)
+            assert self._status() == ("accepted", {"with_fields": 1, "pending_reupload": 0,
+                                                   "refused": 0, "not_accepted": 1,
+                                                   "reupload_failed": 0})
+
+    def test_before_the_first_cycle_stored_requeued_rows_count_as_pending(self, rc):
+        from sync.sync_scheduler import requeue_doc_fields
+
+        body = rc.body(rc.source(**MANDATE))
+        rc.write(REL)
+        rc.server.mode = "off"
+        rc.run(body)  # not remembered: as after a restart
+        assert requeue_doc_fields("not_accepted") == 1, "unscoped until a cycle ran"
+        assert self._status()[1]["pending_reupload"] == 1
+
+    def test_the_server_state_ignores_requeued_not_accepted_rows(self):
+        from sync.sync_scheduler import _server_accepts_fields
+
+        counts = {"accepted": 1, "refused": 0, "not_accepted": 1, "not_accepted_requeued": 1}
+        assert _server_accepts_fields(None, counts) == "accepted"
+        assert _server_accepts_fields(None, dict(counts, not_accepted_requeued=0)) == "unknown"
+        only_requeued = {"accepted": 0, "refused": 0, "not_accepted": 1, "not_accepted_requeued": 1}
+        assert _server_accepts_fields(None, only_requeued) == "not_accepted"
+        assert _server_accepts_fields(None, counts, "not_accepted") == "not_accepted"
 
 
 class TestTemplatesAndSources:

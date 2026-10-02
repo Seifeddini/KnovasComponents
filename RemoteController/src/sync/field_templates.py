@@ -184,3 +184,26 @@ def captures(rel: str, templates: Sequence[CompiledTemplate]) -> dict[str, str]:
         if found is not None:
             return found
     return {}
+
+
+def sync_body_template_errors(body: object) -> list[str]:
+    """One message per template of a sync body that does not compile:
+    ``$.sources[i].field_templates[j]: field_template_invalid (<code>)``.
+
+    The routes that store a body refuse it with this message, so a template
+    RemoteController cannot compile never reaches a cycle (which would skip
+    the whole source and index none of its new files). The JSON path and the
+    code only: the template may name a client.
+    """
+    errors: list[str] = []
+    sources = body.get("sources") if isinstance(body, dict) else None
+    for i, source in enumerate(sources if isinstance(sources, list) else ()):
+        templates = source.get("field_templates") if isinstance(source, dict) else None
+        for j, template in enumerate(templates if isinstance(templates, list) else ()):
+            try:
+                compile_template(template)
+            except TemplateError as exc:
+                errors.append(
+                    f"$.sources[{i}].field_templates[{j}]: field_template_invalid ({exc.code})"
+                )
+    return errors

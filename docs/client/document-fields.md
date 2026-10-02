@@ -1,6 +1,9 @@
 # Document fields (Dokumentfelder) — what they do for your office
 
-**Available only once Knovas has enabled Document Fields for your tenant.**
+**Available only once Knovas has enabled Document Fields for your tenant**,
+on a Knovas release that reads the document reference of the field panel from
+the request body (otherwise the panel and every value edit say *Knovas-Update
+nötig*; filters and lists still work).
 Until then the Platform shows none of what follows, and search works as
 before. Ask Knovas to enable it; afterwards **Verwaltung → System →
 Dokumentfelder** says which level your tenant has:
@@ -73,6 +76,10 @@ and the most specific wins:
 - Not available today: counts per filter value, editing many documents at
   once, values read from the document text, packs other than `core` and
   `legal_ch`.
-- Field values never appear in logs, URLs or the audit log of the Platform.
+- The document-fields features write no field value into logs, new URLs or
+  the audit log of the Platform. Older log lines (opening or previewing a
+  document, a failed upload) still name document paths, and folder names can
+  be field values: keep the Platform's and RemoteController's logs as
+  confidential as the documents.
 
 Details for administrators: [KnovasPlatform/docs/features/document-fields.md](../../KnovasPlatform/docs/features/document-fields.md).

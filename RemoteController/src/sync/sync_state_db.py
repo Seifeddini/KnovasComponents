@@ -7,7 +7,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, Collection, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +338,7 @@ class SyncStateDatabase:
             return None
         return FieldsState(row[0], bool(row[1]), row[2], int(row[3] or 0))
 
-    def requeue_fields(self, outcome: str) -> int:
+    def requeue_fields(self, outcome: str, paths: Optional[Collection[str]] = None) -> int:
         """Queue documents for a fields re-upload; returns how many.
 
         The digest is cleared, so the next cycle finds the document
@@ -346,36 +346,63 @@ class SyncStateDatabase:
         document whose values were staged before gets ``REQUEUE_DIGEST``
         instead of NULL: NULL equals "" and would never re-send a clear.
         Rows already waiting are not counted twice.
+
+        ``paths`` limits the requeue to documents a scan reaches (the
+        cycle's scanned paths): a row the scan never visits again -- a
+        completed sequential subfolder, a removed file kept tracked by
+        ``delete_on_remove: false`` -- would otherwise wait for good. The
+        extraction retry counter of a queued row is cleared: a re-upload
+        that leaves the queue starts with a clean slate.
         """
-        where = _REQUEUE_WHERE.get(outcome)
-        if where is None:
-            raise ValueError("unknown requeue outcome")
         conn = self._connect()
-        cur = conn.execute(
+        selected = self._requeue_candidates(conn, outcome, paths)
+        if not selected:
+            return 0
+        where = _REQUEUE_WHERE[outcome]
+        cur = conn.executemany(
             f"""
             UPDATE documents SET
                 fields_digest = CASE WHEN fields_sent = 1 THEN ? ELSE NULL END,
                 fields_attempts = 0
-            WHERE {where}
+            WHERE relative_path = ? AND {where}
               AND fields_digest IS NOT NULL AND fields_digest != ?
             """,
-            (REQUEUE_DIGEST, REQUEUE_DIGEST),
+            [(REQUEUE_DIGEST, path, REQUEUE_DIGEST) for path in selected],
+        )
+        count = int(cur.rowcount or 0)
+        conn.executemany(
+            "DELETE FROM extract_retries WHERE relative_path = ?", [(path,) for path in selected]
         )
         conn.commit()
-        return int(cur.rowcount or 0)
+        return count
 
-    def count_fields_requeue_candidates(self, outcome: str) -> int:
-        """Rows ``requeue_fields(outcome)`` would queue now."""
+    def count_fields_requeue_candidates(
+        self, outcome: str, paths: Optional[Collection[str]] = None
+    ) -> int:
+        """Rows ``requeue_fields(outcome, paths)`` would queue now."""
+        return len(self._requeue_candidates(self._connect(), outcome, paths))
+
+    def fields_requeue_candidate_paths(self, outcome: str = "all") -> list[str]:
+        """Paths ``requeue_fields(outcome)`` would queue now (kept in memory
+        only, to scope the requeue endpoint to what the last scan reached)."""
+        return self._requeue_candidates(self._connect(), outcome, None)
+
+    @staticmethod
+    def _requeue_candidates(
+        conn: sqlite3.Connection, outcome: str, paths: Optional[Collection[str]]
+    ) -> list[str]:
         where = _REQUEUE_WHERE.get(outcome)
         if where is None:
             raise ValueError("unknown requeue outcome")
-        conn = self._connect()
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM documents WHERE {where} "
+        cur = conn.execute(
+            f"SELECT relative_path FROM documents WHERE {where} "
             "AND fields_digest IS NOT NULL AND fields_digest != ?",
             (REQUEUE_DIGEST,),
-        ).fetchone()
-        return int(row[0]) if row else 0
+        )
+        found = [row[0] for row in cur]
+        if paths is None:
+            return found
+        return [path for path in found if path in paths]
 
     def fields_counts(self) -> dict[str, int]:
         """Document counts for ``/sync/status`` (no paths, no values)."""
@@ -389,12 +416,15 @@ class SyncStateDatabase:
                 COALESCE(SUM(CASE WHEN fields_outcome LIKE 'reupload_failed:%' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN fields_outcome IN ('staged', 'cleared') THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN fields_outcome IS NOT NULL
+                    AND (fields_digest IS NULL OR fields_digest = ?) THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN fields_outcome = 'not_accepted'
                     AND (fields_digest IS NULL OR fields_digest = ?) THEN 1 ELSE 0 END), 0)
             FROM documents
             """,
-            (REQUEUE_DIGEST,),
+            (REQUEUE_DIGEST, REQUEUE_DIGEST),
         ).fetchone()
-        keys = ("with_fields", "refused", "not_accepted", "reupload_failed", "accepted", "requeued")
+        keys = ("with_fields", "refused", "not_accepted", "reupload_failed", "accepted", "requeued",
+                "not_accepted_requeued")
         return {key: int(value or 0) for key, value in zip(keys, row or ())}
 
     def list_tracked_paths(self) -> list[str]:

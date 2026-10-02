@@ -209,7 +209,9 @@
                 {% if not df.available %}
                 <p class="msg error">Knovas stellt Dokumentfelder derzeit nicht bereit. Vorhandene Einstellungen bleiben erhalten; Änderungen werden erst nach einer Prüfung übertragen.</p>
                 {% endif %}
-                {% if not df.rc_supports %}
+                {% if df.rc_supports is none %}
+                <p class="msg warn">RemoteController ist nicht erreichbar; ob er Dokumentfelder unterstützt, lässt sich gerade nicht prüfen. Ordner mit Feldern werden erst gespeichert, wenn er antwortet.</p>
+                {% elif not df.rc_supports %}
                 <p class="msg error">RemoteController meldet keine Unterstützung für Dokumentfelder – bitte aktualisieren, bevor Ordner mit Feldern gespeichert werden.</p>
                 {% endif %}
                 {% if df.multi_source %}
