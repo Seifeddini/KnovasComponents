@@ -1,0 +1,47 @@
+{
+  "name": "patch_title_only",
+  "description": "A title-only PATCH answers fields {} (no typed key named): read the values again instead.",
+  "server_state": "values",
+  "setup": [
+    {
+      "method": "POST",
+      "path": "/secured/init_document_transmission",
+      "body": {
+        "identifier": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+        "part_count": 1,
+        "title": "Rechnung_17.pdf",
+        "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
+        "fields": {
+          "doc_type": "invoice",
+          "period": "GJ 2024"
+        }
+      }
+    }
+  ],
+  "request": {
+    "method": "PATCH",
+    "path": "/secured/graph/doc-values",
+    "body": {
+      "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+      "if_version": 1,
+      "set": {
+        "title": "Rechnung Muster AG"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "message": "Document values updated",
+      "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+      "version": 2,
+      "title": "Rechnung Muster AG",
+      "title_source": "manual",
+      "fields": {},
+      "warnings": []
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

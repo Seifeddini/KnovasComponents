@@ -1,0 +1,21 @@
+{
+  "name": "probe_values",
+  "description": "Capability probe with fields on and filters off: 400 where_unsupported, before any principal is resolved.",
+  "server_state": "values",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/graph/doc-values/find",
+    "body": {}
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "status": "error",
+      "error_code": "where_unsupported",
+      "error": "Field filters are not enabled for this tenant"
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

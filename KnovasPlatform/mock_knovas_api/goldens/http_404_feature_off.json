@@ -1,0 +1,21 @@
+{
+  "name": "http_404_feature_off",
+  "description": "Every doc-fields path answers the unknown-route 404 while the feature is off, for every method.",
+  "server_state": "off",
+  "setup": [],
+  "request": {
+    "method": "GET",
+    "path": "/secured/graph/doc-fields",
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "status": "error",
+      "error_code": "HTTP_404",
+      "error": "The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again."
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

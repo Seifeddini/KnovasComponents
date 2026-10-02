@@ -1,0 +1,22 @@
+{
+  "name": "probe_filters",
+  "description": "Capability probe with fields and filters on: the empty body is refused as an invalid where.",
+  "server_state": "filters",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/graph/doc-values/find",
+    "body": {}
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "status": "error",
+      "error_code": "invalid_value",
+      "error": "A field value is invalid",
+      "path": "where"
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

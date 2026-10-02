@@ -1,0 +1,55 @@
+{
+  "name": "return_fields_uncalibrated",
+  "description": "return_fields alone needs no calibration; without where there is no where echo.",
+  "server_state": "filters_uncalibrated",
+  "setup": [
+    {
+      "method": "POST",
+      "path": "/secured/init_document_transmission",
+      "body": {
+        "identifier": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+        "part_count": 1,
+        "title": "Rechnung_17.pdf",
+        "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
+        "fields": {
+          "doc_type": "invoice",
+          "period": "GJ 2024"
+        }
+      }
+    }
+  ],
+  "request": {
+    "method": "POST",
+    "path": "/secured/query",
+    "body": {
+      "Input": "Rechnung",
+      "return_fields": [
+        "doc_type"
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "result_count": 1,
+      "results": [
+        {
+          "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+          "fields": {
+            "doc_type": "invoice"
+          }
+        }
+      ],
+      "return_fields": {
+        "applied": true
+      }
+    }
+  },
+  "volatile": [
+    "query_session_id"
+  ],
+  "absent": [
+    "where"
+  ]
+}

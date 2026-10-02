@@ -199,6 +199,11 @@ services:
     build:
       context: ./KnovasPlatform/mock_knovas_api
       dockerfile: Dockerfile
+    environment:
+      # Which Knovas document-fields state the mock plays: off (an old server,
+      # the default), values or filters. The compose demo runs the Platform in
+      # legacy mode, which never reaches doc fields; the tests use the modes.
+      MOCK_DOC_FIELDS: ${MOCK_DOC_FIELDS:-off}
     expose:
       - "5000"
     healthcheck:

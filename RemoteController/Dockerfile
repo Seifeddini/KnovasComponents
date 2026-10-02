@@ -6,13 +6,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 COPY pyproject.toml README.md ./
 
 # knovas-extract is installed from git until the release the RC needs is on
-# PyPI. KNOVAS_EXTRACT_REF selects the revision: pin it to a tag or sha per
-# RC release (e.g. --build-arg KNOVAS_EXTRACT_REF=v0.4.0a1) — `main` is the
-# development default only. An empty KNOVAS_EXTRACT_FROM_GIT installs from
-# PyPI instead:
+# PyPI. KNOVAS_EXTRACT_REF selects the revision and defaults to a pinned sha
+# (knovas-extract-python `main` on 2026-10-02): CI installs this same sha for
+# the RC test job and fails when the two differ (.github/workflows/ci.yml,
+# KNOVAS_EXTRACT_SHA), so the image and the tests run one extractor. Override
+# per build with --build-arg KNOVAS_EXTRACT_REF=<tag or sha>. An empty
+# KNOVAS_EXTRACT_FROM_GIT installs from PyPI instead:
 #   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller
 ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git
-ARG KNOVAS_EXTRACT_REF=main
+ARG KNOVAS_EXTRACT_REF=11ec1c38053cbbc914207c9e2f24636cde709617
 # Extras: [pdf,ocr,docx,msg,html,sentences]. No [markdown]: the RC never asks
 # for emit_markdown any more (it cost ~8 s/document and parked mixed PDFs and
 # large-table DOCX through the expansion guard), and the PolyForm-NC

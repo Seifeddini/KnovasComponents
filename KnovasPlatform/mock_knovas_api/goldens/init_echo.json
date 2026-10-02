@@ -1,0 +1,55 @@
+{
+  "name": "init_echo",
+  "description": "Init fields echo: a label mapped to its code, an entity name kept unlinked (no target type), an unknown key listed, a system key dropped with a warning.",
+  "server_state": "values",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/init_document_transmission",
+    "body": {
+      "identifier": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+      "part_count": 1,
+      "title": "Rechnung_17.pdf",
+      "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
+      "fields": {
+        "doc_type": "Rechnung",
+        "party": "Beispiel GmbH",
+        "mandat": "Muster AG",
+        "title": "Rechnung 17"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "status": "success",
+      "message": "Transmission initialized",
+      "fields": {
+        "staged": 2,
+        "mapped_keys": {
+          "doc_type": "doc_type",
+          "party": "party"
+        },
+        "unknown_keys": [
+          "mandat"
+        ],
+        "warnings": [
+          {
+            "key": "party",
+            "path": "fields.party",
+            "code": "unresolved_entity"
+          },
+          {
+            "key": "title",
+            "path": "fields.title",
+            "code": "invalid_value"
+          }
+        ]
+      }
+    }
+  },
+  "volatile": [
+    "transmission_key_id"
+  ],
+  "absent": []
+}
