@@ -18,7 +18,12 @@ right up to the moment somebody clicks.
 
 So the decision is made here instead, out of something the Platform already
 holds: **the pointers retrieval handed this person**. A file route serves a
-document only if that person's own search returned it, within the TTL. This is
+document only if that person's own search or listing returned it, within the
+TTL. Both are answers Knovas gave under the person's own assertion: the search
+(``/secured/query``) and the listing by document fields
+(``/secured/graph/doc-values/find``), which filters by the same ACL first
+(the same holds for both below). The document-fields panel asks this
+question before it sends a pointer to Knovas. This is
 a capability, not an ACL evaluation — deliberately, because evaluating the ACL
 here would mean a second copy of a policy that could disagree with the
 backend's, and a wall that disagrees is worse than no wall.
@@ -132,7 +137,8 @@ class DocumentGrantStore:
 
     # -- public API --------------------------------------------------------
     def grant(self, subject: str, pointers: Iterable[str]) -> int:
-        """Record that retrieval returned these pointers to this person.
+        """Record that retrieval -- a search or a listing -- returned these
+        pointers to this person.
 
         Re-granting refreshes the timestamp, so a document stays reachable for
         as long as the person keeps finding it, and ages out when they stop.

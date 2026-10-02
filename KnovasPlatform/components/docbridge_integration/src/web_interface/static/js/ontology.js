@@ -1127,10 +1127,50 @@ class CortexApp {
                                             page: Number(btn.dataset.page),
                                             title: btn.dataset.title });
                 }));
+            this.renderDocFieldLinks(body.querySelector('.entity-detail'), data);
         } catch (err) {
             if (err.name === 'AbortError') return;
             body.innerHTML = '<p class="ontology-empty">Entität konnte nicht geladen werden.</p>';
         }
+    }
+
+    /**
+     * "Dokumente mit <Feld> = <Name>": die Liste nach Dokumentfeldern auf der
+     * Suchseite. Nur wenn der Server Links schickt (Knovas bietet die Liste
+     * an). Feld und Name gehen ueber sessionStorage, nie in die URL -- die
+     * Seite oeffnet nur "/?list=1". Alles per textContent.
+     */
+    renderDocFieldLinks(container, data) {
+        const links = Array.isArray(data && data.doc_field_links) ? data.doc_field_links : [];
+        const name = String((data && data.entity && data.entity.label) || '').trim();
+        if (!container || !links.length || !name) return;
+        const section = document.createElement('section');
+        section.className = 'doc-field-links';
+        const head = document.createElement('h4');
+        head.textContent = 'Dokumente';
+        const list = document.createElement('ul');
+        list.className = 'doc-field-link-list';
+        links.forEach((link) => {
+            if (!link || !link.key) return;
+            const item = document.createElement('li');
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn-text doc-field-link';
+            button.textContent = `Dokumente mit ${link.label || link.key} = ${name}`;
+            button.addEventListener('click', () => {
+                try {
+                    window.sessionStorage.setItem('knovas.docFieldsHandoff',
+                        JSON.stringify({ field: String(link.key), name }));
+                } catch (err) {
+                    return;
+                }
+                window.location.assign('/?list=1');
+            });
+            item.appendChild(button);
+            list.appendChild(item);
+        });
+        section.append(head, list);
+        container.appendChild(section);
     }
 
     /** Entität anlegen: der Graph ist kuratiert, Knovas leitet ihn nicht ab. */

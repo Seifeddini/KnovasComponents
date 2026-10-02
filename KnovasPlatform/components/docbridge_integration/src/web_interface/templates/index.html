@@ -38,20 +38,43 @@
                         Suchen
                     </button>
                 </div>
+                <!-- Dokumentfelder: nur sichtbar, wenn Knovas die Liste oder
+                     die Filter fuer diesen Mandanten anbietet (doc_fields.js).
+                     Alles darin wird per textContent gefuellt. -->
+                <div class="doc-fields-rail" id="docFieldsRail" hidden>
+                    <div class="doc-fields-rail-head">
+                        <h2 class="doc-fields-rail-title" id="docFieldsRailTitle">Filter</h2>
+                        <p class="doc-fields-rail-hint" id="docFieldsRailHint"></p>
+                    </div>
+                    <div class="doc-fields-rail-inputs" id="docFieldsRailInputs"></div>
+                    <div class="doc-fields-rail-foot">
+                        <div class="doc-fields-rail-sort" id="docFieldsRailSort"></div>
+                        <div class="doc-fields-rail-actions">
+                            <button type="button" class="btn btn-outline" id="docFieldsListButton">Liste anzeigen</button>
+                            <button type="button" class="btn btn-outline" id="docFieldsClearButton">Filter entfernen</button>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="results-section" id="resultsSection" style="display: none;">
                 <div class="results-header">
-                    <h2>Suchergebnisse<span id="resultsQuery" class="results-query"></span></h2>
+                    <h2><span id="resultsHeading">Suchergebnisse</span><span id="resultsQuery" class="results-query"></span></h2>
                     <span id="resultsCount" class="results-count"></span>
                 </div>
                 <p class="results-notice" id="resultsNotice" hidden></p>
+                <div class="doc-fields-understood" id="docFieldsUnderstood" hidden></div>
+                <p class="results-notice doc-fields-banner" id="docFieldsBanner" hidden></p>
+                <p class="results-notice doc-fields-notice" id="docFieldsNotice" hidden></p>
                 <div id="resultsContainer" class="results-container">
                     <!-- Results will be dynamically inserted here -->
                 </div>
                 <div class="results-more">
                     <button type="button" id="loadMoreButton" class="btn btn-outline" hidden>
                         Mehr laden
+                    </button>
+                    <button type="button" id="showListButton" class="btn btn-outline" hidden>
+                        Liste anzeigen
                     </button>
                 </div>
             </section>
@@ -136,6 +159,10 @@
                         <h3 class="preview-sidebar-title">Dokumentdaten</h3>
                         <dl class="preview-docdata" id="previewDocData"></dl>
                     </section>
+                    <section class="preview-sidebar-section" id="previewFieldsSection" hidden>
+                        <h3 class="preview-sidebar-title">Dokumentfelder</h3>
+                        <div class="doc-fields-panel" id="previewFields"></div>
+                    </section>
                 </aside>
             </div>
         </dialog>
@@ -160,6 +187,7 @@
     </script>
     <script src="{{ url_for('static', filename='js/markdown.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/doc_fields.js') }}?v={{ asset_version }}"></script>
     <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="false"></div>
 </body>
 </html>

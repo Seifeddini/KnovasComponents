@@ -36,13 +36,15 @@ from context_store import (
     sentences_by_number_map,
 )
 from context_store import query_terms as context_query_terms
-from knovas_client import KnovasAPIClient
+import doc_fields_view
+from knovas_client import KnovasAPIClient, QueryRejected
 from file_utils import AutoDocFileHandler
 from document_grants import DEFAULT_TTL_SECONDS as GRANT_TTL_DEFAULT
 from document_grants import DocumentGrantStore
 from open_tokens import OpenTokenManager
 from ontology_filters import get_filter_engine
 from ontology_store import get_ontology
+from web_interface import doc_fields_routes
 from web_interface.preview import (
     PreviewFailed,
     PreviewUnsupported,
@@ -166,30 +168,29 @@ def _rel_path_for_autodoc(pointer: str) -> str:
 
 
 def _log_search_similarity_debug(query: str, results: List[Dict[str, Any]]) -> None:
-    """Docker logs: see whether Knovas scores survived into each hit."""
+    """Docker logs: see whether Knovas scores survived into the hits.
+
+    Counts and scores only. The query text and the pointers used to be in
+    this line; both carry client names, and a log line is the one place a
+    value must never reach (spec D6). ``query`` stays in the signature so
+    callers need not change; only its length is logged.
+    """
     if not results:
-        logger.info("Search similarity debug query=%r: 0 results", query)
+        logger.info("Search similarity debug query_len=%d: 0 results", len(query or ''))
         return
     scores = [float(r.get('score') or 0) for r in results]
-    brief = [
-        {
-            'doc_id': r.get('doc_id'),
-            'score': float(r.get('score') or 0),
-            'page': r.get('page_number'),
-            'sentence': r.get('sentence_number'),
-            'top_chunks': len(r.get('top_chunks') or []),
-            'cos_sim': r.get('cosine_similarity'),
-            'cos_dist': r.get('cosine_distance'),
-        }
-        for r in results
-    ]
+    with_cosine = sum(
+        1 for r in results
+        if r.get('cosine_similarity') is not None or r.get('cosine_distance') is not None
+    )
     logger.info(
-        "Search similarity debug query=%r count=%s max_score=%.6f min_score=%.6f detail=%s",
-        query,
+        "Search similarity debug query_len=%d count=%s max_score=%.6f min_score=%.6f "
+        "with_cosine=%d",
+        len(query or ''),
         len(results),
         max(scores),
         min(scores),
-        brief,
+        with_cosine,
     )
 
 
@@ -1381,11 +1382,7 @@ def create_app(config_path: Optional[str] = None):
                 )
                 return jsonify({'success': False, 'error': 'Not found'}), 404
 
-        # Both spellings: search grants the raw Knovas pointer, while a caller
-        # may name the same document by its path under the mount.
-        if not document_grants.granted(
-            str(user.id), str(doc_id), _rel_path_for_autodoc(str(doc_id))
-        ):
+        if not _readable_for_current_user(str(doc_id)):
             logger.info(
                 "Refusing %s: no live grant for %r. The document was not in "
                 "this person's search results, or the grant has aged out.",
@@ -1393,6 +1390,51 @@ def create_app(config_path: Optional[str] = None):
             )
             return jsonify({'success': False, 'error': 'Not found'}), 404
         return None
+
+    def _readable_for_current_user(doc_id: str) -> bool:
+        """Whether the signed-in person's own search or listing returned this
+        document, within the grant TTL (``document_grants``).
+
+        The check the file routes run before handing over bytes, and the one
+        the document-fields routes run before asking Knovas about a pointer.
+        Both spellings count: search and listing grant the raw Knovas pointer
+        and the path under the mount, and a caller may name either.
+
+        With ``identity.enabled`` off there is no subject to hold a grant, so
+        this stands aside (True), exactly as the file-route gate always has.
+        Nobody signed in is False. Logs nothing: the callers decide what a
+        refusal is worth saying, and a pointer never goes into a new log line.
+        """
+        if identity_gate is None:
+            return True
+        user = identity_gate.current_user()
+        if user is None:
+            return False
+        return document_grants.granted(
+            str(user.id), str(doc_id), _rel_path_for_autodoc(str(doc_id))
+        )
+
+    def _grant_for_current_user(rows: List[Dict[str, Any]]) -> None:
+        """Record what retrieval -- a search or a listing -- handed this
+        person, so the file routes serve those documents and only those.
+
+        Every spelling a row carries is granted: the raw Knovas pointer and
+        its path under the mount. Without identity there is nobody to hold a
+        grant, and nothing is recorded.
+        """
+        if identity_gate is None:
+            return
+        searcher = identity_gate.current_user()
+        if searcher is None:
+            return
+        spellings: List[str] = []
+        for result in rows or ():
+            for field in ('doc_id', 'path', 'pointer'):
+                raw = result.get(field)
+                if raw:
+                    spellings.append(str(raw))
+                    spellings.append(_rel_path_for_autodoc(str(raw)))
+        document_grants.grant(str(searcher.id), spellings)
 
     @app.route('/favicon.ico')
     def favicon():
@@ -1721,6 +1763,68 @@ def create_app(config_path: Optional[str] = None):
             graph_mode=lambda: _ontology_source_is_graph(),
         ))
 
+    def _apply_open_hints(rows: List[Dict[str, Any]]) -> None:
+        """How the browser may open each row's file: client path, UNC, companion.
+
+        Not "and not enrichment_loaded": a mirrored OneDrive corpus has an
+        enrichment file and still holds documents with no webUrl, which are
+        opened locally like any other. Rows that do resolve a URL have these
+        hints removed again by _apply_onedrive_links.
+        """
+        for result in rows:
+            fp = (result.get('path') or '').strip()
+            if fp and result.get('can_open') and not result.get('external_url'):
+                full = _resolve_autodoc_path(fp)
+                if full:
+                    targets = _client_open_targets(full)
+                    if browser_client_open_enabled and _open_mapping_configured():
+                        result['open_via_browser'] = True
+                        if targets.get('unc'):
+                            result['client_open_unc'] = targets['unc']
+                        if targets.get('path'):
+                            result['client_open_path'] = targets['path']
+                    if companion_enabled and _open_mapping_configured():
+                        result['open_via_companion'] = True
+                        result['companion_scheme'] = companion_uri_scheme
+
+    def _apply_onedrive_links(rows: List[Dict[str, Any]]) -> None:
+        """Only a document that actually resolved to a webUrl can be opened in
+        OneDrive. Marking every hit available because the deployment *has* an
+        enrichment file put an "In OneDrive oeffnen" on mirrored-but-unlinked
+        documents, where it 404s, and hid the local Oeffnen that would have
+        worked."""
+        for result in rows:
+            if not result.get('external_url'):
+                url = _resolve_onedrive_url(
+                    str(result.get('doc_id') or ''),
+                    str(result.get('path') or result.get('doc_id') or ''),
+                    config,
+                )
+                if url:
+                    _apply_external_open_mode(result, url)
+            result['onedrive_open_available'] = bool(result.get('external_url'))
+
+    def _enhance_listing_rows(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """A listing page's rows, enriched exactly like search rows (disk
+        metadata, context sidecar, open hints, OneDrive links), so a listed
+        document previews and opens the way a found one does."""
+        enhanced = _enhance_search_results(payload, file_handler, config, query='')
+        rows = enhanced.get('results') or []
+        _apply_open_hints(rows)
+        if _unique_enrichment_records():
+            _apply_onedrive_links(rows)
+        return enhanced
+
+    doc_fields_routes.attach(
+        app,
+        config=config,
+        client_factory=lambda: api_client,
+        identity_gate=identity_gate,
+        grant=_grant_for_current_user,
+        grant_check=_readable_for_current_user,
+        enhance=_enhance_listing_rows,
+    )
+
     @app.route('/api/search', methods=['POST'])
     def search():
         """
@@ -1730,12 +1834,26 @@ def create_app(config_path: Optional[str] = None):
             {
                 "query": "search query",
                 "limit": 20,
-                "filters": {}
+                "filters": {},
+                "where": {"doc_type": "invoice"}     (optional; document fields)
             }
         
         Returns:
-            JSON with search results
+            JSON with search results, plus ``document_fields`` (capability,
+            filter_state, fields_unavailable, resolved) and ``honesty``
+            (no_strong_matches, no_results_reason, relevance_gate_applied,
+            degraded_to_bm25; null where Knovas does not say).
+
+        Document fields (spec 4.3, H1-H3): ``where`` goes to Knovas only when
+        the tenant's capability is ``filters``, and its results are shown only
+        when Knovas echoed ``where.applied``; otherwise the answer is a 409
+        without results. A filtered search is never retried unfiltered, and
+        the client-side score thresholds and the filename supplement are
+        skipped for it -- they would add or drop rows the filter did not
+        decide. ``return_fields`` (typed values on the cards) goes out under
+        ``filters`` and ``listing_only``.
         """
+        plan = None
         try:
             data = request.get_json()
             
@@ -1743,10 +1861,25 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'error': 'Query parameter required'}), 400
             
             query = data['query']
-            limit = data.get('limit', config.get_int('web.search.results_per_page', 20))
-            filters = data.get('filters', {})
-            
-            logger.info(f"Search request: query='{query}', limit={limit}")
+            limit = _clamp_search_limit(
+                data.get('limit', config.get_int('web.search.results_per_page', 20)),
+                config.get_int('web.search.results_per_page', 20),
+            )
+            filters = data.get('filters', {}) or {}
+            where = None
+            if data.get('where') is not None:
+                try:
+                    where = doc_fields_view.validate_where(data.get('where'))
+                except ValueError:
+                    return jsonify({
+                        'success': False, 'error_code': 'filter_invalid', 'code': 'where_invalid',
+                        'error': doc_fields_routes.FILTER_SHAPE_INVALID,
+                    }), 400
+
+            # Lengths and counts only: the question and the filter values
+            # carry client names (spec D6).
+            logger.info("Search request: query_len=%d, limit=%d, where_keys_count=%d",
+                        len(str(query or '')), limit, len(where or {}))
 
             min_qlen = config.get_int('web.search.min_query_length', 2)
             qstrip = (query or '').strip()
@@ -1757,6 +1890,13 @@ def create_app(config_path: Optional[str] = None):
                 }), 400
 
             use_test_results = _search_use_test_results()
+            plan = doc_fields_routes.search_plan(
+                api_client, where, doc_fields_routes.user_key_for(identity_gate),
+                enabled=not use_test_results,
+            )
+            if plan.refusal is not None:
+                body, status = plan.refusal
+                return jsonify(body), status
             if use_test_results:
                 logger.info("Search using local test fixtures (SEARCH_USE_TEST_RESULTS=true)")
                 results = _build_test_search_results(query=query, limit=limit)
@@ -1765,11 +1905,23 @@ def create_app(config_path: Optional[str] = None):
                 # something /secured/query knows about. Forwarding it would put
                 # an unknown key in the request body and a warning in the log on
                 # every single search.
-                results = api_client.search_documents(
-                    query=query, limit=limit,
+                results = doc_fields_routes.run_search(
+                    api_client, plan, query=query, limit=limit,
                     filters={k: v for k, v in (filters or {}).items()
                              if k not in _LOCAL_ONLY_FILTERS},
                 )
+
+            semantix_meta = results.get('semantix')
+            if not isinstance(semantix_meta, dict):
+                semantix_meta = {}
+            filter_state = doc_fields_view.filter_state(plan.where, semantix_meta)
+            if filter_state == 'not_applied':
+                # H2: Knovas answered, but did not say the filter applied.
+                # Showing these rows as filtered would be the one lie this
+                # feature must not tell, so none are shown.
+                body, status = doc_fields_routes.filter_not_applied()
+                return jsonify(body), status
+            filtered = plan.where is not None
 
             is_test_data = use_test_results or (
                 isinstance(results.get('semantix'), dict)
@@ -1778,26 +1930,7 @@ def create_app(config_path: Optional[str] = None):
 
             enhanced_results = _enhance_search_results(results, file_handler, config, query)
             enrichment_loaded = bool(_unique_enrichment_records())
-            for result in enhanced_results.get('results') or []:
-                fp = (result.get('path') or '').strip()
-                # Not "and not enrichment_loaded": a mirrored OneDrive corpus
-                # has an enrichment file and still holds documents with no
-                # webUrl, which are opened locally like any other. Rows that do
-                # resolve a URL have these hints removed again below, by
-                # _apply_external_open_mode.
-                if fp and result.get('can_open') and not result.get('external_url'):
-                    full = _resolve_autodoc_path(fp)
-                    if full:
-                        targets = _client_open_targets(full)
-                        if browser_client_open_enabled and _open_mapping_configured():
-                            result['open_via_browser'] = True
-                            if targets.get('unc'):
-                                result['client_open_unc'] = targets['unc']
-                            if targets.get('path'):
-                                result['client_open_path'] = targets['path']
-                        if companion_enabled and _open_mapping_configured():
-                            result['open_via_companion'] = True
-                            result['companion_scheme'] = companion_uri_scheme
+            _apply_open_hints(enhanced_results.get('results') or [])
             if is_test_data:
                 _apply_test_open_hints(
                     enhanced_results.get('results') or [],
@@ -1805,47 +1938,30 @@ def create_app(config_path: Optional[str] = None):
                     companion_enabled,
                     companion_uri_scheme,
                 )
-            refined = _apply_search_refinement(enhanced_results, query, filters, config)
+            # H3: under a filter, the client score thresholds and the filename
+            # supplement stay out -- the rows are the ones the filter decided.
+            # Without one, both run as always, even when Knovas reports its
+            # own relevance gate (that flag is independent of document fields).
+            refined = _apply_search_refinement(
+                enhanced_results, query, filters, config, thresholds=not filtered)
 
             final_results = refined.get('results', [])
-            final_results = _supplement_results_from_enrichment_filenames(
-                query, final_results, filters, config, limit=limit
-            )
+            if not filtered:
+                final_results = _supplement_results_from_enrichment_filenames(
+                    query, final_results, filters, config, limit=limit
+                )
             if config.get_bool('web.search.log_similarity_scores', True):
                 _log_search_similarity_debug(query, final_results)
 
             if enrichment_loaded:
-                for result in final_results:
-                    if not result.get('external_url'):
-                        url = _resolve_onedrive_url(
-                            str(result.get('doc_id') or ''),
-                            str(result.get('path') or result.get('doc_id') or ''),
-                            config,
-                        )
-                        if url:
-                            _apply_external_open_mode(result, url)
-                    # Only a document that actually resolved to a webUrl can be
-                    # opened in OneDrive. Marking every hit available because
-                    # the deployment *has* an enrichment file put an "In
-                    # OneDrive öffnen" on mirrored-but-unlinked documents, where
-                    # it 404s, and hid the local Öffnen that would have worked.
-                    result['onedrive_open_available'] = bool(result.get('external_url'))
+                _apply_onedrive_links(final_results)
+            doc_fields_routes.decorate_rows(final_results, plan.registry)
 
             # Retrieval has decided; record what it handed this person so the
-            # file routes can serve those documents and only those. This is the
-            # only route that gives the browser document pointers, so it is the
-            # only place a grant is created.
-            if identity_gate is not None:
-                searcher = identity_gate.current_user()
-                if searcher is not None:
-                    spellings: List[str] = []
-                    for result in final_results:
-                        for field in ('doc_id', 'path', 'pointer'):
-                            raw = result.get(field)
-                            if raw:
-                                spellings.append(str(raw))
-                                spellings.append(_rel_path_for_autodoc(str(raw)))
-                    document_grants.grant(str(searcher.id), spellings)
+            # file routes can serve those documents and only those. Search and
+            # the listing are the only routes that give the browser document
+            # pointers, so they are the only places a grant is created.
+            _grant_for_current_user(final_results)
 
             # Whether the words the person typed actually occur in anything we
             # are about to show them. A vector search answers "related to", and
@@ -1883,6 +1999,13 @@ def create_app(config_path: Optional[str] = None):
                 'timestamp': datetime.now().isoformat(),
                 'onedrive_enrichment_loaded': enrichment_loaded,
                 'location_summary': _build_location_summary(final_results),
+                # Additive only: a server or a tenant without document fields
+                # gets capability "off", filter_state "none", and null honesty
+                # values -- nothing else in this answer changes.
+                'document_fields': doc_fields_routes.document_fields_block(
+                    plan, filter_state, semantix_meta.get('where'),
+                    doc_fields_routes.current_capability(plan.capability)),
+                'honesty': doc_fields_routes.honesty_block(semantix_meta),
             }
             if 'semantix' in refined and isinstance(refined.get('semantix'), dict):
                 payload['semantix'] = refined['semantix']
@@ -1890,7 +2013,15 @@ def create_app(config_path: Optional[str] = None):
                 payload['similarity_debug'] = _build_similarity_debug(final_results)
 
             return jsonify(payload)
-            
+
+        except QueryRejected as e:
+            # Only a request that carried ``where`` gets here: one with just
+            # return_fields was retried without them in run_search. Never
+            # retried unfiltered (H3); mapped to what the browser can show.
+            logger.info("Knovas refused the filtered search (%s %s)", e.status, e.error_code)
+            body, status = doc_fields_routes.filter_refusal(
+                e, plan.registry if plan is not None else None)
+            return jsonify(body), status
         except requests.exceptions.HTTPError as e:
             # A failure at api.knovas.ch is not a failure of this deployment,
             # and saying "Interner Serverfehler" for it sends an operator to
@@ -2687,6 +2818,14 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
             engine = _ontology_filter_engine()
             detail['filters'] = engine.filters_for_entity(store, entity_id)
+            if _ontology_source_is_graph():
+                # "Dokumente mit <Feld> = <Name>": only where Knovas offers
+                # the listing; otherwise the answer is what it always was.
+                links = doc_fields_routes.doc_field_links(
+                    api_client, doc_fields_routes.user_key_for(identity_gate),
+                    (detail.get('entity') or {}).get('type'))
+                if links is not None:
+                    detail['doc_field_links'] = links
             return jsonify({'success': True, **detail})
         except Exception:
             logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
@@ -2924,6 +3063,23 @@ def _effective_cosine_distance(result: Dict[str, Any]) -> Optional[float]:
 # else, so anything here would only be noise in the request body.
 _LOCAL_ONLY_FILTERS = frozenset({'exact_match'})
 
+# /secured/query answers 422 above 50 (query_pipeline.py); "Mehr laden"
+# doubled past it and every second page failed.
+_SEARCH_LIMIT_MAX = 50
+
+
+def _clamp_search_limit(raw: Any, default: int) -> int:
+    """The browser's ``limit`` as an int in 1..50; the default when it is
+    not a number."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        try:
+            value = int(default)
+        except (TypeError, ValueError):
+            value = 20
+    return max(1, min(_SEARCH_LIMIT_MAX, value))
+
 
 def _search_result_haystack(result: Dict[str, Any]) -> str:
     """Lowercased text used for strict / exact-style matching.
@@ -2996,6 +3152,8 @@ def _apply_search_refinement(
     query: str,
     filters: Dict[str, Any],
     config,
+    *,
+    thresholds: bool = True,
 ) -> Dict[str, Any]:
     """
     Tighten results after Knovas returns (semantic search is loose by default).
@@ -3006,10 +3164,16 @@ def _apply_search_refinement(
       cosine_similarity, or 1 - cosine_distance). NOT the same as max distance.
     - max_cosine_distance: drop hits whose cosine *distance* exceeds this (0 = best).
       If the API sends no scores, see enforce_similarity_threshold_when_set.
+
+    ``thresholds=False`` skips the two score thresholds: a search filtered by
+    document fields is relevance-gated at Knovas, and dropping its rows here
+    would turn "these documents match" into an empty list that reads as "no
+    document matches the filter" (spec H3). The person's own exact-match
+    option and the ordering still apply.
     """
     out: List[Dict[str, Any]] = list(enhanced.get('results', []))
 
-    min_score = config.get_float('web.search.min_similarity_score', 0.0)
+    min_score = config.get_float('web.search.min_similarity_score', 0.0) if thresholds else 0.0
     if min_score > 0.0 and out:
         scores = [float(r.get('score') or 0) for r in out]
         max_s = max(scores) if scores else 0.0
@@ -3034,7 +3198,7 @@ def _apply_search_refinement(
                     min_score,
                 )
 
-    max_dist = config.get_float("web.search.max_cosine_distance", -1.0)
+    max_dist = config.get_float("web.search.max_cosine_distance", -1.0) if thresholds else -1.0
     if max_dist >= 0.0 and out:
         kept: List[Dict[str, Any]] = []
         for r in out:
@@ -3507,7 +3671,10 @@ def _enhance_search_results(
             if enrichment else None
         )
         if meta:
-            if meta.get("title"):
+            # A title from the document's own values (a real title, not a
+            # file name: doc_fields_view.title_from_values) is what the firm
+            # wrote down; the enrichment file does not overrule it.
+            if meta.get("title") and not result.get("title_from_values"):
                 result["title"] = meta["title"]
             if meta.get("doc_type"):
                 result["type"] = meta["doc_type"]
