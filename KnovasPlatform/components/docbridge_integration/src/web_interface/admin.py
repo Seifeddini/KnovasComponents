@@ -3,7 +3,9 @@
 Five tabs -- Personen, Dokumente, Zugriffsgruppen, Ingestion, Freigaben. Walls
 attaches to the same blueprint without a tab of its own. The first three and
 Walls reuse ``require_admin``, Ingestion reuses ``require_ingestion`` (admin or
-ingestion_manager), Freigaben ``require_approver`` (approver or admin).
+ingestion_manager), Freigaben ``require_approver`` (approver or admin). A
+sixth, Dokumentfelder (``admin_doc_fields.py``, ``require_admin``), appears
+only while Knovas offers document fields for this tenant.
 The document and folder-rule routes live in ``admin_documents.py`` and the
 approvals routes in ``admin_approvals.py``; both are mounted here so there is
 one blueprint and one gate.
@@ -75,15 +77,46 @@ def create_admin_blueprint(
     def _form_csrf_ok() -> bool:
         return csrf_valid(str(request.form.get("csrf_token", "") or ""))
 
+    from web_interface.admin_doc_fields import LazyCapability, admin_group_ids
+
+    @bp.context_processor
+    def _doc_fields_context():
+        """``doc_fields_capability`` for every console template.
+
+        Lazy: nothing is asked of Knovas until a template reads it (the tab
+        strip does so only for an administrator), and it is asked at most
+        once per render. Injected here rather than through ``page_context``
+        so the app's own context stays as it is.
+        """
+        return {"doc_fields_capability": LazyCapability(client_factory)}
+
+    def _knovas_admin_groups() -> frozenset:
+        """Knovas's administrator group ids, for the People tab's hint.
+
+        Only while document fields are on (the hint explains who may change
+        the field registry); otherwise the tab makes no Knovas call, as
+        before.
+        """
+        if not LazyCapability(client_factory).shows_values:
+            return frozenset()
+        try:
+            return admin_group_ids(client_factory().access_groups())
+        except Exception as exc:  # noqa: BLE001 - a hint must not break the page
+            logger.warning("Knovas-Administratorgruppe nicht abrufbar: %s", type(exc).__name__)
+            return frozenset()
+
     def _people_page(error=None, notice=None, status=200):
         repo = gate.users()
-        people = [
-            {
+        knovas_admin_groups = _knovas_admin_groups()
+        people = []
+        for person in repo.list_all():
+            groups = repo.access_groups_of(person.id)
+            people.append({
                 "user": person,
-                "access_groups": repo.access_groups_of(person.id),
-            }
-            for person in repo.list_all()
-        ]
+                "access_groups": groups,
+                # A hint, not a control: Knovas decides at every write.
+                "knovas_admin": bool(knovas_admin_groups & set(groups)),
+            })
         return render_template(
             "admin_people.html",
             active_nav="admin",
@@ -283,6 +316,19 @@ def create_admin_blueprint(
         csrf_token=csrf_token,
         page_context=page_context,
         client_factory=client_factory,
+        require_admin=require_admin,
+    )
+
+    from web_interface.admin_doc_fields import attach_doc_field_routes
+
+    attach_doc_field_routes(
+        bp,
+        gate,
+        csrf_valid=csrf_valid,
+        csrf_token=csrf_token,
+        page_context=page_context,
+        client_factory=client_factory,
+        rc_client_factory=rc_client_factory,
         require_admin=require_admin,
     )
 

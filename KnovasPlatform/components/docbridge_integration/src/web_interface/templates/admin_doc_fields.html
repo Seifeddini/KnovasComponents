@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dokumentfelder · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
+</head>
+<body class="admin-page">
+<div class="app-shell">
+{% include '_sidebar.html' %}
+<div class="app-content">
+
+<main class="admin doc-fields-admin">
+    <header class="admin-page-header">
+        <div>
+            <h1>Dokumentfelder</h1>
+            <p class="hint">
+                Typisierte Angaben pro Dokument — Dokumentart, Datum, Klient, Frist.
+                Hier legen Sie fest, welche Felder es gibt, und Vorgaben für ganze
+                Ordner. Knovas schlägt Werte vor und übernimmt, was Uploads mitbringen;
+                was eine Person von Hand setzt, bleibt stehen.
+            </p>
+        </div>
+    </header>
+
+    {% set admin_tab = 'doc_fields' %}
+    {% include '_admin_tabs.html' %}
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+    {% if warnings %}
+    <ul class="msg warn doc-fields-warnings" role="status">
+        {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
+{% if not enabled %}
+    <section class="panel doc-fields-off">
+        <h2>{{ off_text }}</h2>
+        <p class="hint">{{ off_hint }}</p>
+    </section>
+{% else %}
+    {% for p in problems %}<p class="msg error" role="alert">{{ p }}</p>{% endfor %}
+
+    {% if not writable %}
+    <p class="msg info doc-fields-read-only" role="note">{{ texts.read_only }}</p>
+    {% endif %}
+
+    {% if offer_requeue %}
+    <section class="panel compact-panel doc-fields-requeue">
+        <p class="hint">
+            Uploads, die Knovas wegen unbekannter oder stillgelegter Schlüssel
+            abgelehnt hat, können jetzt erneut gesendet werden. Jedes erneute
+            Senden ist ein verrechneter Upload.
+        </p>
+        <form method="post" action="{{ url_for('admin.doc_fields_requeue') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="secondary">{{ requeue_label }}</button>
+        </form>
+    </section>
+    {% endif %}
+
+    <section class="admin-section doc-fields-registry">
+        <h2 class="section-label">Felder</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Schlüssel</th>
+                        <th>Bezeichnung (DE / FR / IT)</th>
+                        <th>Typ</th>
+                        <th>Status</th>
+                        <th>Herkunft</th>
+                        <th><span class="visually-hidden">Bearbeiten</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in fields %}
+                    <tr class="{% if f.deprecated %}is-deprecated{% endif %}">
+                        <td>
+                            <code>{{ f.key }}</code>
+                            {% if f.in_use %}<span class="field-badge in-use" title="Wird von der Ingestion-Konfiguration gesetzt">Ingestion</span>{% endif %}
+                            {% if f.sensitivity == 'special' %}<span class="field-badge special" title="Besonders schützenswert: nie auf Karten, nur Administratoren bearbeiten">besonders</span>{% endif %}
+                        </td>
+                        <td>
+                            <strong>{{ f.labels.de or f.key }}</strong>
+                            <span class="sub">{{ f.labels.fr or '—' }} / {{ f.labels.it or '—' }}</span>
+                            {% if f.aliases %}<span class="sub">auch: {{ f.aliases_text }}</span>{% endif %}
+                        </td>
+                        <td>
+                            {{ f.datatype_label }}
+                            <span class="sub">{{ f.cardinality_label }}{% if f.date_role_label %} · {{ f.date_role_label }}{% endif %}{% if f.target_name %} · Ziel: {{ f.target_name }}{% endif %}</span>
+                            {% if f.display %}<span class="field-badge">Karte</span>{% endif %}
+                            {% if f.facet %}<span class="field-badge">Filter</span>{% endif %}
+                        </td>
+                        <td>
+                            <span class="field-status status-{{ f.status }}">{{ f.status_label }}</span>
+                            {% for w in f.warnings %}<span class="sub warn-text">{{ w }}</span>{% endfor %}
+                        </td>
+                        <td>{{ f.origin_label }}{% if f.pack %} <span class="sub">{{ f.pack }}</span>{% endif %}</td>
+                        <td class="row-action">
+                            {% if not f.deprecated and f.id %}
+                            <details class="field-edit">
+                                <summary class="btn-outline compact">Bearbeiten</summary>
+                                <form method="post" class="field-edit-form"
+                                      action="{{ url_for('admin.doc_fields_update', field_id=f.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <input type="hidden" name="flags" value="1">
+                                    <fieldset {% if not writable %}disabled{% endif %}>
+                                        <legend>{{ f.key }}</legend>
+                                        <label>Bezeichnung DE <input type="text" name="label_de" value="{{ f.labels.de }}" maxlength="200"></label>
+                                        <label>Bezeichnung FR <input type="text" name="label_fr" value="{{ f.labels.fr }}" maxlength="200"></label>
+                                        <label>Bezeichnung IT <input type="text" name="label_it" value="{{ f.labels.it }}" maxlength="200"></label>
+                                        <label>Bezeichnung EN <input type="text" name="label_en" value="{{ f.labels.en }}" maxlength="200"></label>
+                                        <label>Weitere Namen (mit Komma getrennt) <input type="text" name="aliases" value="{{ f.aliases_text }}"></label>
+                                        {% if f.datatype == 'enum' %}
+                                        <label>Auswahlwerte (je Zeile: Code = Bezeichnung)
+                                            <textarea name="enum_values" rows="5">{{ f.enum_text }}</textarea>
+                                        </label>
+                                        <p class="hint">Codes entfernen geht nur bei vorläufigen, kaum genutzten Feldern.</p>
+                                        {% endif %}
+                                        {% if f.datatype == 'entity_ref' and not f.target_hidden %}
+                                        <label>Verknüpfen mit Typ
+                                            <select name="target_node_type_id">
+                                                <option value="">— kein Ziel (Namen bleiben unverknüpft) —</option>
+                                                {% for t in node_types %}
+                                                <option value="{{ t.id }}" {% if t.id == f.target_id %}selected{% endif %}>{{ t.name }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+                                        {% endif %}
+                                        {% if f.datatype in ('date', 'period') %}
+                                        <label>Datumsrolle
+                                            <select name="date_role">
+                                                <option value="">— keine —</option>
+                                                {% for value, label in date_roles %}
+                                                <option value="{{ value }}" {% if value == f.date_role %}selected{% endif %}>{{ label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+                                        {% endif %}
+                                        <label class="admin-check"><input type="checkbox" name="display" value="1" {% if f.display %}checked{% endif %}> <span>auf Trefferkarten zeigen</span></label>
+                                        <label class="admin-check"><input type="checkbox" name="facet" value="1" {% if f.facet %}checked{% endif %}> <span>als Filter anbieten</span></label>
+                                        <label>Schutzstufe
+                                            <select name="sensitivity">
+                                                <option value="normal" {% if f.sensitivity == 'normal' %}selected{% endif %}>normal</option>
+                                                <option value="special" {% if f.sensitivity == 'special' %}selected{% endif %}>besonders schützenswert</option>
+                                            </select>
+                                        </label>
+                                        {% if f.in_use %}
+                                        <label class="admin-check confirm-check">
+                                            <input type="checkbox" name="confirm_in_use" value="1" {% if confirm.update == f.id %}autofocus{% endif %}>
+                                            <span>„{{ f.key }}“ {{ texts.in_use_update }} — trotzdem ändern</span>
+                                        </label>
+                                        {% endif %}
+                                        <button type="submit">Speichern</button>
+                                    </fieldset>
+                                </form>
+                                <form method="post" class="field-deprecate-form"
+                                      action="{{ url_for('admin.doc_fields_deprecate', field_id=f.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <fieldset {% if not writable %}disabled{% endif %}>
+                                        <p class="hint">
+                                            Stilllegen: vorhandene Werte bleiben und sind über den genauen
+                                            Schlüssel weiter filterbar; neue Uploads mit diesem Schlüssel
+                                            werden nicht mehr übernommen.
+                                        </p>
+                                        {% if f.in_use %}
+                                        <label class="admin-check confirm-check">
+                                            <input type="checkbox" name="confirm_in_use" value="1" {% if confirm.deprecate == f.id %}autofocus{% endif %}>
+                                            <span>„{{ f.key }}“ {{ texts.in_use_deprecate }} — trotzdem stilllegen</span>
+                                        </label>
+                                        {% endif %}
+                                        <button type="submit" class="danger">Stilllegen</button>
+                                    </fieldset>
+                                </form>
+                            </details>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="empty">Noch keine Felder. Ein Paket installieren oder ein Feld anlegen.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel compact-panel doc-fields-create" id="doc-field-create">
+        <h2>Neues Feld</h2>
+        <form method="post" action="{{ url_for('admin.doc_fields_create') }}" class="doc-field-create-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <fieldset {% if not writable %}disabled{% endif %}>
+                <div class="inline-form-grid">
+                    <label>Schlüssel
+                        <input type="text" name="key" required pattern="[a-z][a-z0-9_]{0,63}"
+                               placeholder="z. B. kostenstelle" autocomplete="off" spellcheck="false">
+                    </label>
+                    <label>Typ
+                        <select name="datatype" data-df-datatype required>
+                            {% for value, label in datatypes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                        </select>
+                    </label>
+                    <label>Werte
+                        <select name="cardinality">
+                            <option value="one">ein Wert</option>
+                            <option value="many">mehrere Werte</option>
+                        </select>
+                    </label>
+                    <label>Schutzstufe
+                        <select name="sensitivity">
+                            <option value="normal">normal</option>
+                            <option value="special">besonders schützenswert</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="inline-form-grid">
+                    <label>Bezeichnung DE <input type="text" name="label_de" maxlength="200"></label>
+                    <label>Bezeichnung FR <input type="text" name="label_fr" maxlength="200"></label>
+                    <label>Bezeichnung IT <input type="text" name="label_it" maxlength="200"></label>
+                    <label>Bezeichnung EN <input type="text" name="label_en" maxlength="200"></label>
+                </div>
+                <label>Weitere Namen (mit Komma getrennt) <input type="text" name="aliases"></label>
+                <label data-df-only="enum">Auswahlwerte (je Zeile: Code = Bezeichnung)
+                    <textarea name="enum_values" rows="4" placeholder="rechnung = Rechnung&#10;offerte = Offerte"></textarea>
+                </label>
+                <label data-df-only="entity_ref">Verknüpfen mit Typ
+                    <select name="target_node_type_id">
+                        <option value="">— kein Ziel (Namen bleiben unverknüpft) —</option>
+                        {% for t in node_types %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label data-df-only="date period">Datumsrolle
+                    <select name="date_role">
+                        <option value="">— keine —</option>
+                        {% for value, label in date_roles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="admin-check"><input type="checkbox" name="display" value="1"> <span>auf Trefferkarten zeigen</span></label>
+                <label class="admin-check"><input type="checkbox" name="facet" value="1"> <span>als Filter anbieten</span></label>
+                <p class="hint">
+                    Schlüssel und Bezeichnungen sind für alle Personen des Mandanten sichtbar
+                    und dürfen keine Personendaten enthalten. Besonders schützenswerte Felder
+                    erscheinen nie auf Trefferkarten und werden nur von Administratoren bearbeitet.
+                </p>
+                <button type="submit">Feld anlegen</button>
+            </fieldset>
+        </form>
+    </section>
+
+    <section class="admin-section doc-fields-packs">
+        <h2 class="section-label">Pakete</h2>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Paket</th><th>Version</th><th>Installiert</th><th></th></tr></thead>
+                <tbody>
+                {% for p in packs %}
+                    <tr>
+                        <td><strong>{{ p.label }}</strong> <code>{{ p.key }}</code>{% if p.description %}<span class="sub">{{ p.description }}</span>{% endif %}</td>
+                        <td>v{{ p.version }}</td>
+                        <td>{% if p.installed %}ja (v{{ p.installed_version }}){% else %}nein{% endif %}</td>
+                        <td class="row-action">
+                            {% if not p.installed or p.upgradable %}
+                            <form method="post" class="inline"
+                                  action="{{ url_for('admin.doc_fields_install_pack', pack=p.key) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="secondary compact" {% if not writable %}disabled{% endif %}>
+                                    {% if p.installed %}Neue Felder ergänzen{% else %}Installieren{% endif %}
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4" class="empty">Keine Pakete verfügbar.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="hint">
+            Ein Paket legt nur Felder an, deren Schlüssel es noch nicht gibt; bestehende
+            Felder bleiben unverändert.
+        </p>
+    </section>
+
+    <section class="panel compact-panel doc-fields-settings">
+        <h2>Einstellungen</h2>
+        <form method="post" action="{{ url_for('admin.doc_fields_settings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <fieldset {% if not writable %}disabled{% endif %}>
+                <label>Upload mit unbekanntem Schlüssel
+                    <select name="unknown_keys">
+                        {% for value, label in unknown_key_modes %}
+                        <option value="{{ value }}" {% if settings.get('unknown_keys') == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>Datumsangaben mit Schrägstrich lesen als
+                    <select name="date_order">
+                        {% for value, label in date_orders %}
+                        <option value="{{ value }}" {% if settings.get('date_order') == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                {% if unknown_profile_keys %}
+                <p class="hint warn-text doc-fields-reject-warning">
+                    Mit „ablehnen“ würden Uploads mit diesen Schlüsseln der
+                    Ingestion-Konfiguration abgewiesen:
+                    {% for k in unknown_profile_keys %}<code>{{ k }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+                </p>
+                <label class="admin-check confirm-check">
+                    <input type="checkbox" name="confirm_reject" value="1" {% if confirm.reject %}autofocus{% endif %}>
+                    <span>trotzdem „ablehnen“ speichern</span>
+                </label>
+                {% endif %}
+                <button type="submit">Einstellungen speichern</button>
+            </fieldset>
+        </form>
+    </section>
+
+    <section class="admin-section doc-fields-rules">
+        <h2 class="section-label">Ordnervorgaben</h2>
+        <p class="hint">
+            Eine Ordnervorgabe setzt Werte für alle Dokumente unter einem Ordner,
+            auch für bereits eingelesene — ohne erneuten Upload. Von Hand gesetzte
+            Werte und Werte, die ein Upload mitbringt, haben Vorrang. Die längste
+            passende Vorgabe gilt pro Feld.
+        </p>
+        {% if rules_note %}
+        <p class="msg info" role="note">{{ rules_note }}</p>
+        {% else %}
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Ordner bei Knovas</th><th>Werte</th><th>Version</th><th></th></tr></thead>
+                <tbody>
+                {% for r in rules %}
+                    <tr>
+                        <td class="ptr">{{ r.prefix }}</td>
+                        <td>
+                            {% for v in r['values'] %}
+                            <span class="field-chip"><span class="field-chip-label">{{ v.label }}</span> {{ v.text }}</span>
+                            {% endfor %}
+                        </td>
+                        <td>v{{ r.version }}</td>
+                        <td class="row-action">
+                            <form method="post" class="inline" action="{{ url_for('admin.doc_fields_rule_delete') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="rule_id" value="{{ r.id }}">
+                                <button type="submit" class="secondary compact" {% if not writable %}disabled{% endif %}>Entfernen</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4" class="empty">Noch keine Ordnervorgaben.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+
+    {% if rules_state != 'forbidden' %}
+    <section class="panel compact-panel doc-fields-rule-form">
+        <h2>Ordnervorgabe speichern</h2>
+        <form method="post" action="{{ url_for('admin.doc_fields_rule_save') }}" class="doc-field-rule-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <fieldset {% if not writable %}disabled{% endif %}>
+                {% if rc_enabled and has_profile and sources %}
+                <div class="folder-picker doc-fields-folder-picker"
+                     data-endpoint="{{ url_for('admin.folders') }}">
+                    <p class="hint">Ordner aus den Quellen der Ingestion-Konfiguration wählen:</p>
+                    <ul class="folder-tree-list" data-df-folder-roots>
+                        {% for s in sources %}
+                        <li class="folder-node" data-path="{{ s }}">
+                            <button type="button" class="folder-toggle" aria-expanded="false"
+                                    data-df-expand>+</button>
+                            <span class="folder-name">{{ s }}</span>
+                            <button type="button" class="folder-add" data-df-pick>wählen</button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <input type="hidden" name="folder_path" value="{{ rule_form.folder_path or '' }}" data-df-folder-path>
+                    <p class="hint">Gewählt: <strong data-df-folder-shown>{{ rule_form.folder_path or '—' }}</strong></p>
+                </div>
+                <label>oder Pfad bei Knovas direkt eingeben
+                    <input type="text" name="pointer_prefix" value="{{ rule_form.pointer_prefix or '' }}"
+                           placeholder="kanzlei/Mandate/2024/" autocomplete="off" spellcheck="false">
+                </label>
+                {% else %}
+                <label>Ordner bei Knovas (Pfad wie in der Dokumentliste)
+                    <input type="text" name="pointer_prefix" value="{{ rule_form.pointer_prefix or '' }}"
+                           placeholder="kanzlei/Mandate/2024/" autocomplete="off" spellcheck="false" required>
+                </label>
+                {% endif %}
+                {% if multi_source %}
+                <label class="admin-check confirm-check">
+                    <input type="checkbox" name="confirm_all_sources" value="1">
+                    <span>Die Vorgabe {{ texts.multi_source }} — der Quellordner ist nicht Teil des Pfads bei Knovas.</span>
+                </label>
+                {% endif %}
+                <div class="rule-value-rows">
+                    {% for i in range(rule_rows_count) %}
+                    {% set row = (rule_form.rows[i] if rule_form.rows|length > i else {}) %}
+                    <div class="rule-value-row" data-df-rule-row>
+                        <label>Feld
+                            <select name="rule_key_{{ i }}" data-df-rule-key>
+                                <option value="">—</option>
+                                {% for s in rule_fields %}
+                                <option value="{{ s.key }}" {% if row.get('key') == s.key %}selected{% endif %}>{{ s.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label>Wert
+                            <input type="text" name="rule_value_{{ i }}" value="{{ row.get('value') or '' }}" data-df-rule-value
+                                   autocomplete="off">
+                        </label>
+                        <label class="admin-check">
+                            <input type="checkbox" name="rule_clear_{{ i }}" value="1" {% if row.get('clear') %}checked{% endif %}>
+                            <span>aufheben</span>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="hint">
+                    Mehrere Werte mit „;“ trennen. Einträge aus dem Wissensgraphen werden mit
+                    ihrem Namen angegeben. „aufheben“ schaltet eine Vorgabe eines übergeordneten
+                    Ordners für diesen Ordner ab.
+                </p>
+                <button type="submit">Vorgabe speichern</button>
+            </fieldset>
+        </form>
+        <script type="application/json" id="doc-fields-registry">{{ rule_fields|tojson }}</script>
+    </section>
+    {% endif %}
+{% endif %}
+</main>
+
+<script src="{{ url_for('static', filename='js/admin_doc_fields.js') }}?v={{ asset_version }}" defer></script>
+</div>
+</div>
+</body>
+</html>

@@ -30,6 +30,21 @@ PROBE_QUERY = "Vertrag"
 
 OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
 
+#: The four states the System tab names for document fields (spec 4.7). It
+#: is the one place a reduced state is spelled out (H6); everywhere else the
+#: console simply shows what the capability supports.
+DOC_FIELDS_STATES = {
+    "off": "aus",
+    "values": "Werte (ohne Filter)",
+    "listing_only": "Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)",
+    "filters": "Werte + Filter",
+}
+
+#: RemoteController capabilities that concern document fields
+#: (``/sync/status`` -> ``capabilities``).
+RC_DOC_FIELD_CAPABILITIES = ("source_fields_v1", "field_templates_v1",
+                             "metadata_fields_v1", "fields_requeue_v1")
+
 
 class Check(dict):
     """Ein Pruefergebnis. dict, damit das Template ohne Zusatzfilter auskommt."""
@@ -51,6 +66,89 @@ def _timed(fn: Callable[[], Any]) -> tuple[Any, int, Exception | None]:
 def _short(exc: Exception, limit: int = 180) -> str:
     text = f"{type(exc).__name__}: {exc}"
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _doc_fields_check(client) -> tuple[Check, bool]:
+    """Which document-fields capability Knovas offers, in four words.
+
+    Returns the check and whether the capability is at least ``values``.
+
+    The same capability the console and the search use (cached, see
+    doc_fields_capability), so this line says what the person sees. While
+    the capability is at least ``values`` the field count and the installed
+    packs are read too -- a registry read, which on a tenant whose registry
+    is still empty lets Knovas install ``core`` (its own first-use step, the
+    same any other first registry read triggers). Nothing is logged but
+    codes.
+    """
+    import doc_fields_capability as dfc
+
+    started = time.monotonic()
+    config = getattr(client, "config", None)
+    capability = dfc.capability_for(client)
+    if not capability.shows_values:
+        ms = int((time.monotonic() - started) * 1000)
+        if not dfc.ui_enabled(config):
+            return Check("doc_fields", "Dokumentfelder", SKIP, DOC_FIELDS_STATES["off"],
+                         ms=ms, hint="In der Konfiguration abgeschaltet (web.doc_fields.ui: off)."), False
+        if not dfc.is_secured(client):
+            return Check("doc_fields", "Dokumentfelder", SKIP, DOC_FIELDS_STATES["off"],
+                         ms=ms, hint="Nur mit der gesicherten Knovas-API (mTLS) verfuegbar."), False
+        if capability is dfc.Capability.unknown:
+            return Check(
+                "doc_fields", "Dokumentfelder", WARN, "nicht feststellbar", ms=ms,
+                hint="Knovas hat auf die Abfrage nicht eindeutig geantwortet; die Funktion "
+                     "bleibt ausgeblendet, bis eine Antwort kommt."), False
+        return Check(
+            "doc_fields", "Dokumentfelder", SKIP, DOC_FIELDS_STATES["off"], ms=ms,
+            hint="Knovas hat Dokumentfelder fuer diesen Mandanten nicht freigeschaltet. "
+                 "Suche und Ingestion laufen wie bisher."), False
+    parts = [DOC_FIELDS_STATES.get(capability.value, capability.value)]
+    try:
+        fields = client.doc_fields() or []
+        active = sum(1 for f in fields if isinstance(f, dict) and f.get("status") != "deprecated")
+        parts.append(f"{active} Feld(er)")
+    except Exception as exc:  # noqa: BLE001 - the state line stands without it
+        parts.append("Felder nicht lesbar (" + str(getattr(exc, "error_code", "") or type(exc).__name__) + ")")
+    try:
+        packs = client.doc_field_packs() or []
+        installed = [f"{p.get('key')} v{p.get('installed_version')}" for p in packs
+                     if isinstance(p, dict) and p.get("installed") is True]
+        parts.append("Pakete: " + (", ".join(installed) if installed else "keine"))
+    except Exception as exc:  # noqa: BLE001
+        parts.append("Pakete nicht lesbar (" + str(getattr(exc, "error_code", "") or type(exc).__name__) + ")")
+    ms = int((time.monotonic() - started) * 1000)
+    if capability is dfc.Capability.listing_only:
+        return Check(
+            "doc_fields", "Dokumentfelder", WARN, "; ".join(parts), ms=ms,
+            hint="Filter in der Suche sind bei Knovas noch nicht eingerichtet (Kalibrierung "
+                 "fehlt). Werte, Liste und Feldfilter in der Verwaltung funktionieren."), True
+    return Check("doc_fields", "Dokumentfelder", OK, "; ".join(parts), ms=ms), True
+
+
+def _rc_doc_fields_note(rc, doc_fields_on: bool) -> tuple[str, str]:
+    """``(detail suffix, hint)`` from the RemoteController's capabilities.
+
+    ``capabilities()`` arrives with the ingestion-profile work, so it is
+    looked up by name; an RC without it, or one that reports none, is an RC
+    that cannot carry field settings. That is called out only while Knovas
+    offers fields, so an older RC on a deployment without them keeps the
+    line it always had.
+    """
+    probe = getattr(rc, "capabilities", None)
+    caps: frozenset = frozenset()
+    if callable(probe):
+        try:
+            caps = frozenset(str(c) for c in (probe() or ()))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RemoteController-Faehigkeiten nicht lesbar: %s", type(exc).__name__)
+    known = [c for c in RC_DOC_FIELD_CAPABILITIES if c in caps]
+    if known:
+        return "; Dokumentfelder: " + ", ".join(known), ""
+    if doc_fields_on:
+        return ("; Dokumentfelder: nicht unterstuetzt",
+                "RemoteController aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
+    return "", ""
 
 
 def collect(client_factory: Callable[[], Any], *, gate=None,
@@ -192,6 +290,19 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
                      "oder es wurde noch nichts eingelesen.",
             ))
 
+    # -- Dokumentfelder ----------------------------------------------------
+    doc_fields_on = False
+    if not api_up:
+        checks.append(Check("doc_fields", "Dokumentfelder", SKIP,
+                            "Uebersprungen: API nicht erreichbar"))
+    else:
+        try:
+            check, doc_fields_on = _doc_fields_check(client)
+        except Exception as exc:  # noqa: BLE001 - one check never breaks the page
+            check = Check("doc_fields", "Dokumentfelder", WARN,
+                          "nicht feststellbar (" + type(exc).__name__ + ")")
+        checks.append(check)
+
     # ── Identitaet ─────────────────────────────────────────────────────────
     def _count_users():
         from identity import db
@@ -234,11 +345,14 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
             return probe()
 
         _, ms, exc = _timed(_rc_ping)
+        suffix, rc_hint = ("", "")
+        if exc is None:
+            suffix, rc_hint = _rc_doc_fields_note(rc_client_factory(), doc_fields_on)
         checks.append(Check(
             "rc", "RemoteController",
-            OK if exc is None else WARN,
-            "antwortet" if exc is None else _short(exc), ms=ms,
-            hint="" if exc is None else "Betrifft nur den Reiter Ingestion.",
+            OK if exc is None and not rc_hint else WARN,
+            ("antwortet" + suffix) if exc is None else _short(exc), ms=ms,
+            hint=rc_hint if exc is None else "Betrifft nur den Reiter Ingestion.",
         ))
 
     return checks

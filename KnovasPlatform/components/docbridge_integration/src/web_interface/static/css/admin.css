@@ -1625,3 +1625,203 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ── Dokumentfelder (Reiter, Schublade, Feldfilter) ─────────────────────── */
+
+.admin .msg.warn {
+    background: rgba(var(--admin-warn-rgb), 0.08);
+    border-color: rgba(var(--admin-warn-rgb), 0.30);
+    color: var(--admin-warn);
+}
+
+.admin .msg.info {
+    background: var(--surface-sunken);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.admin ul.msg {
+    margin-left: 0;
+    padding-left: 30px;
+}
+
+.admin .warn-text { color: var(--admin-warn); }
+
+.admin .field-badge,
+.admin .knovas-admin-badge {
+    display: inline-block;
+    margin: 2px 4px 2px 0;
+    padding: 1px 7px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.admin .field-badge.in-use { border-color: var(--accent); color: var(--primary-color); }
+.admin .field-badge.special { border-color: rgba(var(--admin-warn-rgb), 0.45); color: var(--admin-warn); }
+.admin .field-badge.layer-manual { border-color: var(--accent); color: var(--primary-color); }
+
+.admin .knovas-admin-badge {
+    border-color: var(--accent);
+    background: #E9EEFB;
+    color: var(--primary-color);
+    cursor: help;
+}
+
+.admin .field-status { font-size: 0.8rem; }
+.admin .field-status.status-deprecated { color: var(--text-secondary); }
+.admin .field-status.status-provisional { color: var(--admin-warn); }
+.admin tr.is-deprecated td { color: var(--text-secondary); }
+
+.admin .field-chip {
+    display: inline-flex;
+    gap: 4px;
+    margin: 2px 6px 2px 0;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--surface-sunken);
+    font-size: 0.78rem;
+}
+
+.admin .field-chip-label { color: var(--text-secondary); }
+
+.admin details.field-edit > summary {
+    list-style: none;
+    cursor: pointer;
+    display: inline-block;
+}
+
+.admin details.field-edit[open] {
+    position: relative;
+}
+
+.admin details.field-edit form {
+    min-width: 280px;
+    margin-top: 10px;
+    text-align: left;
+}
+
+.admin details.field-edit fieldset,
+.admin .doc-fields-create fieldset,
+.admin .doc-fields-settings fieldset,
+.admin .doc-fields-rule-form fieldset {
+    border: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+
+.admin fieldset[disabled] { opacity: 0.6; }
+
+.admin .confirm-check span { color: var(--admin-warn); }
+
+.admin .doc-fields-admin textarea,
+.admin .doc-fields-drawer textarea {
+    width: 100%;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    color: var(--text-primary);
+}
+
+.rule-value-rows {
+    display: grid;
+    gap: 6px;
+}
+
+.rule-value-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.doc-fields-filter > summary {
+    cursor: pointer;
+}
+
+.doc-fields-filter-row label,
+.doc-fields-filter-form .inline-form-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.doc-fields-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(460px, 100vw);
+    overflow-y: auto;
+    z-index: 40;
+    padding: 18px 20px 40px;
+    border-left: 1px solid var(--border-color);
+    background: var(--card-bg);
+    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
+}
+
+.doc-fields-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.doc-fields-drawer-header h2 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.doc-fields-drawer h3 {
+    margin: 14px 0 4px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.doc-fields-drawer input[type=text],
+.doc-fields-drawer select {
+    width: 100%;
+}
+
+.doc-fields-values dt {
+    margin-top: 12px;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.doc-fields-values dd {
+    margin: 4px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: center;
+}
+
+.doc-fields-values dd .sub {
+    display: block;
+    width: 100%;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.doc-fields-layers ul {
+    margin: 4px 0 0;
+    padding-left: 16px;
+    font-size: 0.8rem;
+}
+
+.doc-fields-layers li.is-effective { font-weight: 600; }
+
+@media (max-width: 720px) {
+    .rule-value-row {
+        grid-template-columns: 1fr;
+    }
+}
