@@ -365,7 +365,7 @@ on every run.
 **Common**
 
 - `DOCBRIDGE_WEB_PORT` (default `8081`)
-- `DOCBRIDGE_WEB_WORKERS`, `DOCBRIDGE_WEB_THREADS`, `DOCBRIDGE_WEB_TIMEOUT` (defaults 2, 4, 120)
+- `DOCBRIDGE_WEB_WORKERS`, `DOCBRIDGE_WEB_THREADS`, `DOCBRIDGE_WEB_TIMEOUT` (defaults 2, 4, 180; the timeout must stay above `RC_EXTRACT_TIMEOUT_SECONDS`, default 120)
 - `SEMANTIX_USE_SECURED_API` (default `true`)
 - `AUTODOC_MOUNT_PATH` (host path) → mounted to `/mnt/autodoc` (read-only)
 - `OPEN_PUBLIC_BASE_URL` — public HTTPS base URL (required for production host-NGINX; e.g. `https://knovas.example.internal`)
