@@ -128,3 +128,49 @@ def test_extraction_does_not_escape_document_text(tmp_path):
 
     markdown = extract_markdown(str(target))["markdown"]
     assert "<script>" in markdown
+
+
+def test_a_markdown_limit_falls_back_to_the_plain_text(tmp_path, monkeypatch):
+    """L7: a DOCX whose tables make the Markdown many times its text trips
+    the expansion guard (ResourceExhaustedError "markdown expansion ratio");
+    the preview then shows the plain text instead of failing."""
+    import docx
+    import knovas_extract
+    from knovas_extract.errors import ResourceExhaustedError
+
+    target = tmp_path / "honorar.docx"
+    document = docx.Document()
+    document.add_paragraph("Honorarabrechnung Mandat 2024-001.")
+    document.save(str(target))
+
+    real_extract = knovas_extract.extract
+    calls: list = []
+
+    def guarded_extract(path, **kwargs):
+        calls.append(dict(kwargs))
+        if kwargs.get("emit_markdown"):
+            raise ResourceExhaustedError("markdown expansion ratio", 3.0, observed=93.0)
+        return real_extract(path, **kwargs)
+
+    monkeypatch.setattr(knovas_extract, "extract", guarded_extract)
+    result = extract_markdown(str(target))
+    assert [c.get("emit_markdown", False) for c in calls] == [True, False]
+    assert result["kind"] == "docx"
+    assert "Honorarabrechnung Mandat 2024-001." in result["markdown"]
+    assert result["warnings"][0] == "preview: markdown limit exceeded; plain text shown"
+    assert result["meta"]["word_count"] > 0
+
+
+def test_other_resource_limits_still_fail_the_preview(tmp_path, monkeypatch):
+    import knovas_extract
+    from knovas_extract.errors import ResourceExhaustedError
+
+    target = tmp_path / "notiz.txt"
+    target.write_text("Zeile.", encoding="utf-8")
+
+    def too_big(path, **kwargs):
+        raise ResourceExhaustedError("input size", 1, observed=2)
+
+    monkeypatch.setattr(knovas_extract, "extract", too_big)
+    with pytest.raises(PreviewFailed):
+        extract_markdown(str(target))
