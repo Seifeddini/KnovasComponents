@@ -174,7 +174,32 @@ def test_sentence_emit_max_bytes_default(monkeypatch):
     from sync.document_text import DEFAULT_SENTENCE_EMIT_MAX_BYTES, sentence_emit_max_bytes
 
     monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
-    assert sentence_emit_max_bytes() == DEFAULT_SENTENCE_EMIT_MAX_BYTES
+    assert DEFAULT_SENTENCE_EMIT_MAX_BYTES == 0, "no gate by default (spec E4)"
+    assert sentence_emit_max_bytes() == 0
+
+
+def test_sentences_are_emitted_for_large_inputs_by_default(monkeypatch):
+    """The 2 MiB gate on raw file size switched off the citations -- and every
+    part's page number -- of most multi-page scans. It guarded the quadratic
+    line counting fixed in knovas-extract 0.3; a positive value restores it."""
+    from sync import document_text
+
+    seen = {}
+
+    def extract_stub(raw, **kwargs):
+        seen.update(kwargs)
+        raise document_text.UnsupportedFormatError("stub")
+
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    large = b"x" * (3 * 1024 * 1024)
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(large, ".txt")
+    assert seen["emit_sentences"] is True
+    monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", "2097152")
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(large, ".txt")
+    assert seen["emit_sentences"] is False, "a positive value is the old gate"
 
 
 def test_sentence_emit_max_bytes_env_override(monkeypatch):
