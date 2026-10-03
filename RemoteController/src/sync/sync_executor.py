@@ -39,6 +39,7 @@ from sync.doc_fields_payload import (
     spec_from_source,
 )
 from sync.document_text import (
+    CONFIG_INVALID_PREFIX,
     DEFAULT_INCLUDE_GLOBS,
     is_syncable_extension,
     is_unconvertible_error,
@@ -589,6 +590,14 @@ def _is_server_side_error(error: str) -> bool:
     )
 
 
+def _is_configuration_error(error: str) -> bool:
+    """The library refused the Connector's own OCR settings (spec E5): no
+    file is at fault, so the failure never counts toward the extraction
+    retry cap -- after three cycles every PDF would otherwise be recorded
+    partial and backfilled without OCR. Fixed by correcting the setting."""
+    return error.lower().startswith(CONFIG_INVALID_PREFIX)
+
+
 # --- Knovas document fields (spec 3.2, 3.6-3.7) --------------------------------
 
 
@@ -730,9 +739,10 @@ def record_upload_outcome(
     ``data_plane/ocr_budget_failsoft.als``), pinned by
     ``tests/unit/test_sync_executor_partial.py``:
 
-    * ``"partial"`` — the library returned, OCR pages were skipped (or no OCR
-      backend was available): fingerprint stored so the next cycle does not
-      re-upload the file, note kept for ``scripts/backfill_partial_ocr.py``;
+    * ``"partial"`` — the library returned, OCR pages were skipped or failed
+      (or no OCR backend was available; ``document_text.partial_note_for``):
+      fingerprint stored so the next cycle does not re-upload the file, note
+      kept for ``scripts/backfill_partial_ocr.py``;
     * ``"synced"`` — clean upload;
     * ``"skipped"`` — the library flagged the input unconvertible: parked as
       ``skip:unconvertible`` (incremental mode only);
@@ -817,7 +827,7 @@ def record_upload_outcome(
             ) and stats is not None:
                 stats.reuploads_done += 1
         return "retry"
-    if _is_server_side_error(error):
+    if _is_server_side_error(error) or _is_configuration_error(error):
         return "retry"
     attempts = state.increment_retry_count(relative_path, error=error)
     ocr_metrics.EXTRACT_RETRIES.inc()

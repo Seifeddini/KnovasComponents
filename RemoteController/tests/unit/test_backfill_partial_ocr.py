@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -26,7 +28,8 @@ def backfill():
 def _args(backfill, **overrides):
     import argparse
 
-    base = dict(dry_run=False, limit=0, timeout=1800, max_ocr_pages=5000, ocr_time_budget=1800, verbose=False)
+    base = dict(dry_run=False, limit=0, timeout=1800, max_ocr_pages=5000, ocr_time_budget=1800,
+                ocr_page_timeout=backfill.DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, retry_unchanged=False, verbose=False)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -38,8 +41,55 @@ def test_env_for_budget_trip_and_retries_exhausted(backfill):
     assert env["RC_OCR_TIME_BUDGET_SECONDS"] == "1800"
     assert env["RC_EXTRACT_TIMEOUT_SECONDS"] == "1800"
     assert "RC_PDF_OCR_ENABLED" not in env
+    assert "RC_OCR_PAGE_TIMEOUT_SECONDS" not in env, "no page failed: the configured page timeout"
     exhausted = backfill._env_for({"reason": "extract_retries_exhausted"}, args)
     assert exhausted["RC_PDF_OCR_ENABLED"] == "false", "the hung page is skipped: text pages land"
+
+
+#: A note spec E1 records for a page that failed OCR (it raised, or ran past
+#: RC_OCR_PAGE_TIMEOUT_SECONDS): an empty page.
+FAILED_NOTE = {"ocr_pages_skipped": 0, "ocr_pages_failed": 1, "ocr_pages": 9, "text_pages": 2, "ocr_backend": "cli"}
+
+
+def test_env_for_failed_pages_gives_them_a_longer_page_timeout(backfill):
+    """A page that ran past the page timeout fails again under the same one."""
+    from sync.document_text import DEFAULT_OCR_PAGE_TIMEOUT_SECONDS as cycle_page_timeout
+
+    assert backfill.DEFAULT_OCR_PAGE_TIMEOUT_SECONDS > cycle_page_timeout
+    env = backfill._env_for(FAILED_NOTE, _args(backfill))
+    assert env["RC_OCR_PAGE_TIMEOUT_SECONDS"] == str(backfill.DEFAULT_OCR_PAGE_TIMEOUT_SECONDS)
+    longer = backfill._env_for(FAILED_NOTE, _args(backfill, ocr_page_timeout=900))
+    assert longer["RC_OCR_PAGE_TIMEOUT_SECONDS"] == "900"
+    assert longer["RC_OCR_MAX_PAGES"] == "5000" and "RC_PDF_OCR_ENABLED" not in longer
+
+
+def test_the_longer_page_timeout_leaves_the_attempt_its_ocr_budget(backfill, monkeypatch):
+    """The child caps the OCR budget below the ceiling, keeping room for the
+    pages still running when it trips: one page timeout per OCR worker
+    before spec E2, one page timeout with it. Even with the most workers
+    (8) the default must not starve the attempt -- a starved one would
+    upload less text than the cycle did."""
+    from sync.document_text import extract_timeout_seconds, ocr_options_kwargs
+
+    for key, value in backfill._env_for(FAILED_NOTE, _args(backfill)).items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("RC_OCR_WORKERS", "8")
+    monkeypatch.delenv("RC_EXTRACT_TIMEOUT_PER_PAGE_SECONDS", raising=False)
+    budget = ocr_options_kwargs(extract_timeout_seconds(40))["time_budget_seconds"]
+    assert budget >= 600, f"ten minutes of OCR at least, got {budget} s"
+
+
+@pytest.mark.parametrize("before, after, unchanged", [
+    (FAILED_NOTE, dict(FAILED_NOTE), True),                         # the same page failed again
+    (FAILED_NOTE, None, False),                                     # complete now
+    ({**FAILED_NOTE, "ocr_pages_failed": 3}, FAILED_NOTE, False),   # fewer pages missing
+    ({"ocr_pages_skipped": 12, "ocr_pages": 40},
+     {"ocr_pages_skipped": 0, "ocr_pages_failed": 12, "ocr_pages": 40}, True),  # moved, not fewer
+    ({"ocr_pages_skipped": 2, "ocr_pages": 3}, {**FAILED_NOTE, "ocr_pages_failed": 4}, True),  # worse
+    ({"reason": "extract_retries_exhausted"}, {"ocr_pages_skipped": 4}, False),  # no counts before
+])
+def test_unchanged_means_still_partial_with_no_fewer_pages_missing(backfill, before, after, unchanged):
+    assert backfill._unchanged(before, after) is unchanged
 
 
 def _setup(tmp_path, monkeypatch):
@@ -124,5 +174,145 @@ def test_backfill_failure_leaves_the_note(tmp_path, monkeypatch, backfill):
     try:
         assert "Mandant/scan.pdf" in state.partial_paths()
         assert state.partial_note("Mandant/scan.pdf") == {"ocr_pages_skipped": 2, "ocr_pages": 3}
+    finally:
+        state.close()
+
+
+def _body(root):
+    return {"mode": "incremental", "sources": [{"path": str(root), "recursive": True}],
+            "filters": {}, "ingestion": {"identifier_prefix": "rc"}}
+
+
+def _uploading(body, fake_upload) -> ExitStack:
+    stack = ExitStack()
+    stack.enter_context(patch("sync.sync_scheduler.load_last_sync_body", return_value=body))
+    stack.enter_context(patch("sync.knovas_uploader.SemantixUploader.__init__", return_value=None))
+    stack.enter_context(patch("sync.knovas_uploader.SemantixUploader.upload_file", fake_upload))
+    return stack
+
+
+def test_a_document_the_backfill_cannot_complete_is_sent_once(tmp_path, monkeypatch, backfill, caplog):
+    """A page that fails every time -- it raises, or runs past even the
+    longer page timeout -- failed again on every run, and every run uploaded
+    the document again, billed for the same text. One attempt that leaves it
+    unchanged is noted; later runs skip it until --retry-unchanged."""
+    root, state_path = _setup(tmp_path, monkeypatch)
+    state = SyncStateStore(str(state_path))
+    state.record_partial("Mandant/scan.pdf", "2026-01-01T00:00:00Z", 13, "tk-1", dict(FAILED_NOTE))
+    state.close()
+    sent: list = []
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        import os
+
+        sent.append((rel, os.environ.get("RC_OCR_PAGE_TIMEOUT_SECONDS")))
+        return UploadResult(rel, "tk-new", 2, "ok", 3, partial=dict(FAILED_NOTE))
+
+    with _uploading(_body(root), fake_upload):
+        for _ in range(3):
+            assert backfill.main([]) == 0
+        assert sent == [("Mandant/scan.pdf", str(backfill.DEFAULT_OCR_PAGE_TIMEOUT_SECONDS))], \
+            "one billed attempt, with the longer page timeout"
+        state = SyncStateStore(str(state_path))
+        try:
+            assert "Mandant/scan.pdf" in state.partial_paths(), "still partial: the note stays"
+            assert state.partial_note("Mandant/scan.pdf") == {**FAILED_NOTE, "backfill_unchanged": 1}
+        finally:
+            state.close()
+        with caplog.at_level(logging.INFO, logger="backfill_partial_ocr"):
+            assert backfill.main(["--dry-run"]) == 0
+        assert "unchanged=1" in caplog.text
+        assert backfill.main(["--retry-unchanged"]) == 0
+    assert len(sent) == 2, "--retry-unchanged sends it again"
+    state = SyncStateStore(str(state_path))
+    try:
+        assert state.partial_note("Mandant/scan.pdf")["backfill_unchanged"] == 2
+    finally:
+        state.close()
+
+
+def test_fewer_pages_missing_is_progress_and_is_tried_again(tmp_path, monkeypatch, backfill):
+    root, state_path = _setup(tmp_path, monkeypatch)
+    state = SyncStateStore(str(state_path))
+    state.record_partial(
+        "Mandant/scan.pdf", "2026-01-01T00:00:00Z", 13, "tk-1", {**FAILED_NOTE, "ocr_pages_failed": 3}
+    )
+    state.close()
+    results = iter([{**FAILED_NOTE, "ocr_pages_failed": 2}, {**FAILED_NOTE, "ocr_pages_failed": 2}])
+    sent: list = []
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        sent.append(rel)
+        return UploadResult(rel, "tk-new", 2, "ok", 3, partial=next(results))
+
+    with _uploading(_body(root), fake_upload):
+        for _ in range(3):
+            assert backfill.main([]) == 0
+    assert len(sent) == 2, "3 -> 2 failed pages is progress, 2 -> 2 is not"
+    state = SyncStateStore(str(state_path))
+    try:
+        assert state.partial_note("Mandant/scan.pdf") == {
+            **FAILED_NOTE, "ocr_pages_failed": 2, "backfill_unchanged": 1,
+        }
+    finally:
+        state.close()
+
+
+def test_documents_left_unchanged_do_not_use_up_the_limit(tmp_path, monkeypatch, backfill):
+    root, state_path = _setup(tmp_path, monkeypatch)
+    (root / "Mandant" / "alt.pdf").write_bytes(b"%PDF-1.4 stub")
+    state = SyncStateStore(str(state_path))
+    state.record_partial(
+        "Mandant/alt.pdf", "2026-01-01T00:00:00Z", 13, "tk-3", {**FAILED_NOTE, "backfill_unchanged": 1}
+    )
+    state.close()
+    sent: list = []
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        sent.append(rel)
+        return UploadResult(rel, "tk-new", 2, "ok", 3)
+
+    with _uploading(_body(root), fake_upload):
+        assert backfill.main(["--limit", "2"]) == 0
+    assert sent == ["Mandant/scan.pdf"], "alt.pdf waits for --retry-unchanged; gone.pdf is missing"
+
+
+def test_old_backend_none_notes_are_cleared_without_an_upload(tmp_path, monkeypatch, backfill):
+    """Spec E1: the rule before it recorded every born-digital PDF partial
+    with {"reason": "ocr_backend_none"} (knovas-extract 0.4 says backend
+    "none" when no page needed OCR). Their text is complete at Knovas: the
+    note goes, nothing is uploaded -- each upload is billed."""
+    root, state_path = _setup(tmp_path, monkeypatch)
+    (root / "Mandant" / "digital.pdf").write_bytes(b"%PDF-1.4 stub")
+    state = SyncStateStore(str(state_path))
+    state.record_partial(
+        "Mandant/digital.pdf", "2026-01-01T00:00:00Z", 13, "tk-3",
+        {"reason": "ocr_backend_none", "ocr_pages": 0, "ocr_backend": "none", "text_pages": 4},
+    )
+    state.close()
+    body = {"mode": "incremental", "sources": [{"path": str(root), "recursive": True}],
+            "filters": {}, "ingestion": {"identifier_prefix": "rc"}}
+    uploaded: list = []
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        uploaded.append(rel)
+        return UploadResult(rel, "tk-new", 2, "ok", 3)
+
+    with patch("sync.sync_scheduler.load_last_sync_body", return_value=body), patch(
+        "sync.knovas_uploader.SemantixUploader.__init__", return_value=None
+    ), patch("sync.knovas_uploader.SemantixUploader.upload_file", fake_upload):
+        assert backfill.main(["--dry-run"]) == 0
+        state = SyncStateStore(str(state_path))
+        try:
+            assert "Mandant/digital.pdf" in state.partial_paths(), "a dry run changes nothing"
+        finally:
+            state.close()
+        assert backfill.main([]) == 0
+    assert uploaded == ["Mandant/scan.pdf"], "the born-digital PDF is not re-sent"
+    state = SyncStateStore(str(state_path))
+    try:
+        assert state.partial_paths() == ["Mandant/gone.pdf"]
+        assert state.status_for("Mandant/digital.pdf", "2026-01-01T00:00:00Z", 13) == "synced", \
+            "its fingerprint stays: the next cycle does not upload it either"
     finally:
         state.close()

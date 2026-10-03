@@ -2,20 +2,31 @@
 """Re-extract and re-upload the documents the sync recorded as PARTIAL.
 
 A document is partial (GI-EXTRACT-02) when the library returned it with OCR
-pages skipped — the per-document OCR budget tripped on a long scan — or when
-the extraction child was killed on the wall-clock ceiling `RC_EXTRACT_MAX_
-RETRIES` times in a row ("extract_retries_exhausted"). Such a file is NOT
+pages skipped — the per-document OCR budget tripped on a long scan — or with
+OCR pages failed (a page that raised or ran past the page timeout is empty),
+or when the extraction child was killed on the wall-clock ceiling `RC_EXTRACT_
+MAX_RETRIES` times in a row ("extract_retries_exhausted"). Such a file is NOT
 re-uploaded by the incremental cycle (its fingerprint is stored) and would
 otherwise stay incomplete; this script is the nightly pass that finishes it:
 
 * an OCR budget trip is re-extracted with a large budget
   (`--max-ocr-pages`, default 5000 pages, `--ocr-time-budget` /
   `--timeout`, default 1800 s);
+* failed OCR pages get a longer page timeout (`--ocr-page-timeout`,
+  default 120 s);
 * an exhausted retry counter is re-extracted with OCR DISABLED, so at
-  least the text pages land instead of the file looping on the hung page.
+  least the text pages land instead of the file looping on the hung page;
+* a note `{"reason": "ocr_backend_none"}` is cleared WITHOUT an upload: the
+  rule before spec E1 wrote it for born-digital PDFs (knovas-extract 0.4
+  reports backend "none" when no page needed OCR), whose text is complete
+  at Knovas -- re-sending them would only be billed.
 
 A clean upload clears the partial note; a still-partial result updates it;
-a failure leaves it for the next run. Nothing is uploaded with `--dry-run`.
+a failure leaves it for the next run. A result that is still partial with no
+fewer pages missing (a page that fails again, the pixel cap, no OCR engine)
+is noted `backfill_unchanged`: every upload is billed, so later runs skip the
+document until `--retry-unchanged`, or until the file changes and the cycle
+uploads it with a fresh note. Nothing is uploaded with `--dry-run`.
 
 Run it inside the Knovas Connector container (same env, same volumes),
 outside the sync window:
@@ -31,6 +42,7 @@ import os
 import sys
 import time
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -44,7 +56,17 @@ logger = logging.getLogger("backfill_partial_ocr")
 
 DEFAULT_TIMEOUT_SECONDS = 1800
 DEFAULT_MAX_OCR_PAGES = 5000
+#: Page timeout for a document with failed OCR pages: twice the cycle's 60 s.
+#: The child keeps room below the ceiling for the pages still running when
+#: the OCR budget trips, so a longer page timeout means a smaller budget;
+#: this one leaves ample budget even with 8 OCR workers.
+DEFAULT_OCR_PAGE_TIMEOUT_SECONDS = 120
 RETRIES_EXHAUSTED = "extract_retries_exhausted"
+#: What the partial rule before spec E1 recorded for born-digital PDFs.
+LEGACY_COMPLETE_REASON = "ocr_backend_none"
+#: Note key: backfill attempts in a row that left the document unchanged
+#: (``_unchanged``). Later runs skip a note carrying it.
+UNCHANGED = "backfill_unchanged"
 
 
 def _mtime_iso(path: Path) -> tuple[str, int]:
@@ -96,6 +118,29 @@ def _locate(rel: str, sources: list[tuple[Path, Any]]) -> Optional[tuple[Path, A
     return None
 
 
+def _count(note: dict[str, Any], key: str) -> Optional[int]:
+    """A count from a partial note; None when absent or not a whole number."""
+    value = note.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _pages_missing(note: dict[str, Any]) -> Optional[int]:
+    """Skipped plus failed OCR pages; None for a note without these counts
+    (``extract_retries_exhausted``)."""
+    counts = [c for c in (_count(note, "ocr_pages_skipped"), _count(note, "ocr_pages_failed")) if c is not None]
+    return sum(counts) if counts else None
+
+
+def _unchanged(before: dict[str, Any], after: Optional[dict[str, Any]]) -> bool:
+    """Whether an attempt left the document unchanged: still partial, with no
+    fewer pages missing than the note it started from. Another run would
+    send the same text again, billed."""
+    if not after:
+        return False
+    was, now = _pages_missing(before), _pages_missing(after)
+    return was is not None and now is not None and now >= was
+
+
 def _env_for(note: dict[str, Any], args: argparse.Namespace) -> dict[str, str]:
     """The extraction environment of one backfill attempt."""
     env = {
@@ -104,10 +149,26 @@ def _env_for(note: dict[str, Any], args: argparse.Namespace) -> dict[str, str]:
         "RC_OCR_MAX_PAGES": str(args.max_ocr_pages),
         "RC_OCR_TIME_BUDGET_SECONDS": str(args.ocr_time_budget),
     }
+    if (_count(note, "ocr_pages_failed") or 0) > 0:
+        # A page that ran past the page timeout failed: give it longer.
+        env["RC_OCR_PAGE_TIMEOUT_SECONDS"] = str(args.ocr_page_timeout)
     if note.get("reason") == RETRIES_EXHAUSTED:
         # The hung page is what exhausted the retries: land the text pages.
         env["RC_PDF_OCR_ENABLED"] = "false"
     return env
+
+
+def _complete_at_knovas(note: dict[str, Any]) -> bool:
+    """A note the rule before spec E1 wrote for a document that is complete.
+
+    That rule recorded ``{"reason": "ocr_backend_none"}`` whenever the library
+    said backend "none" -- and knovas-extract 0.4, the only release reporting
+    the OCR keys (they arrived together), says so for every born-digital PDF.
+    Pages a missing engine left without OCR it counts as skipped, which the
+    old rule recorded as ``ocr_pages_skipped`` instead. The current rule
+    never writes this reason.
+    """
+    return note.get("reason") == LEGACY_COMPLETE_REASON
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -126,6 +187,16 @@ def main(argv: list[str] | None = None) -> int:
         "--ocr-time-budget", type=int, default=DEFAULT_TIMEOUT_SECONDS,
         help=f"OCR time budget per document in seconds (default {DEFAULT_TIMEOUT_SECONDS}; "
         "the child still caps it below the ceiling)",
+    )
+    parser.add_argument(
+        "--ocr-page-timeout", type=int, default=DEFAULT_OCR_PAGE_TIMEOUT_SECONDS,
+        help=f"OCR page timeout in seconds for a document with failed OCR pages "
+        f"(default {DEFAULT_OCR_PAGE_TIMEOUT_SECONDS})",
+    )
+    parser.add_argument(
+        "--retry-unchanged", action="store_true",
+        help=f"Also re-send the documents an earlier run left unchanged (note {UNCHANGED}); "
+        "skipped otherwise, each upload is billed",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
@@ -163,14 +234,34 @@ def main(argv: list[str] | None = None) -> int:
     state = SyncStateStore()
     try:
         partial = state.partial_paths()
+        # Left unchanged by an earlier run: they wait for --retry-unchanged
+        # (or a change of the file) and do not use up --limit.
+        waiting = set() if args.retry_unchanged else {
+            rel for rel in partial if (_count(state.partial_note(rel) or {}, UNCHANGED) or 0) > 0
+        }
+        partial = [rel for rel in partial if rel not in waiting]
         if args.limit > 0:
             partial = partial[: args.limit]
-        logger.info("%d partial document(s) recorded%s", len(partial), " (dry run)" if args.dry_run else "")
-        counts = {"synced": 0, "partial": 0, "skipped": 0, "retry": 0, "missing": 0}
+        logger.info(
+            "%d partial document(s) recorded%s%s", len(partial),
+            f", {len(waiting)} more left unchanged by an earlier run" if waiting else "",
+            " (dry run)" if args.dry_run else "",
+        )
+        counts = {
+            "synced": 0, "partial": 0, "skipped": 0, "retry": 0, "missing": 0,
+            "unchanged": len(waiting), "cleared": 0,
+        }
+        left_unchanged = 0
         uploader = None if args.dry_run else SemantixUploader()
         started = time.monotonic()
         for rel in partial:
             note = state.partial_note(rel) or {}
+            if _complete_at_knovas(note):
+                # The fingerprint stays, so the cycle does not upload it either.
+                counts["cleared"] += 1
+                if not args.dry_run:
+                    state.clear_partial(rel)
+                continue
             located = _locate(rel, sources)
             if located is None:
                 counts["missing"] += 1
@@ -181,6 +272,8 @@ def main(argv: list[str] | None = None) -> int:
             mode = "OCR disabled" if env.get("RC_PDF_OCR_ENABLED") == "false" else (
                 f"OCR up to {args.max_ocr_pages} pages / {args.ocr_time_budget}s"
             )
+            if "RC_OCR_PAGE_TIMEOUT_SECONDS" in env:
+                mode += f", {args.ocr_page_timeout}s per page"
             logger.info("%s: %s -> %s", "Would re-upload" if args.dry_run else "Re-uploading", rel, mode)
             if args.dry_run or uploader is None:
                 continue
@@ -205,6 +298,10 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         os.environ[key] = value
             mtime_iso, size_bytes = _mtime_iso(path)
+            if upload.status == "ok" and upload.partial and _unchanged(note, upload.partial):
+                # Recorded with the count, so the next run skips it.
+                upload = replace(upload, partial={**upload.partial, UNCHANGED: (_count(note, UNCHANGED) or 0) + 1})
+                left_unchanged += 1
             outcome = record_upload_outcome(
                 state, rel, mtime_iso, size_bytes, upload, "incremental", digest=digest
             )
@@ -215,10 +312,21 @@ def main(argv: list[str] | None = None) -> int:
                 logger.warning("Still partial after the backfill: %s %s", rel, upload.partial)
             else:
                 logger.info("Complete: %s", rel)
+        if left_unchanged:
+            logger.info(
+                "%d document(s) still partial with no fewer pages missing: later runs skip them "
+                "unless --retry-unchanged", left_unchanged,
+            )
+        if counts["cleared"]:
+            logger.info(
+                "%s %d note(s) the old partial rule wrote for born-digital PDFs (no upload)",
+                "Would clear" if args.dry_run else "Cleared", counts["cleared"],
+            )
         logger.info(
-            "Done in %s: synced=%d partial=%d skipped=%d retry=%d missing=%d",
+            "Done in %s: synced=%d partial=%d skipped=%d retry=%d missing=%d unchanged=%d cleared=%d",
             _duration(time.monotonic() - started), counts["synced"], counts["partial"],
-            counts["skipped"], counts["retry"], counts["missing"],
+            counts["skipped"], counts["retry"], counts["missing"], counts["unchanged"],
+            counts["cleared"],
         )
         return 0 if counts["retry"] == 0 else 3
     finally:

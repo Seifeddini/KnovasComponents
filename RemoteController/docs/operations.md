@@ -143,7 +143,9 @@ The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`,
 
 ## Scanned PDFs (OCR)
 
-Image pages of PDFs are ingested via Tesseract when `knovas-extract>=0.3` and `tesseract-ocr` are present in the RC image (`RC_PDF_OCR_ENABLED=true` by default; `RC_TESSERACT_LANG=deu+eng`). The tuning variables (`RC_OCR_*`, `RC_EXTRACT_*`, `RC_PDF_TEXT_MODE`) are listed in [configuration.md](configuration.md#extraction-ocr-and-page-markers).
+Image pages of PDFs are ingested via Tesseract when knovas-extract 0.4 (per-page OCR) and `tesseract-ocr` are present in the RC image (`RC_PDF_OCR_ENABLED=true` by default; `RC_TESSERACT_LANG=deu+eng`). The tuning variables (`RC_OCR_*`, `RC_EXTRACT_*`, `RC_PDF_TEXT_MODE`) are listed in [configuration.md](configuration.md#extraction-ocr-and-page-markers).
+
+**OCR settings the library refuses.** The Connector checks `RC_TESSERACT_LANG` (language packs joined by `+`), `RC_OCR_DPI` (30–1200), `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` (at least 1) itself and replaces an invalid value by its default, with one warning naming the setting. Should the library still refuse the OCR options, every PDF fails with `extraction configuration invalid: <setting>`: retried every cycle, never counted toward `RC_EXTRACT_MAX_RETRIES`, never parked or recorded partial. Correct the setting in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
 
 PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite and will not retry until those rows are removed:
 
@@ -172,17 +174,23 @@ The messages that identify the parked files are in the RC log (`Upload failed pa
 A document whose text landed only in part is recorded **partial**, not parked (GI-EXTRACT-02):
 
 - the OCR page or time budget tripped on a long scan — the library returned the text pages with the skipped pages COUNTED (`ocr_pages_skipped`), the document was uploaded as is;
-- the extraction child was killed on the wall-clock ceiling or died (`extractor died (exit -9)`) `RC_EXTRACT_MAX_RETRIES` times in a row — note `extract_retries_exhausted`;
-- OCR is configured but the library reported no OCR backend (`ocr_backend_none`).
+- OCR failed on some pages (`ocr_pages_failed`) — those pages are empty;
+- no OCR engine was available: the pages that needed OCR are counted as skipped and the note says `ocr_backend: none` (`rc_ocr_backend_degraded_total` counts these documents);
+- the extraction child was killed on the wall-clock ceiling or died (`extractor died (exit -9)`) `RC_EXTRACT_MAX_RETRIES` times in a row — note `extract_retries_exhausted`.
 
-A partial file is not re-uploaded by the incremental cycle (its fingerprint is stored; `document_sync` counts it as `synced`) but stays listed for the nightly pass. `POST /sync` responses carry `partial` on the transmission entry; `/metrics` has `rc_ocr_partial_total`, `rc_extract_retry_total`, `rc_ocr_backend_degraded_total`, `rc_skip_unconvertible_total`.
+A born-digital PDF is never partial: knovas-extract 0.4 reports `ocr_backend: none` with zero skipped pages for it, which only says that no page needed OCR. The note carries `ocr_pages_skipped`, `ocr_pages_failed`, `ocr_pages`, `text_pages` and `ocr_backend` as far as the library reported them.
+
+Notes `{"reason": "ocr_backend_none"}` were written by the rule before this release for exactly such born-digital PDFs; the backfill clears them without an upload (`cleared=` in its summary line).
+
+A partial file is not re-uploaded by the incremental cycle (its fingerprint is stored; `document_sync` counts it as `synced`) but stays listed for the nightly pass. The pass sends a document again only while that helps, because every upload is billed: a result that is still partial with no fewer pages missing (a page that fails again, the pixel cap, no OCR engine) is noted `backfill_unchanged`, and later runs skip the document (`unchanged=` in the summary line). `--retry-unchanged` sends those again, for example once an OCR engine is installed; a file that changes is uploaded by the cycle and gets a fresh note. `POST /sync` responses carry `partial` on the transmission entry; `/metrics` has `rc_ocr_partial_total`, `rc_extract_retry_total`, `rc_ocr_backend_degraded_total`, `rc_skip_unconvertible_total`.
 
 ```bash
 # what is recorded, nothing uploaded
 docker compose --env-file knovas.env run --rm remote-controller \
   python /app/scripts/backfill_partial_ocr.py --dry-run
 # the pass: a budget trip is re-extracted with a 5000-page / 1800 s budget,
-# exhausted retries with OCR disabled; a clean upload clears the note
+# failed OCR pages with a 120 s page timeout, exhausted retries with OCR
+# disabled; a clean upload clears the note, an unchanged result is not re-sent
 docker compose --env-file knovas.env run --rm remote-controller \
   python /app/scripts/backfill_partial_ocr.py
 ```

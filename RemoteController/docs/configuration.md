@@ -284,7 +284,7 @@ Knovas Connector converts the following extensions to text (with per-sentence ci
 | `.eml` | Standard library `email` (subject → transmission title) |
 | `.msg` | `extract-msg` (subject → transmission title) |
 
-Each chunk carries a `page_number` (PDFs only) and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition.
+Each chunk carries a `page_number` (PDFs only), the page of its first character from `content.pages`, and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition. A chunk without sentences, or after the last sentence of a list cut off at the library's `max_sentences` cap, has no `sentence_number`; its `page_number` is unaffected.
 
 `ingestion.part_max_chars` defaults to `500000` (the Secure API `snippet` limit). Lower it in the sync request body if you need smaller transmission parts.
 
@@ -301,19 +301,20 @@ Scanned PDF pages without a text layer are OCR'd when `RC_PDF_OCR_ENABLED` is tr
 
 ### Extraction, OCR and page markers
 
-All read from the environment by `src/sync/document_text.py`, `knovas_uploader.py`, `sync_executor.py` and `ocr_cache.py` (not by `config.py`). Keywords the installed `knovas-extract` does not take are withheld, so the same image runs against 0.3 (today) and 0.4 (`text_mode=`, `ocr=`).
+All read from the environment by `src/sync/document_text.py`, `knovas_uploader.py`, `sync_executor.py` and `ocr_cache.py` (not by `config.py`). Keywords the installed `knovas-extract` does not take (`text_mode=`, `ocr=`, the `Limits` OCR fields) are withheld (`extract_accepts`), so the same source still runs against an older release; the image and CI install 0.4.0a1.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `RC_PDF_OCR_ENABLED` | `true` | OCR image pages of PDFs (`use_ocr="auto"`). `false` keeps text layers only. |
-| `RC_TESSERACT_LANG` | `deu+eng` | Tesseract language packs (at most two; `deu+fra`, `deu+ita` per tenant). |
+| `RC_TESSERACT_LANG` | `deu+eng` | Tesseract language packs joined by `+` (at most two; `deu+fra`, `deu+ita` per tenant). Anything else (`deu eng`, `deu,eng`) logs a warning and uses `deu+eng`. |
 | `RC_PDF_TEXT_MODE` | `layout` | `plain` — the pre-0.2.0 text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with a warning when the library has no `text_mode`. |
+| `RC_DOCX_TEXT_MODE` | `layout` | `layout` — Word tables are written into the text in place, as markdown-lite rows (one line per row, as for PDFs in layout mode), so their content is searchable; such a DOCX is sent without a `tables` payload (the rows would be indexed twice). Needs a knovas-extract with DOCX layout mode (it reports `docx:text_mode`); an older one returns the plain text and the payload stays. `plain` — paragraphs only, tables as payload. Invalid values log a warning and use `layout`. |
 | `RC_OCR_ENGINE` | `auto` | `auto` / `tesserocr` / `cli` / `mupdf` (knovas-extract ≥ 0.4). |
-| `RC_OCR_DPI` | `300` | Render dpi ceiling; the library never upsamples a lower-resolution scan. |
-| `RC_OCR_WORKERS` | `max(1, cores − 2)` | OCR pages in parallel, at most 8. |
-| `RC_OCR_MAX_PAGES` | `500` | OCR page budget per document. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and recorded `partial` for the backfill. |
-| `RC_OCR_TIME_BUDGET_SECONDS` | `min(240, timeout − 30)` | OCR time budget per document; never more than `timeout − workers × page_timeout − 10` so the partial result reaches the parent before the wall-clock kill. |
-| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `60` | Ceiling for one page's OCR. |
+| `RC_OCR_DPI` | (unset) | Unset: no `dpi` is passed and the library renders each page at its native resolution, at most 300 dpi, never upsampled (a 150 dpi fax stays 150 dpi). Set (30–1200): every page is rendered at exactly this resolution, so a lower-resolution scan is upsampled. Any other value logs a warning and counts as unset. |
+| `RC_OCR_WORKERS` | (unset) | OCR pages in parallel. Unset: the library decides — available CPUs − 1, counting the CPU affinity and the container's CPU quota, at most 8 (`Limits.max_ocr_workers`). Set: that many, 1–8. |
+| `RC_OCR_MAX_PAGES` | `500` | OCR page budget per document. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and recorded `partial` for the backfill. At least 1; anything else logs a warning and uses 500. |
+| `RC_OCR_TIME_BUDGET_SECONDS` | `min(240, timeout − 30)` | OCR time budget per document; never more than `timeout − page_timeout − 10` (the pages still running when it trips finish in parallel within one page timeout) and never below 10 s, so the partial result reaches the parent before the wall-clock kill. |
+| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `60` | Ceiling for one page's OCR. At least 1; anything else logs a warning and uses 60. |
 | `RC_OCR_CACHE_MAX_MB` | `512` | OCR disk cache cap (`.rc-ocr-cache.db` beside `RC_SYNC_STATE_PATH`, LRU, mode 0600). `0` disables it: no file, every lookup misses. See [operations.md](operations.md#ocr-disk-cache). |
 | `RC_EXTRACT_TIMEOUT_SECONDS` | `300` | Wall-clock ceiling for one document's extraction (child process). `0` extracts in-process without a ceiling. |
 | `RC_EXTRACT_TIMEOUT_PER_PAGE_SECONDS` | `2` | For PDFs the ceiling is at least this × page count (the child reports the count first). |
@@ -321,9 +322,9 @@ All read from the environment by `src/sync/document_text.py`, `knovas_uploader.p
 | `RC_EXTRACT_MAX_RETRIES` | `3` | Retryable extraction failures (wall-clock kill, killed child, transient error) a file may collect; after the cap it is recorded `partial` (`extract_retries_exhausted`) and the backfill runs it with OCR disabled. Secure API failures never count. |
 | `RC_EXTRACT_RLIMIT_AS_MB` | `2048` | Address-space limit of the extraction child (`RLIMIT_AS`); `0` disables. The child also runs at `nice 10`. |
 | `RC_PAGE_BREAK_MARKERS` | `true` | Form feed(s) before every text-page start inside a part so the server serves a hit on its own page (GI-INGEST-17). The part's `page_number` stays the page of its first character; the context sidecar is written from the unmarked text. |
-| `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are still sent. |
+| `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are sent unless the library wrote their rows into the text (`RC_DOCX_TEXT_MODE=layout`). |
 | `RC_UPLOAD_ORDER` | `small_first` | Order of a cycle's upload queue: smallest file first (`scan` keeps the directory order). |
-| `RC_SENTENCE_EMIT_MAX_BYTES` | `2097152` | Inputs above this skip sentence emission (citations and context previews), the text is still uploaded. |
+| `RC_SENTENCE_EMIT_MAX_BYTES` | `0` | `0`: no gate on the file size. Every PDF gets sentence citations (the library splits it page by page). Any other file is split as one text, in time that grows with the square of its size (2 MiB of export rows take ~40 s), so it gets citations while its extracted text is at most 2 MiB; a larger text — a text export, a DOCX with big tables in its text — is uploaded without them. A positive value skips citations (and the context previews) above that many raw bytes for every file; the text is still uploaded. |
 
 Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
 

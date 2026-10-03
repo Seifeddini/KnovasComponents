@@ -113,6 +113,20 @@ class TestRcRecordingMechanism:
         up = _upload("error", error="corrupt pdf: cannot open broken xref")
         assert record_upload_outcome(state, up.relative_path, "2026-10-01T00:00:00Z", 1234, up, "full") == "retry"
 
+    def test_a_refused_ocr_setting_never_uses_up_the_retries(self, state):
+        """Spec E5: the library refused the Connector's OCR settings -- no
+        PDF is at fault. Counting it would record every PDF partial after
+        three cycles and backfill it without OCR."""
+        from sync.document_text import CONFIG_INVALID_PREFIX
+        from sync.sync_executor import MAX_EXTRACT_RETRIES, record_upload_outcome
+
+        up = _upload("error", error=f"{CONFIG_INVALID_PREFIX}: RC_TESSERACT_LANG")
+        outcomes = [record_upload_outcome(state, up.relative_path, "2026-10-01T00:00:00Z", 1234, up, "incremental")
+                    for _ in range(MAX_EXTRACT_RETRIES + 2)]
+        assert outcomes == ["retry"] * (MAX_EXTRACT_RETRIES + 2)
+        assert state.retry_count(up.relative_path) == 0
+        assert up.relative_path not in state.partial_paths()
+
 
 class TestOcrBudgetMessagesAreNotUnconvertible:
     """A budget trip inside the library never surfaces as an error at all;
@@ -122,6 +136,7 @@ class TestOcrBudgetMessagesAreNotUnconvertible:
         "ocr budget exceeded: partial 12/40 pages",
         "extraction timeout after 300s (child killed)",
         "extractor died (exit -9)",
+        "extraction configuration invalid: RC_TESSERACT_LANG",
     ])
     def test_not_unconvertible(self, msg):
         assert is_unconvertible_error(msg) is False

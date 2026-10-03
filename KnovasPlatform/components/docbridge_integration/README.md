@@ -21,23 +21,24 @@ conservative ones of an interactive request on a host shared with the search
 UI. Markdown is never requested (`emit_markdown=False`) — it cost ~8 s per
 document and parked mixed PDFs and large-table DOCX as "markdown expansion
 ratio". Keywords the installed `knovas-extract` does not take (`text_mode=`,
-`ocr=`, the `Limits` OCR fields) are withheld, so the same image runs against
-0.3 (today) and 0.4.
+`ocr=`, the `Limits` OCR fields) are withheld, so the same source still runs
+against an older release; the image and CI install 0.4.0a1.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `RC_PDF_TEXT_MODE` | `layout` | `plain` — the pre-0.4 text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME in-memory OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with one warning when the library has no `text_mode`. |
-| `RC_TESSERACT_LANG` | config `advanced.extraction.ocr_language` (`deu+eng`) | Tesseract language packs; the env value wins over the config value. OCR itself is switched by `advanced.extraction.use_ocr` (default on). |
+| `RC_DOCX_TEXT_MODE` | `layout` | The Knovas Connector's setting: `layout` asks knovas-extract to write Word tables into the text as markdown-lite rows (no `tables` payload for such a DOCX); `plain` is paragraphs only, tables as payload. Invalid values log a warning and use `layout`. |
+| `RC_TESSERACT_LANG` | config `advanced.extraction.ocr_language` (`deu+eng`) | Tesseract language packs joined by `+`; the env value wins over the config value. A value of another shape logs a warning and is skipped (then the config value, then `deu+eng`). OCR itself is switched by `advanced.extraction.use_ocr` (default on). |
 | `RC_OCR_ENGINE` | `auto` | `auto` / `tesserocr` / `cli` / `mupdf` (knovas-extract ≥ 0.4). |
-| `RC_OCR_DPI` | `300` | Render dpi ceiling; the library never upsamples a lower-resolution scan. |
+| `RC_OCR_DPI` | (unset) | Unset: no `dpi` is passed — native resolution, at most 300 dpi, never upsampled. Set (30–1200): every page at exactly this resolution (a lower-resolution scan is upsampled). Any other value logs a warning and counts as unset. |
 | `RC_OCR_WORKERS` | `1` | OCR pages in parallel, at most 8. One by default: a gunicorn worker shares the host with the search UI. |
-| `RC_OCR_MAX_PAGES` | `50` | OCR page budget per upload. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and reported `partial`. |
-| `RC_OCR_TIME_BUDGET_SECONDS` | `min(60, timeout − 30)` | OCR time budget per upload; never more than `timeout − workers × page_timeout − 10` so the partial result reaches the request before the wall-clock kill. |
-| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `30` | Ceiling for one page's OCR. |
+| `RC_OCR_MAX_PAGES` | `50` | OCR page budget per upload. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and reported `partial`. At least 1; anything else logs a warning and uses the default. |
+| `RC_OCR_TIME_BUDGET_SECONDS` | `min(60, timeout − 30)` | OCR time budget per upload; never more than `timeout − page_timeout − 10` (pages still running finish in parallel within one page timeout), so the partial result reaches the request before the wall-clock kill. |
+| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `30` | Ceiling for one page's OCR. At least 1; anything else logs a warning and uses the default. |
 | `RC_EXTRACT_TIMEOUT_SECONDS` | `120` | Wall-clock ceiling for one upload's extraction (child process). `0` extracts in-process without a ceiling. No per-page scaling: a 300-page scan belongs to the RC, not to a browser request. |
 | `RC_EXTRACT_RLIMIT_AS_MB` | `2048` | Address-space limit of the extraction child (`RLIMIT_AS`); `0` disables. The child also runs at `nice 10`. |
 | `RC_PAGE_BREAK_MARKERS` | `true` | Form feed(s) before every text-page start inside a part so the server serves a hit on its own page (GI-INGEST-17). The part's `page_number` stays the page of its first character; the context sidecar is written from the unmarked text. |
-| `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are still sent. |
+| `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are sent unless the library wrote their rows into the text (`RC_DOCX_TEXT_MODE=layout`). |
 | `SEARCH_CONTEXT_STORE_PATH` | (unset) | Directory of the context sidecars (one JSON per document) the search UI reads for first-page previews and hit context; shared with the RC. |
 
 **The guard.** Extraction never runs in the gunicorn request thread: it runs
@@ -53,12 +54,24 @@ must stay above `RC_EXTRACT_TIMEOUT_SECONDS`; every nginx in front
 (`nginx/docbridge-web*.conf`, the host-nginx template) waits at least that long
 (`proxy_read_timeout 180s`, pinned by `tests/test_web_timeouts.py`).
 
-**Partial uploads.** `metadata.extra` is read defensively: `pdf:ocr_pages_skipped > 0`
-(budget trip), or `pdf:ocr_backend = "none"` with OCR configured and no
-skipped-page count, makes the upload `partial`. The note — counts and the
-backend name only, never text (GI-EXTRACT-04) — is logged, returned in the
-sync result (`partial`) and written into the document's sidecar, from where
-the search result carries it as `context_partial`.
+**Sentences.** Every PDF gets sentence citations: the library splits it page
+by page. Any other upload is split as one text, in time that grows with the
+square of its size (a 60 000-row DOCX table ran past the 120 s ceiling), so
+it gets them only while its extracted text is at most 2 MiB
+(`UNPAGED_SENTENCE_MAX_CHARS`, the Knovas Connector's rule); a DOCX, an MSG
+or a larger file is extracted without sentences first to measure its text.
+A longer text is uploaded without citations.
+
+**Partial uploads.** The same rule as the Knovas Connector (spec E1):
+`pdf:ocr_pages_skipped > 0` (budget or page cap, or no OCR engine —
+knovas-extract 0.4 counts those pages as skipped), `pdf:ocr_pages_failed > 0`,
+or — for a library that does not count skipped pages — `pdf:ocr_backend =
+"none"` with OCR configured and no skipped-page count makes the upload
+`partial`. A born-digital PDF (backend `none`, nothing skipped) is complete.
+The note — counts and the backend name only, never text (GI-EXTRACT-04) — is
+logged, returned in the sync result (`partial`) and written into the
+document's sidecar, from where the search result carries it as
+`context_partial`.
 
 ## Document fields
 
