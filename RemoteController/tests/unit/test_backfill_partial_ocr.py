@@ -275,3 +275,44 @@ def test_documents_left_unchanged_do_not_use_up_the_limit(tmp_path, monkeypatch,
     with _uploading(_body(root), fake_upload):
         assert backfill.main(["--limit", "2"]) == 0
     assert sent == ["Mandant/scan.pdf"], "alt.pdf waits for --retry-unchanged; gone.pdf is missing"
+
+
+def test_old_backend_none_notes_are_cleared_without_an_upload(tmp_path, monkeypatch, backfill):
+    """Spec E1: the rule before it recorded every born-digital PDF partial
+    with {"reason": "ocr_backend_none"} (knovas-extract 0.4 says backend
+    "none" when no page needed OCR). Their text is complete at Knovas: the
+    note goes, nothing is uploaded -- each upload is billed."""
+    root, state_path = _setup(tmp_path, monkeypatch)
+    (root / "Mandant" / "digital.pdf").write_bytes(b"%PDF-1.4 stub")
+    state = SyncStateStore(str(state_path))
+    state.record_partial(
+        "Mandant/digital.pdf", "2026-01-01T00:00:00Z", 13, "tk-3",
+        {"reason": "ocr_backend_none", "ocr_pages": 0, "ocr_backend": "none", "text_pages": 4},
+    )
+    state.close()
+    body = {"mode": "incremental", "sources": [{"path": str(root), "recursive": True}],
+            "filters": {}, "ingestion": {"identifier_prefix": "rc"}}
+    uploaded: list = []
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        uploaded.append(rel)
+        return UploadResult(rel, "tk-new", 2, "ok", 3)
+
+    with patch("sync.sync_scheduler.load_last_sync_body", return_value=body), patch(
+        "sync.knovas_uploader.SemantixUploader.__init__", return_value=None
+    ), patch("sync.knovas_uploader.SemantixUploader.upload_file", fake_upload):
+        assert backfill.main(["--dry-run"]) == 0
+        state = SyncStateStore(str(state_path))
+        try:
+            assert "Mandant/digital.pdf" in state.partial_paths(), "a dry run changes nothing"
+        finally:
+            state.close()
+        assert backfill.main([]) == 0
+    assert uploaded == ["Mandant/scan.pdf"], "the born-digital PDF is not re-sent"
+    state = SyncStateStore(str(state_path))
+    try:
+        assert state.partial_paths() == ["Mandant/gone.pdf"]
+        assert state.status_for("Mandant/digital.pdf", "2026-01-01T00:00:00Z", 13) == "synced", \
+            "its fingerprint stays: the next cycle does not upload it either"
+    finally:
+        state.close()

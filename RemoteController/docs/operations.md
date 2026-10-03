@@ -175,6 +175,8 @@ A document whose text landed only in part is recorded **partial**, not parked (G
 
 A born-digital PDF is never partial: knovas-extract 0.4 reports `ocr_backend: none` with zero skipped pages for it, which only says that no page needed OCR. The note carries `ocr_pages_skipped`, `ocr_pages_failed`, `ocr_pages`, `text_pages` and `ocr_backend` as far as the library reported them.
 
+Notes `{"reason": "ocr_backend_none"}` were written by the rule before this release for exactly such born-digital PDFs; the backfill clears them without an upload (`cleared=` in its summary line).
+
 A partial file is not re-uploaded by the incremental cycle (its fingerprint is stored; `document_sync` counts it as `synced`) but stays listed for the nightly pass. The pass sends a document again only while that helps, because every upload is billed: a result that is still partial with no fewer pages missing (a page that fails again, the pixel cap, no OCR engine) is noted `backfill_unchanged`, and later runs skip the document (`unchanged=` in the summary line). `--retry-unchanged` sends those again, for example once an OCR engine is installed; a file that changes is uploaded by the cycle and gets a fresh note. `POST /sync` responses carry `partial` on the transmission entry; `/metrics` has `rc_ocr_partial_total`, `rc_extract_retry_total`, `rc_ocr_backend_degraded_total`, `rc_skip_unconvertible_total`.
 
 ```bash

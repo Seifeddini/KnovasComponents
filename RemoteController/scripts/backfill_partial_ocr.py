@@ -15,7 +15,11 @@ otherwise stay incomplete; this script is the nightly pass that finishes it:
 * failed OCR pages get a longer page timeout (`--ocr-page-timeout`,
   default 120 s);
 * an exhausted retry counter is re-extracted with OCR DISABLED, so at
-  least the text pages land instead of the file looping on the hung page.
+  least the text pages land instead of the file looping on the hung page;
+* a note `{"reason": "ocr_backend_none"}` is cleared WITHOUT an upload: the
+  rule before spec E1 wrote it for born-digital PDFs (knovas-extract 0.4
+  reports backend "none" when no page needed OCR), whose text is complete
+  at Knovas -- re-sending them would only be billed.
 
 A clean upload clears the partial note; a still-partial result updates it;
 a failure leaves it for the next run. A result that is still partial with no
@@ -58,6 +62,8 @@ DEFAULT_MAX_OCR_PAGES = 5000
 #: this one leaves ample budget even with 8 OCR workers.
 DEFAULT_OCR_PAGE_TIMEOUT_SECONDS = 120
 RETRIES_EXHAUSTED = "extract_retries_exhausted"
+#: What the partial rule before spec E1 recorded for born-digital PDFs.
+LEGACY_COMPLETE_REASON = "ocr_backend_none"
 #: Note key: backfill attempts in a row that left the document unchanged
 #: (``_unchanged``). Later runs skip a note carrying it.
 UNCHANGED = "backfill_unchanged"
@@ -152,6 +158,19 @@ def _env_for(note: dict[str, Any], args: argparse.Namespace) -> dict[str, str]:
     return env
 
 
+def _complete_at_knovas(note: dict[str, Any]) -> bool:
+    """A note the rule before spec E1 wrote for a document that is complete.
+
+    That rule recorded ``{"reason": "ocr_backend_none"}`` whenever the library
+    said backend "none" -- and knovas-extract 0.4, the only release reporting
+    the OCR keys (they arrived together), says so for every born-digital PDF.
+    Pages a missing engine left without OCR it counts as skipped, which the
+    old rule recorded as ``ocr_pages_skipped`` instead. The current rule
+    never writes this reason.
+    """
+    return note.get("reason") == LEGACY_COMPLETE_REASON
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="List what would be re-uploaded; upload nothing")
@@ -228,12 +247,21 @@ def main(argv: list[str] | None = None) -> int:
             f", {len(waiting)} more left unchanged by an earlier run" if waiting else "",
             " (dry run)" if args.dry_run else "",
         )
-        counts = {"synced": 0, "partial": 0, "skipped": 0, "retry": 0, "missing": 0, "unchanged": len(waiting)}
+        counts = {
+            "synced": 0, "partial": 0, "skipped": 0, "retry": 0, "missing": 0,
+            "unchanged": len(waiting), "cleared": 0,
+        }
         left_unchanged = 0
         uploader = None if args.dry_run else SemantixUploader()
         started = time.monotonic()
         for rel in partial:
             note = state.partial_note(rel) or {}
+            if _complete_at_knovas(note):
+                # The fingerprint stays, so the cycle does not upload it either.
+                counts["cleared"] += 1
+                if not args.dry_run:
+                    state.clear_partial(rel)
+                continue
             located = _locate(rel, sources)
             if located is None:
                 counts["missing"] += 1
@@ -289,10 +317,16 @@ def main(argv: list[str] | None = None) -> int:
                 "%d document(s) still partial with no fewer pages missing: later runs skip them "
                 "unless --retry-unchanged", left_unchanged,
             )
+        if counts["cleared"]:
+            logger.info(
+                "%s %d note(s) the old partial rule wrote for born-digital PDFs (no upload)",
+                "Would clear" if args.dry_run else "Cleared", counts["cleared"],
+            )
         logger.info(
-            "Done in %s: synced=%d partial=%d skipped=%d retry=%d missing=%d unchanged=%d",
+            "Done in %s: synced=%d partial=%d skipped=%d retry=%d missing=%d unchanged=%d cleared=%d",
             _duration(time.monotonic() - started), counts["synced"], counts["partial"],
             counts["skipped"], counts["retry"], counts["missing"], counts["unchanged"],
+            counts["cleared"],
         )
         return 0 if counts["retry"] == 0 else 3
     finally:
