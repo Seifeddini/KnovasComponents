@@ -57,6 +57,8 @@ class Server:
         #: The capability probe (spec F5): its answer -- a status, or None for
         #: no answer at all -- and the calls it got. 404: fields are off.
         self.probe_status: Optional[int] = 404
+        #: The ``error_code`` of a refused probe (none by default).
+        self.probe_error_code: Optional[str] = None
         self.probes: list[tuple[str, Any]] = []
 
     def rels(self) -> list[str]:
@@ -87,8 +89,12 @@ class Server:
             self.probes.append((method, json))
             if self.probe_status is None:
                 raise requests.ConnectionError("no answer")
-            return _response(self.probe_status, {"status": "success", "fields": []}
-                             if self.probe_status == 200 else {"status": "error"})
+            if self.probe_status == 200:
+                return _response(200, {"status": "success", "fields": []})
+            refusal = {"status": "error"}
+            if self.probe_error_code:
+                refusal["error_code"] = self.probe_error_code
+            return _response(self.probe_status, refusal)
         return _response(404, {"status": "error", "error_code": "HTTP_404"})
 
 
@@ -932,12 +938,18 @@ class TestCapabilityProbe:
         assert "doc_fields probe=off requeued=0" in caplog.text
         assert rc.run(body).document_sync.fields_changed == 0
 
-    def test_on_requeues_the_reached_rows_and_they_come_back_within_the_bound(self, rc, caplog):
+    @pytest.mark.parametrize("status,code", [(200, None), (401, "assertion_rejected")],
+                             ids=["ok", "brokered-assertion-rejected"])
+    def test_on_requeues_the_reached_rows_and_they_come_back_within_the_bound(
+        self, rc, caplog, status, code
+    ):
+        """On: a 2xx, or a refusal only the route itself raises (a BROKERED
+        account's missing principal assertion, behind the fields gate)."""
         rels = [f"Muster AG/GJ 2024/R{i}.txt" for i in range(5)]
         rc.env(RC_FIELDS_REUPLOAD_PER_CYCLE="2")
         body = self._not_accepted(rc, *rels)
         rc.server.mode = "values"
-        rc.server.probe_status = 200
+        rc.server.probe_status, rc.server.probe_error_code = status, code
         caplog.set_level(logging.INFO, logger="sync.sync_executor")
         first = rc.run(body)
         assert first.doc_fields.requeued == 5 and first.files_uploaded == 0
@@ -947,7 +959,9 @@ class TestCapabilityProbe:
         assert all(rc.fields(rel).outcome == "staged" for rel in rels)
         assert rc.server.probes == [("GET", None)], "one probe an hour"
 
-    @pytest.mark.parametrize("answer", [500, 503, 429, None])
+    # 400/401/403 without a code from behind the fields gate: Knovas refuses
+    # in front of the gate too (certificate, signature), for any account.
+    @pytest.mark.parametrize("answer", [500, 503, 429, None, 400, 401, 403])
     def test_unknown_changes_nothing_and_is_asked_again_an_hour_later(self, rc, answer):
         import sync.sync_executor as executor
 
@@ -961,6 +975,48 @@ class TestCapabilityProbe:
                                - executor.DOC_FIELDS_PROBE_INTERVAL_SECONDS)
         rc.server.probe_status = 200
         assert rc.run(body).doc_fields.requeued == 1
+        assert len(rc.server.probes) == 2
+
+    def test_a_transient_certificate_refusal_re_sends_nothing_while_fields_are_off(self, rc):
+        """Knovas checks the certificate before its per-account fields gate,
+        and answers 401 AUTH_FAILED when its own eligibility lookup fails --
+        to an account whose fields are off as well. Read as on, every
+        not_accepted document was re-sent, each a billed upload, while
+        Knovas still ignored the fields."""
+        rels = [f"Muster AG/GJ 2024/R{i}.txt" for i in range(5)]
+        body = self._not_accepted(rc, *rels)
+        rc.server.probe_status, rc.server.probe_error_code = 401, "AUTH_FAILED"
+        quiet = rc.run(body)
+        assert quiet.doc_fields.requeued == 0 and quiet.files_uploaded == 0
+        rc.server.probe_status, rc.server.probe_error_code = 404, None
+        assert [rc.run(body).files_uploaded for _ in range(3)] == [0, 0, 0]
+        assert all(rc.fields(rel).outcome == "not_accepted" for rel in rels)
+        assert len(rc.server.probes) == 1
+
+    def test_a_certificate_outage_keeps_the_rows_for_when_knovas_turns_fields_on(self, rc):
+        """While every call is refused in front of the fields gate, the probe
+        included, nothing is requeued. Read as on, the requeued rows failed
+        their re-sends and left the queue for good as
+        reupload_failed:init_401, which neither the probe nor the echo
+        trigger requeues."""
+        import sync.sync_executor as executor
+
+        rels = [f"Muster AG/GJ 2024/R{i}.txt" for i in range(3)]
+        body = self._not_accepted(rc, *rels)
+        rc.server.probe_status, rc.server.probe_error_code = 401, "AUTH_FAILED"
+        rc.server.fail = {".txt": lambda: _response(401, {"status": "error", "error_code": "AUTH_FAILED"})}
+        for _ in range(5):
+            rc.run(body)
+        assert all(rc.fields(rel).outcome == "not_accepted" for rel in rels)
+        # The outage ends, Knovas switches fields on, and an hour passes.
+        rc.server.fail = {}
+        rc.server.mode = "values"
+        rc.server.probe_status, rc.server.probe_error_code = 200, None
+        rc.monkeypatch.setattr(executor, "_last_doc_fields_probe",
+                               executor._last_doc_fields_probe
+                               - executor.DOC_FIELDS_PROBE_INTERVAL_SECONDS)
+        assert [rc.run(body).files_uploaded for _ in range(3)] == [0, 3, 0]
+        assert all(rc.fields(rel).outcome == "staged" for rel in rels)
         assert len(rc.server.probes) == 2
 
     def test_the_echo_trigger_still_works_when_the_probe_says_off(self, rc):

@@ -312,7 +312,8 @@ PROBE = "/secured/graph/doc-fields"
 
 class TestCapabilityProbe:
     """``probe_doc_fields`` (spec F5): one GET without a body under the
-    tenant mTLS; the status class is the whole answer."""
+    tenant mTLS. Only an answer from behind Knovas's per-tenant fields gate
+    means on."""
 
     @staticmethod
     def _probe(monkeypatch, answer):
@@ -322,17 +323,21 @@ class TestCapabilityProbe:
             calls.append((method, "/" + url.split("/", 3)[3], json, kw.get("cert"), kw.get("verify")))
             if isinstance(answer, Exception):
                 raise answer
+            if isinstance(answer, requests.Response):
+                return answer
             return _response(answer, {"status": "error"} if answer >= 400 else {"fields": []})
 
         monkeypatch.setattr("sync.knovas_uploader.requests.request", request)
         return SemantixUploader().probe_doc_fields(), calls
 
     @pytest.mark.parametrize("status,expected", [
-        (200, True), (400, True), (401, True), (403, True),
+        (200, True),
         (404, False),
         (500, None), (502, None), (503, None), (504, None),
         # A rate limit sits in front of any route: it says nothing about fields.
         (429, None),
+        # Nor does a refusal that names no code from behind the tenant gate.
+        (400, None), (401, None), (403, None),
     ])
     def test_the_status_decides(self, env, monkeypatch, status, expected):
         answer, calls = self._probe(monkeypatch, status)
@@ -341,6 +346,39 @@ class TestCapabilityProbe:
         method, path, body, cert, verify = calls[0]
         assert (method, path, body) == ("GET", PROBE, None)
         assert cert and verify, "the tenant mTLS of every other call"
+
+    @pytest.mark.parametrize("status,body,expected", [
+        # Behind the gate: a BROKERED tenant's missing principal assertion.
+        # The route exists, so fields are on.
+        (401, {"status": "error", "error": "principal assertion rejected",
+               "error_code": "assertion_rejected"}, True),
+        (403, {"status": "error", "error_code": "assertion_rejected"}, True),
+        # In front of it (Knovas 1.5.0), so a tenant whose fields are off gets
+        # them too: the certificate check -- also its fail-closed answer when
+        # its own lookup fails --, the signature gate of a tenant in mode
+        # "required", and the mTLS gateway's page for a refused certificate.
+        (401, {"status": "error", "error": "Client certificate not authorized",
+               "error_code": "AUTH_FAILED"}, None),
+        (401, {"error": "SIGNATURE_REQUIRED", "message": "request signature required"}, None),
+        (400, b"<html><head><title>400 The SSL certificate error</title></head></html>", None),
+        (401, b"", None),
+        (403, {"status": "error", "error_code": ["assertion_rejected"]}, None),
+        # Too deep for the JSON parser (RecursionError, not a ValueError):
+        # still just unknown -- a probe never fails a cycle.
+        (401, b"[" * 200_000 + b"]" * 200_000, None),
+    ], ids=["brokered-401", "brokered-403", "auth-failed", "signature-required",
+            "gateway-certificate-400", "empty-401", "code-not-a-string", "too-deep-to-parse"])
+    def test_only_an_answer_from_behind_the_tenant_gate_means_on(
+        self, env, monkeypatch, status, body, expected
+    ):
+        """A false "on" requeues every ``not_accepted`` document: re-sent and
+        billed while fields are off, or, while every call is refused, out of
+        the queue for good after RC_FIELDS_REUPLOAD_MAX_ATTEMPTS."""
+        resp = requests.Response()
+        resp.status_code = status
+        resp._content = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+        answer, calls = self._probe(monkeypatch, resp)
+        assert answer is expected and len(calls) == 1
 
     @pytest.mark.parametrize("exc", [requests.ConnectionError("refused"), requests.Timeout("slow"),
                                      OSError("no CA bundle")])

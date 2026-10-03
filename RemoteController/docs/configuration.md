@@ -244,9 +244,16 @@ cycle's scan reached for a re-upload, within the bound. A cycle that uploads
 nothing new gets no echo, so at the start of a cycle whose scan reaches
 `not_accepted` documents the Knovas Connector also asks Knovas, at most once
 an hour, whether it takes fields (`GET /secured/graph/doc-fields`, no body,
-one try): `404` means still off; a 5xx, a 429 or no answer means unknown
-(asked again an hour later); any other answer means on, and those documents
-are queued exactly as after an echo. `POST /sync/doc-fields/requeue` does the same on
+one try): `404` means still off. Only an answer from behind Knovas's
+per-account fields gate means on: a 2xx, or a 401/403 whose `error_code` is
+`assertion_rejected` (a BROKERED account's missing principal assertion); those
+documents are then queued exactly as after an echo. Every other answer means
+unknown and is asked again an hour later: a 5xx, a 429, no answer, and a
+refusal in front of the gate — the certificate check's `401 AUTH_FAILED`
+(also its answer when its own lookup fails), `401 SIGNATURE_REQUIRED`, the
+mTLS gateway's 400 — which an account whose fields are off gets too; read as
+on, it would re-send billed documents that Knovas still takes without their
+fields. `POST /sync/doc-fields/requeue` does the same on
 request for `not_accepted`, `refused`, `reupload_failed` or `all`
 ([operations.md](operations.md#document-fields)).
 

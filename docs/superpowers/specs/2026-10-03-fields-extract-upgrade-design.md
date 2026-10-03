@@ -376,11 +376,19 @@ personal data, per 1.5.0).
 
 **F5 Re-send without a trigger upload (Connector).** At the start of a cycle in which the state holds
 `not_accepted` rows, at most once per hour, the Connector calls `GET /secured/graph/doc-fields`
-(mTLS, its existing request helper). `404` means Document fields are off: nothing changes. Any other
-answer except `5xx` and network errors means uploads with `fields` are accepted: the `not_accepted`
-rows the scan reaches are requeued exactly like after a `staged` echo today (side queue,
-`RC_FIELDS_REUPLOAD_PER_CYCLE`, default 100). The existing echo-based trigger stays. The probe sends
-no body and logs only the status class.
+(mTLS, its existing request helper). `404` means Document fields are off: nothing changes. Only an
+answer from behind Knovas's per-account fields gate means uploads with `fields` are accepted — a
+`2xx`, or a `401`/`403` whose `error_code` is `assertion_rejected` (a BROKERED account's missing
+principal assertion): the `not_accepted` rows the scan reaches are requeued exactly like after a
+`staged` echo today (side queue, `RC_FIELDS_REUPLOAD_PER_CYCLE`, default 100). Every other answer is
+unknown and asked again an hour later: `5xx`, `429`, network errors, and the refusals Knovas 1.5.0
+gives in front of that gate, which an account whose fields are off gets too (the mTLS gateway's
+`400`, `401 AUTH_FAILED` from the certificate check — also its fail-closed answer when its own lookup
+fails —, `401 SIGNATURE_REQUIRED`). *Amended after the RCF section review:* the first version read
+every answer but `404`, `5xx` and network errors as on, so one transient `401` re-sent every
+`not_accepted` document (billed) while fields stayed off, and a certificate outage moved them to
+`reupload_failed` for good. The existing echo-based trigger stays. The probe sends no body, reads
+only a refusal's `error_code`, and logs only the answer class.
 
 **F6 `503 where_requires_calibration`.** 1.5.0 lists it as "a problem on the Knovas side. Try again
 later." The branch's `listing_only` capability state stays (search filters hidden, lists and card
