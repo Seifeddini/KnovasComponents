@@ -214,6 +214,8 @@ docker compose --env-file knovas.env run --rm remote-controller \
   python /app/scripts/backfill_partial_ocr.py
 ```
 
+Like the scan, the pass never follows a symbolic link: a partial file replaced by a link, or reached through a linked folder, is not read and counts as `missing=`, left for the prune like a removed file — the scan does not see it either.
+
 Run it outside the sync window (one document at a time, full OCR). Inspect the notes directly: `sqlite3 /var/rc-state/.rc-sync-state.db "SELECT relative_path, note_json FROM partial_documents;"`. Removing a row from `partial_documents` forgets the note without touching the fingerprint.
 
 ### OCR disk cache

@@ -111,11 +111,21 @@ def _sources(body: dict[str, Any]) -> list[tuple[Path, Any]]:
 
 def _locate(rel: str, sources: list[tuple[Path, Any]]) -> Optional[tuple[Path, Any]]:
     """The file and the spec of the FIRST source that has it: the source
-    whose fields govern a relative path, as in the sync cycle."""
+    whose fields govern a relative path, as in the sync cycle.
+
+    Like the scan, it never follows a symbolic link: not in place of the
+    file, and not in a folder on its way, so the file must resolve to its
+    own path under the resolved source root. Otherwise any file the
+    Connector can read would be uploaded under this document's identifier
+    and access groups.
+    """
     for root, spec in sources:
         candidate = root / rel
-        if candidate.is_file():
-            return candidate, spec
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        if Path(os.path.realpath(candidate)) != Path(os.path.realpath(root), rel):
+            continue
+        return candidate, spec
     return None
 
 
@@ -274,7 +284,9 @@ def main(argv: list[str] | None = None) -> int:
             located = _locate(rel, sources)
             if located is None:
                 counts["missing"] += 1
-                logger.warning("Not on the share any more (left for the prune): %s", rel)
+                logger.warning(
+                    "Not on the share any more, or behind a symbolic link (left for the prune): %s", rel
+                )
                 continue
             path, spec = located
             env = _env_for(note, args)
