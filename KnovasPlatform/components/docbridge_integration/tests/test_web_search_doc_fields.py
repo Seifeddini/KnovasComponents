@@ -670,7 +670,32 @@ class TestNotices:
         body = search(client).get_json()
         assert body["notices"] == [{"kind": kind, "names": ["Muster AG"], "hidden_count": 1}]
         assert "hidden-node" not in json.dumps(body), "node ids never reach the browser"
-        assert api.graph_nodes_calls == [{"node_type_id": None, "q": None}]
+        assert api.graph_node_name_calls == ["m1", "hidden-node"]
+        assert api.graph_nodes_calls == [], "never the whole node list"
+
+    def test_a_graph_that_does_not_answer_does_not_hold_the_search_up(
+            self, filters_app, identity_repo, monkeypatch):
+        """The names are optional: a read that times out leaves the notice
+        counting, the search answers, and the next search does not wait for
+        the graph again."""
+        import requests
+
+        app, api = filters_app
+        api.auto_scope = {"applied": True, "fallback": False, "node_ids": ["m1", "m2"]}
+        tried = []
+
+        def timing_out(node_id, timeout):
+            tried.append(timeout)
+            raise requests.exceptions.ReadTimeout("read timed out")
+
+        monkeypatch.setattr(api, "graph_node_name", timing_out)
+        client = signed_in(app, identity_repo, role="member")
+        for _ in range(2):
+            response = search(client)
+            assert response.status_code == 200 and len(response.get_json()["results"]) == 3
+            assert response.get_json()["notices"] == [
+                {"kind": "auto_scope_applied", "names": [], "hidden_count": 2}]
+        assert len(tried) == 1 and tried[0] <= 2
 
     def test_at_most_five_names(self, filters_app, identity_repo):
         app, api = filters_app

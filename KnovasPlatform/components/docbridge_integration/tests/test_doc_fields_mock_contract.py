@@ -315,7 +315,8 @@ class TestRoutesOnTheMock:
     def test_auto_scope_is_named_through_the_person_s_graph(self, platform_db, tmp_path,
                                                             monkeypatch, identity_repo):
         """F3 end to end: the mock recognises "Muster AG"; the Platform names
-        it from GET /secured/graph/nodes as the person, without q."""
+        it from GET /secured/graph/nodes/<id> as the person -- that one node,
+        not the node list, and nothing in the query string."""
         app, state = _app_on_mock(platform_db, tmp_path, monkeypatch, "filters",
                                   auto_scope="applied")
         state.add_document("rc-sync/Muster AG/Vertrag_1.pdf", title="Vertrag Muster AG",
@@ -326,8 +327,11 @@ class TestRoutesOnTheMock:
         assert [r["doc_id"] for r in body["results"]] == ["rc-sync/Muster AG/Vertrag_1.pdf"]
         assert body["notices"] == [{"kind": "auto_scope_applied", "names": ["Muster AG"],
                                     "hidden_count": 0}]
-        reads = [r for r in state.requests if r["path"] == "/secured/graph/nodes"]
-        assert len(reads) == 1 and reads[0]["query"] == {}, "never with the typed text"
+        muster = next(n["id"] for n in state.nodes.values() if n["name"] == "Muster AG")
+        reads = [r for r in state.requests if r["path"].startswith("/secured/graph/nodes")]
+        assert [(r["method"], r["path"]) for r in reads] == [
+            ("GET", f"/secured/graph/nodes/{muster}")]
+        assert reads[0]["query"] == {}, "never with the typed text"
 
     def test_unreadable_values_are_said(self, platform_db, tmp_path, monkeypatch,
                                         identity_repo):

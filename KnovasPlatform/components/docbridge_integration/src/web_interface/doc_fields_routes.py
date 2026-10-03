@@ -379,8 +379,10 @@ def search_notices(client: Any, plan: SearchPlan, meta: Any,
     - ``degraded_to_bm25``: ``meta.degraded_to_bm25`` is true.
     - ``auto_scope_applied`` / ``auto_scope_fallback``: Knovas narrowed the
       search by a name it recognised. Names are read through the knowledge-
-      graph client as this person (``node_names_for``): a node they may not
-      see is counted, never named; node ids never reach the browser.
+      graph client as this person, node by node (``node_names_for``): a node
+      they may not see is counted, never named; so is one the graph does not
+      answer for in time -- the names never hold the answer up. Node ids
+      never reach the browser.
 
     Never raises; logs kinds and counts only.
     """

@@ -43,7 +43,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-from doc_fields_view import registry_targets, sanitize_registry
+from doc_fields_view import NOTICE_NAMES_MAX, registry_targets, sanitize_registry
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,16 @@ DEFAULT_REGISTRY_CACHE = 300
 DEFAULT_FIND_PAGE_SIZE = 50
 FIND_PAGE_SIZE_MAX = 200  # DOC_FIELDS_FIND_MAX_LIMIT on the server
 ENTITY_NAMES_MAX = 5000
+#: Auto-scope notice names (spec F3): at most this many node reads per
+#: notice -- one more than the names it shows, so one node the person may
+#: not see does not cost a visible one its name; every other node is counted.
+NODE_NAME_READS_MAX = NOTICE_NAMES_MAX + 1
+#: Each node read's timeout, and the time after which no further read
+#: starts: the names are optional and must not hold a search up.
+NODE_NAME_TIMEOUT = 2.0
+#: Remembered (person, node) answers; past this, expired ones are dropped,
+#: then all of them.
+NODE_NAMES_KEPT_MAX = 10000
 KNOWN_ROLES = frozenset({"admin", "approver", "ingestion_manager", "member"})
 _OFF_WORDS = frozenset({"off", "false", "0", "no", "disabled"})
 _WARNED_ROLES: set = set()
@@ -405,7 +415,11 @@ _now: Callable[[], float] = time.monotonic
 _CACHE_LOCK = threading.Lock()
 _REGISTRY: Dict[str, _RegistryEntry] = {}
 _NAMES: Dict[Tuple[str, str], Tuple[float, Optional[Tuple[str, ...]]]] = {}
-_NODE_NAMES: Dict[str, Tuple[float, Optional[Dict[str, str]]]] = {}
+#: (person, node id) -> (expires_at, name; None for a node Knovas does not
+#: show them).
+_NODE_NAMES: Dict[Tuple[str, str], Tuple[float, Optional[str]]] = {}
+#: person -> until when their node reads are skipped after one failed.
+_NODE_NAMES_DOWN: Dict[str, float] = {}
 
 
 def _user(user_key: Any) -> str:
@@ -500,48 +514,73 @@ def entity_names_for(client: Any, user_key: Any, field: Any) -> Optional[List[st
     return list(names) if names is not None else None
 
 
+def _keep_node_name(key: Tuple[str, str], expires_at: float, name: Optional[str]) -> None:
+    """Remember one node answer (call with ``_CACHE_LOCK`` held), within
+    ``NODE_NAMES_KEPT_MAX`` entries."""
+    if len(_NODE_NAMES) >= NODE_NAMES_KEPT_MAX:
+        now = _now()
+        for stale in [k for k, (until, _) in _NODE_NAMES.items() if until <= now]:
+            del _NODE_NAMES[stale]
+        if len(_NODE_NAMES) >= NODE_NAMES_KEPT_MAX:
+            _NODE_NAMES.clear()
+    _NODE_NAMES[key] = (expires_at, name)
+
+
 def node_names_for(client: Any, user_key: Any,
                    node_ids: Iterable[Any]) -> Tuple[List[str], int]:
     """``(names, hidden_count)`` for knowledge-graph node ids, as this
     person may see them (spec F3, auto scope).
 
-    The names come from one node list read as this person
-    (``graph_nodes()`` without ``q`` or a type, cached per person for
-    ``registry_cache_seconds``): a node Knovas does not list for them is not
-    named, only counted -- and so is every node when the list cannot be read
-    (not cached) or holds more than 5000 nodes. Names keep the order of
-    ``node_ids``, each once. Never raises; logs exception class names only.
+    Each node is read on its own as this person (``graph_node_name``: one
+    ``GET /secured/graph/nodes/<id>``; never the node list, never ``q``), in
+    the order of ``node_ids``, until five are named. A node Knovas does not
+    show them (404) is counted, never named -- and so is every node left
+    unread: after ``NODE_NAME_READS_MAX`` reads, once ``NODE_NAME_TIMEOUT``
+    seconds have passed, or after a failed read. Answers are cached per
+    (person, node) for ``registry_cache_seconds``. A failed read (timeout,
+    refusal) is not retried, and for ``unknown_ttl`` this person's notices
+    count without reading: the names never hold a search up for long.
+    Names keep the order of ``node_ids``, each once. Never raises; logs
+    exception class names only.
     """
     wanted = list(dict.fromkeys(str(i) for i in node_ids or () if i))
     if not wanted:
         return [], 0
-    who, now = _user(user_key), _now()
+    who, start = _user(user_key), _now()
     with _CACHE_LOCK:
-        cached = _NODE_NAMES.get(who)
-    if cached is not None and now < cached[0]:
-        by_id = cached[1]
-    else:
-        try:
-            nodes = client.graph_nodes()
-        except Exception as exc:  # noqa: BLE001 - names are optional
-            logger.warning("Node names unavailable: %s", type(exc).__name__)
-            return [], len(wanted)
-        by_id = None
-        if len(nodes or ()) <= ENTITY_NAMES_MAX:
-            by_id = {str(n["id"]): n["name"].strip() for n in nodes or ()
-                     if isinstance(n, dict) and n.get("id") and isinstance(n.get("name"), str)
-                     and n["name"].strip()}
-        ttl = settings(getattr(client, "config", None)).registry_cache_seconds
-        with _CACHE_LOCK:
-            _NODE_NAMES[who] = (now + ttl, by_id)
-    if by_id is None:
-        return [], len(wanted)
+        down = start < _NODE_NAMES_DOWN.get(who, 0.0)
+    cfg: Optional[DocFieldsSettings] = None
     names: List[str] = []
+    named = reads = 0
     for node_id in wanted:
-        name = by_id.get(node_id)
-        if name and name not in names:
-            names.append(name)
-    return names, sum(1 for node_id in wanted if not by_id.get(node_id))
+        if len(names) >= NOTICE_NAMES_MAX:
+            break
+        now = _now()
+        with _CACHE_LOCK:
+            cached = _NODE_NAMES.get((who, node_id))
+        if cached is not None and now < cached[0]:
+            name = cached[1]
+        elif down or reads >= NODE_NAME_READS_MAX or now - start >= NODE_NAME_TIMEOUT:
+            continue
+        else:
+            reads += 1
+            cfg = cfg or settings(getattr(client, "config", None))
+            try:
+                name = client.graph_node_name(node_id, timeout=NODE_NAME_TIMEOUT)
+            except Exception as exc:  # noqa: BLE001 - names are optional
+                logger.warning("Node names unavailable: %s", type(exc).__name__)
+                down = True
+                with _CACHE_LOCK:
+                    _NODE_NAMES_DOWN[who] = _now() + cfg.unknown_ttl
+                continue
+            name = name.strip() if isinstance(name, str) and name.strip() else None
+            with _CACHE_LOCK:
+                _keep_node_name((who, node_id), _now() + cfg.registry_cache_seconds, name)
+        if name:
+            named += 1
+            if name not in names:
+                names.append(name)
+    return names, len(wanted) - named
 
 
 def invalidate(user_key: Any = None) -> None:
@@ -553,12 +592,14 @@ def invalidate(user_key: Any = None) -> None:
             _REGISTRY.clear()
             _NAMES.clear()
             _NODE_NAMES.clear()
+            _NODE_NAMES_DOWN.clear()
             return
         who = _user(user_key)
         _REGISTRY.pop(who, None)
-        _NODE_NAMES.pop(who, None)
-        for key in [k for k in _NAMES if k[0] == who]:
-            _NAMES.pop(key, None)
+        _NODE_NAMES_DOWN.pop(who, None)
+        for cache in (_NAMES, _NODE_NAMES):
+            for key in [k for k in cache if k[0] == who]:
+                cache.pop(key, None)
 
 
 def reset_for_tests() -> None:

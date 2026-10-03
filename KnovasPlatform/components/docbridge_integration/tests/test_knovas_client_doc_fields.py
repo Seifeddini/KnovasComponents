@@ -557,6 +557,80 @@ class TestGraphErrorReadsError:
         assert (err.status, err.error_code, err.message, err.details) == (500, None, "boom", {})
 
 
+class TestGraphNodeName:
+    """F3: one node's name as the signed-in person sees it, for the notice
+    above the results -- one GET with the caller's short timeout, never
+    retried, and no log line when Knovas does not show the node (its 404)."""
+
+    def test_one_get_as_the_person_with_the_given_timeout(self, caplog):
+        client = secured(Resp(200, {"status": "success", "message": "Node detail",
+                                    "node": {"id": "n-1", "name": " Muster AG "},
+                                    "assignments": [{"pointer": SENTINEL_POINTER}],
+                                    "sections": [], "facts": []}))
+        with caplog.at_level(logging.DEBUG):
+            assert client.graph_node_name("n-1", timeout=2.0) == "Muster AG"
+        (call,) = _calls(client)
+        assert call["method"] == "GET"
+        assert call["url"] == "https://knovas.test/secured/graph/nodes/n-1"
+        assert call["timeout"] == 2.0
+        assert call["json"] == {ASSERTION_FIELD: ASSERTION}
+        assert not call.get("params"), "nothing in the query string"
+        assert SENTINEL_POINTER not in caplog.text and "Muster AG" not in caplog.text
+
+    def test_the_id_is_quoted_into_the_path(self):
+        client = secured(Resp(404, {"error_code": "NOT_FOUND"}))
+        client.graph_node_name("a/b?c", timeout=2.0)
+        assert _calls(client)[0]["url"] == "https://knovas.test/secured/graph/nodes/a%2Fb%3Fc"
+
+    @pytest.mark.parametrize("resp", [
+        Resp(404, {"status": "error", "error": "Node not found", "error_code": "NOT_FOUND"}),
+        Resp(404, {"error_code": "knowledge_graph_disabled"}),
+        Resp(404, None, text="<html>nginx</html>"),
+        Resp(200, {"status": "success", "node": {"id": "n-1", "name": "  "}}),
+        Resp(200, {"status": "success", "node": None}),
+        Resp(200, None, text="<html>proxy</html>"),
+    ])
+    def test_no_name_quietly(self, resp, caplog):
+        client = secured(resp)
+        with caplog.at_level(logging.DEBUG):
+            assert client.graph_node_name("n-1", timeout=2.0) is None
+        assert len(_calls(client)) == 1
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    @pytest.mark.parametrize("error", [requests.exceptions.ReadTimeout("slow"),
+                                       requests.exceptions.ConnectionError("down")])
+    def test_a_network_failure_raises_after_one_attempt(self, error):
+        client = secured(error)
+        with pytest.raises(type(error)):
+            client.graph_node_name("n-1", timeout=2.0)
+        assert len(_calls(client)) == 1
+
+    @pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+    def test_a_refusal_raises_graph_error_after_one_attempt(self, status):
+        client = secured(Resp(status, {"error_code": "assertion_rejected"}))
+        with pytest.raises(GraphError) as caught:
+            client.graph_node_name("n-1", timeout=2.0)
+        assert caught.value.status == status
+        assert len(_calls(client)) == 1
+
+    def test_nobody_signed_in_sends_nothing(self):
+        client = make_secured_client()
+        client._session = FakeSession(lambda *a, **k: pytest.fail("sent"))
+        client.attach_principal_broker(Broker(user=False))
+        with pytest.raises(PermissionError):
+            client.graph_node_name("n-1", timeout=2.0)
+
+
+def test_the_fake_names_nodes_with_the_real_client_s_signature():
+    from doc_fields_fakes import FakeDocFieldsApi
+
+    def shape(fn):
+        params = list(inspect.signature(fn).parameters.values())[1:]
+        return [(p.name, p.kind, p.default) for p in params]
+
+    assert shape(FakeDocFieldsApi.graph_node_name) == shape(KnovasAPIClient.graph_node_name)
+
+
 def test_entity_suggestions_never_send_the_typed_text():
     """D10: the node list is fetched by type, without q; what the person
     types is matched inside the Platform and never reaches a URL."""

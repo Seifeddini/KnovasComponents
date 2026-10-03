@@ -434,49 +434,131 @@ class TestEntityNamesFor:
 
 
 class TestNodeNamesFor:
-    """F3: the names of auto-scope nodes, read as the person (one node list,
-    never with q); a node Knovas does not list for them is only counted."""
+    """F3: the names of auto-scope nodes, each read on its own as the person
+    (``graph_node_name``: GET /secured/graph/nodes/<id>), never the whole
+    node list and never with q; a node Knovas does not show them (404) is
+    only counted. The reads are optional: few, short, never retried, and a
+    failed one is remembered briefly, so a notice cannot hold a search up."""
 
-    def test_names_in_order_hidden_counted_never_q(self):
+    def test_names_in_order_hidden_counted_one_read_per_id(self):
         client = FakeDocFieldsApi("filters")
         names, hidden = cap.node_names_for(client, "alice", ["m2", "gone", "m1", "m2"])
         assert names == ["Beispiel GmbH", "Muster AG"] and hidden == 1
-        assert client.graph_nodes_calls == [{"node_type_id": None, "q": None}]
+        assert client.graph_node_name_calls == ["m2", "gone", "m1"]
+        assert client.graph_nodes_calls == [], "never the whole node list"
 
-    def test_cached_per_user(self):
+    def test_a_big_graph_still_names_what_the_person_may_see(self):
+        """Above 5000 nodes the person's own node is named all the same:
+        nothing reads the node list, whatever its size."""
         client = FakeDocFieldsApi("filters")
-        cap.node_names_for(client, "alice", ["m1"])
-        cap.node_names_for(client, "alice", ["m2"])
-        assert len(client.graph_nodes_calls) == 1
-        cap.node_names_for(client, "bob", ["m1"])
-        assert len(client.graph_nodes_calls) == 2
-        cap.invalidate("alice")
-        cap.node_names_for(client, "alice", ["m1"])
-        assert len(client.graph_nodes_calls) == 3
-
-    def test_a_failure_names_nobody_and_is_not_cached(self):
-        client = FakeDocFieldsApi("filters")
-        original = client.graph_nodes
-
-        def broken(**kw):
-            raise RuntimeError("graph down")
-
-        client.graph_nodes = broken
-        assert cap.node_names_for(client, "alice", ["m1", "m2"]) == ([], 2)
-        client.graph_nodes = original
-        assert cap.node_names_for(client, "alice", ["m1"]) == (["Muster AG"], 0)
-
-    def test_more_than_5000_nodes_names_nobody(self):
-        client = FakeDocFieldsApi("filters")
-        for i in range(5001):
+        for i in range(6000):
             client.nodes[f"x{i}"] = {"id": f"x{i}", "name": f"Firma {i}",
                                      "node_type_id": "t-mandant"}
-        assert cap.node_names_for(client, "alice", ["m1"]) == ([], 1)
+        assert cap.node_names_for(client, "alice", ["m1", "hidden"]) == (["Muster AG"], 1)
+        assert client.graph_node_name_calls == ["m1", "hidden"]
+        assert client.graph_nodes_calls == []
+
+    def test_cached_per_person_and_node_a_404_too(self):
+        client = FakeDocFieldsApi("filters")
+        cap.node_names_for(client, "alice", ["m1", "gone"])
+        assert cap.node_names_for(client, "alice", ["gone", "m1"]) == (["Muster AG"], 1)
+        assert client.graph_node_name_calls == ["m1", "gone"]
+        cap.node_names_for(client, "alice", ["m2"])
+        cap.node_names_for(client, "bob", ["m1"])
+        assert client.graph_node_name_calls == ["m1", "gone", "m2", "m1"]
+        cap.invalidate("alice")
+        cap.node_names_for(client, "alice", ["m1"])
+        assert client.graph_node_name_calls == ["m1", "gone", "m2", "m1", "m1"]
+
+    def test_the_cache_expires(self, monkeypatch):
+        now = [0.0]
+        monkeypatch.setattr(cap, "_now", lambda: now[0])
+        client = FakeDocFieldsApi(StubConfig({"web.doc_fields.registry_cache_seconds": 10}),
+                                  "filters")
+        cap.node_names_for(client, "alice", ["m1"])
+        now[0] = 9.9
+        cap.node_names_for(client, "alice", ["m1"])
+        now[0] = 10.1
+        cap.node_names_for(client, "alice", ["m1"])
+        assert client.graph_node_name_calls == ["m1", "m1"]
+
+    def test_the_reads_are_bounded(self):
+        """Knovas reports up to 200 nodes: one read more than the five names
+        a notice shows, every other node counted without a request."""
+        client = FakeDocFieldsApi("filters")
+        ids = [f"hidden-{i}" for i in range(200)]
+        assert cap.node_names_for(client, "alice", ids) == ([], 200)
+        assert len(client.graph_node_name_calls) == cap.NODE_NAME_READS_MAX == 6
+
+    def test_no_read_after_five_names(self):
+        client = FakeDocFieldsApi("filters")
+        for i in range(7):
+            client.nodes[f"x{i}"] = {"id": f"x{i}", "name": f"Firma {i}",
+                                     "node_type_id": "t-mandant"}
+        names, hidden = cap.node_names_for(client, "alice", [f"x{i}" for i in range(7)])
+        assert names == [f"Firma {i}" for i in range(5)] and hidden == 2
+        assert client.graph_node_name_calls == [f"x{i}" for i in range(5)]
+
+    def test_each_read_is_short_and_none_starts_late(self, monkeypatch):
+        """A slow graph: each read gets the short timeout, and none starts
+        once that much time has passed since the first."""
+        now = [0.0]
+        monkeypatch.setattr(cap, "_now", lambda: now[0])
+        client = FakeDocFieldsApi("filters")
+        answer = client.graph_node_name
+        timeouts = []
+
+        def slow(node_id, timeout):
+            timeouts.append(timeout)
+            now[0] += 1.5
+            return answer(node_id, timeout)
+
+        client.graph_node_name = slow
+        assert cap.node_names_for(client, "alice", ["m1", "m2", "p1"]) == (
+            ["Muster AG", "Beispiel GmbH"], 1)
+        assert timeouts == [cap.NODE_NAME_TIMEOUT] * 2
+        assert cap.NODE_NAME_TIMEOUT <= 2
+
+    def test_a_failure_counts_stops_and_is_remembered_briefly(self, monkeypatch):
+        """A graph that times out costs one search one short read -- not
+        three retried ones, and not every search: for unknown_ttl (30 s)
+        this person's notices count without asking, then names come back."""
+        import requests
+
+        now = [0.0]
+        monkeypatch.setattr(cap, "_now", lambda: now[0])
+        client = FakeDocFieldsApi("filters")
+        answer = client.graph_node_name
+        tried = []
+
+        def timing_out(node_id, timeout):
+            tried.append(node_id)
+            raise requests.exceptions.ReadTimeout("read timed out")
+
+        client.graph_node_name = timing_out
+        assert cap.node_names_for(client, "alice", ["m1", "m2"]) == ([], 2)
+        assert tried == ["m1"], "the first failure stops the other reads"
+        now[0] = 29.0
+        assert cap.node_names_for(client, "alice", ["m1", "m2"]) == ([], 2)
+        assert tried == ["m1"], "remembered for 30 s: no read at all"
+        assert cap.node_names_for(client, "bob", ["m1"]) == ([], 1)
+        assert tried == ["m1", "m1"], "per person"
+        client.graph_node_name = answer
+        now[0] = 30.5
+        assert cap.node_names_for(client, "alice", ["m1"]) == (["Muster AG"], 0)
+
+    def test_the_cache_stays_bounded(self, monkeypatch):
+        monkeypatch.setattr(cap, "NODE_NAMES_KEPT_MAX", 4)
+        client = FakeDocFieldsApi("filters")
+        for i in range(10):
+            cap.node_names_for(client, "alice", [f"n{i}"])
+            assert len(cap._NODE_NAMES) <= 4
+        assert cap.node_names_for(client, "alice", ["m1"]) == (["Muster AG"], 0)
 
     def test_nothing_is_asked_without_ids(self):
         client = FakeDocFieldsApi("filters")
         assert cap.node_names_for(client, "alice", []) == ([], 0)
-        assert client.graph_nodes_calls == []
+        assert client.graph_node_name_calls == [] and client.graph_nodes_calls == []
 
     def test_no_name_in_a_log_line(self, caplog):
         import logging
@@ -485,13 +567,13 @@ class TestNodeNamesFor:
         client = FakeDocFieldsApi("filters")
         client.nodes["s1"] = {"id": "s1", "name": sentinel, "node_type_id": "t-mandant"}
 
-        def broken(**kw):
+        def broken(node_id, timeout):
             raise RuntimeError(sentinel)
 
         with caplog.at_level(logging.DEBUG):
             assert cap.node_names_for(client, "alice", ["s1"]) == ([sentinel], 0)
             cap.invalidate()
-            client.graph_nodes = broken
+            client.graph_node_name = broken
             assert cap.node_names_for(client, "alice", ["s1"]) == ([], 1)
         assert caplog.records and sentinel not in caplog.text
 

@@ -216,6 +216,14 @@ class TestEveryMode:
         assert [n["name"] for n in body["nodes"]] == ["Beispiel GmbH", "Muster AG"]
         assert {n["node_type_id"] for n in body["nodes"]} == {types["Mandant"]}
         assert len(mock.call("GET", "/secured/graph/nodes")[1]["nodes"]) == 3
+        node = testing.mock_module().stable_id("node", "Muster AG")
+        status, body = mock.call("GET", f"/secured/graph/nodes/{node}")
+        assert status == 200
+        assert body["node"] == {"id": node, "name": "Muster AG", "description": None,
+                                "node_type_id": types["Mandant"]}
+        assert (body["assignments"], body["sections"], body["facts"]) == ([], [], [])
+        status, body = mock.call("GET", "/secured/graph/nodes/00000000-0000-4000-8000-000000000000")
+        assert (status, body["error_code"]) == (404, "NOT_FOUND")
         status, body = mock.call("GET", "/secured/access_groups")
         assert status == 200
         tree = body["groups"][0]
@@ -1019,6 +1027,13 @@ class TestBrokered:
             assert body == {"status": "error", "error": "principal assertion rejected",
                             "error_code": "assertion_rejected"}
             assert mock.init(access_groups=["g"], principal_assertion="jws")[0] == 201
+
+    def test_one_node_is_read_with_an_assertion_only(self):
+        mock = Mock(doc_fields="filters", brokered=True)
+        path = f"/secured/graph/nodes/{testing.mock_module().stable_id('node', 'Muster AG')}"
+        status, body = mock.call("GET", path)
+        assert (status, body["error_code"]) == (401, "assertion_rejected")
+        assert mock.call("GET", path, {"principal_assertion": "jws"})[0] == 200
 
     def test_entity_fields_without_an_assertion_stay_unlinked(self):
         """S1: a BROKERED upload without an assertion (RemoteController) is

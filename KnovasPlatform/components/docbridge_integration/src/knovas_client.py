@@ -1736,14 +1736,17 @@ class KnovasAPIClient:
         method: str,
         endpoint: str,
         data: Optional[Dict] = None,
+        timeout: Optional[float] = None,
     ) -> requests.Response:
         """One request, the assertion attached, and nothing else.
 
         No tenacity, no raise_for_status and no ERROR line with the body:
-        the answer is returned whatever its status. Used only by the
+        the answer is returned whatever its status. Used by the
         document-fields probe, whose expected answers are a 404 or a 400 --
         through _make_request every worker would log an ERROR per probe on a
-        server with the feature off. Transport errors still raise.
+        server with the feature off -- and by graph_node_name, whose 404 is
+        an ordinary answer too. Transport errors still raise. ``timeout``
+        replaces ``http_read_timeout`` for this one request.
         """
         # The assertion first: with nobody signed in nothing is sent, and a
         # refused call should not cost a rate-limit slot either.
@@ -1755,7 +1758,7 @@ class KnovasAPIClient:
             url=f"{self.base_url}{endpoint}",
             json=data,
             headers=self._get_headers(),
-            timeout=self.http_read_timeout,
+            timeout=self.http_read_timeout if timeout is None else timeout,
             allow_redirects=False,
         )
 
@@ -2208,6 +2211,37 @@ class KnovasAPIClient:
     def graph_node(self, node_id: str) -> Optional[Dict[str, Any]]:
         """GET /secured/graph/nodes/<id> - Detail inkl. Zuordnungen und Fakten."""
         return self._graph_request('GET', f'/nodes/{quote(str(node_id), safe="")}')
+
+    def graph_node_name(self, node_id: str, timeout: float) -> Optional[str]:
+        """The name of one node as the signed-in person sees it: one
+        ``GET /secured/graph/nodes/<id>``, for the auto-scope notice above
+        search results (spec F3).
+
+        None when Knovas answers 404 -- an unknown id, a node this person
+        may not see (the graph answers 404, never 403) or the graph switched
+        off -- or when the node has no name. The name is optional and a
+        search must not wait for it: one request with the caller's
+        ``timeout``, no retries, nothing logged (_request_quiet). Any other
+        status raises GraphError (code only), a network error or timeout
+        raises as requests raises it, and PermissionError when nobody is
+        signed in (nothing is sent then).
+        """
+        response = self._request_quiet(
+            'GET', f'/secured/graph/nodes/{quote(str(node_id), safe="")}', timeout=timeout)
+        if response.status_code == 404:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if response.status_code >= 400:
+            code = payload.get('error_code') if isinstance(payload, dict) else None
+            raise GraphError(response.status_code, code if isinstance(code, str) else None, '')
+        node = payload.get('node') if isinstance(payload, dict) else None
+        if not isinstance(node, dict):
+            node = payload if isinstance(payload, dict) else {}
+        name = node.get('name')
+        return name.strip() or None if isinstance(name, str) else None
 
     def graph_edges(self) -> List[Dict[str, Any]]:
         """GET /secured/graph/edges - typisierte Relationen."""
