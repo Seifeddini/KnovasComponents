@@ -1066,12 +1066,15 @@ def _auto_scope_echo(block: Dict[str, Any]) -> Dict[str, Any]:
     or found nothing there and searched everything (``fallback``), and the
     node ids -- the detected ones first, then the rest of the scope, each
     once. Identifier ids, channels and scores stay behind: nothing on the
-    page uses them."""
+    page uses them. ``detections`` and ``node_ids`` count only as lists: a
+    string is not one id per character, nor an object its keys."""
+    detections, node_ids = block.get("detections"), block.get("node_ids")
     ids: List[str] = []
-    for detection in block.get("detections") or ():
+    for detection in detections if isinstance(detections, list) else ():
         if isinstance(detection, dict) and isinstance(detection.get("node_id"), str):
             ids.append(detection["node_id"])
-    ids.extend(i for i in block.get("node_ids") or () if isinstance(i, str))
+    if isinstance(node_ids, list):
+        ids.extend(i for i in node_ids if isinstance(i, str))
     unique = [i for i in dict.fromkeys(ids) if i][:_AUTO_SCOPE_IDS_MAX]
     return {"applied": block.get("applied") is True, "fallback": block.get("fallback") is True,
             "node_ids": unique}

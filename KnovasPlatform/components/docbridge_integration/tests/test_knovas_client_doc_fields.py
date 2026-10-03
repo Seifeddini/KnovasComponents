@@ -258,6 +258,23 @@ class TestSearchResponse:
         assert block["node_ids"] == ids[:200]
         assert (block["applied"], block["fallback"]) == (False, True)
 
+    @pytest.mark.parametrize("block, node_ids", [
+        ({"node_ids": "0e81afe6"}, []),
+        ({"node_ids": {"n-1": 1}, "detections": "xyz"}, []),
+        ({"node_ids": 7, "detections": 5}, []),
+        ({"node_ids": ["n-1"], "detections": {"node_id": "n-2"}}, ["n-1"]),
+        ({"node_ids": None, "detections": [{"node_id": "n-2"}, "n-3"]}, ["n-2"]),
+    ])
+    def test_a_malformed_auto_scope_names_no_node(self, block, node_ids):
+        """node_ids and detections count only as lists: a string is not one
+        id per character, an object not its keys, a number not a crash --
+        the page would announce a narrowing to entries that do not exist."""
+        client = secured(Resp(200, {"status": "success", "results": [],
+                                    "auto_scope": dict(block, applied=True)}))
+        meta = client.search_documents("q", limit=5)["semantix"]
+        assert meta["auto_scope"] == {"applied": True, "fallback": False,
+                                      "node_ids": node_ids}
+
     def test_a_nested_auto_scope_is_kept(self):
         out = _unwrap_secured_query_response({"status": "success", "data": {
             "results": [], "auto_scope": {"applied": False, "fallback": True,

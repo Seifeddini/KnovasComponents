@@ -1076,11 +1076,13 @@ def auto_scope_of(meta: Any) -> Tuple[Optional[str], List[str]]:
     the question (``meta["auto_scope"]`` as knovas_client keeps it):
     ``auto_scope_applied`` when the search ran inside those nodes,
     ``auto_scope_fallback`` when that found nothing and Knovas searched
-    everything; ``(None, [])`` otherwise, or without node ids."""
+    everything; ``(None, [])`` otherwise, or without node ids (a list)."""
     block = meta.get("auto_scope") if isinstance(meta, Mapping) else None
     if not isinstance(block, Mapping):
         return None, []
-    ids = [i for i in block.get("node_ids") or () if isinstance(i, str) and i]
+    node_ids = block.get("node_ids")
+    ids = ([i for i in node_ids if isinstance(i, str) and i]
+           if isinstance(node_ids, list) else [])
     if not ids:
         return None, []
     if block.get("fallback") is True:
