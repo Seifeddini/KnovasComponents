@@ -1084,3 +1084,19 @@ def test_the_child_reports_a_refused_setting_as_configuration_not_corrupt(tmp_pa
     while not out.empty():
         messages.append(out.get_nowait())
     assert messages[-1] == ("conversion", "extraction configuration invalid: RC_TESSERACT_LANG"), messages
+
+
+def test_an_engine_name_never_reaches_a_backend_slot(monkeypatch):
+    """``OcrOptions.backend`` takes an injected IOcrBackend object. The alias
+    engine -> backend would have passed the engine NAME there if a library
+    dropped ``engine`` (spec E7)."""
+    from sync import document_text
+
+    class OnlyBackend:
+        def __init__(self, backend=None, language="deu+eng", cache=None):
+            self.backend, self.language, self.cache = backend, language, cache
+
+    monkeypatch.setattr(document_text, "OcrOptions", OnlyBackend)
+    built = document_text.build_ocr_options({"engine": "cli", "language": "deu", "cache": "c"})
+    assert built.backend is None
+    assert (built.language, built.cache) == ("deu", "c")

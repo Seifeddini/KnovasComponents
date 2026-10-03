@@ -21,8 +21,8 @@ conservative ones of an interactive request on a host shared with the search
 UI. Markdown is never requested (`emit_markdown=False`) — it cost ~8 s per
 document and parked mixed PDFs and large-table DOCX as "markdown expansion
 ratio". Keywords the installed `knovas-extract` does not take (`text_mode=`,
-`ocr=`, the `Limits` OCR fields) are withheld, so the same image runs against
-0.3 (today) and 0.4.
+`ocr=`, the `Limits` OCR fields) are withheld, so the same source still runs
+against an older release; the image and CI install 0.4.0a1.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|

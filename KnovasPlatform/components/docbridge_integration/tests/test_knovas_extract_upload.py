@@ -637,3 +637,17 @@ def test_ocr_page_timeout_and_page_cap_must_be_positive(monkeypatch, caplog):
     assert opts["page_timeout_seconds"] == 30 and opts["max_ocr_pages"] == 50
     names = " ".join(r.getMessage() for r in caplog.records)
     assert "RC_OCR_PAGE_TIMEOUT_SECONDS" in names and "RC_OCR_MAX_PAGES" in names
+
+
+def test_an_engine_name_never_reaches_a_backend_slot(monkeypatch):
+    """Spec E7: ``backend`` takes an object; an engine name must never land
+    there, it is simply not sent to a class without ``engine``."""
+
+    class OnlyBackend:
+        def __init__(self, backend=None, language="deu+eng", cache=None):
+            self.backend, self.language, self.cache = backend, language, cache
+
+    monkeypatch.setattr(m, "OcrOptions", OnlyBackend)
+    options, leftovers = m.build_ocr_options({"engine": "cli", "language": "deu", "cache": None})
+    assert options.backend is None
+    assert leftovers == {"engine": "cli"}

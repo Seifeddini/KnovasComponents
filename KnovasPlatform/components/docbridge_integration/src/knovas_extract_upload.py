@@ -259,7 +259,7 @@ def tesseract_language(default: str = DEFAULT_TESSERACT_LANG) -> str:
 
 
 def pdf_text_mode() -> str:
-    """``RC_PDF_TEXT_MODE``: plain (default) | shadow | layout."""
+    """``RC_PDF_TEXT_MODE``: layout (default) | plain | shadow."""
     raw = (os.environ.get("RC_PDF_TEXT_MODE") or "").strip().lower()
     if not raw:
         return DEFAULT_PDF_TEXT_MODE
@@ -352,7 +352,8 @@ def ocr_options_kwargs(timeout_seconds: Optional[int] = None, language: str = DE
 #: plan uses (§3 budgets, §6 ``OcrOptions(workers=1, max_ocr_pages=50, …)``)
 #: plus the obvious variants, so a renamed field lands instead of raising.
 _OCR_OPTION_ALIASES: dict[str, tuple[str, ...]] = {
-    "engine": ("engine", "backend"),
+    # Not "backend": that slot takes an injected IOcrBackend object.
+    "engine": ("engine",),
     "dpi": ("dpi", "render_dpi", "max_dpi"),
     "workers": ("workers", "max_workers", "max_ocr_workers"),
     "max_ocr_pages": ("max_ocr_pages", "max_pages"),

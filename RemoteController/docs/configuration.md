@@ -283,7 +283,7 @@ Scanned PDF pages without a text layer are OCR'd when `RC_PDF_OCR_ENABLED` is tr
 
 ### Extraction, OCR and page markers
 
-All read from the environment by `src/sync/document_text.py`, `knovas_uploader.py`, `sync_executor.py` and `ocr_cache.py` (not by `config.py`). Keywords the installed `knovas-extract` does not take are withheld, so the same image runs against 0.3 (today) and 0.4 (`text_mode=`, `ocr=`).
+All read from the environment by `src/sync/document_text.py`, `knovas_uploader.py`, `sync_executor.py` and `ocr_cache.py` (not by `config.py`). Keywords the installed `knovas-extract` does not take (`text_mode=`, `ocr=`, the `Limits` OCR fields) are withheld (`extract_accepts`), so the same source still runs against an older release; the image and CI install 0.4.0a1.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|

@@ -418,7 +418,7 @@ def tesseract_language() -> str:
 
 
 def pdf_text_mode() -> str:
-    """`RC_PDF_TEXT_MODE`: plain (default) | shadow | layout."""
+    """`RC_PDF_TEXT_MODE`: layout (default) | plain | shadow."""
     raw = (os.environ.get("RC_PDF_TEXT_MODE") or "").strip().lower()
     if not raw:
         return DEFAULT_PDF_TEXT_MODE
@@ -532,7 +532,9 @@ def ocr_options_kwargs(timeout_seconds: Optional[int] = None) -> dict[str, Any]:
 #: plan uses (§3 budgets, §6 `OcrOptions(workers=1, max_ocr_pages=50, …)`)
 #: plus the obvious variants, so a renamed field lands instead of raising.
 _OCR_OPTION_ALIASES: dict[str, tuple[str, ...]] = {
-    "engine": ("engine", "backend"),
+    # Not "backend": that slot takes an injected IOcrBackend object, and an
+    # engine name there would be a type error at the first scanned page.
+    "engine": ("engine",),
     "dpi": ("dpi", "render_dpi", "max_dpi"),
     "workers": ("workers", "max_workers", "max_ocr_workers"),
     "max_ocr_pages": ("max_ocr_pages", "max_pages"),
@@ -1010,10 +1012,13 @@ def extract_document(
 ) -> ExtractedDocument:
     """Extract text + sentence citations from a local file.
 
-    Returns an `ExtractedDocument`. Raises `ConversionError` on any recoverable
-    per-file failure (unsupported format, corrupt bytes, encrypted, resource
-    cap exceeded, empty output). Lets `DependencyMissingError` bubble — that
-    is a deploy misconfiguration, not a per-file issue.
+    Returns an `ExtractedDocument`. Raises `ConversionError` on any per-file
+    failure (unsupported format, corrupt bytes, encrypted, resource cap
+    exceeded, empty output) and also for a `DependencyMissingError`: a
+    missing extra is a deploy misconfiguration, and its message ("missing
+    optional dependency …") is not one `is_unconvertible_error` matches, so
+    the file stays retryable (counted toward `RC_EXTRACT_MAX_RETRIES`) and is
+    never parked as unconvertible.
 
     `document_key` names the document for the OCR cache (the sync-relative
     path; defaults to the file path). `timeout_seconds` is the wall-clock
