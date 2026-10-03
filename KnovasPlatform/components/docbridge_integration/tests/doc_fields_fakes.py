@@ -651,6 +651,8 @@ class FakeDocFieldsApi(FakeGraphApi):
             present.sort(key=lambda d: str(self._effective(d)[key]),
                          reverse=sort.get("order") == "desc")
             docs = present + missing
+        elif sort and sort.get("order") == "desc":
+            docs.reverse()  # the pointer, descending
         offset = int(str(after)[1:]) if after else 0
         size = max(1, min(200, int(limit)))
         page = docs[offset:offset + size]

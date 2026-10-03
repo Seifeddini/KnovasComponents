@@ -415,7 +415,8 @@ class DocFieldsUI {
             && (f.datatype === 'date' || f.datatype === 'period'));
         const select = document.createElement('select');
         select.id = 'dfSort';
-        select.appendChild(this._option('pointer:asc', 'Dokumentpfad'));
+        select.appendChild(this._option('pointer:asc', 'Dokumentpfad aufsteigend'));
+        select.appendChild(this._option('pointer:desc', 'Dokumentpfad absteigend'));
         dated.forEach((f) => {
             const label = String(f.label || f.key);
             select.appendChild(this._option(`${f.key}:desc`, `${label}, neueste zuerst`));

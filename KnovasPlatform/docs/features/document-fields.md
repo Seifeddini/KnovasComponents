@@ -100,7 +100,8 @@ value builder runs under Node in tests/test_frontend_static.py):
   marked *besonders schützenswert* get no suggestions.
 - **Liste anzeigen** (states with listing): without a question, the chosen
   fields list every matching document visible to the person, sorted by a date
-  field or the path, page by page.
+  field (newest or oldest first) or by the path (ascending or descending),
+  page by page.
 - **Cards** show the values of fields marked *auf Trefferkarten zeigen*, except
   *besonders schützenswert* fields. A real title from the values (at most 100
   characters and not just the file name) replaces the file name; an entity the

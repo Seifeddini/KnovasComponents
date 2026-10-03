@@ -352,3 +352,15 @@ def test_the_rail_controls_use_the_one_builder():
     assert "_labelled" not in source
     suggestions = _code(_method_body(source, "_suggestions"))
     assert "this.suggest(field.key, last)" in suggestions
+
+
+def test_the_listing_sorts_by_path_both_ways():
+    body = _code(_method_body(_source(DOC_FIELDS_JS), "_renderSort"))
+    assert "this._option('pointer:asc', 'Dokumentpfad aufsteigend')" in body
+    assert "this._option('pointer:desc', 'Dokumentpfad absteigend')" in body
+
+
+@needs_node
+def test_collect_sort_reads_pointer_descending():
+    result = _rail("out(__DF.prototype.collectSort.call({ _sortControl: { value: 'pointer:desc' } }));")
+    assert result == {"field": "pointer", "order": "desc"}

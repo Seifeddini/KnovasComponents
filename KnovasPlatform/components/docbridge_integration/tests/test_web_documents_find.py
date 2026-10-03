@@ -159,6 +159,19 @@ class TestThePage:
         assert body["document_fields"]["fields_unavailable"] is True
 
 
+class TestPointerSort:
+    def test_the_path_descending(self, listing, identity_repo):
+        """F3: "Dokumentpfad absteigend" goes to Knovas as written."""
+        app, api = listing
+        client = signed_in(app, identity_repo, role="member")
+        body = find(client, {"doc_type": ["invoice", "contract", "memo"]},
+                    sort={"field": "pointer", "order": "desc"}).get_json()
+        assert _finds(api)[-1]["sort"] == {"field": "pointer", "order": "desc"}
+        assert [d["doc_id"] for d in body["documents"]] == sorted(
+            [INVOICE, CONTRACT, MEMO], reverse=True)
+        assert "deadline_banner" not in body
+
+
 class TestPagingAndTheNotice:
     """H5: the notice only when next_after is None and complete is False."""
 
