@@ -4,10 +4,14 @@ Spec 2.2: the probe classification, the TTLs, the four signals and the
 needs_calibration hold that a probe must not lift; D1/D13: nothing turns the
 feature on, and legacy mode is off without a request. Registry, entity
 names and node names (F3) are cached per user and never fetched with ``q``
-(D10).
+(D10). A registry read Knovas does not answer is remembered per user, and
+the last registry is used meanwhile.
 """
 
 from __future__ import annotations
+
+import threading
+import time
 
 import pytest
 
@@ -334,9 +338,11 @@ class TestRegistryFor:
         cap.registry_for(client, "bob")
         assert [c for c, _ in client.doc_calls].count("doc_fields") == 4
 
-    def test_a_failure_is_raised_and_not_cached(self):
+    def test_a_refusal_is_raised_and_not_cached(self):
+        """An answer is raised and the next call asks again; a read Knovas
+        does not answer is remembered instead (TestRegistryOutage)."""
         client = FakeDocFieldsApi("values")
-        client.fail_call("doc_fields", 503, "doc_fields_unavailable")
+        client.fail_call("doc_fields", 403, "assertion_rejected")
         with pytest.raises(DocFieldsError):
             cap.registry_for(client, "alice")
         assert cap.registry_for(client, "alice")
@@ -369,12 +375,246 @@ class TestRegistryTargetsFor:
         cap.registry_targets_for(client, "bob")
         assert [c for c, _ in client.doc_calls].count("doc_fields") == 2
 
-    def test_a_failure_is_raised_and_not_cached(self):
+    def test_a_refusal_is_raised_and_not_cached(self):
         client = FakeDocFieldsApi("values")
-        client.fail_call("doc_fields", 503, "doc_fields_unavailable")
+        client.fail_call("doc_fields", 403, "assertion_rejected")
         with pytest.raises(DocFieldsError):
             cap.registry_targets_for(client, "alice")
         assert cap.registry_targets_for(client, "alice")
+
+
+def _reads(client):
+    """How often the fake was asked for the registry."""
+    return [c for c, _ in client.doc_calls].count("doc_fields")
+
+
+def _unanswered(message="ReadTimeout"):
+    """What KnovasAPIClient.doc_fields raises when Knovas does not answer
+    at all (a timeout or no connection), after the client's retries."""
+    return DocFieldsError(503, "transport_error", message)
+
+
+class TestRegistryOutage:
+    """GET /secured/graph/doc-fields hangs or fails while search works.
+    Each read costs the client's whole retry cycle (three tries, each with
+    the 120 s read timeout), so a read Knovas does not answer -- no
+    connection, a timeout, a 5xx, a 429 -- is remembered per person for
+    unknown_ttl (30 s): until then their registry is not read again, the
+    last one read is used (on the failing call too), and without one the
+    error is raised as before. One read per person at a time. An answer --
+    the feature off, a refusal -- is raised and not remembered, as before."""
+
+    @pytest.fixture
+    def now(self, monkeypatch):
+        now = [0.0]
+        monkeypatch.setattr(cap, "_now", lambda: now[0])
+        return now
+
+    @pytest.fixture
+    def client(self):
+        return FakeDocFieldsApi(StubConfig({"web.doc_fields.registry_cache_seconds": 10}),
+                                "values")
+
+    def test_a_failed_read_is_remembered_for_unknown_ttl(self, now, client):
+        client.fail_call("doc_fields", _unanswered())
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "alice")
+        now[0] = 29.0
+        for read in (cap.registry_for, cap.registry_targets_for):
+            with pytest.raises(DocFieldsError) as again:
+                read(client, "alice")
+            assert (again.value.status, again.value.error_code) == (503, "transport_error")
+        assert _reads(client) == 1, "no Knovas call while the failure is remembered"
+        assert cap.registry_for(client, "bob") and _reads(client) == 2, "per person"
+
+    def test_after_unknown_ttl_a_new_read_happens(self, now, client):
+        client.fail_call("doc_fields", _unanswered())
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "alice")
+        now[0] = 29.9
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "alice")
+        assert _reads(client) == 1
+        now[0] = 30.1
+        assert {s["key"] for s in cap.registry_for(client, "alice")} >= {"doc_type", "mandant"}
+        assert _reads(client) == 2
+        now[0] = 39.0
+        cap.registry_for(client, "alice")
+        assert _reads(client) == 2, "the new answer is cached as before"
+
+    def test_the_last_good_registry_is_served_while_knovas_fails(self, now, client):
+        good = cap.registry_for(client, "alice")
+        targets = cap.registry_targets_for(client, "alice")
+        now[0] = 11.0  # expired
+        client.fail_call("doc_fields", _unanswered())
+        assert cap.registry_for(client, "alice") == good, "on the failing call itself"
+        now[0] = 40.0  # 29 s after the failure
+        assert cap.registry_for(client, "alice") == good
+        assert cap.registry_targets_for(client, "alice") == targets
+        assert cap.entity_names_for(client, "alice", "mandant") == ["Beispiel GmbH", "Muster AG"]
+        served = cap.registry_for(client, "alice")
+        served[0]["label"] = "changed"
+        assert cap.registry_for(client, "alice") == good, "callers still get copies"
+        assert _reads(client) == 2, "Knovas is not asked while the failure is remembered"
+        now[0] = 41.5
+        cap.registry_for(client, "alice")
+        assert _reads(client) == 3
+
+    def test_a_feature_off_answer_is_not_remembered(self, now, client):
+        """DocFieldsUnavailable is Knovas's answer, not an outage: it is
+        raised (the capability cache turns the feature off from it), never
+        hidden behind the last registry, and the next call asks again --
+        unlike a read Knovas did not answer."""
+        good = cap.registry_for(client, "alice")
+        now[0] = 11.0
+        client.fail_call("doc_fields", DocFieldsUnavailable())
+        with pytest.raises(DocFieldsUnavailable):
+            cap.registry_for(client, "alice")
+        assert cap.registry_for(client, "alice") == good
+        assert _reads(client) == 3, "asked again at once"
+        now[0] = 22.0
+        client.fail_call("doc_fields", _unanswered())
+        assert cap.registry_for(client, "alice") == good
+        assert cap.registry_for(client, "alice") == good
+        assert _reads(client) == 4, "the unanswered read is remembered"
+
+    @pytest.mark.parametrize("failure", [
+        DocFieldsError(503, "doc_fields_unavailable", "x"),
+        DocFieldsError(500, None, "x"),
+        DocFieldsError(502, "invalid_response", "x"),
+        DocFieldsError(504, None, "x"),
+        DocFieldsError(429, "too_many_requests", "x"),
+    ], ids=lambda e: f"{e.status}-{e.error_code}")
+    def test_5xx_and_429_count_as_no_answer(self, now, client, failure):
+        good = cap.registry_for(client, "alice")
+        now[0] = 11.0
+        client.fail_call("doc_fields", failure)
+        assert cap.registry_for(client, "alice") == good
+        assert cap.registry_for(client, "alice") == good
+        assert _reads(client) == 2
+
+    @pytest.mark.parametrize("failure", [
+        DocFieldsError(403, "assertion_rejected", "x"),
+        DocFieldsError(401, None, "x"),
+        DocFieldsError(400, "invalid_value", "x"),
+        PermissionError("nobody signed in, nothing sent"),
+    ], ids=lambda e: str(getattr(e, "status", type(e).__name__)))
+    def test_a_refusal_is_raised_and_not_remembered(self, now, client, failure):
+        """A refusal says the person may not read the registry (now): the
+        last one is not served instead, and the next call asks again."""
+        cap.registry_for(client, "alice")
+        now[0] = 11.0
+        client.fail_call("doc_fields", failure)
+        with pytest.raises(type(failure)):
+            cap.registry_for(client, "alice")
+        cap.registry_for(client, "alice")
+        assert _reads(client) == 3
+
+    def test_invalidate_forgets_a_remembered_failure(self, now, client):
+        client.fail_call("doc_fields", _unanswered())
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "alice")
+        cap.invalidate("alice")
+        assert cap.registry_for(client, "alice") and _reads(client) == 2
+
+    def test_a_read_out_during_invalidate_does_not_refill_the_cache(self, now, client):
+        """invalidate() after a registry write: a read that was already out
+        may carry the registry from before the write. It answers its own
+        caller but is not kept; the next call reads again."""
+        read = client.doc_fields
+
+        def racing():
+            raw = read()
+            cap.invalidate("alice")
+            return raw
+
+        client.doc_fields = racing
+        assert cap.registry_for(client, "alice")
+        client.doc_fields = read
+        cap.registry_for(client, "alice")
+        assert _reads(client) == 2
+
+    @staticmethod
+    def _held(client, outcome=None):
+        """``client.doc_fields`` held until released, then answering (or
+        raising ``outcome``); returns (entered, release, calls)."""
+        entered, release, calls = threading.Event(), threading.Event(), []
+        read = client.doc_fields
+
+        def held():
+            calls.append(1)
+            entered.set()
+            release.wait(5)
+            if outcome is not None:
+                raise outcome
+            return read()
+
+        client.doc_fields = held
+        return entered, release, calls
+
+    def test_while_a_read_is_out_the_others_get_the_last_registry(self, now, client):
+        """A hung Knovas holds the one read for minutes; the person's other
+        requests meanwhile get the last registry at once, without reads of
+        their own."""
+        good = cap.registry_for(client, "alice")
+        now[0] = 11.0
+        entered, release, calls = self._held(client)
+        out = []
+        reader = threading.Thread(target=lambda: out.append(cap.registry_for(client, "alice")))
+        reader.start()
+        try:
+            assert entered.wait(5)
+            assert cap.registry_for(client, "alice") == good
+            assert cap.registry_targets_for(client, "alice")
+            assert len(calls) == 1, "no second read while one is out"
+        finally:
+            release.set()
+            reader.join(5)
+        assert out == [good] and len(calls) == 1
+
+    @pytest.mark.parametrize("outcome", [None, _unanswered()], ids=["answered", "unanswered"])
+    def test_without_a_last_registry_the_others_wait_for_the_one_read(self, now, client,
+                                                                      outcome):
+        entered, release, calls = self._held(client, outcome)
+        results = []
+
+        def ask():
+            try:
+                results.append(len(cap.registry_for(client, "alice")))
+            except DocFieldsError as exc:
+                results.append(exc.error_code)
+
+        threads = [threading.Thread(target=ask) for _ in range(3)]
+        threads[0].start()
+        try:
+            assert entered.wait(5)
+            for thread in threads[1:]:
+                thread.start()
+            time.sleep(0.2)  # the others reach the read that is out
+        finally:
+            release.set()
+            for thread in threads:
+                thread.join(5)
+        assert len(calls) == 1
+        assert len(results) == 3 and len(set(results)) == 1
+        assert results[0] == ("transport_error" if outcome else len(client.registry))
+
+    def test_no_value_in_a_log_line(self, now, client, caplog):
+        import logging
+
+        sentinel = "Sentinel-Feld-AG"
+        client.registry[0]["labels"]["de"] = sentinel
+        good = cap.registry_for(client, "alice")
+        assert any(spec["label"] == sentinel for spec in good)
+        now[0] = 11.0
+        with caplog.at_level(logging.DEBUG):
+            client.fail_call("doc_fields", _unanswered(sentinel))
+            assert cap.registry_for(client, "alice") == good
+            cap.invalidate()
+            client.fail_call("doc_fields", DocFieldsError(502, "invalid_response", sentinel))
+            with pytest.raises(DocFieldsError):
+                cap.registry_for(client, "alice")
+        assert caplog.records and sentinel not in caplog.text
 
 
 class TestEntityNamesFor:

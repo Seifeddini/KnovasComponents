@@ -28,7 +28,10 @@ One tenant per deployment, so one capability per process: ``shared_cache()``
 is a singleton (gunicorn workers each learn it on their own). The registry,
 entity-name and node-name caches are per *user*, because what Knovas returns
 depends on who asks (``target_type_hidden``, node visibility); they are never
-shared across people. ``reset_for_tests()`` clears all of it.
+shared across people. A registry read Knovas does not answer is remembered
+per user for ``unknown_ttl`` (30 s), and the last registry is used meanwhile:
+each such read costs the client's whole retry cycle, so a hung registry route
+must not cost every search one. ``reset_for_tests()`` clears all of it.
 
 Nothing here logs a value: capability names, signal names and exception
 class names only.
@@ -420,35 +423,117 @@ _NAMES: Dict[Tuple[str, str], Tuple[float, Optional[Tuple[str, ...]]]] = {}
 _NODE_NAMES: Dict[Tuple[str, str], Tuple[float, Optional[str]]] = {}
 #: person -> until when their node reads are skipped after one failed.
 _NODE_NAMES_DOWN: Dict[str, float] = {}
+#: person -> (until when, status, error_code) after Knovas did not answer
+#: their registry read: it is not read again before then.
+_REGISTRY_DOWN: Dict[str, Tuple[float, int, Optional[str]]] = {}
+#: person -> the event their one registry read in flight sets when done.
+_REGISTRY_READS: Dict[str, threading.Event] = {}
 
 
 def _user(user_key: Any) -> str:
     return "" if user_key is None else str(user_key)
 
 
+def _unanswered(exc: BaseException) -> Optional[Tuple[int, Optional[str]]]:
+    """``(status, error_code)`` when a failed registry read means Knovas did
+    not answer it: no connection or a timeout (``transport_error``, after
+    the client's retries), a 5xx or a 429. None for an answer -- the
+    feature off (DocFieldsUnavailable, which the capability cache learns
+    from), a refusal (401, 403: the person may not read it), any other 4xx
+    -- and for a call that sent nothing (PermissionError)."""
+    from knovas_client import DocFieldsError
+
+    if not isinstance(exc, DocFieldsError):
+        return None
+    status = exc.status if isinstance(exc.status, int) else 0
+    if exc.error_code == "transport_error" or status >= 500 or status == 429:
+        return status, exc.error_code
+    return None
+
+
+def _still_unanswered(status: int, code: Optional[str]) -> Exception:
+    """What a remembered unanswered read raises again: the same status and
+    code, so callers degrade as they did on the read itself."""
+    from knovas_client import DocFieldsError
+
+    return DocFieldsError(status, code, "no answer from Knovas a moment ago")
+
+
 def _registry_entry(client: Any, user_key: Any) -> _RegistryEntry:
+    """This person's registry entry, read from Knovas once it has expired.
+
+    One read per person at a time: while it is out, the others get the
+    expired entry, or wait for that read when there is none. A read Knovas
+    does not answer (``_unanswered``) costs the client's whole retry cycle,
+    so it is remembered for ``unknown_ttl``: until then this person's
+    registry is not read again, and the expired entry is served -- on the
+    failing call too -- or, without one, the error is raised. Any other
+    failure propagates and is not cached. ``client.doc_fields`` must not
+    call back in here.
+    """
     who = _user(user_key)
-    now = _now()
-    with _CACHE_LOCK:
-        entry = _REGISTRY.get(who)
-    if entry is not None and now < entry.expires_at:
+    while True:
+        now = _now()
+        with _CACHE_LOCK:
+            entry = _REGISTRY.get(who)
+            if entry is not None and now < entry.expires_at:
+                return entry
+            down = _REGISTRY_DOWN.get(who)
+            if down is not None and now >= down[0]:
+                down = None
+            reading = _REGISTRY_READS.get(who)
+            if down is None and reading is None:
+                mine = _REGISTRY_READS[who] = threading.Event()
+                break
+        if entry is not None:
+            return entry  # expired, but Knovas failed a moment ago or a read is out
+        if down is not None:
+            raise _still_unanswered(down[1], down[2])
+        reading.wait()
+    try:
+        cfg = settings(getattr(client, "config", None))
+        try:
+            raw = client.doc_fields()
+        except Exception as exc:
+            failed = _unanswered(exc)
+            if failed is None:
+                raise  # an answer, or nothing was sent: not remembered
+            with _CACHE_LOCK:
+                if _REGISTRY_READS.get(who) is mine:  # not invalidated meanwhile
+                    _REGISTRY_DOWN[who] = (_now() + cfg.unknown_ttl,) + failed
+                entry = _REGISTRY.get(who)
+            logger.warning("Document fields registry: no answer from Knovas (%s %s %s); %s, "
+                           "not read again for %d s", type(exc).__name__, failed[0],
+                           failed[1] or "-",
+                           "none known" if entry is None else "the last one is used",
+                           cfg.unknown_ttl)
+            if entry is None:
+                raise
+            return entry
+        entry = _RegistryEntry(
+            expires_at=now + cfg.registry_cache_seconds,
+            fields=tuple(sanitize_registry(raw)),
+            targets=registry_targets(raw),
+        )
+        with _CACHE_LOCK:
+            if _REGISTRY_READS.get(who) is mine:  # not invalidated meanwhile
+                _REGISTRY[who] = entry
+                _REGISTRY_DOWN.pop(who, None)
         return entry
-    raw = client.doc_fields()  # failures propagate and are not cached
-    ttl = settings(getattr(client, "config", None)).registry_cache_seconds
-    entry = _RegistryEntry(
-        expires_at=now + ttl,
-        fields=tuple(sanitize_registry(raw)),
-        targets=registry_targets(raw),
-    )
-    with _CACHE_LOCK:
-        _REGISTRY[who] = entry
-    return entry
+    finally:
+        with _CACHE_LOCK:
+            if _REGISTRY_READS.get(who) is mine:
+                del _REGISTRY_READS[who]
+        mine.set()
 
 
 def registry_for(client: Any, user_key: Any) -> List[Dict[str, Any]]:
     """``sanitize_registry(client.doc_fields())`` for this user, cached for
-    ``registry_cache_seconds``. A failure is raised and not cached. Callers
-    get copies; the cache cannot be changed through them."""
+    ``registry_cache_seconds``. When Knovas does not answer (timeout, no
+    connection, 5xx, 429), the last registry read is used and Knovas is not
+    asked again for ``unknown_ttl``; without one the error is raised. Any
+    other failure is raised and not cached. Callers get copies; the cache
+    cannot be changed through them."""
     return [dict(spec) for spec in _registry_entry(client, user_key).fields]
 
 
@@ -465,8 +550,9 @@ def last_known_registry(user_key: Any) -> Optional[List[Dict[str, Any]]]:
 def registry_targets_for(client: Any, user_key: Any) -> Dict[str, str]:
     """``{key: target_node_type_id}`` of this user's registry: the entity
     fields whose target node type the person can see, from the same cached
-    entry as ``registry_for``. Server-side only -- the ids never go to the
-    browser. A failure is raised and not cached; callers get a copy."""
+    entry as ``registry_for`` (and the same handling of failures).
+    Server-side only -- the ids never go to the browser. Callers get a
+    copy."""
     return dict(_registry_entry(client, user_key).targets)
 
 
@@ -586,16 +672,21 @@ def node_names_for(client: Any, user_key: Any,
 def invalidate(user_key: Any = None) -> None:
     """Drop the registry, entity-name and node-name caches of one user, or
     of everyone when ``user_key`` is None (after a registry write, or an
-    ``unknown_field`` answer)."""
+    ``unknown_field`` answer). Remembered failures go too, and a registry
+    read already out no longer fills the cache: it may predate the write."""
     with _CACHE_LOCK:
         if user_key is None:
             _REGISTRY.clear()
+            _REGISTRY_DOWN.clear()
+            _REGISTRY_READS.clear()
             _NAMES.clear()
             _NODE_NAMES.clear()
             _NODE_NAMES_DOWN.clear()
             return
         who = _user(user_key)
         _REGISTRY.pop(who, None)
+        _REGISTRY_DOWN.pop(who, None)
+        _REGISTRY_READS.pop(who, None)
         _NODE_NAMES_DOWN.pop(who, None)
         for cache in (_NAMES, _NODE_NAMES):
             for key in [k for k in cache if k[0] == who]:

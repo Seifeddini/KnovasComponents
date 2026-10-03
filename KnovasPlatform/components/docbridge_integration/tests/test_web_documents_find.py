@@ -300,7 +300,7 @@ class TestDeadlineBannerWithoutRegistry:
                                       date_role="due", pack="legal_ch"))
         return app, api
 
-    @pytest.mark.parametrize("status", [429, 503, 500])
+    @pytest.mark.parametrize("status", [429, 503, 500, 403])
     def test_the_last_registry_decides(self, with_deadline, identity_repo, status,
                                        monkeypatch):
         import time
@@ -316,7 +316,11 @@ class TestDeadlineBannerWithoutRegistry:
         api.fail_call("doc_fields", status)
         body = find(client, {"doc_type": "invoice"},
                     sort={"field": "deadline", "order": "asc"}).get_json()
-        assert body["document_fields"]["fields_unavailable"] is True
+        # 429 and 5xx: Knovas did not answer, so the last registry is used
+        # (and not asked for again within 30 s: the later failures are never
+        # read). 403: a refusal, so the listing goes without the fields and
+        # the last registry still decides the banner.
+        assert body["document_fields"]["fields_unavailable"] is (status == 403)
         assert body["deadline_banner"] == dfv.DEADLINE_BANNER
         api.fail_call("doc_fields", status)
         filtered = find(client, {"deadline": {"gte": "01.10.2026"}}).get_json()
