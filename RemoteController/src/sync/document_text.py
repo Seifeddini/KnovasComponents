@@ -102,9 +102,9 @@ logger = logging.getLogger(__name__)
 
 SYNCABLE_EXTENSIONS = frozenset({".md", ".txt", ".docx", ".pdf", ".eml", ".msg"})
 
-# Inputs above this size skip sentence emission. Override with
-# RC_SENTENCE_EMIT_MAX_BYTES; 0 disables sentence emission entirely.
-DEFAULT_SENTENCE_EMIT_MAX_BYTES = 2 * 1024 * 1024
+# RC_SENTENCE_EMIT_MAX_BYTES: 0 (default) emits sentences for every input; a
+# positive value skips sentence emission above that many raw bytes.
+DEFAULT_SENTENCE_EMIT_MAX_BYTES = 0
 
 # Wall-clock ceiling for one document's extraction. Override with
 # RC_EXTRACT_TIMEOUT_SECONDS; 0 extracts in-process with no ceiling. When the
@@ -773,7 +773,7 @@ def _extract_bytes(
         raise ConversionError(f"unsupported extension: {ext}", extension=ext)
 
     max_sentence_bytes = sentence_emit_max_bytes()
-    emit_sentences = len(raw) <= max_sentence_bytes
+    emit_sentences = max_sentence_bytes <= 0 or len(raw) <= max_sentence_bytes
     if not emit_sentences:
         logger.info(
             "Skipping sentence emission: %d bytes exceeds %d (ext=%s)",
