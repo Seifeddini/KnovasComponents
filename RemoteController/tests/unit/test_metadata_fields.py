@@ -300,3 +300,30 @@ def test_source_metadata_from_skips_missing_and_non_string_values():
     assert source_metadata_from(metadata) == {}
     assert source_metadata_from(None) == {}
     assert source_metadata_from(object()) == {}
+
+
+def test_source_metadata_from_reads_the_file_properties():
+    metadata = SimpleNamespace(
+        author=None, language=None, created=None, modified=None,
+        extra={"pdf:keywords": " Rechnung, Kreditor ", "docx:keywords": "Vertrag",
+               "msg:categories": '["Projekt Alpha"]', "docx:content_status": "Final",
+               "docx:category": "Intern", "pdf:subject": "Offerte", "docx:revision": "3"},
+    )
+    assert source_metadata_from(metadata) == {
+        "pdf:keywords": "Rechnung, Kreditor",
+        "docx:keywords": "Vertrag",
+        "msg:categories": '["Projekt Alpha"]',
+        "docx:content_status": "Final",
+    }
+
+
+def test_a_file_property_over_the_cap_is_left_out_not_cut():
+    from sync.metadata_fields import MAX_SOURCE_VALUE_CHARS
+
+    assert MAX_SOURCE_VALUE_CHARS == 4096
+    metadata = SimpleNamespace(extra={
+        "pdf:keywords": "k" * (MAX_SOURCE_VALUE_CHARS + 1),
+        "docx:keywords": "k" * MAX_SOURCE_VALUE_CHARS,
+        "docx:content_status": 3,
+    })
+    assert source_metadata_from(metadata) == {"docx:keywords": "k" * MAX_SOURCE_VALUE_CHARS}

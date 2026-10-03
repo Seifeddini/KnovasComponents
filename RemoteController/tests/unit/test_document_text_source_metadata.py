@@ -1,8 +1,9 @@
-"""``ExtractedDocument.source_metadata`` (spec section 3.5).
+"""``ExtractedDocument.source_metadata`` (spec section 3.5, L1).
 
 The extractor's author, language, created and modified (plus the .eml
-Content-Language header) travel with the extracted document, through the
-forked extraction child and its result queue, to the metadata mapping.
+Content-Language header and the keyword and status file properties) travel
+with the extracted document, through the forked extraction child and its
+result queue, to the metadata mapping.
 """
 import io
 import pickle
@@ -92,6 +93,31 @@ def test_pdf_metadata_is_carried(tmp_path):
     assert md["author"] == "Muster AG"
     assert md["created"].startswith("2019-01-02")
     assert md["modified"].startswith("2020-01-02")
+
+
+def test_docx_keywords_and_content_status_are_carried(tmp_path):
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
+    document.add_paragraph("Mietvertrag mit Beispiel GmbH.")
+    document.core_properties.keywords = "Vertrag, Miete"
+    document.core_properties.content_status = "Final"
+    buf = io.BytesIO()
+    document.save(buf)
+    path = tmp_path / "mietvertrag.docx"
+    path.write_bytes(buf.getvalue())
+    md = extract_document(path).source_metadata
+    assert md["docx:keywords"] == "Vertrag, Miete"
+    assert md["docx:content_status"] == "Final"
+
+
+def test_pdf_keywords_are_carried(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    pdf = fitz.open()
+    pdf.new_page().insert_text((72, 72), "Rechnung der Muster AG.")
+    pdf.set_metadata({"keywords": "Rechnung; Kreditor"})
+    path = tmp_path / "rechnung.pdf"
+    pdf.save(path)
+    assert extract_document(path).source_metadata["pdf:keywords"] == "Rechnung; Kreditor"
 
 
 def test_plain_text_has_no_source_metadata(tmp_path):

@@ -51,9 +51,21 @@ EMAIL_EXTENSIONS = frozenset({".eml", ".msg"})
 DOCUMENT_EXTENSIONS = frozenset({".pdf", ".docx", ".md"})
 
 #: Keys of ``ExtractedDocument.source_metadata`` (knovas-extract ``Metadata``
-#: attributes, plus the .eml Content-Language header from ``extra``).
+#: attributes, plus the .eml Content-Language header and the file properties
+#: below from ``extra``).
 SOURCE_METADATA_ATTRIBUTES = ("author", "language", "created", "modified")
 EML_CONTENT_LANGUAGE = "eml:content_language"
+#: File properties for the ``keywords`` and ``document_status`` items
+#: (knovas-extract ``Metadata.extra`` keys). ``msg:categories`` is a list the
+#: library writes as a JSON array.
+PDF_KEYWORDS = "pdf:keywords"
+DOCX_KEYWORDS = "docx:keywords"
+MSG_CATEGORIES = "msg:categories"
+DOCX_CONTENT_STATUS = "docx:content_status"
+FILE_PROPERTY_KEYS = (PDF_KEYWORDS, DOCX_KEYWORDS, MSG_CATEGORIES, DOCX_CONTENT_STATUS)
+#: knovas-extract's ``Limits.max_metadata_value_length``. A longer ``extra``
+#: value is left out, never cut: a cut keyword list ends in half a word.
+MAX_SOURCE_VALUE_CHARS = 4096
 
 LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 _SKIPPED_LANGUAGES = frozenset({"x-default", "und"})
@@ -68,9 +80,11 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
     """The extractor values the mapping may use, as plain strings.
 
     Reads ``author``, ``language``, ``created`` and ``modified`` from a
-    knovas-extract ``Metadata`` and ``extra["eml:content_language"]``.
-    Missing, non-string and blank values are left out; values are stripped
-    but otherwise kept verbatim.
+    knovas-extract ``Metadata``, and ``eml:content_language`` and the file
+    properties (``FILE_PROPERTY_KEYS``) from its ``extra``. Missing,
+    non-string and blank values are left out, and so is an ``extra`` value
+    longer than ``MAX_SOURCE_VALUE_CHARS``; values are stripped but
+    otherwise kept verbatim.
     """
     out: dict[str, str] = {}
     if metadata is None:
@@ -81,9 +95,10 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
             out[name] = value.strip()
     extra = getattr(metadata, "extra", None)
     if isinstance(extra, dict):
-        value = extra.get(EML_CONTENT_LANGUAGE)
-        if isinstance(value, str) and value.strip():
-            out[EML_CONTENT_LANGUAGE] = value.strip()
+        for key in (EML_CONTENT_LANGUAGE, *FILE_PROPERTY_KEYS):
+            value = extra.get(key)
+            if isinstance(value, str) and value.strip() and len(value) <= MAX_SOURCE_VALUE_CHARS:
+                out[key] = value.strip()
     return out
 
 

@@ -217,7 +217,9 @@ class ExtractedDocument:
     page count. Counts and identifiers only, never text.
 
     `source_metadata` holds the extractor's `author`, `language`, `created`
-    and `modified` plus the .eml `eml:content_language` header, as strings
+    and `modified`, the .eml `eml:content_language` header and the file
+    properties `pdf:keywords`, `docx:keywords`, `msg:categories` and
+    `docx:content_status`, as strings of at most 4096 characters
     (`sync.metadata_fields.source_metadata_from`). Only the opted-in
     metadata mapping reads it (`sync.metadata_fields.map_metadata`); it is
     customer data and is never logged. Plain str values, so it pickles
