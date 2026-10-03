@@ -199,21 +199,50 @@ Worktree `.claude/worktrees/fields-extract-upgrade`, branch `worktree-fields-ext
 `origin/main` (`0e63cac`). Merge `origin/claude/document-fields-integration` (a merge commit keeps the
 branch's 10 reviewed commits intact), then cherry-pick `08228ba`.
 
-### 5.2 Conflict rules
-Known overlaps: `.github/workflows/ci.yml`, `docker-compose.yml`,
-`KnovasPlatform/components/docbridge_integration/src/knovas_client.py`,
-`.../src/web_interface/app.py`, `RELEASE_NOTES.md`. Rules:
-- `docker-compose.yml`: keep `main`'s gunicorn timeout of 180 s for `docbridge-web` (it must stay
-  above the Platform's 120 s extraction ceiling); take the branch's privacy-safe access-log settings.
-- `ci.yml`: keep both sides' jobs; the library pin steps are rewritten in §9 anyway.
-- `knovas_client.py` / `app.py`: keep `main`'s experiments additions (`upload_text_document`, routes)
-  and the branch's Document-fields client and search changes side by side.
-- `RELEASE_NOTES.md`: one "Unreleased" section holding both sides' entries.
-- `main`'s `upload_text_document` (experiments indexer) is a second Platform upload path; it sends no
-  `fields`, which is correct for experiment documents. The branch's plan states "no Platform upload
-  exists"; the Platform feature doc gets one sentence saying the experiments indexer sends no fields.
+### 5.2 Merge: conflicts, resolutions, and what the merge itself breaks
+The trial merge (scratch clone, branch `audit/main-docfields` @ `2ca658e`) touched 16 files on both
+sides; 11 merged cleanly, nothing under `RemoteController/` conflicted (`main` changed no Connector
+code after `f9d872c`). Five files conflicted:
 
-The trial merge's exact conflict list and resolutions are recorded in the plan.
+| File | Resolution |
+|---|---|
+| `.github/workflows/ci.yml` | keep both new steps after the Platform pytest (`main`: experiments SDK; branch: mock Knovas API); the branch's Connector-job changes (pin check, `RC_SYNC_STATE_PATH` + clean-tree guard, blocking `pymupdf-layout` gate) merge as they are and are rewritten by §9 |
+| `docker-compose.yml` | comments only: keep both; the command becomes `--timeout=$${DOCBRIDGE_WEB_TIMEOUT:-180}` plus the branch's `--access-logformat` |
+| `docs/client/README.md` | both sides' `knovas.env` rows (experiments, then Document fields) |
+| `.../web_interface/app.py` | `create_app`: experiments block first, then the branch's hooks and `doc_fields_routes.attach`; search: `limit = min(_SEARCH_LIMIT_MAX, _search_page_limit(...))` with the branch's `where` validation and query-free log line; `main`'s over-fetch (`ask(n)`/`_fetch_search_page`, experiment split, `has_more`) calls `doc_fields_routes.run_search(...)`, so `where`/`return_fields` go out with every request including the wider second one |
+| `.../static/js/app.js` | keep `_syncPreviewSidebar()` and `main`'s preview comment; `displayResults(…, data.has_more)` plus the branch's honesty state; "Mehr laden" uses `main`'s `has_more` logic with the branch's switch to the listing under a filter, cap 50 |
+
+What the merge breaks or exposes (all fixed in the integration layer, with tests):
+1. **Search over-fetch vs. Knovas' limit of 50.** `/secured/query` answers `422` above 50 (the
+   branch clamps the client to 50); `main`'s `_fetch_search_page` asks for up to 200 and doubles on
+   the second request, so after the merge the clamp silently cuts it and `has_more` can claim there
+   is nothing more. Fix: `SEARCH_FETCH_CEILING = _SEARCH_LIMIT_MAX` (50); `main`'s fetch-size test and
+   the branch's parity and clamp tests updated to the merged behaviour (limit 40, `has_more` present;
+   clamp 50/50/50/2/2/40/40).
+2. **Frontend test harness.** The branch's `createDocumentCard` calls `querySelector`; `main`'s fake
+   DOM element in `tests/test_experiments_frontend.py` lacks it. Fix: `querySelector` /
+   `querySelectorAll` stubs.
+3. **Listing must keep experiment documents out.** `main` guarantees experiment documents never appear
+   in search answers and never become file grants; the branch's listing (`POST /api/documents/find`,
+   `doc_fields_routes.py:766`) does not split them out. Today they carry no fields, but a folder default
+   could give them values. Fix: the listing drops `experiments/` pointers and grants none, like search.
+4. **Experiments' own Knovas search** asks for `min(200, limit × 5)` (150 by default); the real server
+   answers `422` and the module silently falls back to database-only results. Fix: cap at 50.
+5. **Timeouts in front of the Platform.** Both nginx layers (`nginx/docbridge-web.conf:31`, the host
+   example) use `proxy_read_timeout 120s`, equal to the 120 s extraction ceiling — the race `769881c`
+   removed for gunicorn. Fix: 180 s, matching gunicorn. The image's own `CMD`
+   (`docbridge_integration/Dockerfile:83`) gets the same URI-free access-log format as compose, so a
+   container started without compose does not log query strings.
+
+`main`'s `upload_text_document` (experiments indexer) is a second Platform upload path; it sends no
+`fields`, which is correct for experiment documents. The Platform feature doc says so (the branch's
+plan assumed no Platform upload exists).
+
+Cherry-picking `08228ba` afterwards conflicts in four files with one hunk each (`admin_system.py`,
+`RemoteController/CHANGELOG.md`, `RemoteController/pyproject.toml` — keep the branch's
+`version = "0.3.0"` with the renamed description — and `knovas.env.example`); the result equals the
+trial three-way tree on all 36 files the commit touches. The rename's RELEASE_NOTES entry lives in
+PR #22's `a619d10`, not in `08228ba`, so the rename sweep (§5.3) adds it.
 
 ### 5.3 Rename in user-facing text
 Policy of `08228ba`: everything people read says "Knovas Connector"; what machines read keeps its
@@ -224,7 +253,13 @@ name. Applied to what the fields branch adds:
   `templates/admin_ingestion.html:119,138,213,215`) and the tests that pin them;
 - operator-facing log and metric help texts (`remote_controller_client.py:192`,
   `admin_doc_fields.py:1170,1179`, `RemoteController/src/sync/doc_fields_metrics.py:96`);
-- docs, release notes and `knovas.env.example` comments the branch adds.
+- docs, release notes and `knovas.env.example` comments the branch adds;
+- the mentions `main` added after PR #22's base (`docbridge_integration/README.md:15`,
+  `KnovasPlatform/docs/features/experiments.md`, `experiments_runner/README.md:122`,
+  `docs/search-ui-backlog.md:160`, `knovas.env.example:123`, the `docker-compose.yml` comment, the
+  usage text of `RemoteController/scripts/backfill_partial_ocr.py`), so every screen and document
+  uses one name;
+- a RELEASE_NOTES entry "RemoteController heisst jetzt Knovas Connector" (wording from `a619d10`).
 Not renamed: `RC_*` names, `remote-controller` service, `RemoteController/` paths, code identifiers,
 comments, released release-note sections, `docs/superpowers/` records.
 
@@ -457,6 +492,11 @@ MSG whose only body is RTF extracts to empty text because the import error is sw
 - **Platform**: tests for F1–F3, F6, F7, L6 (tab, confirmation), L7 (preview fallback), the System
   tab; full suite including the PostgreSQL-backed tests, run serially against a dedicated test
   database (the audit's parallel runs collided on one database).
+- **Where the suites run**: in Linux containers that mirror CI (Connector: Python 3.12 + Tesseract;
+  Platform: Python 3.11 + PostgreSQL 15), because Windows adds failures that are environment-only
+  (file modes, CRLF in a test fixture, command-line length, `SYSTEMROOT`). Baseline from the trial
+  runs: `main` Connector 412 passed, Platform 2 746 passed; `main` + fields Connector 856 passed,
+  Platform 3 692 passed plus the 9 merge-caused failures of §5.2 (items 1–2), mock 209 passed.
 - **Mock Knovas API**: new responses for `auto_scope`, `return_fields.applied:false`, the probe, and
   `keywords`/`status` values.
 - **Images**: build both; `pip show pymupdf-layout` fails; installed version equals the pin; Tesseract
