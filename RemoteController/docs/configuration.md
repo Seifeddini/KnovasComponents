@@ -256,7 +256,7 @@ Knovas. Folder rules and manual edits are not affected.
 
 ## Supported document formats
 
-Knovas Connector converts the following extensions to text (with per-sentence citations) before chunking and upload. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
+Knovas Connector converts the following extensions to text (with per-sentence citations) before chunking and upload. Extraction is delegated to the [`knovas-extract`](https://github.com/Seifeddini/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
 
 | Extension | Backend |
 |-----------|---------|
@@ -264,7 +264,7 @@ Knovas Connector converts the following extensions to text (with per-sentence ci
 | `.docx` | `python-docx` + `mammoth` |
 | `.pdf` | `pymupdf` (per-page text; sentence page back-pointers; per-page OCR of image pages via Tesseract) |
 | `.eml` | Standard library `email` (subject → transmission title) |
-| `.msg` | `extract-msg` (subject → transmission title) |
+| `.msg` | `extract-msg` (subject → transmission title); a body that exists only as RTF through `striprtf` (`[rtf]` extra) |
 
 Each chunk carries a `page_number` (PDFs only) and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition.
 
@@ -279,7 +279,7 @@ Align deployment with KnovasPlatform:
 
 Scanned PDF pages without a text layer are OCR'd when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs. Markdown is never requested from the extractor (it cost ~8 s per document and parked mixed PDFs and large-table DOCX as "markdown expansion ratio" — see [operations.md](operations.md#documents-parked-by-the-markdown-expansion-guard)).
 
-**Docker build:** the Dockerfile installs `knovas-extract` from git. `KNOVAS_EXTRACT_REF` selects the revision and defaults to a pinned sha (`11ec1c38053cbbc914207c9e2f24636cde709617`, knovas-extract 0.4.0a1) — the same sha CI installs for the tests (`KNOVAS_EXTRACT_SHA` in `.github/workflows/ci.yml`; the CI job fails when the two differ). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_REF=<tag or sha> remote-controller`. `--build-arg KNOVAS_EXTRACT_FROM_GIT=` installs from PyPI instead. The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
+**Docker build:** the Dockerfile installs one pinned `knovas-extract`, the same as the Platform image: `ARG KNOVAS_EXTRACT_VERSION` (`0.4.0a1`) and `ARG KNOVAS_EXTRACT_GIT_REF`. With an empty ref the build installs `knovas-extract==<version>` from PyPI; with a ref, that revision from git — until 0.4.0a1 is on PyPI the default is a full commit sha of the library. The build log names the installed version and commit, and a PyPI install that is not exactly the version fails the build. Extras: `pdf,ocr,docx,msg,html,rtf,sentences` (`rtf` reads Outlook mails whose only body is RTF). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> remote-controller`, or `--build-arg KNOVAS_EXTRACT_GIT_REF=` for PyPI. A new pin changes the Dockerfile, so the next `docker compose up -d --build` installs it (Docker's layer cache cannot keep an older build). The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
 
 ### Extraction, OCR and page markers
 

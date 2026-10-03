@@ -20,8 +20,11 @@ dependencies = [
     # through the expansion guard — and the extra pulled the PolyForm-NC
     # pymupdf-layout into the customer image. [html] stays: EML/MSG HTML
     # bodies are converted through selectolax. The Docker image adds [ocr]
-    # (tesserocr; Linux wheels only) — see Dockerfile KNOVAS_EXTRACT_EXTRAS.
-    "knovas-extract[pdf,docx,msg,html,sentences]>=0.2",
+    # (tesserocr; Linux wheels only) — see the Dockerfile.
+    # [rtf]: striprtf, for Outlook mails whose only body is RTF. A floor
+    # only: the images and CI install the exact pin (Dockerfile ARG
+    # KNOVAS_EXTRACT_VERSION / KNOVAS_EXTRACT_GIT_REF).
+    "knovas-extract[pdf,docx,msg,html,rtf,sentences]>=0.4.0a1",
 ]
 
 [project.optional-dependencies]

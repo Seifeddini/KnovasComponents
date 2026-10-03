@@ -37,8 +37,11 @@ python-dateutil==2.8.2
 # Retry logic
 tenacity==8.2.3
 
-# Document extraction (sentences, sections, tables for secured upload)
-knovas-extract[pdf,docx,msg,markdown,html,sentences]>=0.2
+# Document extraction (sentences, sections, tables for secured upload;
+# markdown for the preview, rtf for Outlook mails whose only body is RTF).
+# A floor only: the image and CI install the exact pin, with `ocr` on top
+# (Dockerfile ARG KNOVAS_EXTRACT_VERSION / KNOVAS_EXTRACT_GIT_REF).
+knovas-extract[pdf,docx,msg,html,rtf,markdown,sentences]>=0.4.0a1
 
 # PDF-Textextraktion für die Cortex-Filter (Passagen-Matching)
 pymupdf==1.28.0

@@ -1,5 +1,16 @@
 # Unreleased
 
+## Extraktor: knovas-extract 0.4.0a1, eine Version fuer beide Seiten
+
+- **Plattform und Knovas Connector installieren dieselbe, fest gepinnte
+  Version von knovas-extract** (`ARG KNOVAS_EXTRACT_VERSION` /
+  `KNOVAS_EXTRACT_GIT_REF` in beiden Dockerfiles). Bisher kam der Extraktor
+  aus dem beweglichen `main` des Bibliotheks-Repositorys, und ein Server mit
+  Docker-Cache behielt einen alten Stand. Der naechste `./scripts/start.sh`
+  baut beide Images neu.
+- **Outlook-Mails, deren Text nur als RTF vorliegt**, werden gelesen (bisher
+  leerer Text).
+
 ## Dokumentfelder (Dokumentwerte)
 
 Typisierte Werte je Dokument -- Mandant, Zeitraum, Dokumentart, Gericht,

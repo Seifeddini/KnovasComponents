@@ -5,22 +5,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml README.md ./
 
-# knovas-extract is installed from git until the release the RC needs is on
-# PyPI. KNOVAS_EXTRACT_REF selects the revision and defaults to a pinned sha
-# (knovas-extract-python `main` on 2026-10-02): CI installs this same sha for
-# the RC test job and fails when the two differ (.github/workflows/ci.yml,
-# KNOVAS_EXTRACT_SHA), so the image and the tests run one extractor. Override
-# per build with --build-arg KNOVAS_EXTRACT_REF=<tag or sha>. An empty
-# KNOVAS_EXTRACT_FROM_GIT installs from PyPI instead:
-#   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller
-ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git
-ARG KNOVAS_EXTRACT_REF=11ec1c38053cbbc914207c9e2f24636cde709617
-# Extras: [pdf,ocr,docx,msg,html,sentences]. No [markdown]: the RC never asks
-# for emit_markdown any more (it cost ~8 s/document and parked mixed PDFs and
-# large-table DOCX through the expansion guard), and the PolyForm-NC
-# pymupdf-layout it pulled in must not be in the customer image (CI asserts
-# `pip show pymupdf-layout` fails in the built image; a failure blocks it).
-ARG KNOVAS_EXTRACT_EXTRAS=pdf,ocr,docx,msg,html,sentences
 RUN python - <<'PY'
 import subprocess
 import tomllib
@@ -30,13 +14,51 @@ other = [d for d in deps if not d.lower().startswith("knovas-extract")]
 if other:
     subprocess.check_call(["pip", "install", "--no-cache-dir", *other])
 PY
-RUN if [ -n "${KNOVAS_EXTRACT_FROM_GIT}" ]; then \
+
+# knovas-extract: one pin for both customer images. Keep both defaults equal
+# to those in KnovasPlatform/components/docbridge_integration/Dockerfile
+# (scripts/ci/check_knovas_extract_pin.sh fails CI otherwise); the CI test
+# jobs install exactly this pin. KNOVAS_EXTRACT_GIT_REF empty: PyPI
+# knovas-extract==KNOVAS_EXTRACT_VERSION. Set: that revision from git --
+# development, and as the default only a full 40-character commit sha, until
+# the version is on PyPI. pyproject.toml carries only the floor (>=0.4.0a1).
+# The ARGs come after the other dependencies, so a bump rebuilds only this.
+#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> remote-controller
+#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF= remote-controller   # PyPI
+ARG KNOVAS_EXTRACT_VERSION=0.4.0a1
+ARG KNOVAS_EXTRACT_GIT_REF=b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1
+# Extras: [pdf,ocr,docx,msg,html,rtf,sentences]. No [markdown]: the RC never
+# asks for emit_markdown (it cost ~8 s/document and parked mixed PDFs and
+# large-table DOCX through the expansion guard). [ocr] is tesserocr
+# (in-process Tesseract); [rtf] is striprtf (BSD-3-Clause), without which an
+# Outlook mail whose only body is RTF extracts to empty text. The PolyForm-NC
+# pymupdf-layout must not be in the customer image (CI asserts
+# `pip show pymupdf-layout` fails in the built image; a failure blocks it).
+RUN if [ -n "${KNOVAS_EXTRACT_GIT_REF}" ]; then \
       pip install --no-cache-dir \
-        "knovas-extract[${KNOVAS_EXTRACT_EXTRAS}] @ git+https://${KNOVAS_EXTRACT_FROM_GIT}@${KNOVAS_EXTRACT_REF}"; \
+        "knovas-extract[pdf,ocr,docx,msg,html,rtf,sentences] @ git+https://github.com/Seifeddini/knovas-extract-python.git@${KNOVAS_EXTRACT_GIT_REF}"; \
     else \
       pip install --no-cache-dir \
-        "knovas-extract[${KNOVAS_EXTRACT_EXTRAS}]>=0.3"; \
+        "knovas-extract[pdf,ocr,docx,msg,html,rtf,sentences]==${KNOVAS_EXTRACT_VERSION}"; \
     fi
+# What was installed goes into the build log; a PyPI install that is not
+# exactly KNOVAS_EXTRACT_VERSION fails the build (a git ref is printed only).
+RUN python - <<'PY'
+import json
+import os
+from importlib.metadata import distribution
+
+import knovas_extract
+
+want = os.environ["KNOVAS_EXTRACT_VERSION"]
+ref = os.environ.get("KNOVAS_EXTRACT_GIT_REF", "")
+got = knovas_extract.__version__
+url = json.loads(distribution("knovas-extract").read_text("direct_url.json") or "{}")
+commit = (url.get("vcs_info") or {}).get("commit_id")
+print(f"knovas-extract {got} ({'git ' + commit if commit else 'PyPI'})")
+if not ref and got != want:
+    raise SystemExit(f"knovas-extract {got} installed, KNOVAS_EXTRACT_VERSION is {want}")
+PY
 
 FROM python:3.12-slim AS runtime
 # Tesseract + the language packs OCR may be configured with (RC_TESSERACT_LANG:

@@ -101,9 +101,7 @@ Customer-hosted Flask service that walks watched directories, converts documents
 Key Python packages (pinned ranges in `RemoteController/pyproject.toml`):
 
 - `flask`, `gunicorn`, `requests`, `cryptography`, `jsonschema`, `prometheus-client`
-- `python-docx` — `.docx` parsing
-- `pymupdf` — PDF text extraction
-- `extract-msg` — Outlook `.msg` email parsing
+- `knovas-extract` — document extraction (PDF with OCR, DOCX, EML, MSG, text), one pinned version for both images; its extras and their licences: [3. Joint deployment requirements](#3-joint-deployment-requirements)
 
 ### 1.3 Supported source formats
 
@@ -518,6 +516,21 @@ These apply regardless of which component you deploy.
   - **Knovas Connector (local-only control mode)** does not accept inbound connections from the network. The API is available on `127.0.0.1:5001` only; operators control RC from the host. Outbound mTLS to the Knovas ingestion API is still required when syncing.
   - **KnovasPlatform** is intranet-only. In production (mode B) or localhost-only (mode C), no application port is exposed beyond loopback or internal HTTPS on port 443.
 - **Logs and metrics.** Both components produce structured logs via `docker compose logs`. Knovas Connector additionally exposes Prometheus metrics at `/metrics`.
+- **Document extraction and third-party licences.** Both images install the same pinned `knovas-extract` (`ARG KNOVAS_EXTRACT_VERSION` / `ARG KNOVAS_EXTRACT_GIT_REF` in `RemoteController/Dockerfile` and `KnovasPlatform/components/docbridge_integration/Dockerfile`). Its extras bring these packages into the images (licences as listed in the library's `NOTICE`):
+
+  | Extra | Packages | Licence |
+  | --- | --- | --- |
+  | `pdf` | PyMuPDF | AGPL-3.0 |
+  | `ocr` | tesserocr (bundles Tesseract, Leptonica and image libraries), numpy, Pillow | MIT (Tesseract Apache-2.0, Leptonica BSD-2-Clause), BSD-3-Clause, MIT-CMU |
+  | `docx` | python-docx, mammoth | MIT, BSD-2-Clause |
+  | `msg` | extract-msg | GPL-3.0 |
+  | `html` | selectolax | MIT |
+  | `rtf` | striprtf (pure Python; Outlook mails whose only body is RTF) | BSD-3-Clause |
+  | `sentences` | pysbd | MIT |
+  | `markdown` (Platform only, document preview) | markdownify, selectolax | MIT |
+  | (core) | python-magic, defusedxml, chardet | MIT, PSF-2.0, LGPL-2.1 |
+
+  `pymupdf-layout` (PolyForm Noncommercial) must not be in either image; CI checks it.
 
 ---
 
