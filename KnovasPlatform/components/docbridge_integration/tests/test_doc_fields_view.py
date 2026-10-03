@@ -496,10 +496,14 @@ class TestMessages:
                                              "error": sentinel}, registry)
             assert sentinel not in text
 
-    def test_missing_calibration_is_never_called_temporary(self):
+    def test_missing_calibration_is_a_temporary_problem_at_knovas(self):
+        """F6: Knovas 1.5.0 lists 503 where_requires_calibration as "a problem
+        on the Knovas side. Try again later." -- not a setup step."""
         text = view.error_message("where_requires_calibration")
-        assert "Kalibrierung fehlt" in text
-        assert "vor\u00fcbergehend" not in text.lower()
+        assert text == ("Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar "
+                        "\u2013 sp\u00e4ter erneut versuchen.")
+        assert text == view.FILTERS_TEMPORARILY_UNAVAILABLE
+        assert "Kalibrierung" not in text
         assert view.error_message("filters_need_calibration") == text
 
     def test_pointer_path_means_knovas_needs_an_update(self):

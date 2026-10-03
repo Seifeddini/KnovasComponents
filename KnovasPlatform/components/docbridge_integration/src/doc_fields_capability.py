@@ -15,8 +15,9 @@ side-effect-free probe, ``POST /secured/graph/doc-values/find`` with ``{}``
 
 ``listing_only`` cannot be probed -- ``find`` never checks calibration -- so
 it is learned from the first query that answers 503
-``where_requires_calibration`` and held for ``calibration_recheck_seconds``;
-the probe does not lift it in the meantime.
+``where_requires_calibration`` and held for ``calibration_recheck_seconds``
+(``LISTING_ONLY_HOLD_SECONDS``, five minutes: Knovas 1.5.0 calls that answer
+a temporary problem on its side); the probe does not lift it in the meantime.
 
 ``web.doc_fields.ui: off`` and a client outside secured mode turn the
 feature off without asking anyone (D1, D13). Nothing here can turn it on.
@@ -88,7 +89,12 @@ _PROBE_ANSWERS = {
 
 DEFAULT_CAPABILITY_TTL = 300
 DEFAULT_UNKNOWN_TTL = 30
-DEFAULT_CALIBRATION_RECHECK = 3600
+#: How long a 503 ``where_requires_calibration`` holds the capability at
+#: ``listing_only`` (search filters hidden, listing and card values kept)
+#: before the probe may lift it. Knovas 1.5.0 calls that answer "a problem
+#: on the Knovas side. Try again later." -- temporary, so the Platform asks
+#: again after five minutes, not after an hour (spec F6).
+LISTING_ONLY_HOLD_SECONDS = 300
 DEFAULT_REGISTRY_CACHE = 300
 DEFAULT_FIND_PAGE_SIZE = 50
 FIND_PAGE_SIZE_MAX = 200  # DOC_FIELDS_FIND_MAX_LIMIT on the server
@@ -162,7 +168,7 @@ def settings(config: Any) -> DocFieldsSettings:
                                 DEFAULT_CAPABILITY_TTL, 1, 86400),
         unknown_ttl=DEFAULT_UNKNOWN_TTL,
         calibration_recheck=_cfg_int(config, "web.doc_fields.calibration_recheck_seconds",
-                                     DEFAULT_CALIBRATION_RECHECK, 1, 7 * 86400),
+                                     LISTING_ONLY_HOLD_SECONDS, 1, 7 * 86400),
         registry_cache_seconds=_cfg_int(config, "web.doc_fields.registry_cache_seconds",
                                         DEFAULT_REGISTRY_CACHE, 0, 86400),
         edit_roles=parse_edit_roles(_cfg(config, "web.doc_fields.edit_roles", "admin")),
@@ -205,7 +211,7 @@ class CapabilityCache:
 
     def __init__(self, ttl: float = DEFAULT_CAPABILITY_TTL,
                  unknown_ttl: float = DEFAULT_UNKNOWN_TTL,
-                 calibration_recheck: float = DEFAULT_CALIBRATION_RECHECK,
+                 calibration_recheck: float = LISTING_ONLY_HOLD_SECONDS,
                  clock: Callable[[], float] = time.monotonic) -> None:
         self._ttl = float(ttl)
         self._unknown_ttl = float(unknown_ttl)
@@ -293,7 +299,8 @@ class CapabilityCache:
         ``where_unsupported`` -> values; ``feature_off`` -> off (both lift a
         calibration hold, because they say more than it does);
         ``echo_missing`` -> unknown, and the next call probes again;
-        ``needs_calibration`` -> listing_only, held for the recheck period.
+        ``needs_calibration`` -> listing_only, held for the recheck period
+        (``LISTING_ONLY_HOLD_SECONDS`` unless configured).
         """
         if signal not in SIGNALS:
             raise ValueError(f"unknown document fields signal: {signal!r}")

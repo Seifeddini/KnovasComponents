@@ -51,7 +51,7 @@ def clock():
 def _cache(clock, **kw):
     kw.setdefault("ttl", 300)
     kw.setdefault("unknown_ttl", 30)
-    kw.setdefault("calibration_recheck", 3600)
+    kw.setdefault("calibration_recheck", cap.LISTING_ONLY_HOLD_SECONDS)
     return CapabilityCache(clock=clock, **kw)
 
 
@@ -144,15 +144,26 @@ class TestSignals:
         """The probe cannot see calibration (find never checks it); if it
         could lift the hold, every TTL would offer the filter rail again and
         the next filtered search would meet the same 503."""
-        client, cache = ProbeClient("filters"), _cache(clock)
+        client, cache = ProbeClient("filters"), _cache(clock, ttl=60)
         cache.get(client)
         cache.observe("needs_calibration")
-        for _ in range(5):
-            clock.advance(600)  # well past the 300 s capability TTL
-            if clock.t < 1000 + 3600:
-                assert cache.get(client) is Capability.listing_only
+        for _ in range(4):
+            clock.advance(70)  # past the 60 s capability TTL, inside the hold
+            assert cache.get(client) is Capability.listing_only
         assert client.probes == 1
-        clock.advance(601)
+        clock.advance(21)  # 301 s after the signal
+        assert cache.get(client) is Capability.filters and client.probes == 2
+
+    def test_the_hold_lasts_five_minutes(self, clock):
+        """F6: Knovas 1.5.0 calls 503 where_requires_calibration "a problem on
+        the Knovas side. Try again later." -- five minutes, not an hour."""
+        assert cap.LISTING_ONLY_HOLD_SECONDS == 300
+        client, cache = ProbeClient("filters"), CapabilityCache(clock=clock)
+        cache.get(client)
+        cache.observe("needs_calibration")
+        clock.advance(299)
+        assert cache.get(client) is Capability.listing_only and client.probes == 1
+        clock.advance(2)
         assert cache.get(client) is Capability.filters and client.probes == 2
 
     def test_a_hold_observed_while_a_probe_is_out_wins(self, clock):
@@ -262,9 +273,19 @@ class TestSettings:
         s = cap.settings(StubConfig({}))
         assert s.ui_enabled is True
         assert (s.capability_ttl, s.unknown_ttl, s.calibration_recheck,
-                s.registry_cache_seconds, s.find_page_size) == (300, 30, 3600, 300, 50)
+                s.registry_cache_seconds, s.find_page_size) == (300, 30, 300, 300, 50)
         assert s.edit_roles == frozenset({"admin"})
         assert cap.settings(None).edit_roles == frozenset({"admin"})
+
+    def test_the_shipped_config_holds_listing_only_for_five_minutes(self):
+        """config/config.yaml sets the hold explicitly; it must say five
+        minutes too, or the code default never applies."""
+        import pathlib
+
+        from config_loader import ConfigLoader
+
+        path = pathlib.Path(__file__).resolve().parents[1] / "config" / "config.yaml"
+        assert cap.settings(ConfigLoader(str(path))).calibration_recheck == 300
 
     def test_edit_roles(self):
         assert cap.parse_edit_roles("admin, Member ,") == frozenset({"admin", "member"})

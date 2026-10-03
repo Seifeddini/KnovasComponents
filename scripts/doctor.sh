@@ -827,8 +827,8 @@ else:
 # assertion, so a 401 assertion_rejected means the "where" gate already
 # passed: filters on, in a BROKERED tenant. Any other 401 or 403 comes from
 # the certificate check, before any gate, and says nothing about the state.
-# Whether search filters are calibrated cannot be probed; the first filtered
-# search says so.
+# Whether Knovas can apply search filters right now cannot be probed; the
+# first filtered search says so.
 def probe_doc_fields(path, method, payload):
     req = urllib.request.Request(
         base + path, data=payload, method=method,
@@ -865,8 +865,9 @@ elif code == 400 and error_code == "where_unsupported":
 elif code == 400 and error_code == "invalid_value" and answer.get("path") == "where":
     values_on = True
     print(f"     OK  Dokumentfelder: Werte, Liste und Filter ({seen})")
-    print("         Whether search filters are calibrated cannot be probed; the first filtered")
-    print("         search says so (System tab: 'Kalibrierung bei Knovas fehlt').")
+    print("         Whether Knovas can apply search filters right now cannot be probed; the")
+    print("         first filtered search says so (System tab: 'Feldfilter bei Knovas")
+    print("         voruebergehend nicht verfuegbar').")
 elif code == 401 and error_code == "assertion_rejected":
     print(f"     OK  Dokumentfelder: Filter an (BROKERED-Mandant; {seen})")
     print("         Whether the server reads the document pointer from the request body")

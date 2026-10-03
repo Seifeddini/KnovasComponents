@@ -40,14 +40,15 @@ names the state; nothing else in the UI mentions a reduced one.
 |---|---|---|
 | `aus` | feature off, tenant not enabled, knowledge graph off, older server — or the Platform runs without mTLS (legacy mode), or `DOC_FIELDS_UI=off` | nothing new |
 | `Werte (ohne Filter)` | values | the field panel in the preview, the **Dokumentfelder** admin tab, the field drawer in **Dokumente** |
-| `Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)` | values and listing; search filters wait for a relevance calibration at Knovas | additionally: typed values on result cards, the **Liste anzeigen** listing, the admin **Feldfilter** |
+| `Werte + Liste (Feldfilter bei Knovas vorübergehend nicht verfügbar)` | values and listing; Knovas answered a filtered search with `503 where_requires_calibration` ("a problem on the Knovas side, try again later") | additionally: typed values on result cards, the **Liste anzeigen** listing, the admin **Feldfilter** |
 | `Werte + Filter` | everything | additionally: the filter rail in the search |
 
 A probe that fails (401, 403, 429, 5xx, network) counts as "unknown" and is
 shown as `aus` for 30 seconds. The "listing without filters" state is learned
-from the first filtered search Knovas refuses for a missing calibration and is
-kept for `calibration_recheck_seconds` (1 hour); the first filtered search
-after that may meet the same answer once more.
+from the first filtered search Knovas answers with `503
+where_requires_calibration` — Knovas 1.5.0 calls it a temporary problem on its
+side — and is kept for `calibration_recheck_seconds` (5 minutes); the first
+filtered search after that may meet the same answer once more.
 
 ## Honesty rules
 

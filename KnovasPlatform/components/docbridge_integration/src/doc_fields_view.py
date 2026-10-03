@@ -68,6 +68,12 @@ EMPTY_INCOMPLETE_LISTING = (
 RAIL_NOT_APPLIED_TO_SEARCH = (
     "Ohne Feldangaben gesucht: sie gelten nur f\u00fcr \u201eListe anzeigen\u201c."
 )
+# 503 where_requires_calibration: Knovas 1.5.0 calls it "a problem on the
+# Knovas side. Try again later." (spec F6) -- temporary, not a setup step.
+FILTERS_TEMPORARILY_UNAVAILABLE = (
+    "Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar \u2013 "
+    "sp\u00e4ter erneut versuchen."
+)
 TITLE_NOT_SEARCHABLE = "Titel wird angezeigt, nicht durchsucht"
 PRIVILEGED_HINT = "Kennzeichnung, keine Zugriffsbeschr\u00e4nkung"
 DEADLINE_BANNER = (
@@ -895,9 +901,7 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
     if code in ("where_unsupported", "filters_unavailable"):
         return "Filter sind bei Knovas f\u00fcr diesen Mandanten nicht freigeschaltet."
     if code in ("where_requires_calibration", "filters_need_calibration"):
-        # H9: missing calibration is a setup step at Knovas, not an outage.
-        return ("Filter in der Suche sind bei Knovas noch nicht eingerichtet "
-                "(Kalibrierung fehlt).")
+        return FILTERS_TEMPORARILY_UNAVAILABLE
     if code in ("where_unavailable", "filter_temporarily_unavailable"):
         return "Filter sind bei Knovas gerade nicht verf\u00fcgbar. Bitte sp\u00e4ter erneut versuchen."
     if code == "filter_not_applied":

@@ -45,7 +45,7 @@ class TestFourStates:
         assert check["detail"].startswith("Werte (ohne Filter); ")
         assert "12 Feld(er)" in check["detail"] and "Pakete: core v1" in check["detail"]
 
-    def test_listing_only_names_the_missing_calibration(self):
+    def test_listing_only_says_filters_are_temporarily_unavailable(self):
         import doc_fields_capability as dfc
 
         client = FakeDocFieldsApi("listing_only")
@@ -54,9 +54,10 @@ class TestFourStates:
         check = _doc_fields(_collect(client))
         assert check["state"] == "warn"
         assert check["detail"].startswith(
-            "Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)")
-        assert "Kalibrierung" in check["hint"]
-        assert "vor\u00fcbergehend" not in check["hint"]  # H9: a setup step, not an outage
+            "Werte + Liste (Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar)")
+        assert "vor\u00fcbergehend nicht verf\u00fcgbar" in check["hint"]
+        assert "sp\u00e4ter erneut versuchen" in check["hint"]
+        assert "Kalibrierung" not in check["detail"] + check["hint"]
 
     def test_filters(self):
         check = _doc_fields(_collect(FakeDocFieldsApi("filters")))

@@ -38,7 +38,7 @@ STATES = [
 SYSTEM_LABELS = {
     "off": "aus",
     "values": "Werte (ohne Filter)",
-    "listing_only": "Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)",
+    "listing_only": "Werte + Liste (Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar)",
     "filters": "Werte + Filter",
 }
 

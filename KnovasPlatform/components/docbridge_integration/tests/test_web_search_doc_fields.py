@@ -378,14 +378,14 @@ class TestRefusedFilter:
         assert "Meinten Sie \u201eMandant\u201c?" in body["error"]
         assert "Muster AG" not in body["error"], "a value is never repeated"
 
-    def test_calibration_message_is_not_temporary(self, filters_app, identity_repo):
-        """H9: a missing calibration is a setup step, never 'voruebergehend'."""
+    def test_calibration_message_says_try_again_later(self, filters_app, identity_repo):
+        """F6: a temporary problem at Knovas, never a missing setup step."""
         app, api = filters_app
         client = signed_in(app, identity_repo, role="member")
         api.fail_call("search_documents", 503, "where_requires_calibration")
         body = search(client, where={"doc_type": "invoice"}).get_json()
-        assert "Kalibrierung fehlt" in body["error"]
-        assert "vor\u00fcbergehend" not in body["error"].lower()
+        assert "vor\u00fcbergehend nicht verf\u00fcgbar" in body["error"]
+        assert "Kalibrierung" not in body["error"]
 
 
 # ---------------------------------------------------------------------------

@@ -12,8 +12,8 @@ Feldbereich der Vorschau.
   den Mandanten anbietet, und zeigt nur das; ohne Freischaltung (oder mit einem
   aelteren Server) bleibt alles wie bisher, ohne neue Oberflaeche und ohne
   neue Schluessel in den Anfragen. *Verwaltung -> System -> Dokumentfelder*
-  nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Filter in
-  der Suche: Kalibrierung bei Knovas fehlt)` oder `Werte + Filter`.
+  nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Feldfilter bei
+  Knovas voruebergehend nicht verfuegbar)` oder `Werte + Filter`.
   `./scripts/doctor.sh` prueft dasselbe.
 - **Mindestens noetige Knovas-Version:** Feldbereich, *Felder* unter
   *Dokumente* und jede Wertbearbeitung brauchen eine Knovas-Version, die den
