@@ -268,7 +268,7 @@ def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
     # top level today; a nested build must not lose them, because a missing
     # `where` echo reads as "not filtered" and withholds the results.
     for key in ("no_strong_matches", "no_results_reason", "relevance_gate_applied",
-                "meta", "where", "return_fields"):
+                "meta", "where", "return_fields", "auto_scope"):
         if key not in out and key in data:
             out[key] = data[key]
     return out
@@ -1055,12 +1055,35 @@ def _query_rejection(exc: requests.exceptions.HTTPError, *,
     return None
 
 
+# The most auto_scope node ids kept: the server's own bound on a scope
+# (query_scope.MAX_SCOPE_IDS).
+_AUTO_SCOPE_IDS_MAX = 200
+
+
+def _auto_scope_echo(block: Dict[str, Any]) -> Dict[str, Any]:
+    """``auto_scope`` as the Platform keeps it (spec F3): whether Knovas ran
+    the search inside the nodes it recognised in the question (``applied``)
+    or found nothing there and searched everything (``fallback``), and the
+    node ids -- the detected ones first, then the rest of the scope, each
+    once. Identifier ids, channels and scores stay behind: nothing on the
+    page uses them."""
+    ids: List[str] = []
+    for detection in block.get("detections") or ():
+        if isinstance(detection, dict) and isinstance(detection.get("node_id"), str):
+            ids.append(detection["node_id"])
+    ids.extend(i for i in block.get("node_ids") or () if isinstance(i, str))
+    unique = [i for i in dict.fromkeys(ids) if i][:_AUTO_SCOPE_IDS_MAX]
+    return {"applied": block.get("applied") is True, "fallback": block.get("fallback") is True,
+            "node_ids": unique}
+
+
 def _secured_query_honesty(result: Dict[str, Any]) -> Dict[str, Any]:
     """What /secured/query says about how far its answer can be trusted.
 
     The scalars are always present (None from a server that predates them),
     so a caller reads one shape. ``where`` and ``return_fields`` appear only
-    when Knovas echoed them: their absence means "not filtered" (H2).
+    when Knovas echoed them: their absence means "not filtered" (H2);
+    ``auto_scope`` (node ids only) when Knovas narrowed the search by a name.
     """
     meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
 
@@ -1081,6 +1104,9 @@ def _secured_query_honesty(result: Dict[str, Any]) -> Dict[str, Any]:
     return_fields = result.get("return_fields")
     if isinstance(return_fields, dict):
         out["return_fields"] = {"applied": return_fields.get("applied")}
+    auto_scope = result.get("auto_scope")
+    if isinstance(auto_scope, dict):
+        out["auto_scope"] = _auto_scope_echo(auto_scope)
     return out
 
 

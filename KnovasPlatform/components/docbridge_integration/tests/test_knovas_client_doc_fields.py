@@ -227,7 +227,7 @@ class TestSearchResponse:
                                      "relevance_gate_applied", "degraded_to_bm25")} == dict.fromkeys(
             ("no_strong_matches", "no_results_reason", "relevance_gate_applied",
              "degraded_to_bm25"))
-        assert "where" not in meta and "return_fields" not in meta
+        assert "where" not in meta and "return_fields" not in meta and "auto_scope" not in meta
 
     def test_a_nested_response_keeps_its_echo(self):
         out = _unwrap_secured_query_response({"status": "success", "data": {
@@ -235,6 +235,34 @@ class TestSearchResponse:
             "meta": {"degraded_to_bm25": False}}})
         assert out["where"] == {"applied": True}
         assert out["no_results_reason"] == "empty_where"
+
+    def test_auto_scope_is_kept_as_node_ids_only(self):
+        """F3: Knovas narrowed the search to nodes named in the question
+        (shape of query_pipeline.py on KB develop); the Platform keeps
+        applied, fallback and the node ids -- detected ones first."""
+        client = secured(Resp(200, {
+            "status": "success", "results": [],
+            "auto_scope": {"detections": [{"node_id": "n-2", "identifier_id": "i-9",
+                                           "channel": "lexical", "score": 0.97}],
+                           "node_ids": ["n-1", "n-2"], "applied": True, "fallback": False,
+                           "canonicalized": True, "residualized": False}}))
+        meta = client.search_documents("q", limit=5)["semantix"]
+        assert meta["auto_scope"] == {"applied": True, "fallback": False,
+                                      "node_ids": ["n-2", "n-1"]}
+
+    def test_auto_scope_ids_are_bounded(self):
+        ids = [f"n-{i}" for i in range(250)]
+        client = secured(Resp(200, {"status": "success", "results": [],
+                                    "auto_scope": {"node_ids": ids, "fallback": True}}))
+        block = client.search_documents("q", limit=5)["semantix"]["auto_scope"]
+        assert block["node_ids"] == ids[:200]
+        assert (block["applied"], block["fallback"]) == (False, True)
+
+    def test_a_nested_auto_scope_is_kept(self):
+        out = _unwrap_secured_query_response({"status": "success", "data": {
+            "results": [], "auto_scope": {"applied": False, "fallback": True,
+                                          "node_ids": ["n-1"]}}})
+        assert out["auto_scope"]["fallback"] is True
 
     def test_rows_carry_fields_tier_and_the_title_rule(self):
         hit = dict(self.HIT, relevance_tier="borderline", score_mode="vector",
