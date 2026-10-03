@@ -586,6 +586,14 @@ class TestMessages:
         assert view.warning_text("ambiguous_date") == "Datum mehrdeutig \u2013 bitte pr\u00fcfen"
         assert view.warning_text("new_code") == "new_code"
 
+    def test_an_ambiguous_number_is_explained(self, registry):
+        """1.5.0: "1,234 is 1.234, with a warning"; 1'234 is a thousand."""
+        text = view.warning_text("ambiguous_number")
+        assert text == ("Zahl mehrdeutig \u2013 als Dezimalzahl gelesen "
+                        "(f\u00fcr Tausender 1'234 schreiben)")
+        assert view.error_message("ambiguous_number", {"path": "set.amount"}, registry) == \
+            "\u201eBetrag\u201c: " + text
+
     @pytest.mark.parametrize("reason", ["no_candidates", "below_relevance_floor",
                                         "empty_where", "empty_scope", None, "other"])
     def test_empty_states_speak_only_of_what_the_person_can_see(self, reason):

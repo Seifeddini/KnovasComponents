@@ -1018,7 +1018,8 @@ class QueryRejected(Exception):
 DOC_FIELDS_ERROR_CODES = frozenset({
     "invalid_fields", "fields_too_large", "ambiguous_field", "unknown_field",
     "invalid_value", "type_mismatch", "checksum_failed", "restricted_identifier",
-    "key_looks_personal", "ambiguous_date", "unresolved_entity", "ambiguous_entity",
+    "key_looks_personal", "ambiguous_date", "ambiguous_number", "unresolved_entity",
+    "ambiguous_entity",
     "if_version_required", "invalid_field_definition", "where_unsupported",
     "where_too_complex", "invalid_cursor", "change_not_authorized",
     "registry_write_requires_full_clearance", "version_conflict",

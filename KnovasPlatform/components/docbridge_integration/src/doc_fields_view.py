@@ -883,6 +883,8 @@ _WARNINGS = {
     "unresolved_entity": "nicht verkn\u00fcpft",
     "ambiguous_entity": "mehrere passende Eintr\u00e4ge \u2013 nicht verkn\u00fcpft",
     "ambiguous_date": "Datum mehrdeutig \u2013 bitte pr\u00fcfen",
+    "ambiguous_number": ("Zahl mehrdeutig \u2013 als Dezimalzahl gelesen "
+                         "(f\u00fcr Tausender 1'234 schreiben)"),
     "unknown_field": "Feld bei Knovas nicht bekannt",
     "invalid_value": "Wert ung\u00fcltig, nicht \u00fcbernommen",
     "type_mismatch": "Wert passt nicht zum Feldtyp, nicht \u00fcbernommen",
@@ -963,7 +965,7 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
         return f"Der Wert f\u00fcr {field} {what}." if field else f"Ein Wert {what}."
     if code == "restricted_identifier":
         return "AHV-Nummern d\u00fcrfen weder gespeichert noch gesucht werden."
-    if code in ("ambiguous_date", "unresolved_entity", "ambiguous_entity"):
+    if code in ("ambiguous_date", "ambiguous_number", "unresolved_entity", "ambiguous_entity"):
         note = warning_text(code)
         return f"{field}: {note}" if field else note
     if code == "where_too_complex":

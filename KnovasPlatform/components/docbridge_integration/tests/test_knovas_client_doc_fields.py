@@ -191,6 +191,11 @@ class TestQueryRejected:
         with pytest.raises(requests.exceptions.HTTPError):
             client.search_documents("q", limit=5, **kw)
 
+    def test_ambiguous_number_is_a_doc_fields_code(self):
+        from knovas_client import DOC_FIELDS_ERROR_CODES
+
+        assert {"ambiguous_date", "ambiguous_number"} <= DOC_FIELDS_ERROR_CODES
+
 
 class TestSearchResponse:
     HIT = {"pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf", "cosine_similarity": 0.8}
