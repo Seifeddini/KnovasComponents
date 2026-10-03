@@ -369,6 +369,70 @@ def test_a_docx_table_over_the_limit_is_uploaded_without_sentences(monkeypatch):
     assert "Pos 1999" in doc.text
 
 
+def _extract_over_the_sentence_cap(monkeypatch):
+    """The real extract(), raising as the pinned knovas-extract b5d4540 does
+    whenever sentences are asked for and one text holds more than
+    ``Limits.max_sentences`` (the 0.4.0a1 release truncates instead)."""
+    import functools
+
+    from knovas_extract.errors import ResourceExhaustedError
+
+    from sync import document_text
+
+    calls = []
+    real = document_text.extract
+
+    @functools.wraps(real)
+    def capped(raw, **kwargs):
+        calls.append(kwargs.get("emit_sentences"))
+        if kwargs.get("emit_sentences"):
+            raise ResourceExhaustedError("sentence count", 100_000, observed=100_001)
+        return real(raw, **kwargs)
+
+    monkeypatch.setattr(document_text, "extract", capped)
+    return calls
+
+
+def test_a_docx_over_the_sentence_cap_keeps_its_text(monkeypatch):
+    """Measured, then split: the library's sentence cap drops the citations
+    only. Before, the file was parked as unconvertible with its text in hand."""
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    calls = _extract_over_the_sentence_cap(monkeypatch)
+    doc = document_text._extract_bytes(_docx_bytes(["Erster Satz. Zweiter Satz."]), ".docx")
+    assert calls == [False, True]
+    assert doc.sentences is None
+    assert "Erster Satz." in doc.text
+
+
+def test_a_text_file_over_the_sentence_cap_keeps_its_text(monkeypatch):
+    """Split in the first pass (its size bounds its text): the cap drops the
+    citations, and the text is extracted again without them."""
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    calls = _extract_over_the_sentence_cap(monkeypatch)
+    doc = document_text._extract_bytes(b"Erster Satz. Zweiter Satz.", ".txt")
+    assert calls == [True, False]
+    assert doc.sentences is None
+    assert doc.text.startswith("Erster Satz.")
+
+
+def test_other_resource_limits_still_refuse_the_file(monkeypatch):
+    from knovas_extract.errors import ResourceExhaustedError
+
+    from sync import document_text
+    from sync.document_text import ConversionError
+
+    def too_big(raw, **kwargs):
+        raise ResourceExhaustedError("input size", 1, observed=2)
+
+    monkeypatch.setattr(document_text, "extract", too_big)
+    with pytest.raises(ConversionError, match="resource limit exceeded: input size"):
+        document_text._extract_bytes(b"Erster Satz.", ".txt")
+
+
 def test_a_pdf_is_split_per_page_whatever_its_text_size(monkeypatch):
     fitz = pytest.importorskip("fitz")
     from sync import document_text

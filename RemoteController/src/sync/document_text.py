@@ -964,7 +964,21 @@ def _with_sentences_if_short(raw: bytes, ext: str, kwargs: dict[str, object], re
         return result
     if not text.strip():
         return result  # "no extractable text" follows; nothing to split
-    return extract(raw, **{**kwargs, "emit_sentences": True})
+    try:
+        return extract(raw, **{**kwargs, "emit_sentences": True})
+    except ResourceExhaustedError as exc:
+        if not _is_sentence_cap(exc):
+            raise
+        logger.info("Skipping sentence emission: the library's sentence cap (ext=%s)", ext)
+        return result
+
+
+def _is_sentence_cap(exc: BaseException) -> bool:
+    """knovas-extract before its fail-soft sentence cap (the pinned b5d4540)
+    raises ``ResourceExhaustedError("sentence count")`` when one text holds
+    more than ``Limits.max_sentences`` sentences; the 0.4.0a1 release
+    truncates instead. Either way the text is good: only the citations go."""
+    return "sentence" in str(getattr(exc, "what", "")).lower()
 
 
 def _extract_bytes(
@@ -1013,7 +1027,15 @@ def _extract_bytes(
 
     started = time.monotonic()
     try:
-        result = extract(raw, **extract_kwargs)
+        try:
+            result = extract(raw, **extract_kwargs)
+        except ResourceExhaustedError as exc:
+            if not (extract_kwargs.get("emit_sentences") and _is_sentence_cap(exc)):
+                raise
+            # The text is fine; upload it without citations rather than park
+            # the file as unconvertible (the OCR cache serves a PDF's pages).
+            logger.info("Skipping sentence emission: the library's sentence cap (ext=%s)", ext)
+            result = extract(raw, **{**extract_kwargs, "emit_sentences": False})
         if measure_text_first:
             result = _with_sentences_if_short(raw, ext, extract_kwargs, result)
     except UnsupportedFormatError as exc:
