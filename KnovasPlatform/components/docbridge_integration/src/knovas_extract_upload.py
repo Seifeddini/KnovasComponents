@@ -147,6 +147,8 @@ _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS = 30
 
 TEXT_MODES = ("plain", "shadow", "layout")
 DEFAULT_PDF_TEXT_MODE = "layout"
+DOCX_TEXT_MODES = ("layout", "plain")
+DEFAULT_DOCX_TEXT_MODE = "layout"
 
 logger_ocr_warned = False
 logger_text_mode_warned = False
@@ -267,6 +269,38 @@ def pdf_text_mode() -> str:
         return raw
     logger.warning("Invalid RC_PDF_TEXT_MODE=%r; using %s", raw, DEFAULT_PDF_TEXT_MODE)
     return DEFAULT_PDF_TEXT_MODE
+
+
+def docx_text_mode() -> str:
+    """``RC_DOCX_TEXT_MODE``: layout (default) | plain -- the Connector's
+    setting (spec L3). Layout asks knovas-extract to write Word tables into
+    the text, in place, as markdown-lite rows; plain is paragraphs only."""
+    raw = (os.environ.get("RC_DOCX_TEXT_MODE") or "").strip().lower()
+    if not raw:
+        return DEFAULT_DOCX_TEXT_MODE
+    if raw in DOCX_TEXT_MODES:
+        return raw
+    logger.warning("Invalid RC_DOCX_TEXT_MODE=%r; using %s", raw, DEFAULT_DOCX_TEXT_MODE)
+    return DEFAULT_DOCX_TEXT_MODE
+
+
+def docx_tables_in_text(extra: Optional[dict[str, Any]]) -> bool:
+    """Whether knovas-extract wrote the DOCX tables into the text: it reports
+    ``docx:text_mode == "layout"``. Then no ``tables`` payload is sent (the
+    rows would be indexed twice if the server ever stopped dropping it); a
+    library without DOCX layout mode reports nothing and the payload stays."""
+    value = (extra or {}).get("docx:text_mode")
+    return isinstance(value, str) and value.strip().lower() == "layout"
+
+
+def _send_tables_payload(ext: str, extra: Optional[dict[str, Any]]) -> bool:
+    """PDF: only with ``RC_SEND_PDF_TABLES``. DOCX: only when the rows are not
+    already in the text (``docx_tables_in_text``). Everything else: yes."""
+    if ext == ".pdf":
+        return send_pdf_tables_enabled()
+    if ext == ".docx":
+        return not docx_tables_in_text(extra)
+    return True
 
 
 def ocr_engine() -> str:
@@ -726,6 +760,10 @@ def _extract_bytes(
             use_ocr=use_ocr, ocr_language=ocr_language, timeout_seconds=timeout_seconds
         )
         extract_kwargs.update(pdf_kwargs)
+    elif ext == ".docx" and docx_text_mode() == "layout" and extract_accepts("text_mode"):
+        # Word tables in place, as markdown-lite rows (spec L3).
+        extract_kwargs["text_mode"] = "layout"
+        mode = "layout"
 
     started = time.monotonic()
     try:
@@ -999,7 +1037,7 @@ def extract_parts_from_base64(
         )
 
     tables = None
-    if content.tables and (dotted != ".pdf" or send_pdf_tables_enabled()):
+    if content.tables and _send_tables_payload(dotted, content.extra):
         tables = map_extractor_tables(content.tables, default_hint_prefix=normalized) or None
 
     if write_sidecar and pointer:

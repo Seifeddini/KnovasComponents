@@ -14,7 +14,9 @@ and the dpi are passed along (unset, the library decides both); with one that
 takes `text_mode=` the `RC_PDF_TEXT_MODE` switch selects `plain`, `layout`
 (markdown-lite rows for fiduciary tables) or `shadow` (upload plain, log one
 numbers-only `ShadowDiff` against layout — the two renderings share ONE OCR
-cache object, so each page is OCR'd once; plan decision D13). Every new
+cache object, so each page is OCR'd once; plan decision D13), and
+`RC_DOCX_TEXT_MODE` (`layout` | `plain`) asks for DOCX tables as rows in
+the text (spec L3). Every new
 keyword is sent only when `extract_accepts(name)` says the installed library
 takes it, so the same source runs against today's release.
 
@@ -156,6 +158,8 @@ _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS = 30
 
 TEXT_MODES = ("plain", "shadow", "layout")
 DEFAULT_PDF_TEXT_MODE = "layout"
+DOCX_TEXT_MODES = ("layout", "plain")
+DEFAULT_DOCX_TEXT_MODE = "layout"
 
 PLAIN_TEXT_EXTENSIONS = frozenset({".md", ".txt"})
 
@@ -426,6 +430,31 @@ def pdf_text_mode() -> str:
         return raw
     logger.warning("Invalid RC_PDF_TEXT_MODE=%r; using %s", raw, DEFAULT_PDF_TEXT_MODE)
     return DEFAULT_PDF_TEXT_MODE
+
+
+def docx_text_mode() -> str:
+    """`RC_DOCX_TEXT_MODE`: layout (default) | plain (spec L3). Layout asks
+    knovas-extract to write Word tables into the text, in place, as
+    markdown-lite rows -- the server drops the `tables` payload, so before
+    this a DOCX table's content never reached the search index. Plain is
+    paragraphs only. Invalid values log one warning and use the default."""
+    raw = (os.environ.get("RC_DOCX_TEXT_MODE") or "").strip().lower()
+    if not raw:
+        return DEFAULT_DOCX_TEXT_MODE
+    if raw in DOCX_TEXT_MODES:
+        return raw
+    logger.warning("Invalid RC_DOCX_TEXT_MODE=%r; using %s", raw, DEFAULT_DOCX_TEXT_MODE)
+    return DEFAULT_DOCX_TEXT_MODE
+
+
+def docx_tables_in_text(doc: ExtractedDocument) -> bool:
+    """Whether knovas-extract wrote this DOCX's tables into its text: it
+    reports `docx:text_mode == "layout"` (DOCX layout mode). Then the upload
+    sends no `tables` payload -- the rows would be indexed twice if the
+    server ever stopped dropping it. A library without DOCX layout mode
+    reports nothing, its text has no rows, and the payload stays."""
+    value = (doc.extra or {}).get("docx:text_mode")
+    return isinstance(value, str) and value.strip().lower() == "layout"
 
 
 def ocr_engine() -> str:
@@ -920,6 +949,11 @@ def _extract_bytes(
             timeout_seconds=timeout_seconds, document_key=document_key
         )
         extract_kwargs.update(pdf_kwargs)
+    elif ext == ".docx" and docx_text_mode() == "layout" and extract_accepts("text_mode"):
+        # Word tables in place, as markdown-lite rows, so their content is
+        # searchable (spec L3); a library without DOCX layout mode returns the
+        # plain text with one warning and the tables payload stays.
+        extract_kwargs["text_mode"] = "layout"
 
     started = time.monotonic()
     try:

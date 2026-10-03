@@ -29,7 +29,7 @@ _ENV = (
     "RC_PDF_TEXT_MODE", "RC_OCR_ENGINE", "RC_OCR_DPI", "RC_OCR_WORKERS", "RC_OCR_MAX_PAGES",
     "RC_OCR_TIME_BUDGET_SECONDS", "RC_OCR_PAGE_TIMEOUT_SECONDS", "RC_TESSERACT_LANG",
     "RC_PAGE_BREAK_MARKERS", "RC_SEND_PDF_TABLES", "RC_EXTRACT_TIMEOUT_SECONDS",
-    "RC_EXTRACT_RLIMIT_AS_MB", "SEARCH_CONTEXT_STORE_PATH",
+    "RC_EXTRACT_RLIMIT_AS_MB", "SEARCH_CONTEXT_STORE_PATH", "RC_DOCX_TEXT_MODE",
 )
 
 
@@ -651,3 +651,42 @@ def test_an_engine_name_never_reaches_a_backend_slot(monkeypatch):
     options, leftovers = m.build_ocr_options({"engine": "cli", "language": "deu", "cache": None})
     assert options.backend is None
     assert leftovers == {"engine": "cli"}
+
+
+def test_docx_text_mode_env(monkeypatch):
+    assert m.docx_text_mode() == "layout"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "plain")
+    assert m.docx_text_mode() == "plain"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "rows")
+    assert m.docx_text_mode() == "layout", "an invalid value falls back to the default"
+
+
+def test_docx_layout_mode_is_requested_for_docx(monkeypatch):
+    extract_stub, seen = _signature_stub(ocr_options=False, text_mode=True)
+    monkeypatch.setattr(m, "extract", extract_stub)
+    with pytest.raises(m.ExtractionError):
+        m._extract_bytes(b"PK stub", ".docx")
+    assert seen["text_mode"] == "layout"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "plain")
+    with pytest.raises(m.ExtractionError):
+        m._extract_bytes(b"PK stub", ".docx")
+    assert seen["text_mode"] == "plain", "nothing sent: the stub's default"
+    monkeypatch.delenv("RC_DOCX_TEXT_MODE")
+    with pytest.raises(m.ExtractionError):
+        m._extract_bytes(b"stub", ".eml")
+    assert seen["text_mode"] == "plain", "DOCX only"
+
+
+def test_docx_tables_payload_only_when_the_rows_are_not_in_the_text(monkeypatch):
+    table = {"client_table_hint": "docx_t1", "headers": ["Position", "Betrag"], "rows": [["Beratung", "1'200.00"]]}
+    layout = ExtractedContent(
+        text="Position | Betrag\nBeratung | Betrag: 1'200.00", tables=[table],
+        extra={"docx:text_mode": "layout", "docx:layout_tables": 1},
+    )
+    monkeypatch.setattr(m, "extract_guarded", lambda *a, **k: layout)
+    out = m.extract_parts_from_base64(_b64(b"PK stub"), "docx", write_sidecar=False)
+    assert out.parts and all("tables" not in p for p in out.parts)
+    plain = ExtractedContent(text="Honorarnote.", tables=[table])
+    monkeypatch.setattr(m, "extract_guarded", lambda *a, **k: plain)
+    out = m.extract_parts_from_base64(_b64(b"PK stub"), "docx", write_sidecar=False)
+    assert out.parts[0]["tables"][0]["client_table_hint"] == "docx_t1"

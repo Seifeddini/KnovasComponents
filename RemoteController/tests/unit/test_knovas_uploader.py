@@ -382,3 +382,38 @@ def test_parts_carry_page_numbers_without_sentences(mock_config, tmp_path):
     bodies = [c.kwargs["json_body"] for c in req.call_args_list[1:]]
     assert [b["page_number"] for b in bodies] == [1, 2, 3]
     assert all("sentence_number" not in b for b in bodies)
+
+
+def _docx_with_table(extra):
+    from sync.document_text import ExtractedDocument
+
+    return ExtractedDocument(
+        text="Honorarnote\n\nPosition | Betrag\nBeratung | Betrag: 1'200.00",
+        sentences=None,
+        tables=[{"client_table_hint": "docx_t1", "headers": ["Position", "Betrag"],
+                 "rows": [["Beratung", "1'200.00"]]}],
+        extra=extra,
+    )
+
+
+@pytest.mark.parametrize("extra, payload", [
+    ({"docx:text_mode": "layout", "docx:layout_tables": 1}, False),
+    ({}, True),
+    (None, True),
+])
+def test_docx_tables_payload_only_when_the_rows_are_not_in_the_text(mock_config, tmp_path, extra, payload):
+    """Spec L3: in layout mode the library writes the table rows into the
+    text; a payload as well would be indexed twice if the server ever stopped
+    dropping it. A library without DOCX layout mode (no docx:text_mode) has
+    no rows in the text, and the payload stays."""
+    docx = tmp_path / "honorar.docx"
+    docx.write_bytes(b"PK stub")
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=_docx_with_table(extra)
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response(), _ok_response()]
+        uploader.upload_file(docx, "akten/honorar.docx", {"ingestion": {"identifier_prefix": "corpus"}})
+    part_json = req.call_args_list[1].kwargs["json_body"]
+    assert "Beratung | Betrag: 1'200.00" in part_json["snippet"]
+    assert ("tables" in part_json) is payload

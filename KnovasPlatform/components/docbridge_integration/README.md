@@ -27,6 +27,7 @@ against an older release; the image and CI install 0.4.0a1.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `RC_PDF_TEXT_MODE` | `layout` | `plain` — the pre-0.4 text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME in-memory OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with one warning when the library has no `text_mode`. |
+| `RC_DOCX_TEXT_MODE` | `layout` | The Knovas Connector's setting: `layout` asks knovas-extract to write Word tables into the text as markdown-lite rows (no `tables` payload for such a DOCX); `plain` is paragraphs only, tables as payload. Invalid values log a warning and use `layout`. |
 | `RC_TESSERACT_LANG` | config `advanced.extraction.ocr_language` (`deu+eng`) | Tesseract language packs joined by `+`; the env value wins over the config value. A value of another shape logs a warning and is skipped (then the config value, then `deu+eng`). OCR itself is switched by `advanced.extraction.use_ocr` (default on). |
 | `RC_OCR_ENGINE` | `auto` | `auto` / `tesserocr` / `cli` / `mupdf` (knovas-extract ≥ 0.4). |
 | `RC_OCR_DPI` | (unset) | Unset: no `dpi` is passed — native resolution, at most 300 dpi, never upsampled. Set (30–1200): every page at exactly this resolution (a lower-resolution scan is upsampled). Any other value logs a warning and counts as unset. |
@@ -37,7 +38,7 @@ against an older release; the image and CI install 0.4.0a1.
 | `RC_EXTRACT_TIMEOUT_SECONDS` | `120` | Wall-clock ceiling for one upload's extraction (child process). `0` extracts in-process without a ceiling. No per-page scaling: a 300-page scan belongs to the RC, not to a browser request. |
 | `RC_EXTRACT_RLIMIT_AS_MB` | `2048` | Address-space limit of the extraction child (`RLIMIT_AS`); `0` disables. The child also runs at `nice 10`. |
 | `RC_PAGE_BREAK_MARKERS` | `true` | Form feed(s) before every text-page start inside a part so the server serves a hit on its own page (GI-INGEST-17). The part's `page_number` stays the page of its first character; the context sidecar is written from the unmarked text. |
-| `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are still sent. |
+| `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are sent unless the library wrote their rows into the text (`RC_DOCX_TEXT_MODE=layout`). |
 | `SEARCH_CONTEXT_STORE_PATH` | (unset) | Directory of the context sidecars (one JSON per document) the search UI reads for first-page previews and hit context; shared with the RC. |
 
 **The guard.** Extraction never runs in the gunicorn request thread: it runs

@@ -20,6 +20,7 @@ from sync.document_text import (
     ConversionError,
     ExtractedDocument,
     _env_flag,
+    docx_tables_in_text,
     extract_document_guarded,
     ocr_backend_missing,
     partial_note_for,
@@ -248,6 +249,11 @@ class SemantixUploader:
             extracted_title = doc.title
             tables = doc.tables
             if ext == ".pdf" and not send_pdf_tables_enabled():
+                tables = None
+            elif ext == ".docx" and docx_tables_in_text(doc):
+                # Layout mode wrote the rows into the text (spec L3): a
+                # payload would be indexed twice if the server ever stopped
+                # dropping it at its part buffer.
                 tables = None
             parts = build_transmission_parts(
                 text,

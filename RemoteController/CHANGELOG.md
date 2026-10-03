@@ -14,6 +14,7 @@
 - **`RC_SENTENCE_EMIT_MAX_BYTES` defaults to `0`** (no gate): sentence citations for every input, including multi-page scans, which the 2 MiB gate on raw size used to cut off. A positive value restores the gate.
 - Every part's `page_number` comes from `content.pages` (the page of its first character), so page numbers no longer depend on sentence splitting: they stay right without sentences, after the library's fail-soft sentence cap, and on a page the library could not split into sentences. A part after the last sentence of a capped list carries no `sentence_number` instead of repeating the last one (Knovas Connector and Platform chunker).
 - **OCR settings validated**: `RC_TESSERACT_LANG` must be language packs joined by `+`; `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` at least 1 — else one warning and the default (no silent clamp). Settings the library still refuses fail every PDF with `extraction configuration invalid: <setting>`, retried every cycle without using up `RC_EXTRACT_MAX_RETRIES` (before: `corrupt .pdf`, every PDF skipped for good).
+- **`RC_DOCX_TEXT_MODE`** (`layout` default, `plain`; the Platform reads it too): knovas-extract writes Word tables into the text as markdown-lite rows, so their content becomes searchable (the server drops the `tables` payload). A DOCX the library rendered that way (`docx:text_mode: layout`) is sent without a `tables` payload.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 

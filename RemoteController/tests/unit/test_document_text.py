@@ -1100,3 +1100,64 @@ def test_an_engine_name_never_reaches_a_backend_slot(monkeypatch):
     built = document_text.build_ocr_options({"engine": "cli", "language": "deu", "cache": "c"})
     assert built.backend is None
     assert (built.language, built.cache) == ("deu", "c")
+
+
+# --- DOCX layout mode (spec L3) ----------------------------------------------
+
+
+def test_docx_text_mode_env(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import docx_text_mode
+
+    monkeypatch.delenv("RC_DOCX_TEXT_MODE", raising=False)
+    assert docx_text_mode() == "layout", "tables in the text by default"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", " Plain ")
+    assert docx_text_mode() == "plain"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "shadow")
+    with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+        assert docx_text_mode() == "layout", "shadow is a PDF mode: invalid here"
+    assert any("RC_DOCX_TEXT_MODE" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("env, ext, sent", [
+    (None, ".docx", "layout"),
+    ("layout", ".docx", "layout"),
+    ("plain", ".docx", None),
+    (None, ".eml", None),
+    (None, ".msg", None),
+    (None, ".txt", None),
+])
+def test_docx_layout_mode_is_requested_for_docx_only(monkeypatch, env, ext, sent):
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=False, text_mode=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    if env is None:
+        monkeypatch.delenv("RC_DOCX_TEXT_MODE", raising=False)
+    else:
+        monkeypatch.setenv("RC_DOCX_TEXT_MODE", env)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"PK stub", ext)
+    # the stub records its own default ("plain") when nothing was sent
+    assert seen["text_mode"] == (sent or "plain")
+
+
+def test_docx_layout_mode_is_withheld_from_a_library_without_text_mode(monkeypatch):
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=False, text_mode=False)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.delenv("RC_DOCX_TEXT_MODE", raising=False)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"PK stub", ".docx")
+    assert "text_mode" not in seen
+
+
+def test_docx_tables_in_text_reads_the_library_metadata():
+    from sync.document_text import ExtractedDocument, docx_tables_in_text
+
+    layout = ExtractedDocument(text="x", sentences=None, extra={"docx:text_mode": "layout", "docx:layout_tables": 2})
+    assert docx_tables_in_text(layout) is True
+    assert docx_tables_in_text(ExtractedDocument(text="x", sentences=None, extra={})) is False
+    assert docx_tables_in_text(ExtractedDocument(text="x", sentences=None, extra=None)) is False
