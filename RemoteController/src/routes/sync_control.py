@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 
 from auth.knovas_verify_client import require_operator_or_tenant_admin, require_same_origin
 from auth.rc_rate_limit import require_rc_handled_rate_limit, require_rc_ip_rate_limit
+from sync import extract_metrics
 from sync.sync_config import load_sync_config
 from sync.sync_state import SyncStateStore
 from sync.sync_state_db import REQUEUE_OUTCOMES
@@ -76,6 +77,9 @@ def sync_status():
     # Knovas document-fields state: keys, codes and counts, never values.
     status["capabilities"] = list(RC_CAPABILITIES)
     status["doc_fields"] = doc_fields_status()
+    # The extractor and its settings (versions and setting names only): the
+    # Platform's System tab compares the version with its own.
+    status["extraction"] = extract_metrics.extraction_info()
     if request.args.get("live") == "1":
         body = load_last_sync_body()
         if body:

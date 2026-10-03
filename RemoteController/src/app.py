@@ -17,6 +17,7 @@ from routes.metrics import metrics_bp
 from routes.sync import sync_bp
 from routes.sync_config_route import sync_config_bp
 from routes.sync_control import sync_control_bp
+from sync import extract_metrics
 from sync.sync_scheduler import maybe_auto_start
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,10 @@ def create_app(*, skip_validation: bool = False) -> Flask:
     app.register_blueprint(sync_control_bp)
     app.register_blueprint(sync_config_bp)
     app.register_blueprint(m365_bp)
+
+    # rc_build_info: which knovas-extract and which settings this process
+    # extracts with -- versions and setting names only, one series.
+    extract_metrics.set_build_info()
 
     @app.before_request
     def _log_request():

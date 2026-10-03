@@ -181,3 +181,12 @@ def test_build_info_is_one_series_under_the_current_settings(monkeypatch):
 def test_rc_version_is_the_pyproject_version():
     pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
     assert em.RC_VERSION == tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+
+
+def test_the_app_sets_the_build_info_at_start(tmp_watch_root, monkeypatch):
+    import app as app_module  # builds its own app once, on first import
+
+    calls = []
+    monkeypatch.setattr(em, "set_build_info", lambda: calls.append(True))
+    app_module.create_app(skip_validation=True)
+    assert calls == [True]

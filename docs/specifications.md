@@ -249,7 +249,7 @@ State is stored in SQLite (`.rc-sync-state.db`, v1 format). Scheduler configurat
 | ------------------ | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /health`      | None                  | **200** with `{"status":"ok", ...}` when healthy; **503** with `"status":"degraded"` if configuration is invalid, watch roots are unreadable, or the scheduler is unhealthy |
 | `GET /metrics`     | None                  | Prometheus metrics — restrict at the edge if required                                                                                                                       |
-| `GET /sync/status` | JWT (or local bypass) | Sync status; supports `?live=1` and `?live=1&deep_scan=1`                                                                                                                   |
+| `GET /sync/status` | JWT (or local bypass) | Sync status; supports `?live=1` and `?live=1&deep_scan=1`; `extraction` names the knovas-extract version and the text modes                                                 |
 
 
 Logs: structured JSON (no secrets, file basenames only) via `docker compose logs -f remote-controller`.
