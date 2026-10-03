@@ -496,8 +496,9 @@ def test_text_mode_and_ocr_options_are_sent_when_accepted(monkeypatch):
     assert opts.kwargs["dpi"] == 200
     assert opts.kwargs["workers"] == 2
     assert opts.kwargs["max_ocr_pages"] == 77
-    # min(240, 300 - 30) = 240, then never more than 300 - 2*60 - 10 = 170
-    assert opts.kwargs["time_budget_seconds"] == 170
+    # min(240, 300 - 30) = 240, then never more than 300 - 60 - 10 = 230
+    # (the worker count no longer enters the cap)
+    assert opts.kwargs["time_budget_seconds"] == 230
     assert hasattr(opts.kwargs["cache"], "get") and hasattr(opts.kwargs["cache"], "put")
 
 
@@ -527,8 +528,8 @@ def test_ocr_budgets_reach_the_library_limits(monkeypatch):
     assert limits.max_ocr_pages == 77
     assert limits.ocr_page_timeout_seconds == 45
     assert limits.max_ocr_workers == 2
-    # min(240, 300 - 30) = 240, then never more than 300 - 2*45 - 10 = 200
-    assert limits.ocr_time_budget_seconds == 200
+    # min(240, 300 - 30) = 240, under the cap 300 - 45 - 10 = 245
+    assert limits.ocr_time_budget_seconds == 240
     # the non-OCR limits keep the library defaults
     assert limits.max_pages == Limits().max_pages
 
@@ -576,17 +577,105 @@ def test_ocr_option_names_follow_the_library_signature(monkeypatch):
     assert (built.engine, built.max_pages, built.cache) == ("cli", 12, "c")
 
 
-def test_ocr_time_budget_derivation(monkeypatch):
+_BUDGET_ENV = ("RC_EXTRACT_TIMEOUT_SECONDS", "RC_EXTRACT_TIMEOUT_PER_PAGE_SECONDS",
+               "RC_EXTRACT_TIMEOUT_MAX_SECONDS", "RC_OCR_TIME_BUDGET_SECONDS")
+
+
+@pytest.mark.parametrize("pages, timeout, page_timeout, expected", [
+    # The audit's table (60 s page timeout, ceiling 300 s + 2 s/page): with
+    # five or more OCR workers the old cap took these to the 10 s floor.
+    (10, 300, 60, 230),
+    (50, 300, 60, 230),
+    (150, 300, 60, 230),
+    (250, 500, 60, 240),
+    (400, 800, 60, 240),
+    (900, 1800, 60, 240),
+    # short ceilings: one page timeout and the margin still fit
+    (None, 120, 60, 50),
+    (None, 90, 60, 20),
+    (None, 120, 30, 80),
+    (None, 60, 60, 10),   # never below the floor
+    (None, 0, 60, 240),   # no ceiling: the default budget
+])
+def test_ocr_time_budget_derivation(monkeypatch, pages, timeout, page_timeout, expected):
+    from sync.document_text import extract_timeout_seconds, ocr_time_budget_seconds
+
+    for name in _BUDGET_ENV:
+        monkeypatch.delenv(name, raising=False)
+    if pages is not None:
+        assert extract_timeout_seconds(pages) == timeout, "the ceiling the child derives for this PDF"
+    assert ocr_time_budget_seconds(timeout, page_timeout) == expected
+
+
+def test_ocr_time_budget_env_override_is_still_capped(monkeypatch):
     from sync.document_text import ocr_time_budget_seconds
 
-    monkeypatch.delenv("RC_OCR_TIME_BUDGET_SECONDS", raising=False)
-    assert ocr_time_budget_seconds(300, 1, 60) == 230, "min(240, 270) then <= 300-60-10"
-    assert ocr_time_budget_seconds(1800, 4, 60) == 240
-    assert ocr_time_budget_seconds(120, 4, 60) == 10, "never below the floor"
-    assert ocr_time_budget_seconds(0, 4, 60) == 240, "no ceiling: default budget"
     monkeypatch.setenv("RC_OCR_TIME_BUDGET_SECONDS", "900")
-    assert ocr_time_budget_seconds(1800, 2, 60) == 900
-    assert ocr_time_budget_seconds(300, 2, 60) == 170, "the env value is still capped by the kill"
+    assert ocr_time_budget_seconds(1800, 60) == 900
+    assert ocr_time_budget_seconds(300, 60) == 230, "the env value is still capped by the kill"
+    assert ocr_time_budget_seconds(0, 60) == 900, "no ceiling: the env value as is"
+
+
+@pytest.mark.parametrize("workers", [None, "1", "5", "8"])
+def test_the_budget_does_not_depend_on_the_worker_count(monkeypatch, workers):
+    """7+ cores no longer matter: pages in flight finish in parallel."""
+    from sync.document_text import ocr_options_kwargs
+
+    for name in _BUDGET_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("RC_OCR_PAGE_TIMEOUT_SECONDS", raising=False)
+    if workers is None:
+        monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    else:
+        monkeypatch.setenv("RC_OCR_WORKERS", workers)
+    assert ocr_options_kwargs(300)["time_budget_seconds"] == 230
+
+
+def test_ocr_workers_env(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import ocr_workers
+
+    monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    assert ocr_workers() is None, "unset: the library sizes the pool"
+    for raw, expected in (("3", 3), ("64", 8), ("0", 1), ("-2", 1)):
+        monkeypatch.setenv("RC_OCR_WORKERS", raw)
+        assert ocr_workers() == expected, raw
+    monkeypatch.setenv("RC_OCR_WORKERS", "many")
+    with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+        assert ocr_workers() is None
+    assert any("RC_OCR_WORKERS" in r.getMessage() for r in caplog.records)
+
+
+def test_unset_workers_leave_the_pool_and_its_ceiling_to_the_library(monkeypatch):
+    """OcrOptions(workers=None) -- the library's cgroup-aware default -- and
+    Limits.max_ocr_workers at the library's 8: None there would break the
+    library's min()."""
+    from knovas_extract.result import Limits
+
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=False, limits=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", _FakeOcrOptions)
+    monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert seen["ocr"].kwargs["workers"] is None
+    assert seen["limits"].max_ocr_workers == Limits().max_ocr_workers
+
+
+def test_the_library_takes_workers_none(monkeypatch):
+    from sync import document_text
+
+    if document_text.OcrOptions is None:
+        pytest.skip("needs knovas-extract >= 0.4")
+    monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    options = document_text.build_ocr_options(document_text.ocr_options_kwargs(300))
+    limits = document_text.build_ocr_limits(document_text.ocr_options_kwargs(300))
+    assert options.workers is None
+    assert limits.max_ocr_workers == 8
 
 
 def test_pdf_text_mode_env(monkeypatch):

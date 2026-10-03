@@ -362,28 +362,37 @@ def ocr_engine() -> str:
     return DEFAULT_OCR_ENGINE
 
 
-def _available_cores() -> int:
+def ocr_workers() -> Optional[int]:
+    """`RC_OCR_WORKERS`. Unset (default): None, and the library sizes the pool
+    itself -- `min(Limits.max_ocr_workers, CPUs - 1)`, the CPUs counted from
+    the affinity mask AND the container's cgroup v2 CPU quota (the
+    Connector's old default, cores - 2, saw neither the quota nor the
+    library's ceiling). Set: that many, 1 to 8, as before; a value that is
+    not a number logs one warning and counts as unset."""
+    raw = (os.environ.get("RC_OCR_WORKERS") or "").strip()
+    if not raw:
+        return None
     try:
-        return max(1, len(os.sched_getaffinity(0)))
-    except (AttributeError, OSError):
-        return max(1, os.cpu_count() or 1)
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid RC_OCR_WORKERS=%r; the library chooses the worker count", raw)
+        return None
+    return max(1, min(DEFAULT_OCR_MAX_WORKERS, value))
 
 
-def ocr_workers() -> int:
-    """`RC_OCR_WORKERS`, default `max(1, cores - 2)`, at most 8."""
-    default = max(1, _available_cores() - 2)
-    return max(1, min(DEFAULT_OCR_MAX_WORKERS, _env_int("RC_OCR_WORKERS", default, minimum=1)))
+def ocr_time_budget_seconds(timeout_seconds: int, page_timeout_seconds: int) -> int:
+    """The OCR time budget the child hands the library (spec E2).
 
-
-def ocr_time_budget_seconds(timeout_seconds: int, workers: int, page_timeout_seconds: int) -> int:
-    """The OCR time budget the child hands the library.
-
-    Default `min(240, timeout - 30)` (`RC_OCR_TIME_BUDGET_SECONDS` overrides),
-    and never more than `timeout - workers × page_timeout - 10`: the pool
-    stops SUBMITTING when the budget trips, but up to `workers` pages may
-    still be running for a page timeout each, and the partial result has to
-    reach the parent before the wall-clock kill (plan `[C-sec-0]`). With the
-    ceiling disabled (`timeout == 0`) the env value or 240 s applies as is.
+    Default `min(240, timeout - 30)` (`RC_OCR_TIME_BUDGET_SECONDS`
+    overrides), never more than `timeout - page_timeout - 10`, at least
+    10 s. The pool stops SUBMITTING pages when the budget trips; the pages
+    already running finish IN PARALLEL within one page timeout, and the
+    partial result then needs the margin to reach the parent before the
+    wall-clock kill (plan `[C-sec-0]`). The cap used to subtract
+    `workers × page_timeout`, as if those pages ran one after another: from
+    five workers on (7+ cores) the budget of every PDF up to ~150 pages fell
+    to the 10 s floor and long scans came back partial. With the ceiling
+    disabled (`timeout <= 0`) the env value or 240 s applies as is.
     """
     configured = _env_int("RC_OCR_TIME_BUDGET_SECONDS", -1, minimum=-1)
     if timeout_seconds <= 0:
@@ -391,29 +400,28 @@ def ocr_time_budget_seconds(timeout_seconds: int, workers: int, page_timeout_sec
     budget = configured if configured >= 0 else min(
         DEFAULT_OCR_TIME_BUDGET_SECONDS, timeout_seconds - _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS
     )
-    hard_cap = timeout_seconds - workers * page_timeout_seconds - _OCR_BUDGET_RENDER_MARGIN_SECONDS
-    budget = min(budget, hard_cap)
-    return max(MIN_OCR_TIME_BUDGET_SECONDS, budget)
+    hard_cap = timeout_seconds - page_timeout_seconds - _OCR_BUDGET_RENDER_MARGIN_SECONDS
+    return max(MIN_OCR_TIME_BUDGET_SECONDS, min(budget, hard_cap))
 
 
 def ocr_options_kwargs(timeout_seconds: Optional[int] = None) -> dict[str, Any]:
     """Keyword arguments for the library's `OcrOptions`, from the environment.
 
-    `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_OCR_WORKERS`, `RC_OCR_MAX_PAGES`,
-    `RC_OCR_TIME_BUDGET_SECONDS` (derived from the extraction timeout when
-    unset), `RC_OCR_PAGE_TIMEOUT_SECONDS`, `RC_TESSERACT_LANG`. The cache is
-    added by the caller (`cache=`); its size is `RC_OCR_CACHE_MAX_MB` (see
+    `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_OCR_WORKERS` (None while unset: the
+    library sizes the pool), `RC_OCR_MAX_PAGES`, `RC_OCR_TIME_BUDGET_SECONDS`
+    (derived from the extraction timeout when unset),
+    `RC_OCR_PAGE_TIMEOUT_SECONDS`, `RC_TESSERACT_LANG`. The cache is added by
+    the caller (`cache=`); its size is `RC_OCR_CACHE_MAX_MB` (see
     `sync.ocr_cache`).
     """
     timeout = extract_timeout_seconds() if timeout_seconds is None else int(timeout_seconds)
-    workers = ocr_workers()
     page_timeout = _env_int("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, minimum=1)
     return {
         "engine": ocr_engine(),
         "dpi": _env_int("RC_OCR_DPI", DEFAULT_OCR_DPI, minimum=72),
-        "workers": workers,
+        "workers": ocr_workers(),
         "max_ocr_pages": _env_int("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES),
-        "time_budget_seconds": ocr_time_budget_seconds(timeout, workers, page_timeout),
+        "time_budget_seconds": ocr_time_budget_seconds(timeout, page_timeout),
         "page_timeout_seconds": page_timeout,
         "language": tesseract_language(),
     }
@@ -462,6 +470,10 @@ def build_ocr_limits(options: dict[str, Any]) -> Any:
         return None
     accepted: dict[str, Any] = {}
     for ours, value in options.items():
+        if value is None:
+            # RC_OCR_WORKERS unset: Limits.max_ocr_workers keeps the library's
+            # ceiling (8); None there would break the library's min().
+            continue
         for name in _OCR_LIMIT_ALIASES.get(ours, ()):
             if name in params:
                 accepted[name] = value

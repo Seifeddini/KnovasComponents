@@ -244,16 +244,18 @@ def ocr_workers() -> int:
     return max(1, min(DEFAULT_OCR_MAX_WORKERS, _env_int("RC_OCR_WORKERS", DEFAULT_OCR_WORKERS, minimum=1)))
 
 
-def ocr_time_budget_seconds(timeout_seconds: int, workers: int, page_timeout_seconds: int) -> int:
+def ocr_time_budget_seconds(timeout_seconds: int, page_timeout_seconds: int) -> int:
     """The OCR time budget the child hands the library.
 
     Default ``min(60, timeout - 30)`` (``RC_OCR_TIME_BUDGET_SECONDS``
-    overrides), and never more than ``timeout - workers × page_timeout -
-    10``: the pool stops SUBMITTING when the budget trips, but up to
-    ``workers`` pages may still be running for a page timeout each, and the
-    partial result has to reach the parent before the wall-clock kill (plan
-    ``[C-sec-0]``). With the ceiling disabled (``timeout == 0``) the env value
-    or 60 s applies as is.
+    overrides), never more than ``timeout - page_timeout - 10``, at least
+    10 s: the pool stops SUBMITTING when the budget trips, the pages already
+    running finish in parallel within one page timeout, and the partial
+    result has to reach the parent before the wall-clock kill (plan
+    ``[C-sec-0]``; the Connector's rule, spec E2 -- the cap used to subtract
+    ``workers × page_timeout``, which only the default of one worker kept
+    harmless). With the ceiling disabled (``timeout == 0``) the env value or
+    60 s applies as is.
     """
     configured = _env_int("RC_OCR_TIME_BUDGET_SECONDS", -1, minimum=-1)
     if timeout_seconds <= 0:
@@ -261,9 +263,8 @@ def ocr_time_budget_seconds(timeout_seconds: int, workers: int, page_timeout_sec
     budget = configured if configured >= 0 else min(
         DEFAULT_OCR_TIME_BUDGET_SECONDS, timeout_seconds - _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS
     )
-    hard_cap = timeout_seconds - workers * page_timeout_seconds - _OCR_BUDGET_RENDER_MARGIN_SECONDS
-    budget = min(budget, hard_cap)
-    return max(MIN_OCR_TIME_BUDGET_SECONDS, budget)
+    hard_cap = timeout_seconds - page_timeout_seconds - _OCR_BUDGET_RENDER_MARGIN_SECONDS
+    return max(MIN_OCR_TIME_BUDGET_SECONDS, min(budget, hard_cap))
 
 
 def ocr_options_kwargs(timeout_seconds: Optional[int] = None, language: str = DEFAULT_TESSERACT_LANG) -> dict[str, Any]:
@@ -274,14 +275,13 @@ def ocr_options_kwargs(timeout_seconds: Optional[int] = None, language: str = DE
     ``RC_TESSERACT_LANG``. The cache is added by the caller (``cache=``).
     """
     timeout = extract_timeout_seconds() if timeout_seconds is None else int(timeout_seconds)
-    workers = ocr_workers()
     page_timeout = _env_int("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, minimum=1)
     return {
         "engine": ocr_engine(),
         "dpi": _env_int("RC_OCR_DPI", DEFAULT_OCR_DPI, minimum=72),
-        "workers": workers,
+        "workers": ocr_workers(),
         "max_ocr_pages": _env_int("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES),
-        "time_budget_seconds": ocr_time_budget_seconds(timeout, workers, page_timeout),
+        "time_budget_seconds": ocr_time_budget_seconds(timeout, page_timeout),
         "page_timeout_seconds": page_timeout,
         "language": tesseract_language(language),
     }

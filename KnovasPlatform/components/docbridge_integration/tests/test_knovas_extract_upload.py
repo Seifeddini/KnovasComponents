@@ -171,7 +171,7 @@ def test_text_mode_and_ocr_options_are_sent_when_accepted(monkeypatch):
     assert opts.kwargs["dpi"] == 200
     assert opts.kwargs["workers"] == 1
     assert opts.kwargs["max_ocr_pages"] == 77
-    # Platform defaults: min(60, 120 - 30) = 60, under the cap 120 - 1*30 - 10 = 80
+    # Platform defaults: min(60, 120 - 30) = 60, under the cap 120 - 30 - 10 = 80
     assert opts.kwargs["time_budget_seconds"] == 60
     assert opts.kwargs["language"] == "deu+fra"
     assert hasattr(opts.kwargs["cache"], "get") and hasattr(opts.kwargs["cache"], "put")
@@ -190,13 +190,23 @@ def test_conservative_ocr_defaults(monkeypatch):
 
 
 def test_ocr_time_budget_derivation(monkeypatch):
-    assert m.ocr_time_budget_seconds(120, 1, 30) == 60
-    assert m.ocr_time_budget_seconds(120, 2, 30) == 50, "never past timeout - workers*page - 10"
-    assert m.ocr_time_budget_seconds(40, 1, 30) == 10, "never below the floor"
-    assert m.ocr_time_budget_seconds(0, 4, 30) == 60, "no ceiling: default budget"
+    assert m.ocr_time_budget_seconds(120, 30) == 60, "min(60, 90), under the cap 120 - 30 - 10"
+    assert m.ocr_time_budget_seconds(60, 30) == 20, "min(60, 30), capped at 60 - 30 - 10"
+    assert m.ocr_time_budget_seconds(40, 30) == 10, "never below the floor"
+    assert m.ocr_time_budget_seconds(0, 30) == 60, "no ceiling: default budget"
     monkeypatch.setenv("RC_OCR_TIME_BUDGET_SECONDS", "900")
-    assert m.ocr_time_budget_seconds(0, 1, 30) == 900
-    assert m.ocr_time_budget_seconds(120, 1, 30) == 80, "the env value is still capped by the kill"
+    assert m.ocr_time_budget_seconds(0, 30) == 900
+    assert m.ocr_time_budget_seconds(120, 30) == 80, "the env value is still capped by the kill"
+
+
+def test_more_ocr_workers_no_longer_collapse_the_budget(monkeypatch):
+    """The cap subtracted workers x page timeout: RC_OCR_WORKERS=4 took the
+    Platform's 60 s budget to the 10 s floor (120 - 4*30 - 10). The Platform
+    keeps one worker by default; only the formula changes (spec E2)."""
+    monkeypatch.setenv("RC_OCR_WORKERS", "4")
+    assert m.ocr_options_kwargs()["time_budget_seconds"] == 60
+    monkeypatch.delenv("RC_OCR_WORKERS")
+    assert m.ocr_options_kwargs()["workers"] == 1, "the conservative default stays"
 
 
 def test_ocr_budgets_route_to_limits_when_ocr_options_lacks_them(monkeypatch):
