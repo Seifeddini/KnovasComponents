@@ -362,6 +362,31 @@ def ocr_engine() -> str:
     return DEFAULT_OCR_ENGINE
 
 
+# --- temporary until the EXT part is merged (plan EXT-4, EXT-5, EXT-13); the merge deletes this block ---
+def ocr_dpi() -> Optional[int]:
+    """`RC_OCR_DPI` when set and within 30..1200, else None (placeholder for EXT-4)."""
+    raw = (os.environ.get("RC_OCR_DPI") or "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if 30 <= value <= 1200 else None
+
+
+def sentence_emit_max_bytes() -> int:
+    """`RC_SENTENCE_EMIT_MAX_BYTES`, default 0 = no gate (placeholder for EXT-5)."""
+    return _env_int("RC_SENTENCE_EMIT_MAX_BYTES", 0, minimum=0)
+
+
+def docx_text_mode() -> str:
+    """`RC_DOCX_TEXT_MODE`: layout (default) or plain (placeholder for EXT-13)."""
+    raw = (os.environ.get("RC_DOCX_TEXT_MODE") or "").strip().lower()
+    return raw if raw in ("layout", "plain") else "layout"
+# --- end of the temporary EXT block ---
+
+
 def _available_cores() -> int:
     try:
         return max(1, len(os.sched_getaffinity(0)))
