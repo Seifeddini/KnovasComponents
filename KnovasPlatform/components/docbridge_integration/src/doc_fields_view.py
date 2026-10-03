@@ -902,12 +902,23 @@ def warning_text(code: Any) -> str:
     return _WARNINGS.get(str(code or ""), str(code or ""))
 
 
-def _path_key(path: Any) -> Optional[str]:
-    """``where.mandant`` / ``set.doc_type[0]`` / ``fields.x`` -> the key."""
+#: The operator Knovas appends to the path of a refused operand
+#: (``where.amount.gte``, ``where.amount.between[0]``, ``where.reference.prefix``).
+_PATH_OPERATOR_RE = re.compile(r"\.(?:%s)$" % "|".join(_OPS_IN_ORDER + ("match",)))
+
+
+def path_key(path: Any) -> Optional[str]:
+    """``where.mandant`` / ``set.doc_type[0]`` / ``fields.x`` -> the key.
+
+    An operand of an operator clause names its field too: the trailing
+    operator (and its index) is dropped, so ``where.amount.between[0]`` is
+    ``amount``. A key is never itself taken for an operator (``where.in``).
+    """
     if not isinstance(path, str) or "." not in path:
         return None
     key = path.split(".", 1)[1]
     key = re.sub(r"\[\d+\]$", "", key)
+    key = _PATH_OPERATOR_RE.sub("", key)
     return key or None
 
 
@@ -925,7 +936,7 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
     code = str(code or "")
     details = details if isinstance(details, Mapping) else {}
     path = details.get("path")
-    key = _path_key(path)
+    key = path_key(path)
     field = _quoted(field_label(registry, key)) if key else None
 
     def _labels(keys: Any) -> str:

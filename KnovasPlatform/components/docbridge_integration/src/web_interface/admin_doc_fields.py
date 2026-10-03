@@ -1015,14 +1015,6 @@ def knovas_message(exc: BaseException, registry: Any = None) -> Tuple[str, int]:
     return "Die Anfrage an Knovas ist fehlgeschlagen.", 502
 
 
-def path_key(path: Any) -> Optional[str]:
-    """``set.doc_type[0]`` / ``where.mandant`` -> the field key, else None."""
-    if not isinstance(path, str) or "." not in path:
-        return None
-    key = re.sub(r"\[\d+\]$", "", path.split(".", 1)[1])
-    return key or None
-
-
 def _log_failure(action: str, exc: BaseException) -> None:
     """Codes only: the exception text may carry a server message."""
     logger.warning("doc-fields admin %s failed: %s %s", action,

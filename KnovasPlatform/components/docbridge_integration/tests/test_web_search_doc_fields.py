@@ -401,6 +401,19 @@ class TestRefusedFilter:
         assert "Meinten Sie \u201eMandant\u201c?" in body["error"]
         assert "Muster AG" not in body["error"], "a value is never repeated"
 
+    @pytest.mark.parametrize("path", ["where.amount.gte", "where.amount.between[0]"])
+    def test_a_refused_operand_names_the_field_by_label(self, filters_app, identity_repo,
+                                                        path):
+        """An operator object (ab / bis) refused by Knovas: the path carries
+        the operator, the browser gets the field and its label."""
+        app, api = filters_app
+        client = signed_in(app, identity_repo, role="member")
+        api.fail_call("search_documents", 400, "invalid_value", path=path)
+        body = search(client, where={"amount": {"gte": "CHF 1'000"}}).get_json()
+        assert body["error_code"] == "filter_invalid"
+        assert body["error"] == "Der Wert f\u00fcr \u201eBetrag\u201c ist ung\u00fcltig."
+        assert (body["field"], body["field_label"]) == ("amount", "Betrag")
+
     def test_calibration_message_says_try_again_later(self, filters_app, identity_repo):
         """F6: a temporary problem at Knovas, never a missing setup step."""
         app, api = filters_app
