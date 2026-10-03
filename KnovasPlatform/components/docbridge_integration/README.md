@@ -51,12 +51,16 @@ library flagged the input" (GI-EXTRACT-02). The image sets
 (Dockerfile `180`, compose `DOCBRIDGE_WEB_TIMEOUT`, default `180`) must stay
 above `RC_EXTRACT_TIMEOUT_SECONDS`.
 
-**Partial uploads.** `metadata.extra` is read defensively: `pdf:ocr_pages_skipped > 0`
-(budget trip), or `pdf:ocr_backend = "none"` with OCR configured and no
-skipped-page count, makes the upload `partial`. The note — counts and the
-backend name only, never text (GI-EXTRACT-04) — is logged, returned in the
-sync result (`partial`) and written into the document's sidecar, from where
-the search result carries it as `context_partial`.
+**Partial uploads.** The same rule as the Knovas Connector (spec E1):
+`pdf:ocr_pages_skipped > 0` (budget or page cap, or no OCR engine —
+knovas-extract 0.4 counts those pages as skipped), `pdf:ocr_pages_failed > 0`,
+or — for a library that does not count skipped pages — `pdf:ocr_backend =
+"none"` with OCR configured and no skipped-page count makes the upload
+`partial`. A born-digital PDF (backend `none`, nothing skipped) is complete.
+The note — counts and the backend name only, never text (GI-EXTRACT-04) — is
+logged, returned in the sync result (`partial`) and written into the
+document's sidecar, from where the search result carries it as
+`context_partial`.
 
 ## Document fields
 

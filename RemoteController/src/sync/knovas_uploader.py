@@ -21,6 +21,7 @@ from sync.document_text import (
     ExtractedDocument,
     _env_flag,
     extract_document_guarded,
+    ocr_backend_missing,
     partial_note_for,
     pdf_ocr_enabled,
 )
@@ -85,9 +86,10 @@ class UploadResult:
     status: str
     ingestion_requests: int
     error: Optional[str] = None
-    #: Counts and reasons when the text landed only in part (OCR pages
-    #: skipped on a budget trip, no OCR backend although one was configured);
-    #: None for a complete document. Recorded by the executor (GI-EXTRACT-02).
+    #: The library's OCR counts when the text landed only in part (pages
+    #: skipped on a budget trip or for want of an engine, pages that failed
+    #: OCR; ``document_text.partial_note_for``); None for a complete
+    #: document. Recorded by the executor (GI-EXTRACT-02).
     partial: Optional[dict[str, Any]] = None
     #: What happened to the init ``fields`` (spec 3.6); None when the upload
     #: was not given a ``source`` or the init did not succeed.
@@ -268,7 +270,7 @@ class SemantixUploader:
             part_count = len(parts)
             partial = partial_note_for(doc, expect_ocr=(ext == ".pdf" and bool(pdf_ocr_enabled())))
             _record_cache_metrics(doc)
-            if partial and partial.get("reason") == "ocr_backend_none":
+            if ocr_backend_missing(partial):
                 ocr_metrics.OCR_BACKEND_DEGRADED.inc()
         except Exception as exc:
             return UploadResult(

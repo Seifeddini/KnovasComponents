@@ -169,8 +169,11 @@ The messages that identify the parked files are in the RC log (`Upload failed pa
 A document whose text landed only in part is recorded **partial**, not parked (GI-EXTRACT-02):
 
 - the OCR page or time budget tripped on a long scan — the library returned the text pages with the skipped pages COUNTED (`ocr_pages_skipped`), the document was uploaded as is;
-- the extraction child was killed on the wall-clock ceiling or died (`extractor died (exit -9)`) `RC_EXTRACT_MAX_RETRIES` times in a row — note `extract_retries_exhausted`;
-- OCR is configured but the library reported no OCR backend (`ocr_backend_none`).
+- OCR failed on some pages (`ocr_pages_failed`) — those pages are empty;
+- no OCR engine was available: the pages that needed OCR are counted as skipped and the note says `ocr_backend: none` (`rc_ocr_backend_degraded_total` counts these documents);
+- the extraction child was killed on the wall-clock ceiling or died (`extractor died (exit -9)`) `RC_EXTRACT_MAX_RETRIES` times in a row — note `extract_retries_exhausted`.
+
+A born-digital PDF is never partial: knovas-extract 0.4 reports `ocr_backend: none` with zero skipped pages for it, which only says that no page needed OCR. The note carries `ocr_pages_skipped`, `ocr_pages_failed`, `ocr_pages`, `text_pages` and `ocr_backend` as far as the library reported them.
 
 A partial file is not re-uploaded by the incremental cycle (its fingerprint is stored; `document_sync` counts it as `synced`) but stays listed for the nightly pass. `POST /sync` responses carry `partial` on the transmission entry; `/metrics` has `rc_ocr_partial_total`, `rc_extract_retry_total`, `rc_ocr_backend_degraded_total`, `rc_skip_unconvertible_total`.
 

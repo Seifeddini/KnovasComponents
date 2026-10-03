@@ -420,28 +420,50 @@ def test_pdf_tables_can_be_switched_on(monkeypatch):
 # --- partial notes read defensively from metadata.extra ----------------------
 
 
+# knovas-extract 0.4 OCR metadata as its PDF extractor reports it whenever
+# ``ocr=`` is passed -- every key present, backend "none" unless OCR ran. The
+# same table as RemoteController/tests/helpers.py OCR_EXTRA_04.
+_OCR_EXTRA_04 = {
+    "born_digital": {"pdf:ocr_pages": 0, "pdf:text_pages": 12, "pdf:ocr_pages_skipped": 0,
+                     "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "none"},
+    "mixed": {"pdf:ocr_pages": 3, "pdf:text_pages": 9, "pdf:ocr_pages_skipped": 0,
+              "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "tesserocr",
+              "pdf:ocr_backend_version": "5.3.0", "pdf:ocr_seconds": 4.2, "pdf:ocr_mean_conf": 91.5},
+    "starved": {"pdf:ocr_pages": 40, "pdf:text_pages": 0, "pdf:ocr_pages_skipped": 12,
+                "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "tesserocr"},
+    "failed": {"pdf:ocr_pages": 9, "pdf:text_pages": 2, "pdf:ocr_pages_skipped": 0,
+               "pdf:ocr_pages_failed": 1, "pdf:ocr_backend": "cli"},
+    "no_engine": {"pdf:ocr_pages": 0, "pdf:text_pages": 2, "pdf:ocr_pages_skipped": 5,
+                  "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "none"},
+    "uncounted": {"pdf:ocr_pages": 0, "pdf:ocr_backend": "none"},
+}
+
+
 def test_partial_note_for_reads_extra_defensively():
     assert m.partial_note_for({}, expect_ocr=True) is None
     assert m.partial_note_for(None, expect_ocr=True) is None
-
-    skipped = {"pdf:ocr_pages_skipped": 12, "pdf:ocr_pages": 40, "pdf:ocr_backend": "tesserocr", "pdf:text_pages": 3}
-    assert m.partial_note_for(skipped, expect_ocr=True) == {
-        "ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr", "text_pages": 3,
-    }
-    assert m.partial_note_for(skipped, expect_ocr=False)["ocr_pages_skipped"] == 12
-
-    # an older library that does not count: backend none is a defect when OCR was expected
-    no_backend = {"pdf:ocr_backend": "none", "pdf:ocr_pages": 0}
-    assert m.partial_note_for(no_backend, expect_ocr=True) == {"reason": "ocr_backend_none", "ocr_pages": 0, "ocr_backend": "none"}
-    assert m.partial_note_for(no_backend, expect_ocr=False) is None, "OCR off: a missing backend is not a defect"
-
-    # 0.4 counts: zero skipped pages and no backend = a born-digital PDF without Tesseract
-    digital = {"pdf:ocr_backend": "none", "pdf:ocr_pages": 0, "pdf:ocr_pages_skipped": 0, "pdf:text_pages": 3}
-    assert m.partial_note_for(digital, expect_ocr=True) is None
     assert m.partial_note_for({"pdf:ocr_pages_skipped": "0"}, expect_ocr=True) is None
     assert m.partial_note_for({"pdf:ocr_pages_skipped": "7", "pdf:ocr_backend": "cli"}, expect_ocr=True) == {
         "ocr_pages_skipped": 7, "ocr_backend": "cli",
     }
+
+
+@pytest.mark.parametrize("case, expect_ocr, note", [
+    ("born_digital", True, None),
+    ("mixed", True, None),
+    ("starved", True, {"ocr_pages_skipped": 12, "ocr_pages_failed": 0, "ocr_pages": 40,
+                       "text_pages": 0, "ocr_backend": "tesserocr"}),
+    ("failed", True, {"ocr_pages_skipped": 0, "ocr_pages_failed": 1, "ocr_pages": 9,
+                      "text_pages": 2, "ocr_backend": "cli"}),
+    ("no_engine", True, {"ocr_pages_skipped": 5, "ocr_pages_failed": 0, "ocr_pages": 0,
+                         "text_pages": 2, "ocr_backend": "none"}),
+    ("uncounted", True, {"ocr_pages": 0, "ocr_backend": "none"}),
+    ("uncounted", False, None),
+])
+def test_partial_rule_matches_the_connector(case, expect_ocr, note):
+    """Spec E1, the Connector's rule: failed OCR pages make an upload partial;
+    a born-digital PDF (backend "none", nothing skipped) never does."""
+    assert m.partial_note_for(dict(_OCR_EXTRA_04[case]), expect_ocr=expect_ocr) == note
 
 
 def test_partial_note_is_surfaced_in_result_log_and_sidecar(tmp_path, monkeypatch, caplog):

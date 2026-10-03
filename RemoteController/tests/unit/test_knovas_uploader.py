@@ -297,20 +297,50 @@ def test_upload_result_partial_is_filled_from_metadata_extra(mock_config, tmp_pa
     assert result.partial == {"ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr"}
 
 
-def test_upload_result_partial_when_no_ocr_backend_but_ocr_expected(mock_config, tmp_path, monkeypatch):
+class _CountingCounter:
+    def __init__(self):
+        self.count = 0
+
+    def inc(self, amount=1):
+        self.count += amount
+
+
+@pytest.mark.parametrize("case, partial, degraded", [
+    ("born_digital", None, False),
+    ("starved", {"ocr_pages_skipped": 12, "ocr_pages_failed": 0, "ocr_pages": 40,
+                 "text_pages": 0, "ocr_backend": "tesserocr"}, False),
+    ("failed", {"ocr_pages_skipped": 0, "ocr_pages_failed": 1, "ocr_pages": 9,
+                "text_pages": 2, "ocr_backend": "cli"}, False),
+    ("no_engine", {"ocr_pages_skipped": 5, "ocr_pages_failed": 0, "ocr_pages": 0,
+                   "text_pages": 2, "ocr_backend": "none"}, True),
+    ("uncounted", {"ocr_pages": 0, "ocr_backend": "none"}, True),
+])
+def test_upload_partial_note_and_degraded_metric_follow_the_library_counts(
+    mock_config, tmp_path, monkeypatch, case, partial, degraded
+):
+    """Spec E1: rc_ocr_backend_degraded_total counts a missing engine only --
+    not a born-digital PDF (it counted every one), not a budget trip, not a
+    failed page."""
+    from tests.helpers import OCR_EXTRA_04
+
+    from sync import ocr_metrics
     from sync.document_text import ExtractedDocument
 
     monkeypatch.setenv("RC_PDF_OCR_ENABLED", "true")
+    counter = _CountingCounter()
+    monkeypatch.setattr(ocr_metrics, "OCR_BACKEND_DEGRADED", counter)
     pdf = tmp_path / "scan.pdf"
     pdf.write_bytes(b"%PDF-1.4 not a real pdf")
-    doc = ExtractedDocument(text="Deckblatt.", sentences=None, extra={"pdf:ocr_backend": "none"})
+    doc = ExtractedDocument(text="Deckblatt.", sentences=None, extra=dict(OCR_EXTRA_04[case]))
     uploader = SemantixUploader()
     with patch.object(uploader, "_request") as req, patch(
         "sync.knovas_uploader.extract_document_guarded", return_value=doc
     ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
         req.side_effect = [_ok_response(), _ok_response()]
         result = uploader.upload_file(pdf, "akten/scan.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
-    assert result.partial == {"reason": "ocr_backend_none", "ocr_backend": "none"}
+    assert result.status == "ok"
+    assert result.partial == partial
+    assert counter.count == (1 if degraded else 0)
 
 
 def test_uploader_passes_the_relative_path_as_cache_key(mock_config, tmp_path):

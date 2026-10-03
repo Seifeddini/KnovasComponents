@@ -4,6 +4,10 @@
 
 - Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.
 
+### Extraction (knovas-extract 0.4.0a1)
+
+- **Partial rule** (Knovas Connector and Platform, spec E1): a PDF is partial only when the library counted skipped OCR pages (budget, page or pixel cap, or no engine), failed OCR pages (new: a failed page is empty), or — for a library without skipped-page counts — reports no backend although OCR was expected. Born-digital PDFs are complete again: with knovas-extract 0.4 every one was recorded partial, counted in `rc_ocr_backend_degraded_total` and re-uploaded by the backfill. The note carries `ocr_pages_skipped`, `ocr_pages_failed`, `ocr_pages`, `text_pages`, `ocr_backend` (no `reason`); the degraded-backend counter counts notes with `ocr_backend: none` only.
+
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
 Takes effect only for a tenant where Knovas has enabled Document Fields. Against any other server the bodies, the outcomes and the indexing are as in 0.2.0.

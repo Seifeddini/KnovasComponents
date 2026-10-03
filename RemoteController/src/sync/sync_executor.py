@@ -711,9 +711,10 @@ def record_upload_outcome(
     ``data_plane/ocr_budget_failsoft.als``), pinned by
     ``tests/unit/test_sync_executor_partial.py``:
 
-    * ``"partial"`` — the library returned, OCR pages were skipped (or no OCR
-      backend was available): fingerprint stored so the next cycle does not
-      re-upload the file, note kept for ``scripts/backfill_partial_ocr.py``;
+    * ``"partial"`` — the library returned, OCR pages were skipped or failed
+      (or no OCR backend was available; ``document_text.partial_note_for``):
+      fingerprint stored so the next cycle does not re-upload the file, note
+      kept for ``scripts/backfill_partial_ocr.py``;
     * ``"synced"`` — clean upload;
     * ``"skipped"`` — the library flagged the input unconvertible: parked as
       ``skip:unconvertible`` (incremental mode only);

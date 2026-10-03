@@ -24,9 +24,10 @@ synced by the RC reach the server in the same wire format:
   always written from the UNMARKED text. No ``tables`` payload for PDF
   parts unless ``RC_SEND_PDF_TABLES`` is set (the server drops them at the
   Redis buffer).
-* ``metadata.extra`` is read defensively for ``pdf:ocr_pages_skipped`` /
-  ``pdf:ocr_backend``; a ``partial`` note (counts only) is surfaced in the
-  upload result, the log and the sidecar (GI-EXTRACT-02).
+* ``metadata.extra`` is read defensively for the OCR counts, by the
+  Connector's partial rule (``partial_note_for``, spec E1); a ``partial``
+  note (counts only) is surfaced in the upload result, the log and the
+  sidecar (GI-EXTRACT-02).
 * Extraction runs in a guarded child process (``extract_guarded``): wall
   clock ``RC_EXTRACT_TIMEOUT_SECONDS`` (default 120 s — an admin upload is
   one interactive request), ``nice 10``, ``RLIMIT_AS``, conservative OCR
@@ -445,41 +446,44 @@ def _int_or_none(value: Any) -> Optional[int]:
     return None
 
 
+#: The library's OCR counts a partial note carries (counts only, never text):
+#: note key -> metadata.extra key. Same as the Connector.
+_PARTIAL_NOTE_COUNTS = (
+    ("ocr_pages_skipped", "pdf:ocr_pages_skipped"),
+    ("ocr_pages_failed", "pdf:ocr_pages_failed"),
+    ("ocr_pages", "pdf:ocr_pages"),
+    ("text_pages", "pdf:text_pages"),
+)
+
+
 def partial_note_for(extra: Optional[dict[str, Any]], *, expect_ocr: bool) -> Optional[dict[str, Any]]:
     """The partial note for a returned document, or None when it is complete.
 
-    Read defensively: today's library sets none of the ``pdf:ocr_*`` keys.
-    Partial when the library counted skipped OCR pages (budget trip), or
-    when it reports ``pdf:ocr_backend == "none"`` although OCR was
-    configured -- the image pages were left empty for want of an engine, so
-    the document must not be taken for complete (plan ``[C-sec-8]``). One
-    refinement over the RC's rule: a library that COUNTS its skipped pages
-    (0.4 reports ``pdf:ocr_pages_skipped`` whenever OCR was considered, and
-    without a backend every candidate page is a skipped page) and says
-    ``0`` had no page to OCR, so a born-digital PDF on a host without
-    Tesseract is complete, not partial. Counts and identifiers only.
+    The Connector's rule (``RemoteController/src/sync/document_text.py``
+    ``partial_note_for``, spec E1): partial when the library counted skipped
+    OCR pages (page cap, budget, pixel cap, or no OCR engine -- 0.4 counts
+    every page that needed OCR as skipped then), or failed OCR pages (a
+    failed page is an empty page), or -- only for a library that does not
+    count skipped pages -- when OCR was expected and it reports
+    ``pdf:ocr_backend == "none"`` without ``pdf:ocr_pages_skipped``. A
+    born-digital PDF reports backend ``none`` with zero skipped pages: no
+    page needed OCR, so it is complete. Counts and the backend name only.
     """
     extra = extra or {}
-    skipped = _int_or_none(extra.get("pdf:ocr_pages_skipped"))
-    ocr_pages = _int_or_none(extra.get("pdf:ocr_pages"))
+    counts = {key: _int_or_none(extra.get(source)) for key, source in _PARTIAL_NOTE_COUNTS}
+    skipped, failed = counts["ocr_pages_skipped"], counts["ocr_pages_failed"]
     backend = extra.get("pdf:ocr_backend")
     backend_s = str(backend).strip().lower() if isinstance(backend, str) else ""
-    note: dict[str, Any] = {}
-    if skipped is not None and skipped > 0:
-        note["ocr_pages_skipped"] = skipped
-        if ocr_pages is not None:
-            note["ocr_pages"] = ocr_pages
-    elif expect_ocr and backend_s == "none" and skipped is None:
-        note["reason"] = "ocr_backend_none"
-        if ocr_pages is not None:
-            note["ocr_pages"] = ocr_pages
-    else:
+    partial = (
+        (skipped is not None and skipped > 0)
+        or (failed is not None and failed > 0)
+        or (expect_ocr and backend_s == "none" and skipped is None)
+    )
+    if not partial:
         return None
+    note: dict[str, Any] = {key: value for key, value in counts.items() if value is not None}
     if backend_s:
         note["ocr_backend"] = backend_s
-    text_pages = _int_or_none(extra.get("pdf:text_pages"))
-    if text_pages is not None:
-        note["text_pages"] = text_pages
     return note
 
 

@@ -562,37 +562,63 @@ def _int_or_none(value: Any) -> Optional[int]:
     return None
 
 
+#: The library's OCR counts a partial note carries (counts only, never text):
+#: note key -> metadata.extra key.
+_PARTIAL_NOTE_COUNTS = (
+    ("ocr_pages_skipped", "pdf:ocr_pages_skipped"),
+    ("ocr_pages_failed", "pdf:ocr_pages_failed"),
+    ("ocr_pages", "pdf:ocr_pages"),
+    ("text_pages", "pdf:text_pages"),
+)
+
+
 def partial_note_for(doc: ExtractedDocument, *, expect_ocr: bool) -> Optional[dict[str, Any]]:
     """The partial note for a returned document, or None when it is complete.
 
-    Read defensively: today's library sets none of the `pdf:ocr_*` keys.
-    Partial when the library counted skipped OCR pages (budget trip), or when
-    it reports `pdf:ocr_backend == "none"` although OCR was configured — the
-    image pages were left empty for want of an engine, so the document must
-    not be taken for complete (plan `[C-sec-8]`). Counts and identifiers only.
+    One rule in the Connector and the Platform (spec E1; the mirror is
+    ``knovas_extract_upload.partial_note_for``). A document is partial when
+
+    * the library counted skipped OCR pages (``pdf:ocr_pages_skipped > 0``):
+      the page cap, the time budget, the pixel cap -- or no OCR engine, for
+      which 0.4 counts every page that needed OCR as skipped;
+    * or failed OCR pages (``pdf:ocr_pages_failed > 0``): a failed page is an
+      empty page;
+    * or -- only for a library that does not count skipped pages -- OCR was
+      expected, ``pdf:ocr_backend == "none"`` and ``pdf:ocr_pages_skipped`` is
+      absent.
+
+    With ``ocr=`` passed, 0.4 reports every OCR key: a born-digital PDF says
+    backend ``"none"`` with zero skipped pages -- nothing needed OCR, so it is
+    complete wherever Tesseract is installed (the rule before counted it
+    partial, metered a degraded backend and backfilled it on every run).
+    The note carries the counts the library reported and the backend name.
     """
     extra = doc.extra or {}
-    skipped = _int_or_none(extra.get("pdf:ocr_pages_skipped"))
-    ocr_pages = _int_or_none(extra.get("pdf:ocr_pages"))
+    counts = {key: _int_or_none(extra.get(source)) for key, source in _PARTIAL_NOTE_COUNTS}
+    skipped, failed = counts["ocr_pages_skipped"], counts["ocr_pages_failed"]
     backend = extra.get("pdf:ocr_backend")
     backend_s = str(backend).strip().lower() if isinstance(backend, str) else ""
-    note: dict[str, Any] = {}
-    if skipped is not None and skipped > 0:
-        note["ocr_pages_skipped"] = skipped
-        if ocr_pages is not None:
-            note["ocr_pages"] = ocr_pages
-    elif expect_ocr and backend_s == "none":
-        note["reason"] = "ocr_backend_none"
-        if ocr_pages is not None:
-            note["ocr_pages"] = ocr_pages
-    else:
+    partial = (
+        (skipped is not None and skipped > 0)
+        or (failed is not None and failed > 0)
+        or (expect_ocr and backend_s == "none" and skipped is None)
+    )
+    if not partial:
         return None
+    note: dict[str, Any] = {key: value for key, value in counts.items() if value is not None}
     if backend_s:
         note["ocr_backend"] = backend_s
-    text_pages = _int_or_none(extra.get("pdf:text_pages"))
-    if text_pages is not None:
-        note["text_pages"] = text_pages
     return note
+
+
+def ocr_backend_missing(note: Optional[dict[str, Any]]) -> bool:
+    """Whether a partial note says pages went without OCR for want of an
+    engine: the library reports ``ocr_backend == "none"``. 0.4 names the
+    engine whenever OCR ran, so a partial note with ``none`` is either the
+    uncounted case of ``partial_note_for`` or pages the library skipped
+    because no backend was available. Feeds ``rc_ocr_backend_degraded_total``
+    only; a budget trip or a failed page is not a degraded backend."""
+    return bool(note) and note.get("ocr_backend") == "none"
 
 
 # --- shadow mode (numbers only, never text) ----------------------------------

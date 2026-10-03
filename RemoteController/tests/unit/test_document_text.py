@@ -699,32 +699,74 @@ def test_shadow_diff_numbers():
     assert all(isinstance(v, (int, float)) for v in fields.values())
 
 
-# --- partial notes read defensively from metadata.extra ----------------------
+# --- partial notes: one rule in both components (spec E1) --------------------
 
 
 def test_partial_note_for_reads_extra_defensively():
     from sync.document_text import ExtractedDocument, partial_note_for
 
-    complete = ExtractedDocument(text="x", sentences=None, extra={})
-    assert partial_note_for(complete, expect_ocr=True) is None
-    legacy = ExtractedDocument(text="x", sentences=None, extra=None)
-    assert partial_note_for(legacy, expect_ocr=True) is None
-
-    skipped = ExtractedDocument(
+    assert partial_note_for(ExtractedDocument(text="x", sentences=None, extra={}), expect_ocr=True) is None
+    assert partial_note_for(ExtractedDocument(text="x", sentences=None, extra=None), expect_ocr=True) is None
+    as_strings = ExtractedDocument(
         text="x", sentences=None,
-        extra={"pdf:ocr_pages_skipped": 12, "pdf:ocr_pages": 40, "pdf:ocr_backend": "tesserocr", "pdf:text_pages": 3},
+        extra={"pdf:ocr_pages_skipped": "7", "pdf:ocr_pages_failed": "0", "pdf:ocr_backend": " CLI "},
     )
-    assert partial_note_for(skipped, expect_ocr=True) == {
-        "ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr", "text_pages": 3,
+    assert partial_note_for(as_strings, expect_ocr=True) == {
+        "ocr_pages_skipped": 7, "ocr_pages_failed": 0, "ocr_backend": "cli",
     }
-    assert partial_note_for(skipped, expect_ocr=False)["ocr_pages_skipped"] == 12
-
-    no_backend = ExtractedDocument(text="x", sentences=None, extra={"pdf:ocr_backend": "none", "pdf:ocr_pages": 0})
-    assert partial_note_for(no_backend, expect_ocr=True) == {"reason": "ocr_backend_none", "ocr_pages": 0, "ocr_backend": "none"}
-    assert partial_note_for(no_backend, expect_ocr=False) is None, "OCR off: a missing backend is not a defect"
-
     zero = ExtractedDocument(text="x", sentences=None, extra={"pdf:ocr_pages_skipped": "0"})
     assert partial_note_for(zero, expect_ocr=True) is None
+
+
+@pytest.mark.parametrize("case, expect_ocr, note, degraded", [
+    ("born_digital", True, None, False),
+    ("mixed", True, None, False),
+    ("starved", True, {"ocr_pages_skipped": 12, "ocr_pages_failed": 0, "ocr_pages": 40,
+                       "text_pages": 0, "ocr_backend": "tesserocr"}, False),
+    ("failed", True, {"ocr_pages_skipped": 0, "ocr_pages_failed": 1, "ocr_pages": 9,
+                      "text_pages": 2, "ocr_backend": "cli"}, False),
+    ("no_engine", True, {"ocr_pages_skipped": 5, "ocr_pages_failed": 0, "ocr_pages": 0,
+                         "text_pages": 2, "ocr_backend": "none"}, True),
+    ("uncounted", True, {"ocr_pages": 0, "ocr_backend": "none"}, True),
+    ("uncounted", False, None, False),
+])
+def test_partial_rule_on_the_0_4_key_combinations(case, expect_ocr, note, degraded):
+    """Spec E1 on the metadata knovas-extract 0.4 really reports: a
+    born-digital PDF extracted with ``ocr=`` is complete, a failed page makes
+    a document partial, and only a missing engine is a degraded backend."""
+    from tests.helpers import OCR_EXTRA_04
+
+    from sync.document_text import ExtractedDocument, ocr_backend_missing, partial_note_for
+
+    doc = ExtractedDocument(text="x", sentences=None, extra=dict(OCR_EXTRA_04[case]))
+    got = partial_note_for(doc, expect_ocr=expect_ocr)
+    assert got == note
+    assert ocr_backend_missing(got) is degraded
+
+
+def test_a_born_digital_pdf_extracted_with_ocr_options_is_complete(tmp_path, monkeypatch):
+    """The audit's reproduction: with ``ocr=`` the library reports backend
+    "none" and zero skipped pages for a PDF that needed no OCR -- whether or
+    not Tesseract is installed. Before spec E1 every such PDF was partial."""
+    fitz = pytest.importorskip("fitz")
+    from sync import document_text
+
+    if document_text.OcrOptions is None or not document_text.extract_accepts("ocr"):
+        pytest.skip("needs knovas-extract >= 0.4 (ocr=)")
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "true")
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    pdf = fitz.open()
+    for i in range(2):
+        pdf.new_page().insert_text((72, 72), f"Seite {i + 1}. Digitaler Text.")
+    path = tmp_path / "digital.pdf"
+    path.write_bytes(pdf.tobytes())
+    pdf.close()
+
+    doc = document_text.extract_document(path)
+
+    assert doc.extra["pdf:ocr_pages_skipped"] == 0
+    assert doc.extra["pdf:ocr_backend"] == "none"
+    assert document_text.partial_note_for(doc, expect_ocr=True) is None
 
 
 # --- the extraction child: nice + RLIMIT_AS ---------------------------------
