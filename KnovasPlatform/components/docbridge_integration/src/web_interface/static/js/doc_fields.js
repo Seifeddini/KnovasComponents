@@ -66,9 +66,36 @@ class DocFieldsUI {
     }
 
     /**
+     * Die Namen eines Entitaetsfelds: getippter Text wird an ";" getrennt.
+     * Ein ganzer Name aus known (wiederhergestellt, aus dem Cortex
+     * uebergeben, als Vorschlag gewaehlt) bleibt ein Name, auch wenn er
+     * selbst ";" enthaelt.
+     */
+    static entityNames(text, known) {
+        const whole = (Array.isArray(known) ? known : [])
+            .map((name) => String(name).trim()).filter((name) => name.includes(';'));
+        const parts = String(text == null ? '' : text).split(';');
+        const out = [];
+        for (let i = 0; i < parts.length; i += 1) {
+            let name = parts[i].trim();
+            for (let j = parts.length; j > i + 1; j -= 1) {
+                const joined = parts.slice(i, j).join(';').trim();
+                if (whole.includes(joined)) {
+                    name = joined;
+                    i = j - 1;
+                    break;
+                }
+            }
+            if (name && !out.includes(name)) out.push(name);
+        }
+        return out;
+    }
+
+    /**
      * Der where-Wert eines Feldes aus dem, was die Leiste haelt -- rein, ohne
      * DOM (tests/test_frontend_static.py prueft ihn unter Node). state:
-     * {op, text, choices, lo, hi, partly}; undefined heisst kein Filter.
+     * {op, text, names, choices, lo, hi, partly}, names die ganzen Namen
+     * eines Entitaetsfelds (entityNames); undefined heisst kein Filter.
      */
     static buildOperand(datatype, state) {
         const type = DocFieldsUI.railType(datatype);
@@ -89,7 +116,7 @@ class DocFieldsUI {
             return codes.length ? one(codes) : undefined;
         }
         if (type === 'entity_ref') {
-            const names = DocFieldsUI.splitList(text, ';').map((name) => ({ name }));
+            const names = DocFieldsUI.entityNames(text, s.names).map((name) => ({ name }));
             return names.length ? one(names) : undefined;
         }
         if (op === 'in') {
@@ -118,8 +145,8 @@ class DocFieldsUI {
     static parseOperand(datatype, operand) {
         const type = DocFieldsUI.railType(datatype);
         const state = {
-            op: DocFieldsUI.OPERATORS[type][0][0], text: '', choices: [], lo: '', hi: '',
-            partly: false,
+            op: DocFieldsUI.OPERATORS[type][0][0], text: '', names: [], choices: [], lo: '',
+            hi: '', partly: false,
         };
         if (operand === undefined || operand === null) return state;
         const object = typeof operand === 'object' && !Array.isArray(operand);
@@ -159,7 +186,7 @@ class DocFieldsUI {
         if (type === 'entity_ref') {
             const names = items.map((v) => (v && typeof v === 'object' ? v.name : v))
                 .filter((v) => typeof v === 'string' && v);
-            return Object.assign(state, { op: 'in', text: names.join('; ') });
+            return Object.assign(state, { op: 'in', text: names.join('; '), names });
         }
         const texts = items.filter((v) => typeof v === 'string' || typeof v === 'number')
             .map((v) => String(v));
@@ -338,10 +365,15 @@ class DocFieldsUI {
         partly.type = 'checkbox';
         partlyLabel.append(partly, ' auch teilweise');
         wrap.append(choices, input, range, partlyLabel);
+        // Ganze Namen eines Entitaetsfelds (wiederhergestellt, aus dem Cortex
+        // uebergeben, als Vorschlag gewaehlt): je ein Name, auch mit ";".
+        let names = [];
         if (type === 'entity_ref' && field.has_target && field.sensitivity === 'normal') {
             // Vorschlaege nur fuer Felder mit Zieltyp und nie fuer besonders
             // schuetzenswerte: dort bleibt es bei freiem Text.
-            wrap.appendChild(this._suggestions(field, input));
+            wrap.appendChild(this._suggestions(field, input, (name) => {
+                if (!names.includes(name)) names = [...names, name];
+            }));
         }
         const sync = () => {
             const op = mode.value;
@@ -356,6 +388,7 @@ class DocFieldsUI {
         const state = () => ({
             op: mode.value,
             text: input.value,
+            names,
             choices: Array.from(choices.options).filter((o) => o.selected).map((o) => o.value),
             lo: from.value,
             hi: to.value,
@@ -368,6 +401,7 @@ class DocFieldsUI {
                 const s = DocFieldsUI.parseOperand(type, v);
                 mode.value = s.op;
                 input.value = s.text;
+                names = s.names;
                 Array.from(choices.options).forEach((o) => { o.selected = s.choices.includes(o.value); });
                 from.value = s.lo;
                 to.value = s.hi;
@@ -382,10 +416,13 @@ class DocFieldsUI {
     /**
      * Namensvorschlaege fuer ein Entitaetsfeld. Bei mehreren Namen (";") gilt
      * der Vorschlag dem letzten; die Option traegt die ganze Zeile, damit
-     * die Auswahl die schon getippten Namen behaelt. Der getippte Text geht
-     * nur im JSON-Koerper an die Plattform (suggest), nie an Knovas.
+     * die Auswahl die schon getippten Namen behaelt -- den Text davor
+     * wortgleich, so bleiben ganze Namen darin ganz. Ein gewaehlter Name
+     * geht an picked und bleibt damit ein Name, auch wenn er ";" enthaelt.
+     * Der getippte Text geht nur im JSON-Koerper an die Plattform (suggest),
+     * nie an Knovas.
      */
-    _suggestions(field, input) {
+    _suggestions(field, input, picked) {
         const list = document.createElement('datalist');
         list.id = `dfSuggest_${field.key}`;
         input.setAttribute('list', list.id);
@@ -394,15 +431,21 @@ class DocFieldsUI {
         input.addEventListener('input', () => {
             window.clearTimeout(timer);
             const typed = input.value;
+            const option = Array.from(list.options).find((o) => o.value === typed);
+            if (option) {
+                seq += 1;   // gewaehlt: eine noch offene Antwort ist veraltet
+                picked(option.textContent);
+                return;
+            }
             timer = window.setTimeout(async () => {
                 const mine = ++seq;
-                const before = typed.split(';');
-                const last = before.pop();
+                const cut = typed.lastIndexOf(';') + 1;
+                const head = typed.slice(0, cut);
+                const last = typed.slice(cut);
                 const names = await this.suggest(field.key, last);
                 if (mine !== seq) return;
-                const head = before.map((part) => part.trim()).filter(Boolean);
                 list.replaceChildren(...names.map((name) => this._option(
-                    [...head, name].join('; '), name)));
+                    head ? `${head} ${name}` : name, name)));
             }, DocFieldsUI.SUGGEST_DELAY_MS);
         });
         return list;

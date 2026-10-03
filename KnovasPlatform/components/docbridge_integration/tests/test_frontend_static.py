@@ -344,6 +344,74 @@ class TestRailOperands:
         assert all("exists" in ops for ops in result)
 
 
+@needs_node
+class TestEntityNamesWithASemicolon:
+    """An entity field's input splits what the person types at ";". A name
+    that holds ";" itself -- handed over from the Cortex ("Dokumente mit
+    <Feld> = <Name>"), restored after a rail rebuild or picked from the
+    suggestions -- stays one name."""
+
+    def test_a_whole_name_is_one_operand(self):
+        result = _rail(r"""
+        const name = 'M\u00fcller; Meier AG';
+        const one = __DF.parseOperand('entity_ref', { name });
+        const two = __DF.parseOperand('entity_ref', [{ name }, { name: 'Huber' }]);
+        out({
+          one: __DF.buildOperand('entity_ref', one),
+          two: __DF.buildOperand('entity_ref', two),
+          typedAfter: __DF.buildOperand('entity_ref',
+            { op: 'in', text: name + '; Beispiel GmbH;', names: [name] }),
+          typedOnly: __DF.buildOperand('entity_ref', { op: 'in', text: name }),
+        });
+        """)
+        name = "M\u00fcller; Meier AG"
+        assert result == {
+            "one": {"name": name},
+            "two": [{"name": name}, {"name": "Huber"}],
+            "typedAfter": [{"name": name}, {"name": "Beispiel GmbH"}],
+            "typedOnly": [{"name": "M\u00fcller"}, {"name": "Meier AG"}],
+        }
+
+    def test_the_control_keeps_a_handed_over_or_picked_name(self):
+        """The facet control itself: the Cortex handoff writes {name}; a
+        picked suggestion fills the input with the typed names plus the
+        whole name."""
+        result = _rail(r"""
+        FakeEl.prototype.append = function (...nodes) { nodes.forEach((n) => this.appendChild(n)); };
+        FakeEl.prototype.replaceChildren = function (...nodes) { this.children = nodes; };
+        Object.defineProperty(FakeEl.prototype, 'options', {
+          get() { return this.children.filter((c) => c.tagName === 'OPTION'); } });
+        const name = 'M\u00fcller; Meier AG';
+        const ui = Object.create(__DF.prototype);
+        ui._controls = [];
+        ui.suggest = async () => [name, 'M\u00fcller AG'];
+        const wrap = ui._controlFor({ key: 'party', label: 'Partei', datatype: 'entity_ref',
+                                      has_target: true, sensitivity: 'normal' });
+        const control = ui._controls[0];
+        const input = wrap.children.find((c) => c.getAttribute('list'));
+        const list = wrap.children.find((c) => c.tagName === 'DATALIST');
+        const type = (text) => { input.value = text; input.listeners.input.forEach((fn) => fn({})); };
+        control.write({ name });
+        const handoff = control.read();
+        control.write(handoff);
+        const rebuilt = control.read();
+        control.write(undefined);
+        type('Huber; M\u00fcl');
+        setTimeout(() => {
+          const offered = list.options.map((o) => o.value);
+          type(offered[0]);
+          const picked = control.read();
+          type(offered[0] + '; Beispiel GmbH');
+          out({ handoff, rebuilt, offered, picked, more: control.read() });
+        }, 400);
+        """)
+        name = "M\u00fcller; Meier AG"
+        assert result["handoff"] == result["rebuilt"] == {"name": name}
+        assert result["offered"] == ["Huber; " + name, "Huber; M\u00fcller AG"]
+        assert result["picked"] == [{"name": "Huber"}, {"name": name}]
+        assert result["more"] == [{"name": "Huber"}, {"name": name}, {"name": "Beispiel GmbH"}]
+
+
 def test_the_rail_controls_use_the_one_builder():
     """F2: every facet control reads and restores through buildOperand and
     parseOperand, so search and "Liste anzeigen" send the same values."""
