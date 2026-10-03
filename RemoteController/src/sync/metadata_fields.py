@@ -63,8 +63,10 @@ DOCX_KEYWORDS = "docx:keywords"
 MSG_CATEGORIES = "msg:categories"
 DOCX_CONTENT_STATUS = "docx:content_status"
 FILE_PROPERTY_KEYS = (PDF_KEYWORDS, DOCX_KEYWORDS, MSG_CATEGORIES, DOCX_CONTENT_STATUS)
-#: knovas-extract's ``Limits.max_metadata_value_length``. A longer ``extra``
-#: value is left out, never cut: a cut keyword list ends in half a word.
+#: knovas-extract's ``Limits.max_metadata_value_length``. The library strips
+#: an ``extra`` value and crops a longer one to exactly this length, so a
+#: value this long may be cut: it is left out, never carried cut (a cut
+#: keyword list ends in half a word).
 MAX_SOURCE_VALUE_CHARS = 4096
 
 LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
@@ -83,8 +85,8 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
     knovas-extract ``Metadata``, and ``eml:content_language`` and the file
     properties (``FILE_PROPERTY_KEYS``) from its ``extra``. Missing,
     non-string and blank values are left out, and so is an ``extra`` value
-    longer than ``MAX_SOURCE_VALUE_CHARS``; values are stripped but
-    otherwise kept verbatim.
+    of ``MAX_SOURCE_VALUE_CHARS`` characters or more (the library may have
+    cut it); values are stripped but otherwise kept verbatim.
     """
     out: dict[str, str] = {}
     if metadata is None:
@@ -97,7 +99,7 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
     if isinstance(extra, dict):
         for key in (EML_CONTENT_LANGUAGE, *FILE_PROPERTY_KEYS):
             value = extra.get(key)
-            if isinstance(value, str) and value.strip() and len(value) <= MAX_SOURCE_VALUE_CHARS:
+            if isinstance(value, str) and value.strip() and len(value) < MAX_SOURCE_VALUE_CHARS:
                 out[key] = value.strip()
     return out
 

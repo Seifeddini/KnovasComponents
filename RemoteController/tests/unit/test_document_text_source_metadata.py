@@ -120,6 +120,26 @@ def test_pdf_keywords_are_carried(tmp_path):
     assert extract_document(path).source_metadata["pdf:keywords"] == "Rechnung; Kreditor"
 
 
+def test_a_keyword_list_the_library_cut_is_left_out(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    from knovas_extract.result import Limits
+
+    from sync.metadata_fields import MAX_SOURCE_VALUE_CHARS
+
+    # The library crops a longer extra value to exactly its cap, mid-word.
+    assert Limits().max_metadata_value_length == MAX_SOURCE_VALUE_CHARS
+    keywords = "; ".join(f"Kreditorenrechnung {i:04d}" for i in range(250))
+    assert len(keywords) > MAX_SOURCE_VALUE_CHARS
+    pdf = fitz.open()
+    pdf.new_page().insert_text((72, 72), "Rechnung der Muster AG.")
+    pdf.set_metadata({"author": "Muster AG", "keywords": keywords})
+    path = tmp_path / "rechnung.pdf"
+    pdf.save(path)
+    md = extract_document(path).source_metadata
+    assert md["author"] == "Muster AG"
+    assert "pdf:keywords" not in md
+
+
 def test_plain_text_has_no_source_metadata(tmp_path):
     path = tmp_path / "note.txt"
     path.write_text("Ein Satz. Noch einer.", encoding="utf-8")

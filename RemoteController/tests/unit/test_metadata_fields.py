@@ -317,13 +317,18 @@ def test_source_metadata_from_reads_the_file_properties():
     }
 
 
-def test_a_file_property_over_the_cap_is_left_out_not_cut():
+def test_a_file_property_at_or_over_the_cap_is_left_out_not_cut():
     from sync.metadata_fields import MAX_SOURCE_VALUE_CHARS
 
     assert MAX_SOURCE_VALUE_CHARS == 4096
+    # knovas-extract strips an extra value, then crops it to exactly the cap:
+    # a value of that length may be cut, also one that ends in a space.
     metadata = SimpleNamespace(extra={
         "pdf:keywords": "k" * (MAX_SOURCE_VALUE_CHARS + 1),
         "docx:keywords": "k" * MAX_SOURCE_VALUE_CHARS,
+        "msg:categories": "k" * (MAX_SOURCE_VALUE_CHARS - 1) + " ",
         "docx:content_status": 3,
     })
-    assert source_metadata_from(metadata) == {"docx:keywords": "k" * MAX_SOURCE_VALUE_CHARS}
+    assert source_metadata_from(metadata) == {}
+    shorter = SimpleNamespace(extra={"docx:keywords": "k" * (MAX_SOURCE_VALUE_CHARS - 1)})
+    assert source_metadata_from(shorter) == {"docx:keywords": "k" * (MAX_SOURCE_VALUE_CHARS - 1)}
