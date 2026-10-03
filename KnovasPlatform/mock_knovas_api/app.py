@@ -42,6 +42,12 @@ every effective field. Deliberately stricter than the server: GET doc-values
 refuses a pointer in the query string (the server still reads it there), so a
 client test catches a pointer that would land in gateway logs.
 
+`MOCK_RECORD_PARTS=1` (env, read at call time) keeps every init's title,
+path, identifier and fields and every part's number, text and page/sentence
+numbers, per transmission, for an end-to-end check against a running mock:
+`GET /_mock/parts` lists them (`{"documents": [...]}`), and answers 404
+without the switch, which keeps nothing.
+
 Tests reach the state through `app.extensions["knovas_mock"]` (a
 `MockState`): the request log, the documents, seeded values and switches
 for the 403/409 paths, and `pointer_in_body = False` for a Knovas release
@@ -1292,6 +1298,19 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
     def _answer(exc: _Answer):
         return jsonify(exc.body), exc.status
 
+    # -- MOCK_RECORD_PARTS: what an uploader sent, for end-to-end checks ----
+
+    recorded: Dict[str, Dict[str, Any]] = {}
+
+    def _recording() -> bool:
+        return os.environ.get("MOCK_RECORD_PARTS", "") == "1"
+
+    @app.get("/_mock/parts")
+    def mock_parts() -> Any:
+        if not _recording():
+            abort(404)
+        return jsonify({"documents": list(recorded.values())})
+
     # -- routes that predate document fields --------------------------------
 
     @app.get("/health")
@@ -1456,6 +1475,10 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             state.stored_pointers.add(str(pointer))
         if state.mode != "off" and pointer:
             _commit_upload(str(pointer), payload, staged, fields_mode)
+        if _recording():
+            recorded[key] = {"title": payload.get("title"), "path": payload.get("path"),
+                             "identifier": pointer, "fields": payload.get("fields"),
+                             "parts": []}
         body = {
             "status": "success",
             "message": "Transmission initialized",
@@ -1594,6 +1617,11 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
         payload = request.get_json(silent=True) or {}
         part_count = int(payload.get("part_number", 0))
         complete = part_count >= 0
+        if _recording():
+            doc = recorded.get(str(payload.get("key") or ""))
+            if doc is not None:
+                doc["parts"].append({k: payload.get(k) for k in
+                                     ("part_number", "snippet", "page_number", "sentence_number")})
         return jsonify(
             {
                 "status": "success",
