@@ -1752,6 +1752,18 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
         rows = [n for n in state.nodes.values() if not wanted or n["node_type_id"] == wanted]
         return _success("Nodes", {"nodes": sorted(rows, key=lambda n: n["name"])})
 
+    @app.get("/secured/graph/nodes/<node_id>")
+    def node_detail(node_id: str) -> Any:
+        # One node, as the Platform reads it to name an auto_scope node.
+        # The mock knows no per-person visibility: an id it does not hold
+        # answers 404, like a node the caller may not see on the server.
+        _caller(_body())
+        node = state.nodes.get(node_id)
+        if node is None:
+            raise _not_found("Node")
+        return _success("Node detail", {"node": copy.deepcopy(node), "assignments": [],
+                                        "sections": [], "facts": []})
+
     @app.get("/secured/access_groups")
     def access_groups() -> Any:
         return _success("Access groups retrieved",

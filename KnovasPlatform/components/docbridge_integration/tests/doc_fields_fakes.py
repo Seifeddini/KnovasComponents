@@ -14,7 +14,8 @@ of the server states of spec 2.1:
     filters       everything, with the where echo
 
 It extends ``FakeGraphApi`` (node types, nodes) because entity suggestions
-come from ``graph_nodes``. Method signatures are the real client's; a test
+come from ``graph_nodes`` and the auto-scope notice names nodes through
+``graph_node_name``. Method signatures are the real client's; a test
 in test_knovas_client_doc_fields.py pins that, so a route that works against
 this fake calls the real client correctly.
 
@@ -158,6 +159,7 @@ class FakeDocFieldsApi(FakeGraphApi):
         # What the routes asked for, in order: (method, arguments).
         self.doc_calls: List[Tuple[str, Dict[str, Any]]] = []
         self.graph_nodes_calls: List[Dict[str, Any]] = []
+        self.graph_node_name_calls: List[str] = []
         self.probe_calls = 0
         # Knobs a test turns.
         self.probe_answer: Optional[str] = None      # override the probe
@@ -286,6 +288,10 @@ class FakeDocFieldsApi(FakeGraphApi):
     def graph_nodes(self, node_type_id=None, q=None):
         self.graph_nodes_calls.append({"node_type_id": node_type_id, "q": q})
         return super().graph_nodes(node_type_id=node_type_id, q=q)
+
+    def graph_node_name(self, node_id, timeout):
+        self.graph_node_name_calls.append(node_id)
+        return super().graph_node_name(node_id, timeout)
 
     def doc_fields(self) -> List[Dict[str, Any]]:
         self._enter("doc_fields")

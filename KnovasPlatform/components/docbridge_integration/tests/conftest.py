@@ -450,6 +450,12 @@ class FakeGraphApi(DummyKnovasClient):
         node = self.nodes.get(node_id)
         return None if node is None else {"node": node, "facts": self.facts.get(node_id, [])}
 
+    def graph_node_name(self, node_id, timeout):
+        # The real client's one-request name lookup: None for an id Knovas
+        # does not show this person (its 404), and for a node without a name.
+        name = (self.nodes.get(node_id) or {}).get("name")
+        return name.strip() or None if isinstance(name, str) else None
+
     def graph_update_node(self, node_id, **fields):
         # Mirrors the real client: a PATCH with nothing to write is a caller
         # error, not a read. A fake that quietly answered would let a route

@@ -113,9 +113,11 @@ value builder runs under Node in tests/test_frontend_static.py):
   results by exact words only, and "Suche automatisch auf … eingegrenzt" /
   "In … nichts gefunden – alle Dokumente durchsucht" when Knovas narrowed the
   search by a name it recognised in the question. Names are read through the
-  person's own knowledge-graph view; nodes they may not see are counted, never
-  named. The API has no switch to turn the narrowing off, so the notice
-  explains and offers no action.
+  person's own knowledge-graph view, one node at a time; nodes they may not see
+  are counted, never named. When the knowledge graph does not answer within
+  two seconds, the notice counts instead of naming (for 30 seconds) rather
+  than holding up the search. The API has no switch to turn the narrowing
+  off, so the notice explains and offers no action.
 - **Cortex**: an entity whose type is the target of an entity field offers
   "Dokumente mit <Feld> = <Name>", which opens that listing (handed over in
   `sessionStorage`, not in the URL).
