@@ -1,0 +1,1686 @@
+/* Experimente -- Seiten /experiments, /experiments/<KEY>, /experiments/verwaltung.
+ *
+ * Nur die Tokens aus style.css (Farben, Radien, Schriften); die Bausteine
+ * lehnen sich an die Verwaltung (admin.css) an, sind aber auf .kx-page
+ * begrenzt, damit die Seitenleiste dieselbe bleibt wie bei Suche und Cortex.
+ * Die Farbe eines Bereichs erscheint nur als kleiner Punkt: sie hilft beim
+ * Wiederfinden, traegt aber nie allein eine Aussage.
+ */
+
+:root {
+    /* Warnton wie in admin.css (5.9:1 auf --card-bg). */
+    --kx-warn: #8a5a00;
+    --kx-warn-rgb: 138, 90, 0;
+    --kx-good-rgb: 26, 107, 74;
+    --kx-bad-rgb: 196, 30, 30;
+    /* Kategoriale Reihenfarben fuer Diagramme, feste Reihenfolge; mit dem
+       Palettenpruefer validiert (CVD- und Normalsicht-Abstand benachbarter
+       Paare). Drei liegen unter 3:1 auf Weiss -- deshalb stehen Legende und
+       Wertetabelle immer daneben. Text traegt diese Farben nie. */
+    --kx-series-1: #2a78d6;
+    --kx-series-2: #eb6834;
+    --kx-series-3: #1baf7a;
+    --kx-series-4: #eda100;
+    --kx-series-5: #e87ba4;
+    --kx-series-6: #008300;
+    --kx-series-7: #4a3aa7;
+    --kx-series-8: #e34948;
+}
+
+/* Klassen mit display (flex, grid) schlagen das [hidden] des Browsers;
+   Dialoge haengen am <body>, ausserhalb von .kx-page. */
+.kx-page [hidden],
+.kx-dialog [hidden] { display: none !important; }
+
+.kx-visually-hidden {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+.kx-muted { color: var(--text-secondary); }
+.kx-mono { font-family: var(--font-heading); font-size: 0.85em; }
+.kx-nowrap { white-space: nowrap; }
+
+/* ── Kopf ───────────────────────────────────────────────────────────── */
+
+.kx-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px 24px;
+    flex-wrap: wrap;
+}
+
+.kx-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.kx-page .btn-sm,
+.kx-dialog .btn-sm {
+    padding: 7px 14px;
+    font-size: 0.82rem;
+}
+
+.kx-page .btn-outline,
+.kx-dialog .btn-outline {
+    color: var(--text-primary);
+    transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+}
+
+.kx-page .btn-outline:hover:not(:disabled),
+.kx-dialog .btn-outline:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--primary-color);
+    background: rgba(var(--accent-rgb), 0.06);
+}
+
+.kx-page .btn:focus-visible,
+.kx-dialog .btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.kx-page .btn:disabled,
+.kx-dialog .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.kx-page .btn-danger,
+.kx-dialog .btn-danger {
+    color: var(--error-color);
+    border: 1px solid rgba(var(--kx-bad-rgb), 0.35);
+    background: transparent;
+}
+
+.kx-page .btn-danger:hover:not(:disabled),
+.kx-dialog .btn-danger:hover:not(:disabled) {
+    background: rgba(var(--kx-bad-rgb), 0.08);
+    color: var(--error-color);
+    border-color: rgba(var(--kx-bad-rgb), 0.55);
+}
+
+.kx-dialog .btn-primary.btn-danger {
+    background: var(--error-color);
+    border-color: var(--error-color);
+    color: #fff;
+}
+
+.kx-link-button {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--primary-color);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* "+ Neuer Wert …" under a selection field of an experiment. */
+.kx-link-button.kx-add-option {
+    align-self: flex-start;
+    justify-self: start;
+    width: auto;
+    margin-top: 4px;
+    font-size: 0.85rem;
+    text-align: left;
+}
+
+.kx-link-button:focus-visible,
+.kx-page a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.kx-icon-button {
+    display: inline-grid;
+    place-items: center;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.kx-icon-button:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: rgba(var(--accent-rgb), 0.08);
+}
+
+.kx-icon-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* ── Karten, Abschnitte ─────────────────────────────────────────────── */
+
+.kx-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--pad-section);
+}
+
+.kx-section {
+    margin-top: 28px;
+    scroll-margin-top: 16px;
+}
+
+.kx-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.kx-section-head h2 {
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.kx-section-head .kx-hint { margin: 0; }
+
+.kx-section-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.kx-subhead {
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin: 18px 0 8px;
+}
+
+.kx-hint {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    max-width: 78ch;
+}
+
+.kx-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+/* ── Chips, Punkte ──────────────────────────────────────────────────── */
+
+.kx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+    vertical-align: middle;
+    color: var(--text-secondary);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+}
+
+.kx-chip--running,
+.kx-chip--good,
+.kx-chip--bad,
+.kx-chip--open {
+    border-color: transparent;
+}
+
+.kx-chip--running::before,
+.kx-chip--good::before,
+.kx-chip--bad::before,
+.kx-chip--open::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.kx-chip--running { color: var(--primary-color); background: var(--highlight); }
+.kx-chip--good    { color: var(--success-color); background: rgba(var(--kx-good-rgb), 0.10); }
+.kx-chip--bad     { color: var(--error-color);   background: rgba(var(--kx-bad-rgb), 0.09); }
+.kx-chip--open    { color: var(--kx-warn);       background: rgba(var(--kx-warn-rgb), 0.10); }
+.kx-chip--muted   { font-weight: 500; }
+.kx-chip--neutral { color: var(--text-primary); }
+.kx-chip--lang    {
+    font-family: var(--font-heading);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 5px;
+}
+
+.kx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 22px;
+    padding: 1px 4px 1px 8px;
+    border-radius: 5px;
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    color: var(--primary-color);
+    background: #E7EBFA;
+}
+
+.kx-tag--static { padding-right: 8px; }
+
+.kx-tag button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.kx-tag button:hover { background: rgba(var(--accent-rgb), 0.15); }
+.kx-tag button:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+
+.kx-dot {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    vertical-align: middle;
+}
+
+.kx-domain {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+/* ── Formulare ──────────────────────────────────────────────────────── */
+
+.kx-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 14px;
+    min-width: 0;
+}
+
+.kx-field:first-child { margin-top: 0; }
+
+.kx-label {
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.kx-help {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.kx-field-error {
+    font-size: 0.8rem;
+    color: var(--error-color);
+}
+
+.kx-field-error:empty { display: none; }
+
+.kx-input {
+    width: 100%;
+    max-width: 100%;
+    padding: 8px 11px;
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.kx-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+    background: var(--card-bg);
+}
+
+.kx-input[aria-invalid="true"] {
+    border-color: var(--error-color);
+}
+
+.kx-input:disabled,
+.kx-input[readonly] {
+    color: var(--text-secondary);
+    background: var(--card-bg);
+}
+
+.kx-textarea {
+    min-height: 90px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.kx-code {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    min-height: 260px;
+    tab-size: 4;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+}
+
+.kx-form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px 14px;
+    align-items: start;
+}
+
+.kx-form-row .kx-field { margin-top: 0; }
+
+/* Einzelne Auswahllisten nicht ueber die ganze Breite ziehen. */
+.kx-form-row--narrow { grid-template-columns: repeat(auto-fill, minmax(170px, 320px)); }
+
+/* Felder einer Reihe auf gemeinsamen Linien (Beschriftung, Eingabe, Hilfe,
+   Fehler): bricht eine Beschriftung um, ruecken alle Eingaben der Reihe mit,
+   statt dass eine tiefer steht (Stichprobe planen). */
+@supports (grid-template-rows: subgrid) {
+    .kx-form-row--aligned { row-gap: 5px; }
+    .kx-form-row--aligned > .kx-field {
+        display: grid;
+        grid-row: span 4;
+        grid-template-rows: subgrid;
+        align-content: start;
+        margin-bottom: 7px;
+    }
+    .kx-form-row--aligned > .kx-field > .kx-label { align-self: end; }
+}
+
+.kx-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.kx-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    cursor: pointer;
+}
+
+.kx-check input { accent-color: var(--primary-color); width: 16px; height: 16px; }
+
+.kx-choice-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.kx-choice {
+    position: relative;
+    display: inline-flex;
+    cursor: pointer;
+}
+
+.kx-choice input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.kx-choice span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 11px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.kx-choice input:checked + span {
+    border-color: var(--accent);
+    background: var(--highlight);
+    color: var(--primary-color);
+}
+
+.kx-choice input:focus-visible + span {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.kx-choice input:disabled + span { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Werkzeugleiste und Filter ──────────────────────────────────────── */
+
+.kx-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+    margin: 12px 0 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--surface-sunken);
+}
+
+.kx-toolbar .kx-input {
+    width: auto;
+    background: var(--card-bg);
+    padding: 7px 10px;
+    font-size: 0.85rem;
+}
+
+.kx-toolbar .kx-filter-text { flex: 1 1 220px; min-width: 160px; }
+.kx-toolbar .kx-filter-tag { flex: 0 1 160px; min-width: 120px; }
+.kx-toolbar-count {
+    margin-left: auto;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.kx-domain-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.kx-domain-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    padding: 5px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease;
+}
+
+.kx-domain-chip:hover { border-color: var(--accent); }
+
+.kx-domain-chip[aria-pressed="true"] {
+    border-color: var(--primary-color);
+    background: var(--highlight);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.kx-domain-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Managers: create a domain right from the filter row. */
+.kx-domain-chip--add {
+    border-style: dashed;
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.kx-count {
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+/* ── Suche ──────────────────────────────────────────────────────────── */
+
+.kx-search {
+    margin: 4px 0 20px;
+    padding: var(--pad-section);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.kx-search-form {
+    display: flex;
+    gap: 10px;
+}
+
+.kx-search-form input {
+    flex: 1;
+    min-width: 0;
+    padding: 11px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.kx-search-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--card-bg);
+}
+
+.kx-search-form .btn { padding: 10px 20px; }
+
+.kx-search-result { margin-top: 14px; }
+
+.kx-search-note {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.kx-search-warning {
+    color: var(--kx-warn);
+    font-size: 0.83rem;
+}
+
+/* ── Tabellen ───────────────────────────────────────────────────────── */
+
+/* position: relative macht den Rahmen zum Bezug fuer absolut positionierte
+   Kinder (.kx-visually-hidden in Kopfzellen); sonst ragen sie aus dem
+   Scrollbereich und die ganze Seite scrollt seitwaerts. */
+.kx-table-wrap {
+    position: relative;
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.kx-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.88rem;
+}
+
+.kx-table thead th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.kx-table tbody th,
+.kx-table tbody td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: top;
+    text-align: left;
+    line-height: 1.45;
+}
+
+.kx-table tbody th { font-weight: 500; }
+.kx-table tbody tr:last-child th,
+.kx-table tbody tr:last-child td { border-bottom: none; }
+
+.kx-table .kx-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kx-table thead .kx-num { text-align: right; }
+
+.kx-table .kx-sub {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    margin-top: 2px;
+}
+
+.kx-table--compact thead th { padding: 7px 10px; }
+.kx-table--compact tbody th,
+.kx-table--compact tbody td { padding: 7px 10px; font-size: 0.82rem; }
+
+.kx-table--rows tbody tr { cursor: pointer; transition: background-color .12s ease; }
+.kx-table--rows tbody tr:hover { background: rgba(var(--accent-rgb), 0.045); }
+
+.kx-table .kx-row-actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.kx-table a.kx-key-link,
+.kx-key {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.kx-table a { color: var(--primary-color); text-decoration: none; }
+.kx-table a:hover { text-decoration: underline; }
+
+/* Mindestens ein Wort breit: mit overflow-wrap: anywhere schrumpfte die
+   Spalte auf dem Telefon auf ein Zeichen und brach mitten im Wort
+   ("Produktbil d"). Zu breit wird die Tabelle nicht, sie scrollt in
+   .kx-table-wrap. */
+.kx-title-cell { min-width: 12rem; }
+.kx-title-cell strong { display: block; font-weight: 600; overflow-wrap: break-word; }
+
+.kx-result-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-width: 340px;
+}
+
+.kx-result-cell .kx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* Beim Nachladen bleibt die alte Liste stehen, nur blasser -- kein Springen. */
+.kx-refreshing { opacity: 0.6; transition: opacity .15s ease; }
+
+.kx-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 14px;
+}
+
+/* ── Leer, Laden, Hinweise ──────────────────────────────────────────── */
+
+.kx-empty {
+    padding: 36px 20px;
+    text-align: center;
+    color: var(--text-secondary);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.kx-empty-title {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 6px;
+}
+
+.kx-empty-text { max-width: 62ch; margin: 0 auto; font-size: 0.9rem; }
+
+.kx-empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.kx-loading {
+    padding: 18px 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.kx-banner {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 11px 15px;
+    margin: 12px 0;
+    border: 1px solid rgba(var(--kx-warn-rgb), 0.35);
+    border-radius: var(--radius);
+    background: rgba(var(--kx-warn-rgb), 0.07);
+    color: var(--kx-warn);
+    font-size: 0.88rem;
+}
+
+.kx-banner--error {
+    border-color: rgba(var(--kx-bad-rgb), 0.3);
+    background: rgba(var(--kx-bad-rgb), 0.06);
+    color: var(--error-color);
+}
+
+.kx-banner--ok {
+    border-color: rgba(var(--kx-good-rgb), 0.3);
+    background: rgba(var(--kx-good-rgb), 0.07);
+    color: var(--success-color);
+}
+
+.kx-banner--info {
+    border-color: #B4C2EE;
+    background: #E9EDFB;
+    color: #12308C;
+}
+
+.kx-banner p { margin: 0; }
+.kx-banner ul { margin: 4px 0 0 18px; }
+
+.kx-pre {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    max-height: 420px;
+    overflow: auto;
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+}
+
+.kx-markdown { font-size: 0.92rem; line-height: 1.6; overflow-wrap: anywhere; }
+.kx-markdown p + p,
+.kx-markdown p + ul,
+.kx-markdown ul + p { margin-top: 8px; }
+.kx-markdown ul { margin: 6px 0 6px 20px; }
+.kx-markdown h3, .kx-markdown h4, .kx-markdown h5, .kx-markdown h6 {
+    font-size: 0.92rem;
+    font-weight: 600;
+    margin: 12px 0 4px;
+}
+.kx-markdown code {
+    font-family: var(--font-heading);
+    font-size: 0.85em;
+    background: var(--surface-sunken);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+.kx-markdown a { color: var(--primary-color); }
+
+.kx-prose { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+
+/* ── Dialog ─────────────────────────────────────────────────────────── */
+
+.kx-dialog {
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    box-shadow: 0 18px 60px rgba(18, 35, 70, .18);
+}
+
+.kx-dialog--wide { width: min(820px, calc(100vw - 32px)); }
+
+.kx-dialog::backdrop { background: rgba(18, 35, 70, .32); }
+
+.kx-dialog-form {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 50px);
+}
+
+.kx-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.kx-dialog-header h2 {
+    font-family: var(--font-body);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.kx-dialog-header .kx-hint { margin-top: 4px; }
+
+.kx-dialog-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+}
+
+.kx-dialog-error {
+    margin: 0 20px;
+    padding: 10px 13px;
+    border: 1px solid rgba(var(--kx-bad-rgb), 0.28);
+    border-radius: var(--radius);
+    background: rgba(var(--kx-bad-rgb), 0.06);
+    color: var(--error-color);
+    font-size: 0.86rem;
+}
+
+.kx-dialog-error-detail { font-size: 0.8rem; margin-top: 4px; }
+
+.kx-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px 20px 18px;
+}
+
+/* ── Liste ──────────────────────────────────────────────────────────── */
+
+.kx-pack-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+    text-align: left;
+}
+
+.kx-pack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.kx-pack strong { color: var(--text-primary); font-size: 0.92rem; }
+.kx-pack p { font-size: 0.82rem; color: var(--text-secondary); flex: 1; }
+.kx-pack .btn { align-self: flex-start; }
+
+/* ── Detailseite ────────────────────────────────────────────────────── */
+
+.kx-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.kx-detail-meta .kx-key { color: var(--primary-color); font-size: 0.85rem; }
+
+.kx-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.kx-title-row h1 {
+    font-family: var(--font-heading);
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.kx-title-edit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    flex: 1 1 100%;
+}
+
+.kx-title-edit .kx-input { flex: 1 1 320px; font-size: 1.05rem; }
+
+/* Hinweis "Entwurf beruht auf einer aelteren Fassung" (nach Neu laden). */
+.kx-draft-note { margin: 10px 0; }
+.kx-title-edit .kx-draft-note { flex: 1 1 100%; margin: 4px 0 0; }
+.kx-draft-note .kx-form-actions { margin-top: 8px; }
+
+/* Lauf-ID unter dem Namen eines Laufs, mit "ID kopieren". */
+.kx-run-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+
+.kx-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.kx-tag-input {
+    width: 150px !important;
+    padding: 4px 8px !important;
+    font-size: 0.8rem !important;
+}
+
+.kx-header-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    margin-top: 12px;
+    font-size: 0.83rem;
+    color: var(--text-secondary);
+}
+
+.kx-index-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.kx-index-state .status-dot { width: 8px; height: 8px; }
+.kx-index-state[data-state="indexed"] .status-dot { background: var(--success-color); }
+.kx-index-state[data-state="pending"] .status-dot { background: var(--accent); }
+.kx-index-state[data-state="error"] .status-dot { background: var(--error-color); }
+.kx-index-state[data-state="off"] .status-dot { background: var(--border-color); }
+
+.kx-subnav {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    margin: 18px 0 0;
+    padding: 6px 0;
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+    scrollbar-width: thin;
+}
+
+.kx-subnav a {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.83rem;
+    font-weight: 500;
+}
+
+.kx-subnav a:hover { color: var(--primary-color); background: rgba(var(--accent-rgb), 0.07); }
+
+/* Lebenszyklus: die Zustaende der Art in ihrer Reihenfolge. */
+.kx-lifecycle {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.kx-steps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.kx-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.83rem;
+    color: var(--text-secondary);
+}
+
+.kx-step + .kx-step::before {
+    content: "";
+    width: 18px;
+    height: 1px;
+    background: var(--border-color);
+    margin-right: 2px;
+}
+
+.kx-step-label {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-sunken);
+}
+
+.kx-step[aria-current="step"] .kx-step-label,
+.kx-step--initial .kx-step-label {
+    border-color: var(--primary-color);
+    background: var(--highlight);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.kx-step--past .kx-step-label { color: var(--text-primary); }
+
+.kx-transitions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.kx-transition {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    max-width: 320px;
+}
+
+.kx-transition .kx-help { max-width: 230px; }
+
+.kx-missing {
+    margin: 0 0 0 16px;
+    font-size: 0.78rem;
+    color: var(--kx-warn);
+}
+
+.kx-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.kx-block + .kx-block { margin-top: 16px; }
+
+.kx-block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.kx-block-head h3 {
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.kx-edit-toggle {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.kx-edit-toggle button[aria-pressed="true"] {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: var(--highlight);
+}
+
+.kx-fieldlist {
+    display: grid;
+    grid-template-columns: minmax(110px, auto) 1fr;
+    gap: 6px 16px;
+    font-size: 0.9rem;
+}
+
+.kx-fieldlist dt {
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    padding-top: 3px;
+}
+
+.kx-fieldlist dd { overflow-wrap: anywhere; }
+
+/* Messwerte je Metrik */
+.kx-metric-card + .kx-metric-card { margin-top: 14px; }
+
+.kx-metric-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-bottom: 10px;
+}
+
+.kx-metric-head h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.kx-metric-sub {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.kx-bucket-switch {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.kx-bucket-switch button {
+    border: 0;
+    background: var(--card-bg);
+    padding: 4px 11px;
+    font: inherit;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.kx-bucket-switch button + button { border-left: 1px solid var(--border-color); }
+
+.kx-bucket-switch button[aria-pressed="true"] {
+    background: var(--highlight);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.kx-bucket-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.kx-levels {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 180px;
+}
+
+.kx-level-row {
+    display: grid;
+    grid-template-columns: minmax(90px, auto) 1fr auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+}
+
+.kx-level-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-sunken);
+    overflow: hidden;
+}
+
+.kx-level-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--kx-series-1);
+}
+
+/* Diagramme */
+.kx-chart { margin-top: 14px; position: relative; }
+
+/* Links buendig und hoechstens 820px breit: breiter wird ein Verlauf nicht
+   lesbarer, nur flacher. Die Hoehe folgt dem Seitenverhaeltnis. */
+.kx-chart-frame {
+    position: relative;
+    max-width: 820px;
+    border-radius: var(--radius);
+}
+
+.kx-chart-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.kx-linechart {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.kx-chart-grid line { stroke: #E6E9EF; stroke-width: 1; shape-rendering: crispEdges; }
+
+.kx-chart-tick {
+    fill: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.kx-chart-crosshair { stroke: var(--text-secondary); stroke-width: 1; shape-rendering: crispEdges; }
+
+.kx-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.kx-marker { stroke: var(--card-bg); stroke-width: 2; }
+.kx-hit { fill: transparent; stroke: none; }
+
+.kx-line.kx-s1 { stroke: var(--kx-series-1); }
+.kx-line.kx-s2 { stroke: var(--kx-series-2); }
+.kx-line.kx-s3 { stroke: var(--kx-series-3); }
+.kx-line.kx-s4 { stroke: var(--kx-series-4); }
+.kx-line.kx-s5 { stroke: var(--kx-series-5); }
+.kx-line.kx-s6 { stroke: var(--kx-series-6); }
+.kx-line.kx-s7 { stroke: var(--kx-series-7); }
+.kx-line.kx-s8 { stroke: var(--kx-series-8); }
+.kx-marker.kx-s1, .kx-swatch.kx-s1 { fill: var(--kx-series-1); background: var(--kx-series-1); }
+.kx-marker.kx-s2, .kx-swatch.kx-s2 { fill: var(--kx-series-2); background: var(--kx-series-2); }
+.kx-marker.kx-s3, .kx-swatch.kx-s3 { fill: var(--kx-series-3); background: var(--kx-series-3); }
+.kx-marker.kx-s4, .kx-swatch.kx-s4 { fill: var(--kx-series-4); background: var(--kx-series-4); }
+.kx-marker.kx-s5, .kx-swatch.kx-s5 { fill: var(--kx-series-5); background: var(--kx-series-5); }
+.kx-marker.kx-s6, .kx-swatch.kx-s6 { fill: var(--kx-series-6); background: var(--kx-series-6); }
+.kx-marker.kx-s7, .kx-swatch.kx-s7 { fill: var(--kx-series-7); background: var(--kx-series-7); }
+.kx-marker.kx-s8, .kx-swatch.kx-s8 { fill: var(--kx-series-8); background: var(--kx-series-8); }
+
+span.kx-swatch {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 3px;
+    border-radius: 2px;
+    vertical-align: middle;
+}
+
+.kx-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.kx-legend li { display: inline-flex; align-items: center; gap: 7px; }
+
+.kx-tooltip {
+    position: absolute;
+    top: 6px;
+    transform: translateX(12px);
+    min-width: 170px;
+    max-width: 280px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    box-shadow: 0 8px 24px rgba(7, 23, 45, 0.10);
+    font-size: 0.78rem;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.kx-tooltip--flip { transform: translateX(calc(-100% - 12px)); }
+
+.kx-tooltip-title { color: var(--text-secondary); margin-bottom: 4px; }
+
+.kx-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.5;
+}
+
+.kx-tooltip-row strong { font-variant-numeric: tabular-nums; }
+.kx-tooltip-name { color: var(--text-secondary); overflow-wrap: anywhere; }
+
+.kx-chart-empty { padding: 14px 0; font-size: 0.85rem; }
+
+.kx-chart-table { margin-top: 8px; font-size: 0.82rem; }
+.kx-chart-table summary {
+    cursor: pointer;
+    color: var(--primary-color);
+    font-size: 0.8rem;
+    width: max-content;
+}
+.kx-chart-table .kx-table-wrap { margin-top: 8px; }
+
+/* Intervallbalken einer Differenz */
+.kx-interval { display: block; max-width: 100%; height: auto; overflow: visible; }
+.kx-interval-axis { stroke: #E6E9EF; stroke-width: 1; }
+.kx-interval-ref { stroke: var(--text-secondary); stroke-width: 1; }
+.kx-interval-range { stroke-width: 6; stroke-linecap: round; }
+.kx-interval-point { stroke: var(--card-bg); stroke-width: 2; }
+.kx-interval--neutral .kx-interval-range { stroke: rgba(var(--accent-rgb), 0.45); }
+.kx-interval--neutral .kx-interval-point { fill: var(--primary-color); }
+.kx-interval--good .kx-interval-range { stroke: rgba(var(--kx-good-rgb), 0.45); }
+.kx-interval--good .kx-interval-point { fill: var(--success-color); }
+.kx-interval--bad .kx-interval-range { stroke: rgba(var(--kx-bad-rgb), 0.4); }
+.kx-interval--bad .kx-interval-point { fill: var(--error-color); }
+
+/* Auswertungen */
+.kx-eval-card + .kx-eval-card { margin-top: 14px; }
+
+.kx-eval-card[aria-busy="true"] { opacity: 0.85; }
+
+/* Von neueren abgeloest: zugeklappt unter den aktuellen, blasser. */
+.kx-earlier-evaluations {
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+.kx-earlier-evaluations > .kx-help { margin: 0 0 10px; }
+.kx-eval-card--superseded { background: var(--surface-sunken); }
+.kx-eval-card--superseded .kx-headline { color: var(--text-secondary); }
+
+.kx-eval-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+}
+
+.kx-eval-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.kx-eval-meta { font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px; }
+
+.kx-headline {
+    margin-top: 10px;
+    font-size: 1rem;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+.kx-comparisons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.kx-comparison {
+    display: grid;
+    grid-template-columns: minmax(120px, 0.8fr) minmax(200px, 250px) minmax(0, 1.2fr);
+    gap: 6px 14px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font-size: 0.84rem;
+}
+
+.kx-comparison-name strong { display: block; }
+.kx-comparison-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-secondary); }
+.kx-comparison-stats b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.kx-warnings {
+    margin: 10px 0 0;
+    padding: 8px 12px 8px 30px;
+    border-radius: var(--radius);
+    background: rgba(var(--kx-warn-rgb), 0.07);
+    color: var(--kx-warn);
+    font-size: 0.82rem;
+}
+
+.kx-details { margin-top: 10px; }
+.kx-details summary {
+    cursor: pointer;
+    font-size: 0.84rem;
+    color: var(--primary-color);
+    width: max-content;
+}
+.kx-details[open] summary { margin-bottom: 8px; }
+
+/* Notizen, Entscheidungen, Aktivitaet */
+.kx-timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.kx-timeline-item {
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.kx-timeline-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.kx-timeline-head .kx-spacer { flex: 1; }
+
+.kx-activity {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.85rem;
+}
+
+.kx-activity li {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.kx-activity li:last-child { border-bottom: 0; }
+.kx-activity time { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+.kx-decision-box { margin-top: 12px; }
+
+/* ── Verwaltung ─────────────────────────────────────────────────────── */
+
+.kx-tabs {
+    position: relative;
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border-color);
+    margin: 4px 0 18px;
+    scrollbar-width: thin;
+}
+
+.kx-tab {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: transparent;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+}
+
+.kx-tab:hover { color: var(--text-primary); background: rgba(var(--accent-rgb), 0.07); }
+
+.kx-tab[aria-selected="true"] {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    font-weight: 600;
+}
+
+.kx-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.kx-panel:focus-visible { outline: none; }
+
+.kx-split {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.8fr) minmax(0, 2fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.kx-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+    max-height: 640px;
+    overflow-y: auto;
+}
+
+.kx-list-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 9px 11px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    text-align: left;
+    font: inherit;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.kx-list-item:hover { background: rgba(var(--accent-rgb), 0.06); }
+.kx-list-item[aria-current="true"] { background: var(--highlight); }
+.kx-list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.kx-list-item .kx-sub { font-size: 0.75rem; color: var(--text-secondary); }
+
+.kx-preview-list {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.84rem;
+}
+
+.kx-preview-list li + li { margin-top: 3px; }
+
+.kx-token-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.kx-token-box code {
+    flex: 1 1 320px;
+    min-width: 0;
+    padding: 9px 11px;
+    font-family: var(--font-heading);
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+}
+
+.kx-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.kx-stat {
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.kx-stat dt {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.kx-stat dd {
+    font-size: 1.35rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+}
+
+/* ── Schmale Fenster ────────────────────────────────────────────────── */
+
+/* Unter 900px wird die Seitenleiste zur Kopfzeile (style.css). Dort ist
+   .app-shell eine Spalte mit align-items: flex-start -- der Inhalt waere so
+   breit wie seine breiteste Tabelle und die Seite scrollte seitwaerts. Die
+   Navigation scrollt in sich; das regelt style.css fuer alle Seiten. */
+@media (max-width: 900px) {
+    .kx-body .app-content { align-self: stretch; width: 100%; }
+    .kx-page.container { padding-left: 16px; padding-right: 16px; }
+}
+
+@media (max-width: 1000px) {
+    .kx-overview,
+    .kx-split { grid-template-columns: minmax(0, 1fr); }
+    .kx-comparison { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+    .kx-header { align-items: flex-start; }
+    .kx-search-form { flex-direction: column; }
+    .kx-toolbar { align-items: stretch; }
+    .kx-toolbar > * { flex: 1 1 100%; }
+    .kx-toolbar-count { margin-left: 0; }
+    .kx-title-row h1 { font-size: 1.25rem; }
+    .kx-activity li { grid-template-columns: 1fr; gap: 2px; }
+    .kx-fieldlist { grid-template-columns: 1fr; }
+    .kx-fieldlist dd { margin-bottom: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .kx-page *,
+    .kx-dialog * { transition: none !important; }
+}

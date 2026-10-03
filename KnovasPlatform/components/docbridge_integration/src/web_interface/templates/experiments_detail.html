@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ experiment_key }} · {{ brand }} Experimente</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/experiments.css') }}?v={{ asset_version }}">
+</head>
+<body class="kx-body">
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        <div class="container kx-page" id="kxDetailPage">
+            <nav class="kx-detail-meta kx-breadcrumb" aria-label="Pfad">
+                <a href="{{ url_for('experiments.list_page') }}">Experimente</a>
+                <span aria-hidden="true">/</span>
+                <span class="kx-key" aria-current="page">{{ experiment_key }}</span>
+            </nav>
+
+            <header class="kx-detail-header" id="kxHeader" aria-busy="true">
+                <p class="kx-loading" role="status">Experiment wird geladen …</p>
+            </header>
+
+            {# Zeigt an, wenn das Experiment inzwischen anderswo geaendert wurde
+               (HTTP 409 auf row_version). #}
+            <div id="kxConflict" hidden></div>
+
+            <div id="kxLifecycle"></div>
+
+            <nav class="kx-subnav" id="kxSubnav" aria-label="Abschnitte" hidden>
+                <a href="#kx-ueberblick">Überblick</a>
+                <a href="#kx-varianten">Varianten und Metriken</a>
+                <a href="#kx-messwerte">Messwerte</a>
+                <a href="#kx-laeufe">Läufe</a>
+                <a href="#kx-auswertungen">Auswertungen</a>
+                <a href="#kx-notizen">Notizen</a>
+                <a href="#kx-entscheidung" id="kxSubnavDecision" hidden>Entscheidung</a>
+                <a href="#kx-aktivitaet">Aktivität</a>
+            </nav>
+
+            <main id="kxMain" hidden>
+                <section class="kx-section" id="kx-ueberblick" aria-labelledby="kxHeadOverview">
+                    <div class="kx-section-head"><h2 id="kxHeadOverview">Überblick</h2></div>
+                    <div class="kx-overview">
+                        <div>
+                            <div class="kx-card kx-block" id="kxHypothesis"></div>
+                            <div class="kx-card kx-block" id="kxDescription"></div>
+                        </div>
+                        <div>
+                            <div class="kx-card kx-block" id="kxFields"></div>
+                            <div class="kx-card kx-block" id="kxFacts"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="kx-section" id="kx-varianten" aria-labelledby="kxHeadVariants">
+                    <div class="kx-section-head"><h2 id="kxHeadVariants">Varianten und Metriken</h2></div>
+                    <div class="kx-card kx-block" id="kxVariants"></div>
+                    <div class="kx-card kx-block" id="kxMetrics"></div>
+                    <div class="kx-card kx-block" id="kxSampleSize" hidden></div>
+                </section>
+
+                <section class="kx-section" id="kx-messwerte" aria-labelledby="kxHeadMeasurements">
+                    <div class="kx-section-head">
+                        <h2 id="kxHeadMeasurements">Messwerte</h2>
+                        <div class="kx-section-actions" id="kxMeasurementActions"></div>
+                    </div>
+                    <div id="kxImportNote"></div>
+                    <div id="kxMeasurements"></div>
+                    <div id="kxBatches"></div>
+                </section>
+
+                <section class="kx-section" id="kx-laeufe" aria-labelledby="kxHeadRuns">
+                    <div class="kx-section-head">
+                        <h2 id="kxHeadRuns">Läufe</h2>
+                        <div class="kx-section-actions" id="kxRunActions"></div>
+                    </div>
+                    <div id="kxRuns"></div>
+                </section>
+
+                <section class="kx-section" id="kx-auswertungen" aria-labelledby="kxHeadEvaluations">
+                    <div class="kx-section-head">
+                        <h2 id="kxHeadEvaluations">Auswertungen</h2>
+                        <div class="kx-section-actions" id="kxEvaluationActions"></div>
+                    </div>
+                    <div id="kxEvaluations" aria-live="polite"></div>
+                </section>
+
+                <section class="kx-section" id="kx-notizen" aria-labelledby="kxHeadNotes">
+                    <div class="kx-section-head"><h2 id="kxHeadNotes">Notizen</h2></div>
+                    <div id="kxNotes"></div>
+                </section>
+
+                <section class="kx-section" id="kx-entscheidung" aria-labelledby="kxHeadDecision" hidden>
+                    <div class="kx-section-head"><h2 id="kxHeadDecision">Entscheidung</h2></div>
+                    <div id="kxDecision"></div>
+                </section>
+
+                <section class="kx-section" id="kx-aktivitaet" aria-labelledby="kxHeadActivity">
+                    <div class="kx-section-head"><h2 id="kxHeadActivity">Aktivität</h2></div>
+                    <div class="kx-card" id="kxActivity"></div>
+                </section>
+            </main>
+            <noscript><p class="kx-hint">Für die Experimente wird JavaScript benötigt.</p></noscript>
+        </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="false"></div>
+    <script type="application/json" id="kxPageData">{
+        "page": "detail",
+        "experimentKey": {{ experiment_key|tojson }},
+        "canManage": {{ (experiments_can_manage if experiments_can_manage is defined else false)|tojson }},
+        "pointerPrefix": {{ (pointer_prefix if pointer_prefix is defined else 'experiments')|tojson }}
+    }</script>
+    <script src="{{ url_for('static', filename='js/markdown.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/experiments_common.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/experiments_detail.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

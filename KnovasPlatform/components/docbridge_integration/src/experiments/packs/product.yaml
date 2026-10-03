@@ -1,0 +1,154 @@
+# Paket «Produkt»: Nutzertests und Feature-Rollouts.
+#
+# Nutzertests liefern wenige, dafür reiche Daten: Aufgabenerfolg je Person
+# und Aufgabe (Anteil), SUS-Wert und Zufriedenheit je Person, Beobachtungen
+# und Interviews als Notizen. Die Beschreibung zeigt je Metrik das Intervall;
+# für den Aufgabenerfolg gilt ein Ziel von 80 %.
+pack: product
+title: Produkt
+description: Nutzertests, Usability und Feature-Rollouts.
+version: 1
+
+domain:
+  key: product
+  name: Produkt
+  id_prefix: PRD
+  color: "#4a3aa7"
+  description: >-
+    Wie gut Kanzleien mit Knovas zurechtkommen: Nutzertests, Prototypen und
+    Features, die schrittweise eingeführt werden.
+
+metrics:
+  - key: task_success
+    name: Aufgabenerfolg
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Gelöste Aufgaben von gestellten Aufgaben – Wert = gelöst, Anzahl = gestellt.
+    definition: {decimals: 1}
+  - key: sus_score
+    name: SUS-Wert
+    kind: mean
+    unit: Punkte
+    direction: higher
+    description: System Usability Scale (0–100), ein Wert je Teilnehmerin oder Teilnehmer.
+    definition: {decimals: 1, min: 0, max: 100}
+  - key: time_to_value_s
+    name: Zeit bis Ergebnis
+    kind: duration
+    unit: s
+    direction: lower
+    description: Sekunden bis zum ersten brauchbaren Ergebnis, ein Wert je Person und Aufgabe.
+    definition: {decimals: 0}
+  - key: satisfaction
+    name: Zufriedenheit
+    kind: ordinal
+    unit: ""
+    direction: higher
+    description: Fünfstufige Skala; Wert = Stufe, Anzahl = Personen auf dieser Stufe.
+    definition:
+      decimals: 2
+      levels:
+        "1": sehr unzufrieden
+        "2": unzufrieden
+        "3": neutral
+        "4": zufrieden
+        "5": sehr zufrieden
+  - key: preferred_option
+    name: Bevorzugte Variante
+    kind: categorical
+    unit: ""
+    direction: none
+    description: Welche Variante eine Person bevorzugt; Wert = Kategorie, Anzahl = Personen.
+    definition:
+      levels:
+        "1": Variante A
+        "2": Variante B
+        "3": Variante C
+        "0": Keine Präferenz
+
+types:
+  - key: usability
+    name: Nutzertest
+    description: >-
+      Moderierter oder unmoderierter Nutzertest: Aufgabenerfolg, SUS-Wert,
+      Zufriedenheit und Zeit bis zum Ergebnis, dazu Beobachtungen und
+      Interviews als Notizen.
+    definition:
+      fields:
+        - key: sessions
+          label: Anzahl Sitzungen
+          type: integer
+          min: 1
+          required: false
+          help: Geplante Zahl der Testsitzungen.
+        - key: persona
+          label: Persona
+          type: text
+          required: false
+          help: Wer testet, z. B. «Associate in einer mittelgrossen Kanzlei».
+        - key: script
+          label: Testskript
+          type: longtext
+          required: false
+          help: Aufgaben und Fragen in der Reihenfolge der Sitzung.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants: {min: 0, max: 10, defaults: []}
+      metrics:
+        - {metric: task_success, role: primary}
+        - {metric: sus_score, role: secondary}
+        - {metric: satisfaction, role: secondary}
+        - {metric: time_to_value_s, role: secondary}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.describe, metric: task_success, params: {target: 0.8}}
+      decision: {require_learning: true}
+
+  - key: feature
+    name: Feature-Rollout
+    description: >-
+      Ein Feature für einen Teil der Nutzerinnen und Nutzer einschalten und
+      den Aufgabenerfolg mit und ohne Feature vergleichen.
+    definition:
+      fields: []
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: A, name: Ohne Feature, is_control: true}
+          - {key: B, name: Mit Feature}
+      metrics:
+        - {metric: task_success, role: primary}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.bayes_proportion, metric: primary}
+      decision: {require_learning: true}
+
+evaluators: []
+
+requires_metrics: []

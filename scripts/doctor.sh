@@ -45,7 +45,9 @@ running() { "${DC[@]}" ps --status running "$1" 2>/dev/null | grep -q "$1"; }
 
 # "unhealthy" on its own says nothing about why. Docker keeps the last few
 # probe outputs; print them rather than making the operator go find them.
-for svc in docbridge-web docbridge-web-nginx platform-db; do
+# experiments-runner only exists with COMPOSE_PROFILES=experiments; without
+# it, ps -q prints nothing and the loop skips it.
+for svc in docbridge-web docbridge-web-nginx platform-db experiments-runner; do
   cid="$("${DC[@]}" ps -q "$svc" 2>/dev/null | head -1)"
   [[ -n "$cid" ]] || continue
   state="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid" 2>/dev/null)"
@@ -54,6 +56,43 @@ for svc in docbridge-web docbridge-web-nginx platform-db; do
   docker inspect -f '{{range .State.Health.Log}}{{.ExitCode}}|{{.Output}}{{end}}' "$cid" 2>/dev/null \
     | tail -c 600 | sed 's/^/       /'
 done
+
+# Docker refuses to create a container whose CPU limit is above the host's CPU
+# count ("range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs
+# available"). With the experiments profile on a small host, start.sh then
+# stops at `up` and experiments-runner never exists -- so this is checked from
+# knovas.env, before anything that needs the stack running. Compose reads
+# COMPOSE_PROFILES and the limit from the shell first, then from knovas.env.
+exp_profiles="${COMPOSE_PROFILES:-$(read_env_var COMPOSE_PROFILES "" "$KNOVAS_ENV")}"
+if [[ ",${exp_profiles// /}," == *,experiments,* ]]; then
+  runner_cpus="${EXPERIMENTS_RUNNER_CPUS:-$(read_env_var EXPERIMENTS_RUNNER_CPUS "" "$KNOVAS_ENV")}"
+  runner_cpus="${runner_cpus:-2}"
+  # docker info prints 0 when it cannot reach the daemon: then nothing is said.
+  host_cpus="$(docker info --format '{{.NCPU}}' 2>/dev/null)"
+  if [[ "$host_cpus" =~ ^[1-9][0-9]*$ ]]; then
+    if [[ ! "$runner_cpus" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      warn "EXPERIMENTS_RUNNER_CPUS=$runner_cpus is not a number of CPUs (e.g. 2 or 1.5)."
+    elif awk -v want="$runner_cpus" -v have="$host_cpus" 'BEGIN { exit !(want + 0 > have + 0) }'; then
+      bad "EXPERIMENTS_RUNNER_CPUS=$runner_cpus, but Docker has only $host_cpus CPU(s): the experiments-runner container cannot be created."
+      echo "       Set EXPERIMENTS_RUNNER_CPUS=$host_cpus (or less) in knovas.env, then ./scripts/start.sh."
+    else
+      ok "experiments-runner CPU limit $runner_cpus of the host's $host_cpus CPU(s)"
+    fi
+  fi
+fi
+
+# The address recorded for a session and in the audit log is the entry
+# PLATFORM_TRUSTED_PROXY_HOPS places from the right of X-Forwarded-For. The
+# compose default of 2 expects host nginx in front of docbridge-web-nginx;
+# with docbridge-web-nginx published on the network and nothing in front,
+# every browser could choose the address it is recorded with.
+web_bind="$(read_env_var DOCBRIDGE_WEB_BIND "" "$KNOVAS_ENV")"
+proxy_hops="${PLATFORM_TRUSTED_PROXY_HOPS:-$(read_env_var PLATFORM_TRUSTED_PROXY_HOPS "" "$KNOVAS_ENV")}"
+proxy_hops="${proxy_hops:-2}"
+if ! knovas_is_loopback_bind "$web_bind" && [[ "$proxy_hops" =~ ^[0-9]+$ ]] && (( proxy_hops >= 2 )); then
+  warn "DOCBRIDGE_WEB_BIND=$web_bind publishes docbridge-web-nginx, but PLATFORM_TRUSTED_PROXY_HOPS=$proxy_hops expects host nginx in front of it: browsers can choose the address their session is recorded with."
+  echo "       Without host nginx in front, set PLATFORM_TRUSTED_PROXY_HOPS=1 in knovas.env, then ./scripts/start.sh."
+fi
 
 # nginx resolves the app once at startup unless it is running the config with a
 # resolver directive. A recreate of docbridge-web alone leaves an older nginx
@@ -283,6 +322,195 @@ for email, status, must_change, fails, locked, roles in rows:
     if "admin" not in roles.split(","):
         print("       No 'admin' role, so the Verwaltung console is hidden and would 403.")
         print("       Fix: ./scripts/admin-password.sh --grant-admin " + email)
+PY
+fi
+
+head_ "Experimente"
+# EXPERIMENTS_ENABLED is off unless set to true -- the opposite of flag_on
+# above, which reads an unset switch as on. Reporting on a module nobody
+# switched on would only invent work.
+flag_on_default_off() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    true|yes|1|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if ! flag_on_default_off "$(env_in_app EXPERIMENTS_ENABLED)"; then
+  ok "switched off (EXPERIMENTS_ENABLED is not true) — nothing to check"
+elif [[ "$IDENT_ON" == false ]]; then
+  warn "EXPERIMENTS_ENABLED=true, but per-user accounts are off (IDENTITY_ENABLED=false): the module stays off."
+  echo "       It needs personal accounts and the roles experimenter / experiments_manager."
+else
+  # Asked of the app itself: its own settings loader, its database. What the
+  # module does with an empty access group, an unreachable runner or a dead
+  # job is invisible in the UI to everyone but its managers.
+  "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
+import http.client
+import json
+import os
+import socket
+from urllib.parse import urlsplit
+
+
+def say(mark, text, *more):
+    print(f"{mark:>7}  {text}")
+    for line in more:
+        print(f"         {line}")
+
+
+class UnixConnection(http.client.HTTPConnection):
+    def __init__(self, path):
+        super().__init__("localhost", timeout=5)
+        self.unix_path = path
+
+    def connect(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(self.unix_path)
+        self.sock = sock
+
+
+def runner_health(url):
+    """(answer dict or None, reason) -- the same probe the Platform makes."""
+    if url.startswith("unix://"):
+        path = url[len("unix://"):]
+        if not os.path.exists(path):
+            return None, f"no socket at {path}"
+        conn = UnixConnection(path)
+    else:
+        parts = urlsplit(url)
+        conn = http.client.HTTPConnection(parts.hostname or "localhost", parts.port or 80, timeout=5)
+    try:
+        conn.request("GET", "/health")
+        response = conn.getresponse()
+        body = response.read(65536)
+    except OSError as exc:
+        return None, str(exc)
+    finally:
+        conn.close()
+    if response.status != 200:
+        return None, f"HTTP {response.status}"
+    try:
+        return json.loads(body), ""
+    except ValueError:
+        return None, "the answer is not JSON"
+
+
+def check():
+    from config_loader import get_config
+    from experiments.settings import load_settings
+    from identity import db
+
+    settings = load_settings(get_config(), identity_enabled=True)
+    conn = db.connect()
+
+    tables = ("exp_domains", "exp_types", "exp_metrics", "exp_experiments", "exp_measurements",
+              "exp_jobs", "exp_index_documents", "exp_api_tokens")
+    missing = [t for t in tables if conn.execute("SELECT to_regclass(%s)", (t,)).fetchone()[0] is None]
+    if missing:
+        say("FAIL", "the experiments tables are missing: " + ", ".join(missing),
+            "Migration 0003 has not run; docbridge-web's log says why:",
+            "docker compose --env-file knovas.env logs --tail 100 docbridge-web")
+        return
+    domains, experiments = conn.execute(
+        "SELECT (SELECT count(*) FROM exp_domains)::int, (SELECT count(*) FROM exp_experiments)::int"
+    ).fetchone()
+    say("OK", f"switched on: {domains} domain(s), {experiments} experiment(s)")
+    viewers = conn.execute(
+        "SELECT count(DISTINCT ur.user_id)::int FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
+        "WHERE r.key IN ('experimenter', 'experiments_manager')").fetchone()[0]
+    if not viewers:
+        say("WARN", "nobody has the role experimenter or experiments_manager, so only administrators see the module.",
+            "Grant it under Verwaltung → Personen.")
+
+    # Background jobs: indexing into Knovas, evaluations, pipelines.
+    jobs = dict(conn.execute("SELECT status, count(*)::int FROM exp_jobs GROUP BY status").fetchall())
+    print("jobs: " + (", ".join(f"{k} {v}" for k, v in sorted(jobs.items())) or "none yet"))
+    if jobs.get("dead"):
+        say("WARN", f"{jobs['dead']} background job(s) gave up after their retries, most recent first:")
+        for kind, error, at in conn.execute(
+                "SELECT kind, left(coalesce(last_error, ''), 160), to_char(finished_at, 'YYYY-MM-DD HH24:MI') "
+                "FROM exp_jobs WHERE status = 'dead' ORDER BY finished_at DESC NULLS LAST LIMIT 5"):
+            print(f"           {at or '?'}  {kind}: {error or '(no message)'}")
+    overdue = conn.execute(
+        "SELECT count(*)::int FROM exp_jobs WHERE status = 'pending' AND kind <> 'index' "
+        "AND run_after < now() - interval '15 minutes'").fetchone()[0]
+    if overdue:
+        say("WARN", f"{overdue} evaluation/pipeline job(s) have waited more than 15 minutes.",
+            "Is a worker running? EXPERIMENTS_WORKER_ENABLED must not be false in docbridge-web.")
+    stale = conn.execute(
+        "SELECT count(*)::int FROM exp_jobs WHERE status = 'running' AND locked_until < now()").fetchone()[0]
+    if stale:
+        say("WARN", f"{stale} job(s) hold an expired lease: a worker stopped mid-job. They are picked up again.")
+
+    # Knovas copies of the experiments.
+    states = dict(conn.execute(
+        "SELECT index_state, count(*)::int FROM exp_experiments GROUP BY index_state").fetchall())
+    print("in Knovas: " + (", ".join(f"{k} {v}" for k, v in sorted(states.items())) or "no experiments yet"))
+    # Documents of deleted experiments that are still in Knovas and that no
+    # job is deleting right now: their deletion failed (for example during a
+    # long Knovas outage). The maintenance repeats it by itself; this keeps it
+    # visible after the dead job has been cleared away.
+    orphans, deleting = conn.execute(
+        "SELECT count(*)::int, count(*) FILTER (WHERE EXISTS (SELECT 1 FROM exp_jobs j "
+        "  WHERE j.dedupe_key = 'unindex:' || d.pointer AND j.status IN ('pending', 'running')))::int "
+        "FROM exp_index_documents d "
+        "WHERE NOT EXISTS (SELECT 1 FROM exp_experiments e WHERE e.id = d.experiment_id)").fetchone()
+    if orphans > deleting:
+        say("WARN", f"{orphans - deleting} deleted experiment(s) are still in Knovas: deleting them there has failed so far.",
+            "The maintenance repeats the deletion by itself; if the number stays, check the Knovas",
+            "connection: docker compose --env-file knovas.env exec docbridge-web python -m experiments status")
+    if settings.index_enabled and states.get("error"):
+        say("WARN", f"{states['error']} experiment(s) could not be written to Knovas, for example:")
+        for key, error in conn.execute(
+                "SELECT key, left(coalesce(index_error, ''), 160) FROM exp_experiments "
+                "WHERE index_state = 'error' ORDER BY updated_at DESC LIMIT 3"):
+            print(f"           {key}: {error}")
+    groups = list(settings.index_access_groups)
+    if not settings.index_enabled:
+        say("OK", "Knovas indexing is off (EXPERIMENTS_INDEX_ENABLED=false): experiments are found in the module only")
+    elif not groups and not settings.index_unrestricted:
+        say("WARN", "Experimente werden nicht in Knovas indexiert: keine Zugriffsgruppe (EXPERIMENTS_ACCESS_GROUPS ist leer).",
+            "Set EXPERIMENTS_ACCESS_GROUPS to a Knovas access group and grant that group to every",
+            "experimenter under Verwaltung → Personen; then ./scripts/setup.sh && ./scripts/start.sh.")
+    elif not groups:
+        say("WARN", "Experimente sind in Knovas für alle Nutzer des Mandanten sichtbar "
+                    "(EXPERIMENTS_INDEX_UNRESTRICTED=true, keine Zugriffsgruppe).",
+            f"Right only with a Knovas folder rule that restricts '{settings.pointer_prefix}/'.")
+    else:
+        say("OK", "uploads to Knovas carry the access group(s) " + ", ".join(groups))
+    autodoc = [p.strip().strip("/").lower() for p in (os.environ.get("AUTODOC_IDENTIFIER_PREFIX") or "").split(",") if p.strip()]
+    if settings.pointer_prefix.lower() in autodoc:
+        say("FAIL", f"the experiments pointer prefix '{settings.pointer_prefix}' is also the prefix of the firm's files.",
+            "Experiment documents and files would mix in Knovas. Set EXPERIMENTS_POINTER_PREFIX to another value.")
+
+    # The sandbox for Python and Julia evaluators.
+    url = settings.runner_url
+    if not url:
+        say("OK", "no evaluation runner (EXPERIMENTS_RUNNER_URL is empty): built-in evaluators only")
+        return
+    answer, reason = runner_health(url)
+    if answer is None:
+        say("FAIL", f"EXPERIMENTS_RUNNER_URL={url}, but the runner does not answer ({reason}).",
+            "Python and Julia evaluations wait and then fail. Start it with COMPOSE_PROFILES=experiments",
+            "in knovas.env and ./scripts/start.sh; its state and log:",
+            "docker compose --env-file knovas.env --profile experiments ps experiments-runner",
+            "docker compose --env-file knovas.env --profile experiments logs --tail 50 experiments-runner")
+        return
+    languages = answer.get("languages") or {}
+    described = "; ".join(f"{k} {v}" for k, v in sorted(languages.items())) or "no language"
+    if answer.get("ok") is True:
+        say("OK", f"the runner answers: {described}; busy {answer.get('busy')} of {answer.get('max_concurrent')}")
+    else:
+        say("WARN", f"the runner answers but is not ready ({described}): no interpreter, or its /tmp is full.",
+            "docker compose --env-file knovas.env --profile experiments logs --tail 50 experiments-runner")
+
+
+try:
+    check()
+except Exception as exc:  # a diagnosis reports, it does not crash
+    first_line = (str(exc).strip().splitlines() or [""])[0]
+    say("FAIL", f"could not check the experiments module: {type(exc).__name__}: {first_line}")
 PY
 fi
 

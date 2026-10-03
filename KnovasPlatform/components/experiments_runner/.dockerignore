@@ -1,0 +1,7 @@
+# Only runner.py, harness.py, harness.jl and requirements.txt go into the image.
+tests/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+pytest.ini
+README.md

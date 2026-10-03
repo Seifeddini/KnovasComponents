@@ -111,6 +111,15 @@ services:
       # Account lockout after repeated failures. 0 attempts switches it off.
       IDENTITY_ACCOUNT_LOCKOUT_ATTEMPTS: ${IDENTITY_ACCOUNT_LOCKOUT_ATTEMPTS:-5}
       IDENTITY_ACCOUNT_LOCKOUT_MINUTES: ${IDENTITY_ACCOUNT_LOCKOUT_MINUTES:-15}
+      # Reverse proxies in front of gunicorn that add to X-Forwarded-For: the
+      # host nginx of deploy/host-nginx (sets it to the address it saw) and
+      # docbridge-web-nginx below (appends). The address recorded for a session
+      # and in the audit log is the entry that many places from the right; the
+      # entries before it are whatever the client sent. With docbridge-web-nginx
+      # published directly (DOCBRIDGE_WEB_BIND=0.0.0.0, no host nginx) it must
+      # be 1, or every client can choose the address it is recorded with:
+      # setup.sh writes 1 into knovas.env then, and doctor.sh warns about 2.
+      PLATFORM_TRUSTED_PROXY_HOPS: ${PLATFORM_TRUSTED_PROXY_HOPS:-2}
       PLATFORM_BROKER_KEY_DIR: ${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}
     secrets:
       - platform_db_password
@@ -139,6 +148,13 @@ services:
       # back into the fixture. On a ro mount that fails, is only logged, and
       # looks like success in the UI until the next reload.
       - ./KnovasPlatform/docbridge_test_data/ontology:/mnt/ontology
+      # The experiments-runner's socket (Experimente, Python/Julia evaluators):
+      # EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock.
+      # Mounted always -- without the "experiments" profile the directory is
+      # simply empty and the Platform reports the runner as not reachable.
+      # Read-only: connecting to a socket needs no write access to the mount,
+      # and the Platform has nothing to put there.
+      - experiments_runner_socket:/run/experiments-runner:ro
     # --access-logfile=- puts every request on stdout. Without it the log shows
     # only what the application chooses to say, so a 403 from a route guard, or a
     # page that renders perfectly, are both completely silent -- and an empty
@@ -218,6 +234,68 @@ services:
     networks:
       - knovas-internal
 
+  # Sandbox for user-written Python and Julia evaluators of the Experiments
+  # module (Experimente). Profile-gated: COMPOSE_PROFILES=experiments in
+  # knovas.env (plus EXPERIMENTS_RUNNER_URL, see knovas.env.example) builds
+  # and starts it with ./scripts/start.sh; without it, Python and Julia
+  # evaluators are unavailable and the built-in ones still work.
+  #
+  # Everything here is part of the containment of code that experiment
+  # managers write, so change none of it lightly:
+  # - network_mode none: no network interface at all, not even knovas-internal.
+  #   The Platform reaches the runner only through the unix socket on the
+  #   shared tmpfs volume below, and the code reaches nothing.
+  # - non-root, read-only root filesystem, no capabilities, no-new-privileges,
+  #   CPU/memory/pid limits; /tmp is a size-limited tmpfs for the job
+  #   directories. No secret, no env_file, no other volume.
+  # - Per job the runner adds rlimits, a scrubbed environment, a wall-clock
+  #   kill and the removal of every process the job leaves behind
+  #   (KnovasPlatform/components/experiments_runner/README.md).
+  # No depends_on in either direction: docbridge-web must start without it.
+  experiments-runner:
+    profiles:
+      - experiments
+    build: ./KnovasPlatform/components/experiments_runner
+    image: knovas-experiments-runner:0.1.0
+    network_mode: none
+    # Its own uid, shared with no other image (RemoteController is 10001): the
+    # per-job process limit is counted per uid across the whole host. The same
+    # number is in the Dockerfile and in the socket volume's options below.
+    user: "10101:10101"
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    volumes:
+      - experiments_runner_socket:/run/experiments-runner
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${EXPERIMENTS_RUNNER_MEMORY:-3g}
+    # At most the host's CPU count (nproc): Docker refuses to create the
+    # container otherwise ("range of CPUs is from 0.01 to 1.00"). On a 1-vCPU
+    # host setup.sh writes EXPERIMENTS_RUNNER_CPUS=1 into a knovas.env without
+    # a value; doctor.sh checks the value that is set.
+    cpus: ${EXPERIMENTS_RUNNER_CPUS:-2}
+    environment:
+      RUNNER_MAX_CONCURRENT: ${EXPERIMENTS_RUNNER_MAX_CONCURRENT:-2}
+      # The socket volume is the runner's alone: it empties it at every start,
+      # so nothing a job planted there (jobs share the runner's uid) outlives
+      # the restart it causes.
+      RUNNER_SOCKET_DIR_EXCLUSIVE: "true"
+      # The runner's cap on a job's time limit follows the Platform's own
+      # EXPERIMENTS_RUNNER_TIMEOUT, so the two cannot drift apart.
+      RUNNER_MAX_SECONDS: ${EXPERIMENTS_RUNNER_TIMEOUT:-90}
+    healthcheck:
+      # Over the socket: the container has no network to probe through.
+      test: ["CMD", "/opt/venv/bin/python3", "-I", "/app/runner.py", "--healthcheck"]
+      timeout: 10s
+      interval: 30s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
 networks:
   knovas-internal:
     driver: bridge
@@ -229,6 +307,19 @@ volumes:
   docbridge_integration_data:
   docbridge_integration_logs:
   platform_db_data:
+  # Only the experiments-runner's unix socket lives here. A small tmpfs rather
+  # than a directory on the host disk: code running in the sandbox can write
+  # to this volume and must not be able to fill the disk through it, and the
+  # uid option makes it the runner's whichever container mounts it first.
+  # The uid is the runner's (10101); a volume created by an earlier build with
+  # another uid must be removed once (docker compose down, then
+  # docker volume rm <project>_experiments_runner_socket), since Docker keeps
+  # a volume's options from its creation.
+  experiments_runner_socket:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=1m,nr_inodes=1024,uid=10101,gid=10101,mode=0770,nosuid,nodev,noexec"
 
 secrets:
   # Generated by scripts/setup.sh into ./secrets/, mode 0600. A file rather

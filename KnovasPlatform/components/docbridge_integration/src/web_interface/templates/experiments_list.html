@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ brand }} Experimente</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/experiments.css') }}?v={{ asset_version }}">
+</head>
+<body class="kx-body">
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        <div class="container kx-page" id="kxListPage">
+            <header class="site-header kx-header">
+                <h1 class="site-greeting">Experimente<br>
+                    <span class="site-greeting-question">Hypothesen, Messwerte und Entscheidungen – über alle Bereiche.</span>
+                </h1>
+                <div class="kx-header-actions">
+                    <button type="button" class="btn btn-primary btn-sm" id="kxNewExperiment">Neues Experiment</button>
+                    <a class="btn btn-outline btn-sm" href="{{ url_for('experiments.manage_page') }}">Verwaltung</a>
+                </div>
+            </header>
+
+            <main>
+                {# Knovas-Suche ueber alle Texte, Entscheidungen und Ergebnisse. Die
+                   Treffer ersetzen die Liste, bis die Suche zurueckgesetzt wird. #}
+                <section class="kx-search" aria-labelledby="kxSearchHeading">
+                    <h2 class="kx-visually-hidden" id="kxSearchHeading">Experimente suchen</h2>
+                    <form class="kx-search-form" id="kxSearchForm" role="search">
+                        <label class="kx-visually-hidden" for="kxSearchInput">In Knovas suchen</label>
+                        <input type="search" id="kxSearchInput" name="q" maxlength="500"
+                               autocomplete="off" placeholder="In Knovas suchen …">
+                        <button type="submit" class="btn btn-primary">
+                            <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                 stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                            </svg>
+                            Suchen
+                        </button>
+                    </form>
+                    <div class="kx-search-result" id="kxSearchResult" hidden aria-live="polite"></div>
+                </section>
+
+                <section id="kxBrowse" aria-labelledby="kxBrowseHeading">
+                    <h2 class="kx-visually-hidden" id="kxBrowseHeading">Alle Experimente</h2>
+                    <div class="kx-domain-chips" id="kxDomainChips" role="group" aria-label="Nach Bereich filtern"></div>
+
+                    <div class="kx-toolbar" role="group" aria-label="Experimente filtern">
+                        <label class="kx-visually-hidden" for="kxFilterText">Nach Text filtern</label>
+                        <input type="search" class="kx-input kx-filter-text" id="kxFilterText"
+                               placeholder="Schlüssel, Titel oder Hypothese" autocomplete="off" maxlength="200">
+                        <label class="kx-visually-hidden" for="kxFilterStatus">Nach Status filtern</label>
+                        <select class="kx-input" id="kxFilterStatus">
+                            <option value="">Alle Status</option>
+                        </select>
+                        <label class="kx-visually-hidden" for="kxFilterTag">Nach Schlagwort filtern</label>
+                        <input type="search" class="kx-input kx-filter-tag" id="kxFilterTag"
+                               placeholder="Schlagwort" autocomplete="off" maxlength="50">
+                        <label class="kx-check">
+                            <input type="checkbox" id="kxFilterArchived">
+                            <span>Archivierte zeigen</span>
+                        </label>
+                        <span class="kx-toolbar-count" id="kxListCount" aria-live="polite"></span>
+                    </div>
+
+                    <div id="kxListBody" aria-busy="true">
+                        <p class="kx-loading" role="status">Experimente werden geladen …</p>
+                    </div>
+                    <div class="kx-more">
+                        <button type="button" class="btn btn-outline btn-sm" id="kxLoadMore" hidden>Mehr laden</button>
+                    </div>
+                </section>
+                <noscript><p class="kx-hint">Für die Experimente wird JavaScript benötigt.</p></noscript>
+            </main>
+        </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="false"></div>
+    <script type="application/json" id="kxPageData">{
+        "page": "list",
+        "canManage": {{ (experiments_can_manage if experiments_can_manage is defined else false)|tojson }},
+        "pointerPrefix": {{ (pointer_prefix if pointer_prefix is defined else 'experiments')|tojson }}
+    }</script>
+    <script src="{{ url_for('static', filename='js/markdown.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/experiments_common.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/experiments_list.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

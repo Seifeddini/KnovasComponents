@@ -30,7 +30,12 @@ from identity.users import EmailTakenError, UnknownRoleError
 
 logger = logging.getLogger(__name__)
 
-ASSIGNABLE_ROLES = ("admin", "approver", "ingestion_manager", "member")
+#: experimenter / experiments_manager open the Experimente module (migration
+#: 0003); without one of them a person never sees it.
+ASSIGNABLE_ROLES = (
+    "admin", "approver", "ingestion_manager", "member",
+    "experimenter", "experiments_manager",
+)
 
 
 def create_admin_blueprint(

@@ -52,6 +52,29 @@ Leave `COMPANY_LOGIN_*` unset: per-user identity is on by default and the
 Platform refuses to start with both doors open. See [setup.md](../setup.md) for
 all variables.
 
+### Client addresses behind two proxies
+
+A request passes two nginx layers: host nginx, then `docbridge-web-nginx` in
+Docker (`127.0.0.1:8081`), then the app. Host nginx sets `X-Forwarded-For` to
+the address it saw (the template in `deploy/host-nginx`; older copies of it
+appended with `$proxy_add_x_forwarded_for`), and `docbridge-web-nginx` appends
+the address host nginx connected from (the Docker network's gateway). The
+header reaching the app therefore ends with the user's address and then the
+gateway. The address recorded with each session and in the audit entries of
+Experimente is the entry `PLATFORM_TRUSTED_PROXY_HOPS` places from the right;
+anything further left is whatever the client sent.
+
+| Setup | `PLATFORM_TRUSTED_PROXY_HOPS` |
+|-------|-------------------------------|
+| Host nginx in front of the stack (this guide) | `2` — the default in `docker-compose.yml`, nothing to set |
+| `docbridge-web-nginx` published directly (`DOCBRIDGE_WEB_BIND=0.0.0.0`, no host nginx) | `1` in `knovas.env` — `setup.sh` writes it when the bind is not loopback and no value is set; `doctor.sh` warns about `2` there |
+| No proxy in front of the app | `0` |
+
+Too low records the Docker gateway for everyone; too high lets a client
+choose the address it is recorded with. A proxy you add in front of host
+nginx (a load balancer) counts only if it also appends to the header; raise
+the value by one then. After a change: `./scripts/setup.sh && ./scripts/start.sh`.
+
 ## 2. Start Docker (localhost bind)
 
 ```bash

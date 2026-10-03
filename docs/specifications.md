@@ -320,7 +320,7 @@ KnovasPlatform runs on **internal networks only**. Listening ports must not be r
 | Surface                          | Address                                 | Notes                                                    |
 | -------------------------------- | --------------------------------------- | -------------------------------------------------------- |
 | Web UI (localhost-only)          | `127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}` | Host-NGINX overlay; not bound to non-loopback interfaces |
-| Web UI (trusted-LAN HTTP)        | `0.0.0.0:${DOCBRIDGE_WEB_PORT:-8081}`   | Plain HTTP — evaluation or trusted LAN only              |
+| Web UI (trusted-LAN HTTP)        | `0.0.0.0:${DOCBRIDGE_WEB_PORT:-8081}`   | Plain HTTP — evaluation or trusted LAN only; `PLATFORM_TRUSTED_PROXY_HOPS=1` (setup.sh writes it) |
 | Host HTTPS (production intranet) | `0.0.0.0:443` on host NGINX             | Internal DNS; TLS terminated on the host                 |
 | Outbound to Knovas API           | `${SEMANTIX_API_URL}`                   | mTLS — the only mandatory egress                         |
 

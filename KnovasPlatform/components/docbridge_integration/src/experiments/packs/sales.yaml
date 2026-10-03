@@ -1,0 +1,188 @@
+# Paket «Vertrieb»: Playbooks, Sequenzen und Preise.
+#
+# Anteile werden je Kontakt gezählt: Wert = Kontakte mit Antwort (oder
+# Termin, Abschluss …), Anzahl = angeschriebene Kontakte. Beträge sind
+# Geldbeträge je Kontakt oder Angebot, auch 0 – sonst wäre das Mittel zu
+# optimistisch.
+pack: sales
+title: Vertrieb
+description: Playbooks, Sequenzen und Preis-Tests im Vertrieb.
+version: 1
+
+domain:
+  key: sales
+  name: Vertrieb
+  id_prefix: SAL
+  color: "#1baf7a"
+  description: >-
+    Ansprache, Sequenzen, Pilotprojekte und Preise: was bei Kanzleien und
+    Rechtsabteilungen zu Terminen, Piloten und Verträgen führt.
+
+metrics:
+  - key: reply_rate
+    name: Antwortrate
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Kontakte mit Antwort von angeschriebenen Kontakten.
+    definition: {decimals: 1}
+  - key: meeting_rate
+    name: Terminquote
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Kontakte mit vereinbartem Termin von angeschriebenen Kontakten.
+    definition: {decimals: 1}
+  - key: pilot_conversion
+    name: Pilot → Vertrag
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Pilotprojekte, die zu einem Vertrag wurden, von abgeschlossenen Piloten.
+    definition: {decimals: 1}
+  - key: win_rate
+    name: Abschlussquote
+    kind: proportion
+    unit: "%"
+    direction: higher
+    description: Gewonnene Angebote von entschiedenen Angeboten.
+    definition: {decimals: 1}
+  - key: unsubscribe_rate
+    name: Abmelderate
+    kind: proportion
+    unit: "%"
+    direction: lower
+    description: Abmeldungen von angeschriebenen Kontakten.
+    definition: {decimals: 2}
+  - key: pipeline_value
+    name: Pipeline-Wert
+    kind: currency
+    unit: CHF
+    direction: higher
+    description: Ein Wert je angeschriebenem Kontakt, 0 ohne Opportunity.
+    definition: {decimals: 0}
+  - key: deal_value
+    name: Vertragswert
+    kind: currency
+    unit: CHF
+    direction: higher
+    description: Ein Wert je Angebot, 0 wenn verloren.
+    definition: {decimals: 0}
+  - key: cycle_days
+    name: Verkaufszyklus
+    kind: duration
+    unit: Tage
+    direction: lower
+    description: Tage vom Erstkontakt bis zur Entscheidung, ein Wert je Opportunity.
+    definition: {decimals: 1}
+
+types:
+  - key: playbook
+    name: Playbook-Test
+    description: >-
+      Eine neue Sequenz oder Ansprache gegen die bisherige testen. Ausgewertet
+      wird erst, wenn jede Variante die geplante Zahl Kontakte erreicht hat.
+    definition:
+      fields:
+        - key: segment
+          label: Segment
+          type: enum
+          options: [Kanzlei klein, Kanzlei mittel, Kanzlei gross, Rechtsabteilung, Sonstiges]
+          required: false
+          help: Welche Kunden angesprochen werden.
+        - key: territory
+          label: Gebiet
+          type: enum
+          options: [Schweiz, Deutschland, Österreich, Sonstiges]
+          required: false
+          help: Wo die Kontakte sitzen.
+        - key: sequence
+          label: Sequenz
+          type: text
+          required: false
+          help: Name der Sequenz im CRM.
+        - key: planned_n
+          label: Geplante Kontakte je Variante
+          type: integer
+          min: 1
+          required: false
+          help: Zur Auswertung geht es erst, wenn jede Variante so viele Kontakte hat.
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements, "n_planned:planned_n"]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: A, name: Kontrolle, is_control: true}
+          - {key: B, name: Variante B}
+      metrics:
+        - {metric: meeting_rate, role: primary}
+        - {metric: reply_rate, role: secondary}
+        - {metric: pipeline_value, role: secondary}
+        - {metric: unsubscribe_rate, role: guardrail, op: max, value: 0.02}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.bayes_proportion, metric: primary}
+        - {evaluator: builtin.two_proportion, metric: primary}
+      decision: {require_learning: true}
+
+  - key: pricing
+    name: Preis-Test
+    description: >-
+      Ein neues Preismodell gegen das aktuelle testen: gewinnen wir mehr
+      Angebote, und wie verändert sich der Vertragswert?
+    definition:
+      fields:
+        - key: segment
+          label: Segment
+          type: enum
+          options: [Kanzlei klein, Kanzlei mittel, Kanzlei gross, Rechtsabteilung, Sonstiges]
+          required: false
+          help: Welche Kunden das Angebot erhalten.
+        - key: price_model
+          label: Preismodell
+          type: text
+          required: false
+          help: Kurzbeschreibung des neuen Modells, z. B. «pro Arbeitsplatz statt pro Dokument».
+      states:
+        - {key: draft, label: Entwurf}
+        - {key: running, label: Läuft, phase: running}
+        - {key: analysis, label: Auswertung}
+        - {key: decided, label: Entschieden, phase: decided}
+        - {key: stopped, label: Abgebrochen, phase: stopped}
+      initial: draft
+      transitions:
+        - {from: draft, to: running, label: Starten, requires: [hypothesis, primary_metric, "variants:2"]}
+        - {from: running, to: analysis, label: Zur Auswertung, requires: [measurements]}
+        - {from: analysis, to: decided, label: Entscheiden, requires: [decision]}
+        - {from: analysis, to: running, label: Weiterlaufen lassen}
+        - {from: "*", to: stopped, label: Abbrechen}
+      variants:
+        min: 2
+        max: 10
+        defaults:
+          - {key: A, name: Aktueller Preis, is_control: true}
+          - {key: B, name: Neuer Preis}
+      metrics:
+        - {metric: win_rate, role: primary}
+        - {metric: deal_value, role: secondary}
+      evaluation:
+        - {evaluator: builtin.describe, metric: all}
+        - {evaluator: builtin.bayes_proportion, metric: primary}
+        - {evaluator: builtin.welch_t, metric: deal_value}
+      decision: {require_learning: true}
+
+evaluators: []
+
+requires_metrics: []

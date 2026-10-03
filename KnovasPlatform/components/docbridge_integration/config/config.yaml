@@ -277,6 +277,29 @@ identity:
   enabled: "${IDENTITY_ENABLED:-true}"
   broker_key_dir: "${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}"
 
+# Experimente: hypotheses, measurements, evaluations and decisions of any
+# domain (engineering, marketing, sales, product, ...), searchable with Knovas.
+# Visible only to people with the role experimenter or experiments_manager.
+# Plan: docs/superpowers/plans/2026-09-28-experiments-module.md
+experiments:
+  # Experimente: off unless switched on. Needs identity.enabled (per-user accounts).
+  enabled: "${EXPERIMENTS_ENABLED:-false}"
+  pointer_prefix: "${EXPERIMENTS_POINTER_PREFIX:-experiments}"
+  index:
+    enabled: "${EXPERIMENTS_INDEX_ENABLED:-true}"
+    per_minute: "${EXPERIMENTS_INDEX_PER_MINUTE:-2}"
+    debounce_seconds: "${EXPERIMENTS_INDEX_DEBOUNCE_SECONDS:-60}"
+    access_groups: "${EXPERIMENTS_ACCESS_GROUPS:-}"
+    unrestricted: "${EXPERIMENTS_INDEX_UNRESTRICTED:-false}"
+  runner:
+    # unix:///run/experiments-runner/runner.sock with COMPOSE_PROFILES=experiments
+    url: "${EXPERIMENTS_RUNNER_URL:-}"
+    timeout_seconds: "${EXPERIMENTS_RUNNER_TIMEOUT:-90}"
+  worker:
+    enabled: "${EXPERIMENTS_WORKER_ENABLED:-true}"
+    poll_seconds: "${EXPERIMENTS_WORKER_POLL_SECONDS:-5}"
+  max_csv_rows: "${EXPERIMENTS_MAX_CSV_ROWS:-200000}"
+
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Optional companion (semantix-doc:) if browser launch is blocked by policy.
 open:

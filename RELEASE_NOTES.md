@@ -114,6 +114,28 @@ das Volume mit dem Broker-Schluessel.
 - Deploy: [KnovasPlatform/docs/setup.md](KnovasPlatform/docs/setup.md)
 - API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)
 
+### Adresse hinter Proxys: `PLATFORM_TRUSTED_PROXY_HOPS`
+
+Die Plattform hält zu jeder Sitzung und in den Audit-Einträgen der Experimente
+die Adresse fest, von der eine Anfrage kam. Bisher nahm sie dafür den ersten
+Eintrag von `X-Forwarded-For` – den jeder Browser selbst setzen kann. Jetzt
+zählt sie von rechts so viele Einträge ab, wie Proxys vor ihr stehen und
+anhängen: `PLATFORM_TRUSTED_PROXY_HOPS`, in `docker-compose.yml` mit der
+Vorgabe `2` (Host-NGINX vor dem `docbridge-web-nginx` des Stacks).
+
+Beim Upgrade:
+
+- Mit Host-NGINX davor, der üblichen Einrichtung, ist nichts zu tun.
+- Wer `docbridge-web-nginx` direkt ins LAN stellt (`DOCBRIDGE_WEB_BIND=0.0.0.0`,
+  kein Host-NGINX), braucht `PLATFORM_TRUSTED_PROXY_HOPS=1` in `knovas.env` –
+  sonst kann jeder Browser die Adresse wählen, mit der er festgehalten wird.
+  `./scripts/setup.sh` schreibt diese `1`, wenn `DOCBRIDGE_WEB_BIND` keine
+  Loopback-Adresse ist und `knovas.env` noch keinen Wert hat;
+  `./scripts/doctor.sh` warnt, wenn dort trotzdem `2` gilt.
+- Danach `./scripts/setup.sh && ./scripts/start.sh`.
+
+Einzelheiten: [KnovasPlatform/docs/deployment/host-nginx-internal.md](KnovasPlatform/docs/deployment/host-nginx-internal.md#client-addresses-behind-two-proxies)
+
 ### Dokumentverwaltung und Ordner-Zugriffsrechte
 
 Die Verwaltung zeigt jetzt alle hochgeladenen Dokumente des Mandanten und
@@ -135,6 +157,65 @@ Vier-Augen-Prinzip erst im strikten Modus.
 Was indexiert wird, wann und hinter welcher Wand, wird jetzt in der Verwaltung
 eingestellt — mit Vorschau, Versionen und Wiederherstellung. Der RemoteController
 akzeptiert dafür die Anmeldung der Kanzlei selbst.
+
+### Experimente
+
+Ein neues Modul hält Experimente fest — Hypothese, Varianten, Messwerte,
+Auswertungen, Entscheidung und Erkenntnis —, für Suchqualität und Technik,
+Marketing, Vertrieb und Produkt ebenso wie für selbst angelegte Bereiche. Jedes
+Experiment wird zusätzlich als Dokument in Knovas indexiert, sodass die normale
+Suche beantwortet, was schon versucht wurde und was dabei herauskam.
+
+Das Modul ist **standardmässig aus** (`EXPERIMENTS_ENABLED=false`). Auch
+eingeschaltet sehen es nur Personen mit einer der neuen Rollen `experimenter`
+oder `experiments_manager` sowie Administratoren (`admin`, mit allen Rechten
+der Verwalter-Rolle, also auch Lesezugriff auf alle Experimente): alle anderen
+haben keinen Menüpunkt, keine Experiment-Treffer in der Suche und erhalten auf
+jeder Adresse des Moduls «Nicht gefunden». Für bestehende Installationen
+ändert sich nichts, solange es aus bleibt; die Tabellen legt die Migration
+beim Start trotzdem an.
+
+Einschalten:
+
+1. Unter Verwaltung → Zugriffsgruppen eine Gruppe für Experimente anlegen.
+2. In `knovas.env` `EXPERIMENTS_ENABLED=true` und
+   `EXPERIMENTS_ACCESS_GROUPS=<Gruppe>` setzen. **Ohne Zugriffsgruppe lädt das
+   Modul nichts nach Knovas hoch** — ein Experiment-Dokument ohne Gruppe wäre
+   für den ganzen Mandanten sichtbar.
+3. `./scripts/setup.sh && ./scripts/start.sh`. Erst die neue Version legt beim
+   Start die Rollen `experimenter` und `experiments_manager` an; vorher bietet
+   die Verwaltung sie nicht an.
+4. Unter Verwaltung → Personen die Rollen vergeben und jeder Person mit einer
+   Experimente-Rolle die Gruppe zusätzlich zu ihren bisherigen geben.
+5. `./scripts/doctor.sh` prüft den neuen Abschnitt «Experimente» — nach
+   Schritt 4, damit die Prüfung «niemand hat die Rolle» den fertigen Stand
+   sieht.
+
+- Mitgeliefert sind Pakete für Engineering, Marketing, Vertrieb und Produkt;
+  Bereiche, Typen, Metriken und Auswerter sind Konfiguration und lassen sich als
+  YAML exportieren und importieren. Das immer installierte Grundpaket bringt
+  fünf allgemeine Metriken für jeden Bereich mit (Erfolgsquote, Ereignisse je
+  Zeitraum, Dauer in Sekunden, Messwert, Bewertung 1–5), sodass auch ein selbst
+  angelegter Bereich sofort messen kann.
+- Messwerte kommen von Hand, als CSV oder aus CI: über persönliche
+  Zugangsschlüssel und den Python- bzw. Julia-Client unter
+  `KnovasPlatform/experiments-sdk/`.
+- Die eingebauten Auswertungen rechnen in der Plattform. Eigene Auswerter in
+  Python und Julia laufen nur im neuen Dienst `experiments-runner` — ohne
+  Netzwerk, erreichbar allein über einen Unix-Socket — und nur mit dem
+  Compose-Profil `experiments` (`COMPOSE_PROFILES=experiments`,
+  `EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock`).
+  `EXPERIMENTS_RUNNER_CPUS` (Vorgabe 2) darf nicht über der Zahl der CPUs des
+  Rechners liegen, sonst legt Docker den Container nicht an. Auf einem Rechner
+  mit einer CPU schreibt `setup.sh` `EXPERIMENTS_RUNNER_CPUS=1` in eine
+  `knovas.env` ohne eigenen Wert; einen gesetzten Wert prüft `doctor.sh`.
+- Alle Daten liegen in der Plattform-Datenbank und sind in deren Sicherung
+  enthalten. `python -m experiments purge-index --yes` im Container
+  `docbridge-web` entfernt die Knovas-Kopien wieder, auch bei ausgeschaltetem
+  Modul.
+
+Beschreibung, Einstellungen und Sicherheitsmodell:
+[KnovasPlatform/docs/features/experiments.md](KnovasPlatform/docs/features/experiments.md)
 
 ## RemoteController
 

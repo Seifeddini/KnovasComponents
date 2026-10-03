@@ -52,6 +52,11 @@ jobs:
           PLATFORM_DB_REQUIRED: "true"
         run: pytest
 
+      - name: Experiments SDK (Python client)
+        # Standard library and pytest only. Also runs the README's CI script
+        # (bench/report_to_knovas.py) against a fake Platform.
+        run: python -m pytest experiments-sdk/python
+
       # The per-component stack under KnovasPlatform/ is gone; there is one
       # Compose project at the repo root, so these steps run from there.
       - name: Env expansion contract
@@ -97,6 +102,128 @@ jobs:
           if docker compose --env-file no-documents.env config --quiet 2>/dev/null; then
             echo "compose started with no document source"; exit 1
           fi
+
+  # The sandbox for user-written Python and Julia evaluators (Experimente).
+  # Its isolation is only real in the image with compose's settings, so this
+  # job builds the image and runs code in it, not just the unit tests.
+  experiments-runner:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: KnovasPlatform/components/experiments_runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The Julia harness has its own JSON reader and writer; test it against
+      # a real Julia, not only inside the image.
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.11"
+
+      - name: Install dependencies
+        # The evaluators' toolbox as well, so the numpy tests run.
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest -r requirements.txt
+
+      - name: Pytest
+        env:
+          # A missing julia or numpy fails the run instead of skipping tests.
+          RUNNER_TESTS_REQUIRE_ALL: "true"
+        run: pytest
+
+      # The Julia client of the machine API, with the real HTTP.jl and JSON3.jl,
+      # in an environment of its own (the runner's Julia tests never see it).
+      - name: Experiments SDK (Julia client)
+        working-directory: KnovasPlatform/experiments-sdk/julia
+        run: |
+          julia --startup-file=no --project=@kx-sdk -e 'using Pkg; Pkg.add(["HTTP", "JSON3"])'
+          julia --startup-file=no --project=@kx-sdk test/runtests.jl
+
+      - name: Generate compose inputs
+        working-directory: .
+        run: |
+          bash scripts/lib/expand_knovas_env.sh scripts/lib/fixtures/knovas.env.fixture
+          mkdir -p secrets
+          echo ci-not-for-production > secrets/platform_db_password
+
+      - name: Compose config with and without the experiments profile
+        working-directory: .
+        run: |
+          docker compose --env-file scripts/lib/fixtures/knovas.env.fixture config --quiet
+          docker compose --env-file scripts/lib/fixtures/knovas.env.fixture --profile experiments config --quiet
+
+      - name: Build the runner image
+        working-directory: .
+        run: docker compose --env-file scripts/lib/fixtures/knovas.env.fixture --profile experiments build experiments-runner
+
+      - name: Smoke test the image
+        working-directory: .
+        run: |
+          docker run --rm knovas-experiments-runner:0.1.0 /opt/venv/bin/python3 -I -c 'import numpy, scipy, pandas, statsmodels'
+          # The packages live in /opt/julia-depot; the image sets no depot of its own.
+          docker run --rm -e JULIA_DEPOT_PATH=/tmp/depot:/opt/julia-depot: knovas-experiments-runner:0.1.0 \
+            julia --startup-file=no -e 'using JSON3, Distributions'
+          # One evaluator per language through the real job path, under the
+          # container settings compose applies. Fails when the precompiled
+          # Julia packages are not reused (every job would compile for minutes).
+          docker run --rm --network none --read-only --tmpfs /tmp:size=1g,mode=1777 \
+            --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 256 --memory 3g \
+            knovas-experiments-runner:0.1.0 /opt/venv/bin/python3 -I /app/runner.py --self-test
+
+      - name: Start with the profile and reach it over the socket
+        working-directory: .
+        run: |
+          DC=(docker compose --env-file scripts/lib/fixtures/knovas.env.fixture --profile experiments)
+          "${DC[@]}" up -d experiments-runner
+          healthy=false
+          for _ in $(seq 1 30); do
+            if "${DC[@]}" exec -T experiments-runner /opt/venv/bin/python3 -I /app/runner.py --healthcheck; then
+              healthy=true; break
+            fi
+            sleep 2
+          done
+          "${DC[@]}" logs experiments-runner
+          [[ "$healthy" == true ]]
+          # No network interface but loopback, not root, read-only root. The
+          # uid is the runner's own (10101), shared with no other image: the
+          # per-job process limit counts every process of a uid on the host.
+          "${DC[@]}" exec -T experiments-runner /opt/venv/bin/python3 -I -c \
+            "import os, sys; names = [l.split(':')[0].strip() for l in open('/proc/net/dev').read().splitlines()[2:]]; print(names, os.getuid()); sys.exit(names != ['lo'] or os.getuid() != 10101)"
+          if "${DC[@]}" exec -T experiments-runner touch /app/written; then
+            echo "the root filesystem is writable"; exit 1
+          fi
+          # As docbridge-web does: root, the socket volume mounted read-only.
+          VOL="$(docker volume ls -q --filter name=experiments_runner_socket | head -1)"
+          docker run --rm --user 0 -v "$VOL:/run/experiments-runner:ro" knovas-experiments-runner:0.1.0 \
+            /opt/venv/bin/python3 -I /app/runner.py --healthcheck
+          # Jobs share the runner's uid and can put a directory where the
+          # socket belongs; the watchdog then makes the container restart.
+          # While another container keeps the volume mounted (docbridge-web
+          # always does), the entry survives that restart, so the runner has
+          # to clear its socket directory at start or it never listens again.
+          docker run -d --name keep-socket-volume -v "$VOL:/run/experiments-runner:ro" \
+            knovas-experiments-runner:0.1.0 sleep 600
+          "${DC[@]}" exec -T experiments-runner /opt/venv/bin/python3 -I -c \
+            "import os; p = '/run/experiments-runner/runner.sock'; os.unlink(p); os.mkdir(p); open(os.path.join(p, 'x'), 'w').close()"
+          sleep 2
+          healthy=false
+          for _ in $(seq 1 30); do
+            if "${DC[@]}" exec -T experiments-runner /opt/venv/bin/python3 -I /app/runner.py --healthcheck; then
+              healthy=true; break
+            fi
+            sleep 2
+          done
+          "${DC[@]}" logs --tail 20 experiments-runner
+          docker rm -f keep-socket-volume
+          [[ "$healthy" == true ]]
+          # grep without -q reads to the end: no SIGPIPE for logs under pipefail.
+          "${DC[@]}" logs experiments-runner 2>&1 | grep "Emptied the socket directory"
+          "${DC[@]}" down -v
 
   remote-controller:
     runs-on: ubuntu-latest

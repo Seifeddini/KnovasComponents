@@ -1568,6 +1568,79 @@ class KnovasAPIClient:
         )
         return response.json() if response.content else {}
 
+    def upload_text_document(
+        self,
+        identifier: str,
+        *,
+        title: str,
+        description: str,
+        path: str,
+        parts: List[Dict[str, Any]],
+        access_groups: Optional[Union[List[str], Tuple[str, ...]]] = None,
+    ) -> Dict[str, Any]:
+        """Upload a document the Platform wrote itself (Markdown parts).
+
+        Same wire protocol as a file sync -- init, then one transmit per part --
+        but the text is already there, so no extraction runs. Used by the
+        experiments indexer, whose documents must reach Knovas with their
+        access groups: ``access_groups`` goes into the init body whenever it
+        is non-empty (an empty list would read as "no restriction").
+
+        Uses ``_request_no_retry`` throughout: a retried init or transmit
+        after the server committed would duplicate document parts.
+
+        Raises:
+            ValueError: no identifier, or no part with text. Nothing was sent.
+            requests.HTTPError / ConnectionError / Timeout: from the transport;
+                the caller decides whether to try again.
+            RuntimeError: the init answer carried no transmission key.
+        """
+        ident = str(identifier or '').strip()
+        if not ident:
+            raise ValueError('identifier is required')
+        clean_parts: List[Dict[str, Any]] = []
+        for part in parts or []:
+            if not isinstance(part, dict):
+                continue
+            snippet = str(part.get('snippet') or '')
+            if not snippet.strip():
+                continue
+            clean_parts.append({**part, 'snippet': snippet})
+        if not clean_parts:
+            raise ValueError('at least one part with text is required')
+
+        init_body: Dict[str, Any] = {'identifier': ident, 'part_count': len(clean_parts)}
+        title_text = str(title or '').strip()[:500]
+        if title_text:
+            init_body['title'] = title_text
+        description_text = str(description or '').strip()[:2000]
+        if description_text:
+            init_body['description'] = description_text
+        norm_path = _normalize_semantix_path_for_init(path)
+        if norm_path:
+            init_body['path'] = norm_path
+        groups = [
+            g for g in dict.fromkeys(str(x).strip() for x in (access_groups or ()))
+            if g
+        ]
+        if groups:
+            init_body['access_groups'] = groups
+
+        init_endpoint = self.endpoints.get('init_transmission', '/secured/init_document_transmission')
+        init_resp = self._request_no_retry(method='POST', endpoint=init_endpoint, data=init_body)
+        init_json = init_resp.json() if init_resp.content else {}
+        transmission_key_id = (init_json or {}).get('transmission_key_id')
+        if not transmission_key_id:
+            raise RuntimeError('init_document_transmission returned no transmission_key_id')
+
+        part_endpoint = self.endpoints.get('transmit_part', '/secured/transmit_document_part')
+        for idx, part in enumerate(clean_parts):
+            payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
+            self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
+
+        logger.info("Text document uploaded: %s (%d part(s))", ident, len(clean_parts))
+        return {'status': 'success', 'identifier': ident, 'part_count': len(clean_parts)}
+
     def sign_certificate(
         self,
         csr_pem: str,

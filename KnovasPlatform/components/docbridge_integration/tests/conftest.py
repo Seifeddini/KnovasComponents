@@ -75,7 +75,7 @@ def platform_db():
             cleanup.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
-def _identity_app(platform_db, tmp_path, monkeypatch, *, client_cls=None):
+def _identity_app(platform_db, tmp_path, monkeypatch, *, client_cls=None, extra_yaml=""):
     """The real Flask app, with per-user identity on and pointed at platform_db.
 
     The app opens its own connections, so it must reach the same schema the
@@ -83,7 +83,8 @@ def _identity_app(platform_db, tmp_path, monkeypatch, *, client_cls=None):
 
     ``client_cls`` is the Knovas client the app is built with; it defaults to
     DummyKnovasClient, resolved in the body because that class is defined
-    further down this module.
+    further down this module. ``extra_yaml`` is appended to the written
+    config (top-level sections such as ``experiments:``).
     """
     client_cls = client_cls or DummyKnovasClient
     schema = platform_db.execute("SELECT current_schema()").fetchone()[0]
@@ -124,7 +125,8 @@ def _identity_app(platform_db, tmp_path, monkeypatch, *, client_cls=None):
         '  customer_id: "tenant-a"\n'
         'open:\n'
         '  companion_enabled: false\n'
-        f'  grant_store_path: "{(tmp_path / "grants.sqlite3").as_posix()}"\n',
+        f'  grant_store_path: "{(tmp_path / "grants.sqlite3").as_posix()}"\n'
+        + extra_yaml,
         encoding="utf-8",
     )
 
@@ -584,3 +586,96 @@ def node_owned_by_alice(fake_graph, grants, alice):
     node = fake_graph.graph_create_node("Alices Akte", node_type_id="t1")["node"]
     grants.set_owner(node["id"], alice.id)
     return node["id"]
+
+
+# -- Experiments module ---------------------------------------------------------
+
+#: The module on, the background worker off (tests drive jobs themselves with
+#: JobWorker.run_once), Knovas indexing off unless a test switches it on.
+EXPERIMENTS_TEST_YAML = (
+    "experiments:\n"
+    '  enabled: "true"\n'
+    "  index:\n"
+    '    enabled: "false"\n'
+    "  worker:\n"
+    '    enabled: "false"\n'
+)
+
+
+class FakeIndexClient:
+    """Stands in for the unsigned Knovas client the experiments indexer uses.
+
+    Records what would have been uploaded or deleted. ``fail_with`` makes the
+    next call raise that exception once.
+    """
+
+    def __init__(self, config=None):
+        self.config = config
+        self.uploads: list[dict] = []
+        self.deleted: list[str] = []
+        self.fail_with: Exception | None = None
+
+    def _maybe_fail(self):
+        if self.fail_with is not None:
+            exc, self.fail_with = self.fail_with, None
+            raise exc
+
+    def upload_text_document(self, identifier, *, title, description, path, parts,
+                             access_groups=None):
+        self._maybe_fail()
+        self.uploads.append({
+            "identifier": identifier, "title": title, "description": description,
+            "path": path, "parts": list(parts),
+            "access_groups": list(access_groups or []),
+        })
+        return {"status": "success", "identifier": identifier}
+
+    def delete_information_object(self, pointer):
+        self._maybe_fail()
+        self.deleted.append(str(pointer))
+        return {"deleted_versions": 1}
+
+
+@pytest.fixture
+def fake_index_client():
+    return FakeIndexClient()
+
+
+@pytest.fixture
+def experiments_app(platform_db, tmp_path, monkeypatch, fake_index_client):
+    """The real app with the experiments module on (worker off, index off)."""
+    monkeypatch.setattr(
+        "experiments.indexer.make_index_client", lambda config: fake_index_client
+    )
+    return _identity_app(platform_db, tmp_path, monkeypatch, extra_yaml=EXPERIMENTS_TEST_YAML)
+
+
+@pytest.fixture
+def experimenter(identity_repo):
+    return _person(identity_repo, "eva@knovas.ch", "Eva", "experimenter")
+
+
+@pytest.fixture
+def exp_manager(identity_repo):
+    return _person(identity_repo, "max@knovas.ch", "Max", "experiments_manager")
+
+
+@pytest.fixture
+def experimenter_client(experiments_app, experimenter):
+    return _signed_in(experiments_app, experimenter.email)
+
+
+@pytest.fixture
+def exp_manager_client(experiments_app, exp_manager):
+    return _signed_in(experiments_app, exp_manager.email)
+
+
+@pytest.fixture
+def exp_member_client(experiments_app, member):
+    """Signed in without any experiments role: the module must be invisible."""
+    return _signed_in(experiments_app, member.email)
+
+
+@pytest.fixture
+def exp_admin_client(experiments_app, platform_admin):
+    return _signed_in(experiments_app, platform_admin.email)
