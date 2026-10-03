@@ -1956,7 +1956,8 @@ def create_app(config_path: Optional[str] = None):
             JSON with search results, plus ``document_fields`` (capability,
             filter_state, fields_unavailable, resolved) and ``honesty``
             (no_strong_matches, no_results_reason, relevance_gate_applied,
-            degraded_to_bm25; null where Knovas does not say).
+            degraded_to_bm25; null where Knovas does not say) and ``notices``
+            (spec F3: kinds, visible names and counts, never node ids).
 
         Document fields (spec 4.3, H1-H3): ``where`` goes to Knovas only when
         the tenant's capability is ``filters``, and its results are shown only
@@ -2017,10 +2018,10 @@ def create_app(config_path: Optional[str] = None):
                 def ask(n: int) -> Dict[str, Any]:
                     return _build_test_search_results(query=query, limit=n)
             else:
-                # exact_match is decided here, after Knovas answers -- it is not
-                # something /secured/query knows about. Forwarding it would put
-                # an unknown key in the request body and a warning in the log on
-                # every single search.
+                # exact_match is decided here, after Knovas answers. /secured/query
+                # reads no filters at all (the client leaves them out, spec F7);
+                # only the legacy GET forwards them, as query parameters, so a
+                # local-only key stays here.
                 knovas_filters = {k: v for k, v in (filters or {}).items()
                                   if k not in _LOCAL_ONLY_FILTERS}
 
@@ -2153,9 +2154,17 @@ def create_app(config_path: Optional[str] = None):
                     plan, filter_state, semantix_meta.get('where'),
                     doc_fields_routes.current_capability(plan.capability)),
                 'honesty': doc_fields_routes.honesty_block(semantix_meta),
+                # What Knovas said about this answer, shown above the results
+                # (spec F3): kinds, names the person may see, counts.
+                'notices': doc_fields_routes.search_notices(
+                    api_client, plan, semantix_meta,
+                    doc_fields_routes.user_key_for(identity_gate)),
             }
             if 'semantix' in refined and isinstance(refined.get('semantix'), dict):
-                payload['semantix'] = refined['semantix']
+                # Knovas's auto_scope stays on the server: its node ids may
+                # name nodes this person may not see (spec F3).
+                payload['semantix'] = {k: v for k, v in refined['semantix'].items()
+                                       if k != 'auto_scope'}
             if config.get_bool('web.search.expose_similarity_scores_in_json', False):
                 payload['similarity_debug'] = _build_similarity_debug(final_results)
 

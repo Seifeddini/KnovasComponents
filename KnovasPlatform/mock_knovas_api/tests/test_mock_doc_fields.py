@@ -590,6 +590,68 @@ class TestValuesRegistry:
             assert (status, body["error_code"], body["path"]) == (400, "invalid_value", path)
 
 
+class TestFieldReadingSettings:
+    """Knovas 1.5.0 field options as registry.py checks them
+    (_clean_columns, _check_merged, _clean_enum_values), so the Platform's
+    field forms are tested against the server's rules."""
+
+    def _create(self, mock, **body):
+        return mock.call("POST", "/secured/graph/doc-fields", body)
+
+    def test_options_are_stored(self):
+        mock = Mock(doc_fields="values")
+        status, body = self._create(mock, key="aktenzeichen", datatype="code",
+                                    code_scheme="bger")
+        assert status == 201 and body["field"]["code_scheme"] == "bger"
+        assert self._create(mock, key="belegnummer", datatype="code")[1]["field"][
+            "code_scheme"] == "generic"
+        status, body = self._create(mock, key="geschaeftsjahr", datatype="period",
+                                    fy_start_month=7, fy_label="start")
+        assert status == 201
+        assert (body["field"]["fy_start_month"], body["field"]["fy_label"]) == (7, "start")
+        status, body = self._create(mock, key="eingang", datatype="date", date_order="mdy")
+        assert status == 201 and body["field"]["date_order"] == "mdy"
+        status, body = self._create(mock, key="gegenseite", datatype="entity_ref",
+                                    link_policy="never")
+        assert status == 201 and body["field"]["link_policy"] == "never"
+        status, body = self._create(mock, key="kostenstelle", datatype="enum", enum_values=[
+            {"code": "4100", "labels": {"de": "Verwaltung", "fr": "Administration"},
+             "aliases": ["Verw"]}, "4200"])
+        assert status == 201 and body["field"]["enum_values"][0]["aliases"] == ["Verw"]
+
+    @pytest.mark.parametrize("body, path", [
+        ({"key": "jahr_x", "datatype": "period", "fy_start_month": 7}, "fy_label"),
+        ({"key": "jahr_x", "datatype": "period", "fy_start_month": 13, "fy_label": "start"},
+         "fy_start_month"),
+        ({"key": "jahr_x", "datatype": "date", "fy_start_month": 7, "fy_label": "start"},
+         "fy_start_month"),
+        ({"key": "jahr_x", "datatype": "period", "fy_label": "middle"}, "fy_label"),
+        ({"key": "kennung_x", "datatype": "text", "code_scheme": "iban"}, "code_scheme"),
+        ({"key": "kennung_x", "datatype": "code", "code_scheme": "IBAN!"}, "code_scheme"),
+        ({"key": "datum_x", "datatype": "date", "date_order": "dym"}, "date_order"),
+        ({"key": "art_x", "datatype": "enum", "enum_values": ["a", "a"]}, "enum_values[1]"),
+        ({"key": "art_x", "datatype": "enum", "enum_values": [{"code": "a", "x": 1}]},
+         "enum_values[0]"),
+        ({"key": "art_x", "datatype": "enum",
+          "enum_values": [{"code": "a", "aliases": ["n"] * 33}]}, "enum_values[0].aliases"),
+    ])
+    def test_refused_like_the_server(self, body, path):
+        status, answer = self._create(Mock(doc_fields="values"), **body)
+        assert (status, answer["error_code"], answer.get("path")) == (
+            400, "invalid_field_definition", path)
+
+    def test_the_code_scheme_locks_and_the_link_policy_does_not(self):
+        mock = Mock(doc_fields="values")
+        field_id = self._create(mock, key="aktenzeichen", datatype="code")[1]["field"]["id"]
+        status, body = mock.call("PATCH", f"/secured/graph/doc-fields/{field_id}",
+                                 {"code_scheme": "bger"})
+        assert (status, body["error_code"]) == (409, "field_type_locked")
+        entity_id = self._create(mock, key="gegenseite", datatype="entity_ref")[1]["field"]["id"]
+        status, body = mock.call("PATCH", f"/secured/graph/doc-fields/{entity_id}",
+                                 {"link_policy": "never"})
+        assert status == 200 and body["field"]["link_policy"] == "never"
+
+
 class TestValuesRules:
     def test_put_get_apply_and_retire(self):
         mock = Mock(doc_fields="values")
@@ -784,6 +846,53 @@ class TestFiltersUncalibrated:
     def test_probe_cannot_tell(self):
         status, body = Mock(doc_fields="filters", calibrated=False).find()
         assert (status, body["error_code"], body["path"]) == (400, "invalid_value", "where")
+
+
+class TestAutoScope:
+    """QUERY_AUTO_SCOPE_ENABLED: Knovas narrows a search to the nodes it
+    recognises in the question (shape of query_pipeline.py, KB develop)."""
+
+    def test_off_by_default_and_from_the_environment(self, monkeypatch):
+        monkeypatch.delenv("MOCK_AUTO_SCOPE", raising=False)
+        assert "auto_scope" not in Mock(doc_fields="filters").query(Input="Muster AG")[1]
+        monkeypatch.setenv("MOCK_AUTO_SCOPE", "applied")
+        assert Mock(doc_fields="filters").state.auto_scope == "applied"
+
+    @pytest.mark.parametrize("mode", ["off", "values", "filters"])
+    def test_applied_names_the_detected_node(self, mode):
+        status, body = Mock(doc_fields=mode, auto_scope="applied").query(
+            Input="Was schuldet die muster ag?")
+        node = testing.mock_module().stable_id("node", "Muster AG")
+        assert status == 200
+        assert body["auto_scope"] == {
+            "detections": [{"node_id": node, "identifier_id": None, "channel": "lexical",
+                            "score": 1.0}],
+            "node_ids": [node], "applied": True, "fallback": False,
+            "canonicalized": False, "residualized": False}
+
+    def test_fallback(self):
+        block = Mock(doc_fields="filters", auto_scope="fallback").query(
+            Input="Beispiel GmbH")[1]["auto_scope"]
+        assert (block["applied"], block["fallback"]) == (False, True)
+
+    def test_no_name_no_block(self):
+        assert "auto_scope" not in Mock(doc_fields="filters", auto_scope="applied").query(
+            Input="lease")[1]
+
+    def test_a_bad_mode_fails_loudly(self):
+        with pytest.raises(ValueError):
+            testing.load_mock_app(auto_scope="sometimes")
+
+
+class TestReturnFieldsUnreadable:
+    def test_values_cannot_be_read(self):
+        mock = Mock(doc_fields="filters")
+        mock.state.return_fields_unreadable = True
+        body = mock.query(Input="lease", return_fields=["doc_type"])[1]
+        assert body["return_fields"] == {"applied": False}
+        assert body["results"] and all("fields" not in r for r in body["results"])
+        body = mock.query(Input="lease", where={"doc_type": "contract"}, return_fields=True)[1]
+        assert body["where"]["applied"] is True and body["return_fields"] == {"applied": False}
 
 
 class TestFind:

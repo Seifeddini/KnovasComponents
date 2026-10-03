@@ -35,19 +35,20 @@ names the state; nothing else in the UI mentions a reduced one.
 |---|---|---|
 | `aus` | feature switched off for the account, knowledge graph off, older server — or the Platform runs without mTLS (legacy mode), or `DOC_FIELDS_UI=off` | nothing new |
 | `Werte (ohne Filter)` | values | the field panel in the preview, the **Dokumentfelder** admin tab, the field drawer in **Dokumente** |
-| `Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)` | values and listing; search filters wait for a relevance calibration at Knovas | additionally: typed values on result cards, the **Liste anzeigen** listing, the admin **Feldfilter** |
+| `Werte + Liste (Feldfilter bei Knovas vorübergehend nicht verfügbar)` | values and listing; Knovas answered a filtered search with `503 where_requires_calibration` ("a problem on the Knovas side, try again later") | additionally: typed values on result cards, the **Liste anzeigen** listing, the admin **Feldfilter** |
 | `Werte + Filter` | everything | additionally: the filter rail in the search |
 
 A probe that fails (401, 403, 429, 5xx, network) counts as "unknown" and is
 shown as `aus` for 30 seconds. The "listing without filters" state is learned
-from the first filtered search Knovas refuses for a missing calibration and is
-kept for `calibration_recheck_seconds` (1 hour); the first filtered search
-after that may meet the same answer once more.
+from the first filtered search Knovas answers with `503
+where_requires_calibration` — Knovas 1.5.0 calls it a temporary problem on its
+side — and is kept for `calibration_recheck_seconds` (5 minutes); the first
+filtered search after that may meet the same answer once more.
 
 ## Honesty rules
 
-These are pinned by tests (the decisions live in Python; there is no JS test
-runner):
+These are pinned by tests (the decisions live in Python; the filter rail's
+value builder runs under Node in tests/test_frontend_static.py):
 
 - **A filter is applied or absent.** A search carries filters only in the
   `Werte + Filter` state, and results count as filtered only when Knovas
@@ -78,21 +79,39 @@ runner):
 ## Search, listing and cards
 
 - **Filter rail** (state `Werte + Filter`), built from the fields marked
-  *als Filter anbieten*: a select for code lists, a name field with
-  suggestions for entity fields, free text for dates and periods ("GJ 2024",
-  "Q1 2024", "15.03.2024" — Knovas parses them), Ja/Nein for yes/no fields.
-  Suggestions come from the field's node list, fetched **without** the typed
-  text and filtered inside the Platform: typed prefixes never reach Knovas.
-  Fields marked *besonders schützenswert* get no suggestions.
+  *als Filter anbieten*. Each field has a condition: choice lists *ist* (one
+  or several choices) and *beginnt mit*; identifiers *ist*, *beginnt mit*
+  and *eine von* (comma list); text *ist* and *beginnt mit*; amounts and
+  numbers *ist* and *ab / bis*; dates and periods *Zeitraum* (overlaps),
+  *von / bis* with *auch teilweise*, and *liegt ganz in*; yes/no fields
+  *Ja* / *Nein*; entity fields one or several names (separated by `;`) with
+  suggestions; every field *hat einen Wert*. Values are written as in the
+  documents ("GJ 2024", "Q1 2024", "CHF 1'000" — Knovas parses them).
+  "Verstanden als" names each condition ("eine von …", "zwischen … und …",
+  "auch teilweise", "hat einen Wert"). A filter holds at most 8 fields and
+  50 values per list; a larger one never leaves the Platform. Suggestions
+  come from the field's node list, fetched **without** the typed text and
+  filtered inside the Platform: typed prefixes never reach Knovas. Fields
+  marked *besonders schützenswert* get no suggestions.
 - **Liste anzeigen** (states with listing): without a question, the chosen
   fields list every matching document visible to the person, sorted by a date
-  field or the path, page by page. Experiment documents (*Experimente*) never
-  appear in it, as in the search.
+  field (newest or oldest first) or by the path (ascending or descending),
+  page by page. Experiment documents (*Experimente*) never appear in it, as
+  in the search.
 - **Cards** show the values of fields marked *auf Trefferkarten zeigen*, except
   *besonders schützenswert* fields. A real title from the values (at most 100
   characters and not just the file name) replaces the file name; an entity the
   person may not see shows as "verborgen"; a weak hit is marked "unsicherer
   Treffer".
+- **Notices above the results** (spec F3): "Feldwerte konnten nicht gelesen
+  werden …" when Knovas could not read the values asked for (or the Platform
+  could not ask), "Eingeschränkte Suchqualität …" when Knovas found the
+  results by exact words only, and "Suche automatisch auf … eingegrenzt" /
+  "In … nichts gefunden – alle Dokumente durchsucht" when Knovas narrowed the
+  search by a name it recognised in the question. Names are read through the
+  person's own knowledge-graph view; nodes they may not see are counted, never
+  named. The API has no switch to turn the narrowing off, so the notice
+  explains and offers no action.
 - **Cortex**: an entity whose type is the target of an entity field offers
   "Dokumente mit <Feld> = <Name>", which opens that listing (handed over in
   `sessionStorage`, not in the URL).
@@ -128,12 +147,23 @@ Visible to `admin` in every state except `aus`.
 
 - **Felder**: create, change and retire (*Stilllegen*) fields — key, type
   (Text, Auswahl, Datum, Zeitraum, Betrag, Zahl, Kennung, Ja/Nein, Eintrag
-  aus dem Wissensgraph), one or several
-  values, labels DE/FR/IT/EN, other names, the entity target, *auf
-  Trefferkarten zeigen*, *als Filter anbieten*, *normal* / *besonders
-  schützenswert*. Knovas refuses keys that look personal. A field the current
-  Ingestion profile uses asks for a confirmation before it is changed or
-  retired: uploads with a retired key are no longer accepted.
+  aus dem Wissensgraph), one or several values, labels DE/FR/IT/EN, other
+  names, the entity target, *auf Trefferkarten zeigen*, *als Filter
+  anbieten*, *normal* / *besonders schützenswert* — and how values are read:
+  the *Kennungsschema* of an identifier (UID, IBAN, QR reference, case
+  numbers of the Federal Supreme and Administrative Courts, ECLI, ICD-10-GM,
+  language codes; *allgemein* by default), whether entity names are linked
+  (*nie verknüpfen* keeps them as names), the first month of a business year
+  and whether "GJ 2024" names its start or end year, and a date field's own
+  order for `03/04/2024` (default: the account setting). Choice lists have
+  one row per choice — code, labels DE/FR/IT/EN, other names (comma list);
+  *Weitere Zeile* adds rows. Create sends only what differs from Knovas's
+  defaults; an edit sends only what changed. What decides how values are
+  read locks once a field is confirmed or in use ("Diese Änderung ist nicht
+  mehr möglich …"). The tab counts "n von 256 Feldern" (retired fields count).
+  Knovas refuses keys that look personal. A field the current Ingestion
+  profile uses asks for a confirmation before it is changed or retired:
+  uploads with a retired key are no longer accepted.
 - **Pakete**: install `core` (installed automatically on first use) or
   `legal_ch`.
 - **Einstellungen**: what an upload with an unknown key does, and how

@@ -2,8 +2,9 @@
 
 Spec 2.2: the probe classification, the TTLs, the four signals and the
 needs_calibration hold that a probe must not lift; D1/D13: nothing turns the
-feature on, and legacy mode is off without a request. Registry and entity
-names are cached per user and never fetched with ``q`` (D10).
+feature on, and legacy mode is off without a request. Registry, entity
+names and node names (F3) are cached per user and never fetched with ``q``
+(D10).
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ def clock():
 def _cache(clock, **kw):
     kw.setdefault("ttl", 300)
     kw.setdefault("unknown_ttl", 30)
-    kw.setdefault("calibration_recheck", 3600)
+    kw.setdefault("calibration_recheck", cap.LISTING_ONLY_HOLD_SECONDS)
     return CapabilityCache(clock=clock, **kw)
 
 
@@ -144,15 +145,26 @@ class TestSignals:
         """The probe cannot see calibration (find never checks it); if it
         could lift the hold, every TTL would offer the filter rail again and
         the next filtered search would meet the same 503."""
-        client, cache = ProbeClient("filters"), _cache(clock)
+        client, cache = ProbeClient("filters"), _cache(clock, ttl=60)
         cache.get(client)
         cache.observe("needs_calibration")
-        for _ in range(5):
-            clock.advance(600)  # well past the 300 s capability TTL
-            if clock.t < 1000 + 3600:
-                assert cache.get(client) is Capability.listing_only
+        for _ in range(4):
+            clock.advance(70)  # past the 60 s capability TTL, inside the hold
+            assert cache.get(client) is Capability.listing_only
         assert client.probes == 1
-        clock.advance(601)
+        clock.advance(21)  # 301 s after the signal
+        assert cache.get(client) is Capability.filters and client.probes == 2
+
+    def test_the_hold_lasts_five_minutes(self, clock):
+        """F6: Knovas 1.5.0 calls 503 where_requires_calibration "a problem on
+        the Knovas side. Try again later." -- five minutes, not an hour."""
+        assert cap.LISTING_ONLY_HOLD_SECONDS == 300
+        client, cache = ProbeClient("filters"), CapabilityCache(clock=clock)
+        cache.get(client)
+        cache.observe("needs_calibration")
+        clock.advance(299)
+        assert cache.get(client) is Capability.listing_only and client.probes == 1
+        clock.advance(2)
         assert cache.get(client) is Capability.filters and client.probes == 2
 
     def test_a_hold_observed_while_a_probe_is_out_wins(self, clock):
@@ -262,9 +274,19 @@ class TestSettings:
         s = cap.settings(StubConfig({}))
         assert s.ui_enabled is True
         assert (s.capability_ttl, s.unknown_ttl, s.calibration_recheck,
-                s.registry_cache_seconds, s.find_page_size) == (300, 30, 3600, 300, 50)
+                s.registry_cache_seconds, s.find_page_size) == (300, 30, 300, 300, 50)
         assert s.edit_roles == frozenset({"admin"})
         assert cap.settings(None).edit_roles == frozenset({"admin"})
+
+    def test_the_shipped_config_holds_listing_only_for_five_minutes(self):
+        """config/config.yaml sets the hold explicitly; it must say five
+        minutes too, or the code default never applies."""
+        import pathlib
+
+        from config_loader import ConfigLoader
+
+        path = pathlib.Path(__file__).resolve().parents[1] / "config" / "config.yaml"
+        assert cap.settings(ConfigLoader(str(path))).calibration_recheck == 300
 
     def test_edit_roles(self):
         assert cap.parse_edit_roles("admin, Member ,") == frozenset({"admin", "member"})
@@ -409,6 +431,69 @@ class TestEntityNamesFor:
         client = FakeDocFieldsApi("values")
         next(s for s in client.registry if s["key"] == "mandant")["target_node_type_id"] = None
         assert cap.entity_names_for(client, "alice", "mandant") is None
+
+
+class TestNodeNamesFor:
+    """F3: the names of auto-scope nodes, read as the person (one node list,
+    never with q); a node Knovas does not list for them is only counted."""
+
+    def test_names_in_order_hidden_counted_never_q(self):
+        client = FakeDocFieldsApi("filters")
+        names, hidden = cap.node_names_for(client, "alice", ["m2", "gone", "m1", "m2"])
+        assert names == ["Beispiel GmbH", "Muster AG"] and hidden == 1
+        assert client.graph_nodes_calls == [{"node_type_id": None, "q": None}]
+
+    def test_cached_per_user(self):
+        client = FakeDocFieldsApi("filters")
+        cap.node_names_for(client, "alice", ["m1"])
+        cap.node_names_for(client, "alice", ["m2"])
+        assert len(client.graph_nodes_calls) == 1
+        cap.node_names_for(client, "bob", ["m1"])
+        assert len(client.graph_nodes_calls) == 2
+        cap.invalidate("alice")
+        cap.node_names_for(client, "alice", ["m1"])
+        assert len(client.graph_nodes_calls) == 3
+
+    def test_a_failure_names_nobody_and_is_not_cached(self):
+        client = FakeDocFieldsApi("filters")
+        original = client.graph_nodes
+
+        def broken(**kw):
+            raise RuntimeError("graph down")
+
+        client.graph_nodes = broken
+        assert cap.node_names_for(client, "alice", ["m1", "m2"]) == ([], 2)
+        client.graph_nodes = original
+        assert cap.node_names_for(client, "alice", ["m1"]) == (["Muster AG"], 0)
+
+    def test_more_than_5000_nodes_names_nobody(self):
+        client = FakeDocFieldsApi("filters")
+        for i in range(5001):
+            client.nodes[f"x{i}"] = {"id": f"x{i}", "name": f"Firma {i}",
+                                     "node_type_id": "t-mandant"}
+        assert cap.node_names_for(client, "alice", ["m1"]) == ([], 1)
+
+    def test_nothing_is_asked_without_ids(self):
+        client = FakeDocFieldsApi("filters")
+        assert cap.node_names_for(client, "alice", []) == ([], 0)
+        assert client.graph_nodes_calls == []
+
+    def test_no_name_in_a_log_line(self, caplog):
+        import logging
+
+        sentinel = "Sentinel-Knoten-AG"
+        client = FakeDocFieldsApi("filters")
+        client.nodes["s1"] = {"id": "s1", "name": sentinel, "node_type_id": "t-mandant"}
+
+        def broken(**kw):
+            raise RuntimeError(sentinel)
+
+        with caplog.at_level(logging.DEBUG):
+            assert cap.node_names_for(client, "alice", ["s1"]) == ([sentinel], 0)
+            cap.invalidate()
+            client.graph_nodes = broken
+            assert cap.node_names_for(client, "alice", ["s1"]) == ([], 1)
+        assert caplog.records and sentinel not in caplog.text
 
 
 def test_the_conftest_resets_the_shared_state_between_tests_part_1():

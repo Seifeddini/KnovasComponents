@@ -170,6 +170,9 @@ class FakeDocFieldsApi(FakeGraphApi):
         self.find_budget_exhausted = False            # last page complete:false
         self.total_count_overflow = False             # total_count null
         self.scripted_pages: List[Dict[str, Any]] = []  # find answers, in order
+        self.return_fields_unreadable = False         # return_fields: {"applied": false}
+        self.degraded = False                         # meta.degraded_to_bm25 true
+        self.auto_scope: Optional[Dict[str, Any]] = None  # semantix["auto_scope"], as the client keeps it
         self._failures: Dict[str, List[BaseException]] = {}
         self._jobs = 0
         FakeDocFieldsApi.current = self
@@ -651,6 +654,8 @@ class FakeDocFieldsApi(FakeGraphApi):
             present.sort(key=lambda d: str(self._effective(d)[key]),
                          reverse=sort.get("order") == "desc")
             docs = present + missing
+        elif sort and sort.get("order") == "desc":
+            docs.reverse()  # the pointer, descending
         offset = int(str(after)[1:]) if after else 0
         size = max(1, min(200, int(limit)))
         page = docs[offset:offset + size]
@@ -704,13 +709,17 @@ class FakeDocFieldsApi(FakeGraphApi):
                 meta["where"] = {"applied": True, "clauses": len(where), "resolved": resolved,
                                  "may_be_partial": self.may_be_partial}
         if self.mode != "off" and return_fields is not None:
-            for row in rows:
-                doc = self.docs.get(row.get("doc_id"))
-                fields = self._return(doc, return_fields) if doc else {}
-                row["fields"] = fields
-                row["title"], row["title_from_values"] = display_title(
-                    row["doc_id"], row.get("title"), fields.get("title"))
-            meta["return_fields"] = {"applied": True}
+            if self.return_fields_unreadable:
+                # Knovas could not read the values: results without fields.
+                meta["return_fields"] = {"applied": False}
+            else:
+                for row in rows:
+                    doc = self.docs.get(row.get("doc_id"))
+                    fields = self._return(doc, return_fields) if doc else {}
+                    row["fields"] = fields
+                    row["title"], row["title_from_values"] = display_title(
+                        row["doc_id"], row.get("title"), fields.get("title"))
+                meta["return_fields"] = {"applied": True}
         rows = rows[:limit]
         meta.update({
             "result_count": len(rows), "pointers": [r.get("doc_id") for r in rows],
@@ -718,6 +727,8 @@ class FakeDocFieldsApi(FakeGraphApi):
             "no_results_reason": None if rows else "no_candidates",
             "relevance_gate_applied": bool(where is not None and self.mode != "off")
             or self.relevance_gate,
-            "degraded_to_bm25": False,
+            "degraded_to_bm25": bool(self.degraded),
         })
+        if self.auto_scope is not None:
+            meta["auto_scope"] = copy.deepcopy(self.auto_scope)
         return {"results": rows, "total": len(rows), "semantix": meta}

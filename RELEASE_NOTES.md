@@ -85,8 +85,8 @@ Feldbereich der Vorschau.
   sie nicht: Plattform und Knovas Connector pruefen jede Antwort und bleiben,
   solange die Funktion aus ist, wie bisher, ohne neue Oberflaeche und ohne
   neue Schluessel in den Anfragen. *Verwaltung -> System -> Dokumentfelder*
-  nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Filter in
-  der Suche: Kalibrierung bei Knovas fehlt)` oder `Werte + Filter`.
+  nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Feldfilter bei
+  Knovas voruebergehend nicht verfuegbar)` oder `Werte + Filter`.
   `./scripts/doctor.sh` prueft dasselbe.
 - **BROKERED-Mandanten:** Entitaetswerte vom Knovas Connector (z.B. `client`)
   brauchen zusaetzlich Aenderung S1; vorher lehnt Knovas solche Uploads mit
@@ -147,6 +147,25 @@ Feldbereich der Vorschau.
   der Plattform verwirft die Felder je Ordner; uebertraegt die alte Plattform
   das Profil, loescht der Knovas Connector die Upload-Werte der betroffenen
   Dokumente beim naechsten erneuten Senden.
+- Die Suche schickt `top_k`, `filters` und `encryption_matrix` nicht mehr an
+  Knovas, und `SEMANTIX_ENCRYPTION_MATRIX_PATH` wird nicht mehr gelesen: der
+  Server liest keinen dieser Schluessel (Knovas 1.5.0). `limit` bleibt.
+- **Felder anlegen wie in Knovas 1.5.0** (Reiter *Dokumentfelder*): je Typ
+  das Kennungsschema (UID, IBAN, QR-Referenz, Geschaeftsnummern, ECLI,
+  ICD-10-GM, Sprachcode), ob Namen mit Eintraegen verknuepft werden, Beginn
+  und Benennung des Geschaeftsjahres, die Datumsreihenfolge eines
+  Datumsfelds; Auswahlwerte je Zeile mit Code, Bezeichnungen DE/FR/IT/EN und
+  weiteren Namen. Der Reiter zeigt "n von 256 Feldern".
+- **Filterleiste mit Bedingungen:** je Feld "ist", "eine von", "beginnt
+  mit", "ab / bis" bzw. "von / bis" (mit "auch teilweise"), "liegt ganz in"
+  und "hat einen Wert"; "Verstanden als" nennt jede Bedingung. Eine Liste im
+  Filter hat hoechstens 50 Werte.
+- *Liste anzeigen* sortiert auch nach Dokumentpfad absteigend.
+- **Hinweise ueber den Treffern:** wenn Knovas die Feldwerte nicht lesen
+  konnte, nur ueber genaue Woerter gesucht hat, oder die Suche automatisch
+  auf einen in der Frage erkannten Namen eingegrenzt hat ("Suche automatisch
+  auf Muster AG eingegrenzt"; Namen, die die Person nicht sehen darf, werden
+  nur gezaehlt).
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),

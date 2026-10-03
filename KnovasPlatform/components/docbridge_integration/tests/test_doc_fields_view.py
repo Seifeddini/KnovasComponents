@@ -354,8 +354,9 @@ class TestResolvedChips:
             "period": {"gte": "2024", "lte": "2025"},
         }, None, registry)
         texts = {c["field"]: c["text"] for c in chips}
-        assert texts == {"document_date": "ab 01.10.2026", "doc_type": "Rechnung; Vertrag",
-                         "mandant": view.LINKED_ENTITY, "period": "2024 \u2013 2025"}
+        assert texts == {"document_date": "ab 01.10.2026",
+                         "doc_type": "eine von Rechnung; Vertrag",
+                         "mandant": view.LINKED_ENTITY, "period": "zwischen 2024 und 2025"}
         assert {c["field"]: c["op"] for c in chips}["doc_type"] == "in"
         assert all("linked_count" not in c for c in chips)
 
@@ -368,6 +369,32 @@ class TestResolvedChips:
 
     def test_not_a_filter(self, registry):
         assert view.resolved_chips(None, None, registry) == []
+
+    @pytest.mark.parametrize("key, operand, text, op", [
+        ("doc_type", ["invoice", "contract"], "eine von Rechnung; Vertrag", "in"),
+        ("doc_type", "invoice", "Rechnung", "eq"),
+        ("doc_type", {"prefix": "corr"}, "beginnt mit corr", "prefix"),
+        ("reference", ["E11.90", "E10.1"], "eine von E11.90; E10.1", "in"),
+        ("reference", {"in": ["E11.90", "E10.1"]}, "eine von E11.90; E10.1", "in"),
+        ("amount", {"gte": "CHF 1'000"}, "ab CHF 1'000", "gte"),
+        ("amount", {"lte": "CHF 5'000"}, "bis CHF 5'000", "lte"),
+        ("amount", {"between": ["CHF 1'000", "CHF 5'000"]},
+         "zwischen CHF 1'000 und CHF 5'000", "between"),
+        ("period", "GJ 2024", "GJ 2024", "eq"),
+        ("period", {"gte": "2024", "lte": "2025"}, "zwischen 2024 und 2025", "range"),
+        ("document_date", {"gte": "01.01.2024", "lte": "30.06.2024", "match": "possible"},
+         "zwischen 01.01.2024 und 30.06.2024, auch teilweise", "range"),
+        ("document_date", {"lte": "30.06.2024", "match": "possible"},
+         "bis 30.06.2024, auch teilweise", "lte"),
+        ("period", {"within": "2024"}, "liegt ganz in 2024", "within"),
+        ("status", {"exists": True}, "hat einen Wert", "exists"),
+        ("mandant", [{"name": "Muster AG"}, {"name": "Beispiel GmbH"}],
+         "eine von Muster AG; Beispiel GmbH", "in"),
+        ("privileged", True, "Ja", "eq"),
+    ])
+    def test_every_operator_reads_in_german(self, registry, key, operand, text, op):
+        chip = view.resolved_chips({key: operand}, None, registry)[0]
+        assert (chip["text"], chip["op"]) == (text, op)
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +426,27 @@ class TestValidateWhere:
         with pytest.raises(ValueError) as caught:
             view.validate_where({"k": "Muster-Sentinel " * 1000})
         assert "Sentinel" not in str(caught.value)
+
+    def test_lists_hold_at_most_50_values(self):
+        """Knovas: "8 keys per search and 50 values per list" (1.5.0)."""
+        assert view.WHERE_LIST_MAX == 50
+        view.validate_where({"reference": [f"R-{i}" for i in range(50)]})
+        for bad in ({"reference": [f"R-{i}" for i in range(51)]},
+                    {"reference": {"in": [f"R-{i}" for i in range(51)]}},
+                    {"mandant": [{"name": f"Firma {i}"} for i in range(51)]}):
+            with pytest.raises(ValueError):
+                view.validate_where(bad)
+
+    def test_every_operator_the_rail_builds_passes(self):
+        where = {
+            "doc_type": {"prefix": "corr"},
+            "amount": {"between": ["CHF 1'000", "CHF 5'000"]},
+            "document_date": {"gte": "01.01.2024", "lte": "30.06.2024", "match": "possible"},
+            "period": {"within": "2024"}, "status": {"exists": True},
+            "mandant": [{"name": "Muster AG"}, {"name": "Beispiel GmbH"}],
+            "reference": ["E11.90", "E10.1"], "privileged": False,
+        }
+        assert view.validate_where(where) == where
 
 
 class TestCanEdit:
@@ -501,10 +549,14 @@ class TestMessages:
                                              "error": sentinel}, registry)
             assert sentinel not in text
 
-    def test_missing_calibration_is_never_called_temporary(self):
+    def test_missing_calibration_is_a_temporary_problem_at_knovas(self):
+        """F6: Knovas 1.5.0 lists 503 where_requires_calibration as "a problem
+        on the Knovas side. Try again later." -- not a setup step."""
         text = view.error_message("where_requires_calibration")
-        assert "Kalibrierung fehlt" in text
-        assert "vor\u00fcbergehend" not in text.lower()
+        assert text == ("Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar "
+                        "\u2013 sp\u00e4ter erneut versuchen.")
+        assert text == view.FILTERS_TEMPORARILY_UNAVAILABLE
+        assert "Kalibrierung" not in text
         assert view.error_message("filters_need_calibration") == text
 
     def test_pointer_path_means_knovas_needs_an_update(self):
@@ -521,10 +573,31 @@ class TestMessages:
                      "doc_fields_unavailable", "too_many_requests", "transport_error"):
             assert view.error_message(code)
 
+    def test_too_complex_names_both_limits(self):
+        text = view.error_message("where_too_complex")
+        assert "8 Felder" in text and "50 Werte" in text
+
+    def test_a_locked_field_names_what_is_locked(self):
+        """F1: type, code scheme, business year, date order and existing
+        choices lock together (Knovas 409 field_type_locked)."""
+        text = view.error_message("field_type_locked")
+        assert "nicht mehr m\u00f6glich" in text
+        for word in ("Typ", "Kennungsschema", "Gesch\u00e4ftsjahr", "Datumsreihenfolge",
+                     "Auswahlwerte"):
+            assert word in text, word
+
     def test_warnings(self):
         assert view.warning_text("unresolved_entity") == "nicht verkn\u00fcpft"
         assert view.warning_text("ambiguous_date") == "Datum mehrdeutig \u2013 bitte pr\u00fcfen"
         assert view.warning_text("new_code") == "new_code"
+
+    def test_an_ambiguous_number_is_explained(self, registry):
+        """1.5.0: "1,234 is 1.234, with a warning"; 1'234 is a thousand."""
+        text = view.warning_text("ambiguous_number")
+        assert text == ("Zahl mehrdeutig \u2013 als Dezimalzahl gelesen "
+                        "(f\u00fcr Tausender 1'234 schreiben)")
+        assert view.error_message("ambiguous_number", {"path": "set.amount"}, registry) == \
+            "\u201eBetrag\u201c: " + text
 
     @pytest.mark.parametrize("reason", ["no_candidates", "below_relevance_floor",
                                         "empty_where", "empty_scope", None, "other"])
@@ -569,6 +642,36 @@ class TestValuesEditAudit:
         assert detail["version_to"] is None, "a bool is not a version"
         assert "code" not in view.values_edit_audit_detail({}, version_from=None,
                                                            version_to=None)
+
+
+# ---------------------------------------------------------------------------
+# Notices above the results (spec F3)
+# ---------------------------------------------------------------------------
+
+class TestNotices:
+    def test_the_shape(self):
+        assert view.notice("degraded_to_bm25") == {
+            "kind": "degraded_to_bm25", "names": [], "hidden_count": 0}
+        assert view.notice("auto_scope_applied", ["Muster AG", ""], 2) == {
+            "kind": "auto_scope_applied", "names": ["Muster AG"], "hidden_count": 2}
+        many = view.notice("auto_scope_fallback", [f"Firma {i}" for i in range(7)], 1)
+        assert many["names"] == [f"Firma {i}" for i in range(5)] and many["hidden_count"] == 3
+        with pytest.raises(ValueError):
+            view.notice("something_else")
+
+    @pytest.mark.parametrize("meta, expected", [
+        ({"auto_scope": {"applied": True, "fallback": False, "node_ids": ["n1", "n2"]}},
+         ("auto_scope_applied", ["n1", "n2"])),
+        ({"auto_scope": {"applied": False, "fallback": True, "node_ids": ["n1"]}},
+         ("auto_scope_fallback", ["n1"])),
+        ({"auto_scope": {"applied": False, "fallback": False, "node_ids": ["n1"]}}, (None, [])),
+        ({"auto_scope": {"applied": True, "node_ids": []}}, (None, [])),
+        ({"auto_scope": "applied"}, (None, [])),
+        ({}, (None, [])),
+        (None, (None, [])),
+    ])
+    def test_auto_scope_of(self, meta, expected):
+        assert view.auto_scope_of(meta) == expected
 
 
 def test_new_modules_are_ascii_only():

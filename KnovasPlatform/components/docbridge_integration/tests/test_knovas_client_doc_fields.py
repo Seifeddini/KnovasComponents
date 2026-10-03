@@ -104,11 +104,22 @@ def _calls(client):
 # ---------------------------------------------------------------------------
 
 class TestSearchBody:
-    def test_without_the_new_keys_the_body_is_todays(self):
+    def test_the_body_carries_only_what_knovas_reads(self):
+        """F7: /secured/query reads Input and limit (plus where and
+        return_fields); top_k, filters and encryption_matrix it never read."""
         client = secured(Resp(200, {"results": []}), broker=False)
         client.search_documents("Mietvertrag", limit=5, filters={"akten_id": "A-42"})
-        assert _calls(client)[0]["json"] == {
-            "Input": "Mietvertrag", "limit": 5, "top_k": 5, "filters": {"akten_id": "A-42"}}
+        assert _calls(client)[0]["json"] == {"Input": "Mietvertrag", "limit": 5}
+
+    def test_an_encryption_matrix_file_is_not_read(self, tmp_path, monkeypatch):
+        matrix = tmp_path / "matrix.json"
+        matrix.write_text("[[1, 0], [0, 1]]", encoding="utf-8")
+        monkeypatch.setenv("SEMANTIX_ENCRYPTION_MATRIX_PATH", str(matrix))
+        client = secured(Resp(200, {"results": []}), broker=False)
+        client.search_documents("q", limit=5, where={"doc_type": "invoice"},
+                                return_fields=["title"])
+        assert set(_calls(client)[0]["json"]) == {"Input", "limit", "where", "return_fields"}
+        assert not hasattr(client, "encryption_matrix_path")
 
     def test_where_and_return_fields_go_out_only_when_given(self):
         client = secured(Resp(200, {"results": []}))
@@ -126,7 +137,7 @@ class TestSearchBody:
         client = secured(Resp(200, {"results": []}))
         client.search_documents("q", limit=limit)
         body = _calls(client)[0]["json"]
-        assert body["limit"] == sent and body["top_k"] == sent
+        assert body["limit"] == sent and "top_k" not in body
 
     def test_a_non_positive_limit_still_sends_none(self):
         client = secured(Resp(200, {"results": []}))
@@ -180,6 +191,11 @@ class TestQueryRejected:
         with pytest.raises(requests.exceptions.HTTPError):
             client.search_documents("q", limit=5, **kw)
 
+    def test_ambiguous_number_is_a_doc_fields_code(self):
+        from knovas_client import DOC_FIELDS_ERROR_CODES
+
+        assert {"ambiguous_date", "ambiguous_number"} <= DOC_FIELDS_ERROR_CODES
+
 
 class TestSearchResponse:
     HIT = {"pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf", "cosine_similarity": 0.8}
@@ -211,7 +227,7 @@ class TestSearchResponse:
                                      "relevance_gate_applied", "degraded_to_bm25")} == dict.fromkeys(
             ("no_strong_matches", "no_results_reason", "relevance_gate_applied",
              "degraded_to_bm25"))
-        assert "where" not in meta and "return_fields" not in meta
+        assert "where" not in meta and "return_fields" not in meta and "auto_scope" not in meta
 
     def test_a_nested_response_keeps_its_echo(self):
         out = _unwrap_secured_query_response({"status": "success", "data": {
@@ -219,6 +235,34 @@ class TestSearchResponse:
             "meta": {"degraded_to_bm25": False}}})
         assert out["where"] == {"applied": True}
         assert out["no_results_reason"] == "empty_where"
+
+    def test_auto_scope_is_kept_as_node_ids_only(self):
+        """F3: Knovas narrowed the search to nodes named in the question
+        (shape of query_pipeline.py on KB develop); the Platform keeps
+        applied, fallback and the node ids -- detected ones first."""
+        client = secured(Resp(200, {
+            "status": "success", "results": [],
+            "auto_scope": {"detections": [{"node_id": "n-2", "identifier_id": "i-9",
+                                           "channel": "lexical", "score": 0.97}],
+                           "node_ids": ["n-1", "n-2"], "applied": True, "fallback": False,
+                           "canonicalized": True, "residualized": False}}))
+        meta = client.search_documents("q", limit=5)["semantix"]
+        assert meta["auto_scope"] == {"applied": True, "fallback": False,
+                                      "node_ids": ["n-2", "n-1"]}
+
+    def test_auto_scope_ids_are_bounded(self):
+        ids = [f"n-{i}" for i in range(250)]
+        client = secured(Resp(200, {"status": "success", "results": [],
+                                    "auto_scope": {"node_ids": ids, "fallback": True}}))
+        block = client.search_documents("q", limit=5)["semantix"]["auto_scope"]
+        assert block["node_ids"] == ids[:200]
+        assert (block["applied"], block["fallback"]) == (False, True)
+
+    def test_a_nested_auto_scope_is_kept(self):
+        out = _unwrap_secured_query_response({"status": "success", "data": {
+            "results": [], "auto_scope": {"applied": False, "fallback": True,
+                                          "node_ids": ["n-1"]}}})
+        assert out["auto_scope"]["fallback"] is True
 
     def test_rows_carry_fields_tier_and_the_title_rule(self):
         hit = dict(self.HIT, relevance_tier="borderline", score_mode="vector",

@@ -1,6 +1,7 @@
 /* Dokumentfelder tab: small conveniences over server-rendered forms.
  *
  * - "Neues Feld": show the inputs that belong to the chosen type only.
+ * - Auswahlwerte: "Weitere Zeile" adds an empty choice row.
  * - Folder rules: each value input follows its field's type (a select for a
  *   single choice or yes/no, text otherwise).
  * - Folder picker: one level of folders per expand from the RemoteController
@@ -28,6 +29,33 @@
         datatype.addEventListener('change', syncTypeInputs);
         syncTypeInputs();
     }
+
+    // -- Auswahlwerte: eine Zeile je Auswahl; "Weitere Zeile" hängt eine an --
+    // Die neue Zeile ist eine geleerte Kopie der letzten, mit der nächsten
+    // Nummer in den Namen (choice_code_<n>, ...). Ohne dieses Skript kommen
+    // weitere leere Zeilen nach dem Speichern.
+    document.querySelectorAll('[data-df-choices]').forEach(function (box) {
+        var add = box.querySelector('[data-df-choice-add]');
+        if (!add) { return; }
+        add.addEventListener('click', function () {
+            var rows = box.querySelectorAll('[data-df-choice-row]');
+            var last = rows[rows.length - 1];
+            if (!last) { return; }
+            var next = 0;
+            box.querySelectorAll('input[name^="choice_code_"]').forEach(function (input) {
+                var n = parseInt(String(input.name).slice('choice_code_'.length), 10);
+                if (!isNaN(n) && n >= next) { next = n + 1; }
+            });
+            var row = last.cloneNode(true);
+            row.querySelectorAll('input').forEach(function (input) {
+                input.value = '';
+                input.name = String(input.name).replace(/_\d+$/, '_' + next);
+            });
+            last.parentNode.insertBefore(row, last.nextSibling);
+            var first = row.querySelector('input');
+            if (first) { first.focus(); }
+        });
+    });
 
     // -- Folder rules: typed value inputs ------------------------------------
     var registry = [];

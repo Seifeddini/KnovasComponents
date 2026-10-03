@@ -32,6 +32,17 @@ needs_db = pytest.mark.skipif(not platform_db_reachable(),
                               reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
 
 
+def _rows(*choices):
+    """The choice editor's inputs for ``(code, {lang: label}, "Name, Name")``."""
+    form = {}
+    for i, (code, labels, aliases) in enumerate(choices):
+        form[f"choice_code_{i}"] = code
+        for lang in ("de", "fr", "it", "en"):
+            form[f"choice_label_{lang}_{i}"] = labels.get(lang, "")
+        form[f"choice_aliases_{i}"] = aliases
+    return form
+
+
 # ---------------------------------------------------------------------------
 # Pure helpers
 # ---------------------------------------------------------------------------
@@ -43,14 +54,16 @@ class TestDefinitionFromForm:
         defn = definition_from_form({
             "key": "kostenstelle", "datatype": "enum", "cardinality": "one",
             "label_de": "Kostenstelle", "label_fr": "Centre de co\u00fbts", "label_it": "",
-            "aliases": "kst, kostenstelle-nr, kst", "sensitivity": "normal",
-            "enum_values": "4100 = Verwaltung\n\n4200\n", "display": "1",
+            "aliases": "kst, kostenstelle-nr, kst", "sensitivity": "normal", "display": "1",
+            **_rows(("4100", {"de": "Verwaltung", "fr": "Administration"}, "Verw, Admin, Verw"),
+                    ("", {}, ""), ("4200", {}, "")),
         })
         assert defn == {
             "key": "kostenstelle", "datatype": "enum", "cardinality": "one",
             "labels": {"de": "Kostenstelle", "fr": "Centre de co\u00fbts"},
             "aliases": ["kst", "kostenstelle-nr"],
-            "enum_values": [{"code": "4100", "labels": {"de": "Verwaltung"}}, "4200"],
+            "enum_values": [{"code": "4100", "labels": {"de": "Verwaltung", "fr": "Administration"},
+                             "aliases": ["Verw", "Admin"]}, "4200"],
             "display": True, "facet": False, "sensitivity": "normal",
         }
 
@@ -58,7 +71,7 @@ class TestDefinitionFromForm:
         from web_interface.admin_doc_fields import definition_from_form
 
         form = {"key": "mandat", "datatype": "text", "target_node_type_id": "t1",
-                "date_role": "due", "enum_values": "a"}
+                "date_role": "due", **_rows(("a", {}, ""))}
         defn = definition_from_form(form)
         assert "target_node_type_id" not in defn
         assert "date_role" not in defn and "enum_values" not in defn
@@ -73,9 +86,12 @@ class TestDefinitionFromForm:
         {"key": "title", "datatype": "text"},
         {"key": "pointer", "datatype": "text"},
         {"key": "ok_key", "datatype": "whatever"},
-        {"key": "ok_key", "datatype": "enum", "enum_values": ""},
-        {"key": "ok_key", "datatype": "enum", "enum_values": "a b = x"},
-        {"key": "ok_key", "datatype": "enum", "enum_values": "a\na"},
+        {"key": "ok_key", "datatype": "enum"},
+        {"key": "ok_key", "datatype": "enum", **_rows(("a b", {}, ""))},
+        {"key": "ok_key", "datatype": "enum", **_rows(("a", {}, ""), ("a", {}, ""))},
+        {"key": "ok_key", "datatype": "enum", **_rows(("", {"de": "Ohne Code"}, ""))},
+        {"key": "ok_key", "datatype": "enum",
+         **_rows(("a", {}, ", ".join(f"n{i}" for i in range(33))))},
         {"key": "ok_key", "datatype": "date", "date_role": "tomorrow"},
     ])
     def test_refused_before_knovas(self, form):
@@ -84,11 +100,11 @@ class TestDefinitionFromForm:
         with pytest.raises(FormError):
             definition_from_form(form)
 
-    def test_an_enum_error_names_the_line_not_the_value(self):
-        from web_interface.admin_doc_fields import FormError, parse_enum_lines
+    def test_a_choice_error_names_the_row_not_the_value(self):
+        from web_interface.admin_doc_fields import FormError, parse_choice_rows
 
         with pytest.raises(FormError) as caught:
-            parse_enum_lines("ok\nMuster AG")
+            parse_choice_rows(_rows(("ok", {}, ""), ("Muster AG", {}, "")))
         assert "Zeile 2" in str(caught.value)
         assert "Muster" not in str(caught.value)
 
@@ -103,11 +119,12 @@ class TestChangesFromForm:
         "display": True, "facet": True, "sensitivity": "normal", "warnings": [],
     }
 
-    def _form(self, **over):
+    def _form(self, rows=None, **over):
         form = {"label_de": "Dokumentart", "label_fr": "", "label_it": "",
                 "label_en": "Document type", "aliases": "art", "flags": "1",
-                "display": "1", "facet": "1", "sensitivity": "normal",
-                "enum_values": "invoice = Rechnung\nother"}
+                "display": "1", "facet": "1", "sensitivity": "normal"}
+        form.update(_rows(*(rows if rows is not None else (
+            ("invoice", {"de": "Rechnung", "fr": "Facture"}, "rg"), ("other", {}, "")))))
         form.update(over)
         return form
 
@@ -124,18 +141,38 @@ class TestChangesFromForm:
                                       "rm": "Gener"}}
         assert not needs_use_confirmation(changes)
 
-    def test_an_enum_relabel_keeps_other_languages_and_aliases(self):
+    def test_the_rows_are_what_is_sent(self):
         from web_interface.admin_doc_fields import changes_from_form
 
-        changes = changes_from_form(
-            self._form(enum_values="invoice = Kreditorenbeleg\nother\noffer = Offerte"),
-            self.CURRENT)
-        assert changes["enum_values"] == [
+        changes = changes_from_form(self._form(rows=[
+            ("invoice", {"de": "Kreditorenbeleg", "fr": "Facture"}, "rg"), ("other", {}, ""),
+            ("offer", {"de": "Offerte", "en": "Offer"}, "Angebot")]), self.CURRENT)
+        assert changes == {"enum_values": [
             {"code": "invoice", "labels": {"de": "Kreditorenbeleg", "fr": "Facture"},
              "aliases": ["rg"]},
             "other",
-            {"code": "offer", "labels": {"de": "Offerte"}},
-        ]
+            {"code": "offer", "labels": {"de": "Offerte", "en": "Offer"}, "aliases": ["Angebot"]},
+        ]}
+
+    def test_an_emptied_input_goes_and_unseen_languages_stay(self):
+        from web_interface.admin_doc_fields import changes_from_form
+
+        current = dict(self.CURRENT, enum_values=[
+            {"code": "invoice", "labels": {"de": "Rechnung", "fr": "Facture", "rm": "Quint"},
+             "aliases": ["rg"]}])
+        changes = changes_from_form(self._form(rows=[("invoice", {"de": "Rechnung"}, "")]),
+                                    current)
+        assert changes == {"enum_values": [
+            {"code": "invoice", "labels": {"de": "Rechnung", "rm": "Quint"}}]}
+
+    def test_a_removed_row_removes_the_choice(self):
+        from web_interface.admin_doc_fields import changes_from_form, needs_use_confirmation
+
+        changes = changes_from_form(self._form(rows=[
+            ("invoice", {"de": "Rechnung", "fr": "Facture"}, "rg")]), self.CURRENT)
+        assert changes == {"enum_values": [
+            {"code": "invoice", "labels": {"de": "Rechnung", "fr": "Facture"}, "aliases": ["rg"]}]}
+        assert needs_use_confirmation(changes)
 
     def test_flags_are_read_only_with_their_marker(self):
         from web_interface.admin_doc_fields import changes_from_form
@@ -163,6 +200,158 @@ class TestChangesFromForm:
         assert needs_use_confirmation({"sensitivity": "special"})
         assert needs_use_confirmation({"enum_values": ["a"]})
         assert not needs_use_confirmation({"labels": {}, "aliases": [], "display": True})
+
+
+class TestChoiceRows:
+    def test_rows_in_order_empty_ones_skipped(self):
+        from web_interface.admin_doc_fields import parse_choice_rows
+
+        form = {"choice_code_10": "c", "choice_code_2": "b", "choice_label_fr_2": "B fr",
+                "choice_aliases_2": "bb, b2, bb", "choice_code_0": "a", "choice_code_5": "",
+                "choice_label_de_5": "", "choice_aliases_5": ""}
+        assert parse_choice_rows(form) == [
+            {"code": "a", "labels": {}, "aliases": []},
+            {"code": "b", "labels": {"fr": "B fr"}, "aliases": ["bb", "b2"]},
+            {"code": "c", "labels": {}, "aliases": []},
+        ]
+
+    def test_a_new_field_s_choices(self):
+        from web_interface.admin_doc_fields import merge_choices
+
+        assert merge_choices(None, [
+            {"code": "4100", "labels": {"de": "Verwaltung"}, "aliases": ["Verw"]},
+            {"code": "4200", "labels": {}, "aliases": []}]) == [
+            {"code": "4100", "labels": {"de": "Verwaltung"}, "aliases": ["Verw"]}, "4200"]
+
+    def test_the_editor_shows_each_language_and_the_other_names(self):
+        from web_interface.admin_doc_fields import choice_rows
+
+        assert choice_rows([{"code": "invoice", "labels": {"de": "Rechnung", "rm": "Quint"},
+                             "aliases": ["RG", "Beleg"]}, "other"]) == [
+            {"code": "invoice", "labels": {"de": "Rechnung", "fr": "", "it": "", "en": ""},
+             "aliases_text": "RG, Beleg"},
+            {"code": "other", "labels": {"de": "", "fr": "", "it": "", "en": ""},
+             "aliases_text": ""}]
+
+
+class TestReadingSettings:
+    """F1: how values of a field are read -- per datatype, sent on create
+    only when it differs from Knovas's default, on edit only when changed."""
+
+    def test_each_setting_goes_only_with_its_type(self):
+        from web_interface.admin_doc_fields import definition_from_form
+
+        everything = {"code_scheme": "bger", "link_policy": "never", "fy_start_month": "7",
+                      "fy_label": "start", "date_order": "mdy"}
+        code = definition_from_form({"key": "aktenzeichen", "datatype": "code", **everything})
+        assert code["code_scheme"] == "bger"
+        assert not {"link_policy", "fy_start_month", "fy_label", "date_order"} & set(code)
+        entity = definition_from_form({"key": "gegenpartei", "datatype": "entity_ref",
+                                       **everything})
+        assert entity["link_policy"] == "never" and "code_scheme" not in entity
+        period = definition_from_form({"key": "geschaeftsjahr", "datatype": "period",
+                                       **everything})
+        assert (period["fy_start_month"], period["fy_label"]) == (7, "start")
+        date = definition_from_form({"key": "eingang", "datatype": "date", **everything})
+        assert date["date_order"] == "mdy" and "fy_start_month" not in date
+
+    def test_defaults_are_not_sent(self):
+        from web_interface.admin_doc_fields import definition_from_form
+
+        assert "code_scheme" not in definition_from_form(
+            {"key": "belegnummer", "datatype": "code", "code_scheme": "generic"})
+        assert "link_policy" not in definition_from_form(
+            {"key": "gegenpartei", "datatype": "entity_ref", "link_policy": "resolve"})
+        period = definition_from_form({"key": "jahr", "datatype": "period",
+                                       "fy_start_month": "", "fy_label": ""})
+        assert "fy_start_month" not in period and "fy_label" not in period
+        assert "date_order" not in definition_from_form(
+            {"key": "eingang", "datatype": "date", "date_order": ""})
+        january = definition_from_form({"key": "jahr", "datatype": "period",
+                                        "fy_start_month": "1"})
+        assert january["fy_start_month"] == 1 and "fy_label" not in january
+
+    @pytest.mark.parametrize("form", [
+        {"key": "k", "datatype": "code", "code_scheme": "isbn"},
+        {"key": "k", "datatype": "entity_ref", "link_policy": "maybe"},
+        {"key": "k", "datatype": "period", "fy_start_month": "13", "fy_label": "start"},
+        {"key": "k", "datatype": "period", "fy_start_month": "Juli", "fy_label": "start"},
+        {"key": "k", "datatype": "period", "fy_start_month": "\u00b2", "fy_label": "start"},
+        {"key": "k", "datatype": "period", "fy_start_month": "7"},
+        {"key": "k", "datatype": "period", "fy_label": "middle"},
+        {"key": "k", "datatype": "date", "date_order": "dym"},
+    ])
+    def test_refused_before_knovas(self, form):
+        from web_interface.admin_doc_fields import FormError, definition_from_form
+
+        with pytest.raises(FormError):
+            definition_from_form(form)
+
+    CODE = {"id": "f2", "key": "aktenzeichen", "datatype": "code", "code_scheme": "generic",
+            "labels": {"de": "Aktenzeichen"}, "aliases": [], "display": False, "facet": False,
+            "sensitivity": "normal", "warnings": []}
+    PERIOD = {"id": "f3", "key": "geschaeftsjahr", "datatype": "period", "fy_start_month": 7,
+              "fy_label": "start", "labels": {"de": "Gesch\u00e4ftsjahr"}, "aliases": [],
+              "display": False, "facet": False, "sensitivity": "normal", "warnings": []}
+    DATE = {"id": "f4", "key": "eingang", "datatype": "date", "date_order": None,
+            "labels": {}, "display": False, "facet": False, "warnings": []}
+
+    def test_an_edit_sends_only_changed_settings(self):
+        from web_interface.admin_doc_fields import changes_from_form, needs_use_confirmation
+
+        assert changes_from_form({"code_scheme": "generic"}, self.CODE) == {}
+        changes = changes_from_form({"code_scheme": "bger"}, self.CODE)
+        assert changes == {"code_scheme": "bger"} and needs_use_confirmation(changes)
+        assert changes_from_form({"fy_start_month": "7", "fy_label": "start"},
+                                 self.PERIOD) == {}
+        assert changes_from_form({"fy_start_month": "", "fy_label": ""}, self.PERIOD) == {
+            "fy_start_month": None, "fy_label": None}
+        assert changes_from_form({"date_order": ""}, self.DATE) == {}
+        assert changes_from_form({"date_order": "ymd"}, self.DATE) == {"date_order": "ymd"}
+        # A setting of another datatype is never read from the form.
+        assert changes_from_form({"date_order": "ymd", "code_scheme": "iban"},
+                                 self.PERIOD) == {}
+
+    def test_a_business_year_keeps_its_naming(self):
+        from web_interface.admin_doc_fields import FormError, changes_from_form
+
+        with pytest.raises(FormError):
+            changes_from_form({"fy_label": ""}, self.PERIOD)  # July stays, naming gone
+        assert changes_from_form({"fy_start_month": "9"}, self.PERIOD) == {"fy_start_month": 9}
+
+    def test_a_scheme_the_form_does_not_list_stays(self):
+        """Knovas takes any code scheme of its pattern (registry.py
+        _SCHEME_RE). The field's own scheme stays a valid choice on edit, so
+        an edit that leaves it alone never turns it into "generic"."""
+        from web_interface.admin_doc_fields import FormError, changes_from_form
+
+        other = {**self.CODE, "code_scheme": "legal_case_ch"}
+        assert changes_from_form({"code_scheme": "legal_case_ch"}, other) == {}
+        assert changes_from_form({"code_scheme": "bger"}, other) == {"code_scheme": "bger"}
+        with pytest.raises(FormError):
+            changes_from_form({"code_scheme": "isbn"}, other)
+
+    def test_reading_text_for_the_registry_table(self):
+        from web_interface.admin_doc_fields import reading_text
+
+        assert reading_text({"datatype": "code", "code_scheme": "iban"}) == \
+            "Schema: IBAN (mit Pr\u00fcfziffer)"
+        assert reading_text({"datatype": "code", "code_scheme": "generic"}) == ""
+        assert reading_text(self.PERIOD) == \
+            "Gesch\u00e4ftsjahr ab Juli, benannt nach dem Anfangsjahr"
+        assert reading_text({"datatype": "date", "date_order": "mdy"}) == \
+            "liest 03/04/2024 als Monat/Tag/Jahr"
+        assert reading_text({"datatype": "entity_ref", "link_policy": "never"}) == \
+            "Namen bleiben unverkn\u00fcpft"
+        assert reading_text({"datatype": "text"}) == ""
+
+    def test_the_field_counter(self):
+        from web_interface.admin_doc_fields import field_count_text
+
+        assert field_count_text(core_fields()) == "12 von 256 Feldern"
+        full = [field_def(f"f{i:03d}", "text", "F") for i in range(256)]
+        assert field_count_text(full).startswith(
+            "256 von 256 Feldern \u2013 die H\u00f6chstzahl ist erreicht")
 
 
 class TestRuleValuesFromForm:
@@ -216,7 +405,9 @@ class TestRows:
             node_types=[{"id": "t-mandant", "name": "Mandant"}], in_use={"doc_type"})
         by = {r["key"]: r for r in rows}
         assert by["doc_type"]["in_use"] is True and by["amount"]["in_use"] is False
-        assert by["doc_type"]["enum_text"].startswith("contract = Vertrag")
+        assert by["doc_type"]["choices"][0] == {
+            "code": "contract", "labels": {"de": "Vertrag", "fr": "", "it": "", "en": ""},
+            "aliases_text": ""}
         assert by["mandant"]["target_name"] == "Mandant"
         assert by["client"]["target_name"] == "verborgen"
         assert by["client"]["warnings"] == ["Ziel-Typ f\u00fcr Sie nicht sichtbar"]
@@ -334,6 +525,12 @@ class TestStatic:
         js = (STATIC / "js" / "admin_doc_fields.js").read_text(encoding="utf-8")
         assert "innerHTML" not in js and "insertAdjacentHTML" not in js
         assert "textContent" in js
+
+    def test_choice_rows_grow_without_markup(self):
+        js = (STATIC / "js" / "admin_doc_fields.js").read_text(encoding="utf-8")
+        assert "cloneNode(true)" in js and "data-df-choice-add" in js
+        html = (TEMPLATES / "admin_doc_fields.html").read_text(encoding="utf-8")
+        assert 'name="enum_values"' not in html and "data-df-choice-row" in html
 
     def test_every_post_form_carries_the_csrf_token(self):
         html = (TEMPLATES / "admin_doc_fields.html").read_text(encoding="utf-8")
@@ -509,14 +706,13 @@ def as_admin(make_app, admin):
     return _signed_in(make_app("values"), admin.email)
 
 
-def test_an_untouched_enum_without_a_german_label_is_no_change():
-    """platform-admin-ingestion-3: the textarea shows another language's
-    label for a code without a German one; sent back unchanged it is no
-    change -- not a German label copied from French, and no in-use
-    confirmation for a change nobody made."""
+def test_an_untouched_choice_without_a_german_label_is_no_change():
+    """platform-admin-ingestion-3, with the row editor: a choice labelled in
+    French and Italian only shows in those columns; sent back unchanged it is
+    no change -- and no in-use confirmation for a change nobody made."""
     from web_interface.admin_doc_fields import (
         changes_from_form,
-        enum_lines,
+        choice_rows,
         needs_use_confirmation,
     )
 
@@ -524,15 +720,15 @@ def test_an_untouched_enum_without_a_german_label_is_no_change():
                "display": False, "facet": False,
                "enum_values": [{"code": "rechnung", "labels": {"fr": "Facture", "it": "Fattura"}},
                                {"code": "offerte", "labels": {"de": "Offerte"}}]}
-    text = enum_lines(current["enum_values"])
-    assert text == "rechnung = Facture\nofferte = Offerte"
-    form = {"flags": "1", "display": "1", "label_de": "Belegart", "enum_values": text}
+    shown = choice_rows(current["enum_values"])
+    assert shown[0]["labels"] == {"de": "", "fr": "Facture", "it": "Fattura", "en": ""}
+    form = {"flags": "1", "display": "1", "label_de": "Belegart",
+            **_rows(*[(r["code"], r["labels"], r["aliases_text"]) for r in shown])}
     changes = changes_from_form(form, current)
     assert changes == {"display": True}
     assert not needs_use_confirmation(changes)
     assert changes_from_form(dict(form, display=""), current) == {}
-    relabelled = changes_from_form(
-        dict(form, enum_values="rechnung = Rechnung\nofferte = Offerte"), current)
+    relabelled = changes_from_form(dict(form, choice_label_de_0="Rechnung"), current)
     assert relabelled["enum_values"][0]["labels"] == {"fr": "Facture", "it": "Fattura",
                                                       "de": "Rechnung"}
     assert relabelled["enum_values"][1] == {"code": "offerte", "labels": {"de": "Offerte"}}
@@ -662,6 +858,9 @@ class TestFeatureOff:
             rule_form={"folder_path": "", "pointer_prefix": "", "rows": []},
             rule_rows_count=adf.RULE_ROWS, capability="values",
             datatypes=[], date_roles=[], unknown_key_modes=[], date_orders=[],
+            code_schemes=[], link_policies=[], fy_months=[], fy_labels=[],
+            field_count_text="", choice_rows_new=adf.CHOICE_ROWS_NEW,
+            choice_rows_extra=adf.CHOICE_ROWS_EXTRA,
             texts={"read_only": "", "in_use_deprecate": "", "in_use_update": "",
                    "reapply": "", "multi_source": adf.MULTI_SOURCE_CONFIRM},
             fields=[], registry=[], rule_fields=[], node_types=[], packs=[], settings={},
@@ -701,7 +900,7 @@ class TestRegistryWrites:
 
         response = _post(as_admin, "/admin/doc-fields/create", key="kostenstelle",
                          datatype="enum", cardinality="one", label_de="Kostenstelle",
-                         enum_values="4100 = Verwaltung", sensitivity="normal")
+                         sensitivity="normal", **_rows(("4100", {"de": "Verwaltung"}, "")))
         assert response.status_code == 200
         html = response.data.decode("utf-8")
         assert "\u201ekostenstelle\u201c angelegt" in html
@@ -786,8 +985,11 @@ class TestRegistryWrites:
                          label_de="Dokumentart", label_fr="Type de document", label_it="",
                          label_en="doc type", aliases="", flags="1", display="1", facet="1",
                          sensitivity="normal",
-                         enum_values="contract = Vertrag\ninvoice = Rechnung\n"
-                                     "correspondence.email = E-Mail\nreport = Bericht\nother = Andere")
+                         **_rows(("contract", {"de": "Vertrag"}, ""),
+                                 ("invoice", {"de": "Rechnung"}, ""),
+                                 ("correspondence.email", {"de": "E-Mail"}, ""),
+                                 ("report", {"de": "Bericht"}, ""),
+                                 ("other", {"de": "Andere"}, "")))
         assert response.status_code == 200, response.data.decode("utf-8")[:500]
         sent = _calls(api, "update_doc_field")[0]
         assert sent["field_id"] == field["id"]
@@ -801,6 +1003,110 @@ class TestRegistryWrites:
                          label_de="Betrag", label_en="amount")
         assert "Keine \u00c4nderung" in response.data.decode("utf-8")
         assert _calls(api, "update_doc_field") == []
+
+
+@needs_db
+class TestReadingSettingsOnThePage:
+    def test_the_page_counts_the_fields_and_offers_the_settings(self, as_admin):
+        html = as_admin.get("/admin/doc-fields").data.decode("utf-8")
+        assert "12 von 256 Feldern" in html
+        create = html[html.index("doc-field-create-form"):]
+        create = create[:create.index("</form>")]
+        for name in ("code_scheme", "link_policy", "fy_start_month", "fy_label", "date_order"):
+            assert f'name="{name}"' in create, name
+        language = next(f for f in FakeDocFieldsApi.current.registry if f["key"] == "language")
+        form = html[html.index(f'/admin/doc-fields/{language["id"]}/update'):]
+        form = form[:form.index("</form>")]
+        assert '<option value="generic" selected>' in form
+        assert 'name="fy_start_month"' not in form
+
+    def test_create_sends_the_settings(self, as_admin):
+        _post(as_admin, "/admin/doc-fields/create", key="geschaeftsjahr", datatype="period",
+              fy_start_month="7", fy_label="start", code_scheme="iban", date_order="mdy")
+        sent = _calls(FakeDocFieldsApi.current, "create_doc_field")[0]["defn"]
+        assert (sent["fy_start_month"], sent["fy_label"]) == (7, "start")
+        assert "code_scheme" not in sent and "date_order" not in sent
+
+    def test_a_locked_setting_is_explained(self, as_admin):
+        api = FakeDocFieldsApi.current
+        language = next(f for f in api.registry if f["key"] == "language")
+        api.fail_call("update_doc_field", 409, "field_type_locked")
+        response = _post(as_admin, f"/admin/doc-fields/{language['id']}/update",
+                         code_scheme="bcp47")
+        assert response.status_code == 409
+        assert "Kennungsschema" in response.data.decode("utf-8")
+        assert _calls(api, "update_doc_field")[0]["changes"] == {"code_scheme": "bcp47"}
+
+    def test_the_confirmation_keeps_the_posted_setting(self, as_admin, platform_db, admin):
+        _profile(platform_db, admin, fields={"language": "de-CH"})
+        api = FakeDocFieldsApi.current
+        language = next(f for f in api.registry if f["key"] == "language")
+        refused = _post(as_admin, f"/admin/doc-fields/{language['id']}/update",
+                        code_scheme="bcp47")
+        assert refused.status_code == 409
+        assert _calls(api, "update_doc_field") == []
+        html = refused.data.decode("utf-8")
+        form = html[html.index(f'/admin/doc-fields/{language["id"]}/update'):]
+        form = form[:form.index("</form>")]
+        assert '<option value="bcp47" selected>' in form
+
+    def test_a_scheme_the_form_does_not_list_is_kept(self, as_admin):
+        """The edit form shows the field's own scheme selected, so saving a
+        label change sends the label only."""
+        api = FakeDocFieldsApi.current
+        reference = next(f for f in api.registry if f["key"] == "reference")
+        reference["code_scheme"] = "legal_case_ch"
+        html = as_admin.get("/admin/doc-fields").data.decode("utf-8")
+        form = html[html.index(f'/admin/doc-fields/{reference["id"]}/update'):]
+        form = form[:form.index("</form>")]
+        assert '<option value="legal_case_ch" selected>' in form
+        assert '<option value="generic" selected>' not in form
+        response = _post(as_admin, f"/admin/doc-fields/{reference['id']}/update",
+                         label_de="Referenznummer", code_scheme="legal_case_ch")
+        assert response.status_code == 200
+        assert _calls(api, "update_doc_field")[0]["changes"] == {
+            "labels": {"de": "Referenznummer", "en": "reference"}}
+
+
+@needs_db
+class TestChoiceEditor:
+    def _form_of(self, html, field):
+        form = html[html.index(f'/admin/doc-fields/{field["id"]}/update'):]
+        return form[:form.index("</form>")]
+
+    def test_the_rows_show_each_choice(self, as_admin):
+        field = next(f for f in FakeDocFieldsApi.current.registry if f["key"] == "doc_type")
+        form = self._form_of(as_admin.get("/admin/doc-fields").data.decode("utf-8"), field)
+        assert 'name="choice_code_0" value="contract"' in form
+        assert 'name="choice_label_de_0" value="Vertrag"' in form
+        assert 'name="choice_code_5" value=""' in form  # five choices, then empty rows
+        assert "data-df-choice-add" in form and 'name="enum_values"' not in form
+
+    def test_labels_and_other_names_go_out(self, as_admin):
+        api = FakeDocFieldsApi.current
+        field = next(f for f in api.registry if f["key"] == "status")
+        response = _post(as_admin, f"/admin/doc-fields/{field['id']}/update",
+                         **_rows(("draft", {"de": "Entwurf", "fr": "Projet"}, "Vorlage"),
+                                 ("final", {"de": "Final"}, ""),
+                                 ("signed", {"de": "Unterzeichnet"}, "")))
+        assert response.status_code == 200, response.data.decode("utf-8")[:500]
+        assert _calls(api, "update_doc_field")[0]["changes"] == {"enum_values": [
+            {"code": "draft", "labels": {"de": "Entwurf", "fr": "Projet"}, "aliases": ["Vorlage"]},
+            {"code": "final", "labels": {"de": "Final"}},
+            {"code": "signed", "labels": {"de": "Unterzeichnet"}}]}
+
+    def test_the_confirmation_shows_the_posted_rows(self, as_admin, platform_db, admin):
+        _profile(platform_db, admin, fields={"status": "draft"})
+        api = FakeDocFieldsApi.current
+        field = next(f for f in api.registry if f["key"] == "status")
+        refused = _post(as_admin, f"/admin/doc-fields/{field['id']}/update",
+                        **_rows(("draft", {"de": "Entwurf"}, ""), ("final", {"de": "Final"}, ""),
+                                ("signed", {"de": "Unterzeichnet"}, ""),
+                                ("archived", {"de": "Archiviert"}, "")))
+        assert refused.status_code == 409
+        assert _calls(api, "update_doc_field") == []
+        form = self._form_of(refused.data.decode("utf-8"), field)
+        assert 'name="choice_code_3" value="archived"' in form
 
 
 @needs_db

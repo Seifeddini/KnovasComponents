@@ -353,7 +353,7 @@ Certificate files under `${SEMANTIX_CERTS_DIR:-./certs}` are mounted read-only t
 
 - mTLS enabled by default: `SEMANTIX_USE_SECURED_API=true`
 - Automatic certificate renewal: checks every 3600 s, renews when fewer than 30 days remain
-- Optional: `SEMANTIX_CUSTOMER_ID`, `SEMANTIX_ENCRYPTION_MATRIX_PATH`
+- Optional: `SEMANTIX_CUSTOMER_ID`
 
 ### 2.5 Environment variables
 

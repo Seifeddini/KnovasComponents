@@ -68,10 +68,6 @@ api:
   # Keep false in production. Set true only for explicit mock/dev usage.
   allow_legacy_api_fallback: "${SEMANTIX_ALLOW_LEGACY_API_FALLBACK:-false}"
 
-  # When the tenant uses encrypted embeddings, POST /secured/query requires
-  # "encryption_matrix" (orthogonal matrix JSON). Path to a JSON file, or empty.
-  encryption_matrix_path: "${SEMANTIX_ENCRYPTION_MATRIX_PATH:-}"
-
   # Legacy authentication (only relevant in legacy/mock mode)
   auth_type: "bearer"  # or "api_key"
   api_key: "${SEMANTIX_API_KEY}"
@@ -219,9 +215,11 @@ web:
     ui: "${DOC_FIELDS_UI:-auto}"            # auto | off
     # How long the answer of the capability probe is kept per worker.
     capability_ttl_seconds: 300
-    # After Knovas says filters need a relevance calibration, how long the
-    # Platform keeps the listing without the search filters before asking again.
-    calibration_recheck_seconds: 3600
+    # After Knovas answers a filtered search with 503
+    # where_requires_calibration ("a problem on the Knovas side, try again
+    # later"), how long the Platform keeps the listing without the search
+    # filters before asking again.
+    calibration_recheck_seconds: 300
     # Field registry and entity-name suggestions, cached per person.
     registry_cache_seconds: 300
     # Roles that may edit document values (comma list of admin, approver,

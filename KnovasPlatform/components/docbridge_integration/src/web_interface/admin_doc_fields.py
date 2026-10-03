@@ -87,6 +87,29 @@ SENSITIVITIES = ("normal", "special")
 UNKNOWN_KEY_MODES = ("ignore", "reject", "register")
 DATE_ORDERS = ("dmy", "mdy", "ymd")
 LABEL_LANGS = ("de", "fr", "it", "en")
+CODE_SCHEMES = ("generic", "che_uid", "iban", "qr_ref", "bger", "bvger", "ecli", "icd10gm",
+                "bcp47")
+LINK_POLICIES = ("resolve", "never")
+FY_LABELS = ("start", "end")
+
+#: An account can have up to 256 fields (Knovas 1.5.0); retired ones count.
+FIELD_CAP = 256
+
+#: Choices per field and other names per choice (registry.py
+#: _MAX_ENUM_VALUES, _MAX_ALIASES).
+CHOICES_MAX = 500
+CHOICE_ALIASES_MAX = 32
+#: Empty choice rows in "Neues Feld" and below a field's own choices. More
+#: come with "Weitere Zeile" (admin_doc_fields.js) or after saving.
+CHOICE_ROWS_NEW = 4
+CHOICE_ROWS_EXTRA = 2
+
+#: What Knovas applies when a field definition leaves a setting out (spec
+#: F1). Create sends a setting only when it differs from this.
+READING_DEFAULTS: Dict[str, Any] = {
+    "code_scheme": "generic", "link_policy": "resolve",
+    "fy_start_month": None, "fy_label": None, "date_order": None,
+}
 
 #: Rows of the folder-rule value form. A rule may name up to 64 keys at
 #: Knovas; a handful per save is what a person fills in, and saving the same
@@ -131,6 +154,27 @@ DATE_ORDER_LABELS = {
     "mdy": "Monat/Tag/Jahr (03/04/2024 = 4. M\u00e4rz)",
     "ymd": "Jahr/Monat/Tag",
 }
+CODE_SCHEME_LABELS = {
+    "generic": "allgemein (ohne Pr\u00fcfung)",
+    "che_uid": "UID (CHE-123.456.789, mit Pr\u00fcfziffer)",
+    "iban": "IBAN (mit Pr\u00fcfziffer)",
+    "qr_ref": "QR-Referenz (mit Pr\u00fcfziffer)",
+    "bger": "Gesch\u00e4ftsnummer Bundesgericht (4A_123/2024)",
+    "bvger": "Gesch\u00e4ftsnummer Bundesverwaltungsgericht (E-2228/2020)",
+    "ecli": "ECLI",
+    "icd10gm": "ICD-10-GM (E11.90)",
+    "bcp47": "Sprachcode (de-CH)",
+}
+LINK_POLICY_LABELS = {
+    "resolve": "mit Eintr\u00e4gen des Wissensgraphen verkn\u00fcpfen",
+    "never": "nie verkn\u00fcpfen (Namen bleiben Namen)",
+}
+FY_LABEL_LABELS = {
+    "start": "nach dem Anfangsjahr (GJ 2024 = 2024/25)",
+    "end": "nach dem Endjahr (GJ 2024 = 2023/24)",
+}
+MONTH_LABELS = ("Januar", "Februar", "M\u00e4rz", "April", "Mai", "Juni", "Juli", "August",
+                "September", "Oktober", "November", "Dezember")
 #: Knovas returns pack keys and versions only (contract 4.8, gap 7); the
 #: console names them itself.
 PACK_LABELS = {
@@ -198,6 +242,10 @@ HELD_TEXT = (
 )
 LOCKED_ENTITY_HINT = "enth\u00e4lt Eintr\u00e4ge, die Sie nicht sehen \u2013 hier nicht \u00e4nderbar"
 EXPIRED_FORM = "Formular ist abgelaufen. Bitte erneut versuchen."
+FY_LABEL_REQUIRED = (
+    "Beginnt das Gesch\u00e4ftsjahr nicht im Januar, bitte angeben, ob \u201eGJ 2024\u201c "
+    "nach dem Anfangs- oder dem Endjahr benannt ist."
+)
 
 
 class FormError(ValueError):
@@ -295,50 +343,57 @@ def split_list(text: Any, sep: str = ",") -> List[str]:
     return out
 
 
-def parse_enum_lines(text: Any) -> List[Tuple[str, str]]:
-    """``code = Bezeichnung`` per line -> ``[(code, label)]``.
+#: ASCII digits only: ``\d`` takes any Unicode digit (see _fy_start_month).
+_CHOICE_CODE_RE = re.compile(r"^choice_code_([0-9]{1,4})$")
 
-    A line without ``=`` is a bare code. Codes follow the server's pattern;
-    a bad or repeated code is a FormError naming the line, not the input.
+
+def _choice_indices(form: Mapping[str, Any]) -> List[int]:
+    """The row numbers of the choice editor's rows in ``form``, in order."""
+    found = {int(m.group(1)) for m in (_CHOICE_CODE_RE.match(str(name)) for name in form) if m}
+    return sorted(found)
+
+
+def has_choice_rows(form: Mapping[str, Any]) -> bool:
+    """Whether ``form`` carries the choice editor (an enum field's form)."""
+    return bool(_choice_indices(form))
+
+
+def parse_choice_rows(form: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """The choice editor: one row per choice -> ``[{code, labels, aliases}]``.
+
+    Row ``i`` is ``choice_code_<i>``, ``choice_label_<lang>_<i>`` for de,
+    fr, it and en, and ``choice_aliases_<i>`` (other names,
+    comma-separated), in the order of ``i``. ``labels`` holds the languages
+    filled in, ``aliases`` the names without repeats. An empty row is
+    skipped (the rows for new choices); a row with text but no code, a code
+    outside the server's pattern, a repeated code, more than 32 other names
+    or more than 500 choices is a FormError naming the row, never its input.
     """
-    out: List[Tuple[str, str]] = []
+    rows: List[Dict[str, Any]] = []
     seen: set = set()
-    for number, line in enumerate(str(text or "").splitlines(), 1):
-        line = line.strip()
-        if not line:
+    for number, i in enumerate(_choice_indices(form), 1):
+        code = _text(form, f"choice_code_{i}")
+        labels = {lang: _text(form, f"choice_label_{lang}_{i}") for lang in LABEL_LANGS}
+        labels = {lang: text for lang, text in labels.items() if text}
+        aliases = split_list(form.get(f"choice_aliases_{i}"))
+        if not code:
+            if labels or aliases:
+                raise FormError(f"Auswahlwerte, Zeile {number}: bitte einen Code angeben.")
             continue
-        code, _, label = line.partition("=")
-        code, label = code.strip(), label.strip()
         if not ENUM_CODE_RE.match(code):
             raise FormError(
                 f"Auswahlwerte, Zeile {number}: ein Code besteht aus Buchstaben, "
                 "Ziffern, Punkt, Bindestrich und _ (h\u00f6chstens 64 Zeichen).")
         if code in seen:
             raise FormError(f"Auswahlwerte, Zeile {number}: dieser Code kommt zweimal vor.")
+        if len(aliases) > CHOICE_ALIASES_MAX:
+            raise FormError(f"Auswahlwerte, Zeile {number}: h\u00f6chstens "
+                            f"{CHOICE_ALIASES_MAX} weitere Namen.")
         seen.add(code)
-        out.append((code, label))
-    return out
-
-
-def _shown_enum_label(labels: Any) -> str:
-    """The label the textarea shows for one code: ``de``, else the first
-    other language (so the code is recognisable), else nothing."""
-    labels = labels if isinstance(labels, Mapping) else {}
-    if labels.get("de"):
-        return str(labels["de"])
-    return str(next((labels.get(x) for x in LABEL_LANGS if labels.get(x)), ""))
-
-
-def enum_lines(enum_values: Any) -> str:
-    """The textarea form of ``enum_values``: ``code = Bezeichnung (de)``."""
-    lines: List[str] = []
-    for item in enum_values or ():
-        if isinstance(item, str):
-            lines.append(item)
-        elif isinstance(item, Mapping) and isinstance(item.get("code"), str):
-            label = _shown_enum_label(item.get("labels"))
-            lines.append(f"{item['code']} = {label}" if label else item["code"])
-    return "\n".join(lines)
+        rows.append({"code": code, "labels": labels, "aliases": aliases})
+    if len(rows) > CHOICES_MAX:
+        raise FormError(f"H\u00f6chstens {CHOICES_MAX} Auswahlwerte pro Feld.")
+    return rows
 
 
 def _enum_entries(enum_values: Any) -> List[Any]:
@@ -358,34 +413,68 @@ def _enum_entries(enum_values: Any) -> List[Any]:
     return out
 
 
-def merge_enum(current: Any, items: Sequence[Tuple[str, str]]) -> List[Any]:
-    """The new ``enum_values`` from the textarea, keeping what it cannot show.
+def merge_choices(current: Any, rows: Sequence[Mapping[str, Any]]) -> List[Any]:
+    """The new ``enum_values`` from the choice rows.
 
-    The textarea carries one German label per code. A code that already had
-    labels in other languages or aliases keeps them; only its ``de`` label
-    changes (an empty label keeps the old ones). Dropping them would be a
-    silent loss in a form that never displayed them.
+    The rows show the code, the labels in DE/FR/IT/EN and the other names,
+    so what they hold is what is sent: an emptied input removes that label
+    or those names. Labels in other languages (Knovas keeps up to 16) are
+    not shown and stay. A choice without labels and other names goes as its
+    bare code when it was one (or is new), so an untouched form compares
+    equal to what Knovas holds and changes nothing.
     """
     by_code: Dict[str, Any] = {}
     for item in _enum_entries(current):
         by_code[item if isinstance(item, str) else item["code"]] = item
     out: List[Any] = []
-    for code, label in items:
+    for row in rows:
+        code = str(row["code"])
         old = by_code.get(code)
+        kept: Dict[str, str] = {}
         if isinstance(old, dict):
-            entry = dict(old)
-            labels = dict(entry.get("labels") or {})
-            # A code without a German label shows another language's; that
-            # line sent back unchanged is no German label (and no change).
-            fallback = not labels.get("de") and label == _shown_enum_label(labels)
-            if label and not fallback:
-                entry["labels"] = {**labels, "de": label}
-            out.append(entry)
-        elif label:
-            out.append({"code": code, "labels": {"de": label}})
-        else:
+            kept = {lang: text for lang, text in (old.get("labels") or {}).items()
+                    if lang not in LABEL_LANGS}
+        labels = {**kept, **dict(row.get("labels") or {})}
+        aliases = list(row.get("aliases") or [])
+        if not labels and not aliases and not isinstance(old, dict):
             out.append(code)
+            continue
+        entry: Dict[str, Any] = {"code": code}
+        if labels:
+            entry["labels"] = labels
+        if aliases:
+            entry["aliases"] = aliases
+        out.append(entry)
     return out
+
+
+def choice_rows(enum_values: Any) -> List[Dict[str, Any]]:
+    """``enum_values`` as the choice editor shows them: the code, the labels
+    in DE/FR/IT/EN (empty where none) and the other names as text."""
+    rows: List[Dict[str, Any]] = []
+    for item in _enum_entries(enum_values):
+        if isinstance(item, str):
+            rows.append({"code": item, "labels": dict.fromkeys(LABEL_LANGS, ""),
+                         "aliases_text": ""})
+            continue
+        labels = item.get("labels") or {}
+        rows.append({"code": item["code"],
+                     "labels": {lang: str(labels.get(lang) or "") for lang in LABEL_LANGS},
+                     "aliases_text": ", ".join(str(a) for a in item.get("aliases") or [])})
+    return rows
+
+
+def posted_choice_rows(form: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """The choice rows exactly as posted (rows with any input), to show them
+    again with a confirmation -- unchecked, the person's own page only."""
+    rows: List[Dict[str, Any]] = []
+    for i in _choice_indices(form):
+        row = {"code": _text(form, f"choice_code_{i}"),
+               "labels": {lang: _text(form, f"choice_label_{lang}_{i}") for lang in LABEL_LANGS},
+               "aliases_text": _text(form, f"choice_aliases_{i}")}
+        if row["code"] or any(row["labels"].values()) or row["aliases_text"]:
+            rows.append(row)
+    return rows
 
 
 def labels_from_form(form: Mapping[str, Any], current: Optional[Mapping[str, Any]] = None) -> Dict[str, str]:
@@ -402,6 +491,68 @@ def labels_from_form(form: Mapping[str, Any], current: Optional[Mapping[str, Any
         else:
             labels.pop(lang, None)
     return labels
+
+
+def _select(form: Mapping[str, Any], name: str, allowed: Sequence[str],
+            message: str) -> Optional[str]:
+    """A select's value: None when empty, else one of ``allowed``."""
+    value = _text(form, name)
+    if not value:
+        return None
+    if value not in allowed:
+        raise FormError(message)
+    return value
+
+
+def _fy_start_month(form: Mapping[str, Any]) -> Optional[int]:
+    value = _text(form, "fy_start_month")
+    if not value:
+        return None
+    # ASCII digits only: int() takes any Unicode digit and fails on some
+    # (superscripts) and on very long numbers.
+    if not re.fullmatch(r"[0-9]{1,2}", value) or not 1 <= int(value) <= 12:
+        raise FormError("Der Monat, in dem das Gesch\u00e4ftsjahr beginnt, ist 1 bis 12.")
+    return int(value)
+
+
+def _check_fiscal_year(month: Any, label: Any) -> None:
+    """Knovas refuses a business year that does not start in January
+    without its naming (registry.py, ``fy_label``)."""
+    if month not in (None, 1) and not label:
+        raise FormError(FY_LABEL_REQUIRED)
+
+
+def reading_from_form(form: Mapping[str, Any], datatype: Any,
+                      current: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+    """How values of a ``datatype`` are read, as the form sets it (spec F1):
+    ``code_scheme`` for a code, ``link_policy`` for an entity field,
+    ``fy_start_month`` and ``fy_label`` for a period, ``date_order`` for a
+    date. Only inputs the form carries, and only those of its datatype; an
+    empty select is Knovas's default (``READING_DEFAULTS``).
+
+    ``current`` is the field as Knovas holds it (an edit). Its own code
+    scheme stays a valid choice even when ``CODE_SCHEMES`` does not list it:
+    Knovas takes any scheme of its pattern, and an edit that leaves it alone
+    must not turn it into ``generic``."""
+    out: Dict[str, Any] = {}
+    if datatype == "code" and "code_scheme" in form:
+        own = (current or {}).get("code_scheme")
+        schemes = CODE_SCHEMES + ((own,) if isinstance(own, str) and own else ())
+        out["code_scheme"] = _select(form, "code_scheme", schemes,
+                                     "Unbekanntes Kennungsschema.") or "generic"
+    if datatype == "entity_ref" and "link_policy" in form:
+        out["link_policy"] = _select(form, "link_policy", LINK_POLICIES,
+                                     "Unbekannte Verkn\u00fcpfungsregel.") or "resolve"
+    if datatype == "period":
+        if "fy_start_month" in form:
+            out["fy_start_month"] = _fy_start_month(form)
+        if "fy_label" in form:
+            out["fy_label"] = _select(form, "fy_label", FY_LABELS,
+                                      "Unbekannte Benennung des Gesch\u00e4ftsjahres.")
+    if datatype == "date" and "date_order" in form:
+        out["date_order"] = _select(form, "date_order", DATE_ORDERS,
+                                    "Unbekannte Datumsreihenfolge.")
+    return out
 
 
 def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
@@ -436,10 +587,10 @@ def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
     if aliases:
         defn["aliases"] = aliases
     if datatype == "enum":
-        items = parse_enum_lines(form.get("enum_values"))
-        if not items:
+        rows = parse_choice_rows(form)
+        if not rows:
             raise FormError("Ein Auswahlfeld braucht mindestens einen Code.")
-        defn["enum_values"] = merge_enum(None, items)
+        defn["enum_values"] = merge_choices(None, rows)
     if datatype == "entity_ref":
         target = _text(form, "target_node_type_id")
         if target:
@@ -450,6 +601,11 @@ def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
             if role not in DATE_ROLES:
                 raise FormError("Unbekannte Datumsrolle.")
             defn["date_role"] = role
+    reading = reading_from_form(form, datatype)
+    _check_fiscal_year(reading.get("fy_start_month"), reading.get("fy_label"))
+    for name, value in reading.items():
+        if value != READING_DEFAULTS[name]:
+            defn[name] = value
     defn["display"] = _checked(form, "display")
     defn["facet"] = _checked(form, "facet")
     defn["sensitivity"] = sensitivity
@@ -459,8 +615,8 @@ def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
 def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Dict[str, Any]:
     """The ``PATCH /doc-fields/<id>`` body: only what the form changed.
 
-    Labels and enum values are merged with what the form cannot show (see
-    ``merge_enum``). The display/facet checkboxes are read only when the
+    Labels and choices are merged with the languages the form cannot show (see
+    ``merge_choices``). The display/facet checkboxes are read only when the
     form carries its ``flags`` marker, so a form without them is not read
     as "switch both off". A hidden entity target is never sent back.
     """
@@ -485,11 +641,11 @@ def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Di
         if sensitivity != (current.get("sensitivity") or "normal"):
             changes["sensitivity"] = sensitivity
     datatype = current.get("datatype")
-    if datatype == "enum" and "enum_values" in form:
-        items = parse_enum_lines(form.get("enum_values"))
-        if not items:
+    if datatype == "enum" and has_choice_rows(form):
+        rows = parse_choice_rows(form)
+        if not rows:
             raise FormError("Ein Auswahlfeld braucht mindestens einen Code.")
-        merged = merge_enum(current.get("enum_values"), items)
+        merged = merge_choices(current.get("enum_values"), rows)
         if merged != _enum_entries(current.get("enum_values")):
             changes["enum_values"] = merged
     hidden = "target_type_hidden" in (current.get("warnings") or ())
@@ -503,6 +659,14 @@ def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Di
             raise FormError("Unbekannte Datumsrolle.")
         if role != (current.get("date_role") or None):
             changes["date_role"] = role
+    reading = reading_from_form(form, datatype, current)
+    if "fy_start_month" in reading or "fy_label" in reading:
+        _check_fiscal_year(reading.get("fy_start_month", current.get("fy_start_month")),
+                           reading.get("fy_label", current.get("fy_label")))
+    for name, value in reading.items():
+        stored = current.get(name)
+        if (READING_DEFAULTS[name] if stored is None else stored) != value:
+            changes[name] = value
     return changes
 
 
@@ -580,6 +744,41 @@ def _str_list(value: Any) -> List[str]:
     return [str(v) for v in value or () if isinstance(v, str)] if isinstance(value, (list, tuple)) else []
 
 
+def reading_text(raw: Mapping[str, Any]) -> str:
+    """How a field reads values, in words for the registry table: a code
+    scheme other than ``generic``, a business year that does not start in
+    January, a date field's own order, names that are never linked. Empty
+    when the field reads as Knovas does by default."""
+    datatype = raw.get("datatype")
+    if datatype == "code":
+        scheme = str(raw.get("code_scheme") or "generic")
+        return "" if scheme == "generic" else f"Schema: {CODE_SCHEME_LABELS.get(scheme, scheme)}"
+    if datatype == "period":
+        month = raw.get("fy_start_month")
+        if isinstance(month, int) and not isinstance(month, bool) and 2 <= month <= 12:
+            naming = {"start": ", benannt nach dem Anfangsjahr",
+                      "end": ", benannt nach dem Endjahr"}.get(str(raw.get("fy_label") or ""), "")
+            return f"Gesch\u00e4ftsjahr ab {MONTH_LABELS[month - 1]}{naming}"
+        return ""
+    if datatype == "date" and raw.get("date_order") in DATE_ORDERS:
+        return f"liest 03/04/2024 als {DATE_ORDER_LABELS[raw['date_order']].split(' (')[0]}"
+    if datatype == "entity_ref" and raw.get("link_policy") == "never":
+        return "Namen bleiben unverkn\u00fcpft"
+    return ""
+
+
+def field_count_text(raw_fields: Any) -> str:
+    """The counter "n von 256 Feldern" (spec F1). Every field Knovas lists
+    counts, retired ones too: the cap counts every registry row."""
+    count = sum(1 for raw in raw_fields or ()
+                if isinstance(raw, Mapping) and isinstance(raw.get("key"), str))
+    text = f"{count} von {FIELD_CAP} Feldern"
+    if count >= FIELD_CAP:
+        text += (" \u2013 die H\u00f6chstzahl ist erreicht (stillgelegte Felder "
+                 "z\u00e4hlen mit).")
+    return text
+
+
 def registry_rows(raw_fields: Any, node_types: Iterable[Mapping[str, Any]] = (),
                   in_use: Iterable[str] = ()) -> List[Dict[str, Any]]:
     """The registry table: one row per field as Knovas listed it.
@@ -625,12 +824,20 @@ def registry_rows(raw_fields: Any, node_types: Iterable[Mapping[str, Any]] = (),
             "display": raw.get("display") is True,
             "facet": raw.get("facet") is True,
             "sensitivity": "normal" if raw.get("sensitivity") in (None, "normal") else "special",
-            "enum_text": enum_lines(raw.get("enum_values")),
+            "choices": choice_rows(raw.get("enum_values")),
             "target_id": str(target or ""),
             "target_name": "verborgen" if hidden else names.get(str(target or ""), ""),
             "target_hidden": hidden,
             "date_role": date_role or "",
             "date_role_label": DATE_ROLE_LABELS.get(date_role or "", ""),
+            "code_scheme": str(raw.get("code_scheme") or "generic"),
+            "link_policy": "never" if raw.get("link_policy") == "never" else "resolve",
+            "fy_start_month": (raw.get("fy_start_month")
+                               if isinstance(raw.get("fy_start_month"), int)
+                               and not isinstance(raw.get("fy_start_month"), bool) else None),
+            "fy_label": raw.get("fy_label") if raw.get("fy_label") in FY_LABELS else "",
+            "date_order": raw.get("date_order") if raw.get("date_order") in DATE_ORDERS else "",
+            "reading": reading_text(raw),
             "warnings": [_FIELD_WARNINGS.get(w, w) for w in warnings],
             "in_use": key in used,
             "deprecated": status == "deprecated",
@@ -654,12 +861,20 @@ def refill_field_row(rows: List[Dict[str, Any]], field_id: Any, form: Mapping[st
     row["labels"] = labels
     if "aliases" in form:
         row["aliases_text"] = _text(form, "aliases")
-    if "enum_values" in form:
-        row["enum_text"] = str(form.get("enum_values") or "")
+    if has_choice_rows(form):
+        row["choices"] = posted_choice_rows(form)
     if "target_node_type_id" in form and not row.get("target_hidden"):
         row["target_id"] = _text(form, "target_node_type_id")
     if "date_role" in form and _text(form, "date_role") in ("", *DATE_ROLES):
         row["date_role"] = _text(form, "date_role")
+    for name, allowed in (("code_scheme", CODE_SCHEMES), ("link_policy", LINK_POLICIES),
+                          ("fy_label", ("", *FY_LABELS)), ("date_order", ("", *DATE_ORDERS))):
+        if name in form and _text(form, name) in allowed:
+            row[name] = _text(form, name)
+    if "fy_start_month" in form:
+        month = _text(form, "fy_start_month")
+        if month == "" or (re.fullmatch(r"[0-9]{1,2}", month) and 1 <= int(month) <= 12):
+            row["fy_start_month"] = int(month) if month else None
     if "flags" in form:
         row["display"] = _checked(form, "display")
         row["facet"] = _checked(form, "facet")
@@ -1232,12 +1447,19 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             "date_roles": [(r, DATE_ROLE_LABELS[r]) for r in DATE_ROLES],
             "unknown_key_modes": [(m, UNKNOWN_KEY_LABELS[m]) for m in UNKNOWN_KEY_MODES],
             "date_orders": [(o, DATE_ORDER_LABELS[o]) for o in DATE_ORDERS],
+            "code_schemes": [(s, CODE_SCHEME_LABELS[s]) for s in CODE_SCHEMES],
+            "link_policies": [(p, LINK_POLICY_LABELS[p]) for p in LINK_POLICIES],
+            "fy_months": [(m, MONTH_LABELS[m - 1]) for m in range(1, 13)],
+            "fy_labels": [(label, FY_LABEL_LABELS[label]) for label in FY_LABELS],
+            "choice_rows_new": CHOICE_ROWS_NEW,
+            "choice_rows_extra": CHOICE_ROWS_EXTRA,
             "texts": {"read_only": READ_ONLY_TEXT, "in_use_deprecate": IN_USE_DEPRECATE,
                       "in_use_update": IN_USE_UPDATE, "reapply": REAPPLY_TEXT,
                       "multi_source": MULTI_SOURCE_CONFIRM},
         }
         problems: List[str] = []
         raw_fields: List[Dict[str, Any]] = []
+        registry_read = True
         try:
             raw_fields = client.doc_fields()
         except DocFieldsUnavailable as exc:
@@ -1246,6 +1468,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         except Exception as exc:  # noqa: BLE001
             _log_failure("registry read", exc)
             problems.append("Das Feldverzeichnis ist derzeit nicht abrufbar.")
+            registry_read = False
         registry = sanitize_registry(raw_fields)
         packs: List[Dict[str, Any]] = []
         try:
@@ -1292,6 +1515,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             refill_field_row(rows, field_form.get("id"), field_form.get("form") or {})
         context.update({
             "fields": rows,
+            "field_count_text": field_count_text(raw_fields) if registry_read else "",
             "rule_fields": [s for s in registry if s.get("status") != "deprecated"],
             "node_types": [{"id": str(t.get("id")), "name": str(t.get("name") or "")}
                            for t in node_types if isinstance(t, Mapping) and t.get("id")],

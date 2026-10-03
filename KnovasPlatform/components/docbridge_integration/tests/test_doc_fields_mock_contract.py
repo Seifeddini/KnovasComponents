@@ -149,6 +149,29 @@ class TestClientAgainstTheMock:
         assert last["next_after"] is None and last["complete"] is True
         assert "total_count" not in last
 
+    def test_the_field_form_s_definitions_are_accepted(self):
+        """F1: what the Dokumentfelder form builds is what the server takes
+        (the mock checks definitions like registry.py)."""
+        from web_interface.admin_doc_fields import definition_from_form
+
+        client, state = mock_client("values")
+        for form in (
+            {"key": "aktenzeichen", "datatype": "code", "code_scheme": "bger"},
+            {"key": "geschaeftsjahr", "datatype": "period", "fy_start_month": "7",
+             "fy_label": "start"},
+            {"key": "eingang", "datatype": "date", "date_order": "mdy"},
+            {"key": "gegenseite", "datatype": "entity_ref", "link_policy": "never"},
+            {"key": "kostenstelle", "datatype": "enum", "choice_code_0": "4100",
+             "choice_label_de_0": "Verwaltung", "choice_label_fr_0": "Administration",
+             "choice_aliases_0": "Verw", "choice_code_1": "4200"},
+        ):
+            assert client.create_doc_field(definition_from_form(form))["key"] == form["key"]
+        fields = {f["key"]: f for f in client.doc_fields()}
+        assert fields["aktenzeichen"]["code_scheme"] == "bger"
+        assert (fields["geschaeftsjahr"]["fy_start_month"],
+                fields["geschaeftsjahr"]["fy_label"]) == (7, "start")
+        assert fields["kostenstelle"]["enum_values"][0]["aliases"] == ["Verw"]
+
 
 # ---------------------------------------------------------------------------
 # The Platform routes on the real client, against the mock
@@ -166,7 +189,6 @@ def _app_on_mock(platform_db, tmp_path, monkeypatch, mode, **kw):
                 "base_url": "https://knovas.test", "use_secured_api": True,
                 "cert_path": "/certs/client.crt", "key_path": "/certs/client.key",
                 "ca_cert_path": "/certs/ca.crt", "cert_auto_renew_enabled": False,
-                "encryption_matrix_path": "",
                 "rate_limit": {"requests_per_second": 0, "retry_attempts": 3,
                                "retry_backoff": 2},
             })
@@ -195,7 +217,7 @@ class TestRoutesOnTheMock:
         assert body["document_fields"]["capability"] == "off"
         sent = _queries(state)[-1]
         # Today's body, key for key (D8).
-        assert set(sent) == {"Input", "limit", "top_k", ASSERTION_FIELD}
+        assert set(sent) == {"Input", "limit", ASSERTION_FIELD}
         # "Mehr laden" past 50 used to be a 422 from Knovas.
         assert sent["limit"] == 50
         # One probe, nothing else of the feature.
@@ -289,6 +311,32 @@ class TestRoutesOnTheMock:
         listed = client.post("/api/documents/find", json={"where": {"doc_type": "contract"}})
         assert listed.status_code == 200
         assert len(listed.get_json()["documents"]) == 2
+
+    def test_auto_scope_is_named_through_the_person_s_graph(self, platform_db, tmp_path,
+                                                            monkeypatch, identity_repo):
+        """F3 end to end: the mock recognises "Muster AG"; the Platform names
+        it from GET /secured/graph/nodes as the person, without q."""
+        app, state = _app_on_mock(platform_db, tmp_path, monkeypatch, "filters",
+                                  auto_scope="applied")
+        state.add_document("rc-sync/Muster AG/Vertrag_1.pdf", title="Vertrag Muster AG",
+                           snippet="Mietvertrag mit der Muster AG",
+                           fields={"doc_type": "contract"})
+        client = signed_in(app, identity_repo, role="member")
+        body = client.post("/api/search", json={"query": "Muster AG"}).get_json()
+        assert [r["doc_id"] for r in body["results"]] == ["rc-sync/Muster AG/Vertrag_1.pdf"]
+        assert body["notices"] == [{"kind": "auto_scope_applied", "names": ["Muster AG"],
+                                    "hidden_count": 0}]
+        reads = [r for r in state.requests if r["path"] == "/secured/graph/nodes"]
+        assert len(reads) == 1 and reads[0]["query"] == {}, "never with the typed text"
+
+    def test_unreadable_values_are_said(self, platform_db, tmp_path, monkeypatch,
+                                        identity_repo):
+        app, state = _app_on_mock(platform_db, tmp_path, monkeypatch, "filters")
+        state.return_fields_unreadable = True
+        client = signed_in(app, identity_repo, role="member")
+        body = client.post("/api/search", json={"query": "lease"}).get_json()
+        assert body["results"] and body["results"][0]["fields_display"] == []
+        assert [n["kind"] for n in body["notices"]] == ["return_fields_unavailable"]
 
     def test_no_value_in_any_log_line_end_to_end(self, platform_db, tmp_path, monkeypatch,
                                                  identity_repo, caplog):

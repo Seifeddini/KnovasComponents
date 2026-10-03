@@ -41,6 +41,7 @@ class DocumentSearchApp {
         this.previewMeta = document.getElementById('previewMeta');
         this.previewBody = document.getElementById('previewBody');
         this.resultsNotice = document.getElementById('resultsNotice');
+        this.searchNotices = document.getElementById('searchNotices');
         this.previewActions = document.getElementById('previewActions');
         this.previewSidebar = document.getElementById('previewSidebar');
         this.previewFindingsSection = document.getElementById('previewFindingsSection');
@@ -1209,6 +1210,7 @@ class DocumentSearchApp {
                 this._honesty = data.honesty || null;
                 this._documentFields = data.document_fields || null;
                 this.displayResults(data.results, data.total, data.semantix, data.has_more);
+                this._renderSearchNotices(data.notices, (data.results || []).length);
                 if (this.docFields) this.docFields.renderSearchState(data.document_fields);
             } else {
                 throw new Error(data.error || 'Suche fehlgeschlagen');
@@ -1374,6 +1376,7 @@ class DocumentSearchApp {
         if (this.resultsHeading) this.resultsHeading.textContent = 'Dokumentliste';
         this.resultsQuery.textContent = '';
         this.resultsNotice.hidden = true;
+        this._renderSearchNotices([], 0);
         this.resultsContainer.querySelectorAll('.empty-state')
             .forEach((el) => el.remove());
         const start = this.currentResults.length;
@@ -1409,6 +1412,7 @@ class DocumentSearchApp {
         this.resultsContainer.replaceChildren();
         this.resultsCount.textContent = '';
         this.resultsNotice.hidden = true;
+        this._renderSearchNotices([], 0);
         this.loadMoreButton.hidden = true;
         if (this.showListButton) this.showListButton.hidden = true;
         this.resultsSection.style.display = 'none';
@@ -1427,6 +1431,7 @@ class DocumentSearchApp {
         this.resultsContainer.replaceChildren(box);
         this.resultsCount.textContent = '0 Ergebnisse';
         this.resultsNotice.hidden = true;
+        this._renderSearchNotices([], 0);
         this.loadMoreButton.hidden = true;
         if (this.showListButton) this.showListButton.hidden = true;
     }
@@ -2006,6 +2011,74 @@ class DocumentSearchApp {
     static NO_RESULTS_GENERIC = 'Keine Treffer in den für Sie sichtbaren Dokumenten.';
 
     static DEGRADED_TEXT = 'Hinweis: eingeschränkte Suchqualität.';
+
+    /**
+     * Hinweise ueber den Treffern (F3): was Knovas zu dieser Antwort gesagt
+     * hat. Der Server liefert Art, Namen und Anzahl -- nie Knoten-Ids --,
+     * der Satz entsteht hier (tests/test_frontend_static.py).
+     */
+    static NOTICE_TEXTS = {
+        return_fields_unavailable: 'Feldwerte konnten nicht gelesen werden; die Treffer werden ohne Werte angezeigt.',
+        degraded_to_bm25: 'Eingeschränkte Suchqualität: diese Treffer wurden nur über genaue Wörter gefunden. Für die volle Qualität später erneut suchen.',
+    };
+
+    /**
+     * Die Hinweise ueber der Trefferliste, per textContent. Ohne Treffer
+     * sagt der Leerzustand die Suchqualitaet selbst, und Feldwerte gibt es
+     * keine: diese beiden entfallen dann.
+     */
+    _renderSearchNotices(notices, shown) {
+        const box = this.searchNotices;
+        if (!box) return;
+        box.textContent = '';
+        const onlyWithResults = ['degraded_to_bm25', 'return_fields_unavailable'];
+        (Array.isArray(notices) ? notices : []).forEach((notice) => {
+            if (!notice || (!shown && onlyWithResults.includes(notice.kind))) return;
+            const text = this._searchNoticeText(notice);
+            if (!text) return;
+            const line = document.createElement('p');
+            line.className = 'results-notice search-notice';
+            line.dataset.kind = String(notice.kind);
+            line.textContent = text;
+            box.appendChild(line);
+        });
+        box.hidden = box.children.length === 0;
+    }
+
+    /** Ein Hinweis als Satz; '' fuer eine Art, die diese Seite nicht kennt. */
+    _searchNoticeText(notice) {
+        const n = notice || {};
+        const names = (Array.isArray(n.names) ? n.names : []).map((x) => String(x)).filter(Boolean);
+        const hidden = Number.isInteger(n.hidden_count) && n.hidden_count > 0 ? n.hidden_count : 0;
+        if (n.kind === 'auto_scope_applied') {
+            return `Suche automatisch auf ${this._scopeNamesText(names, hidden, false)} `
+                + 'eingegrenzt (in der Frage erkannt).';
+        }
+        if (n.kind === 'auto_scope_fallback') {
+            return `In ${this._scopeNamesText(names, hidden, true)} nichts gefunden – `
+                + 'alle Dokumente durchsucht.';
+        }
+        return DocumentSearchApp.NOTICE_TEXTS[n.kind] || '';
+    }
+
+    /**
+     * Die erkannten Eintraege: die Namen, die die Person sehen darf, die
+     * anderen nur gezaehlt. dative: "In ... nichts gefunden".
+     */
+    _scopeNamesText(names, hidden, dative) {
+        const entry = (count) => (count === 1 ? 'Eintrag' : (dative ? 'Einträgen' : 'Einträge'));
+        if (!names.length) {
+            if (!hidden) return dative ? 'den erkannten Einträgen' : 'erkannte Einträge';
+            return dative ? `${hidden} erkannten ${entry(hidden)}` : `${hidden} ${entry(hidden)}`;
+        }
+        const parts = names.slice();
+        if (hidden) {
+            const more = hidden === 1 || dative ? 'weiteren' : 'weitere';
+            parts.push(`${hidden} ${more} ${entry(hidden)}`);
+        }
+        if (parts.length === 1) return parts[0];
+        return `${parts.slice(0, -1).join(', ')} und ${parts[parts.length - 1]}`;
+    }
 
     showEmptyState(semantix) {
         this.loadMoreButton.hidden = true;

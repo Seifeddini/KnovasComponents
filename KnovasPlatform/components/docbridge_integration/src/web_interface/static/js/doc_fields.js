@@ -12,6 +12,8 @@
 // - Serverdaten gehen nur per textContent in die Seite -- diese Datei setzt
 //   kein innerHTML. Namen und Werte gehen nur im JSON-Koerper an den
 //   Server, nie in eine URL.
+// - Jedes Feld der Leiste hat eine Bedingung (OPERATORS). Den where-Wert
+//   baut nur buildOperand -- fuer die Suche und "Liste anzeigen" derselbe.
 
 class DocFieldsUI {
     /** Die Faehigkeiten, unter denen ein Teil der Oberflaeche erscheint (D11). */
@@ -27,6 +29,159 @@ class DocFieldsUI {
 
     /** Uebergabe aus dem Cortex: {field, name}, nie in der URL. */
     static HANDOFF_KEY = 'knovas.docFieldsHandoff';
+
+    /**
+     * Bedingungen je Feldtyp (Spec F2), die erste ist die Vorgabe. Was sie
+     * an Knovas schicken, entscheidet buildOperand.
+     */
+    static OPERATORS = {
+        enum: [['in', 'ist'], ['prefix', 'beginnt mit'], ['exists', 'hat einen Wert']],
+        code: [['eq', 'ist'], ['prefix', 'beginnt mit'], ['in', 'eine von'],
+            ['exists', 'hat einen Wert']],
+        text: [['eq', 'ist'], ['prefix', 'beginnt mit'], ['exists', 'hat einen Wert']],
+        money: [['eq', 'ist'], ['range', 'ab / bis'], ['exists', 'hat einen Wert']],
+        number: [['eq', 'ist'], ['range', 'ab / bis'], ['exists', 'hat einen Wert']],
+        date: [['overlaps', 'Zeitraum'], ['range', 'von / bis'], ['within', 'liegt ganz in'],
+            ['exists', 'hat einen Wert']],
+        period: [['overlaps', 'Zeitraum'], ['range', 'von / bis'], ['within', 'liegt ganz in'],
+            ['exists', 'hat einen Wert']],
+        bool: [['', '– alle –'], ['true', 'Ja'], ['false', 'Nein'], ['exists', 'hat einen Wert']],
+        entity_ref: [['in', 'ist'], ['exists', 'hat einen Wert']],
+    };
+
+    /** Der Datentyp der Leiste: ein unbekannter gilt als Text. */
+    static railType(datatype) {
+        return Object.prototype.hasOwnProperty.call(DocFieldsUI.OPERATORS, datatype)
+            ? datatype : 'text';
+    }
+
+    /** "a, b,, a" -> ["a", "b"]: getrimmt, ohne Leere und Wiederholungen. */
+    static splitList(text, separator) {
+        const out = [];
+        String(text == null ? '' : text).split(separator).forEach((part) => {
+            const item = part.trim();
+            if (item && !out.includes(item)) out.push(item);
+        });
+        return out;
+    }
+
+    /**
+     * Der where-Wert eines Feldes aus dem, was die Leiste haelt -- rein, ohne
+     * DOM (tests/test_frontend_static.py prueft ihn unter Node). state:
+     * {op, text, choices, lo, hi, partly}; undefined heisst kein Filter.
+     */
+    static buildOperand(datatype, state) {
+        const type = DocFieldsUI.railType(datatype);
+        const s = state || {};
+        const op = String(s.op == null ? '' : s.op);
+        const text = String(s.text == null ? '' : s.text).trim();
+        const one = (items) => (items.length === 1 ? items[0] : items);
+        if (op === 'exists') return { exists: true };
+        if (type === 'bool') {
+            if (op === 'true') return true;
+            if (op === 'false') return false;
+            return undefined;
+        }
+        if (op === 'prefix') return text ? { prefix: text } : undefined;
+        if (type === 'enum') {
+            const codes = (Array.isArray(s.choices) ? s.choices : [])
+                .map((code) => String(code)).filter(Boolean);
+            return codes.length ? one(codes) : undefined;
+        }
+        if (type === 'entity_ref') {
+            const names = DocFieldsUI.splitList(text, ';').map((name) => ({ name }));
+            return names.length ? one(names) : undefined;
+        }
+        if (op === 'in') {
+            const codes = DocFieldsUI.splitList(text, ',');
+            return codes.length ? one(codes) : undefined;
+        }
+        if (op === 'range') {
+            const lo = String(s.lo == null ? '' : s.lo).trim();
+            const hi = String(s.hi == null ? '' : s.hi).trim();
+            if (!lo && !hi) return undefined;
+            if (type === 'date' || type === 'period') {
+                const range = {};
+                if (lo) range.gte = lo;
+                if (hi) range.lte = hi;
+                if (s.partly) range.match = 'possible';
+                return range;
+            }
+            if (lo && hi) return { between: [lo, hi] };
+            return lo ? { gte: lo } : { lte: hi };
+        }
+        if (op === 'within') return text ? { within: text } : undefined;
+        return text || undefined;   // ist; Zeitraum (der einfache Wert ueberschneidet)
+    }
+
+    /** Die Belegung der Leiste zu einem where-Wert (Wiederherstellen, Cortex-Uebergabe). */
+    static parseOperand(datatype, operand) {
+        const type = DocFieldsUI.railType(datatype);
+        const state = {
+            op: DocFieldsUI.OPERATORS[type][0][0], text: '', choices: [], lo: '', hi: '',
+            partly: false,
+        };
+        if (operand === undefined || operand === null) return state;
+        const object = typeof operand === 'object' && !Array.isArray(operand);
+        if (object && operand.exists === true) return Object.assign(state, { op: 'exists' });
+        if (type === 'bool') {
+            if (operand === true || operand === false) {
+                return Object.assign(state, { op: String(operand) });
+            }
+            return state;
+        }
+        if (object && !('name' in operand) && !('node_id' in operand)) {
+            if (typeof operand.prefix === 'string') {
+                return Object.assign(state, { op: 'prefix', text: operand.prefix });
+            }
+            if (typeof operand.within === 'string') {
+                return Object.assign(state, { op: 'within', text: operand.within });
+            }
+            if (typeof operand.overlaps === 'string') {
+                return Object.assign(state, { op: 'overlaps', text: operand.overlaps });
+            }
+            if (Array.isArray(operand.between) && operand.between.length === 2) {
+                return Object.assign(state, {
+                    op: 'range', lo: String(operand.between[0]), hi: String(operand.between[1]),
+                });
+            }
+            if (typeof operand.gte === 'string' || typeof operand.lte === 'string') {
+                return Object.assign(state, {
+                    op: 'range',
+                    lo: typeof operand.gte === 'string' ? operand.gte : '',
+                    hi: typeof operand.lte === 'string' ? operand.lte : '',
+                    partly: operand.match === 'possible',
+                });
+            }
+            return state;
+        }
+        const items = Array.isArray(operand) ? operand : [operand];
+        if (type === 'entity_ref') {
+            const names = items.map((v) => (v && typeof v === 'object' ? v.name : v))
+                .filter((v) => typeof v === 'string' && v);
+            return Object.assign(state, { op: 'in', text: names.join('; ') });
+        }
+        const texts = items.filter((v) => typeof v === 'string' || typeof v === 'number')
+            .map((v) => String(v));
+        if (type === 'enum') return Object.assign(state, { op: 'in', choices: texts });
+        if (type === 'code' && texts.length > 1) {
+            return Object.assign(state, { op: 'in', text: texts.join(', ') });
+        }
+        return Object.assign(state, { text: texts[0] || '' });
+    }
+
+    /** Platzhalter der Werteingabe je Typ und Bedingung. */
+    static placeholder(type, op) {
+        if (op === 'prefix') return type === 'code' ? 'Anfang, z. B. E11' : 'Anfang';
+        if (op === 'in' && type === 'code') return 'mehrere mit Komma trennen';
+        if (type === 'entity_ref') return 'Name, mehrere mit ; trennen';
+        if (op === 'within') return type === 'period' ? 'z. B. GJ 2024' : 'z. B. 2024';
+        if (type === 'period') return 'z. B. GJ 2024';
+        if (type === 'date') return 'z. B. März 2024';
+        if (type === 'money') return "z. B. CHF 1'000";
+        if (type === 'number') return "z. B. 1'234.5";
+        return '';
+    }
 
     constructor(app) {
         this.app = app;
@@ -118,19 +273,6 @@ class DocFieldsUI {
         this.rail.hidden = facets.length === 0;
     }
 
-    _labelled(field, control, extra) {
-        const wrap = document.createElement('div');
-        wrap.className = 'doc-fields-control';
-        const label = document.createElement('label');
-        const id = `dfFilter_${field.key}`;
-        label.htmlFor = id;
-        label.textContent = String(field.label || field.key);
-        control.id = id;
-        wrap.append(label, control);
-        if (extra) wrap.appendChild(extra);
-        return wrap;
-    }
-
     _option(value, text) {
         const option = document.createElement('option');
         option.value = value;
@@ -138,111 +280,132 @@ class DocFieldsUI {
         return option;
     }
 
-    /** Ein Eingabeelement je Feldtyp; read() liefert den Operanden oder undefined. */
+    /**
+     * Ein Filter je Facettenfeld: die Bedingung (OPERATORS) und die Eingaben,
+     * die sie braucht. read() liefert den where-Wert aus buildOperand oder
+     * undefined, write() stellt einen ueber parseOperand wieder her.
+     */
     _controlFor(field) {
-        const datatype = field.datatype;
-        if (datatype === 'enum') {
-            const select = document.createElement('select');
-            select.appendChild(this._option('', '– alle –'));
-            (field.enum || []).forEach((item) => {
-                if (item && item.code) select.appendChild(this._option(item.code, item.label || item.code));
-            });
+        const type = DocFieldsUI.railType(field.datatype);
+        const label = String(field.label || field.key);
+        const wrap = document.createElement('div');
+        wrap.className = 'doc-fields-control';
+        const caption = document.createElement('label');
+        const mode = document.createElement('select');
+        mode.id = `dfFilter_${field.key}`;
+        mode.className = 'doc-fields-op';
+        caption.htmlFor = mode.id;
+        caption.textContent = label;
+        DocFieldsUI.OPERATORS[type].forEach(([value, text]) => {
+            mode.appendChild(this._option(value, text));
+        });
+        wrap.append(caption, mode);
+        if (type === 'bool') {
+            // Ja / Nein / hat einen Wert: die Bedingung ist der Wert.
             this._controls.push({
                 key: field.key,
-                read: () => (select.value ? select.value : undefined),
-                write: (v) => { select.value = typeof v === 'string' ? v : ''; },
+                read: () => DocFieldsUI.buildOperand(type, { op: mode.value }),
+                write: (v) => { mode.value = DocFieldsUI.parseOperand(type, v).op; },
             });
-            return this._labelled(field, select);
+            return wrap;
         }
-        if (datatype === 'bool') {
-            const select = document.createElement('select');
-            select.append(this._option('', '– alle –'), this._option('true', 'Ja'),
-                this._option('false', 'Nein'));
-            this._controls.push({
-                key: field.key,
-                read: () => (select.value === '' ? undefined : select.value === 'true'),
-                write: (v) => { select.value = v === true ? 'true' : v === false ? 'false' : ''; },
-            });
-            return this._labelled(field, select);
-        }
-        if (datatype === 'date' || datatype === 'period') {
-            const eq = document.createElement('input');
-            eq.type = 'text';
-            eq.placeholder = datatype === 'period' ? 'z. B. GJ 2024' : 'z. B. März 2024';
-            eq.autocomplete = 'off';
-            const range = document.createElement('div');
-            range.className = 'doc-fields-range';
-            const from = document.createElement('input');
-            from.type = 'text';
-            from.placeholder = 'von';
-            from.setAttribute('aria-label', `${field.label || field.key} von`);
-            const to = document.createElement('input');
-            to.type = 'text';
-            to.placeholder = 'bis';
-            to.setAttribute('aria-label', `${field.label || field.key} bis`);
-            range.append(from, to);
-            this._controls.push({
-                key: field.key,
-                read: () => {
-                    const lo = from.value.trim();
-                    const hi = to.value.trim();
-                    if (lo || hi) {
-                        const op = {};
-                        if (lo) op.gte = lo;
-                        if (hi) op.lte = hi;
-                        return op;
-                    }
-                    return eq.value.trim() || undefined;
-                },
-                write: (v) => {
-                    eq.value = typeof v === 'string' ? v : '';
-                    from.value = v && typeof v === 'object' && typeof v.gte === 'string' ? v.gte : '';
-                    to.value = v && typeof v === 'object' && typeof v.lte === 'string' ? v.lte : '';
-                },
-            });
-            return this._labelled(field, eq, range);
-        }
+        const choices = document.createElement('select');
+        choices.multiple = true;
+        choices.title = 'Mehrere mit Strg- oder Cmd-Klick wählen';
+        choices.setAttribute('aria-label', `${label}: Auswahl`);
+        (field.enum || []).forEach((item) => {
+            if (item && item.code) choices.appendChild(this._option(item.code, item.label || item.code));
+        });
+        choices.size = Math.min(5, Math.max(2, choices.options.length));
         const input = document.createElement('input');
         input.type = 'text';
         input.autocomplete = 'off';
-        const entity = datatype === 'entity_ref';
-        if (entity && field.has_target && field.sensitivity === 'normal') {
+        input.setAttribute('aria-label', `${label}: Wert`);
+        const dated = type === 'date' || type === 'period';
+        const range = document.createElement('div');
+        range.className = 'doc-fields-range';
+        const from = document.createElement('input');
+        const to = document.createElement('input');
+        [from, to].forEach((el) => { el.type = 'text'; el.autocomplete = 'off'; });
+        from.placeholder = dated ? 'von' : 'ab';
+        to.placeholder = 'bis';
+        from.setAttribute('aria-label', `${label} ${from.placeholder}`);
+        to.setAttribute('aria-label', `${label} bis`);
+        range.append(from, to);
+        const partlyLabel = document.createElement('label');
+        partlyLabel.className = 'doc-fields-partly';
+        const partly = document.createElement('input');
+        partly.type = 'checkbox';
+        partlyLabel.append(partly, ' auch teilweise');
+        wrap.append(choices, input, range, partlyLabel);
+        if (type === 'entity_ref' && field.has_target && field.sensitivity === 'normal') {
             // Vorschlaege nur fuer Felder mit Zieltyp und nie fuer besonders
             // schuetzenswerte: dort bleibt es bei freiem Text.
-            const list = document.createElement('datalist');
-            list.id = `dfSuggest_${field.key}`;
-            input.setAttribute('list', list.id);
-            let timer = null;
-            let seq = 0;
-            input.addEventListener('input', () => {
-                window.clearTimeout(timer);
-                const typed = input.value;
-                timer = window.setTimeout(async () => {
-                    const mine = ++seq;
-                    const names = await this.suggest(field.key, typed);
-                    if (mine !== seq) return;
-                    list.replaceChildren(...names.map((name) => this._option(name, name)));
-                }, DocFieldsUI.SUGGEST_DELAY_MS);
-            });
-            this._controls.push({
-                key: field.key,
-                read: () => (input.value.trim() ? { name: input.value.trim() } : undefined),
-                write: (v) => { input.value = v && typeof v === 'object' ? String(v.name || '') : ''; },
-            });
-            return this._labelled(field, input, list);
+            wrap.appendChild(this._suggestions(field, input));
         }
+        const sync = () => {
+            const op = mode.value;
+            const listed = type === 'enum' && op === 'in';
+            choices.hidden = !listed;
+            input.hidden = listed || op === 'range' || op === 'exists';
+            range.hidden = op !== 'range';
+            partlyLabel.hidden = !(dated && op === 'range');
+            input.placeholder = DocFieldsUI.placeholder(type, op);
+        };
+        mode.addEventListener('change', sync);
+        const state = () => ({
+            op: mode.value,
+            text: input.value,
+            choices: Array.from(choices.options).filter((o) => o.selected).map((o) => o.value),
+            lo: from.value,
+            hi: to.value,
+            partly: partly.checked,
+        });
         this._controls.push({
             key: field.key,
-            read: () => {
-                const text = input.value.trim();
-                if (!text) return undefined;
-                return entity ? { name: text } : text;
-            },
+            read: () => DocFieldsUI.buildOperand(type, state()),
             write: (v) => {
-                input.value = v && typeof v === 'object' ? String(v.name || '') : (v == null ? '' : String(v));
+                const s = DocFieldsUI.parseOperand(type, v);
+                mode.value = s.op;
+                input.value = s.text;
+                Array.from(choices.options).forEach((o) => { o.selected = s.choices.includes(o.value); });
+                from.value = s.lo;
+                to.value = s.hi;
+                partly.checked = !!s.partly;
+                sync();
             },
         });
-        return this._labelled(field, input);
+        sync();
+        return wrap;
+    }
+
+    /**
+     * Namensvorschlaege fuer ein Entitaetsfeld. Bei mehreren Namen (";") gilt
+     * der Vorschlag dem letzten; die Option traegt die ganze Zeile, damit
+     * die Auswahl die schon getippten Namen behaelt. Der getippte Text geht
+     * nur im JSON-Koerper an die Plattform (suggest), nie an Knovas.
+     */
+    _suggestions(field, input) {
+        const list = document.createElement('datalist');
+        list.id = `dfSuggest_${field.key}`;
+        input.setAttribute('list', list.id);
+        let timer = null;
+        let seq = 0;
+        input.addEventListener('input', () => {
+            window.clearTimeout(timer);
+            const typed = input.value;
+            timer = window.setTimeout(async () => {
+                const mine = ++seq;
+                const before = typed.split(';');
+                const last = before.pop();
+                const names = await this.suggest(field.key, last);
+                if (mine !== seq) return;
+                const head = before.map((part) => part.trim()).filter(Boolean);
+                list.replaceChildren(...names.map((name) => this._option(
+                    [...head, name].join('; '), name)));
+            }, DocFieldsUI.SUGGEST_DELAY_MS);
+        });
+        return list;
     }
 
     /** Sortierung der Liste: Dokumentpfad oder ein Datums-/Zeitraumfeld. */
@@ -252,7 +415,8 @@ class DocFieldsUI {
             && (f.datatype === 'date' || f.datatype === 'period'));
         const select = document.createElement('select');
         select.id = 'dfSort';
-        select.appendChild(this._option('pointer:asc', 'Dokumentpfad'));
+        select.appendChild(this._option('pointer:asc', 'Dokumentpfad aufsteigend'));
+        select.appendChild(this._option('pointer:desc', 'Dokumentpfad absteigend'));
         dated.forEach((f) => {
             const label = String(f.label || f.key);
             select.appendChild(this._option(`${f.key}:desc`, `${label}, neueste zuerst`));

@@ -90,6 +90,7 @@ class TestGating:
         {"where": {}},
         {"where": "doc_type"},
         {"where": {f"k{i}": 1 for i in range(9)}},
+        {"where": {"doc_type": ["invoice"] * 51}},
         {"where": {"doc_type": "invoice"}, "sort": {"field": "document_date", "x": 1}},
         {"where": {"doc_type": "invoice"}, "sort": {"field": "Bad Field", "order": "asc"}},
         {"where": {"doc_type": "invoice"}, "sort": {"field": "document_date", "order": "up"}},
@@ -160,6 +161,19 @@ class TestThePage:
         assert [d["doc_id"] for d in body["documents"]] == [INVOICE]
         assert _finds(api)[-1]["return_fields"] is None
         assert body["document_fields"]["fields_unavailable"] is True
+
+
+class TestPointerSort:
+    def test_the_path_descending(self, listing, identity_repo):
+        """F3: "Dokumentpfad absteigend" goes to Knovas as written."""
+        app, api = listing
+        client = signed_in(app, identity_repo, role="member")
+        body = find(client, {"doc_type": ["invoice", "contract", "memo"]},
+                    sort={"field": "pointer", "order": "desc"}).get_json()
+        assert _finds(api)[-1]["sort"] == {"field": "pointer", "order": "desc"}
+        assert [d["doc_id"] for d in body["documents"]] == sorted(
+            [INVOICE, CONTRACT, MEMO], reverse=True)
+        assert "deadline_banner" not in body
 
 
 class TestPagingAndTheNotice:

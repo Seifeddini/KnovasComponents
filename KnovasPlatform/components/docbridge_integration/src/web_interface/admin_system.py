@@ -44,7 +44,7 @@ OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
 DOC_FIELDS_STATES = {
     "off": "aus",
     "values": "Werte (ohne Filter)",
-    "listing_only": "Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)",
+    "listing_only": "Werte + Liste (Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar)",
     "filters": "Werte + Filter",
 }
 
@@ -129,8 +129,10 @@ def _doc_fields_check(client) -> tuple[Check, bool]:
     if capability is dfc.Capability.listing_only:
         return Check(
             "doc_fields", "Dokumentfelder", WARN, "; ".join(parts), ms=ms,
-            hint="Filter in der Suche sind bei Knovas noch nicht eingerichtet (Kalibrierung "
-                 "fehlt). Werte, Liste und Feldfilter in der Verwaltung funktionieren."), True
+            hint="Feldfilter in der Suche sind bei Knovas vor\u00fcbergehend nicht "
+                 "verf\u00fcgbar \u2013 sp\u00e4ter erneut versuchen; die Plattform fragt in "
+                 "wenigen Minuten erneut. Werte, Liste und Feldfilter in der Verwaltung "
+                 "funktionieren."), True
     return Check("doc_fields", "Dokumentfelder", OK, "; ".join(parts), ms=ms), True
 
 

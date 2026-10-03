@@ -8,7 +8,7 @@ Covered:
   C3  Non-idempotent POSTs must not be retried on 4xx/5xx (duplicate ingestion).
   C4  Cert auto-renewal must validate the new pair before overwriting on-disk
       key/cert or swapping the live session, and must not leak temp key files.
-  C5  ``filters`` must not be silently dropped in secured search mode.
+  C5  ``filters`` stay on the Platform: /secured/query reads none (spec F7).
   L1  Secured/mTLS mode must refuse a non-https base_url.
   L2  A ``{"results": null}`` secured response must not crash.
   L3  API requests must not follow redirects (defense-in-depth).
@@ -116,7 +116,6 @@ def make_client(
         "api.cert_renew_threshold_days": 30,
         "api.cert_check_interval_seconds": 3600,
         "api.cert_renew_method": cert_renew_method,
-        "api.encryption_matrix_path": "",
         "api.rate_limit.requests_per_second": 0,  # disable rate-limit sleeps
         "api.rate_limit.retry_attempts": 3,
         "api.rate_limit.retry_backoff": 2,
@@ -298,11 +297,17 @@ class TestC4CertRenewalSafety:
 
 
 # ---------------------------------------------------------------------------
-# C5 — filters must not be silently dropped in secured mode
+# C5 -- filters stay on the Platform: /secured/query reads none (spec F7)
 # ---------------------------------------------------------------------------
 
-class TestC5SecuredFilters:
-    def test_filters_forwarded_into_secured_request_body(self):
+class TestC5FiltersStayOnThePlatform:
+    """C5 once forwarded ``filters`` into /secured/query so that case scoping
+    was not dropped silently. Knovas reads no such key (1.5.0, spec F7): the
+    secured body leaves it out, and the Platform applies its own filters
+    (exact_match, the score thresholds) to the answer. The legacy GET still
+    sends them as query parameters."""
+
+    def test_the_secured_body_carries_no_filters(self):
         client = make_secured_client()
         captured = {}
 
@@ -311,14 +316,20 @@ class TestC5SecuredFilters:
             return FakeResponse(200, {"results": []})
 
         client._session = FakeSession(responder)
-
         client.search_documents("hello world", limit=5, filters={"akten_id": "A-42"})
+        assert captured.get("json") == {"Input": "hello world", "limit": 5}
 
-        body = captured.get("json")
-        assert isinstance(body, dict)
-        assert body.get("filters") == {"akten_id": "A-42"}, (
-            "secured search silently dropped 'filters' (case/matter scoping ignored)"
-        )
+    def test_the_legacy_get_still_sends_them_as_parameters(self):
+        client = make_client(use_secured_api=False, allow_legacy_api_fallback=True)
+        captured = {}
+
+        def responder(method, url, **kw):
+            captured.update(kw)
+            return FakeResponse(200, {"results": []})
+
+        client._session = FakeSession(responder)
+        client.search_documents("hello", limit=5, filters={"akten_id": "A-42"})
+        assert captured["params"] == {"query": "hello", "limit": 5, "akten_id": "A-42"}
 
 
 # ---------------------------------------------------------------------------

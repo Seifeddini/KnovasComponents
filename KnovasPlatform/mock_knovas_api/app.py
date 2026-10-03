@@ -27,6 +27,14 @@ state the mock plays. The shapes follow the server contract
   answer 503 `where_requires_calibration`, while `find` and `return_fields`
   alone keep working.
 
+`auto_scope` (env `MOCK_AUTO_SCOPE`: `off`, `applied`, `fallback`) plays the
+server's automatic narrowing by name (QUERY_AUTO_SCOPE_ENABLED; KB develop
+query_pipeline.py): a query whose text names a node (folded) gets the
+`auto_scope` block with that node, applied or fallback as chosen, in every
+mode. The mock does not narrow the results; it only reports. The switch
+`return_fields_unreadable` answers a query that asks for values with
+`"return_fields": {"applied": false}` and no `fields` on the results.
+
 `refuse_init_fields="<status>:<code>"` forces that refusal on every init that
 carries `fields` (values and filters). `brokered=True` plays a BROKERED
 tenant: without a `principal_assertion`, an init carrying `access_groups`
@@ -102,6 +110,7 @@ DOCUMENTS: List[Dict[str, Any]] = [
 ]
 
 MODES = ("off", "values", "filters")
+AUTO_SCOPE_MODES = ("off", "applied", "fallback")
 
 # Every path the server's doc-fields blueprint owns: answered the unknown-route
 # 404 for every method while the feature is off.
@@ -149,6 +158,10 @@ OPS = ("eq", "in", "gt", "gte", "lt", "lte", "between", "overlaps", "within", "p
 RANGE_OPS = ("gt", "gte", "lt", "lte", "between")
 CALLER_KEYS = ("access_groups", "principal_assertion", "actor_ref")
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+# registry.py: _ENUM_CODE_RE, _SCHEME_RE, DATE_ORDERS.
+ENUM_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$")
+SCHEME_RE = re.compile(r"^[a-z0-9][a-z0-9_:.\-]{0,63}$")
+DATE_ORDERS = ("dmy", "mdy", "ymd")
 
 MAX_UPLOAD_KEYS = 64
 MAX_UPLOAD_BYTES = 16384
@@ -598,15 +611,50 @@ def typed_value(datatype: str, raw: Any) -> Any:
     return _decimal_text(Decimal(str(raw)) if not isinstance(raw, str) else _decimal(raw, money=False))
 
 
+def _check_enum_values(values: Any) -> None:
+    """The server's enum_values shape (registry._clean_enum_values): codes or
+    {code, labels?, aliases?}, codes unique and of the code pattern, labels
+    of at most 200 characters, at most 32 other names of at most 64."""
+    if values is None:
+        return
+    if not isinstance(values, list) or not values or len(values) > 500:
+        raise DocFieldError("invalid_field_definition", 400, "enum_values")
+    seen = set()
+    for i, item in enumerate(values):
+        path = f"enum_values[{i}]"
+        if isinstance(item, str):
+            code = item
+        elif isinstance(item, dict) and not set(item) - {"code", "labels", "aliases"}:
+            code = item.get("code")
+            labels = item.get("labels") or {}
+            if not isinstance(labels, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str) and v.strip() and len(v) <= 200
+                    for k, v in labels.items()):
+                raise DocFieldError("invalid_field_definition", 400, f"{path}.labels")
+            aliases = item.get("aliases") or []
+            if not isinstance(aliases, list) or len(aliases) > 32 or not all(
+                    isinstance(a, str) and a.strip() and len(a) <= 64 for a in aliases):
+                raise DocFieldError("invalid_field_definition", 400, f"{path}.aliases")
+        else:
+            raise DocFieldError("invalid_field_definition", 400, path)
+        if not isinstance(code, str) or not ENUM_CODE_RE.match(code) or code in seen:
+            raise DocFieldError("invalid_field_definition", 400, path)
+        seen.add(code)
+
+
 class MockState:
     """Everything one mock app knows. Nothing is shared between apps."""
 
     def __init__(self, doc_fields: str, calibrated: bool, refuse_init_fields: Optional[str],
-                 brokered: bool) -> None:
+                 brokered: bool, auto_scope: Optional[str] = "off") -> None:
         mode = str(doc_fields or "off").strip().lower()
         if mode not in MODES:
             raise ValueError(f"doc_fields must be one of {MODES}, got {doc_fields!r}")
+        scope = str(auto_scope or "off").strip().lower()
+        if scope not in AUTO_SCOPE_MODES:
+            raise ValueError(f"auto_scope must be one of {AUTO_SCOPE_MODES}, got {auto_scope!r}")
         self.mode = mode
+        self.auto_scope = scope
         self.calibrated = bool(calibrated)
         self.refuse = _parse_refusal(refuse_init_fields)
         self.brokered = bool(brokered)
@@ -622,6 +670,9 @@ class MockState:
         # assertion answers 401 assertion_rejected for an entity value or a
         # `register` key instead of keeping names unlinked.
         self.s1 = True
+        # True plays a server that could not read the values asked for:
+        # results without `fields`, `return_fields: {"applied": false}`.
+        self.return_fields_unreadable = False
         self.quarantined: set = set()
         self.change_forbidden: set = set()
 
@@ -759,6 +810,14 @@ class MockState:
         folded = fold(name)
         return [n["id"] for n in self.nodes.values()
                 if fold(n["name"]) == folded and (target is None or n["node_type_id"] == target)]
+
+    def detect_nodes(self, queries: List[str]) -> List[str]:
+        """The node ids whose name occurs in the question, folded: the
+        mock's stand-in for the server's QueryEntityDetector (exact names
+        only, in name order)."""
+        text = " ".join(fold(q) for q in queries)
+        return [n["id"] for n in sorted(self.nodes.values(), key=lambda n: n["name"])
+                if fold(n["name"]) and fold(n["name"]) in text]
 
     def normalize(self, field: Dict[str, Any], raw: Any, *,
                   asserted: bool = True) -> Tuple[Any, Optional[str]]:
@@ -1236,13 +1295,17 @@ def _decode_cursor(after: Any, sort_token: str, order: str) -> Optional[Tuple[An
 
 
 def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
-               refuse_init_fields: Optional[str] = None, brokered: bool = False) -> Flask:
-    """One mock Knovas API with its own state. `doc_fields` defaults to the
-    env MOCK_DOC_FIELDS, read at call time (default `off`)."""
+               refuse_init_fields: Optional[str] = None, brokered: bool = False,
+               auto_scope: Optional[str] = None) -> Flask:
+    """One mock Knovas API with its own state. `doc_fields` and
+    `auto_scope` default to the env MOCK_DOC_FIELDS and MOCK_AUTO_SCOPE,
+    read at call time (default `off`)."""
     if doc_fields is None:
         doc_fields = os.environ.get("MOCK_DOC_FIELDS", "off")
+    if auto_scope is None:
+        auto_scope = os.environ.get("MOCK_AUTO_SCOPE", "off")
     app = Flask(__name__)
-    state = MockState(doc_fields, calibrated, refuse_init_fields, brokered)
+    state = MockState(doc_fields, calibrated, refuse_init_fields, brokered, auto_scope)
     app.extensions["knovas_mock"] = state
 
     # -- plumbing -----------------------------------------------------------
@@ -1432,6 +1495,20 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             "meta": {"embed_latency_ms": 1, "stage1_latency_ms": 1, "stage2_latency_ms": 1},
             "mock": True,
         }
+        detected = state.detect_nodes(queries) if state.auto_scope != "off" else []
+        if detected:
+            # QUERY_AUTO_SCOPE_ENABLED (query_pipeline.py, KB develop): the
+            # nodes named in the question, and whether the search ran inside
+            # them or fell back to everything. Independent of doc fields.
+            body["auto_scope"] = {
+                "detections": [{"node_id": node_id, "identifier_id": None,
+                                "channel": "lexical", "score": 1.0} for node_id in detected],
+                "node_ids": sorted(detected),
+                "applied": state.auto_scope == "applied",
+                "fallback": state.auto_scope == "fallback",
+                "canonicalized": False,
+                "residualized": False,
+            }
         if state.mode == "off":
             return jsonify(body)
 
@@ -1448,7 +1525,9 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             body["where"] = _echo(resolved, query=True, gate=gate,
                                   no_strong_matches=not results, planned=not short_circuit)
         wanted = state.wanted_keys(resolved["return_keys"]) if resolved else None
-        if wanted is not None:
+        if wanted is not None and state.return_fields_unreadable:
+            body["return_fields"] = {"applied": False}
+        elif wanted is not None:
             for result in results:
                 fields = state.fields_of(result["pointer"], wanted, node_ids=False)
                 if "title" in wanted and result["pointer"] in state.anchors:
@@ -2012,6 +2091,8 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             "pack_key": None, "pack_version": None,
             "display": definition.get("display", False), "facet": definition.get("facet", False),
         }
+        if datatype == "code" and row["code_scheme"] is None:
+            row["code_scheme"] = "generic"          # registry.py create_field
         _check_definition(row)
         state.fields[row["id"]] = row
         return row
@@ -2040,6 +2121,23 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             raise DocFieldError("invalid_field_definition", 400, "target_node_type_id")
         if row["link_policy"] not in ("resolve", "never"):
             raise DocFieldError("invalid_field_definition", 400, "link_policy")
+        if row["date_order"] is not None and row["date_order"] not in DATE_ORDERS:
+            raise DocFieldError("invalid_field_definition", 400, "date_order")
+        month = row["fy_start_month"]
+        if month is not None and (isinstance(month, bool) or not isinstance(month, int)
+                                  or not 1 <= month <= 12):
+            raise DocFieldError("invalid_field_definition", 400, "fy_start_month")
+        if row["fy_label"] is not None and row["fy_label"] not in ("start", "end"):
+            raise DocFieldError("invalid_field_definition", 400, "fy_label")
+        if (month is not None or row["fy_label"] is not None) and row["datatype"] != "period":
+            raise DocFieldError("invalid_field_definition", 400, "fy_start_month")
+        if month not in (None, 1) and row["fy_label"] is None:
+            raise DocFieldError("invalid_field_definition", 400, "fy_label")
+        scheme = row["code_scheme"]
+        if scheme is not None and (not isinstance(scheme, str) or not SCHEME_RE.match(scheme)
+                                   or row["datatype"] != "code"):
+            raise DocFieldError("invalid_field_definition", 400, "code_scheme")
+        _check_enum_values(row["enum_values"])
         if row["sensitivity"] not in ("normal", "special"):
             raise DocFieldError("invalid_field_definition", 400, "sensitivity")
         if row["status"] not in ("active", "provisional"):

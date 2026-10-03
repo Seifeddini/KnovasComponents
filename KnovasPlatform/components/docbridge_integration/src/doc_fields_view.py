@@ -36,6 +36,7 @@ SYSTEM_KEYS = ("title", "description", "path", "ingested_at")
 RETURN_FIELDS_MAX = 64
 TITLE_FROM_VALUES_MAX = 100
 WHERE_MAX_KEYS = 8
+WHERE_LIST_MAX = 50
 WHERE_MAX_DEPTH = 3
 WHERE_MAX_BYTES = 8 * 1024
 _WHERE_KEY_RE = re.compile(r"^[a-z0-9_.\- ]{1,64}$")
@@ -69,6 +70,12 @@ EMPTY_INCOMPLETE_LISTING = (
 # with a question runs without them, and says so (D2).
 RAIL_NOT_APPLIED_TO_SEARCH = (
     "Ohne Feldangaben gesucht: sie gelten nur f\u00fcr \u201eListe anzeigen\u201c."
+)
+# 503 where_requires_calibration: Knovas 1.5.0 calls it "a problem on the
+# Knovas side. Try again later." (spec F6) -- temporary, not a setup step.
+FILTERS_TEMPORARILY_UNAVAILABLE = (
+    "Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar \u2013 "
+    "sp\u00e4ter erneut versuchen."
 )
 TITLE_NOT_SEARCHABLE = "Titel wird angezeigt, nicht durchsucht"
 PRIVILEGED_HINT = "Kennzeichnung, keine Zugriffsbeschr\u00e4nkung"
@@ -563,35 +570,54 @@ def listing_empty_text(page: Any) -> Optional[str]:
 
 _OP_PREFIX = {
     "gt": "nach ", "gte": "ab ", "lt": "vor ", "lte": "bis ",
-    "overlaps": "\u00fcberschneidet ", "within": "innerhalb ",
+    "overlaps": "\u00fcberschneidet ", "within": "liegt ganz in ",
     "prefix": "beginnt mit ",
 }
+_OPS_IN_ORDER = ("eq", "in", "gt", "gte", "lt", "lte", "between", "overlaps", "within",
+                 "prefix", "exists")
+#: What the "Verstanden als" chips say for what is not a value (spec F2).
+EXISTS_TEXT = "hat einen Wert"
+PARTLY_TEXT = "auch teilweise"
+
+
+def _between_text(spec: Optional[Mapping[str, Any]], lo: Any, hi: Any) -> str:
+    return f"zwischen {_operand_text(spec, lo)} und {_operand_text(spec, hi)}"
 
 
 def _operand_text(spec: Optional[Mapping[str, Any]], operand: Any) -> str:
-    """The person's own operand as text: enum codes become labels, entity
-    operands their name. A ``node_id`` operand is never shown as the id."""
+    """The person's own operand in German (spec F2): "eine von ...",
+    "beginnt mit ...", "ab ...", "bis ...", "zwischen ... und ...",
+    "liegt ganz in ...", ", auch teilweise", "hat einen Wert". Enum codes
+    become labels, entity operands their name; a ``node_id`` operand is never
+    shown as the id."""
     if isinstance(operand, (list, tuple)):
-        parts = [_operand_text(spec, item) for item in operand]
-        return "; ".join(part for part in parts if part)
+        parts = [part for part in (_operand_text(spec, item) for item in operand) if part]
+        if len(parts) > 1:
+            return "eine von " + "; ".join(parts)
+        return parts[0] if parts else ""
     if isinstance(operand, Mapping):
         if "name" in operand or "node_id" in operand:
             return _format_entity(operand)
         parts: List[str] = []
-        if "gte" in operand and "lte" in operand:
-            parts.append(f"{_operand_text(spec, operand['gte'])} \u2013 "
-                         f"{_operand_text(spec, operand['lte'])}")
-        for op in ("eq", "in", "gt", "gte", "lt", "lte", "between", "overlaps",
-                   "within", "prefix", "exists"):
-            if op not in operand or (op in ("gte", "lte") and "gte" in operand and "lte" in operand):
+        both = "gte" in operand and "lte" in operand
+        if both:
+            parts.append(_between_text(spec, operand["gte"], operand["lte"]))
+        for op in _OPS_IN_ORDER:
+            if op not in operand or (both and op in ("gte", "lte")):
                 continue
             value = operand[op]
             if op == "exists":
-                parts.append("vorhanden")
+                parts.append(EXISTS_TEXT)
+            elif op in ("eq", "in"):
+                parts.append(_operand_text(spec, value))
             elif op == "between" and isinstance(value, (list, tuple)) and len(value) == 2:
-                parts.append(f"{_operand_text(spec, value[0])} \u2013 {_operand_text(spec, value[1])}")
+                parts.append(_between_text(spec, value[0], value[1]))
+            elif op == "within" and isinstance(value, (list, tuple)) and len(value) == 2:
+                parts.append("liegt ganz " + _between_text(spec, value[0], value[1]))
             else:
                 parts.append(_OP_PREFIX.get(op, "") + _operand_text(spec, value))
+        if operand.get("match") == "possible":
+            parts.append(PARTLY_TEXT)
         return ", ".join(part for part in parts if part)
     if isinstance(operand, bool):
         return _format_bool(operand)
@@ -604,7 +630,7 @@ def _operand_op(operand: Any) -> str:
     if isinstance(operand, (list, tuple)):
         return "in"
     if isinstance(operand, Mapping):
-        ops = [op for op in operand if op not in ("name", "node_id")]
+        ops = [op for op in operand if op not in ("name", "node_id", "match")]
         return ops[0] if len(ops) == 1 else ("eq" if not ops else "range")
     return "eq"
 
@@ -665,14 +691,25 @@ def _depth(value: Any) -> int:
     return 0
 
 
+def _longest_list(value: Any) -> int:
+    """The longest list anywhere in an operand: ``["a", "b"]`` is 2,
+    ``{"in": [...]}`` the length of its list, ``"x"`` 0."""
+    if isinstance(value, Mapping):
+        return max((_longest_list(v) for v in value.values()), default=0)
+    if isinstance(value, (list, tuple)):
+        return max([len(value)] + [_longest_list(v) for v in value])
+    return 0
+
+
 def validate_where(obj: Any) -> Dict[str, Any]:
     """Bound a ``where`` that came from the browser; return it unchanged.
 
     A non-empty object of at most 8 keys, each matching
-    ``^[a-z0-9_.\\- ]{1,64}$``, operands nested at most 3 deep, at most
-    8 KiB as compact JSON. Raises ValueError (with a message that names no
-    value). Knovas validates the meaning; this only keeps an oversized or
-    oddly shaped body from leaving the Platform.
+    ``^[a-z0-9_.\\- ]{1,64}$``, operands nested at most 3 deep with lists of
+    at most 50 values (Knovas: "8 keys per search and 50 values per list"),
+    at most 8 KiB as compact JSON. Raises ValueError (with a message that
+    names no value). Knovas validates the meaning; this only keeps an
+    oversized or oddly shaped body from leaving the Platform.
     """
     if not isinstance(obj, Mapping) or isinstance(obj, (str, bytes)):
         raise ValueError("where must be an object")
@@ -685,6 +722,8 @@ def validate_where(obj: Any) -> Dict[str, Any]:
             raise ValueError("where has a key that is not a field key")
         if _depth(operand) > WHERE_MAX_DEPTH:
             raise ValueError("where is nested too deeply")
+        if _longest_list(operand) > WHERE_LIST_MAX:
+            raise ValueError(f"where has a list of more than {WHERE_LIST_MAX} values")
     try:
         size = len(json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     except (TypeError, ValueError):
@@ -846,6 +885,8 @@ _WARNINGS = {
     "unresolved_entity": "nicht verkn\u00fcpft",
     "ambiguous_entity": "mehrere passende Eintr\u00e4ge \u2013 nicht verkn\u00fcpft",
     "ambiguous_date": "Datum mehrdeutig \u2013 bitte pr\u00fcfen",
+    "ambiguous_number": ("Zahl mehrdeutig \u2013 als Dezimalzahl gelesen "
+                         "(f\u00fcr Tausender 1'234 schreiben)"),
     "unknown_field": "Feld bei Knovas nicht bekannt",
     "invalid_value": "Wert ung\u00fcltig, nicht \u00fcbernommen",
     "type_mismatch": "Wert passt nicht zum Feldtyp, nicht \u00fcbernommen",
@@ -897,9 +938,7 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
     if code in ("where_unsupported", "filters_unavailable"):
         return "Filter sind bei Knovas f\u00fcr diesen Mandanten nicht freigeschaltet."
     if code in ("where_requires_calibration", "filters_need_calibration"):
-        # H9: missing calibration is a setup step at Knovas, not an outage.
-        return ("Filter in der Suche sind bei Knovas noch nicht eingerichtet "
-                "(Kalibrierung fehlt).")
+        return FILTERS_TEMPORARILY_UNAVAILABLE
     if code in ("where_unavailable", "filter_temporarily_unavailable"):
         return "Filter sind bei Knovas gerade nicht verf\u00fcgbar. Bitte sp\u00e4ter erneut versuchen."
     if code == "filter_not_applied":
@@ -928,11 +967,12 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
         return f"Der Wert f\u00fcr {field} {what}." if field else f"Ein Wert {what}."
     if code == "restricted_identifier":
         return "AHV-Nummern d\u00fcrfen weder gespeichert noch gesucht werden."
-    if code in ("ambiguous_date", "unresolved_entity", "ambiguous_entity"):
+    if code in ("ambiguous_date", "ambiguous_number", "unresolved_entity", "ambiguous_entity"):
         note = warning_text(code)
         return f"{field}: {note}" if field else note
     if code == "where_too_complex":
-        return f"Der Filter ist zu umfangreich (h\u00f6chstens {WHERE_MAX_KEYS} Felder)."
+        return (f"Der Filter ist zu umfangreich (h\u00f6chstens {WHERE_MAX_KEYS} Felder "
+                f"und {WHERE_LIST_MAX} Werte pro Liste).")
     if code == "invalid_cursor":
         return "Die Liste hat sich ge\u00e4ndert. Bitte neu laden."
     if code == "version_conflict":
@@ -952,7 +992,11 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
     if code == "field_key_exists":
         return "Ein Feld mit diesem Schl\u00fcssel gibt es bereits."
     if code == "field_type_locked":
-        return "Der Typ dieses Feldes kann nicht mehr ge\u00e4ndert werden."
+        # Knovas 1.5.0: what decides how values are read locks once a field
+        # is confirmed or in use (spec F1).
+        return ("Diese \u00c4nderung ist nicht mehr m\u00f6glich: Typ, Kennungsschema, "
+                "Gesch\u00e4ftsjahr, Datumsreihenfolge und vorhandene Auswahlwerte eines "
+                "best\u00e4tigten oder genutzten Feldes bleiben, wie sie sind.")
     if code == "field_cap_reached":
         return "Die H\u00f6chstzahl an Feldern ist erreicht."
     if code == "invalid_field_definition":
@@ -986,3 +1030,50 @@ def no_results_message(reason: Any) -> str:
     """The empty-state text per ``no_results_reason`` (H8): always about the
     documents the person can see, never a claim about the whole corpus."""
     return _NO_RESULTS.get(str(reason or ""), NO_RESULTS_GENERIC)
+
+
+# ---------------------------------------------------------------------------
+# Notices above the results (spec F3)
+# ---------------------------------------------------------------------------
+
+#: What a search answer may say above its results, in display order. The
+#: browser words them (app.js); the server sends kinds, names and counts.
+NOTICE_KINDS = ("return_fields_unavailable", "degraded_to_bm25", "auto_scope_applied",
+                "auto_scope_fallback")
+#: The most knowledge-graph names one notice names; the others are counted.
+NOTICE_NAMES_MAX = 5
+
+
+def notice(kind: str, names: Iterable[Any] = (), hidden_count: Any = 0) -> Dict[str, Any]:
+    """One entry of a search answer's ``notices``: ``{kind, names,
+    hidden_count}``. ``names`` are node names the person may see (auto
+    scope only), at most five; ``hidden_count`` counts the nodes not named --
+    invisible to the person, or beyond the five."""
+    if kind not in NOTICE_KINDS:
+        raise ValueError(f"unknown notice kind: {kind!r}")
+    shown = [n.strip() for n in names or () if isinstance(n, str) and n.strip()]
+    try:
+        hidden = max(0, int(hidden_count or 0))
+    except (TypeError, ValueError):
+        hidden = 0
+    hidden += max(0, len(shown) - NOTICE_NAMES_MAX)
+    return {"kind": kind, "names": shown[:NOTICE_NAMES_MAX], "hidden_count": hidden}
+
+
+def auto_scope_of(meta: Any) -> Tuple[Optional[str], List[str]]:
+    """``(kind, node ids)`` of Knovas's narrowing by a name it recognised in
+    the question (``meta["auto_scope"]`` as knovas_client keeps it):
+    ``auto_scope_applied`` when the search ran inside those nodes,
+    ``auto_scope_fallback`` when that found nothing and Knovas searched
+    everything; ``(None, [])`` otherwise, or without node ids."""
+    block = meta.get("auto_scope") if isinstance(meta, Mapping) else None
+    if not isinstance(block, Mapping):
+        return None, []
+    ids = [i for i in block.get("node_ids") or () if isinstance(i, str) and i]
+    if not ids:
+        return None, []
+    if block.get("fallback") is True:
+        return "auto_scope_fallback", ids
+    if block.get("applied") is True:
+        return "auto_scope_applied", ids
+    return None, []
