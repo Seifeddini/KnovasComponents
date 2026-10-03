@@ -7,6 +7,7 @@
 ### Extraction (knovas-extract 0.4.0a1)
 
 - **Partial rule** (Knovas Connector and Platform, spec E1): a PDF is partial only when the library counted skipped OCR pages (budget, page or pixel cap, or no engine), failed OCR pages (new: a failed page is empty), or — for a library without skipped-page counts — reports no backend although OCR was expected. Born-digital PDFs are complete again: with knovas-extract 0.4 every one was recorded partial, counted in `rc_ocr_backend_degraded_total` and re-uploaded by the backfill. The note carries `ocr_pages_skipped`, `ocr_pages_failed`, `ocr_pages`, `text_pages`, `ocr_backend` (no `reason`); the degraded-backend counter counts notes with `ocr_backend: none` only.
+- **Backfill**: `scripts/backfill_partial_ocr.py` gives failed OCR pages a longer page timeout (`--ocr-page-timeout`, default 120 s, twice the cycle's). A result that is still partial with no fewer pages missing (a page that fails again, the pixel cap, no OCR engine) is noted `backfill_unchanged` and skipped by later runs, so the document is no longer uploaded again, and billed, on every run; the summary line counts these documents as `unchanged`, and `--retry-unchanged` sends them again.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
