@@ -128,6 +128,8 @@ EXTRACT_CHILD_NICE = 10
 # 50-page cap and a 60 s budget inside the 120 s ceiling. The RC's names are
 # honoured (RC_OCR_*), the defaults differ.
 DEFAULT_TESSERACT_LANG = "deu+eng"
+#: Language packs joined by "+" (the Connector's rule, spec E5).
+_TESSERACT_LANG_RE = re.compile(r"[A-Za-z0-9_]+(?:\+[A-Za-z0-9_]+)*")
 DEFAULT_OCR_ENGINE = "auto"
 OCR_ENGINES = ("auto", "tesserocr", "cli", "mupdf")
 # RC_OCR_DPI: unset sends no dpi (the library's native-resolution rule).
@@ -194,6 +196,22 @@ def _non_negative_int(raw: str) -> Optional[int]:
     return int(raw) if raw.isascii() and raw.isdigit() else None
 
 
+def _env_int_at_least(name: str, default: int, minimum: int) -> int:
+    """A whole-number setting of at least ``minimum``; anything else logs one
+    warning naming the setting and uses the default (the Connector's rule)."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    value = _non_negative_int(raw)
+    if value is None or value < minimum:
+        logger.warning(
+            "Invalid %s=%r (a whole number of at least %d); using default %d",
+            name, raw, minimum, default,
+        )
+        return default
+    return value
+
+
 def extract_timeout_seconds() -> int:
     """Wall-clock ceiling for one document's extraction; 0 disables."""
     return _env_int("RC_EXTRACT_TIMEOUT_SECONDS", DEFAULT_EXTRACT_TIMEOUT_SECONDS)
@@ -219,10 +237,25 @@ def send_pdf_tables_enabled() -> bool:
 
 
 def tesseract_language(default: str = DEFAULT_TESSERACT_LANG) -> str:
-    """``RC_TESSERACT_LANG`` when set, else the caller's language (the
-    Platform config's ``advanced.extraction.ocr_language``)."""
+    """``RC_TESSERACT_LANG`` when set and valid, else the caller's language
+    (the Platform config's ``advanced.extraction.ocr_language``) when valid,
+    else ``deu+eng``. Valid is language packs joined by ``+``; anything else
+    logs one warning naming the setting and is skipped -- ``OcrOptions``
+    would refuse it and the upload would carry no text (spec E5)."""
     raw = (os.environ.get("RC_TESSERACT_LANG") or "").strip()
-    return raw or (default or "").strip() or DEFAULT_TESSERACT_LANG
+    if raw:
+        if _TESSERACT_LANG_RE.fullmatch(raw):
+            return raw
+        logger.warning("Invalid RC_TESSERACT_LANG=%r; using the configured language", raw)
+    configured = (default or "").strip()
+    if not configured:
+        return DEFAULT_TESSERACT_LANG
+    if _TESSERACT_LANG_RE.fullmatch(configured):
+        return configured
+    logger.warning(
+        "Invalid advanced.extraction.ocr_language=%r; using %s", configured, DEFAULT_TESSERACT_LANG
+    )
+    return DEFAULT_TESSERACT_LANG
 
 
 def pdf_text_mode() -> str:
@@ -300,11 +333,11 @@ def ocr_options_kwargs(timeout_seconds: Optional[int] = None, language: str = DE
     ``RC_TESSERACT_LANG``. The cache is added by the caller (``cache=``).
     """
     timeout = extract_timeout_seconds() if timeout_seconds is None else int(timeout_seconds)
-    page_timeout = _env_int("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, minimum=1)
+    page_timeout = _env_int_at_least("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, 1)
     options: dict[str, Any] = {
         "engine": ocr_engine(),
         "workers": ocr_workers(),
-        "max_ocr_pages": _env_int("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES),
+        "max_ocr_pages": _env_int_at_least("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES, 1),
         "time_budget_seconds": ocr_time_budget_seconds(timeout, page_timeout),
         "page_timeout_seconds": page_timeout,
         "language": tesseract_language(language),

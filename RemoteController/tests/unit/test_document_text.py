@@ -986,3 +986,101 @@ def test_the_library_default_dpi_applies_when_unset(monkeypatch):
     monkeypatch.delenv("RC_OCR_DPI", raising=False)
     options = document_text.build_ocr_options(document_text.ocr_options_kwargs(300))
     assert options.dpi is None
+
+
+# --- OCR settings validated (spec E5) ----------------------------------------
+
+
+def test_tesseract_language_is_validated(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import tesseract_language
+
+    monkeypatch.delenv("RC_TESSERACT_LANG", raising=False)
+    assert tesseract_language() == "deu+eng"
+    for good in ("deu", "deu+eng", "deu+fra+ita", "chi_sim+eng", "osd"):
+        monkeypatch.setenv("RC_TESSERACT_LANG", good)
+        assert tesseract_language() == good
+    # The same values scripts/lib/test_rc_extraction_settings.sh refuses.
+    for bad in ("deu eng", "deu,eng", "deu+", "+eng", "deu++eng", "../deu", "deu/eng", "dé"):
+        monkeypatch.setenv("RC_TESSERACT_LANG", bad)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+            assert tesseract_language() == "deu+eng", bad
+        assert len(caplog.records) == 1 and "RC_TESSERACT_LANG" in caplog.records[0].getMessage(), bad
+
+
+def test_ocr_page_timeout_and_page_cap_must_be_at_least_one(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import (
+        DEFAULT_OCR_MAX_PAGES,
+        DEFAULT_OCR_PAGE_TIMEOUT_SECONDS,
+        ocr_options_kwargs,
+    )
+
+    monkeypatch.setenv("RC_OCR_PAGE_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("RC_OCR_MAX_PAGES", "none")
+    with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+        opts = ocr_options_kwargs(300)
+    assert opts["page_timeout_seconds"] == DEFAULT_OCR_PAGE_TIMEOUT_SECONDS
+    assert opts["max_ocr_pages"] == DEFAULT_OCR_MAX_PAGES
+    names = " ".join(r.getMessage() for r in caplog.records)
+    assert "RC_OCR_PAGE_TIMEOUT_SECONDS" in names and "RC_OCR_MAX_PAGES" in names
+    monkeypatch.setenv("RC_OCR_PAGE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("RC_OCR_MAX_PAGES", "1")
+    opts = ocr_options_kwargs(300)
+    assert (opts["page_timeout_seconds"], opts["max_ocr_pages"]) == (1, 1)
+
+
+@pytest.mark.parametrize("message, setting", [
+    ("OcrOptions.language must be a Tesseract language string like 'deu+eng'", "RC_TESSERACT_LANG"),
+    ("OcrOptions.dpi must be between 30 and 1200", "RC_OCR_DPI"),
+    ("OcrOptions.engine must be one of auto|tesserocr|cli|mupdf", "RC_OCR_ENGINE"),
+    ("OcrOptions.workers must be >= 1", "RC_OCR_WORKERS"),
+    ("Limits.max_ocr_pages must be >= 1", "RC_OCR_MAX_PAGES"),
+    ("something the Connector does not know", "OCR options"),
+])
+def test_a_refused_ocr_setting_is_a_retryable_configuration_error(monkeypatch, message, setting):
+    """The library still refuses the options: never "corrupt .pdf" (that
+    parked every PDF for good), but a message naming the setting."""
+    from sync import document_text
+
+    class RefusingOcrOptions:
+        def __init__(self, **kwargs):
+            raise ValueError(message)
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=True, limits=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", RefusingOcrOptions)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    with pytest.raises(document_text.ConversionError) as exc:
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert str(exc.value) == f"{document_text.CONFIG_INVALID_PREFIX}: {setting}"
+    assert is_unconvertible_error(str(exc.value)) is False
+    assert seen == {}, "extract() is never called with options the library refused"
+
+
+def test_the_child_reports_a_refused_setting_as_configuration_not_corrupt(tmp_path, monkeypatch):
+    import queue as queue_mod
+
+    from sync import document_text
+
+    class RefusingOcrOptions:
+        def __init__(self, **kwargs):
+            raise ValueError("OcrOptions.language must be a Tesseract language string like 'deu+eng'")
+
+    extract_stub, _seen = _signature_stub(ocr_options=True, text_mode=True, limits=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", RefusingOcrOptions)
+    # nice + RLIMIT_AS would hit the test process itself
+    monkeypatch.setattr(document_text, "_apply_child_limits", lambda: None)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 stub")
+    out: queue_mod.Queue = queue_mod.Queue()
+    document_text._extract_child(str(pdf), out)
+    messages = []
+    while not out.empty():
+        messages.append(out.get_nowait())
+    assert messages[-1] == ("conversion", "extraction configuration invalid: RC_TESSERACT_LANG"), messages

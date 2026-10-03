@@ -288,14 +288,14 @@ All read from the environment by `src/sync/document_text.py`, `knovas_uploader.p
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `RC_PDF_OCR_ENABLED` | `true` | OCR image pages of PDFs (`use_ocr="auto"`). `false` keeps text layers only. |
-| `RC_TESSERACT_LANG` | `deu+eng` | Tesseract language packs (at most two; `deu+fra`, `deu+ita` per tenant). |
+| `RC_TESSERACT_LANG` | `deu+eng` | Tesseract language packs joined by `+` (at most two; `deu+fra`, `deu+ita` per tenant). Anything else (`deu eng`, `deu,eng`) logs a warning and uses `deu+eng`. |
 | `RC_PDF_TEXT_MODE` | `layout` | `plain` — the pre-0.2.0 text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with a warning when the library has no `text_mode`. |
 | `RC_OCR_ENGINE` | `auto` | `auto` / `tesserocr` / `cli` / `mupdf` (knovas-extract ≥ 0.4). |
 | `RC_OCR_DPI` | (unset) | Unset: no `dpi` is passed and the library renders each page at its native resolution, at most 300 dpi, never upsampled (a 150 dpi fax stays 150 dpi). Set (30–1200): every page is rendered at exactly this resolution, so a lower-resolution scan is upsampled. Any other value logs a warning and counts as unset. |
 | `RC_OCR_WORKERS` | (unset) | OCR pages in parallel. Unset: the library decides — available CPUs − 1, counting the CPU affinity and the container's CPU quota, at most 8 (`Limits.max_ocr_workers`). Set: that many, 1–8. |
-| `RC_OCR_MAX_PAGES` | `500` | OCR page budget per document. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and recorded `partial` for the backfill. |
+| `RC_OCR_MAX_PAGES` | `500` | OCR page budget per document. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and recorded `partial` for the backfill. At least 1; anything else logs a warning and uses 500. |
 | `RC_OCR_TIME_BUDGET_SECONDS` | `min(240, timeout − 30)` | OCR time budget per document; never more than `timeout − page_timeout − 10` (the pages still running when it trips finish in parallel within one page timeout) and never below 10 s, so the partial result reaches the parent before the wall-clock kill. |
-| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `60` | Ceiling for one page's OCR. |
+| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `60` | Ceiling for one page's OCR. At least 1; anything else logs a warning and uses 60. |
 | `RC_OCR_CACHE_MAX_MB` | `512` | OCR disk cache cap (`.rc-ocr-cache.db` beside `RC_SYNC_STATE_PATH`, LRU, mode 0600). `0` disables it: no file, every lookup misses. See [operations.md](operations.md#ocr-disk-cache). |
 | `RC_EXTRACT_TIMEOUT_SECONDS` | `300` | Wall-clock ceiling for one document's extraction (child process). `0` extracts in-process without a ceiling. |
 | `RC_EXTRACT_TIMEOUT_PER_PAGE_SECONDS` | `2` | For PDFs the ceiling is at least this × page count (the child reports the count first). |

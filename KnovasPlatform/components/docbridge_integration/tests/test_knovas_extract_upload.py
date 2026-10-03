@@ -613,3 +613,27 @@ def test_no_dpi_is_sent_unless_configured(monkeypatch):
     assert "dpi" not in m.ocr_options_kwargs()
     monkeypatch.setenv("RC_OCR_DPI", "150")
     assert m.ocr_options_kwargs()["dpi"] == 150
+
+
+def test_tesseract_language_is_validated(monkeypatch, caplog):
+    """An invalid language made OcrOptions refuse every PDF upload, which then
+    carried only its path line. The Connector's rule (spec E5)."""
+    assert m.tesseract_language("deu+fra") == "deu+fra", "the config value"
+    monkeypatch.setenv("RC_TESSERACT_LANG", "deu+ita")
+    assert m.tesseract_language("deu+fra") == "deu+ita", "the env value wins"
+    monkeypatch.setenv("RC_TESSERACT_LANG", "deu ita")
+    with caplog.at_level(logging.WARNING, logger="knovas_extract_upload"):
+        assert m.tesseract_language("deu+fra") == "deu+fra", "an invalid env value is skipped"
+        assert m.tesseract_language("deu fra") == "deu+eng", "an invalid config value too"
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "RC_TESSERACT_LANG" in messages and "advanced.extraction.ocr_language" in messages
+
+
+def test_ocr_page_timeout_and_page_cap_must_be_positive(monkeypatch, caplog):
+    monkeypatch.setenv("RC_OCR_PAGE_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("RC_OCR_MAX_PAGES", "-5")
+    with caplog.at_level(logging.WARNING, logger="knovas_extract_upload"):
+        opts = m.ocr_options_kwargs()
+    assert opts["page_timeout_seconds"] == 30 and opts["max_ocr_pages"] == 50
+    names = " ".join(r.getMessage() for r in caplog.records)
+    assert "RC_OCR_PAGE_TIMEOUT_SECONDS" in names and "RC_OCR_MAX_PAGES" in names

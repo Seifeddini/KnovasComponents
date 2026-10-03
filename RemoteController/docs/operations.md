@@ -142,6 +142,8 @@ The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`,
 
 Image pages of PDFs are ingested via Tesseract when `knovas-extract>=0.3` and `tesseract-ocr` are present in the RC image (`RC_PDF_OCR_ENABLED=true` by default; `RC_TESSERACT_LANG=deu+eng`). The tuning variables (`RC_OCR_*`, `RC_EXTRACT_*`, `RC_PDF_TEXT_MODE`) are listed in [configuration.md](configuration.md#extraction-ocr-and-page-markers).
 
+**OCR settings the library refuses.** The Connector checks `RC_TESSERACT_LANG` (language packs joined by `+`), `RC_OCR_DPI` (30–1200), `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` (at least 1) itself and replaces an invalid value by its default, with one warning naming the setting. Should the library still refuse the OCR options, every PDF fails with `extraction configuration invalid: <setting>`: retried every cycle, never counted toward `RC_EXTRACT_MAX_RETRIES`, never parked or recorded partial. Correct the setting in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
+
 PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite and will not retry until those rows are removed:
 
 ```bash

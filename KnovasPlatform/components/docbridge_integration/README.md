@@ -27,13 +27,13 @@ ratio". Keywords the installed `knovas-extract` does not take (`text_mode=`,
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `RC_PDF_TEXT_MODE` | `layout` | `plain` — the pre-0.4 text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME in-memory OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with one warning when the library has no `text_mode`. |
-| `RC_TESSERACT_LANG` | config `advanced.extraction.ocr_language` (`deu+eng`) | Tesseract language packs; the env value wins over the config value. OCR itself is switched by `advanced.extraction.use_ocr` (default on). |
+| `RC_TESSERACT_LANG` | config `advanced.extraction.ocr_language` (`deu+eng`) | Tesseract language packs joined by `+`; the env value wins over the config value. A value of another shape logs a warning and is skipped (then the config value, then `deu+eng`). OCR itself is switched by `advanced.extraction.use_ocr` (default on). |
 | `RC_OCR_ENGINE` | `auto` | `auto` / `tesserocr` / `cli` / `mupdf` (knovas-extract ≥ 0.4). |
 | `RC_OCR_DPI` | (unset) | Unset: no `dpi` is passed — native resolution, at most 300 dpi, never upsampled. Set (30–1200): every page at exactly this resolution (a lower-resolution scan is upsampled). Any other value logs a warning and counts as unset. |
 | `RC_OCR_WORKERS` | `1` | OCR pages in parallel, at most 8. One by default: a gunicorn worker shares the host with the search UI. |
-| `RC_OCR_MAX_PAGES` | `50` | OCR page budget per upload. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and reported `partial`. |
+| `RC_OCR_MAX_PAGES` | `50` | OCR page budget per upload. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and reported `partial`. At least 1; anything else logs a warning and uses the default. |
 | `RC_OCR_TIME_BUDGET_SECONDS` | `min(60, timeout − 30)` | OCR time budget per upload; never more than `timeout − page_timeout − 10` (pages still running finish in parallel within one page timeout), so the partial result reaches the request before the wall-clock kill. |
-| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `30` | Ceiling for one page's OCR. |
+| `RC_OCR_PAGE_TIMEOUT_SECONDS` | `30` | Ceiling for one page's OCR. At least 1; anything else logs a warning and uses the default. |
 | `RC_EXTRACT_TIMEOUT_SECONDS` | `120` | Wall-clock ceiling for one upload's extraction (child process). `0` extracts in-process without a ceiling. No per-page scaling: a 300-page scan belongs to the RC, not to a browser request. |
 | `RC_EXTRACT_RLIMIT_AS_MB` | `2048` | Address-space limit of the extraction child (`RLIMIT_AS`); `0` disables. The child also runs at `nice 10`. |
 | `RC_PAGE_BREAK_MARKERS` | `true` | Form feed(s) before every text-page start inside a part so the server serves a hit on its own page (GI-INGEST-17). The part's `page_number` stays the page of its first character; the context sidecar is written from the unmarked text. |

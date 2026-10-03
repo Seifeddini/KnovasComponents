@@ -13,6 +13,7 @@
 - **`RC_OCR_DPI` is unset by default** (Connector and Platform): no `dpi` is passed and the library renders each page at its native resolution (≤ 300 dpi, never upsampled; the forced 300 dpi upsampled faxes). A set value must be 30–1200, else one warning and it counts as unset.
 - **`RC_SENTENCE_EMIT_MAX_BYTES` defaults to `0`** (no gate): sentence citations for every input, including multi-page scans, which the 2 MiB gate on raw size used to cut off. A positive value restores the gate.
 - Every part's `page_number` comes from `content.pages` (the page of its first character), so page numbers no longer depend on sentence splitting: they stay right without sentences, after the library's fail-soft sentence cap, and on a page the library could not split into sentences. A part after the last sentence of a capped list carries no `sentence_number` instead of repeating the last one (Knovas Connector and Platform chunker).
+- **OCR settings validated**: `RC_TESSERACT_LANG` must be language packs joined by `+`; `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` at least 1 — else one warning and the default (no silent clamp). Settings the library still refuses fail every PDF with `extraction configuration invalid: <setting>`, retried every cycle without using up `RC_EXTRACT_MAX_RETRIES` (before: `corrupt .pdf`, every PDF skipped for good).
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 

@@ -122,6 +122,13 @@ DEFAULT_EXTRACT_TIMEOUT_MAX_SECONDS = 1800
 #: file forever (skip:unconvertible); a kill is retryable.
 EXTRACT_TIMEOUT_ERROR_PREFIX = "extraction timeout"
 
+#: Prefix of the ConversionError raised when the library refuses the
+#: Connector's own OCR settings (``ValueError`` from ``OcrOptions`` /
+#: ``Limits``, spec E5). No document is at fault: ``is_unconvertible_error``
+#: never matches it and the executor never counts it toward the extraction
+#: retries. It used to surface as "corrupt .pdf" and park every PDF for good.
+CONFIG_INVALID_PREFIX = "extraction configuration invalid"
+
 # Address-space ceiling for the extraction child (RLIMIT_AS). Override with
 # RC_EXTRACT_RLIMIT_AS_MB; 0 disables. The child also runs at nice 10.
 DEFAULT_EXTRACT_RLIMIT_AS_MB = 2048
@@ -129,6 +136,9 @@ EXTRACT_CHILD_NICE = 10
 
 # PDF OCR via knovas-extract + system Tesseract (see RC_PDF_OCR_ENABLED).
 DEFAULT_TESSERACT_LANG = "deu+eng"
+#: RC_TESSERACT_LANG: language packs joined by "+" (spec E5; doctor.sh applies
+#: the same pattern). OcrOptions refuses spaces, slashes and NUL.
+_TESSERACT_LANG_RE = re.compile(r"[A-Za-z0-9_]+(?:\+[A-Za-z0-9_]+)*")
 DEFAULT_OCR_ENGINE = "auto"
 OCR_ENGINES = ("auto", "tesserocr", "cli", "mupdf")
 # RC_OCR_DPI: unset sends no dpi (the library's native-resolution rule); a
@@ -178,10 +188,12 @@ _EXT_TO_MIME = {
 }
 
 #: Error prefixes that are retryable whatever else the message says: the
-#: RC's own wall-clock kill, a killed child (OOM / RLIMIT_AS) and an OCR
-#: budget trip that leaked out of an older library as an error.
+#: RC's own wall-clock kill, OCR settings the library refused, a killed
+#: child (OOM / RLIMIT_AS) and an OCR budget trip that leaked out of an
+#: older library as an error.
 _NEVER_UNCONVERTIBLE_PREFIXES = (
     EXTRACT_TIMEOUT_ERROR_PREFIX,
+    CONFIG_INVALID_PREFIX,
     "extractor died",
     "ocr budget exceeded",
     "resource limit exceeded: ocr",
@@ -194,6 +206,32 @@ class ConversionError(Exception):
     def __init__(self, message: str, *, extension: str = "") -> None:
         super().__init__(message)
         self.extension = extension
+
+
+#: The library's option field -> the Connector setting it is built from.
+_SETTING_FOR_OPTION_FIELD = {
+    "engine": "RC_OCR_ENGINE",
+    "language": "RC_TESSERACT_LANG",
+    "dpi": "RC_OCR_DPI",
+    "workers": "RC_OCR_WORKERS",
+    "max_ocr_workers": "RC_OCR_WORKERS",
+    "max_ocr_pages": "RC_OCR_MAX_PAGES",
+    "ocr_time_budget_seconds": "RC_OCR_TIME_BUDGET_SECONDS",
+    "ocr_page_timeout_seconds": "RC_OCR_PAGE_TIMEOUT_SECONDS",
+}
+_OPTION_FIELD_RE = re.compile(r"\b(?:OcrOptions|Limits)\.([a-z_]+)")
+
+
+def config_invalid_error(exc: ValueError) -> ConversionError:
+    """The retryable error for OCR settings the library refused (spec E5).
+
+    Names the setting when the library's message names the field
+    (``OcrOptions.language must be …``), else "OCR options"; never the value
+    -- the message is logged and stored in the sync state.
+    """
+    match = _OPTION_FIELD_RE.search(str(exc))
+    setting = _SETTING_FOR_OPTION_FIELD.get(match.group(1), "OCR options") if match else "OCR options"
+    return ConversionError(f"{CONFIG_INVALID_PREFIX}: {setting}", extension=".pdf")
 
 
 @dataclass(frozen=True)
@@ -308,6 +346,24 @@ def _non_negative_int(raw: str) -> Optional[int]:
     return int(raw) if raw.isascii() and raw.isdigit() else None
 
 
+def _env_int_at_least(name: str, default: int, minimum: int) -> int:
+    """A whole-number setting of at least ``minimum`` (spec E5). Anything else
+    -- not ASCII digits, or below the minimum -- logs one warning naming the
+    setting and uses the default; ``_env_int(minimum=)`` would clamp it
+    silently (a page timeout of 0 became 1 s and failed every page)."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    value = _non_negative_int(raw)
+    if value is None or value < minimum:
+        logger.warning(
+            "Invalid %s=%r (a whole number of at least %d); using default %d",
+            name, raw, minimum, default,
+        )
+        return default
+    return value
+
+
 def sentence_emit_max_bytes() -> int:
     """`RC_SENTENCE_EMIT_MAX_BYTES`: 0 (default) is no gate; a positive value
     skips sentence emission above that many raw bytes (see module docstring)."""
@@ -349,8 +405,16 @@ def pdf_ocr_enabled() -> bool | str:
 
 
 def tesseract_language() -> str:
+    """`RC_TESSERACT_LANG` (default `deu+eng`): language packs joined by `+`.
+    Anything else (`deu eng`, `deu,eng`) logs one warning naming the setting
+    and uses the default -- `OcrOptions` would refuse it (spec E5)."""
     raw = (os.environ.get("RC_TESSERACT_LANG") or "").strip()
-    return raw or DEFAULT_TESSERACT_LANG
+    if not raw:
+        return DEFAULT_TESSERACT_LANG
+    if _TESSERACT_LANG_RE.fullmatch(raw):
+        return raw
+    logger.warning("Invalid RC_TESSERACT_LANG=%r; using %s", raw, DEFAULT_TESSERACT_LANG)
+    return DEFAULT_TESSERACT_LANG
 
 
 def pdf_text_mode() -> str:
@@ -447,11 +511,11 @@ def ocr_options_kwargs(timeout_seconds: Optional[int] = None) -> dict[str, Any]:
     `sync.ocr_cache`).
     """
     timeout = extract_timeout_seconds() if timeout_seconds is None else int(timeout_seconds)
-    page_timeout = _env_int("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, minimum=1)
+    page_timeout = _env_int_at_least("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, 1)
     options: dict[str, Any] = {
         "engine": ocr_engine(),
         "workers": ocr_workers(),
-        "max_ocr_pages": _env_int("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES),
+        "max_ocr_pages": _env_int_at_least("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES, 1),
         "time_budget_seconds": ocr_time_budget_seconds(timeout, page_timeout),
         "page_timeout_seconds": page_timeout,
         "language": tesseract_language(),
@@ -774,13 +838,21 @@ def _pdf_extract_kwargs(
     if use_ocr and OcrOptions is not None and extract_accepts("ocr"):
         cache = ocr_cache_for_document(document_key)
         ocr_kwargs = ocr_options_kwargs(timeout_seconds)
-        options = build_ocr_options({**ocr_kwargs, "cache": cache})
+        try:
+            options = build_ocr_options({**ocr_kwargs, "cache": cache})
+            limits = build_ocr_limits(ocr_kwargs) if extract_accepts("limits") else None
+        except ValueError as exc:
+            # The library refused the Connector's own settings: no document
+            # is at fault (spec E5). Reported as a configuration error, never
+            # as "corrupt .pdf", which parked every PDF for good.
+            close = getattr(cache, "close", None)
+            if callable(close):
+                close()
+            raise config_invalid_error(exc) from exc
         if options is not None:
             kwargs["ocr"] = options
-        if extract_accepts("limits"):
-            limits = build_ocr_limits(ocr_kwargs)
-            if limits is not None:
-                kwargs["limits"] = limits
+        if limits is not None:
+            kwargs["limits"] = limits
 
     mode = pdf_text_mode()
     if mode == "plain":
