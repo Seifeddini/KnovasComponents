@@ -107,6 +107,25 @@ class TestUploadTextSha256:
         assert upload_text_sha256(PARTS, None, description="Mandat 17") != base
 
 
+class TestCanonicalJson:
+    """Strings enter the hashes escaped as the transmission sends them
+    (requests' ``json=``: non-ASCII as ``\\u`` escapes)."""
+
+    def test_lone_surrogates_hash(self):
+        # PyMuPDF returns a PDF /Title or /Subject cut through a UTF-16 pair
+        # with lone surrogates; the upload sends them, so they must hash.
+        digest = upload_text_sha256([{"snippet": "a\udc80"}], None,
+                                    title="R\udced\udcb0\udc80", description="M\udced\udca0\udcbd")
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+        assert digest != upload_text_sha256([{"snippet": "a"}], None, title="R", description="M")
+        assert re.fullmatch(r"[0-9a-f]{64}", fields_values_digest({"keywords": ["a\udc80"]}))
+
+    def test_the_form_is_ascii_escaped(self):
+        # Stored hashes depend on it: a changed form re-uploads, and bills,
+        # every document at the next re-extraction.
+        assert extraction_stamp._canonical({"t": "Prüf\udc80"}) == b'{"t":"Pr\\u00fcf\\udc80"}'
+
+
 class TestFieldsValuesDigest:
     def test_none_is_none_and_key_order_does_not_matter(self):
         assert fields_values_digest(None) is None

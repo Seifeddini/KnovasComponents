@@ -52,9 +52,11 @@ def _knovas_extract_version() -> Optional[str]:
 
 
 def _canonical(value: Any) -> bytes:
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
-    ).encode("utf-8")
+    # Non-ASCII as \u escapes, as the transmission sends it (requests'
+    # json=). A lone surrogate -- PyMuPDF's reading of a PDF title cut
+    # through a UTF-16 pair -- uploads fine and must hash, not raise.
+    # Stored hashes depend on this form: changing it re-uploads every document.
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("ascii")
 
 
 def stamp_inputs() -> dict[str, Any]:
@@ -107,7 +109,7 @@ def upload_text_sha256(
 ) -> str:
     """sha256 over what one upload carries to the index.
 
-    Canonical JSON (sorted keys, ``ensure_ascii=False``) of every part's
+    Canonical JSON (sorted keys, ASCII escapes) of every part's
     snippet -- page markers included, as transmitted -- with its page and
     sentence number, in order; the fields digest (``fields_values_digest``);
     and the init's title and description, which the extractor supplies too.
