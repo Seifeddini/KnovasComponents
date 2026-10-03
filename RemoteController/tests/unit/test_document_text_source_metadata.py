@@ -44,8 +44,9 @@ def test_eml_fixture_carries_author_and_date(tmp_path):
     doc = extract_document(path)
     assert doc.source_metadata["author"] == "sender@example.com"
     assert doc.source_metadata["created"].startswith("2024-01-01T12:00:00")
+    # The Date header's day: Knovas refuses a timestamp with time and offset.
     assert map_metadata(doc.source_metadata, ".eml", {"email_date", "email_author"}) == {
-        "document_date": doc.source_metadata["created"],
+        "document_date": "2024-01-01",
         "author": "sender@example.com",
     }
 
