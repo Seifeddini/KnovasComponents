@@ -473,7 +473,12 @@ class TestProfileFieldKeys:
         assert view.METADATA_TARGETS == {
             "language": "language", "email_date": "document_date",
             "email_doc_type": "doc_type", "email_author": "author",
-            "document_author": "author"}
+            "document_author": "author", "keywords": "keywords",
+            "document_status": "status"}
+
+    def test_the_file_property_items_name_their_targets(self):
+        profile = {"sources": [{"path": "/a", "metadata_fields": ["keywords", "document_status"]}]}
+        assert view.profile_field_keys(profile) == {"keywords", "status"}
 
 
 # ---------------------------------------------------------------------------

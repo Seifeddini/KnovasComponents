@@ -1,5 +1,25 @@
 # Unreleased
 
+## Dokumentfelder: Hinweise mit Feld, Stichwoerter und Status, erneutes Senden
+
+- **Hinweise von Knovas nennen das Feld.** Der Reiter *Ingestion* zeigt die
+  Upload-Hinweise des letzten Durchlaufs je Code und Feldschluessel, z.B.
+  `invalid_value 3x (amount)`, und darunter einmal die Bedeutung jedes
+  Codes; nie einen Wert. Ein aelterer Knovas Connector liefert nur Codes.
+- **Nicht uebernommene Felder ohne Anlass erneut senden.** Hat Knovas Felder
+  nicht angenommen, fragt der Knovas Connector hoechstens einmal pro Stunde
+  nach (`GET /secured/graph/doc-fields`). Nimmt Knovas sie an, sendet er
+  diese Dokumente erneut, hoechstens 100 pro Durchlauf -- auch wenn sonst
+  nichts hochgeladen wird.
+- **Stichwoerter und Status aus Datei-Eigenschaften.** Zwei neue Opt-ins pro
+  Ordner: *Stichwoerter aus Datei-Eigenschaften (PDF/Word-Stichwoerter,
+  Outlook-Kategorien)* fuellt `keywords`, *Status aus Word-Dokumentstatus*
+  fuellt `status`; Knovas uebernimmt einen Status nur, wenn er zu einer
+  Status-Auswahl passt. Einschalten sendet die Dokumente des Ordners erneut
+  (verrechnet, mit Bestaetigung) und braucht einen Knovas Connector, der
+  `metadata_fields_v2` meldet. Outlook-Kategorien liest knovas-extract
+  0.4.0a1 noch nicht.
+
 ## Dokumentfelder (Dokumentwerte)
 
 Typisierte Werte je Dokument -- Mandant, Zeitraum, Dokumentart, Gericht,

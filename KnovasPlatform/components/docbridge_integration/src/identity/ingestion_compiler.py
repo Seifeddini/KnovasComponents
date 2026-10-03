@@ -97,9 +97,13 @@ MAX_FIELD_TEMPLATES = 8
 MAX_FIELD_VALUES = 32
 MAX_FIELD_VALUE_CHARS = 256
 
-#: The extractor metadata items RemoteController maps (spec 3.5), in the
-#: order the form offers them.
-METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author")
+#: The extractor metadata items RemoteController maps (spec 3.5, L1), in the
+#: order the form offers them. ``keywords`` and ``document_status`` need a
+#: Connector that reports ``metadata_fields_v2``.
+METADATA_ITEMS = (
+    "language", "email_date", "email_doc_type", "email_author", "document_author",
+    "keywords", "document_status",
+)
 
 _SCHEMA_FIELD_KEYS = frozenset({"fields", "field_templates", "metadata_fields"})
 

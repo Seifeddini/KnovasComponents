@@ -14,7 +14,8 @@ RemoteController's upload layer, so the tab guards three things:
 
     - an older RemoteController refuses the new keys, so a profile using them
       is neither saved nor pushed unless it advertises ``source_fields_v1``
-      (plus ``field_templates_v1`` / ``metadata_fields_v1`` when used);
+      (plus ``field_templates_v1`` / ``metadata_fields_v1`` when used, and
+      ``metadata_fields_v2`` for the keywords and status file properties);
     - keys are checked against the tenant's registry when a profile is saved
       (enum labels become codes), and a key also set by a folder rule
       reaching the profile's documents is warned about;
@@ -176,6 +177,11 @@ METADATA_LABELS = {
     # .md and .txt carry no document properties (knovas-extract reads them as
     # plain text), so the item yields nothing there.
     "document_author": "Autor aus Dokumenteigenschaften (pdf, docx)",
+    # Spec L1. Knovas keeps a status only when it matches a choice of the
+    # ``status`` field; one it does not know shows as invalid_value (status).
+    "keywords": ("Stichw\u00f6rter aus Datei-Eigenschaften "
+                 "(PDF/Word-Stichw\u00f6rter, Outlook-Kategorien)"),
+    "document_status": "Status aus Word-Dokumentstatus",
 }
 
 #: RemoteController's default re-upload bound (RC_FIELDS_REUPLOAD_PER_CYCLE),

@@ -52,6 +52,8 @@ METADATA_TARGETS: Dict[str, str] = {
     "email_doc_type": "doc_type",
     "email_author": "author",
     "document_author": "author",
+    "keywords": "keywords",
+    "document_status": "status",
 }
 
 # Texts the UI shows next to fields (spec 2.4 H9, 4.5). Kept here so the

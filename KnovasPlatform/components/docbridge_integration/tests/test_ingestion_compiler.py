@@ -610,3 +610,32 @@ class TestWhatAChangeReSends:
                     "field_templates": 2, "folders_with_metadata_fields": 1}
         assert ic.field_config_counts(profile.sources) == expected
         assert ic.field_config_counts(profile_to_json(profile)["sources"]) == expected
+
+
+class TestFilePropertyOptIns:
+    """Spec L1: keywords and Word content status from file properties."""
+
+    def test_the_offered_order(self):
+        assert ic.METADATA_ITEMS == ("language", "email_date", "email_doc_type", "email_author",
+                                     "document_author", "keywords", "document_status")
+
+    def test_they_compile_and_validate_against_the_shipped_schema(self, sync_request_validator):
+        compiled = ic.compile_profile(_with_fields(metadata_fields=("keywords", "document_status")))
+        assert compiled.sync_request["sources"][0]["metadata_fields"] == ["keywords", "document_status"]
+        sync_request_validator.validate(compiled.sync_request)
+
+    def test_their_targets_must_be_registered(self):
+        checked = ic.validate_profile_fields(
+            _with_fields(metadata_fields=("keywords", "document_status")), _registry())
+        assert checked.sources[0].metadata_fields == ("keywords", "document_status")
+        registry = [f for f in _registry() if f["key"] != "status"]
+        with pytest.raises(ic.ProfileError) as excinfo:
+            ic.validate_profile_fields(_with_fields(metadata_fields=("document_status",)), registry)
+        assert "status" in str(excinfo.value)
+
+    def test_enabling_one_re_sends_the_folder(self):
+        old = ic.IngestionProfile(identifier_prefix="p", sources=[
+            ic.SourceFolder(path="/a", metadata_fields=("language",))])
+        new = ic.IngestionProfile(identifier_prefix="p", sources=[
+            ic.SourceFolder(path="/a", metadata_fields=("language", "keywords"))])
+        assert ic.field_config_changes(old, new) == ["/a"]

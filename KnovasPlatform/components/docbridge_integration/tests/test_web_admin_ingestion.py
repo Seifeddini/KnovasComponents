@@ -1066,6 +1066,12 @@ class TestFieldInputsParse:
         assert (row["fields_text"], row["templates_text"], row["metadata"]) == (
             "doc_type = x", "{mandant}/**", ["language"])
 
+    def test_the_file_property_opt_ins_parse_in_form_order(self):
+        from web_interface.admin_ingestion import parse_metadata_items
+
+        assert parse_metadata_items(["document_status", "keywords", "language"], 1) == (
+            "language", "keywords", "document_status")
+
 
 class TestReuploadCost:
     @pytest.mark.parametrize("count,per_cycle,schedule,throughput,expected", [
@@ -1382,6 +1388,17 @@ class TestCheckProfileFields:
                             strict=False)
         assert "RemoteController zu alt" in check.error
 
+    def test_keywords_or_status_need_a_connector_that_knows_them(self):
+        from identity.ingestion_compiler import RC_TOO_OLD, ProfileError
+
+        for item in ("keywords", "document_status"):
+            with pytest.raises(ProfileError) as excinfo:
+                self._check(_profile(_folder(metadata_fields=("language", item))))
+            assert str(excinfo.value) == RC_TOO_OLD
+        check = self._check(_profile(_folder(metadata_fields=("keywords", "document_status"))),
+                            rc=_RC(caps=ALL_CAPS + ("metadata_fields_v2",)))
+        assert check.profile.sources[0].metadata_fields == ("keywords", "document_status")
+
 
 class TestTheExecutorRefusesAnOldRemoteController:
     """An approved change can run long after it was asked for; the executor
@@ -1583,6 +1600,17 @@ class TestRemoteControllerClientDocFields:
             {"path": "/a", "field_templates": ["{x}/**"]}]}) == {
             "source_fields_v1", "field_templates_v1"}
 
+    def test_the_file_property_items_need_v2(self):
+        from remote_controller_client import CAP_METADATA_FIELDS_V2, required_capabilities
+
+        assert CAP_METADATA_FIELDS_V2 == "metadata_fields_v2"
+        assert required_capabilities({"sources": [{"path": "/a", "metadata_fields": ["language"]}]}) == {
+            "source_fields_v1", "metadata_fields_v1"}
+        for item in ("keywords", "document_status"):
+            assert required_capabilities({"sources": [
+                {"path": "/a", "metadata_fields": ["language", item]}]}) == {
+                "source_fields_v1", "metadata_fields_v1", "metadata_fields_v2"}
+
 
 def _render(**overrides):
     import jinja2
@@ -1684,6 +1712,21 @@ class TestTemplateFields:
 
     def test_the_description_label_says_what_it_does(self):
         assert "wird jedem Dokument als Beschreibung mitgegeben" in _render()
+
+    def test_the_file_property_opt_ins_are_offered(self):
+        from identity.ingestion_compiler import METADATA_ITEMS
+        from web_interface.admin_ingestion import METADATA_LABELS
+
+        assert set(METADATA_LABELS) == set(METADATA_ITEMS)
+        keywords = ("Stichw\u00f6rter aus Datei-Eigenschaften "
+                    "(PDF/Word-Stichw\u00f6rter, Outlook-Kategorien)")
+        assert METADATA_LABELS["keywords"] == keywords
+        assert METADATA_LABELS["document_status"] == "Status aus Word-Dokumentstatus"
+        html = _render(doc_fields=_df())
+        for key in ("keywords", "document_status"):
+            assert f'name="folder-0-metadata" value="{key}"' in html
+            assert f'name="folder-__n__-metadata" value="{key}"' in html
+        assert keywords in html and "Status aus Word-Dokumentstatus" in html
 
 
 class TestFrontendStaysTextOnly:

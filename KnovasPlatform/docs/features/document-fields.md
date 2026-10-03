@@ -181,8 +181,14 @@ unless the state is `aus`):
 - **Aus Dateieigenschaften** — opt-ins: language (document properties of
   pdf/docx, often the program's language; `.eml` Content-Language), e-mail
   date as document date, e-mails as document type "E-Mail", e-mail sender as
-  author, author from pdf/docx properties. `.md` and `.txt` files have no
-  properties.
+  author, author from pdf/docx properties, *Stichwörter aus
+  Datei-Eigenschaften* (PDF/Word keywords and Outlook categories, split on
+  `,` and `;`, at most 32; knovas-extract 0.4.0a1 does not read Outlook
+  categories yet) and *Status aus Word-Dokumentstatus* (sent as written;
+  Knovas keeps it only when it matches a choice of `status`, otherwise the
+  status panel counts an `invalid_value` under `status`). These two need a
+  Knovas Connector that reports `metadata_fields_v2`. `.md` and `.txt` files
+  have no properties.
 
 Saving checks every key against the registry (active fields only, code-list
 values, template keys, the targets of the file properties) and warns when a
