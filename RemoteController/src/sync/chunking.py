@@ -66,9 +66,12 @@ def _location_for_offset(
 
     Uses binary search over the ascending `char_start` array. The sentence
     containing `offset` is `sentences[i-1]` where `i = bisect_right(starts, offset)`;
-    clamps to first/last sentence for out-of-range offsets.
+    clamps to the first sentence for an offset before it. An offset at or
+    after the last sentence's `char_end` has no sentence: knovas-extract's
+    fail-soft `Limits.max_sentences` cap keeps only the document's first
+    sentences, so the last one says nothing about the text after it.
     """
-    if not sentences:
+    if not sentences or offset >= sentences[-1].char_end:
         return None, None
     idx = bisect.bisect_right(starts, offset) - 1
     if idx < 0:
@@ -82,8 +85,12 @@ def _location_for_offset(
 def _page_number_starts(pages: Optional[Sequence[Page]], text: str) -> Tuple[List[int], List[int]]:
     """Ascending first-character offsets of the TEXT pages, and their numbers.
 
-    The source of ``page_number`` when a document has no sentences (spec E4:
-    the size gate, a sentence cap, an extractor without ``[sentences]``).
+    The source of ``page_number`` whenever a page carries a ``line_start``
+    (spec E4). Sentences can be missing (the size gate, an extractor without
+    ``[sentences]``) or cover only part of the document (the fail-soft
+    ``Limits.max_sentences`` cap keeps the first sentences, a page the
+    library cannot align gets none), and the page markers
+    (``text_page_starts``) count from the same line starts.
     Same contract as ``_location_for_offset`` (``sync.page_markers``): a
     part's page is the page of its first character, and the join whitespace
     between two pages belongs to the preceding page -- a page's lines run
@@ -127,10 +134,11 @@ def iter_text_chunks_with_location(
     """Yield (snippet, page_number, sentence_number, start_offset) per transmission part.
 
     `sentences` — `content.sentences` from knovas-extract (char offsets refer to
-    `content.text`). When provided, each chunk's location uses binary search on
-    `Sentence.char_start` for `page_number` and `index + 1` as `sentence_number`.
-    Without sentences `page_number` comes from `pages` (spec E4,
-    `_page_number_starts`) and `sentence_number` is None.
+    `content.text`). When provided, each chunk's `sentence_number` is `index + 1`
+    of the sentence at its start (binary search on `Sentence.char_start`); a
+    chunk after the last sentence (a capped list) has none. `page_number` comes
+    from `pages` whenever a page carries a `line_start` (spec E4,
+    `_page_number_starts`), else from that sentence.
 
     `sections` / `pages` — when provided, chunk boundaries prefer section and page
     breaks; section headings are injected into snippets at section starts.
@@ -148,7 +156,7 @@ def iter_text_chunks_with_location(
         return
 
     starts = [s.char_start for s in sentences] if sentences else []
-    page_offsets, page_numbers = ([], []) if sentences else _page_number_starts(pages, text)
+    page_offsets, page_numbers = _page_number_starts(pages, text)
     page_starts: list[PageStart] = text_page_starts(pages, text) if (page_markers and pages) else []
 
     start = 0
@@ -176,7 +184,9 @@ def iter_text_chunks_with_location(
         if sentences:
             page_number, sentence_number = _location_for_offset(starts, sentences, start)
         else:
-            page_number, sentence_number = _page_for_offset(page_offsets, page_numbers, start), None
+            page_number, sentence_number = None, None
+        if page_offsets:
+            page_number = _page_for_offset(page_offsets, page_numbers, start)
         snippet, shift = apply_section_heading(text[start:end], prefix)
         if page_starts:
             markers = [(offset - start, count) for offset, count in markers_inside(page_starts, start, end)]

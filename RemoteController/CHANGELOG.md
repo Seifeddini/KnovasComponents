@@ -12,7 +12,7 @@
 - **OCR time budget** no longer collapses to its 10 s floor on hosts with 7+ cores: the cap is `timeout − page_timeout − 10`, because pages in flight finish in parallel (the Platform's formula too; its numbers are unchanged at one worker). **`RC_OCR_WORKERS` unset** sends `workers=None`: the library sizes the pool (CPUs − 1 with affinity and the cgroup CPU quota, at most 8); a set value is used as before.
 - **`RC_OCR_DPI` is unset by default** (Connector and Platform): no `dpi` is passed and the library renders each page at its native resolution (≤ 300 dpi, never upsampled; the forced 300 dpi upsampled faxes). A set value must be 30–1200, else one warning and it counts as unset.
 - **`RC_SENTENCE_EMIT_MAX_BYTES` defaults to `0`** (no gate): sentence citations for every input, including multi-page scans, which the 2 MiB gate on raw size used to cut off. A positive value restores the gate.
-- Without sentences, every part's `page_number` comes from `content.pages` (the page of its first character, as with sentences), so page numbers no longer depend on sentence splitting (Knovas Connector and Platform chunker).
+- Every part's `page_number` comes from `content.pages` (the page of its first character), so page numbers no longer depend on sentence splitting: they stay right without sentences, after the library's fail-soft sentence cap, and on a page the library could not split into sentences. A part after the last sentence of a capped list carries no `sentence_number` instead of repeating the last one (Knovas Connector and Platform chunker).
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 

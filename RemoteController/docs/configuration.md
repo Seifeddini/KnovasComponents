@@ -266,7 +266,7 @@ Knovas Connector converts the following extensions to text (with per-sentence ci
 | `.eml` | Standard library `email` (subject → transmission title) |
 | `.msg` | `extract-msg` (subject → transmission title) |
 
-Each chunk carries a `page_number` (PDFs only) and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition. Without sentences the `page_number` comes from `content.pages` (the page of the chunk's first character) and there is no `sentence_number`.
+Each chunk carries a `page_number` (PDFs only), the page of its first character from `content.pages`, and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition. A chunk without sentences, or after the last sentence of a list cut off at the library's `max_sentences` cap, has no `sentence_number`; its `page_number` is unaffected.
 
 `ingestion.part_max_chars` defaults to `500000` (the Secure API `snippet` limit). Lower it in the sync request body if you need smaller transmission parts.
 

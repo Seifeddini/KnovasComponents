@@ -184,8 +184,9 @@ def test_heading_level_is_capped_at_the_server_regex():
 
 
 class TestDeclaredPageWithoutSentences:
-    """Spec E4, mirror of the Connector: without sentences the part's
-    page_number comes from content.pages, same contract."""
+    """Spec E4, mirror of the Connector: without sentences (an extractor
+    without ``[sentences]``) the part's page_number comes from content.pages,
+    same contract."""
 
     @pytest.mark.parametrize("page_texts", [
         ["Seite eins.", "Seite zwei.", "Seite drei."],
@@ -214,3 +215,22 @@ class TestDeclaredPageWithoutSentences:
 
     def test_no_pages_no_page_number(self):
         assert [p for _t, p, _s, _o in iter_text_chunks_with_location("Ohne Seiten.", 5)] == [None, None, None]
+
+
+class TestDeclaredPageWithIncompleteSentences:
+    """Spec E4, mirror of the Connector: sentences can cover only part of the
+    document (the fail-soft ``Limits.max_sentences`` cap, a page the library
+    cannot align). The page_number still comes from content.pages; a part
+    after the last sentence has no sentence_number."""
+
+    def test_a_capped_sentence_list_keeps_the_page_numbers(self):
+        text, pages, sentences = _pages_and_text(["Seite eins.", "Seite zwei.", "Seite drei."])
+        parts = list(iter_text_chunks_with_location(text, 13, sentences=sentences[:1], pages=pages))
+        assert [(p, s) for _t, p, s, _o in parts] == [(1, 1), (2, None), (3, None)]
+
+    def test_a_page_without_sentences_keeps_its_page_number(self):
+        text, pages, sentences = _pages_and_text(["Seite eins.", "Seite zwei.", "Seite drei."])
+        parts = list(iter_text_chunks_with_location(
+            text, 13, sentences=[sentences[0], sentences[2]], pages=pages,
+        ))
+        assert [p for _t, p, _s, _o in parts] == [1, 2, 3]

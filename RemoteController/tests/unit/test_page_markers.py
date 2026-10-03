@@ -201,9 +201,10 @@ class TestDeclaredPageMechanism:
 
 
 class TestDeclaredPageWithoutSentences:
-    """Spec E4: without sentences (the size gate, a sentence cap) a part's
-    page_number comes from content.pages under the same contract -- the
-    page of its first character, join whitespace to the preceding page."""
+    """Spec E4: without sentences (the size gate, an extractor without
+    ``[sentences]``) a part's page_number comes from content.pages under the
+    same contract -- the page of its first character, join whitespace to
+    the preceding page."""
 
     @pytest.mark.parametrize("page_texts", [
         ["Seite eins.", "Seite zwei.", "Seite drei."],
@@ -240,3 +241,28 @@ class TestDeclaredPageWithoutSentences:
         from sync.chunking import iter_text_chunks_with_location
 
         assert [p for _t, p, _s, _o in iter_text_chunks_with_location("Ohne Seiten.", 5)] == [None, None, None]
+
+
+class TestDeclaredPageWithIncompleteSentences:
+    """Spec E4 with knovas-extract 0.4: sentences can cover only part of the
+    document. The fail-soft ``Limits.max_sentences`` cap keeps the first
+    sentences, and a page the library cannot align gets none. The part's
+    page_number still comes from content.pages, which the page markers count
+    from too; a part after the last sentence has no sentence_number instead
+    of repeating the last one."""
+
+    def test_a_capped_sentence_list_keeps_the_page_numbers(self):
+        from sync.chunking import iter_text_chunks_with_location
+
+        text, pages, sentences = _pages_and_text(["Seite eins.", "Seite zwei.", "Seite drei."])
+        parts = list(iter_text_chunks_with_location(text, 13, sentences=sentences[:1], pages=pages))
+        assert [(p, s) for _t, p, s, _o in parts] == [(1, 1), (2, None), (3, None)]
+
+    def test_a_page_without_sentences_keeps_its_page_number(self):
+        from sync.chunking import iter_text_chunks_with_location
+
+        text, pages, sentences = _pages_and_text(["Seite eins.", "Seite zwei.", "Seite drei."])
+        parts = list(iter_text_chunks_with_location(
+            text, 13, sentences=[sentences[0], sentences[2]], pages=pages,
+        ))
+        assert [p for _t, p, _s, _o in parts] == [1, 2, 3]
