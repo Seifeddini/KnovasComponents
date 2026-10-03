@@ -42,6 +42,12 @@ logger = logging.getLogger(__name__)
 RETRY_STATUS = {429, 503, 504}
 MAX_BACKOFF = 30.0
 INIT_PATH = "/secured/init_document_transmission"
+#: The capability probe (spec F5). While Document fields are off, Knovas
+#: answers every ``/secured/graph/doc-*`` route with its unknown-route 404.
+DOC_FIELDS_PROBE_PATH = "/secured/graph/doc-fields"
+#: Probe answers that, besides a 5xx, say nothing about the feature: a 429
+#: is a rate limit in front of any route. Read as "unknown".
+PROBE_UNKNOWN_STATUSES = frozenset({429})
 #: The Secure API refuses longer titles (secure_api.py init validation); an
 #: uncapped one made such a file fail its init every cycle.
 MAX_TITLE_CHARS = 500
@@ -440,3 +446,25 @@ class SemantixUploader:
         if resp.status_code in (200, 404):
             return True, None
         return False, f"delete failed: {resp.status_code}"
+
+    def probe_doc_fields(self) -> Optional[bool]:
+        """Whether Knovas takes document fields now (spec F5).
+
+        One ``GET /secured/graph/doc-fields`` without a body, under the same
+        mTLS and ingest limiter as every other call and without a retry (the
+        executor asks again an hour later): ``404`` -> False (off, or a
+        Knovas without the feature); a 5xx, a 429 or no answer at all ->
+        None (unknown); any other answer -> True: the route exists, and a
+        401/403 only says it wants more than this call carries (a BROKERED
+        tenant's principal assertion). The answer's body is never read.
+        """
+        try:
+            resp = self._request("GET", DOC_FIELDS_PROBE_PATH, max_retries=1)
+        except Exception:  # noqa: BLE001 - a probe never fails a cycle; no answer is "unknown"
+            return None
+        status = resp.status_code
+        if status == 404:
+            return False
+        if status >= 500 or status in PROBE_UNKNOWN_STATUSES:
+            return None
+        return True

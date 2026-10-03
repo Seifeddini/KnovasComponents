@@ -265,6 +265,27 @@ def test_mail_metadata_reaches_the_server(rig):
     assert "document_date" in init["json"]["fields"]
 
 
+class TestCapabilityProbe:
+    """Spec F5: the probe against every server state the mock plays."""
+
+    @pytest.mark.parametrize("mode,expected", [("off", False), ("values", True), ("filters", True)])
+    def test_the_answer_follows_the_server_state(self, rig, mode, expected):
+        from sync.knovas_uploader import SemantixUploader
+
+        state = rig.mock(doc_fields=mode)
+        assert SemantixUploader().probe_doc_fields() is expected
+        (probe,) = [r for r in state.requests if r["path"] == "/secured/graph/doc-fields"]
+        assert probe["method"] == "GET" and probe["body"] == b"" and probe["query"] == {}
+
+    def test_a_brokered_tenant_asks_for_an_assertion_and_that_means_on(self, rig):
+        """BROKERED: every graph route wants a principal assertion the
+        Connector does not send (401); the route exists, so fields are on."""
+        from sync.knovas_uploader import SemantixUploader
+
+        rig.mock(doc_fields="values", brokered=True)
+        assert SemantixUploader().probe_doc_fields() is True
+
+
 def _sync_response(result) -> dict:
     from routes.sync import _build_sync_response
 

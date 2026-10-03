@@ -305,3 +305,50 @@ class TestNoInCallBackoffForDocFields503:
             503, {"status": "error", "error_code": "doc_fields_unavailable"}))
         result = SemantixUploader().upload_file(_doc(env), "note.txt", BODY)
         assert len(server.inits) == 5 and result.error == "init failed: 503"
+
+
+PROBE = "/secured/graph/doc-fields"
+
+
+class TestCapabilityProbe:
+    """``probe_doc_fields`` (spec F5): one GET without a body under the
+    tenant mTLS; the status class is the whole answer."""
+
+    @staticmethod
+    def _probe(monkeypatch, answer):
+        calls: list = []
+
+        def request(method, url, json=None, **kw):
+            calls.append((method, "/" + url.split("/", 3)[3], json, kw.get("cert"), kw.get("verify")))
+            if isinstance(answer, Exception):
+                raise answer
+            return _response(answer, {"status": "error"} if answer >= 400 else {"fields": []})
+
+        monkeypatch.setattr("sync.knovas_uploader.requests.request", request)
+        return SemantixUploader().probe_doc_fields(), calls
+
+    @pytest.mark.parametrize("status,expected", [
+        (200, True), (400, True), (401, True), (403, True),
+        (404, False),
+        (500, None), (502, None), (503, None), (504, None),
+        # A rate limit sits in front of any route: it says nothing about fields.
+        (429, None),
+    ])
+    def test_the_status_decides(self, env, monkeypatch, status, expected):
+        answer, calls = self._probe(monkeypatch, status)
+        assert answer is expected
+        assert len(calls) == 1, "single try: no backoff inside the probe"
+        method, path, body, cert, verify = calls[0]
+        assert (method, path, body) == ("GET", PROBE, None)
+        assert cert and verify, "the tenant mTLS of every other call"
+
+    @pytest.mark.parametrize("exc", [requests.ConnectionError("refused"), requests.Timeout("slow"),
+                                     OSError("no CA bundle")])
+    def test_no_answer_is_unknown(self, env, monkeypatch, exc):
+        answer, calls = self._probe(monkeypatch, exc)
+        assert answer is None and len(calls) == 1
+
+    def test_an_exhausted_ingest_limiter_is_unknown(self, env, monkeypatch):
+        monkeypatch.setattr("sync.knovas_uploader.acquire_request", lambda: False)
+        answer, calls = self._probe(monkeypatch, 200)
+        assert answer is None and calls == []
