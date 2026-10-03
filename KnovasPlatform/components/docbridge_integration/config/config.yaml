@@ -68,10 +68,6 @@ api:
   # Keep false in production. Set true only for explicit mock/dev usage.
   allow_legacy_api_fallback: "${SEMANTIX_ALLOW_LEGACY_API_FALLBACK:-false}"
 
-  # When the tenant uses encrypted embeddings, POST /secured/query requires
-  # "encryption_matrix" (orthogonal matrix JSON). Path to a JSON file, or empty.
-  encryption_matrix_path: "${SEMANTIX_ENCRYPTION_MATRIX_PATH:-}"
-
   # Legacy authentication (only relevant in legacy/mock mode)
   auth_type: "bearer"  # or "api_key"
   api_key: "${SEMANTIX_API_KEY}"

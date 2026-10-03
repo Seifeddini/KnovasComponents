@@ -5,7 +5,6 @@ Handles communication with Knovas knowledge base API.
 
 import requests
 import logging
-import json
 from typing import Iterator, List, Dict, Any, Optional, Tuple, Union
 from urllib.parse import quote
 from datetime import datetime, timezone
@@ -1254,11 +1253,6 @@ class KnovasAPIClient:
         # is gone for good -- at renewal time, months after deployment.
         self._cert_lock = threading.RLock()
 
-        self.encryption_matrix_path = (
-            (self.config.get('api.encryption_matrix_path', '') or '').strip()
-            or (os.getenv('SEMANTIX_ENCRYPTION_MATRIX_PATH') or '').strip()
-        )
-
         self.endpoints = {
             'full_sync': self.config.get('api.endpoints.full_sync', '/api/docs/full-sync'),
             'new_doc': self.config.get('api.endpoints.new_doc', '/api/docs/new'),
@@ -1290,32 +1284,21 @@ class KnovasAPIClient:
         self._request_interval = 1.0 / self.requests_per_second if self.requests_per_second > 0 else 0
         self._session = self._build_session()
 
-    def _load_encryption_matrix(self) -> Optional[Any]:
-        """Optional orthogonal matrix for POST /secured/query when tenant uses encrypted embeddings."""
-        path = self.encryption_matrix_path
-        if not path or not os.path.isfile(path):
-            return None
-        try:
-            with open(path, encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as exc:
-            logger.warning('Could not load encryption matrix from %s: %s', path, exc)
-            return None
-
     def _secured_query_request_body(
         self,
         query: Union[str, List[str]],
         limit: Optional[int] = None,
-        filters: Optional[Dict[str, Any]] = None,
         where: Optional[Dict[str, Any]] = None,
         return_fields: Optional[Union[bool, List[str]]] = None,
     ) -> Dict[str, Any]:
-        """The /secured/query body.
+        """The /secured/query body: the keys Knovas reads (1.5.0).
 
-        ``where`` and ``return_fields`` are added only when given, so a query
-        without them is the body it has always been (D8). ``limit`` is
-        clamped to 50: the server answers 422 above it (QP:91-103), which
-        made every "Mehr laden" past 50 a failed search.
+        ``Input`` and ``limit``; ``where`` and ``return_fields`` only when
+        given, so a query without them is the body it has always been (D8).
+        ``top_k``, ``filters`` and ``encryption_matrix`` are not sent: the
+        server reads none of them (spec F7). ``limit`` is clamped to 50: the
+        server answers 422 above it (QP:91-103), which made every "Mehr
+        laden" past 50 a failed search.
         """
         if isinstance(query, list):
             inputs = [str(q).strip() for q in query if str(q).strip()]
@@ -1330,25 +1313,10 @@ class KnovasAPIClient:
         body: Dict[str, Any] = {'Input': body_input}
         if limit is not None and limit > 0:
             body['limit'] = min(int(limit), _SECURED_QUERY_MAX_LIMIT)
-            body['top_k'] = body['limit']
-        if filters:
-            # Forward case/matter scoping to the server instead of silently
-            # dropping it. Server-side filtering depends on tenant support, so
-            # surface it loudly rather than over-returning without a trace.
-            body['filters'] = filters
-            logger.warning(
-                "Secured query: forwarding %d filter(s) to /secured/query "
-                "(server-side scoping depends on tenant support): %s",
-                len(filters),
-                sorted(filters.keys()),
-            )
         if where is not None:
             body['where'] = where
         if return_fields is not None:
             body['return_fields'] = return_fields
-        matrix = self._load_encryption_matrix()
-        if matrix is not None:
-            body['encryption_matrix'] = matrix
         return body
 
     def _build_session(self) -> requests.Session:
@@ -2017,7 +1985,9 @@ class KnovasAPIClient:
         Args:
             query: Search query string
             limit: Maximum number of results
-            filters: Additional search filters
+            filters: Query parameters of the legacy GET search. /secured/query
+                reads no filters, so the secured path does not send them
+                (spec F7); the Platform applies its own filters to the answer.
             where: Document-fields filter; sent only when given. Only the
                 secured API carries it.
             return_fields: Document-field keys to return per hit; sent only
@@ -2037,8 +2007,7 @@ class KnovasAPIClient:
                 extra['where'] = where
             if return_fields is not None:
                 extra['return_fields'] = return_fields
-            return self._search_documents_secured(
-                query=query, limit=limit, filters=filters, **extra)
+            return self._search_documents_secured(query=query, limit=limit, **extra)
 
         if where is not None or return_fields is not None:
             # The legacy GET has nowhere to carry them; dropping them would
@@ -3070,7 +3039,6 @@ class KnovasAPIClient:
         self,
         query: Union[str, List[str]],
         limit: int,
-        filters: Optional[Dict[str, Any]] = None,
         where: Optional[Dict[str, Any]] = None,
         return_fields: Optional[Union[bool, List[str]]] = None,
     ) -> Dict[str, Any]:
@@ -3086,8 +3054,7 @@ class KnovasAPIClient:
             response = self._make_request(
                 method='POST',
                 endpoint=endpoint,
-                data=self._secured_query_request_body(
-                    query, limit=limit, filters=filters, **extra),
+                data=self._secured_query_request_body(query, limit=limit, **extra),
             )
         except requests.exceptions.HTTPError as exc:
             rejected = _query_rejection(exc, where_sent=where is not None) if extra else None

@@ -166,7 +166,6 @@ def _app_on_mock(platform_db, tmp_path, monkeypatch, mode, **kw):
                 "base_url": "https://knovas.test", "use_secured_api": True,
                 "cert_path": "/certs/client.crt", "key_path": "/certs/client.key",
                 "ca_cert_path": "/certs/ca.crt", "cert_auto_renew_enabled": False,
-                "encryption_matrix_path": "",
                 "rate_limit": {"requests_per_second": 0, "retry_attempts": 3,
                                "retry_backoff": 2},
             })
@@ -195,7 +194,7 @@ class TestRoutesOnTheMock:
         assert body["document_fields"]["capability"] == "off"
         sent = _queries(state)[-1]
         # Today's body, key for key (D8).
-        assert set(sent) == {"Input", "limit", "top_k", ASSERTION_FIELD}
+        assert set(sent) == {"Input", "limit", ASSERTION_FIELD}
         # "Mehr laden" past 50 used to be a 422 from Knovas.
         assert sent["limit"] == 50
         # One probe, nothing else of the feature.

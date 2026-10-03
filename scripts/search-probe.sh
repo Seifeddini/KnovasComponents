@@ -51,7 +51,7 @@ if cert and key:
 
 def ask(text, limit=10):
     """One /secured/query. Returns (pointers, error)."""
-    body = json.dumps({"Input": text, "limit": limit, "top_k": limit}).encode()
+    body = json.dumps({"Input": text, "limit": limit}).encode()
     request = urllib.request.Request(
         base + "/secured/query", data=body,
         headers={"Content-Type": "application/json"}, method="POST",

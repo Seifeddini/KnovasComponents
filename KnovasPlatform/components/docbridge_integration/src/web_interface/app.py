@@ -2016,10 +2016,10 @@ def create_app(config_path: Optional[str] = None):
                 def ask(n: int) -> Dict[str, Any]:
                     return _build_test_search_results(query=query, limit=n)
             else:
-                # exact_match is decided here, after Knovas answers -- it is not
-                # something /secured/query knows about. Forwarding it would put
-                # an unknown key in the request body and a warning in the log on
-                # every single search.
+                # exact_match is decided here, after Knovas answers. /secured/query
+                # reads no filters at all (the client leaves them out, spec F7);
+                # only the legacy GET forwards them, as query parameters, so a
+                # local-only key stays here.
                 knovas_filters = {k: v for k, v in (filters or {}).items()
                                   if k not in _LOCAL_ONLY_FILTERS}
 

@@ -81,6 +81,9 @@ Feldbereich der Vorschau.
   der Plattform verwirft die Felder je Ordner; uebertraegt die alte Plattform
   das Profil, loescht RemoteController die Upload-Werte der betroffenen
   Dokumente beim naechsten erneuten Senden.
+- Die Suche schickt `top_k`, `filters` und `encryption_matrix` nicht mehr an
+  Knovas, und `SEMANTIX_ENCRYPTION_MATRIX_PATH` wird nicht mehr gelesen: der
+  Server liest keinen dieser Schluessel (Knovas 1.5.0). `limit` bleibt.
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),

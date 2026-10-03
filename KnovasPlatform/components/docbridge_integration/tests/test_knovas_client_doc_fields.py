@@ -104,11 +104,22 @@ def _calls(client):
 # ---------------------------------------------------------------------------
 
 class TestSearchBody:
-    def test_without_the_new_keys_the_body_is_todays(self):
+    def test_the_body_carries_only_what_knovas_reads(self):
+        """F7: /secured/query reads Input and limit (plus where and
+        return_fields); top_k, filters and encryption_matrix it never read."""
         client = secured(Resp(200, {"results": []}), broker=False)
         client.search_documents("Mietvertrag", limit=5, filters={"akten_id": "A-42"})
-        assert _calls(client)[0]["json"] == {
-            "Input": "Mietvertrag", "limit": 5, "top_k": 5, "filters": {"akten_id": "A-42"}}
+        assert _calls(client)[0]["json"] == {"Input": "Mietvertrag", "limit": 5}
+
+    def test_an_encryption_matrix_file_is_not_read(self, tmp_path, monkeypatch):
+        matrix = tmp_path / "matrix.json"
+        matrix.write_text("[[1, 0], [0, 1]]", encoding="utf-8")
+        monkeypatch.setenv("SEMANTIX_ENCRYPTION_MATRIX_PATH", str(matrix))
+        client = secured(Resp(200, {"results": []}), broker=False)
+        client.search_documents("q", limit=5, where={"doc_type": "invoice"},
+                                return_fields=["title"])
+        assert set(_calls(client)[0]["json"]) == {"Input", "limit", "where", "return_fields"}
+        assert not hasattr(client, "encryption_matrix_path")
 
     def test_where_and_return_fields_go_out_only_when_given(self):
         client = secured(Resp(200, {"results": []}))
@@ -126,7 +137,7 @@ class TestSearchBody:
         client = secured(Resp(200, {"results": []}))
         client.search_documents("q", limit=limit)
         body = _calls(client)[0]["json"]
-        assert body["limit"] == sent and body["top_k"] == sent
+        assert body["limit"] == sent and "top_k" not in body
 
     def test_a_non_positive_limit_still_sends_none(self):
         client = secured(Resp(200, {"results": []}))
