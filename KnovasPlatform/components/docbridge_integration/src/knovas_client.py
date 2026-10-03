@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from tempfile import NamedTemporaryFile
 from tenacity import (
+    RetryError,
     retry,
     stop_after_attempt,
     wait_exponential,
@@ -27,6 +28,7 @@ from tenacity import (
 )
 
 from config_loader import get_config
+from doc_fields_view import display_title as _doc_fields_display_title
 from part_metadata import enrich_transmit_parts_with_location
 
 
@@ -263,6 +265,13 @@ def _unwrap_secured_query_response(result: Dict[str, Any]) -> Dict[str, Any]:
         out["status"] = data.get("status")
     if out.get("message") is None:
         out["message"] = data.get("message")
+    # The honesty keys (no_strong_matches, the where echo, ...) travel at the
+    # top level today; a nested build must not lose them, because a missing
+    # `where` echo reads as "not filtered" and withholds the results.
+    for key in ("no_strong_matches", "no_results_reason", "relevance_gate_applied",
+                "meta", "where", "return_fields"):
+        if key not in out and key in data:
+            out[key] = data[key]
     return out
 
 
@@ -876,6 +885,18 @@ def _secured_query_hit_to_row(item: Dict[str, Any]) -> Dict[str, Any]:
             break
     if top_chunks:
         row["top_chunks"] = top_chunks
+    # Document fields (only on a request that asked for them). Copied as
+    # Knovas sent them: a result shows fields only when the server returned
+    # them (H4), and a values title replaces the file-name stem only when it
+    # is a real title (doc_fields_view.title_from_values).
+    fields = item.get("fields")
+    if isinstance(fields, dict):
+        row["fields"] = fields
+        row["title"], row["title_from_values"] = _doc_fields_display_title(
+            pointer, item.get("title"), fields.get("title"))
+    for key in ("relevance_tier", "score_mode"):
+        if isinstance(item.get(key), str):
+            row[key] = item[key]
     return row
 
 
@@ -897,11 +918,197 @@ class GraphError(Exception):
     what error_code carries.
     """
 
-    def __init__(self, status: int, error_code: Optional[str], message: str):
+    def __init__(self, status: int, error_code: Optional[str], message: str,
+                 *, details: Optional[Dict[str, Any]] = None):
         super().__init__(f"{status} {error_code or ''}: {message}".strip())
         self.status = status
         self.error_code = error_code
         self.message = message
+        # Only what says WHERE the request went wrong (a JSON path, field
+        # keys, a version) -- never anything that could carry a value.
+        self.details = _error_details(details)
+
+
+def _error_details(body: Any) -> Dict[str, Any]:
+    """The parts of a Knovas error body a caller may act on.
+
+    Document-fields errors name a JSON path (``set.doc_type[0]``), registry
+    keys (``suggest``, ``candidates``), the current version, or per-key
+    ``errors[{path, code}]``. The server never echoes a value (DF/errors.py);
+    this whitelist keeps it that way on this side too, whatever arrives.
+    """
+    if not isinstance(body, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    path = body.get("path")
+    if isinstance(path, str) and path:
+        out["path"] = path[:200]
+    for key in ("suggest", "candidates"):
+        value = body.get(key)
+        if isinstance(value, list):
+            kept = [v for v in value if isinstance(v, str)]
+            if kept:
+                out[key] = kept
+        elif key == "suggest" and isinstance(value, dict):
+            # The init echo's form: {sent key: [registry keys]}.
+            out[key] = {
+                str(k): [v for v in vs if isinstance(v, str)]
+                for k, vs in value.items() if isinstance(vs, list)
+            }
+    version = body.get("current_version")
+    if isinstance(version, int) and not isinstance(version, bool):
+        out["current_version"] = version
+    errors = body.get("errors")
+    if isinstance(errors, list):
+        kept_errors = [
+            {k: e[k] for k in ("path", "code") if isinstance(e.get(k), str)}
+            for e in errors if isinstance(e, dict)
+        ]
+        kept_errors = [e for e in kept_errors if e]
+        if kept_errors:
+            out["errors"] = kept_errors
+    return out
+
+
+class DocFieldsUnavailable(RuntimeError):
+    """Document fields are off for this tenant, or Knovas predates them.
+
+    Every /secured/graph/doc-* route then answers 404 ``HTTP_404``, the same
+    bytes as an unknown route (doc_fields_api.py:317-349). Distinct from
+    DocFieldsError because the caller's answer is different: hide the
+    feature (and tell the capability cache), rather than show an error.
+    """
+
+    def __init__(self, message: str = "Document fields are not enabled at Knovas",
+                 status: int = 404, error_code: Optional[str] = "HTTP_404"):
+        super().__init__(message)
+        self.status = status
+        self.error_code = error_code
+
+
+class DocFieldsError(GraphError):
+    """A document-fields call failed with an answer the caller can map.
+
+    ``error_code`` is the server's code (``version_conflict``,
+    ``unknown_field``, ...). Two codes are made on this side, so a caller
+    never has to catch transport exceptions as well: ``transport_error``
+    (status 503, no answer at all) and ``invalid_response`` (status 502, a
+    2xx without a JSON object).
+    """
+
+
+class QueryRejected(Exception):
+    """/secured/query refused a request that carried ``where`` or
+    ``return_fields`` with a document-fields error code.
+
+    Raised only for such requests. A query without either key fails exactly
+    as it always has (HTTPError), so unfiltered search keeps today's errors.
+    """
+
+    def __init__(self, status: int, error_code: Optional[str],
+                 details: Optional[Dict[str, Any]] = None):
+        super().__init__(f"{status} {error_code or ''}".strip())
+        self.status = status
+        self.error_code = error_code
+        self.details = _error_details(details)
+
+
+# Error codes of the document-fields feature (DF/errors.py, the contract's
+# error catalogue). A query error with one of these is about ``where`` or
+# ``return_fields``; anything else is an ordinary query failure.
+DOC_FIELDS_ERROR_CODES = frozenset({
+    "invalid_fields", "fields_too_large", "ambiguous_field", "unknown_field",
+    "invalid_value", "type_mismatch", "checksum_failed", "restricted_identifier",
+    "key_looks_personal", "ambiguous_date", "unresolved_entity", "ambiguous_entity",
+    "if_version_required", "invalid_field_definition", "where_unsupported",
+    "where_too_complex", "invalid_cursor", "change_not_authorized",
+    "registry_write_requires_full_clearance", "version_conflict",
+    "anchor_quarantined", "field_key_exists", "field_cap_reached",
+    "field_type_locked", "doc_fields_unavailable", "doc_fields_ingest_unavailable",
+    "where_unavailable", "where_requires_calibration", "pack_not_found",
+})
+
+
+def _is_doc_fields_code(code: Any) -> bool:
+    return isinstance(code, str) and (
+        code in DOC_FIELDS_ERROR_CODES or code.startswith("doc_fields_")
+    )
+
+
+def _query_rejection(exc: requests.exceptions.HTTPError, *,
+                     where_sent: bool) -> Optional[QueryRejected]:
+    """The QueryRejected an HTTPError on a doc-fields query stands for."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    code = body.get("error_code")
+    # A query with ``where`` is always relevance-gated (QP:1085-1096), so a
+    # missing relevance calibration is part of what ``where`` asked for.
+    if _is_doc_fields_code(code) or (where_sent and code == "relevance_mode_calibration_missing"):
+        return QueryRejected(response.status_code, code, body)
+    return None
+
+
+def _secured_query_honesty(result: Dict[str, Any]) -> Dict[str, Any]:
+    """What /secured/query says about how far its answer can be trusted.
+
+    The scalars are always present (None from a server that predates them),
+    so a caller reads one shape. ``where`` and ``return_fields`` appear only
+    when Knovas echoed them: their absence means "not filtered" (H2).
+    """
+    meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+
+    def _flag(value: Any) -> Optional[bool]:
+        return value if isinstance(value, bool) else None
+
+    reason = result.get("no_results_reason")
+    out: Dict[str, Any] = {
+        "no_strong_matches": _flag(result.get("no_strong_matches")),
+        "no_results_reason": reason if isinstance(reason, str) else None,
+        "relevance_gate_applied": _flag(result.get("relevance_gate_applied")),
+        "degraded_to_bm25": _flag(meta.get("degraded_to_bm25")),
+    }
+    where = result.get("where")
+    if isinstance(where, dict):
+        out["where"] = {k: where[k] for k in ("applied", "clauses", "resolved", "may_be_partial")
+                        if k in where}
+    return_fields = result.get("return_fields")
+    if isinstance(return_fields, dict):
+        out["return_fields"] = {"applied": return_fields.get("applied")}
+    return out
+
+
+def _doc_fields_body(payload: Any) -> Dict[str, Any]:
+    """A doc-fields answer without the envelope's ``status`` / ``message``."""
+    if not isinstance(payload, dict):
+        return {}
+    return {k: v for k, v in payload.items() if k not in ("status", "message")}
+
+
+def _classify_doc_fields_probe(response: Any) -> str:
+    """off / values / filters / unknown from the probe's answer (spec 2.2)."""
+    status = getattr(response, "status_code", 0)
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    code = body.get("error_code") if isinstance(body, dict) else None
+    if status == 404:
+        # NOT_FOUND / pack_not_found are answers of a LIVE route; every other
+        # 404 -- HTTP_404, knowledge_graph_disabled, a non-JSON page from an
+        # old server or a proxy -- means the feature is not there.
+        return "unknown" if code in ("NOT_FOUND", "pack_not_found") else "off"
+    if status == 400 and code == "where_unsupported":
+        return "values"
+    if status == 400 and code == "invalid_value" and body.get("path") == "where":
+        return "filters"
+    return "unknown"
 
 
 def _graph_payload_list(payload: Any, *candidate_keys: str,
@@ -938,6 +1145,12 @@ def _graph_payload_list(payload: Any, *candidate_keys: str,
 # A cross-repo wire contract with no shared import: renaming either side is a
 # silent break that surfaces as "search returns nothing" on a BROKERED tenant.
 ASSERTION_FIELD = "principal_assertion"
+
+# /secured/query refuses a limit above 50 with 422 (QP:91-103).
+_SECURED_QUERY_MAX_LIMIT = 50
+# POST /secured/graph/doc-values/find caps its page at 200
+# (DOC_FIELDS_FIND_MAX_LIMIT); a larger limit would only be cut down there.
+_DOC_FIELDS_FIND_MAX_LIMIT = 200
 
 
 def flatten_access_groups(nodes: List[Any]) -> List[Dict[str, Any]]:
@@ -1094,7 +1307,16 @@ class KnovasAPIClient:
         query: Union[str, List[str]],
         limit: Optional[int] = None,
         filters: Optional[Dict[str, Any]] = None,
+        where: Optional[Dict[str, Any]] = None,
+        return_fields: Optional[Union[bool, List[str]]] = None,
     ) -> Dict[str, Any]:
+        """The /secured/query body.
+
+        ``where`` and ``return_fields`` are added only when given, so a query
+        without them is the body it has always been (D8). ``limit`` is
+        clamped to 50: the server answers 422 above it (QP:91-103), which
+        made every "Mehr laden" past 50 a failed search.
+        """
         if isinstance(query, list):
             inputs = [str(q).strip() for q in query if str(q).strip()]
             if not inputs:
@@ -1107,8 +1329,8 @@ class KnovasAPIClient:
             body_input = q
         body: Dict[str, Any] = {'Input': body_input}
         if limit is not None and limit > 0:
-            body['limit'] = int(limit)
-            body['top_k'] = int(limit)
+            body['limit'] = min(int(limit), _SECURED_QUERY_MAX_LIMIT)
+            body['top_k'] = body['limit']
         if filters:
             # Forward case/matter scoping to the server instead of silently
             # dropping it. Server-side filtering depends on tenant support, so
@@ -1120,6 +1342,10 @@ class KnovasAPIClient:
                 len(filters),
                 sorted(filters.keys()),
             )
+        if where is not None:
+            body['where'] = where
+        if return_fields is not None:
+            body['return_fields'] = return_fields
         matrix = self._load_encryption_matrix()
         if matrix is not None:
             body['encryption_matrix'] = matrix
@@ -1510,6 +1736,42 @@ class KnovasAPIClient:
         response.raise_for_status()
         return response
 
+    def _request_quiet(
+        self,
+        method: str,
+        endpoint: str,
+        data: Optional[Dict] = None,
+    ) -> requests.Response:
+        """One request, the assertion attached, and nothing else.
+
+        No tenacity, no raise_for_status and no ERROR line with the body:
+        the answer is returned whatever its status. Used only by the
+        document-fields probe, whose expected answers are a 404 or a 400 --
+        through _make_request every worker would log an ERROR per probe on a
+        server with the feature off. Transport errors still raise.
+        """
+        # The assertion first: with nobody signed in nothing is sent, and a
+        # refused call should not cost a rate-limit slot either.
+        data = self._with_principal(data)
+        self._rate_limit()
+        self._ensure_certificate_freshness()
+        return self._session.request(
+            method=method,
+            url=f"{self.base_url}{endpoint}",
+            json=data,
+            headers=self._get_headers(),
+            timeout=self.http_read_timeout,
+            allow_redirects=False,
+        )
+
+    def secured_mode(self) -> bool:
+        """Whether this client speaks the secured API over mTLS.
+
+        Document fields exist only there: the legacy GET search has nowhere
+        to carry ``where`` (D13).
+        """
+        return bool(self.use_secured_api and self.mtls_enabled)
+
     def delete_all_documents(self, confirm_client_id: str) -> Dict[str, Any]:
         """DELETE /secured/delete_all_documents — erase the whole corpus.
 
@@ -1744,7 +2006,10 @@ class KnovasAPIClient:
         self,
         query: Union[str, List[str]],
         limit: int = 20,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        *,
+        where: Optional[Dict[str, Any]] = None,
+        return_fields: Optional[Union[bool, List[str]]] = None,
     ) -> Dict[str, Any]:
         """
         Search documents in Knovas.
@@ -1753,12 +2018,34 @@ class KnovasAPIClient:
             query: Search query string
             limit: Maximum number of results
             filters: Additional search filters
+            where: Document-fields filter; sent only when given. Only the
+                secured API carries it.
+            return_fields: Document-field keys to return per hit; sent only
+                when given. Only the secured API carries it.
             
         Returns:
             Search results
+
+        Raises:
+            ValueError: ``where`` or ``return_fields`` in legacy mode (D13).
+            QueryRejected: Knovas refused a request that carried ``where``
+                or ``return_fields`` with a document-fields error code.
         """
         if self.use_secured_api and self.mtls_enabled:
-            return self._search_documents_secured(query=query, limit=limit, filters=filters)
+            extra: Dict[str, Any] = {}
+            if where is not None:
+                extra['where'] = where
+            if return_fields is not None:
+                extra['return_fields'] = return_fields
+            return self._search_documents_secured(
+                query=query, limit=limit, filters=filters, **extra)
+
+        if where is not None or return_fields is not None:
+            # The legacy GET has nowhere to carry them; dropping them would
+            # turn a filtered search into an unfiltered one that looks filtered.
+            raise ValueError(
+                "where/return_fields need the secured API (use_secured_api with mTLS)."
+            )
 
         if self.use_secured_api and not self.allow_legacy_api_fallback:
             raise RuntimeError(
@@ -1834,12 +2121,18 @@ class KnovasAPIClient:
                     failure = response.json() or {}
                 except ValueError:
                     failure = {}
+                if not isinstance(failure, dict):
+                    failure = {}
                 raise GraphError(
                     response.status_code,
                     failure.get('error_code'),
+                    # Knovas puts its fixed text under "error" (the doc-fields
+                    # envelope) or "message"; either is better than nothing.
                     # getattr, because a response double in the tests carries no
                     # reason and an AttributeError here would hide the real status.
-                    failure.get('message') or getattr(response, 'reason', '') or '',
+                    failure.get('message') or failure.get('error')
+                    or getattr(response, 'reason', '') or '',
+                    details=failure,
                 ) from exc
             body: Dict[str, Any] = {}
             try:
@@ -2174,6 +2467,308 @@ class KnovasAPIClient:
         return self._graph_request(
             'POST', f'/placements/{quote(str(placement_id), safe="")}/restore')
 
+    # -- Document fields (typed values per document) -------------------------
+    # Contract: KnowledgeBase docs/Knovas_Developer_Kit/api/Knowledge_Graph_API.md
+    # and the integration spec (4.1). Three rules hold for every method here:
+    # the assertion rides in every body, GETs included (_with_principal);
+    # pointers and names travel in the JSON body, never in the URL, because
+    # the gateway logs request lines; and writes are sent exactly once
+    # (_request_no_retry) -- a replayed PATCH that already committed would
+    # come back 409 and read as a conflict the person never caused.
+
+    def _doc_fields_call(
+        self,
+        method: str,
+        path: str,
+        *,
+        data: Optional[Dict[str, Any]] = None,
+        write: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """One /secured/graph doc-fields call; the body without its envelope.
+
+        404 ``NOT_FOUND`` (an unknown or invisible pointer, field or rule) is
+        None, the documented "not yours". 404 ``pack_not_found`` is a
+        DocFieldsError. Any other 404 -- ``HTTP_404`` for a tenant with the
+        feature off -- is DocFieldsUnavailable. Every other status of 400 or
+        more is a DocFieldsError carrying the code and the whitelisted
+        details; no answer at all is DocFieldsError ``transport_error``.
+        """
+        endpoint = f"/secured/graph{path}"
+        send = self._request_no_retry if write else self._make_request
+        try:
+            response = send(method=method, endpoint=endpoint, data=data)
+        except requests.exceptions.HTTPError as exc:
+            response = exc.response
+            if response is None:
+                raise DocFieldsError(503, 'transport_error', 'no response') from exc
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            body = body if isinstance(body, dict) else {}
+            code = body.get('error_code')
+            status = response.status_code
+            if status == 404:
+                if code == 'NOT_FOUND':
+                    return None
+                if code != 'pack_not_found':
+                    logger.info("Document fields off at Knovas: %s %s -> 404 %s",
+                                method, endpoint, code or '<no code>')
+                    raise DocFieldsUnavailable(status=404, error_code=code) from exc
+            if code is None and status == 429:
+                code = 'too_many_requests'  # the rate-limit body has no error_code
+            raise DocFieldsError(
+                status, code,
+                body.get('message') or body.get('error')
+                or getattr(response, 'reason', '') or '',
+                details=body,
+            ) from exc
+        except (requests.exceptions.RequestException, RetryError) as exc:
+            raise DocFieldsError(
+                503, 'transport_error', type(exc).__name__) from exc
+        if response.status_code in (204, 205):
+            return {}
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            raise DocFieldsError(502, 'invalid_response',
+                                 'Knovas answered without a JSON object')
+        return _doc_fields_body(payload)
+
+    def _doc_fields_listing(self, method: str, path: str, *,
+                            data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """A read whose route always exists while the feature is on. A
+        NOT_FOUND there is not "not yours", so it is not folded into an
+        empty answer -- the same 404-as-empty that has reported failure as
+        success in this client before."""
+        payload = self._doc_fields_call(method, path, data=data)
+        if payload is None:
+            raise DocFieldsUnavailable(status=404, error_code='NOT_FOUND')
+        return payload
+
+    def doc_fields_probe(self) -> str:
+        """Which document-fields capability Knovas offers this tenant.
+
+        ``POST /secured/graph/doc-values/find`` with ``{}`` (plus the
+        assertion): never billed (only success is), no side effects, one
+        METADATA admission. Answers ``off``, ``values``, ``filters`` or
+        ``unknown`` (spec 2.2). Sent through _request_quiet, so a feature-off
+        answer leaves no ERROR line. Raises PermissionError when a broker is
+        attached and nobody is signed in -- nothing was sent then.
+        """
+        try:
+            response = self._request_quiet('POST', '/secured/graph/doc-values/find', {})
+        except PermissionError:
+            raise
+        except requests.exceptions.RequestException as exc:
+            logger.info("Document fields probe: no answer (%s)", type(exc).__name__)
+            return 'unknown'
+        answer = _classify_doc_fields_probe(response)
+        logger.info("Document fields probe: HTTP %s -> %s",
+                    getattr(response, 'status_code', '?'), answer)
+        return answer
+
+    def doc_fields(self) -> List[Dict[str, Any]]:
+        """GET /secured/graph/doc-fields - the field registry, sorted by key.
+
+        Deprecated fields are included. The first read of an empty registry
+        installs ``core`` at Knovas, which is why the probe never uses this.
+        """
+        return _graph_payload_list(
+            self._doc_fields_listing('GET', '/doc-fields'), 'fields', strict=True)
+
+    def create_doc_field(self, defn: Dict[str, Any]) -> Dict[str, Any]:
+        """POST /secured/graph/doc-fields - a new field; returns the field."""
+        if not isinstance(defn, dict) or not defn.get('key'):
+            raise ValueError('a field definition needs at least a key')
+        payload = self._doc_fields_call('POST', '/doc-fields', data=dict(defn), write=True)
+        return dict((payload or {}).get('field') or {})
+
+    def update_doc_field(self, field_id: str,
+                         changes: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/doc-fields/<id>; the field, None if unknown."""
+        if not isinstance(changes, dict) or not changes:
+            raise ValueError(
+                'update_doc_field needs at least one change: an empty PATCH '
+                'would be a write that does not happen.')
+        payload = self._doc_fields_call(
+            'PATCH', f'/doc-fields/{quote(str(field_id), safe="")}',
+            data=dict(changes), write=True)
+        return None if payload is None else dict(payload.get('field') or {})
+
+    def deprecate_doc_field(self, field_id: str) -> Optional[Dict[str, Any]]:
+        """POST /secured/graph/doc-fields/<id>/deprecate; None if unknown.
+
+        The field keeps its values and still matches ``where`` by its exact
+        key; uploads naming it are no longer taken.
+        """
+        payload = self._doc_fields_call(
+            'POST', f'/doc-fields/{quote(str(field_id), safe="")}/deprecate', write=True)
+        return None if payload is None else dict(payload.get('field') or {})
+
+    def doc_field_packs(self) -> List[Dict[str, Any]]:
+        """GET /secured/graph/doc-fields/packs -
+        ``[{key, version, installed, installed_version}]`` (no labels)."""
+        return _graph_payload_list(
+            self._doc_fields_listing('GET', '/doc-fields/packs'), 'packs', strict=True)
+
+    def install_doc_field_pack(self, pack: str) -> Dict[str, Any]:
+        """POST /secured/graph/doc-fields/packs/<pack>/install -
+        ``{installed, skipped, warnings}``. An unknown pack is DocFieldsError
+        ``pack_not_found``."""
+        payload = self._doc_fields_call(
+            'POST', f'/doc-fields/packs/{quote(str(pack), safe="")}/install', write=True)
+        if payload is None:
+            raise DocFieldsError(404, 'pack_not_found', 'Field pack not found')
+        return payload
+
+    def doc_field_settings(self) -> Dict[str, Any]:
+        """GET /secured/graph/doc-fields/settings - ``{unknown_keys, date_order}``."""
+        return self._doc_fields_listing('GET', '/doc-fields/settings')
+
+    def set_doc_field_settings(self, unknown_keys: Optional[str] = None,
+                               date_order: Optional[str] = None) -> Dict[str, Any]:
+        """PUT /secured/graph/doc-fields/settings with the keys given."""
+        body: Dict[str, Any] = {}
+        if unknown_keys is not None:
+            body['unknown_keys'] = unknown_keys
+        if date_order is not None:
+            body['date_order'] = date_order
+        if not body:
+            raise ValueError('set_doc_field_settings needs unknown_keys or date_order')
+        payload = self._doc_fields_call('PUT', '/doc-fields/settings', data=body, write=True)
+        if payload is None:
+            raise DocFieldsUnavailable(status=404, error_code='NOT_FOUND')
+        return payload
+
+    def doc_field_rules(self) -> List[Dict[str, Any]]:
+        """GET /secured/graph/doc-field-rules - the live folder rules.
+
+        Needs the tenant-admin group or full clearance at Knovas, the GET
+        included (doc_fields_api.py:802-814): a 403 is a DocFieldsError
+        ``registry_write_requires_full_clearance`` the caller explains.
+        """
+        return _graph_payload_list(
+            self._doc_fields_listing('GET', '/doc-field-rules'), 'rules', strict=True)
+
+    def put_doc_field_rule(self, prefix: str, values: Dict[str, Any]) -> Dict[str, Any]:
+        """PUT /secured/graph/doc-field-rules - set a folder default.
+
+        ``prefix`` must end in ``/``: the server matches with a raw
+        ``startswith`` (rules.py:93). Returns ``{rule, reapply_job_id,
+        warnings?}``; existing documents are updated by a background job.
+        """
+        prefix = str(prefix or '')
+        if not prefix.strip() or not prefix.endswith('/'):
+            raise ValueError("a rule prefix must be non-empty and end with '/'")
+        if not isinstance(values, dict) or not values:
+            raise ValueError('a rule needs at least one field value')
+        payload = self._doc_fields_call(
+            'PUT', '/doc-field-rules',
+            data={'pointer_prefix': prefix, 'set': dict(values)}, write=True)
+        if payload is None:
+            raise DocFieldsUnavailable(status=404, error_code='NOT_FOUND')
+        return payload
+
+    def retire_doc_field_rule(self, prefix: str) -> Optional[Dict[str, Any]]:
+        """DELETE /secured/graph/doc-field-rules with the prefix in the body.
+
+        ``{retired, reapply_job_id}``; None when no live rule has the prefix.
+        """
+        if not str(prefix or '').strip():
+            raise ValueError('a rule prefix is required')
+        return self._doc_fields_call(
+            'DELETE', '/doc-field-rules', data={'pointer_prefix': str(prefix)}, write=True)
+
+    def doc_values(self, pointer: str) -> Optional[Dict[str, Any]]:
+        """GET /secured/graph/doc-values with ``{"pointer"}`` in the body.
+
+        The values view (version, title, fields, layers); None when the
+        document is unknown or not visible to the person. A server that
+        reads the pointer only from the query string answers 400
+        ``invalid_value`` with path ``pointer``: there is deliberately no
+        fallback to the query string (spec 5, S2).
+        """
+        pointer = str(pointer or '').strip()
+        if not pointer:
+            raise ValueError('pointer is required')
+        return self._doc_fields_call('GET', '/doc-values', data={'pointer': pointer})
+
+    def patch_doc_values(
+        self,
+        pointer: str,
+        if_version: int,
+        *,
+        set: Optional[Dict[str, Any]] = None,  # noqa: A002 - the wire name
+        unset: Optional[List[str]] = None,
+        add: Optional[Dict[str, Any]] = None,
+        remove: Optional[Dict[str, Any]] = None,
+        fields_strict: bool = False,
+        actor_ref: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/doc-values - manual values, sent once.
+
+        ``fields_strict`` defaults to False: Knovas keeps every value it can
+        normalise and returns ``warnings`` per key (``unresolved_entity``,
+        ``ambiguous_date``) instead of refusing a name typed into a field
+        without a target type (D12). The answer's ``fields`` is ``{}`` when
+        no typed key was named; read again for the effective values.
+        None when the document is unknown or not visible.
+        """
+        pointer = str(pointer or '').strip()
+        if not pointer:
+            raise ValueError('pointer is required')
+        if isinstance(if_version, bool) or not isinstance(if_version, int) or if_version < 0:
+            raise ValueError('if_version must be the non-negative version that was read')
+        if actor_ref is not None and (not str(actor_ref).strip() or '@' in str(actor_ref)):
+            # Knovas stores it on every value event; it is a pseudonymous id,
+            # never an address.
+            raise ValueError('actor_ref must be an opaque id, not an e-mail address')
+        body: Dict[str, Any] = {'pointer': pointer, 'if_version': if_version}
+        for name, value in (('set', set), ('unset', unset), ('add', add), ('remove', remove)):
+            if value:
+                body[name] = value
+        if len(body) == 2:
+            raise ValueError(
+                'patch_doc_values needs set, unset, add or remove: an empty '
+                'PATCH would be a write that does not happen.')
+        body['fields_strict'] = bool(fields_strict)
+        if actor_ref is not None:
+            body['actor_ref'] = str(actor_ref)
+        return self._doc_fields_call('PATCH', '/doc-values', data=body, write=True)
+
+    def find_doc_values(
+        self,
+        where: Dict[str, Any],
+        *,
+        sort: Optional[Dict[str, Any]] = None,
+        limit: int = 50,
+        after: Optional[str] = None,
+        return_fields: Optional[Union[bool, List[str]]] = None,
+    ) -> Dict[str, Any]:
+        """POST /secured/graph/doc-values/find - one page of the listing.
+
+        ``{documents, next_after, complete, total_count?, where,
+        return_fields?}``. Pages may be short or empty while ``next_after``
+        is set; the walk is over when it is null. The cursor does not bind
+        ``where``: send the same ``where`` for every page.
+        """
+        if not isinstance(where, dict) or not where:
+            raise ValueError('find_doc_values needs a non-empty where')
+        body: Dict[str, Any] = {
+            'where': where,
+            'limit': max(1, min(_DOC_FIELDS_FIND_MAX_LIMIT, int(limit))),
+        }
+        if sort is not None:
+            body['sort'] = sort
+        if after:
+            body['after'] = str(after)
+        if return_fields is not None:
+            body['return_fields'] = return_fields
+        return self._doc_fields_listing('POST', '/doc-values/find', data=body)
+
     # -- RBAC: Zugriffsgruppen, Dokument-ACL, Ordnerregeln ------------------
 
     def _rbac_request(
@@ -2476,13 +3071,29 @@ class KnovasAPIClient:
         query: Union[str, List[str]],
         limit: int,
         filters: Optional[Dict[str, Any]] = None,
+        where: Optional[Dict[str, Any]] = None,
+        return_fields: Optional[Union[bool, List[str]]] = None,
     ) -> Dict[str, Any]:
         endpoint = self.endpoints.get('query', '/secured/query')
-        response = self._make_request(
-            method='POST',
-            endpoint=endpoint,
-            data=self._secured_query_request_body(query, limit=limit, filters=filters),
-        )
+        # The new keys reach the body builder only when given, so a query
+        # without them takes exactly the path it always took.
+        extra: Dict[str, Any] = {}
+        if where is not None:
+            extra['where'] = where
+        if return_fields is not None:
+            extra['return_fields'] = return_fields
+        try:
+            response = self._make_request(
+                method='POST',
+                endpoint=endpoint,
+                data=self._secured_query_request_body(
+                    query, limit=limit, filters=filters, **extra),
+            )
+        except requests.exceptions.HTTPError as exc:
+            rejected = _query_rejection(exc, where_sent=where is not None) if extra else None
+            if rejected is not None:
+                raise rejected from exc
+            raise
         result = _unwrap_secured_query_response(response.json())
         # Coerce to [] so a null/absent "results" never crashes None[:limit].
         raw_hits = (result.get("results") or [])[:limit]
@@ -2521,6 +3132,7 @@ class KnovasAPIClient:
             'pointers': result.get('pointers'),
             'query_session_id': result.get('query_session_id'),
         }
+        semantix_meta.update(_secured_query_honesty(result))
 
         return {
             'results': normalized_results,

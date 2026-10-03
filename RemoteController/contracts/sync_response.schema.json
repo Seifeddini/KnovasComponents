@@ -26,6 +26,7 @@
         "type": "object",
         "required": ["path", "status"],
         "additionalProperties": true,
+        "description": "One upload of this run. When the init carried Knovas document fields, the entry also has `fields`: {outcome, staged, warning_codes} -- codes and counts only, never values.",
         "properties": {
           "path": { "type": "string" },
           "transmission_key_id": { "type": "string" },
@@ -54,8 +55,13 @@
         "synced": { "type": "integer", "minimum": 0 },
         "pending": { "type": "integer", "minimum": 0 },
         "modified": { "type": "integer", "minimum": 0 },
-        "excluded_max_age": { "type": "integer", "minimum": 0 }
+        "excluded_max_age": { "type": "integer", "minimum": 0 },
+        "fields_changed": { "type": "integer", "minimum": 0 }
       }
+    },
+    "doc_fields": {
+      "type": "object",
+      "description": "Knovas document-fields summary of this run (outcome counts, refusal and warning codes, client-side drops). Keys and codes only, never values."
     }
   }
 }

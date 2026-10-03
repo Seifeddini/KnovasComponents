@@ -165,6 +165,10 @@ services:
     # (RC_EXTRACT_TIMEOUT_SECONDS, default 120 s), or gunicorn kills the worker
     # before the request thread can kill the extraction child and report
     # "extraction timeout". Lower RC_EXTRACT_TIMEOUT_SECONDS before lowering this.
+    # --access-logformat keeps that line free of the request URI: time, method,
+    # status, size and duration, like the nginx in front (knovas_privacy). The
+    # default format's request line (%(r)s), path (%(U)s), query (%(q)s) and
+    # referer (%(f)s) carry document pointers and search text.
     command: >
       sh -c "mkdir -p $${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker} && gunicorn
       --workers=$${DOCBRIDGE_WEB_WORKERS:-2}
@@ -172,6 +176,7 @@ services:
       --timeout=$${DOCBRIDGE_WEB_TIMEOUT:-180}
       --bind=0.0.0.0:5000
       --access-logfile=-
+      --access-logformat='%(t)s %(m)s %(s)s %(b)s %(L)s'
       web_interface.wsgi:app"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/stats', timeout=5)"]
@@ -220,6 +225,11 @@ services:
     build:
       context: ./KnovasPlatform/mock_knovas_api
       dockerfile: Dockerfile
+    environment:
+      # Which Knovas document-fields state the mock plays: off (an old server,
+      # the default), values or filters. The compose demo runs the Platform in
+      # legacy mode, which never reaches doc fields; the tests use the modes.
+      MOCK_DOC_FIELDS: ${MOCK_DOC_FIELDS:-off}
     expose:
       - "5000"
     healthcheck:

@@ -1,0 +1,93 @@
+{
+  "name": "find_first_page",
+  "description": "First page of a listing (limit 2 of 3 matches): a cursor, complete false while a page follows, total_count on the first page only (to a caller who may read every document).",
+  "server_state": "filters",
+  "setup": [
+    {
+      "method": "POST",
+      "path": "/secured/init_document_transmission",
+      "body": {
+        "identifier": "rc-sync/Beispiel GmbH/Rechnung_1.pdf",
+        "part_count": 1,
+        "title": "Rechnung_1.pdf",
+        "path": "Beispiel GmbH/Rechnung_1.pdf",
+        "fields": {
+          "doc_type": "invoice"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/secured/init_document_transmission",
+      "body": {
+        "identifier": "rc-sync/Beispiel GmbH/Rechnung_2.pdf",
+        "part_count": 1,
+        "title": "Rechnung_2.pdf",
+        "path": "Beispiel GmbH/Rechnung_2.pdf",
+        "fields": {
+          "doc_type": "invoice"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/secured/init_document_transmission",
+      "body": {
+        "identifier": "rc-sync/Muster AG/Rechnung_3.pdf",
+        "part_count": 1,
+        "title": "Rechnung_3.pdf",
+        "path": "Muster AG/Rechnung_3.pdf",
+        "fields": {
+          "doc_type": "invoice"
+        }
+      }
+    }
+  ],
+  "request": {
+    "method": "POST",
+    "path": "/secured/graph/doc-values/find",
+    "body": {
+      "where": {
+        "doc_type": "invoice"
+      },
+      "limit": 2
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "message": "Documents found",
+      "documents": [
+        {
+          "pointer": "rc-sync/Beispiel GmbH/Rechnung_1.pdf",
+          "title": "Rechnung_1.pdf"
+        },
+        {
+          "pointer": "rc-sync/Beispiel GmbH/Rechnung_2.pdf",
+          "title": "Rechnung_2.pdf"
+        }
+      ],
+      "complete": false,
+      "total_count": 3,
+      "where": {
+        "applied": true,
+        "clauses": 1,
+        "resolved": [
+          {
+            "field": "doc_type",
+            "op": "eq",
+            "value": "invoice"
+          }
+        ]
+      }
+    }
+  },
+  "volatile": [
+    "next_after",
+    "documents.*.document_uuid"
+  ],
+  "absent": [
+    "return_fields"
+  ]
+}

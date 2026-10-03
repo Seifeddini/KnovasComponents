@@ -10,6 +10,6 @@ port — so it has been retired rather than kept in sync by hand.
 | You want | Read |
 |----------|------|
 | Onboarding, chunking, limits, error handling | [Client_Integration_Guide.md](../../../docs/KnovasAPI/Client_Integration_Guide.md) |
-| `/secured/*` contract — upload, query, delete | [Secure_API.md](../../../docs/KnovasAPI/Secure_API.md) |
+| `/secured/*` contract — upload, query, delete | the Knovas Developer Kit ([pointer](../../../docs/KnovasAPI/Secure_API.md)) |
 | Engagement and relevance feedback | [Analytics_Integration_Guide.md](../../../docs/KnovasAPI/Analytics_Integration_Guide.md) |
 | mTLS certificate filenames and permissions | [certificates.md](../../../docs/certificates.md) |

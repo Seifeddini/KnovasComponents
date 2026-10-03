@@ -1,0 +1,22 @@
+{
+  "name": "probe_filters",
+  "description": "Capability probe with field filters on: the empty body is refused as a missing where. find never checks the relevance calibration, so this answer is the same without one.",
+  "server_state": "filters",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/graph/doc-values/find",
+    "body": {}
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "status": "error",
+      "error_code": "invalid_value",
+      "error": "A field value is invalid",
+      "path": "where"
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

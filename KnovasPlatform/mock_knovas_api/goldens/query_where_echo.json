@@ -1,0 +1,87 @@
+{
+  "name": "query_where_echo",
+  "description": "Query with where and return_fields on a calibrated server: the where echo (applied, clauses, resolved; strategy and exhaustive because this caller may read every document), the gate fields, return_fields applied and the effective fields on each result.",
+  "server_state": "filters",
+  "setup": [
+    {
+      "method": "POST",
+      "path": "/secured/init_document_transmission",
+      "body": {
+        "identifier": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+        "part_count": 1,
+        "title": "Rechnung_17.pdf",
+        "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
+        "fields": {
+          "doc_type": "invoice",
+          "period": "GJ 2024",
+          "amount": "CHF 1'234.50"
+        }
+      }
+    }
+  ],
+  "request": {
+    "method": "POST",
+    "path": "/secured/query",
+    "body": {
+      "Input": "Rechnung",
+      "where": {
+        "doc_type": "invoice"
+      },
+      "return_fields": [
+        "doc_type",
+        "period"
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "result_count": 1,
+      "pointers": [
+        "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf"
+      ],
+      "results": [
+        {
+          "pointer": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+          "relevance_tier": "strong",
+          "fields": {
+            "doc_type": "invoice",
+            "period": {
+              "lo": "2024-01-01",
+              "hi": "2024-12-31",
+              "label": "2024"
+            }
+          }
+        }
+      ],
+      "no_strong_matches": false,
+      "relevance_gate_applied": true,
+      "where": {
+        "applied": true,
+        "clauses": 1,
+        "resolved": [
+          {
+            "field": "doc_type",
+            "op": "eq",
+            "value": "invoice"
+          }
+        ],
+        "relevance_gate_applied": true,
+        "no_strong_matches": false,
+        "may_be_partial": false,
+        "strategy": "allowlist",
+        "exhaustive": true
+      },
+      "return_fields": {
+        "applied": true
+      }
+    }
+  },
+  "volatile": [
+    "query_session_id",
+    "results.*.document_uuid",
+    "results.*.final_score"
+  ],
+  "absent": []
+}

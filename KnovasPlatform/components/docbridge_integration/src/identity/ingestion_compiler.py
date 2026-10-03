@@ -42,14 +42,21 @@ Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-IN-6, KC-IN-4)
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
 from jsonschema import ValidationError as _SchemaValidationError
 
+from doc_fields_view import METADATA_TARGETS
+from identity.field_templates import (
+    KEY_RE,
+    SYSTEM_KEYS,
+    TemplateError,
+    compile_template,
+)
 from identity.ingestion_presets import (
     DEFAULT_EXCLUDE_GLOBS,
     FILE_TYPE_PRESETS,
@@ -75,6 +82,46 @@ class ProfileError(ValueError):
     """The profile cannot be compiled. The message is shown to a person."""
 
 
+# -- document fields per source (spec 4.8) -----------------------------------
+#
+# A source can give every document it uploads Knovas field values: static
+# values, path-template captures and opted-in extractor metadata. They travel
+# in the sync body's ``sources[]`` entries (never at the top level of the
+# profile: an older Platform builds IngestionProfile(**fields) and would
+# crash on a new key) and only when non-empty, so a profile without them
+# compiles to exactly today's bytes.
+
+#: Caps of the sync-request schema (sources[].fields / field_templates).
+MAX_SOURCE_FIELDS = 64
+MAX_FIELD_TEMPLATES = 8
+MAX_FIELD_VALUES = 32
+MAX_FIELD_VALUE_CHARS = 256
+
+#: The extractor metadata items RemoteController maps (spec 3.5), in the
+#: order the form offers them.
+METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author")
+
+_SCHEMA_FIELD_KEYS = frozenset({"fields", "field_templates", "metadata_fields"})
+
+
+def _freeze_value(value: Any) -> Any:
+    """A field value as the frozen dataclass holds it: lists become tuples,
+    so a SourceFolder stays hashable."""
+    if isinstance(value, (list, tuple)):
+        return tuple(value)
+    return value
+
+
+def _field_pairs(raw: Any) -> tuple[tuple[str, Any], ...]:
+    """Static values as sorted ``(key, value)`` pairs, from pairs or a dict."""
+    items = raw.items() if isinstance(raw, Mapping) else (raw or ())
+    pairs: dict[str, Any] = {}
+    for item in items:
+        key, value = item
+        pairs[str(key)] = _freeze_value(value)
+    return tuple(sorted(pairs.items()))
+
+
 @dataclass(frozen=True)
 class SourceFolder:
     """One folder to index, and the wall its documents are born behind.
@@ -83,11 +130,41 @@ class SourceFolder:
     ``/secured/init_document_transmission``, which materialises the ACL at
     ingest. Without it every new document from a walled matter lands
     unrestricted and the wall has to be repaired afterwards, once, per document.
+
+    ``fields`` (sorted pairs; a dict default would be unhashable),
+    ``field_templates`` and ``metadata_fields`` are the source's document
+    fields. They go to RemoteController's upload layer, so changing any of
+    them re-sends every document of the source.
     """
 
     path: str
     recursive: bool = True
     access_groups: tuple[str, ...] | list[str] = ()
+    fields: tuple[tuple[str, Any], ...] = ()
+    field_templates: tuple[str, ...] = ()
+    metadata_fields: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "fields", _field_pairs(self.fields))
+        object.__setattr__(self, "field_templates",
+                           tuple(str(t) for t in self.field_templates or ()))
+        object.__setattr__(self, "metadata_fields",
+                           tuple(dict.fromkeys(str(m) for m in self.metadata_fields or ())))
+
+    @property
+    def has_fields(self) -> bool:
+        """True when this source configures any document field."""
+        return bool(self.fields or self.field_templates or self.metadata_fields)
+
+    def fields_json(self) -> dict[str, Any]:
+        """The static values as the wire and the stored JSON carry them."""
+        return {key: list(value) if isinstance(value, tuple) else value
+                for key, value in self.fields}
+
+    def field_config(self) -> tuple:
+        """What decides RemoteController's config digest for this source, in
+        a comparable form: a change here re-sends the source."""
+        return (self.fields, self.field_templates, frozenset(self.metadata_fields))
 
 
 @dataclass(frozen=True)
@@ -248,6 +325,23 @@ def _compile_sync_request(profile: IngestionProfile) -> dict[str, Any]:
         ))
         if groups:
             entry["access_groups"] = list(groups)
+        # Document fields, each key only when non-empty (D8): a profile
+        # without them must reach RemoteController byte-identical to before,
+        # and an older RemoteController refuses the keys outright.
+        if source.fields:
+            entry["fields"] = source.fields_json()
+        if source.field_templates:
+            for number, template in enumerate(source.field_templates, 1):
+                try:
+                    compile_template(template)
+                except TemplateError as exc:
+                    raise ProfileError(
+                        f"Ordner {len(sources) + 1}, Pfadvorlage {number}: "
+                        f"{TEMPLATE_ERROR_TEXT.get(exc.code, exc.code)}"
+                    ) from None
+            entry["field_templates"] = list(source.field_templates)
+        if source.metadata_fields:
+            entry["metadata_fields"] = list(source.metadata_fields)
         sources.append(entry)
 
     filters: dict[str, Any] = {
@@ -293,7 +387,18 @@ def _validate(document: dict[str, Any], schema_filename: str, which: str) -> Non
     try:
         _validator(schema_filename).validate(document)
     except _SchemaValidationError as exc:
-        location = "/".join(str(p) for p in exc.absolute_path) or which
+        path = list(exc.absolute_path)
+        location = "/".join(str(p) for p in path) or which
+        # A schema message embeds the offending instance. Under the field
+        # keys that is a field value or a template, and a ProfileError can
+        # reach a log line (a failed approval execution): name the place and
+        # the rule, never the value.
+        if len(path) >= 3 and path[0] == "sources" and path[2] in _SCHEMA_FIELD_KEYS:
+            if path[2] == "fields" and len(path) > 3 and not KEY_RE.match(str(path[3])):
+                location = "/".join(str(p) for p in path[:3])
+            raise ProfileError(
+                f"The compiled {which} is not valid at {location}: {exc.validator}"
+            ) from None
         raise ProfileError(
             f"The compiled {which} is not valid at {location}: {exc.message}"
         ) from exc
@@ -341,5 +446,266 @@ def redact_for_support(profile: IngestionProfile) -> str:
         "max_file_megabytes": profile.max_file_megabytes,
         "custom_exclude_count": len(profile.exclude_globs or []),
         "delete_on_remove": profile.delete_on_remove,
+        # Document fields as counts only: a value, a template or a key list
+        # names the firm's clients as surely as a path does.
+        **field_config_counts(profile.sources),
     }
     return json.dumps(payload, indent=2, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# Document fields: counts, change detection, validation at save (spec 4.8)
+# ---------------------------------------------------------------------------
+#
+# German texts below are ``\u`` escapes: .py files stay ASCII-only
+# (scripts/check_ascii_py.py). No message repeats a field value or a
+# template -- keys, positions and counts only -- because a ProfileError can
+# end up in a log line.
+
+#: German text per template error code (field_templates.TEMPLATE_ERROR_CODES).
+TEMPLATE_ERROR_TEXT = {
+    "syntax": "ung\u00fcltige Schreibweise (erlaubt: {schl\u00fcssel}, *, feste Ordnernamen, "
+              "am Ende /**)",
+    "duplicate_key": "ein Feld kommt zweimal vor",
+    "system_key": "Systemfelder (title, description, path, ingested_at, pointer) "
+                  "sind nicht erlaubt",
+    "too_long": "zu lang",
+}
+
+#: RemoteController refuses a body with field keys it does not know; the
+#: Platform says so before it tries (spec 2.5, 4.8).
+RC_TOO_OLD = ("RemoteController zu alt \u2013 bitte aktualisieren: er meldet keine "
+              "Unterst\u00fctzung f\u00fcr Dokumentfelder.")
+#: ...and when it cannot be asked at all, it is not called too old.
+RC_UNREACHABLE = ("RemoteController nicht erreichbar \u2013 ob er Dokumentfelder "
+                  "unterst\u00fctzt, l\u00e4sst sich jetzt nicht pr\u00fcfen. Bitte "
+                  "sp\u00e4ter erneut speichern.")
+
+
+def _source_value(source: Any, name: str) -> Any:
+    if isinstance(source, Mapping):
+        return source.get(name)
+    return getattr(source, name, None)
+
+
+def field_config_counts(sources: Sequence[Any]) -> dict[str, int]:
+    """How many sources use document fields, and how, as counts only.
+
+    Takes SourceFolder objects or the stored JSON form of ``sources[]``, so
+    the support JSON, the audit row and the approvals summary agree.
+    """
+    folders = templates = metadata = static = 0
+    for source in sources or ():
+        static_values = _source_value(source, "fields") or ()
+        source_templates = _source_value(source, "field_templates") or ()
+        items = _source_value(source, "metadata_fields") or ()
+        if static_values or source_templates or items:
+            folders += 1
+        static += 1 if static_values else 0
+        templates += len(source_templates) if isinstance(source_templates, (list, tuple)) else 0
+        metadata += 1 if items else 0
+    return {
+        "folders_with_fields": folders,
+        "folders_with_static_fields": static,
+        "field_templates": templates,
+        "folders_with_metadata_fields": metadata,
+    }
+
+
+def profile_uses_fields(profile: IngestionProfile | None) -> bool:
+    """True when any source of ``profile`` configures document fields."""
+    return bool(profile) and any(s.has_fields for s in profile.sources)
+
+
+def field_config_changes(old: IngestionProfile | None,
+                         new: IngestionProfile) -> list[str]:
+    """Paths of the sources whose document-field configuration changes.
+
+    Only sources ``old`` already had count: their documents were uploaded
+    before and RemoteController re-sends every one of them (its config
+    digest changed). A new source's documents are uploaded for the first
+    time anyway, fields and all. Removing a source's fields is a change too:
+    the next upload of each document clears them with ``{}``.
+    """
+    if old is None:
+        return []
+    before = {s.path: s.field_config() for s in old.sources}
+    changed: list[str] = []
+    for source in new.sources:
+        previous = before.get(source.path)
+        if previous is None:
+            continue
+        if previous != source.field_config():
+            changed.append(source.path)
+    return changed
+
+
+def _enum_code(spec: Mapping[str, Any], value: Any) -> str | None:
+    """The enum code ``value`` names, by code or by label (casefolded)."""
+    wanted = str(value).strip().casefold()
+    for item in spec.get("enum") or ():
+        if not isinstance(item, Mapping):
+            continue
+        code = str(item.get("code") or "")
+        if wanted in (code.casefold(), str(item.get("label") or "").strip().casefold()):
+            return code
+    return None
+
+
+def _key_problem(by_key: Mapping[str, Mapping[str, Any]], key: str) -> str | None:
+    """Why ``key`` cannot be written, or None. Keys are config, not values,
+    so the message may name them."""
+    if key in SYSTEM_KEYS:
+        return f"\u201e{key}\u201c ist ein Systemfeld und wird nicht \u00fcber Ordner gesetzt"
+    spec = by_key.get(key)
+    if spec is None:
+        return f"Feld \u201e{key}\u201c ist bei Knovas nicht angelegt"
+    if spec.get("status") == "deprecated":
+        return f"Feld \u201e{key}\u201c ist stillgelegt"
+    return None
+
+
+def validate_profile_fields(profile: IngestionProfile,
+                            registry: Sequence[Mapping[str, Any]]) -> IngestionProfile:
+    """Check every source's document fields against the tenant registry.
+
+    ``registry`` is ``doc_fields_capability.registry_for(...)`` (the
+    sanitized shape). Keys must exist and be active; enum values may be
+    given as code or label and are returned as the code; values are at most
+    256 characters, at most 32 per key, and only one unless the field takes
+    several; at most 64 keys and 8 templates per source; templates compile
+    (``identity.field_templates``) and every key they capture, like every
+    metadata target, must be registered and active.
+
+    Returns the profile with enum values replaced by their codes. Raises
+    ProfileError listing what is wrong, by folder number and key, never by
+    value.
+    """
+    by_key = {str(f.get("key")): f for f in registry or () if isinstance(f, Mapping)}
+    errors: list[str] = []
+    sources: list[SourceFolder] = []
+    for number, source in enumerate(profile.sources, 1):
+        where = f"Ordner {number}"
+        if len(source.fields) > MAX_SOURCE_FIELDS:
+            errors.append(f"{where}: h\u00f6chstens {MAX_SOURCE_FIELDS} feste Felder")
+        if len(source.field_templates) > MAX_FIELD_TEMPLATES:
+            errors.append(f"{where}: h\u00f6chstens {MAX_FIELD_TEMPLATES} Pfadvorlagen")
+        pairs: list[tuple[str, Any]] = []
+        for key, value in source.fields:
+            problem = _key_problem(by_key, key)
+            if problem:
+                errors.append(f"{where}: {problem}")
+                pairs.append((key, value))
+                continue
+            spec = by_key[key]
+            values = list(value) if isinstance(value, tuple) else [value]
+            if not values:
+                errors.append(f"{where}: Feld \u201e{key}\u201c hat keinen Wert")
+            elif len(values) > MAX_FIELD_VALUES:
+                errors.append(f"{where}: Feld \u201e{key}\u201c hat mehr als "
+                              f"{MAX_FIELD_VALUES} Werte")
+            elif len(values) > 1 and spec.get("cardinality") != "many":
+                errors.append(f"{where}: Feld \u201e{key}\u201c nimmt nur einen Wert")
+            cleaned: list[Any] = []
+            for item in values:
+                if isinstance(item, str):
+                    if not item.strip():
+                        errors.append(f"{where}: Feld \u201e{key}\u201c hat einen leeren Wert")
+                    elif len(item) > MAX_FIELD_VALUE_CHARS:
+                        errors.append(f"{where}: ein Wert von \u201e{key}\u201c ist l\u00e4nger "
+                                      f"als {MAX_FIELD_VALUE_CHARS} Zeichen")
+                if spec.get("enum"):
+                    code = _enum_code(spec, item)
+                    if code is None:
+                        errors.append(f"{where}: ein Wert von \u201e{key}\u201c steht nicht "
+                                      "in dessen Auswahl")
+                        cleaned.append(item)
+                    else:
+                        cleaned.append(code)
+                else:
+                    cleaned.append(item)
+            pairs.append((key, tuple(cleaned) if isinstance(value, tuple) else
+                          (cleaned[0] if cleaned else value)))
+        for index, template in enumerate(source.field_templates, 1):
+            try:
+                compiled = compile_template(template)
+            except TemplateError as exc:
+                errors.append(f"{where}, Pfadvorlage {index}: "
+                              f"{TEMPLATE_ERROR_TEXT.get(exc.code, exc.code)}")
+                continue
+            for key in compiled.keys:
+                problem = _key_problem(by_key, key)
+                if problem:
+                    errors.append(f"{where}, Pfadvorlage {index}: {problem}")
+        for item in source.metadata_fields:
+            target = METADATA_TARGETS.get(item)
+            if target is None:
+                errors.append(f"{where}: unbekannte Dateieigenschaft")
+                continue
+            problem = _key_problem(by_key, target)
+            if problem:
+                errors.append(f"{where}, Dateieigenschaft: {problem}")
+        sources.append(replace(source, fields=tuple(pairs)))
+    if errors:
+        unique = list(dict.fromkeys(errors))
+        more = len(unique) - 8
+        text = "; ".join(unique[:8]) + (f"; und {more} weitere" if more > 0 else "")
+        raise ProfileError(f"Dokumentfelder nicht \u00fcbernommen: {text}.")
+    return replace(profile, sources=sources)
+
+
+def upload_field_keys(profile: IngestionProfile) -> set[str]:
+    """The keys the profile sets per source as static values or template
+    captures: a folder rule on one of them is worth a warning (D3).
+    Metadata targets are left out: they fill in what the extractor found,
+    not a value the administrator chose."""
+    keys: set[str] = set()
+    for source in profile.sources:
+        keys.update(key for key, _ in source.fields)
+        for template in source.field_templates:
+            try:
+                keys.update(compile_template(template).keys)
+            except TemplateError:
+                continue
+    return keys
+
+
+def profile_pointer_prefix(profile: IngestionProfile) -> str:
+    """The pointer prefix RemoteController gives the profile's documents:
+    ``<identifier_prefix>/`` (knovas_uploader.upload_file)."""
+    return f"{profile.identifier_prefix.strip()}/"
+
+
+def folder_rule_conflicts(profile: IngestionProfile,
+                          rules: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """``{key: rule count}`` for keys set both per source and by a folder rule
+    that reaches this profile's documents.
+
+    A rule reaches them when its prefix lies inside the profile's pointer
+    prefix or covers all of it (Knovas matches with a raw ``startswith``).
+    Both layers are legal: the per-source value travels in the upload layer
+    and wins, so the rule's value never shows on those documents -- which is
+    what the warning says. Counts only; a rule's prefix names a client.
+    """
+    keys = upload_field_keys(profile)
+    if not keys:
+        return {}
+    prefix = profile_pointer_prefix(profile)
+    out: dict[str, int] = {}
+    for rule in rules or ():
+        if not isinstance(rule, Mapping):
+            continue
+        rule_prefix = str(rule.get("pointer_prefix") or "")
+        if not rule_prefix:
+            continue
+        if not (rule_prefix.startswith(prefix) or prefix.startswith(rule_prefix)):
+            continue
+        for key in (rule.get("set") or {}):
+            if key in keys:
+                out[key] = out.get(key, 0) + 1
+    return dict(sorted(out.items()))
+
+
+def is_field_key(text: Any) -> bool:
+    """A registry key as the sync contract allows it."""
+    return isinstance(text, str) and bool(KEY_RE.match(text))

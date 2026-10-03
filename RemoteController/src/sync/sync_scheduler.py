@@ -13,12 +13,12 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
-from config import get_config
+from config import doc_fields_enabled, fields_reupload_per_cycle, get_config
 from sync.ingest_rate_limit import configure as configure_ingest
 from sync.rate_metrics import IngestRateMetrics
 from sync.sync_config import load_sync_config
 from sync.default_sync_body import build_default_sync_body
-from sync.sync_executor import SyncRunResult, run_sync_work
+from sync.sync_executor import DocFieldsCycle, SyncRunResult, run_sync_work
 from sync.knovas_uploader import SemantixUploader
 from sync.window import is_in_window
 
@@ -33,6 +33,31 @@ _files_processed = 0
 _last_document_sync: Optional[dict[str, Any]] = None
 _last_worker_error: Optional[str] = None
 _idle_scan_multiplier: int = 1
+# Knovas document fields of the last finished cycle (codes, counts and keys
+# only) and the documents re-queued since that cycle's scan.
+_last_doc_fields: Optional[DocFieldsCycle] = None
+_last_fields_changed: Optional[int] = None
+_fields_requeued_since_scan = 0
+# The server's answer in the latest cycle that got one (``accepted`` /
+# ``not_accepted``): an idle cycle sends nothing and must not make it unknown.
+_last_fields_answer: Optional[str] = None
+# Requeue candidates the last cycle's scan reached; the requeue endpoint
+# queues only these (None until a cycle ran: then it is not scoped). In
+# memory only, never reported.
+_requeue_reachable: Optional[frozenset] = None
+_doc_fields_lock = threading.Lock()
+
+#: What this RemoteController understands in a sync body, read by the
+#: Platform from GET /sync/status before it saves or pushes a profile that
+#: uses them (an older RC answers 400 to the new keys). Advertised while
+#: RC_DOC_FIELDS is off too: the keys are understood, and ``doc_fields.enabled``
+#: says that nothing is sent.
+RC_CAPABILITIES = (
+    "source_fields_v1",
+    "field_templates_v1",
+    "metadata_fields_v1",
+    "fields_requeue_v1",
+)
 # Set when a new folder list is stored, so the worker stops waiting and looks
 # now. Without it, saving a profile took effect at the top of the next cycle --
 # and the idle backoff below stretches that to an hour, during which the
@@ -133,6 +158,110 @@ def _set_status(status: str) -> None:
     _current_status = status
 
 
+def _cycle_answer(cycle: Optional[DocFieldsCycle]) -> Optional[str]:
+    """What the server's answers in one cycle say, None without answers. A
+    refusal comes from the server's fields path, so it shows the feature is
+    on; only an answer without an echo is ``not_accepted``."""
+    if cycle is None:
+        return None
+    seen_on = (
+        cycle.outcomes.get("staged", 0) + cycle.outcomes.get("cleared", 0) + sum(cycle.refused.values())
+    )
+    if seen_on:
+        return "accepted"
+    if cycle.outcomes.get("not_accepted", 0):
+        return "not_accepted"
+    return None
+
+
+def _server_accepts_fields(
+    last: Optional[DocFieldsCycle], counts: dict[str, int], latest_answer: Optional[str] = None
+) -> str:
+    """``accepted`` / ``not_accepted`` / ``unknown`` (spec 2.3): the last
+    cycle's answers first, then the latest cycle that got answers, then the
+    stored outcomes (H7: an answer without an echo is never reported as
+    stored). A ``not_accepted`` row already queued for re-sending is an old
+    answer and does not contradict rows the server accepted."""
+    answer = _cycle_answer(last) or latest_answer
+    if answer is not None:
+        return answer
+    accepted = counts.get("accepted", 0) + counts.get("refused", 0)
+    not_accepted = counts.get("not_accepted", 0)
+    if accepted:
+        not_accepted -= counts.get("not_accepted_requeued", 0)
+    if accepted and not not_accepted:
+        return "accepted"
+    if not_accepted and not accepted:
+        return "not_accepted"
+    return "unknown"
+
+
+def doc_fields_status() -> dict[str, Any]:
+    """The ``doc_fields`` block of GET /sync/status: keys, codes and counts.
+
+    ``pending_reupload`` is an estimate for the Platform's ETA: what the last
+    scan found ``fields_changed`` and the cycle did not finish, plus the rows
+    re-queued since. Only before the first cycle (after a restart) do the
+    stored re-queued rows stand in for it: a row the scan never reaches again
+    must not be promised a re-send forever.
+    """
+    from sync.sync_state import SyncStateStore
+
+    store = SyncStateStore()
+    try:
+        counts = store.fields_counts()
+    finally:
+        store.close()
+    with _doc_fields_lock:
+        last = _last_doc_fields
+        changed = _last_fields_changed
+        requeued_since = _fields_requeued_since_scan
+        latest_answer = _last_fields_answer
+    if last is not None and changed is not None:
+        pending = max(0, changed - last.reuploads_done) + requeued_since
+    else:
+        pending = max(requeued_since, counts.get("requeued", 0))
+    empty = DocFieldsCycle()
+    cycle = last or empty
+    return {
+        "enabled": doc_fields_enabled(),
+        "server": _server_accepts_fields(last, counts, latest_answer),
+        "per_cycle": fields_reupload_per_cycle(),
+        "documents": {
+            "with_fields": counts.get("with_fields", 0),
+            "pending_reupload": pending,
+            "refused": counts.get("refused", 0),
+            "not_accepted": counts.get("not_accepted", 0),
+            "reupload_failed": counts.get("reupload_failed", 0),
+        },
+        "last_cycle": cycle.last_cycle(),
+        "warnings": dict(sorted(cycle.warnings.items())),
+        "dropped": dict(sorted(cycle.dropped.items())),
+        "unknown_keys": list(cycle.unknown_keys),
+        "suggest": {key: list(values) for key, values in sorted(cycle.suggest.items())},
+        "template_errors": {"field_template_invalid": cycle.template_errors},
+    }
+
+
+def requeue_doc_fields(outcome: str) -> int:
+    """POST /sync/doc-fields/requeue: queue documents whose stored fields
+    outcome matches for a re-upload within the per-cycle bound."""
+    global _fields_requeued_since_scan
+    from sync.sync_state import SyncStateStore
+
+    with _doc_fields_lock:
+        reachable = _requeue_reachable
+    store = SyncStateStore()
+    try:
+        count = store.requeue_fields(outcome, reachable)
+    finally:
+        store.close()
+    with _doc_fields_lock:
+        _fields_requeued_since_scan += count
+    logger.info("doc_fields requeued=%d outcome=%s", count, outcome)
+    return count
+
+
 def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     global _last_run_at, _files_processed, _last_document_sync, _last_worker_error
     cfg_doc = ctx.sync_config
@@ -228,6 +357,7 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     )
     if result.document_sync is not None:
         _last_document_sync = result.document_sync.as_dict()
+    _remember_doc_fields(result)
     if result.subfolder_progress is not None:
         if _last_document_sync is None:
             _last_document_sync = {}
@@ -237,9 +367,7 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         _set_status(result.paused_reason if result.paused_reason != "outside_window" else "paused_outside_window")
     elif cfg_doc.get("mode") == "continuous":
         sp = result.subfolder_progress or {}
-        pending_work = 0
-        if result.document_sync is not None:
-            pending_work = result.document_sync.pending + result.document_sync.modified
+        pending_work = _pending_work(result)
         if sp.get("completed"):
             _set_status("subfolders_complete")
         elif pending_work > 0:
@@ -250,6 +378,31 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     else:
         _set_status("completed")
     return result
+
+
+def _remember_doc_fields(result: SyncRunResult) -> None:
+    global _last_doc_fields, _last_fields_changed, _fields_requeued_since_scan
+    global _last_fields_answer, _requeue_reachable
+    if result.doc_fields is None:
+        return
+    with _doc_fields_lock:
+        _last_doc_fields = result.doc_fields
+        _last_fields_changed = (
+            result.document_sync.fields_changed if result.document_sync is not None else None
+        )
+        # Rows re-queued during the cycle came after its scan.
+        _fields_requeued_since_scan = result.doc_fields.requeued
+        _last_fields_answer = _cycle_answer(result.doc_fields) or _last_fields_answer
+        if result.requeue_reachable is not None:
+            _requeue_reachable = result.requeue_reachable
+
+
+def _pending_work(result: SyncRunResult) -> int:
+    """New, modified and fields-changed documents the last scan found."""
+    ds = result.document_sync
+    if ds is None:
+        return 0
+    return ds.pending + ds.modified + ds.fields_changed
 
 
 def run_one_time(ctx: SyncRunContext) -> tuple[str, SyncRunResult]:
@@ -268,9 +421,7 @@ def _effective_scan_interval_seconds(cfg_doc: dict[str, Any], result: SyncRunRes
     base = max(5, int(cfg_doc.get("scan_interval_seconds", 60)))
     idle_max = int(cfg_doc.get("scan_interval_idle_max_seconds", 3600))
     idle_max = max(base, idle_max)
-    pending_work = 0
-    if result.document_sync is not None:
-        pending_work = result.document_sync.pending + result.document_sync.modified
+    pending_work = _pending_work(result)
     if result.files_uploaded == 0 and pending_work == 0 and result.files_scanned > 0:
         cap = max(1, idle_max // base)
         _idle_scan_multiplier = min(_idle_scan_multiplier * 2, cap)

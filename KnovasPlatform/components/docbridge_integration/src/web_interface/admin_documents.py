@@ -12,6 +12,13 @@ tenant.
 Walls bind the administrator too (design §2 D1). There is no "show
 everything" switch here, and no route asks the backend for one.
 
+Document fields (spec 4.7), only while Knovas offers them: a fields drawer
+per row, opened on click so the list costs no read per row, and a
+Feldfilter that lists documents by field values. Both are JSON POST routes
+with the pointer in the body -- a pointer is never part of a URL the console
+builds -- and both check the ``X-CSRF-Token`` header themselves, because
+console routes are exempt from the app's header gate.
+
 Plan: docs/superpowers/plans/2026-08-29-admin-document-rbac-components.md
 """
 from __future__ import annotations
@@ -20,8 +27,38 @@ import logging
 
 from flask import jsonify, render_template, request
 
+import doc_fields_capability as dfc
+from doc_fields_capability import Capability
+from doc_fields_view import (
+    AUDIT_OUTCOME_REFUSED,
+    DEADLINE_BANNER,
+    VALUES_EDIT_REFUSALS,
+    card_return_fields,
+    error_message,
+    filter_state,
+    find_row,
+    is_deadline_field,
+    listing_empty_text,
+    listing_notice,
+    resolved_chips,
+    validate_where,
+    values_edit_audit_detail,
+)
 from identity import audit
 from identity.approvals import ApprovalService
+from knovas_client import DocFieldsError, DocFieldsUnavailable
+from web_interface.admin_doc_fields import (
+    OFF_TEXT,
+    FormError,
+    edit_ops_from_body,
+    edit_warnings,
+    filter_fields,
+    knovas_message,
+    path_key,
+    sort_from_body,
+    values_view,
+    where_from_pairs,
+)
 from web_interface.guarded import run_guarded
 
 logger = logging.getLogger(__name__)
@@ -202,6 +239,25 @@ def attach_document_routes(
             "bevor die Aenderung wirkt."
         )
 
+    def _doc_fields_capability(client) -> Capability:
+        try:
+            return dfc.capability_for(client)
+        except Exception as exc:  # noqa: BLE001 - the inventory must render
+            logger.warning("Dokumentfelder-Faehigkeit nicht ermittelbar: %s", type(exc).__name__)
+            return Capability.off
+
+    def _filter_fields(client, capability) -> list:
+        """The Feldfilter's fields; read only while the listing exists."""
+        if not capability.shows_listing:
+            return []
+        me = gate.current_user()
+        try:
+            return filter_fields(dfc.registry_for(client, getattr(me, "id", None)))
+        except Exception as exc:  # noqa: BLE001 - the filter stays empty
+            dfc.observe_exception(exc)
+            logger.warning("Feldverzeichnis nicht abrufbar: %s", type(exc).__name__)
+            return []
+
     def _documents_page(error=None, notice=None, status=200):
         view = DocumentsView(client_factory())
         filters = _filters_from_request()
@@ -223,10 +279,14 @@ def attach_document_routes(
             groups = client_factory().access_groups()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Zugriffsgruppen nicht abrufbar: %s", exc)
+        capability = _doc_fields_capability(client_factory())
         return render_template(
             "admin_documents.html",
             active_nav="admin",
             **page_context(),
+            doc_fields_on=capability.shows_values,
+            doc_fields_listing=capability.shows_listing,
+            filter_fields=_filter_fields(client_factory(), capability),
             documents=first["documents"],
             next_after=first["next_after"],
             total_count=first["total_count"],
@@ -363,6 +423,249 @@ def attach_document_routes(
         return _documents_page(
             notice="Der gesamte Dokumentbestand dieses Mandanten wurde geloescht."
         )
+
+    # ---- Dokumentfelder: drawer and Feldfilter (spec 4.7) ----
+
+    def _header_csrf_ok() -> bool:
+        return csrf_valid(str(request.headers.get("X-CSRF-Token", "") or ""))
+
+    def _json_error(code, message, status, **extra):
+        return jsonify({"success": False, "error": code, "message": message, **extra}), status
+
+    def _json_pointer(body):
+        pointer = body.get("pointer") if isinstance(body, dict) else None
+        if not isinstance(pointer, str) or not pointer.strip() or len(pointer) > 1000:
+            return None
+        return pointer
+
+    def _registry(client, me):
+        """The person's registry view; DocFieldsUnavailable propagates."""
+        return dfc.registry_for(client, getattr(me, "id", None))
+
+    def _read_view(client, me, pointer):
+        """``(status, payload)`` for the drawer: the pointer's values view."""
+        try:
+            raw = client.doc_values(pointer)
+        except DocFieldsUnavailable as exc:
+            dfc.observe_exception(exc)
+            return 409, {"success": False, "error": "doc_fields_off", "message": OFF_TEXT}
+        except DocFieldsError as exc:
+            logger.warning("Dokumentwerte nicht lesbar: %s %s", exc.status, exc.error_code)
+            message, status = knovas_message(exc)
+            return status, {"success": False, "error": exc.error_code, "message": message}
+        if raw is None:
+            return 404, {"success": False, "error": "not_found",
+                         "message": error_message("NOT_FOUND")}
+        registry = []
+        try:
+            registry = _registry(client, me)
+        except DocFieldsUnavailable as exc:
+            dfc.observe_exception(exc)
+            return 409, {"success": False, "error": "doc_fields_off", "message": OFF_TEXT}
+        except Exception as exc:  # noqa: BLE001 - values still show, without inputs
+            logger.warning("Feldverzeichnis nicht abrufbar: %s", type(exc).__name__)
+        cfg = dfc.settings(getattr(client, "config", None))
+        view = values_view(raw, registry, roles=getattr(me, "roles", ()),
+                           edit_roles=cfg.edit_roles)
+        return 200, {"success": True, **view}
+
+    @bp.route("/documents/fields/read", methods=["POST"])
+    @require_admin
+    def document_fields_read():
+        """The fields drawer of one document: every layer, and what this
+        person may change. The pointer travels in the body."""
+        if not _header_csrf_ok():
+            return _json_error("csrf", "Sitzung abgelaufen. Bitte die Seite neu laden.", 403)
+        pointer = _json_pointer(request.get_json(silent=True))
+        if pointer is None:
+            return _json_error("invalid_pointer", "Kein Dokument angegeben.", 400)
+        client = client_factory()
+        if not _doc_fields_capability(client).shows_values:
+            return _json_error("doc_fields_off", OFF_TEXT, 409)
+        status, payload = _read_view(client, gate.current_user(), pointer)
+        return jsonify(payload), status
+
+    @bp.route("/documents/fields/edit", methods=["POST"])
+    @require_admin
+    def document_fields_edit():
+        """One manual edit, sent once and non-strict (D12), then read again.
+
+        Knovas decides: 403 ``change_not_authorized`` turns the drawer
+        read-only, 409 ``version_conflict`` re-reads and says so -- nothing
+        is overwritten automatically -- and a held document stays read-only.
+        The audit row carries keys, counts, versions and warning codes.
+        """
+        if not _header_csrf_ok():
+            return _json_error("csrf", "Sitzung abgelaufen. Bitte die Seite neu laden.", 403)
+        body = request.get_json(silent=True)
+        pointer = _json_pointer(body)
+        if pointer is None:
+            return _json_error("invalid_pointer", "Kein Dokument angegeben.", 400)
+        if_version = body.get("if_version")
+        if isinstance(if_version, bool) or not isinstance(if_version, int) or if_version < 0:
+            return _json_error("invalid_version", "Bitte die Werte neu laden.", 400)
+        client = client_factory()
+        if not _doc_fields_capability(client).shows_values:
+            return _json_error("doc_fields_off", OFF_TEXT, 409)
+        me = gate.current_user()
+        try:
+            registry = _registry(client, me)
+        except DocFieldsUnavailable as exc:
+            dfc.observe_exception(exc)
+            return _json_error("doc_fields_off", OFF_TEXT, 409)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Feldverzeichnis nicht abrufbar: %s", type(exc).__name__)
+            return _json_error("registry_unavailable",
+                               "Das Feldverzeichnis ist derzeit nicht abrufbar.", 503)
+        cfg = dfc.settings(getattr(client, "config", None))
+        try:
+            ops = edit_ops_from_body(body, registry, roles=getattr(me, "roles", ()),
+                                     edit_roles=cfg.edit_roles)
+        except FormError as exc:
+            return _json_error("invalid_edit", str(exc), 400)
+        if not ops:
+            return _json_error("no_change", "Keine \u00c4nderung.", 400)
+        failure = None
+        try:
+            result = client.patch_doc_values(
+                pointer, if_version, set=ops.get("set"), unset=ops.get("unset"),
+                add=ops.get("add"), remove=ops.get("remove"), fields_strict=False,
+                actor_ref=f"platform-user:{me.id}",
+            )
+        except DocFieldsUnavailable as exc:
+            dfc.observe_exception(exc)
+            return _json_error("doc_fields_off", OFF_TEXT, 409)
+        except DocFieldsError as exc:
+            failure = exc
+            result = None
+        if failure is None and result is None:
+            return _json_error("not_found", error_message("NOT_FOUND"), 404)
+        read_status, after = _read_view(client, me, pointer)
+        view = after if read_status == 200 else None
+        target = (view or {}).get("document_uuid")
+
+        def _audit(outcome, version_to, codes=(), code=None):
+            audit.record(
+                gate.connection(), action="document.values_edited", actor=me,
+                target_type="document", target_id=str(target) if target else None,
+                outcome=outcome,
+                detail=values_edit_audit_detail(ops, version_from=if_version,
+                                                version_to=version_to, warning_codes=codes,
+                                                code=code),
+            )
+
+        if failure is not None:
+            code = failure.error_code
+            details = failure.details or {}
+            logger.warning("Dokumentwerte nicht gespeichert: %s %s", failure.status, code)
+            message, status = knovas_message(failure, registry)
+            if code == "version_conflict":
+                status = 409
+            if code in VALUES_EDIT_REFUSALS:
+                # Refused by Knovas, as designed: "denied" with its code (one
+                # convention with the search panel's edit route).
+                _audit(AUDIT_OUTCOME_REFUSED,
+                       details.get("current_version") if code == "version_conflict" else None,
+                       code=code)
+            return jsonify({
+                "success": False, "error": code, "message": message,
+                "field": path_key(details.get("path")),
+                "current_version": details.get("current_version"),
+                "read_only": code in ("change_not_authorized", "anchor_quarantined"),
+                "view": view,
+            }), status
+        warnings = edit_warnings(result.get("warnings"), registry)
+        version_to = result.get("version")
+        _audit("ok", version_to, [w["code"] for w in warnings])
+        return jsonify({"success": True, "version": version_to, "warnings": warnings,
+                        "view": view})
+
+    @bp.route("/documents/fields/find", methods=["POST"])
+    @require_admin
+    def document_fields_find():
+        """Feldfilter: one keyset page of documents by field values.
+
+        Shown as filtered only when Knovas echoed ``where.applied``; without
+        that echo there are no rows (H2). The incomplete-list notice comes
+        from ``listing_notice`` and so only on the last page (H5).
+        """
+        if not _header_csrf_ok():
+            return _json_error("csrf", "Sitzung abgelaufen. Bitte die Seite neu laden.", 403)
+        body = request.get_json(silent=True)
+        body = body if isinstance(body, dict) else {}
+        client = client_factory()
+        if not _doc_fields_capability(client).shows_listing:
+            return _json_error("listing_unavailable",
+                               "Der Feldfilter ist bei Knovas f\u00fcr diesen Mandanten "
+                               "nicht freigeschaltet.", 409)
+        me = gate.current_user()
+        try:
+            registry = _registry(client, me)
+        except DocFieldsUnavailable as exc:
+            dfc.observe_exception(exc)
+            return _json_error("doc_fields_off", OFF_TEXT, 409)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Feldverzeichnis nicht abrufbar: %s", type(exc).__name__)
+            return _json_error("registry_unavailable",
+                               "Das Feldverzeichnis ist derzeit nicht abrufbar.", 503)
+        try:
+            where = where_from_pairs(body.get("pairs"), registry)
+            sort = sort_from_body(body.get("sort"), registry)
+        except FormError as exc:
+            return _json_error("invalid_filter", str(exc), 400)
+        try:
+            validate_where(where)
+        except ValueError:
+            return _json_error("invalid_filter",
+                               "Der Filter ist zu umfangreich (h\u00f6chstens 8 Felder).", 400)
+        after = body.get("after")
+        after = after if isinstance(after, str) and 0 < len(after) <= 512 else None
+        cfg = dfc.settings(getattr(client, "config", None))
+        try:
+            page = client.find_doc_values(where, sort=sort, limit=cfg.find_page_size,
+                                          after=after, return_fields=card_return_fields(registry))
+        except DocFieldsUnavailable as exc:
+            dfc.observe_exception(exc)
+            return _json_error("doc_fields_off", OFF_TEXT, 409)
+        except DocFieldsError as exc:
+            dfc.observe_exception(exc)
+            if exc.error_code == "unknown_field":
+                dfc.invalidate(getattr(me, "id", None))
+            logger.warning("Feldfilter abgelehnt: %s %s", exc.status, exc.error_code)
+            message, status = knovas_message(exc, registry)
+            return _json_error(exc.error_code or "knovas_error", message, status)
+        state = filter_state(where, page)
+        if state == "not_applied":
+            dfc.observe("echo_missing")
+            return _json_error("filter_not_applied", error_message("filter_not_applied"), 409,
+                               documents=[])
+        documents = []
+        for doc in page.get("documents") or ():
+            if not isinstance(doc, dict):
+                continue
+            row = find_row(doc, registry)
+            documents.append({"pointer": row["doc_id"], "title": row["title"],
+                              "fields_display": row.get("fields_display") or []})
+        next_after = page.get("next_after")
+        payload = {
+            "success": True,
+            "documents": documents,
+            "next_after": next_after if isinstance(next_after, str) and next_after else None,
+            "complete": page.get("complete") is True,
+            "notice": listing_notice(page),
+            "filter_state": state,
+            "resolved": resolved_chips(where, page.get("where"), registry),
+        }
+        if not documents:
+            # Only a walk Knovas calls complete may say "no document" (H8, H9).
+            empty = listing_empty_text(dict(page, documents=documents,
+                                            next_after=payload["next_after"]))
+            if empty:
+                payload["empty_text"] = empty
+        keys = [(sort or {}).get("field"), *(where or {})]
+        if any(is_deadline_field(registry, k) for k in keys):
+            payload["deadline_banner"] = DEADLINE_BANNER
+        return jsonify(payload)
 
     # ---- Zugriffsgruppen: group tree and folder rules (plan Task 6) ----
 

@@ -115,6 +115,145 @@ exactly one source; using first only`). In that mode the first source's
 `access_groups` applies. Use one profile per walled folder if you need
 different groups under sequential mode.
 
+### Per-source document fields (Dokumentfelder)
+
+Knovas can keep typed **document fields** per document (Mandant, Zeitraum,
+Dokumentart, …) — but only once Knovas has enabled *Document Fields* for the
+tenant. Nothing here switches that on: the RemoteController sends fields when a
+source is configured with them and reads from each init answer whether the
+server took them. Against a server or tenant without the feature the fields are
+ignored, the document is indexed exactly as before, and `/sync/status` says
+`"server": "not_accepted"` ([operations.md](operations.md#document-fields)).
+
+Normally the KnovasPlatform Ingestion tab writes these keys (a folder's
+*Felder*: fixed values, path templates, file properties). Each `sources[]`
+entry may carry three optional keys; a source without them sends a
+byte-identical body to earlier releases.
+
+| Key | Shape | Meaning |
+|-----|-------|---------|
+| `fields` | object, at most 64 keys | Fixed values for every document of the source, keyed by Knovas registry key (`^[a-z][a-z0-9_]{0,63}$`; never `title`, `description`, `path`, `ingested_at`, `pointer`). A value is a string of 1–256 characters, a number, a boolean, or a list of 1–32 of those. Money is text (`"CHF 1234.50"`); entities are **names** (`"Muster AG"`), never node ids. |
+| `field_templates` | list, at most 8 strings of 1–512 characters | Path templates over the folders of the source-relative path, e.g. `{mandant}/{period}/**`. The first template that matches wins; each `{key}` captures the whole folder name as that key's value. |
+| `metadata_fields` | list of item names | File properties the administrator opted into (table below). Mapped keys are never registered at Knovas automatically. |
+
+**Path templates.** `template := segment ("/" segment)* ["/**"]`, where a
+segment is `*` (exactly one folder), `{key}` (a capture, each key at most once)
+or a literal (compared after NFC and case folding). The template is matched
+against the **folders** of the path relative to the source folder (`\` counts
+as `/`; the file name is not part of it). Without `/**` the depth must match
+exactly; with it, deeper folders are allowed. Captures are sent as text — the
+server's normaliser reads "GJ 2024" or "Q1 2024" and returns warnings in the
+echo. `/sync`, `/sync/body` and `/sync/start` refuse a body whose template does
+not compile (`400`, `$.sources[i].field_templates[j]: field_template_invalid
+(<code>)` — the position and the code, never the template). A body stored
+before that check still runs: its bad template skips **that source** for the
+cycle (status `template_errors.field_template_invalid`); it never stops the
+cycle.
+Golden vectors: [contracts/vectors/field_templates.json](../contracts/vectors/field_templates.json)
+(the Platform's preview runs the same vectors).
+
+**File properties** (`metadata_fields`):
+
+| Item | Writes | From |
+|------|--------|------|
+| `language` | `language` | `.pdf` / `.docx` document properties (`dc:language` — often the authoring program's locale, not the document's language); `.eml` `Content-Language`. `x-default` and `und` are skipped. |
+| `email_date` | `document_date` | `.eml` / `.msg` only: the `Date` header. |
+| `email_doc_type` | `doc_type` = `correspondence.email` | `.eml` / `.msg` only. |
+| `email_author` | `author` | `.eml` / `.msg` `From:` display name, else the address. |
+| `document_author` | `author` | `.pdf` / `.docx` author; placeholder authors (`Administrator`, `User`, `Microsoft Office User`, …) are skipped. |
+
+`.md` and `.txt` files never yield `author` or `language`: they are extracted
+as plain text, which has no document properties. A file's modification time,
+the Microsoft 365 `lastModifiedDateTime` and PDF/DOCX created/modified dates
+never become `document_date`, and no Message-ID or sender/recipient key is
+mapped.
+
+**Precedence.** Per key: template capture, then the fixed value, then the file
+property. All three land in Knovas's **upload layer**, which outranks a
+**folder rule** (rule layer, set in the Platform's *Dokumentfelder* tab), and a
+manual edit in the Platform outranks both. A rule applies to existing documents
+in Knovas without any upload — use rules for every value that does not depend
+on the source; reserve per-source values for what does.
+
+**Limits before sending.** Values longer than 256 characters, lists over 32
+items and system keys are left out; above 64 keys the lowest precedence goes
+first; a payload over 16 KiB drops file properties, then fixed values, then
+captures. Each drop is counted (`rc_doc_fields_client_dropped_total{reason}`),
+never logged with its value. Titles are capped at 500 characters (the server
+refuses longer ones).
+
+**Refusals never block indexing.** When the server refuses an init because of
+its fields (`invalid_fields`, `unknown_field`, `ambiguous_field`,
+`fields_too_large`, a `fields…` path, 503 `doc_fields_*`, or a BROKERED 401
+`assertion_rejected`), the RemoteController re-posts the init **once without
+fields**. If that succeeds the document is indexed, its previous upload-layer
+values stay, and the outcome is `refused:<code>`; a transient 503 keeps the old
+digest so the fields are tried again later. If the retry fails too, the refusal
+was not about fields and the ordinary upload error applies.
+
+#### Environment
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `RC_DOC_FIELDS` | `on` | `off` is a kill switch: no `fields` key is ever sent, no digest is computed, the state columns are left alone, and bodies are byte-identical to earlier releases. It can only switch the feature **off** — whether Knovas takes fields is read from its answers. Spellings: `on`/`true`/`1`/`yes`, `off`/`false`/`0`/`no`; anything else stops the boot. Switching back to `on` re-sends each configured source once, within the bound below. |
+| `RC_FIELDS_REUPLOAD_PER_CYCLE` | `100` | Documents re-sent per cycle because only their field configuration changed (range 1–10000; outside it the boot stops). There is no `0`: the requeue route relies on the same bound. |
+| `RC_FIELDS_REUPLOAD_MAX_ATTEMPTS` | `3` | Failed re-uploads of one document (range 1–100) before it leaves the queue as `reupload_failed:<class>` (`init_401`, `init_403`, `init_4xx`, `init_5xx`, `fields_unavailable`, `extract`, `other`). Rate-limit pauses do not count. |
+
+In the unified stack these go into `knovas.env` (`RC_*` is passed through to
+the RemoteController).
+
+#### Re-uploads and what they cost
+
+The RemoteController stores a digest of each document's governing field
+configuration (fixed values, its captures, the metadata items, the mapping
+version). When a source's fixed values, templates or metadata items change,
+every document of that source is `fields_changed` and is **re-uploaded in
+full**:
+
+- a full extraction, OCR included, and a full transmission;
+- one billed init per document (`request` plus `ingestion_init`); Knovas skips
+  the GPU embedding only when the text is unchanged and its embeddings are
+  current.
+
+Re-uploads never displace new work: each cycle first takes new and modified
+files up to its cap, then at most `RC_FIELDS_REUPLOAD_PER_CYCLE` re-uploads
+while the cap leaves room, last in the upload order. A document's stored NULL
+digest equals an empty configuration, so upgrading the RemoteController does
+not re-send anything by itself.
+
+**How long it takes.** The Platform's Ingestion tab shows an estimate before
+a change is saved, computed as `ceil(documents / per-cycle bound)` cycles ×
+(scan interval + the time the throughput preset needs to upload one bound),
+counted in nights of the sync window for the nightly schedule. Example: 20,000
+documents, 100 per cycle, schedule *nightly* (19:00–06:00, 5-minute scan
+interval), throughput *Normal* (30 requests a minute): 200 cycles of about
+8⅓ minutes (5 minutes plus 100 uploads at 30 a minute), roughly 28 hours of window — **about 3 nights at the earliest**.
+The estimate counts one request per document and no text-recognition time, so
+multi-part documents and scans make it longer. With the schedule *manual*
+(`one_time` runs), each press of Start re-sends at most one bound: 20,000
+documents need 200 runs. There is no separate bound for `one_time` runs.
+
+**When the server starts accepting.** While the feature is off at Knovas,
+uploads with fields are recorded `not_accepted`. The first upload whose answer
+carries the fields echo (`staged`) queues every `not_accepted` document that
+cycle's scan reached for a re-upload, within the bound. `POST /sync/doc-fields/requeue` does the same on
+request for `not_accepted`, `refused`, `reupload_failed` or `all`
+([operations.md](operations.md#document-fields)).
+
+**Identical relative paths in two sources.** Pointers leave out the source
+folder, so `Akten/2024/a.pdf` and `Mail/2024/a.pdf` become the same document
+when both sources are rooted one level up — and the state is keyed by that
+path. Within a cycle the **first** source that yields a path governs its fields
+and digest (content handling is unchanged); the status counts such collisions
+as `last_cycle.rel_collisions`.
+
+**Downgrading the Platform.** The new keys live only inside `sources[]`; an
+older Platform drops them when it re-reads a profile. If it then pushes that
+profile, the RemoteController sees an empty configuration for those sources
+and, on the next re-upload of each affected document (bounded per cycle),
+sends `"fields": {}` — which clears that document's upload-layer values at
+Knovas. Folder rules and manual edits are not affected.
+
 ## Supported document formats
 
 RemoteController converts the following extensions to text (with per-sentence citations) before chunking and upload. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
@@ -140,7 +279,7 @@ Align deployment with KnovasPlatform:
 
 Scanned PDF pages without a text layer are OCR'd when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs. Markdown is never requested from the extractor (it cost ~8 s per document and parked mixed PDFs and large-table DOCX as "markdown expansion ratio" — see [operations.md](operations.md#documents-parked-by-the-markdown-expansion-guard)).
 
-**Docker build:** the Dockerfile installs `knovas-extract` from git. `KNOVAS_EXTRACT_REF` (default `main`) selects the revision — pin it to a tag or sha per RC release: `docker compose build --build-arg KNOVAS_EXTRACT_REF=v0.4.0a1 remote-controller`. `--build-arg KNOVAS_EXTRACT_FROM_GIT=` installs from PyPI instead. The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
+**Docker build:** the Dockerfile installs `knovas-extract` from git. `KNOVAS_EXTRACT_REF` selects the revision and defaults to a pinned sha (`11ec1c38053cbbc914207c9e2f24636cde709617`, knovas-extract 0.4.0a1) — the same sha CI installs for the tests (`KNOVAS_EXTRACT_SHA` in `.github/workflows/ci.yml`; the CI job fails when the two differ). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_REF=<tag or sha> remote-controller`. `--build-arg KNOVAS_EXTRACT_FROM_GIT=` installs from PyPI instead. The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
 
 ### Extraction, OCR and page markers
 

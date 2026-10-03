@@ -175,6 +175,18 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_doc_fields_state():
+    """The document-fields capability and the per-user registry caches are
+    process-wide by design (one tenant per deployment). Between tests that
+    would carry one test's Knovas into the next, so every test starts clean."""
+    import doc_fields_capability
+
+    doc_fields_capability.reset_for_tests()
+    yield
+    doc_fields_capability.reset_for_tests()
+
+
 class DummyKnovasClient:
     """Controllable mock. Set DummyKnovasClient.health_result before creating the app."""
 
@@ -196,6 +208,9 @@ class DummyKnovasClient:
         # pointer here and searches for it -- the same way the browser does.
         self.search_results: list[dict] = []
         self.search_calls: list[str] = []
+        # Every search as the client received it, new keyword arguments
+        # included, so a test can pin what a route sent (H1, D8).
+        self.search_requests: list[dict] = []
         DummyKnovasClient.last_instance = self
 
     def document_readable(self, pointer):
@@ -208,13 +223,43 @@ class DummyKnovasClient:
     def health_check(self):
         return DummyKnovasClient.health_result
 
-    def search_documents(self, query, limit=20, filters=None):
+    def search_documents(self, query, limit=20, filters=None, *, where=None,
+                         return_fields=None):
+        if (where is not None or return_fields is not None) and not self.secured_mode():
+            # The real client refuses them outside secured mode (D13); a fake
+            # that quietly accepted them would let a route ship that bug.
+            raise ValueError("where/return_fields need the secured API")
         self.search_calls.append(str(query))
+        self.search_requests.append({"query": query, "limit": limit, "filters": filters,
+                                     "where": where, "return_fields": return_fields})
         rows = [
             row for row in self.search_results
             if str(row.get("doc_id") or "") not in self.denied_pointers
         ]
         return {"results": [dict(row) for row in rows], "total": len(rows)}
+
+    # -- document fields: off, the way a Knovas without them answers -------
+    # The capability is off without a probe (not secured mode), and every
+    # doc-fields call raises what the real client raises on a 404 HTTP_404.
+    # tests/doc_fields_fakes.py:FakeDocFieldsApi switches them on.
+    secured = False
+
+    def secured_mode(self):
+        return bool(self.secured)
+
+    def doc_fields_probe(self):
+        return "off"
+
+    def _doc_fields_off(self, *args, **kwargs):
+        from knovas_client import DocFieldsUnavailable
+
+        raise DocFieldsUnavailable()
+
+    doc_fields = create_doc_field = update_doc_field = deprecate_doc_field = _doc_fields_off
+    doc_field_packs = install_doc_field_pack = _doc_fields_off
+    doc_field_settings = set_doc_field_settings = _doc_fields_off
+    doc_field_rules = put_doc_field_rule = retire_doc_field_rule = _doc_fields_off
+    doc_values = patch_doc_values = find_doc_values = _doc_fields_off
 
     # -- what the console's Dokumente / Zugriffsgruppen tabs call --------
     def documents(self, **kw):

@@ -57,6 +57,12 @@ jobs:
         # (bench/report_to_knovas.py) against a fake Platform.
         run: python -m pytest experiments-sdk/python
 
+      # The mock Knovas API emulates every document-fields server state (off,
+      # values, filters, uncalibrated); the Platform and RC contract tests
+      # drive it, so its own suite runs here. Working directory: KnovasPlatform.
+      - name: Mock Knovas API
+        run: pytest mock_knovas_api/tests
+
       # The per-component stack under KnovasPlatform/ is gone; there is one
       # Compose project at the repo root, so these steps run from there.
       - name: Env expansion contract
@@ -230,6 +236,13 @@ jobs:
     defaults:
       run:
         working-directory: RemoteController
+    env:
+      # The knovas-extract revision the tests run against. It must be the
+      # RemoteController/Dockerfile default (ARG KNOVAS_EXTRACT_REF), so the
+      # image ships the extractor CI tested; the install step fails when the
+      # two differ. PyPI's knovas-extract 0.2 lacks the 0.4 `Limits` the OCR
+      # budgets are sent through, which is what turned main red.
+      KNOVAS_EXTRACT_SHA: 11ec1c38053cbbc914207c9e2f24636cde709617
     steps:
       - uses: actions/checkout@v4
 
@@ -250,9 +263,18 @@ jobs:
         # scheitert, und ein Sammelfehler bricht den GANZEN Lauf ab: seit
         # Einfuehrung des Generators lief kein einziger RemoteController-Test
         # mehr durch.
+        #
+        # knovas-extract comes first, from the pinned sha with the extras of
+        # pyproject.toml: `pip install -e` then finds it satisfying
+        # `knovas-extract>=0.2` and leaves it in place instead of pulling 0.2
+        # from PyPI. The last line fails the job if anything replaced it.
         run: |
+          grep -qx "ARG KNOVAS_EXTRACT_REF=${KNOVAS_EXTRACT_SHA}" Dockerfile \
+            || { echo "Dockerfile KNOVAS_EXTRACT_REF is not ${KNOVAS_EXTRACT_SHA}"; exit 1; }
+          pip install "knovas-extract[pdf,docx,msg,html,sentences] @ git+https://github.com/Seifeddini/knovas-extract-python.git@${KNOVAS_EXTRACT_SHA}"
           pip install -e ".[dev]"
           pip install -r scripts/demo_kanzlei/requirements.txt
+          python -c "import json, os; from importlib.metadata import distribution; d = distribution('knovas-extract'); u = json.loads(d.read_text('direct_url.json') or '{}'); sha = u.get('vcs_info', {}).get('commit_id'); assert sha == os.environ['KNOVAS_EXTRACT_SHA'], (d.version, sha); print('knovas-extract', d.version, sha)"
 
       - name: Run pytest
         env:
@@ -272,7 +294,13 @@ jobs:
           SEMANTIX_CLIENT_CERT_PATH: /certs/client.pem
           SEMANTIX_CLIENT_KEY_PATH: /certs/client.key
           SEMANTIX_CA_CERT_PATH: /certs/ca.pem
-        run: pytest
+          # Outside the checkout: the default (.rc-sync-state.json beside the
+          # tracked .rc-sync-state.db) lets a test rewrite a committed file.
+          RC_SYNC_STATE_PATH: ${{ runner.temp }}/rc-state/.rc-sync-state.json
+        run: |
+          mkdir -p "$(dirname "$RC_SYNC_STATE_PATH")"
+          pytest
+          git diff --exit-code -- .rc-sync-state.db
 
       - name: Validate contract schemas
         run: |
@@ -293,11 +321,10 @@ jobs:
             tesseract --list-langs 2>&1 | tail -n +2 | sort | tr "\n" " "; echo'
 
       - name: No pymupdf-layout (PolyForm-NC) in the customer image
-        # Advisory until knovas-extract 0.4.0a1 is pinned (plan M0, [C-reg-9]):
-        # the current library's [pdf] extra still drags pymupdf4llm -> pymupdf-
-        # layout in. Once KNOVAS_EXTRACT_REF points at a release whose [pdf]
-        # extra is clean, drop `continue-on-error` and let this gate the build.
-        continue-on-error: true
+        # Gates the build (plan M0, [C-reg-9]): KNOVAS_EXTRACT_REF is pinned to
+        # knovas-extract 0.4.0a1, whose [pdf] extra is pymupdf alone
+        # (pymupdf4llm moved to the separate `pdf-markdown` extra). A later
+        # bump or extra that drags pymupdf-layout back in fails here.
         run: |
           if docker run --rm remote-controller:ci pip show pymupdf-layout >/dev/null 2>&1; then
             echo "pymupdf-layout is installed in the image"; exit 1

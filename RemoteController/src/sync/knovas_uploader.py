@@ -4,14 +4,14 @@ from __future__ import annotations
 import logging
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 import requests
 
-from config import get_config
-from sync import ocr_metrics
+from config import doc_fields_enabled, get_config
+from sync import doc_fields_metrics, ocr_metrics
 from sync.ingest_rate_limit import acquire_chars, acquire_request
 from sync.rate_metrics import IngestRateMetrics
 from sync.chunking import PART_MAX_CHARS, build_transmission_parts
@@ -24,11 +24,43 @@ from sync.document_text import (
     partial_note_for,
     pdf_ocr_enabled,
 )
+from sync.doc_fields_payload import (
+    FieldsOutcome,
+    SourceSpec,
+    assemble,
+    classify_init_refusal,
+    config_digest,
+    fields_to_send,
+    is_doc_fields_unavailable,
+    outcome_after_init,
+    parse_init_echo,
+    refused_outcome,
+)
 
 logger = logging.getLogger(__name__)
 
 RETRY_STATUS = {429, 503, 504}
 MAX_BACKOFF = 30.0
+INIT_PATH = "/secured/init_document_transmission"
+#: The Secure API refuses longer titles (secure_api.py init validation); an
+#: uncapped one made such a file fail its init every cycle.
+MAX_TITLE_CHARS = 500
+
+
+def _json_or_none(resp: requests.Response) -> Any:
+    try:
+        return resp.json() if resp.content else None
+    except ValueError:
+        return None
+
+
+def _retry_unless_doc_fields_unavailable(resp: requests.Response) -> bool:
+    """``retry_status`` of an init that carries ``fields``: a 503 whose
+    ``error_code`` starts with ``doc_fields_`` comes back at once (the RC
+    re-posts without fields) instead of after five backoff rounds."""
+    if resp.status_code not in RETRY_STATUS:
+        return False
+    return not is_doc_fields_unavailable(resp.status_code, _json_or_none(resp))
 
 
 def page_break_markers_enabled() -> bool:
@@ -57,6 +89,11 @@ class UploadResult:
     #: skipped on a budget trip, no OCR backend although one was configured);
     #: None for a complete document. Recorded by the executor (GI-EXTRACT-02).
     partial: Optional[dict[str, Any]] = None
+    #: What happened to the init ``fields`` (spec 3.6); None when the upload
+    #: was not given a ``source`` or the init did not succeed.
+    fields: Optional[FieldsOutcome] = None
+    #: Values left out of ``fields`` before sending, by reason (counts).
+    fields_dropped: dict[str, int] = field(default_factory=dict)
 
 
 def _record_cache_metrics(doc: ExtractedDocument) -> None:
@@ -116,8 +153,17 @@ class SemantixUploader:
         return 1
 
     def _request(
-        self, method: str, path: str, *, json_body: Optional[dict] = None, max_retries: int = 5
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: Optional[dict] = None,
+        max_retries: int = 5,
+        retry_status: Optional[Callable[[requests.Response], bool]] = None,
     ) -> requests.Response:
+        """One API call with backoff. ``retry_status`` decides whether an
+        answer is retried; default: its status is in ``RETRY_STATUS``."""
+        should_retry = retry_status or (lambda resp: resp.status_code in RETRY_STATUS)
         url = f"{self._base}{path}"
         backoff = 1.0
         last_exc: Optional[Exception] = None
@@ -159,7 +205,7 @@ class SemantixUploader:
                     success=200 <= resp.status_code < 300,
                 )
 
-            if resp.status_code not in RETRY_STATUS:
+            if not should_retry(resp):
                 return resp
             if attempt >= max_retries - 1:
                 return resp
@@ -174,7 +220,20 @@ class SemantixUploader:
         relative_path: str,
         sync_body: dict[str, Any],
         access_groups: tuple[str, ...] = (),
+        *,
+        source: Optional[SourceSpec] = None,
+        previous_fields_sent: bool = False,
     ) -> UploadResult:
+        """Extract, init and transmit one file.
+
+        ``source`` is the governing source's ``SourceSpec``: its access
+        groups win over ``access_groups``, and its fields configuration
+        becomes the init ``fields`` (spec 3.6). ``previous_fields_sent``
+        (from the state row) makes an empty payload a ``{}`` clear. Without
+        ``source`` the init body is exactly what it was before fields.
+        """
+        if source is not None:
+            access_groups = source.access_groups
         ingestion = sync_body.get("ingestion") or {}
         prefix = ingestion.get("identifier_prefix", "rc-sync")
         part_max = min(int(ingestion.get("part_max_chars", PART_MAX_CHARS)), PART_MAX_CHARS)
@@ -225,7 +284,7 @@ class SemantixUploader:
         # core.xml title) so email search on the subject line still works after
         # migrating off the legacy '# Subject' body-prefix shape. Falls back to
         # filename when no title was extracted.
-        title = extracted_title or file_path.name
+        title = (extracted_title or file_path.name)[:MAX_TITLE_CHARS]
 
         init_body: dict[str, Any] = {
             "identifier": identifier,
@@ -242,12 +301,44 @@ class SemantixUploader:
             # "deliberately unrestricted" and would override it.
             init_body["access_groups"] = list(access_groups)
 
-        init_resp = self._request(
-            "POST",
-            "/secured/init_document_transmission",
-            json_body=init_body,
-        )
+        # Knovas document fields (spec 3.6): only with a source, only while
+        # RC_DOC_FIELDS is on, and only when there is something to send --
+        # values, or {} to clear values an earlier upload staged. Every other
+        # init body stays byte-identical to the one before fields existed.
+        fields_on = source is not None and doc_fields_enabled()
+        fields_value: Optional[dict[str, Any]] = None
+        fields_digest = ""
+        dropped: dict[str, int] = {}
+        if fields_on:
+            payload = assemble(relative_path, source, doc.source_metadata, ext)
+            dropped = {k: int(v) for k, v in payload.dropped.items() if v}
+            doc_fields_metrics.record_dropped(dropped)
+            fields_value = fields_to_send(payload, previous_fields_sent)
+            fields_digest = config_digest(relative_path, source)
+            if fields_value is not None:
+                init_body["fields"] = fields_value
+
+        fields_outcome: Optional[FieldsOutcome] = None
+        if fields_value is None:
+            init_resp = self._request("POST", INIT_PATH, json_body=init_body)
+        else:
+            init_resp = self._request(
+                "POST",
+                INIT_PATH,
+                json_body=init_body,
+                retry_status=_retry_unless_doc_fields_unavailable,
+            )
         ingestion_count = 1
+        if init_resp.status_code not in (200, 201) and fields_value is not None:
+            code = classify_init_refusal(init_resp.status_code, _json_or_none(init_resp))
+            if code is not None:
+                # D5: fields never block indexing. Re-post once without them;
+                # only if that succeeds were the fields the cause.
+                retry_body = {k: v for k, v in init_body.items() if k != "fields"}
+                init_resp = self._request("POST", INIT_PATH, json_body=retry_body)
+                ingestion_count += 1
+                if init_resp.status_code in (200, 201):
+                    fields_outcome = refused_outcome(code, fields_digest)
         if init_resp.status_code not in (200, 201):
             return UploadResult(
                 relative_path=relative_path,
@@ -256,9 +347,15 @@ class SemantixUploader:
                 status="error",
                 ingestion_requests=ingestion_count,
                 error=f"init failed: {init_resp.status_code}",
+                fields_dropped=dropped,
             )
 
         init_data = init_resp.json() if init_resp.content else {}
+        if fields_on and fields_outcome is None:
+            echo = parse_init_echo(init_data) if fields_value is not None else None
+            fields_outcome = outcome_after_init(fields_value, echo, fields_digest)
+        if fields_outcome is not None and fields_outcome.fields_sent:
+            logger.info(fields_outcome.log_line())
         key = init_data.get("key") or init_data.get("transmission_key_id") or ""
         if not key:
             # A 200 with no key means the server never opened a transmission.
@@ -272,6 +369,7 @@ class SemantixUploader:
                 status="error",
                 ingestion_requests=ingestion_count,
                 error="init failed: missing transmission key",
+                fields_dropped=dropped,
             )
 
         try:
@@ -299,6 +397,7 @@ class SemantixUploader:
                         status="error",
                         ingestion_requests=ingestion_count,
                         error=f"part {idx} failed: {part_resp.status_code}",
+                        fields_dropped=dropped,
                     )
         except (OSError, UnicodeDecodeError, ConversionError) as exc:
             return UploadResult(
@@ -308,6 +407,7 @@ class SemantixUploader:
                 status="error",
                 ingestion_requests=ingestion_count,
                 error=str(exc),
+                fields_dropped=dropped,
             )
 
         logger.info(
@@ -323,6 +423,8 @@ class SemantixUploader:
             status="ok",
             ingestion_requests=ingestion_count,
             partial=partial,
+            fields=fields_outcome,
+            fields_dropped=dropped,
         )
 
     def delete_by_pointer(self, pointer: str) -> tuple[bool, Optional[str]]:

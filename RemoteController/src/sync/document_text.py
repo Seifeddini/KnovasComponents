@@ -44,7 +44,7 @@ import os
 import queue
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -62,6 +62,7 @@ from knovas_extract import result as knovas_extract_result
 from knovas_extract.result import Page, Section, Sentence
 
 from sync.extract_content import description_from_metadata, payload_from_extraction_result
+from sync.metadata_fields import source_metadata_from
 from sync.ocr_cache import MemoryOcrCache, ocr_cache_for_document
 
 logger_ocr_warned = False
@@ -214,6 +215,13 @@ class ExtractedDocument:
     `pdf:ocr_pages_skipped`, `pdf:ocr_backend`, ...) plus the RC's own
     `rc:ocr_cache_hits` / `rc:ocr_cache_misses`; `page_count` the metadata
     page count. Counts and identifiers only, never text.
+
+    `source_metadata` holds the extractor's `author`, `language`, `created`
+    and `modified` plus the .eml `eml:content_language` header, as strings
+    (`sync.metadata_fields.source_metadata_from`). Only the opted-in
+    metadata mapping reads it (`sync.metadata_fields.map_metadata`); it is
+    customer data and is never logged. Plain str values, so it pickles
+    across the extraction child's queue.
     """
 
     text: str
@@ -225,6 +233,7 @@ class ExtractedDocument:
     pages: Optional[list[Page]] = None
     extra: Optional[dict[str, Any]] = None
     page_count: Optional[int] = None
+    source_metadata: dict[str, str] = field(default_factory=dict)
 
 
 def is_syncable_extension(suffix: str) -> bool:
@@ -814,6 +823,7 @@ def _extract_bytes(
         pages=payload.pages,
         extra=extra,
         page_count=_int_or_none(getattr(result.metadata, "page_count", None)),
+        source_metadata=source_metadata_from(result.metadata),
     )
 
 

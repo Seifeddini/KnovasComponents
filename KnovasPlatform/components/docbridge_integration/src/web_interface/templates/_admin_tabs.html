@@ -1,10 +1,13 @@
 {# Reiterleiste der Verwaltung: eine Quelle fuer alle Konsolenseiten (SS-387).
-   Erwartet: admin_tab ('people' | 'documents' | 'access_groups' | 'ingestion'
-   | 'approvals'), me, ingestion_enabled.
+   Erwartet: admin_tab ('people' | 'documents' | 'access_groups' | 'doc_fields'
+   | 'ingestion' | 'approvals'), me, ingestion_enabled; optional
+   doc_fields_capability (vom Kontextprozessor in admin.py, lazy).
    Zwei Sichtbarkeitsregeln, beide nur Darstellung: Personen, Dokumente und
    Zugriffsgruppen sind fuer ein me ohne 'admin' ausgeblendet; Ingestion
    erscheint fuer admin und ingestion_manager, wenn ingestion_enabled gilt
-   (d.h. eine RemoteController-URL konfiguriert ist). Freigaben ist immer da.
+   (d.h. eine RemoteController-URL konfiguriert ist). Dokumentfelder
+   erscheint fuer admin nur, solange Knovas die Funktion anbietet (H6: keine
+   Oberflaeche fuer etwas, das der Server nicht kann). Freigaben ist immer da.
    Die Kontrolle ist der Rollen-Gate auf der Route, nicht der gezeichnete
    Link -- require_admin, require_ingestion, require_approver. #}
 <nav class="tabs" aria-label="Verwaltung">
@@ -18,6 +21,11 @@
     <a href="{{ url_for('admin.access_groups') }}"
        class="{% if admin_tab == 'access_groups' %}active{% endif %}"
        {% if admin_tab == 'access_groups' %}aria-current="page"{% endif %}>Zugriffsgruppen</a>
+    {% if doc_fields_capability is defined and doc_fields_capability.shows_values %}
+    <a href="{{ url_for('admin.doc_fields') }}"
+       class="{% if admin_tab == 'doc_fields' %}active{% endif %}"
+       {% if admin_tab == 'doc_fields' %}aria-current="page"{% endif %}>Dokumentfelder</a>
+    {% endif %}
     {% endif %}
     {% if ingestion_enabled is defined and ingestion_enabled and (me is not defined or not me or 'admin' in me.roles or 'ingestion_manager' in me.roles) %}
     <a href="{{ url_for('admin.ingestion') }}"

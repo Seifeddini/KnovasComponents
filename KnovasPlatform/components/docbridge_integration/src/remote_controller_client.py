@@ -7,7 +7,7 @@ RemoteController's require_operator_or_tenant_admin. No session, no call.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -17,6 +17,73 @@ from identity.ingestion_compiler import CompiledIngestion
 logger = logging.getLogger(__name__)
 
 PRINCIPAL_HEADER = "X-Platform-Principal"
+
+#: What a RemoteController that knows document fields advertises in
+#: ``/sync/status["capabilities"]`` (spec 3.8). An older one has no such
+#: list, and answers 400 to a sync body carrying the new source keys -- so
+#: the console asks before it sends them (spec 2.5).
+CAP_SOURCE_FIELDS = "source_fields_v1"
+CAP_FIELD_TEMPLATES = "field_templates_v1"
+CAP_METADATA_FIELDS = "metadata_fields_v1"
+CAP_FIELDS_REQUEUE = "fields_requeue_v1"
+
+#: ``POST /sync/doc-fields/requeue`` outcomes (spec 3.7).
+REQUEUE_OUTCOMES = frozenset({"not_accepted", "refused", "reupload_failed", "all"})
+
+
+def capabilities_from_status(status: Any) -> frozenset[str]:
+    """The capability names a ``/sync/status`` answer lists; empty when it
+    lists none (an older RemoteController) or is not a status at all."""
+    if not isinstance(status, Mapping):
+        return frozenset()
+    raw = status.get("capabilities")
+    if not isinstance(raw, (list, tuple)):
+        return frozenset()
+    return frozenset(c for c in raw if isinstance(c, str) and c)
+
+
+def advertised_capabilities(rc_client: Any) -> Optional[frozenset[str]]:
+    """What a RemoteController client advertises; None when it cannot be
+    asked, so an unreachable one is never reported as too old. A client
+    without ``reachable_capabilities`` (an older test double) answers
+    through ``capabilities``."""
+    reachable = getattr(rc_client, "reachable_capabilities", None)
+    if callable(reachable):
+        return reachable()
+    capabilities = getattr(rc_client, "capabilities", None)
+    return frozenset(capabilities() or ()) if callable(capabilities) else frozenset()
+
+
+def requeue_supported(rc_client: Any) -> Optional[bool]:
+    """Whether ``rc_client`` can re-send uploads by field outcome: True when
+    the RemoteController advertises ``fields_requeue_v1``, False for an
+    older one (or none configured), None when it cannot be asked now."""
+    if rc_client is None or not callable(getattr(rc_client, "requeue_doc_fields", None)):
+        return False
+    available = advertised_capabilities(rc_client)
+    if available is None:
+        return None
+    return CAP_FIELDS_REQUEUE in available
+
+
+def required_capabilities(sync_request: Mapping[str, Any]) -> frozenset[str]:
+    """What a RemoteController must advertise to accept ``sync_request``.
+
+    Empty for a body without document fields, which every RemoteController
+    accepts. ``fields`` needs ``source_fields_v1``; templates and metadata
+    items need theirs on top of it.
+    """
+    needed: set[str] = set()
+    for source in (sync_request or {}).get("sources") or ():
+        if not isinstance(source, Mapping):
+            continue
+        if source.get("fields"):
+            needed.add(CAP_SOURCE_FIELDS)
+        if source.get("field_templates"):
+            needed.update((CAP_SOURCE_FIELDS, CAP_FIELD_TEMPLATES))
+        if source.get("metadata_fields"):
+            needed.update((CAP_SOURCE_FIELDS, CAP_METADATA_FIELDS))
+    return frozenset(needed)
 
 #: The scheduler states RemoteController reports while a continuous worker
 #: exists. Read off ``RC/src/sync/sync_scheduler.py::_set_status``: every
@@ -104,6 +171,40 @@ class RemoteControllerClient:
 
     def status(self) -> dict:
         return self._call("GET", "/sync/status", timeout=STATUS_TIMEOUT_SECONDS)
+
+    def health(self) -> dict:
+        """``status()`` under the name the System tab's check looks up."""
+        return self.status()
+
+    def capabilities(self) -> frozenset[str]:
+        """What this RemoteController advertises; empty for an older one, and
+        empty when it cannot be asked (nobody signed in, unreachable), since
+        then nothing it does not list can be relied on either."""
+        return self.reachable_capabilities() or frozenset()
+
+    def reachable_capabilities(self) -> Optional[frozenset[str]]:
+        """``capabilities()``, but None when the RemoteController cannot be
+        asked (nobody signed in, unreachable, an error answer) -- so a caller
+        can tell "not reachable" from "too old" (empty)."""
+        try:
+            return capabilities_from_status(self.status())
+        except (RemoteControllerError, PermissionError) as exc:
+            logger.info("RemoteController-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
+            return None
+
+    def requeue_doc_fields(self, outcome: str) -> int:
+        """Queue documents with this field outcome for re-upload; the count.
+
+        ``outcome`` is one of REQUEUE_OUTCOMES. RemoteController re-sends them
+        within its per-cycle bound, each one a billed upload.
+        """
+        if outcome not in REQUEUE_OUTCOMES:
+            raise ValueError(f"unknown requeue outcome: {outcome!r}")
+        payload = self._call("POST", "/sync/doc-fields/requeue", body={"outcome": outcome})
+        try:
+            return max(0, int((payload or {}).get("requeued") or 0))
+        except (TypeError, ValueError, AttributeError):
+            return 0
 
     def start(self) -> dict:
         return self._call("POST", "/sync/start", body={})

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### 0.3.0 — Knovas document fields (Dokumentfelder)
+
+Takes effect only for a tenant where Knovas has enabled Document Fields. Against any other server the bodies, the outcomes and the indexing are as in 0.2.0.
+
+- **Per-source fields in the sync body** (`sources[].fields`, `field_templates`, `metadata_fields`; `contracts/sync_request.schema.json`, golden template vectors in `contracts/vectors/field_templates.json`). Fixed values, path-template captures (`{mandant}/{period}/**`, first match wins, matched on the folders of the source-relative path) and opted-in file properties (`language`, `email_date`, `email_doc_type`, `email_author`, `document_author`) are sent as init `fields` — Knovas's upload layer. Precedence per key: capture, fixed value, file property. Entity values are names, never node ids. `.md`/`.txt` carry no author or language.
+- **Fields never block indexing.** A refusal caused by the fields re-posts the init once without them (`refused:<code>`); the previous upload-layer values survive. No echo means `not_accepted`, never "stored". Titles are capped at 500 characters (a longer one used to loop forever). `/sync`, `/sync/body` and `/sync/start` refuse a body whose field template does not compile (`400 $.sources[i].field_templates[j]: field_template_invalid (<code>)`); a body stored before keeps working, its bad source skipped per cycle. A fields re-send that keeps failing never uses up the extraction retries and is never recorded partial (`reupload_failed:extract`).
+- **Re-uploads on a configuration change**, bounded: a digest per document detects `fields_changed` (`document_sync.fields_changed`); at most `RC_FIELDS_REUPLOAD_PER_CYCLE` (100) per cycle, after new and modified files, and at most `RC_FIELDS_REUPLOAD_MAX_ATTEMPTS` (3) failed attempts before `reupload_failed:<class>`. Each re-upload is a full, billed upload with OCR. A NULL digest equals "nothing configured", so the upgrade re-sends nothing by itself. When the server starts echoing, `not_accepted` documents are queued automatically.
+- **`RC_DOC_FIELDS`** (default `on`) can only switch the feature off: no `fields` key, no digest, unchanged bodies.
+- **`GET /sync/status`**: `capabilities` (`source_fields_v1`, `field_templates_v1`, `metadata_fields_v1`, `fields_requeue_v1`) and a `doc_fields` block (server state, per-cycle bound, document counts, last cycle, warning codes, unknown keys) — keys, codes and counts only. **`POST /sync/doc-fields/requeue`** `{"outcome": "not_accepted" | "refused" | "reupload_failed" | "all"}` → `{"requeued": n}`.
+- **Metrics** `rc_doc_fields_uploads_total{outcome}`, `rc_doc_fields_refusals_total{code}`, `rc_doc_fields_warnings_total{code}`, `rc_doc_fields_client_dropped_total{reason}`, labels from closed sets. Schema errors under the new keys name the JSON path and the validator keyword, never the instance.
+- State DB: five additive `fields_*` columns on `documents`; `record_upload` is an UPSERT that names every column, so recording an upload no longer resets columns it does not name.
+- Identical relative paths in several sources: the first source governs the fields (`last_cycle.rel_collisions`).
+- Dockerfile `KNOVAS_EXTRACT_REF` defaults to the pinned sha CI tests (`11ec1c38…`, knovas-extract 0.4.0a1). Its `[pdf]` extra is clean, so the CI check that `pymupdf-layout` is absent from the image now blocks the build.
+
+Docs: [configuration.md](docs/configuration.md#per-source-document-fields-dokumentfelder), [operations.md](docs/operations.md#document-fields).
+
 ### 0.2.0 — OCR fail-soft, page markers, no more markdown (plan `2026-10-01-ocr-markdown-lite`, M0 + M3)
 
 - **Markdown is never requested from `knovas-extract`** (`emit_markdown=False`). It cost ~8 s per document and its expansion guard parked every mixed PDF and every DOCX with large tables as `skip:unconvertible`. Purge recipe in `docs/operations.md`. The `[markdown]` extra (and with it the PolyForm-NC `pymupdf-layout`) is gone from the dependency and the image.

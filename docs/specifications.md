@@ -193,6 +193,13 @@ Copy `RemoteController/.env.example` to `.env`. Required unless noted:
 - `RC_SYNC_DEFAULT_MAX_INGESTION_REQUESTS_PER_MINUTE`
 - `RC_SYNC_DEFAULT_SCAN_INTERVAL_SECONDS`
 
+**Document fields (optional; effective only once Knovas has enabled Document Fields for the tenant)**
+
+- `RC_DOC_FIELDS` (default `on`) — `off` never sends field values; it cannot switch the feature on at Knovas
+- `RC_FIELDS_REUPLOAD_PER_CYCLE` (default `100`, 1–10000) — documents re-sent per cycle after a source's field settings changed; each is a full, billed upload with OCR
+- `RC_FIELDS_REUPLOAD_MAX_ATTEMPTS` (default `3`, 1–100) — failed re-uploads before a document leaves the queue
+- Details: `RemoteController/docs/configuration.md` (*Per-source document fields*)
+
 **Optional OneDrive mirror**
 
 - `ONEDRIVE_DRIVE_ID`, `ONEDRIVE_TENANT_ID`, `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET`
@@ -373,6 +380,8 @@ on every run.
 - `OPEN_UNC_ROOT` — how Windows clients see the share (e.g. `\\fileserver\AutoDocShare`)
 - `OPEN_CLIENT_LOCAL_ROOT` — how Linux clients mount the share (e.g. `/mnt/autodoc`)
 - `SEARCH_ENRICHMENT_PATH` (default `/mnt/autodoc/.search_enrichment.jsonl`) — optional OneDrive URL enrichment
+- `DOC_FIELDS_UI` (default `auto`) — `off` hides all document-field UI; there is no `on`: the Platform shows what Knovas serves for the tenant, in secured mode only (`KnovasPlatform/docs/features/document-fields.md`)
+- `DOC_FIELDS_EDIT_ROLES` (default `admin`) — roles that may edit document-field values; `special` fields stay admin-only
 
 **File-open companion (optional fallback)**
 

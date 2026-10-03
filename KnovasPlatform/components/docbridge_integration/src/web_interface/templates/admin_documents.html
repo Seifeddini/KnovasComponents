@@ -64,6 +64,61 @@
         </span>
     </form>
 
+    {% set df_on = doc_fields_on is defined and doc_fields_on %}
+    {% set df_listing = doc_fields_listing is defined and doc_fields_listing %}
+    {% if df_listing %}
+    {# Feldfilter (spec 4.7): Feld und Wert ergeben ein where; nur bei
+       where.applied gibt es Zeilen (H2), der Hinweis "Liste unvollstaendig"
+       kommt vom Server und nur auf der letzten Seite (H5). #}
+    <details class="panel compact-panel doc-fields-filter" id="doc-fields-filter"
+             data-endpoint="{{ url_for('admin.document_fields_find') }}">
+        <summary><strong>Feldfilter</strong> <span class="hint">Dokumente nach Feldwerten auflisten</span></summary>
+        <form class="doc-fields-filter-form" data-df-filter-form>
+            {% for i in range(3) %}
+            <div class="inline-form-row doc-fields-filter-row" data-df-filter-row>
+                <label>Feld
+                    <select data-df-filter-field>
+                        <option value="">—</option>
+                        {% for f in filter_fields %}<option value="{{ f.key }}">{{ f.label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Wert
+                    <input type="text" data-df-filter-value autocomplete="off">
+                </label>
+            </div>
+            {% endfor %}
+            <div class="inline-form-row">
+                <label>Sortieren nach
+                    <select data-df-filter-sort>
+                        <option value="">Pfad</option>
+                        {% for f in filter_fields if f.sortable %}<option value="{{ f.key }}">{{ f.label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Reihenfolge
+                    <select data-df-filter-order>
+                        <option value="asc">aufsteigend</option>
+                        <option value="desc">absteigend</option>
+                    </select>
+                </label>
+                <button type="submit" class="secondary compact">Auflisten</button>
+            </div>
+        </form>
+        <p class="msg warn" data-df-filter-banner hidden></p>
+        <p class="hint" data-df-filter-chips></p>
+        <div class="table-wrap" data-df-filter-results hidden>
+            <table>
+                <thead><tr><th>Titel</th><th>Pfad</th><th>Felder</th><th></th></tr></thead>
+                <tbody data-df-filter-rows></tbody>
+            </table>
+        </div>
+        <div class="more">
+            <button type="button" class="secondary compact" data-df-filter-more hidden>Weitere laden</button>
+            <span class="hint" data-df-filter-status role="status"></span>
+        </div>
+        <script type="application/json" id="doc-fields-filter-fields">{{ filter_fields|tojson }}</script>
+    </details>
+    {% endif %}
+
     <form class="document-selection-form" method="post" action="{{ url_for('admin.set_document_acl') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -85,7 +140,7 @@
         </div>
 
         <div class="table-wrap document-table-wrap">
-            <table id="doc-table">
+            <table id="doc-table" {% if df_on %}data-doc-fields="1"{% endif %}>
                 <thead>
                     <tr>
                         <th class="select-column">
@@ -95,6 +150,7 @@
                         <th>Pfad</th>
                         <th>Gruppen</th>
                         <th>Status</th>
+                        {% if df_on %}<th><span class="visually-hidden">Felder</span></th>{% endif %}
                     </tr>
                 </thead>
                 <tbody id="doc-rows">
@@ -111,10 +167,17 @@
                             {% endif %}
                         </td>
                         <td><span class="document-status">{{ d.status or '—' }}</span></td>
+                        {% if df_on %}
+                        <td class="row-action">
+                            <button type="button" class="secondary compact" data-df-open
+                                    data-pointer="{{ d.pointer }}"
+                                    data-pointers="{{ (d.pointers if d.pointers is defined and d.pointers else [d.pointer])|tojson|forceescape }}">Felder</button>
+                        </td>
+                        {% endif %}
                     </tr>
                     {% else %}
                     {% if unavailable %}
-                    <tr><td colspan="5" class="empty">
+                    <tr><td colspan="{{ 6 if df_on else 5 }}" class="empty">
                         <strong>Die Knovas-API kennt diese Auflistung nicht.</strong><br>
                         <span class="hint">
                             <code>GET /secured/documents</code> antwortet mit 404 — das ist etwas
@@ -124,7 +187,7 @@
                         </span>
                     </td></tr>
                     {% else %}
-                    <tr><td colspan="5" class="empty">Keine Dokumente für diesen Filter.</td></tr>
+                    <tr><td colspan="{{ 6 if df_on else 5 }}" class="empty">Keine Dokumente für diesen Filter.</td></tr>
                     {% endif %}
                     {% endfor %}
                 </tbody>
@@ -142,6 +205,27 @@
             <span class="hint" id="load-status" role="status"></span>
         </div>
     </form>
+
+    {% if df_on %}
+    {# Felder-Schublade (spec 4.7): erst beim Klick gelesen, Zeiger im Body
+       (POST), Bearbeitung nicht-strikt; die Antworten kommen vom Server. #}
+    <aside class="doc-fields-drawer" id="doc-fields-drawer" hidden
+           aria-labelledby="doc-fields-drawer-title"
+           data-read="{{ url_for('admin.document_fields_read') }}"
+           data-edit="{{ url_for('admin.document_fields_edit') }}"
+           data-csrf="{{ csrf_token }}">
+        <header class="doc-fields-drawer-header">
+            <h2 id="doc-fields-drawer-title">Felder</h2>
+            <button type="button" class="admin-icon-button" data-df-close aria-label="Schließen">×</button>
+        </header>
+        <label class="doc-fields-pointer-picker" data-df-pointer-picker hidden>Ablageort
+            <select data-df-pointer-select></select>
+        </label>
+        <p class="ptr" data-df-pointer></p>
+        <p class="msg" data-df-message hidden></p>
+        <div data-df-body></div>
+    </aside>
+    {% endif %}
 
     {# Bewusst am Ende der Seite, optisch abgesetzt und ohne Vorauswahl: die
        Bestaetigung muss abgetippt werden, ein Klick allein erzeugt sie nicht. #}

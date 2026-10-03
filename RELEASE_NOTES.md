@@ -1,5 +1,95 @@
 # Unreleased
 
+## Dokumentfelder (Dokumentwerte)
+
+Typisierte Werte je Dokument -- Mandant, Zeitraum, Dokumentart, Gericht,
+Frist -- als Filter in der Suche, als Liste, auf den Trefferkarten und im
+Feldbereich der Vorschau.
+
+- **Voraussetzung: Knovas muss Document Fields fuer den Mandanten
+  freischalten.** Bei Knovas ist die Funktion standardmaessig aus, und nichts
+  in `knovas.env` schaltet sie ein. Die Plattform fragt Knovas, was es fuer
+  den Mandanten anbietet, und zeigt nur das; ohne Freischaltung (oder mit einem
+  aelteren Server) bleibt alles wie bisher, ohne neue Oberflaeche und ohne
+  neue Schluessel in den Anfragen. *Verwaltung -> System -> Dokumentfelder*
+  nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Filter in
+  der Suche: Kalibrierung bei Knovas fehlt)` oder `Werte + Filter`.
+  `./scripts/doctor.sh` prueft dasselbe.
+- **Mindestens noetige Knovas-Version:** Feldbereich, *Felder* unter
+  *Dokumente* und jede Wertbearbeitung brauchen eine Knovas-Version, die den
+  Dokumentverweis von `GET /secured/graph/doc-values` aus dem Anfragekoerper
+  liest (Aenderung S2; die Plattform setzt nie einen Verweis in eine Adresse).
+  Gegen eine aeltere Version mit Dokumentfeldern zeigen diese Stellen
+  *Knovas-Update noetig*, und nichts ist bearbeitbar; Filter und Listen sind
+  nicht betroffen. `./scripts/doctor.sh` meldet den Fall
+  (`FAIL Dokumentfelder: Knovas-Update noetig`). In einem BROKERED-Mandanten
+  brauchen Entitaetswerte von RemoteController (z.B. `client`) zusaetzlich
+  Aenderung S1; vorher lehnt Knovas solche Uploads mit `assertion_rejected`
+  ab, und RemoteController indexiert das Dokument ohne Felder.
+- **Was die Plattform zeigt**, je nach Stufe: den Feldbereich in der Vorschau
+  (Werte, Herkunft *Manuell / Upload / Ordnervorgabe*, Hinweise) und den
+  Reiter *Dokumentfelder* (Felder, Pakete `core` und `legal_ch`,
+  Einstellungen, Ordnervorgaben); dann Werte auf den Trefferkarten, *Liste
+  anzeigen* und den *Feldfilter* unter *Dokumente*; zuletzt die Filterleiste
+  der Suche. Bearbeiten duerfen die Rollen in `DOC_FIELDS_EDIT_ROLES`
+  (Standard `admin`); besonders schuetzenswerte Felder nur `admin`.
+  `DOC_FIELDS_UI=off` blendet alles aus.
+- **Filter gelten nur, wenn Knovas sie bestaetigt.** Ohne Bestaetigung zeigt
+  die Suche keine Treffer und bietet *Ohne Filter suchen* an -- nie still
+  ungefilterte Treffer. Listen sagen "Liste unvollstaendig", wenn sie es sind;
+  eine Liste nach Frist ist ausdruecklich keine Fristenkontrolle. Ein
+  bearbeiteter Titel wird angezeigt, nicht durchsucht.
+- **Was RemoteController sendet:** je Ordner der Ingestion feste Werte
+  (`schluessel = Wert; Wert2`), Pfadvorlagen (`{mandant}/{period}/**`) und
+  gewaehlte Dateieigenschaften, als Upload-Werte bei jedem Upload. Felder
+  blockieren nie die Indexierung: lehnt Knovas sie ab, wird ohne Felder
+  indexiert, und eine Pfadvorlage, die RemoteController nicht uebersetzen
+  kann, lehnt er schon beim Speichern ab. `RC_DOC_FIELDS=off` schaltet das
+  Senden ab.
+- **Was erneutes Senden kostet:** Aendern sich die Felder eines Ordners,
+  sendet RemoteController alle seine Dokumente erneut -- jedes ein
+  verrechneter Upload mit erneuter Texterkennung --, hoechstens
+  `RC_FIELDS_REUPLOAD_PER_CYCLE` (100) je Durchlauf und erst nach neuen und
+  geaenderten Dateien. 20'000 Dokumente brauchen beim naechtlichen Zeitplan ca.
+  3 Naechte (ohne Texterkennungszeit gerechnet), beim Zeitplan *manuell* 200
+  Starts. Die Ingestion zeigt Anzahl und Dauer vor dem Speichern und verlangt
+  eine Bestaetigung. Werte, die nicht vom Ordner abhaengen, gehoeren in eine
+  Ordnervorgabe: sie gelten ohne erneutes Senden.
+- **Zugriffsprotokolle ohne Adressen.** Das mitgelieferte nginx und gunicorn
+  protokollieren nur Zeit, Methode, Status, Groesse und Dauer
+  (`knovas_privacy`), nicht mehr die aufgerufene Adresse: Plattform-Adressen
+  enthalten Dokumentpfade, und diese nennen Mandanten. Die Vorlage fuer das
+  Host-nginx tut dasselbe -- bestehende Installationen kopieren
+  `knovas-login-limit.conf` erneut nach `/etc/nginx/conf.d/` (dort steht jetzt
+  auch das Protokollformat) und erneuern die Seite aus der Vorlage
+  (`./scripts/host-https.sh` erledigt beides). Bekannte Grenze: Vorschau und
+  Oeffnen tragen den Dokumentpfad und die Suchwoerter weiterhin in der Adresse;
+  ein eigener Proxy davor muss ebenso ohne Adressen protokollieren, und das
+  nginx-Fehlerprotokoll nennt die Adresse, wenn eine Anfrage an die Plattform
+  scheitert.
+- Der neue Code fuer Dokumentfelder schreibt keine Feldwerte, Titel, Pfade
+  oder Suchtexte in Logzeilen, Audit-Eintraege oder neue Adressen. Bekannte
+  Grenze: aeltere Logzeilen von Plattform und RemoteController nennen
+  weiterhin Dokumentpfade und Verweise (Oeffnen, Herunterladen und Vorschau
+  eines Dokuments, fehlgeschlagene Vorschau, die alte Suche mit ihrem
+  Suchtext, fehlgeschlagene oder teilweise Uploads, entfernte Dokumente).
+  Ordnernamen sind die Quelle von Pfadvorlagen-Werten, also koennen diese
+  Zeilen auch Feldwerte enthalten: Container-Logs vertraulich behandeln wie die
+  Dokumente.
+- Umbenennen oder Verschieben einer Datei macht sie bei Knovas zu einem neuen
+  Dokument; manuelle Werte des alten werden nicht uebernommen. Ein Downgrade
+  der Plattform verwirft die Felder je Ordner; uebertraegt die alte Plattform
+  das Profil, loescht RemoteController die Upload-Werte der betroffenen
+  Dokumente beim naechsten erneuten Senden.
+
+Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
+fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),
+RemoteController: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md) (0.3.0).
+
+Die API-Referenz `docs/KnovasAPI/Secure_API.md` ist zugunsten des Knovas
+Developer Kit stillgelegt (wie zuvor `KnovasPlatform/knovas-docs/`); die
+Dokumentfelder stehen nur dort.
+
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
 
 Statt `KNOVAS_DOCUMENTS_PATH` kann `knovas.env` die Adresse eines OneDrive- oder

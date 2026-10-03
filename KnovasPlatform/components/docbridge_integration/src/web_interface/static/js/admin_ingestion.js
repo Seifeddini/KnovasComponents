@@ -208,6 +208,114 @@
         });
     }
 
+    /* "Vorlagen testen": the folder's path templates against the files
+     * RemoteController lists there. The captures are computed on the server
+     * by the same code RemoteController's golden vectors pin, so this page
+     * never re-implements the grammar. The folder and its templates travel
+     * in a POST body, never in a URL; everything shown is set as text. */
+    var previewEndpoint = rows ? rows.getAttribute('data-template-preview') : null;
+
+    function csrfToken() {
+        var input = document.querySelector('#profile-form input[name="csrf_token"]');
+        return input ? String(input.value || '') : '';
+    }
+
+    function textEl(tag, text, className) {
+        var el = document.createElement(tag);
+        if (className) { el.className = className; }
+        el.textContent = text;
+        return el;
+    }
+
+    function renderTemplatePreview(target, body) {
+        target.textContent = '';
+        (body.errors || []).forEach(function (err) {
+            target.appendChild(textEl('p', 'Pfadvorlage ' + err.index + ': ' + err.text +
+                ' – RemoteController würde diesen Ordner überspringen.', 'msg error'));
+        });
+        target.appendChild(textEl('p', (body.matched || 0) + ' von ' + (body.files || 0) +
+            ' Dateien im Ausschnitt passen.', 'hint'));
+        var found = body.rows || [];
+        if (!found.length) { return; }
+        var table = document.createElement('table');
+        table.className = 'template-preview';
+        var head = document.createElement('tr');
+        ['Datei', 'Vorlage', 'Felder'].forEach(function (label) {
+            head.appendChild(textEl('th', label));
+        });
+        var thead = document.createElement('thead');
+        thead.appendChild(head);
+        table.appendChild(thead);
+        var tbody = document.createElement('tbody');
+        found.forEach(function (item) {
+            var tr = document.createElement('tr');
+            tr.appendChild(textEl('td', String(item.path || ''), 'ptr'));
+            tr.appendChild(textEl('td', item.template ? String(item.template) : '—'));
+            var captures = (item.captures || []).map(function (c) {
+                return String(c.key) + ' = ' + String(c.value);
+            });
+            tr.appendChild(textEl('td', captures.length ? captures.join('; ') : '—'));
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        target.appendChild(table);
+    }
+
+    if (rows && previewEndpoint) {
+        rows.addEventListener('click', function (event) {
+            var button = event.target.closest ? event.target.closest('.template-test') : null;
+            if (!button || !rows.contains(button)) { return; }
+            var row = button.closest('tr');
+            if (!row) { return; }
+            var pathInput = row.querySelector('input.folder-path');
+            var templatesInput = row.querySelector('textarea.folder-templates');
+            var recursiveInput = row.querySelector('input[name$="-recursive"]');
+            var target = row.querySelector('.template-test-result');
+            if (!pathInput || !templatesInput || !target) { return; }
+            var templates = String(templatesInput.value || '').split(/\r?\n/)
+                .map(function (line) { return line.trim(); })
+                .filter(function (line) { return line.length > 0; });
+            target.textContent = '';
+            if (!templates.length) {
+                target.appendChild(textEl('p', 'Keine Pfadvorlage eingetragen.', 'hint'));
+                return;
+            }
+            button.disabled = true;
+            target.appendChild(textEl('p', 'Wird geprüft …', 'hint'));
+            fetch(previewEndpoint, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken()
+                },
+                body: JSON.stringify({
+                    path: String(pathInput.value || ''),
+                    templates: templates,
+                    recursive: recursiveInput ? !!recursiveInput.checked : true
+                })
+            }).then(function (response) {
+                return response.json().then(function (body) {
+                    return { ok: response.ok, body: body || {} };
+                });
+            }).then(function (result) {
+                if (!result.ok) {
+                    target.textContent = '';
+                    target.appendChild(textEl('p', String(result.body.error ||
+                        'Vorschau nicht möglich.'), 'msg error'));
+                    return;
+                }
+                renderTemplatePreview(target, result.body);
+            }).catch(function () {
+                target.textContent = '';
+                target.appendChild(textEl('p', 'Vorschau nicht möglich.', 'msg error'));
+            }).then(function () {
+                button.disabled = false;
+            });
+        });
+    }
+
     var topList = listEl();
     tree.insertBefore(topList, statusEl);
 

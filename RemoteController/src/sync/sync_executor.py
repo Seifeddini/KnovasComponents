@@ -4,18 +4,38 @@ from __future__ import annotations
 import fnmatch
 import logging
 import os
+import re
+from collections import Counter
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Mapping, Optional
 
 import requests
 
+from config import doc_fields_enabled, fields_reupload_max_attempts, fields_reupload_per_cycle
 from discover.filesystem import resolve_root
 from m365.inventory import RemoteFile
 from m365.source import M365Source, active_m365_source, m365_configured, watch_root_subpath
-from sync import ocr_metrics
+from sync import doc_fields_metrics, ocr_metrics
+from sync.doc_fields_payload import (
+    EMPTY_SOURCE_SPEC,
+    OUTCOME_CLEARED,
+    OUTCOME_NONE,
+    OUTCOME_NOT_ACCEPTED,
+    OUTCOME_STAGED,
+    REFUSED_PREFIX,
+    REUPLOAD_FAILED_PREFIX,
+    FieldsOutcome,
+    FieldsRecord,
+    SourceSpec,
+    TemplateError,
+    config_digest,
+    record_for,
+    reupload_failed_record,
+    spec_from_source,
+)
 from sync.document_text import (
     DEFAULT_INCLUDE_GLOBS,
     is_syncable_extension,
@@ -33,8 +53,13 @@ from sync.sync_state import (
     SyncStateStore,
     status_from_fingerprint,
 )
+from sync.sync_state_db import REQUEUE_DIGEST
 
 logger = logging.getLogger(__name__)
+
+#: One upload-queue entry: (abs_path or RemoteFile, relative_path, mtime_iso,
+#: size_bytes, the SourceSpec that governs the document's fields and groups).
+UploadItem = tuple[Any, str, str, int, SourceSpec]
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
@@ -74,7 +99,7 @@ def upload_order() -> str:
     return DEFAULT_UPLOAD_ORDER
 
 
-def _ordered_upload_queue(queue: list[tuple[Any, str, str, int, tuple[str, ...]]], order: str):
+def _ordered_upload_queue(queue: list[UploadItem], order: str):
     if order == "small_first":
         # Stable: files of equal size keep their scan order.
         return sorted(queue, key=lambda item: int(item[3]))
@@ -102,6 +127,92 @@ class SyncRunResult:
     scan_truncated: bool = False
     subfolder_progress: Optional[dict[str, Any]] = None
     rate_limit: Optional[dict[str, Any]] = None
+    #: Knovas document fields of this run (codes and counts); None while
+    #: RC_DOC_FIELDS is off.
+    doc_fields: Optional["DocFieldsCycle"] = None
+    #: Paths the requeue endpoint may queue until the next cycle: requeue
+    #: candidates this cycle's scan reached. In memory only -- never part of
+    #: a response, a status or a log line. None while RC_DOC_FIELDS is off.
+    requeue_reachable: Optional[frozenset] = field(default=None, repr=False)
+
+
+#: At most this many unknown keys / suggestions are kept per cycle.
+MAX_REPORTED_KEYS = 20
+
+
+@dataclass
+class DocFieldsCycle:
+    """What one cycle did with Knovas document fields (spec 3.8).
+
+    Outcome names, refusal and warning codes, failure classes and counts --
+    plus the registry or configuration KEYS the server did not know. Never a
+    value, a capture, a path or a pointer.
+    """
+
+    outcomes: Counter = field(default_factory=Counter)
+    refused: Counter = field(default_factory=Counter)
+    reupload_failed: Counter = field(default_factory=Counter)
+    warnings: Counter = field(default_factory=Counter)
+    dropped: Counter = field(default_factory=Counter)
+    unknown_keys: list[str] = field(default_factory=list)
+    suggest: dict[str, list[str]] = field(default_factory=dict)
+    rel_collisions: int = 0
+    template_errors: int = 0
+    #: ``fields_changed`` re-uploads of this cycle that left the queue.
+    reuploads_done: int = 0
+    #: Documents re-queued because the server started accepting fields.
+    requeued: int = 0
+
+    def note_outcome(self, outcome: str, fields: Optional[FieldsOutcome] = None) -> None:
+        if outcome.startswith(REFUSED_PREFIX):
+            self.refused[outcome[len(REFUSED_PREFIX):]] += 1
+        elif outcome.startswith(REUPLOAD_FAILED_PREFIX):
+            self.reupload_failed[outcome[len(REUPLOAD_FAILED_PREFIX):]] += 1
+        else:
+            self.outcomes[outcome] += 1
+        if fields is None:
+            return
+        self.warnings.update(fields.warning_codes)
+        for key in fields.unknown_keys:
+            if key not in self.unknown_keys and len(self.unknown_keys) < MAX_REPORTED_KEYS:
+                self.unknown_keys.append(key)
+        for key, candidates in fields.suggest.items():
+            if key not in self.suggest and len(self.suggest) < MAX_REPORTED_KEYS:
+                self.suggest[key] = list(candidates)
+
+    @property
+    def active(self) -> bool:
+        """True when the cycle did anything with fields worth reporting."""
+        return bool(
+            sum(self.outcomes.values())
+            or self.refused
+            or self.reupload_failed
+            or self.dropped
+            or self.rel_collisions
+            or self.template_errors
+            or self.requeued
+        )
+
+    def last_cycle(self) -> dict[str, Any]:
+        return {
+            "staged": self.outcomes.get(OUTCOME_STAGED, 0),
+            "not_accepted": self.outcomes.get(OUTCOME_NOT_ACCEPTED, 0),
+            "cleared": self.outcomes.get(OUTCOME_CLEARED, 0),
+            "none": self.outcomes.get(OUTCOME_NONE, 0),
+            "refused": dict(sorted(self.refused.items())),
+            "reupload_failed": dict(sorted(self.reupload_failed.items())),
+            "rel_collisions": self.rel_collisions,
+            "requeued": self.requeued,
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        """The ``doc_fields`` block of the /sync response."""
+        return {
+            "last_cycle": self.last_cycle(),
+            "warnings": dict(sorted(self.warnings.items())),
+            "dropped": dict(sorted(self.dropped.items())),
+            "template_errors": {"field_template_invalid": self.template_errors},
+        }
 
 
 @dataclass(frozen=True)
@@ -114,6 +225,9 @@ class _WalkTarget:
     # explicit empty list would mean "deliberately unrestricted" and would
     # override that rule.
     access_groups: tuple[str, ...] = ()
+    # The source's Knovas document-fields configuration (and the same
+    # access groups), handed to the uploader with each of its files.
+    spec: SourceSpec = EMPTY_SOURCE_SPEC
 
 
 def is_within_max_document_age(
@@ -140,9 +254,16 @@ def _classify_status(
     *,
     max_age_seconds: int | None,
     now: datetime | None,
+    stored_digest: Optional[str] = None,
+    digest: Optional[str] = None,
 ) -> DocumentSyncStatus:
+    """``digest`` is the governing fields-config digest (None while
+    RC_DOC_FIELDS is off: nothing is ever ``fields_changed``). A stored NULL
+    digest equals "", so upgrading re-sends only sources with fields."""
     status = status_from_fingerprint(stored, mtime_iso, size_bytes)
     if status == "synced":
+        if digest is not None and (stored_digest or "") != digest:
+            return "fields_changed"
         return status
     if max_age_seconds is not None and not is_within_max_document_age(
         mtime_iso, max_age_seconds, now=now
@@ -286,12 +407,13 @@ def _iter_candidate_files(
     max_scan_entries: int = 0,
     budget: Optional[_WalkBudget] = None,
     initial_stacks: dict[Path, list[Path]] | None = None,
-) -> Iterator[tuple[Path, str, str, int, tuple[str, ...]]]:
-    """Yield in-scope files with their source's access groups.
+) -> Iterator[UploadItem]:
+    """Yield in-scope files with their source's ``SourceSpec``.
 
     Honours the directory visit budget and the optional file cap. The fifth
-    element is the walk target's ``access_groups`` so the upload queue can
-    hand them to the uploader without a second lookup.
+    element is the walk target's ``spec`` (access groups and document-fields
+    configuration) so the upload queue can hand it to the uploader without a
+    second lookup.
     """
     include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
@@ -320,7 +442,7 @@ def _iter_candidate_files(
             budget=budget,
             initial_stack=stacks.get(target.walk_root),
         ):
-            yield (*item, target.access_groups)
+            yield (*item, target.spec)
         if budget is not None and budget.truncated:
             break
 
@@ -332,26 +454,31 @@ def _iter_m365_candidates(
     filters: dict[str, Any],
     should_stop: Callable[[], bool],
     budget: _WalkBudget,
-) -> Iterator[tuple[RemoteFile, str, str, int, tuple[str, ...]]]:
+    template_errors: Optional[Counter] = None,
+) -> Iterator[UploadItem]:
     """The Microsoft 365 twin of ``_iter_candidate_files``.
 
     Same filters, same relative paths (relative to each source folder, as a
-    filesystem walk computes them), same access groups -- only the listing
-    comes from the change-tracked inventory instead of ``os.scandir``, and
-    the first element is a ``RemoteFile`` that is downloaded at upload time.
+    filesystem walk computes them), same access groups and fields
+    configuration -- only the listing comes from the change-tracked
+    inventory instead of ``os.scandir``, and the first element is a
+    ``RemoteFile`` that is downloaded at upload time.
     """
     include = filters.get("include_globs") or list(DEFAULT_INCLUDE_GLOBS)
     exclude = filters.get("exclude_globs") or ["**/.git/**"]
     max_bytes = int(filters.get("max_file_bytes", 10_485_760))
     files = source.files()
     ordered = sorted(files)
-    for spec in sync_body.get("sources") or []:
-        sub = watch_root_subpath(str(spec.get("path") or ""))
+    fields_on = doc_fields_enabled()
+    for index, src in enumerate(sync_body.get("sources") or []):
+        sub = watch_root_subpath(str(src.get("path") or ""))
         if sub is None:
-            logger.warning("Source %r is outside the Microsoft 365 folder; skipped", spec.get("path"))
+            logger.warning("Source %r is outside the Microsoft 365 folder; skipped", src.get("path"))
             continue
-        recursive = bool(spec.get("recursive", True))
-        groups = tuple(spec.get("access_groups") or ())
+        spec = source_spec_or_none(src, index, fields_on=fields_on, template_errors=template_errors)
+        if spec is None:
+            continue
+        recursive = bool(src.get("recursive", True))
         prefix = f"{sub}/" if sub else ""
         for full_rel in ordered:
             if should_stop():
@@ -371,7 +498,7 @@ def _iter_m365_candidates(
                 continue
             if remote.size > max_bytes:
                 continue
-            yield remote, rel, remote.modified_iso, remote.size, groups
+            yield remote, rel, remote.modified_iso, remote.size, spec
 
 
 def _local_file(item: Any):
@@ -416,7 +543,7 @@ def _refuse_placeholder_root() -> None:
 def _needs_upload(status: DocumentSyncStatus, mode: str) -> bool:
     if mode != "incremental":
         return status != "excluded_max_age"
-    return status in ("pending", "modified")
+    return status in ("pending", "modified", "fields_changed")
 
 
 def _should_skip_failed_upload(upload: UploadResult, mode: str) -> bool:
@@ -443,6 +570,129 @@ def _is_server_side_error(error: str) -> bool:
     )
 
 
+# --- Knovas document fields (spec 3.2, 3.6-3.7) --------------------------------
+
+
+def source_spec_or_none(
+    source: Mapping[str, Any],
+    index: int,
+    *,
+    fields_on: bool,
+    template_errors: Optional[Counter],
+) -> Optional[SourceSpec]:
+    """The ``SourceSpec`` of one sync source, or None to skip the source
+    this cycle because a template does not compile (``field_template_invalid``).
+
+    While RC_DOC_FIELDS is off nothing is compiled: the spec carries the
+    access groups only and the source syncs exactly as before fields.
+    """
+    if not fields_on:
+        return SourceSpec(access_groups=tuple(source.get("access_groups") or ()))
+    try:
+        return spec_from_source(source)
+    except TemplateError as exc:
+        if template_errors is not None:
+            # Counted (and logged) once per cycle: the second call that only
+            # reads the subfolder progress passes no counter.
+            template_errors["field_template_invalid"] += 1
+            # The source's index and the error code only: neither the
+            # template nor the folder path (both may name a client).
+            logger.warning(
+                "Source #%d skipped this cycle: field_template_invalid (%s)", index + 1, exc.code
+            )
+        return None
+
+
+def fields_upload_kwargs(
+    spec: SourceSpec, *, fields_on: bool, previous_fields_sent: bool
+) -> dict[str, Any]:
+    """Keyword arguments of ``SemantixUploader.upload_file`` for one file.
+
+    ``source`` goes along only when it can change the init body: the source
+    has a fields configuration, or values staged earlier must be cleared.
+    Every other call is the one made before fields existed.
+    """
+    kwargs: dict[str, Any] = {"access_groups": spec.access_groups}
+    if fields_on and (spec.has_fields or previous_fields_sent):
+        kwargs["source"] = spec
+        kwargs["previous_fields_sent"] = bool(previous_fields_sent)
+    return kwargs
+
+
+_INIT_STATUS_RE = re.compile(r"^init failed: (\d{3})")
+
+
+def _reupload_failure_class(error: str) -> str:
+    """The closed class of a failed fields re-upload (``reupload_failed:<class>``)."""
+    match = _INIT_STATUS_RE.match(error.strip().lower())
+    if match:
+        status = int(match.group(1))
+        if status == 401:
+            return "init_401"
+        if status == 403:
+            return "init_403"
+        if 400 <= status < 500:
+            return "init_4xx"
+        if 500 <= status < 600:
+            return "init_5xx"
+        return "other"
+    if _is_server_side_error(error):
+        return "other"
+    return "extract"
+
+
+def _note_fields(
+    stats: Optional[DocFieldsCycle], outcome: str, fields: Optional[FieldsOutcome] = None
+) -> None:
+    doc_fields_metrics.record_outcome(outcome)
+    if fields is not None:
+        doc_fields_metrics.record_warnings(fields.warning_codes)
+    if stats is not None:
+        stats.note_outcome(outcome, fields)
+
+
+def _fields_record_for(upload: UploadResult, digest: str) -> FieldsRecord:
+    """What the state DB stores for a successful upload (spec 3.7 table).
+
+    The governing digest is the executor's (the uploader computed the same
+    one from the same spec). A transient refusal stores ``REQUEUE_DIGEST``
+    rather than keeping the old digest: the old one may equal the governing
+    digest (a content change under an unchanged configuration) and the
+    document would never come back for its fields.
+    """
+    outcome = upload.fields or FieldsOutcome(OUTCOME_NONE, digest=digest)
+    record = record_for(outcome)
+    if record.count_attempt:
+        return replace(record, digest=REQUEUE_DIGEST)
+    if record.digest is not None:
+        return replace(record, digest=digest)
+    return record
+
+
+def _count_reupload_failure(
+    state: SyncStateStore,
+    relative_path: str,
+    digest: str,
+    failure_class: str,
+    stats: Optional[DocFieldsCycle],
+    *,
+    attempts: Optional[int] = None,
+) -> bool:
+    """One more failed attempt of a fields re-upload; at
+    ``RC_FIELDS_REUPLOAD_MAX_ATTEMPTS`` the digest is stored with
+    ``reupload_failed:<class>`` and the document leaves the queue.
+    Returns True when it left."""
+    if attempts is None:
+        attempts = state.increment_fields_attempts(relative_path)
+    if attempts < fields_reupload_max_attempts():
+        return False
+    record = reupload_failed_record(digest, failure_class)
+    state.update_fields(relative_path, record)
+    _note_fields(stats, record.outcome)
+    logger.warning("doc_fields outcome=%s attempts=%d", record.outcome, attempts)
+    return True
+
+
 def record_upload_outcome(
     state: SyncStateStore,
     relative_path: str,
@@ -450,6 +700,10 @@ def record_upload_outcome(
     size_bytes: int,
     upload: UploadResult,
     mode: str,
+    *,
+    digest: Optional[str] = None,
+    fields_reupload: bool = False,
+    stats: Optional[DocFieldsCycle] = None,
 ) -> str:
     """Record one upload's outcome in the sync state; returns the outcome.
 
@@ -470,28 +724,80 @@ def record_upload_outcome(
       an OCR-disabled pass and the text pages land instead of looping.
 
     Full mode records nothing (as before): it re-uploads everything anyway.
+
+    Knovas document fields (spec 3.7): ``digest`` is the governing config
+    digest, None while RC_DOC_FIELDS is off (the fields columns are then
+    never touched). Every outcome recorded here also stores a
+    ``FieldsRecord`` with that digest -- including ``none`` when nothing was
+    sent -- so a document never looks changed again; in full mode only the
+    fields columns of existing rows are updated. A ``retry`` records
+    nothing, but for a ``fields_changed`` re-upload (``fields_reupload``) it
+    counts an attempt, and at the cap the document leaves the queue as
+    ``reupload_failed:<class>``. Such a re-upload never touches the
+    extraction retry counter and is never recorded partial for exhausted
+    retries: its text is already complete at Knovas.
     """
     incremental = mode == "incremental"
+    fields_on = digest is not None
     if upload.status == "ok":
         key = upload.transmission_key_id
+        record = _fields_record_for(upload, digest) if fields_on else None
         if upload.partial:
             if incremental:
                 state.record_partial(
-                    relative_path, mtime_iso, size_bytes, key or "partial", dict(upload.partial)
+                    relative_path, mtime_iso, size_bytes, key or "partial", dict(upload.partial),
+                    fields=record,
                 )
+            elif record is not None:
+                state.update_fields(relative_path, record)
             ocr_metrics.OCR_PARTIAL.inc()
-            return "partial"
-        if incremental and key:
-            state.record_upload(relative_path, mtime_iso, size_bytes, key)
-        return "synced"
+            outcome = "partial"
+        else:
+            if incremental and key:
+                state.record_upload(relative_path, mtime_iso, size_bytes, key, fields=record)
+            elif record is not None and not incremental:
+                state.update_fields(relative_path, record)
+            outcome = "synced"
+        if record is not None:
+            if upload.fields is not None:
+                _note_fields(stats, upload.fields.outcome, upload.fields)
+            left = True
+            if record.count_attempt:
+                stored = state.fields_state(relative_path)
+                left = _count_reupload_failure(
+                    state, relative_path, digest, "fields_unavailable", stats,
+                    attempts=stored.attempts if stored is not None else 0,
+                )
+            if fields_reupload and left and stats is not None:
+                stats.reuploads_done += 1
+        return outcome
 
     error = upload.error or "upload failed"
     if not incremental:
         return "retry"
     if _should_skip_failed_upload(upload, mode):
-        state.record_skip(relative_path, mtime_iso, size_bytes, reason="unconvertible")
+        state.record_skip(
+            relative_path, mtime_iso, size_bytes, reason="unconvertible",
+            fields=FieldsRecord(digest, OUTCOME_NONE) if fields_on else None,
+        )
         ocr_metrics.SKIP_UNCONVERTIBLE.inc()
+        if fields_reupload and stats is not None:
+            stats.reuploads_done += 1
         return "skipped"
+    if fields_reupload:
+        # A ``fields_changed`` re-upload: the fingerprint is unchanged and
+        # Knovas already holds the document's text, so a failure here is no
+        # content failure. It never counts toward MAX_EXTRACT_RETRIES and
+        # never records the file partial (the backfill would re-send an
+        # intact document with OCR off, and the document would leave the
+        # queue as ``none``): only the fields attempts count, and at the cap
+        # the document leaves the queue as ``reupload_failed:<class>``.
+        if fields_on:
+            if _count_reupload_failure(
+                state, relative_path, digest, _reupload_failure_class(error), stats
+            ) and stats is not None:
+                stats.reuploads_done += 1
+        return "retry"
     if _is_server_side_error(error):
         return "retry"
     attempts = state.increment_retry_count(relative_path, error=error)
@@ -503,6 +809,7 @@ def record_upload_outcome(
             size_bytes,
             "partial:extract_retries_exhausted",
             dict(RETRIES_EXHAUSTED_NOTE),
+            fields=FieldsRecord(digest, OUTCOME_NONE) if fields_on else None,
         )
         ocr_metrics.OCR_PARTIAL.inc()
         return "partial"
@@ -512,11 +819,28 @@ def record_upload_outcome(
 @dataclass
 class _ScanPlan:
     summary: DocumentSyncSummary
-    # (abs_path or RemoteFile, relative_path, mtime_iso, size_bytes, access_groups)
-    upload_queue: list[tuple[Any, str, str, int, tuple[str, ...]]]
+    # (abs_path or RemoteFile, relative_path, mtime_iso, size_bytes, SourceSpec):
+    # pending and modified files (everything in full mode).
+    upload_queue: list[UploadItem]
     scanned_paths: set[str] = field(default_factory=set)
     scan_truncated: bool = False
     scan_stopped: bool = False
+    # ``fields_changed`` re-uploads, at most RC_FIELDS_REUPLOAD_PER_CYCLE and
+    # only where ``max_files_per_cycle`` leaves room: uploaded after the
+    # primary queue, so they never displace new or modified work.
+    fields_queue: list[UploadItem] = field(default_factory=list)
+    # Governing fields digest and ``fields_sent`` per queued path (fields on).
+    fields_digests: dict[str, str] = field(default_factory=dict)
+    fields_sent: dict[str, bool] = field(default_factory=dict)
+    rel_collisions: int = 0
+    template_errors: Counter = field(default_factory=Counter)
+
+    @property
+    def sources_skipped(self) -> int:
+        """Sources left out this cycle (a template that does not compile).
+        Their files were not scanned: nothing may be pruned, and a
+        sequential subfolder may not advance."""
+        return int(sum(self.template_errors.values()))
 
 
 def _pointer_for_relative(identifier_prefix: str, relative_path: str) -> str:
@@ -557,24 +881,38 @@ def build_walk_targets(
     sync_body: dict[str, Any],
     sync_config: dict[str, Any] | None,
     queue: SubfolderQueue | None,
+    *,
+    template_errors: Optional[Counter] = None,
 ) -> tuple[list[_WalkTarget], Optional[SubfolderProgress]]:
-    """Resolve filesystem walk targets for one scheduler cycle."""
+    """Resolve filesystem walk targets for one scheduler cycle.
+
+    Each target carries its source's ``SourceSpec``. A source whose field
+    template does not compile is left out and counted in
+    ``template_errors`` (``field_template_invalid``); the cycle goes on.
+    """
     sources = sync_body.get("sources") or []
     if not sources:
         return [], None
+    fields_on = doc_fields_enabled()
 
     if not _sequential_subfolders_enabled(sync_config):
         targets: list[_WalkTarget] = []
-        for source in sources:
+        for index, source in enumerate(sources):
             root, err = resolve_root(source.get("path"))
             if err or root is None:
+                continue
+            spec = source_spec_or_none(
+                source, index, fields_on=fields_on, template_errors=template_errors
+            )
+            if spec is None:
                 continue
             targets.append(
                 _WalkTarget(
                     walk_root=root,
                     rel_root=root,
                     recursive=bool(source.get("recursive", True)),
-                    access_groups=tuple(source.get("access_groups") or ()),
+                    access_groups=spec.access_groups,
+                    spec=spec,
                 )
             )
         return targets, None
@@ -594,12 +932,16 @@ def build_walk_targets(
     if sub_path is None:
         return [], progress
 
+    spec = source_spec_or_none(source, 0, fields_on=fields_on, template_errors=template_errors)
+    if spec is None:
+        return [], progress
     return [
         _WalkTarget(
             walk_root=sub_path,
             rel_root=root,
             recursive=True,
-            access_groups=tuple(source.get("access_groups") or ()),
+            access_groups=spec.access_groups,
+            spec=spec,
         ),
     ], progress
 
@@ -622,6 +964,14 @@ def plan_sync_cycle(
     The source is the watch root's file tree, or -- with ``M365_FOLDER_URL``
     set -- the OneDrive/SharePoint folder's change-tracked inventory, which
     is refreshed first and raises rather than plan from a stale view.
+
+    Knovas document fields (spec 3.2, 3.7): while RC_DOC_FIELDS is on, each
+    file's governing config digest is compared with the stored one; a synced
+    file whose digest changed is ``fields_changed`` and goes to the bounded
+    side queue. When several sources yield the same relative path, the first
+    one's fields configuration governs every later duplicate of the cycle
+    (each keeps its own access groups: content handling is unchanged), so
+    the digests of the copies cannot alternate.
     """
     m365 = active_m365_source()
     if m365 is not None:
@@ -635,10 +985,22 @@ def plan_sync_cycle(
     max_age_seconds = int(max_age) if max_age is not None else None
     fingerprints = state.load_fingerprints()
     summary = DocumentSyncSummary()
-    upload_queue: list[tuple[Any, str, str, int, tuple[str, ...]]] = []
+    upload_queue: list[UploadItem] = []
+    fields_queue: list[UploadItem] = []
     scanned_paths: set[str] = set()
+    incremental = mode == "incremental"
+    fields_on = doc_fields_enabled()
+    per_cycle = fields_reupload_per_cycle() if fields_on else 0
+    fields_states = state.load_fields_states() if fields_on else {}
+    fields_digests: dict[str, str] = {}
+    fields_sent: dict[str, bool] = {}
+    governing: dict[str, SourceSpec] = {}
+    rel_collisions = 0
+    template_errors: Counter = Counter()
     walk_targets, _ = (
-        build_walk_targets(sync_body, sync_config, queue) if m365 is None else ([], None)
+        build_walk_targets(sync_body, sync_config, queue, template_errors=template_errors)
+        if m365 is None
+        else ([], None)
     )
     visit_cap = max_scan_entries if max_scan_entries > 0 else 0
     budget = (
@@ -664,7 +1026,8 @@ def plan_sync_cycle(
 
     if m365 is not None:
         candidates = _iter_m365_candidates(
-            m365, sync_body, filters=filters, should_stop=should_stop, budget=budget
+            m365, sync_body, filters=filters, should_stop=should_stop, budget=budget,
+            template_errors=template_errors,
         )
     else:
         candidates = _iter_candidate_files(
@@ -679,9 +1042,18 @@ def plan_sync_cycle(
     links: list[dict[str, str]] = []
 
     scanned = 0
-    for abs_path, rel, mtime_iso, size_bytes, access_groups in candidates:
+    for abs_path, rel, mtime_iso, size_bytes, spec in candidates:
         scanned += 1
         scanned_paths.add(rel)
+        digest: Optional[str] = None
+        if fields_on:
+            first = governing.get(rel)
+            if first is None:
+                governing[rel] = spec
+            else:
+                rel_collisions += 1
+                spec = replace(first, access_groups=spec.access_groups)
+            digest = config_digest(rel, spec)
         if isinstance(abs_path, RemoteFile):
             links.append(
                 {
@@ -694,8 +1066,15 @@ def plan_sync_cycle(
                 }
             )
         stored = state.lookup_stored(rel, fingerprints)
+        fields_state = fields_states.get(rel)
         status = _classify_status(
-            stored, mtime_iso, size_bytes, max_age_seconds=max_age_seconds, now=now
+            stored,
+            mtime_iso,
+            size_bytes,
+            max_age_seconds=max_age_seconds,
+            now=now,
+            stored_digest=fields_state.digest if fields_state is not None else None,
+            digest=digest,
         )
         summary.total += 1
         if status == "synced":
@@ -704,11 +1083,16 @@ def plan_sync_cycle(
             summary.pending += 1
         elif status == "modified":
             summary.modified += 1
+        elif status == "fields_changed":
+            summary.fields_changed += 1
         else:
             summary.excluded_max_age += 1
         # Only files that still need work count toward the per-cycle file cap,
         # so a folder whose leading files are already synced keeps advancing.
-        budget.note_file(_needs_upload(status, mode))
+        # A fields re-upload is no such work: it never truncates a scan.
+        budget.note_file(
+            _needs_upload(status, mode) and not (incremental and status == "fields_changed")
+        )
         if include_documents:
             summary.documents.append(
                 DocumentSyncRecord(
@@ -719,14 +1103,28 @@ def plan_sync_cycle(
                 )
             )
         if _needs_upload(status, mode):
-            if max_upload_files <= 0 or len(upload_queue) < max_upload_files:
-                upload_queue.append(
-                    (abs_path, rel, mtime_iso, size_bytes, access_groups)
-                )
+            item: UploadItem = (abs_path, rel, mtime_iso, size_bytes, spec)
+            queued = False
+            if incremental and status == "fields_changed":
+                if len(fields_queue) < per_cycle:
+                    fields_queue.append(item)
+                    queued = True
+            elif max_upload_files <= 0 or len(upload_queue) < max_upload_files:
+                upload_queue.append(item)
+                queued = True
+            if queued and digest is not None:
+                fields_digests[rel] = digest
+                fields_sent[rel] = bool(fields_state is not None and fields_state.sent)
 
-    if m365 is not None and not budget.stopped:
+    if max_upload_files > 0:
+        # Re-uploads only take what the cycle's file cap leaves after new
+        # and modified work.
+        del fields_queue[max(0, max_upload_files - len(upload_queue)):]
+
+    if m365 is not None and not budget.stopped and not template_errors:
         # Only a complete pass describes the folder; a partial one would drop
-        # the open/preview links of every document it did not reach.
+        # the open/preview links of every document it did not reach (also
+        # those of a source skipped for a field template that does not compile).
         m365.write_links(links)
 
     scan_truncated = budget.truncated
@@ -751,6 +1149,11 @@ def plan_sync_cycle(
         scanned_paths=scanned_paths,
         scan_truncated=scan_truncated,
         scan_stopped=scan_stopped,
+        fields_queue=fields_queue,
+        fields_digests=fields_digests,
+        fields_sent=fields_sent,
+        rel_collisions=rel_collisions,
+        template_errors=template_errors,
     )
 
 
@@ -793,18 +1196,20 @@ def _collect_files(
     sync_config: dict[str, Any] | None = None,
     now: datetime | None = None,
     max_upload_files: int = 0,
-) -> list[tuple[Any, str, str, int, tuple[str, ...]]]:
-    """Return files that need upload (pending or modified; all in-scope in full mode)."""
+) -> list[UploadItem]:
+    """Return files that need upload (pending or modified, then the bounded
+    fields re-uploads; all in-scope in full mode)."""
     state = SyncStateStore()
     try:
-        return plan_sync_cycle(
+        plan = plan_sync_cycle(
             sync_body,
             state,
             should_stop=should_stop,
             sync_config=sync_config,
             now=now,
             max_upload_files=max_upload_files,
-        ).upload_queue
+        )
+        return plan.upload_queue + plan.fields_queue
     finally:
         state.close()
 
@@ -902,9 +1307,22 @@ def run_sync_work(
             result.paused_reason = "cycle_time_limit"
 
         mode = sync_body.get("mode", "incremental")
-        for abs_path, rel, mtime_iso, size_bytes, access_groups in _ordered_upload_queue(
-            plan.upload_queue, upload_order()
-        ):
+        fields_on = doc_fields_enabled()
+        stats = DocFieldsCycle() if fields_on else None
+        if stats is not None:
+            stats.rel_collisions = plan.rel_collisions
+            stats.template_errors = plan.sources_skipped
+            result.doc_fields = stats
+        if plan.sources_skipped:
+            result.errors.append({
+                "path": "",
+                "error": f"field_template_invalid: {plan.sources_skipped} source(s) skipped this cycle",
+            })
+        order = upload_order()
+        work = [(item, False) for item in _ordered_upload_queue(plan.upload_queue, order)]
+        work += [(item, True) for item in _ordered_upload_queue(plan.fields_queue, order)]
+        requeue_checked = False
+        for (abs_path, rel, mtime_iso, size_bytes, spec), fields_reupload in work:
             if should_stop():
                 result.paused_reason = "stop_requested"
                 break
@@ -912,11 +1330,17 @@ def run_sync_work(
                 result.paused_reason = "outside_window"
                 break
 
+            digest: Optional[str] = None
+            if fields_on:
+                digest = plan.fields_digests.get(rel)
+                if digest is None:
+                    digest = config_digest(rel, spec)
+            upload_kwargs = fields_upload_kwargs(
+                spec, fields_on=fields_on, previous_fields_sent=plan.fields_sent.get(rel, False)
+            )
             try:
                 with _local_file(abs_path) as local_path:
-                    upload = uploader.upload_file(
-                        local_path, rel, sync_body, access_groups=access_groups
-                    )
+                    upload = uploader.upload_file(local_path, rel, sync_body, **upload_kwargs)
             except requests.RequestException as exc:
                 if "rate limit" in str(exc).lower():
                     result.paused_reason = "rate_limited"
@@ -938,8 +1362,30 @@ def run_sync_work(
                     error=str(exc),
                 )
             result.ingestion_requests_sent += upload.ingestion_requests
+            if stats is not None and upload.fields_dropped:
+                stats.dropped.update(upload.fields_dropped)
 
-            outcome = record_upload_outcome(state, rel, mtime_iso, size_bytes, upload, mode)
+            outcome = record_upload_outcome(
+                state, rel, mtime_iso, size_bytes, upload, mode,
+                digest=digest, fields_reupload=fields_reupload, stats=stats,
+            )
+            if (
+                stats is not None
+                and not requeue_checked
+                and upload.fields is not None
+                and upload.fields.outcome in (OUTCOME_STAGED, OUTCOME_CLEARED)
+            ):
+                # The server takes fields now: documents it ignored them for
+                # come back within the per-cycle bound (spec 2.3). Once per
+                # cycle, so an inconsistent server cannot loop a document.
+                # Only documents this cycle's scan reached: a row the scan
+                # never visits again (a completed sequential subfolder, a
+                # removed file kept tracked) would wait for good and be
+                # reported as pending forever.
+                requeue_checked = True
+                if state.count_fields_requeue_candidates(OUTCOME_NOT_ACCEPTED, plan.scanned_paths):
+                    stats.requeued += state.requeue_fields(OUTCOME_NOT_ACCEPTED, plan.scanned_paths)
+                    logger.info("doc_fields requeued=%d outcome=not_accepted", stats.requeued)
             tx_entry: dict[str, Any]
             if upload.status == "ok":
                 result.files_uploaded += 1
@@ -949,6 +1395,8 @@ def run_sync_work(
                     "parts": upload.parts,
                     "status": "ok",
                 }
+                if upload.fields is not None and upload.fields.fields_sent:
+                    tx_entry["fields"] = upload.fields.as_tx_entry()
                 if outcome == "partial":
                     result.files_partial += 1
                     tx_entry["partial"] = upload.partial
@@ -976,12 +1424,23 @@ def run_sync_work(
             else:
                 result.transmissions.append(tx_entry)
 
+        if stats is not None:
+            # What a requeue request may queue until the next cycle: a row
+            # this scan did not reach would wait for good (spec 3.7).
+            result.requeue_reachable = frozenset(
+                path for path in state.fields_requeue_candidate_paths()
+                if path in plan.scanned_paths
+            )
+
         can_prune = (
             _delete_on_remove_enabled(sync_body)
             and not plan.scan_truncated
             and not plan.scan_stopped
             and not result.paused_reason
             and not sequential
+            # A source skipped for a bad field template was not scanned: its
+            # documents are still there and must not be removed from Knovas.
+            and not plan.sources_skipped
         )
         if can_prune and not plan.scanned_paths and state.count_tracked_paths() > 0:
             # Every source came back empty while documents are tracked: a share
@@ -1001,16 +1460,25 @@ def run_sync_work(
         elif can_prune:
             _prune_removed_documents(sync_body, uploader, state, plan.scanned_paths, result)
 
-        if sequential and queue is not None and source_root is not None and result.document_sync is not None:
+        if (
+            sequential
+            and queue is not None
+            and source_root is not None
+            and result.document_sync is not None
+            and not plan.sources_skipped
+        ):
             ds = result.document_sync
             # A single maybe_advance handles empty/fully-synced folders too:
             # it already advances one step when pending==modified==0 and the
             # scan was neither truncated nor paused. A second call here would
             # advance again and skip the next subfolder entirely (data loss).
+            # Fields re-uploads count as modified: a subfolder completes only
+            # once they are done. A source skipped for a bad template was
+            # not scanned at all and never advances.
             queue.maybe_advance(
                 source_root,
                 pending=ds.pending,
-                modified=ds.modified,
+                modified=ds.modified + ds.fields_changed,
                 scan_truncated=result.scan_truncated,
                 paused_reason=result.paused_reason,
             )

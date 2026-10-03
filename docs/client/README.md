@@ -110,6 +110,9 @@ All go in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
 | `EXPERIMENTS_ACCESS_GROUPS=` | The Knovas access group(s), comma-separated, that every experiment written to Knovas carries. Every experimenter needs them too, under Verwaltung → Personen. Empty (the default): nothing is written to Knovas and the module searches its own database only. |
 | `EXPERIMENTS_INDEX_UNRESTRICTED=true` | Writes experiments to Knovas without an access group, so every user of the tenant can find them there. Only with a Knovas folder rule that restricts the `experiments/` prefix. |
 | `COMPOSE_PROFILES=experiments` plus `EXPERIMENTS_RUNNER_URL=unix:///run/experiments-runner/runner.sock` | Builds and starts the sandbox for Python and Julia evaluators: its own container without any network, reached over a socket. `EXPERIMENTS_RUNNER_MEMORY` (default `3g`) and `EXPERIMENTS_RUNNER_CPUS` (default `2`, at most the host's CPU count or Docker refuses to create the container) set its limits. Without it the built-in evaluators still work. |
+| `DOC_FIELDS_UI=off` | Hides document fields (Dokumentfelder) — filters, lists by field, values on cards. They appear only once Knovas has enabled them for your tenant; this switch can only turn them off. See [document-fields.md](document-fields.md). |
+| `DOC_FIELDS_EDIT_ROLES=admin,ingestion_manager` | Who may edit field values (default: administrators only). Adding `member` lets every member change the values of every document they can see. |
+| `RC_DOC_FIELDS=off` | RemoteController stops sending field values with uploads. |
 
 ## When a search looks wrong
 

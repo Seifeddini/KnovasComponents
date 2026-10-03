@@ -54,6 +54,21 @@ class DocumentSearchApp {
         this.previewFindingNext = document.getElementById('previewFindingNext');
         this.previewDocDataSection = document.getElementById('previewDocDataSection');
         this.previewDocData = document.getElementById('previewDocData');
+        this.previewFieldsSection = document.getElementById('previewFieldsSection');
+        this.resultsHeading = document.getElementById('resultsHeading');
+        this.showListButton = document.getElementById('showListButton');
+        /**
+         * Dokumentfelder (doc_fields.js), falls geladen. Ohne bleibt die Suche,
+         * wie sie war: kein Filter, keine Feldwerte, kein Panel.
+         * @type {DocFieldsUI|null}
+         */
+        this.docFields = null;
+        /** 'search' oder 'listing' -- was die Trefferliste gerade zeigt. */
+        this._mode = 'search';
+        /** honesty-Block der letzten Suche (no_results_reason, ...). */
+        this._honesty = null;
+        /** document_fields-Block der letzten Suche (filter_state, ...). */
+        this._documentFields = null;
         this._findings = [];
         this._findingIndex = -1;
         this._pdfBaseSrc = '';
@@ -119,6 +134,11 @@ class DocumentSearchApp {
         }
 
         this.loadMoreButton.addEventListener('click', () => this.loadMore());
+        if (this.showListButton) {
+            this.showListButton.addEventListener('click', () => {
+                if (this.docFields) this.docFields.showListing();
+            });
+        }
 
         this.resultsContainer.addEventListener('click', (e) => this._onResultsClick(e));
 
@@ -759,6 +779,9 @@ class DocumentSearchApp {
             `<dt>${this.escapeHtml(label)}</dt><dd>${this.escapeHtml(String(value))}</dd>`
         ).join('');
         this.previewDocDataSection.hidden = rows.length === 0;
+        // Die Dokumentfelder erst jetzt und nur fuer dieses Dokument: eine
+        // Abfrage je geoeffneter Vorschau, keine je Trefferkarte.
+        if (this.docFields) this.docFields.loadPanel(doc);
     }
 
     _formatBytes(bytes) {
@@ -853,8 +876,16 @@ class DocumentSearchApp {
         this._pdfAnchors = {};
         this.previewFindings.innerHTML = '';
         this.previewDocData.innerHTML = '';
+        if (this.docFields) this.docFields.clearPanel();
         this.previewSidebar.hidden = true;
         this.previewFindingsNav.hidden = true;
+    }
+
+    /** Die Seitenspalte zeigen, sobald einer ihrer Abschnitte Inhalt hat. */
+    _syncPreviewSidebar() {
+        const fieldsHidden = !this.previewFieldsSection || this.previewFieldsSection.hidden;
+        this.previewSidebar.hidden = this.previewFindingsSection.hidden
+            && this.previewDocDataSection.hidden && fieldsHidden;
     }
 
     /** Blaettert relativ zum aktuellen Treffer, ohne ueber die Enden zu laufen.
@@ -1004,8 +1035,7 @@ class DocumentSearchApp {
         this.previewActions.innerHTML = this._previewActionsHtml(doc);
         this._renderFindings(doc);
         this._renderDocData(doc);
-        this.previewSidebar.hidden =
-            this.previewFindingsSection.hidden && this.previewDocDataSection.hidden;
+        this._syncPreviewSidebar();
         this.previewBody.classList.remove('is-pdf');
         this.previewBody.innerHTML =
             '<div class="preview-skeleton"><span></span><span></span><span></span><span></span></div>';
@@ -1119,35 +1149,50 @@ class DocumentSearchApp {
     /** @param {string} [queryOverride] Erweitert eine laufende Suche ("Mehr laden"). */
     async performSearch(queryOverride) {
         const query = String(queryOverride != null ? queryOverride : this.searchInput.value).trim();
+        // Filter gehen nur mit, wenn Knovas sie fuer die Suche anwenden kann
+        // (Faehigkeit "filters"); sonst liefert searchWhere() null.
+        const where = this.docFields ? this.docFields.searchWhere() : null;
 
         if (!query) {
+            // Ohne Frage, aber mit gesetzten Feldern: die Liste nach Feldern
+            // statt einer Fehlermeldung.
+            if (this.docFields && this.docFields.hasListingFilters()) {
+                this.docFields.showListing();
+                return;
+            }
             this.showError('Bitte geben Sie einen Suchbegriff ein.');
             return;
         }
 
         this.currentQuery = query;
-        if (query !== this._limitQuery) {
+        const limitKey = where ? `${query}\u0000${JSON.stringify(where)}` : query;
+        if (limitKey !== this._limitQuery) {
             this._searchLimit = this._searchLimitBase;
-            this._limitQuery = query;
+            this._limitQuery = limitKey;
         }
         this.showLoading();
 
         try {
+            const body = { query: query, limit: this._searchLimit, filters: {} };
+            if (where) body.where = where;
             const response = await fetch('/api/search', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify({
-                    query: query,
-                    limit: this._searchLimit,
-                    filters: {}
-                })
+                body: JSON.stringify(body),
             });
             if (this._redirectIfLoginRequired(response)) return;
             
             const data = await response.json().catch(() => ({}));
             
             if (!response.ok) {
+                // Ein abgelehnter Filter ist kein Suchfehler: er bekommt seine
+                // eigene Erklaerung samt "Ohne Filter suchen" -- und keine
+                // Treffer, die gefiltert aussaehen, es aber nicht sind.
+                if (data.error_code && this.docFields
+                        && this.docFields.handleSearchRefusal(data, query)) {
+                    return;
+                }
                 const msg = data.error || `${response.status} ${response.statusText}`;
                 throw new Error(msg);
             }
@@ -1156,11 +1201,15 @@ class DocumentSearchApp {
                 if (data.onedrive_enrichment_loaded != null) {
                     this.onedriveEnrichmentLoaded = !!data.onedrive_enrichment_loaded;
                 }
+                this._mode = 'search';
                 this.currentResults = data.results || [];
                 this._literalMatches = Number(data.literal_query_matches || 0);
                 this._highlightPrefixes = Array.isArray(data.highlight_prefixes)
                     ? data.highlight_prefixes : [];
+                this._honesty = data.honesty || null;
+                this._documentFields = data.document_fields || null;
                 this.displayResults(data.results, data.total, data.semantix, data.has_more);
+                if (this.docFields) this.docFields.renderSearchState(data.document_fields);
             } else {
                 throw new Error(data.error || 'Suche fehlgeschlagen');
             }
@@ -1173,15 +1222,26 @@ class DocumentSearchApp {
         }
     }
 
+    /** Hoechstens so viele Treffer fragt die Suche an (Knovas: 422 darueber). */
+    static SEARCH_LIMIT_MAX = 50;
+
     /**
      * Die Knovas-API kennt kein offset (POST /secured/query nimmt nur Input),
      * es laesst sich also nicht nachladen. Stattdessen wird dieselbe Anfrage
      * mit hoeherem Limit gestellt und die Liste ersetzt. Fuer den Nutzer sieht
      * das wie Nachladen aus, ist aber eine zweite vollstaendige Suche.
+     * Hoechstens 50: darueber antwortet Knovas mit 422, und "Mehr laden"
+     * scheiterte genau beim zweiten Klick. In der Liste nach Feldern holt
+     * derselbe Knopf die naechste Seite.
      */
     loadMore() {
-        if (this._searchLimit >= 100) return;
-        this._searchLimit = Math.min(100, this._searchLimit * 2);
+        if (this._mode === 'listing') {
+            if (this.docFields) this.docFields.nextPage();
+            return;
+        }
+        const max = DocumentSearchApp.SEARCH_LIMIT_MAX;
+        if (this._searchLimit >= max) return;
+        this._searchLimit = Math.min(max, this._searchLimit * 2);
         const y = window.scrollY;
         this.performSearch(this.currentQuery).then(() => window.scrollTo({ top: y }));
     }
@@ -1235,6 +1295,8 @@ class DocumentSearchApp {
         this.closePreview();
         this.resultsSection.style.display = 'block';
         this.resultsContainer.innerHTML = '';
+        if (this.resultsHeading) this.resultsHeading.textContent = 'Suchergebnisse';
+        if (this.showListButton) this.showListButton.hidden = true;
 
         if (!results || results.length === 0) {
             this.showEmptyState(semantix);
@@ -1270,8 +1332,103 @@ class DocumentSearchApp {
         // Seite ist also kein verlaessliches Zeichen. Ohne Angabe (aeltere
         // Server) bleibt es bei "die Antwort hat das Limit ausgeschoepft".
         const full = typeof hasMore === 'boolean' ? hasMore : results.length >= this._searchLimit;
-        const more = full && this._searchLimit < 100;
+        const filtered = ['applied', 'partial'].includes(
+            (this._documentFields || {}).filter_state);
+        if (filtered && this.docFields && this.docFields.showsListing) {
+            // Unter einem Filter fuehrt "Mehr" in die Liste: sie geht alle
+            // passenden Dokumente seitenweise durch, statt die Suche mit
+            // groesserem Limit zu wiederholen.
+            this.loadMoreButton.hidden = true;
+            if (this.showListButton) this.showListButton.hidden = !full;
+            return;
+        }
+        const more = full && this._searchLimit < DocumentSearchApp.SEARCH_LIMIT_MAX;
         this.loadMoreButton.hidden = !more;
+    }
+
+    /**
+     * Eine Seite der Liste nach Dokumentfeldern (doc_fields.js holt sie).
+     * Dieselben Karten wie die Suche, damit Vorschau und Oeffnen gleich
+     * funktionieren -- die Liste gewaehrt die Dokumente wie die Suche.
+     *
+     * Leer heisst nur dann "kein Dokument", wenn die Liste zu Ende ist: eine
+     * leere Seite mit Fortsetzung sagt nichts ueber die folgenden. Den Text
+     * des Leerzustands am Ende sagt der Server (emptyText): "kein Dokument"
+     * nur, wenn Knovas die Liste vollstaendig nennt (H8, H9).
+     */
+    displayListing(rows, {
+        append = false, totalCount = null, more = false, emptyText = '',
+    } = {}) {
+        if (!append) {
+            this.closePreview();
+            this.resultsContainer.replaceChildren();
+            this.currentResults = [];
+        }
+        this._mode = 'listing';
+        this._honesty = null;
+        this._documentFields = null;
+        this.currentQuery = '';
+        this._highlightPrefixes = [];
+        this._literalMatches = 0;
+        this.resultsSection.style.display = 'block';
+        if (this.resultsHeading) this.resultsHeading.textContent = 'Dokumentliste';
+        this.resultsQuery.textContent = '';
+        this.resultsNotice.hidden = true;
+        this.resultsContainer.querySelectorAll('.empty-state')
+            .forEach((el) => el.remove());
+        const start = this.currentResults.length;
+        const list = Array.isArray(rows) ? rows : [];
+        this.currentResults = this.currentResults.concat(list);
+        list.forEach((doc, i) => {
+            this.resultsContainer.appendChild(this.createDocumentCard(doc, start + i));
+        });
+        const shown = this.currentResults.length;
+        if (!shown) {
+            const box = document.createElement('div');
+            box.className = 'empty-state';
+            const text = document.createElement('p');
+            text.textContent = more
+                ? 'Auf den bisher geprüften Seiten ist kein passendes Dokument. '
+                  + '„Mehr laden“ prüft die nächsten.'
+                : (emptyText || 'Kein Dokument angezeigt.');
+            box.appendChild(text);
+            this.resultsContainer.appendChild(box);
+        }
+        this.resultsCount.textContent = Number.isInteger(totalCount)
+            ? `${shown} von ${totalCount} Dokumenten`
+            : `${shown} ${shown === 1 ? 'Dokument' : 'Dokumente'}`;
+        this.loadMoreButton.hidden = !more;
+        if (this.showListButton) this.showListButton.hidden = true;
+    }
+
+    /** Keine Trefferliste mehr (die Liste nach Feldern ohne Felder). */
+    clearResults() {
+        this.closePreview();
+        this.currentResults = [];
+        this._mode = 'search';
+        this.resultsContainer.replaceChildren();
+        this.resultsCount.textContent = '';
+        this.resultsNotice.hidden = true;
+        this.loadMoreButton.hidden = true;
+        if (this.showListButton) this.showListButton.hidden = true;
+        this.resultsSection.style.display = 'none';
+    }
+
+    /**
+     * Ein abgelehnter Filter statt einer Trefferliste: keine Treffer, eine
+     * Erklaerung, und wo sinnvoll die ausdrueckliche Wahl "Ohne Filter
+     * suchen" (doc_fields.js baut den Kasten).
+     */
+    displayRefusal(box) {
+        this.closePreview();
+        this.currentResults = [];
+        if (this.docFields) this.docFields.clearListingState();
+        this.resultsSection.style.display = 'block';
+        this.resultsContainer.replaceChildren(box);
+        this.resultsCount.textContent = '0 Ergebnisse';
+        this.resultsNotice.hidden = true;
+        this.loadMoreButton.hidden = true;
+        if (this.showListButton) this.showListButton.hidden = true;
     }
 
     /** Up to maxSentences sentences from plain text (falls back to char limit). */
@@ -1306,6 +1463,11 @@ class DocumentSearchApp {
      * prefer the filename stem (e.g. corpus/foo/Infocuria.txt → Infocuria).
      */
     displayTitle(doc) {
+        // Ein Titel aus den Dokumentwerten ist auf dem Server schon geprueft
+        // (hoechstens 100 Zeichen, nicht bloss der Dateiname) -- so wie er ist.
+        if (doc.title_from_values === true && String(doc.title || '').trim()) {
+            return String(doc.title).trim();
+        }
         const path = String(doc.path || doc.doc_id || '').replace(/\\/g, '/').trim();
         const base = path ? path.split('/').pop() : '';
         const stem = base.replace(/\.[^./]+$/, '') || base;
@@ -1514,8 +1676,49 @@ class DocumentSearchApp {
                 ${this._snippetHtml(doc)}
             </div>
         `;
+        // Der Titel per textContent: er kann aus den Dokumentwerten stammen,
+        // und Serverdaten gehen hier nicht durch innerHTML.
+        const titleEl = card.querySelector('.document-title');
+        if (titleEl) titleEl.textContent = title;
+        this._appendFieldChips(card, doc);
 
         return card;
+    }
+
+    /**
+     * Die Feldwerte als Chips unter dem Titel, und "unsicherer Treffer", wenn
+     * Knovas den Treffer nur als grenzwertig einstuft. Nur was der Server
+     * mitgeschickt hat (fields_display); alles per textContent.
+     */
+    _appendFieldChips(card, doc) {
+        const items = Array.isArray(doc.fields_display) ? doc.fields_display : [];
+        const borderline = doc.relevance_tier === 'borderline';
+        if (!items.length && !borderline) return;
+        const box = document.createElement('div');
+        box.className = 'document-fields';
+        if (borderline) {
+            const badge = document.createElement('span');
+            badge.className = 'badge badge-borderline';
+            badge.textContent = 'unsicherer Treffer';
+            badge.title = 'Knovas stuft diesen Treffer als grenzwertig ein.';
+            box.appendChild(badge);
+        }
+        items.forEach((item) => {
+            if (!item || !item.text) return;
+            const chip = document.createElement('span');
+            chip.className = 'field-chip';
+            const label = document.createElement('span');
+            label.className = 'field-chip-label';
+            label.textContent = String(item.label || item.key || '');
+            const text = document.createElement('span');
+            text.className = 'field-chip-text';
+            text.textContent = String(item.text);
+            chip.append(label, text);
+            box.appendChild(chip);
+        });
+        const headline = card.querySelector('.document-headline');
+        if (headline) headline.after(box);
+        else card.appendChild(box);
     }
     
     async openDocument(docId, pathOrBrowserFlag, browserOrCompanionFlag, companionFlag) {
@@ -1788,8 +1991,30 @@ class DocumentSearchApp {
         this.showToast(message, 'success');
     }
 
+    /**
+     * Was eine leere Antwort sagt, je no_results_reason (H8): immer ueber die
+     * fuer diese Person sichtbaren Dokumente, nie ueber den ganzen Bestand.
+     * Wortgleich mit doc_fields_view (ein Test haelt beides zusammen).
+     */
+    static NO_RESULTS_TEXTS = {
+        no_candidates: 'Nichts in den für Sie sichtbaren Dokumenten erwähnt das.',
+        below_relevance_floor: 'Nichts beantwortet das gut genug.',
+        empty_where: 'Kein für Sie sichtbares Dokument erfüllt diese Filter.',
+        empty_scope: 'Kein für Sie sichtbares Dokument erfüllt diese Filter.',
+    };
+
+    static NO_RESULTS_GENERIC = 'Keine Treffer in den für Sie sichtbaren Dokumenten.';
+
+    static DEGRADED_TEXT = 'Hinweis: eingeschränkte Suchqualität.';
+
     showEmptyState(semantix) {
         this.loadMoreButton.hidden = true;
+        const honesty = this._honesty || {};
+        const reason = honesty.no_results_reason;
+        if (reason || honesty.degraded_to_bm25 === true) {
+            this._showReasonedEmptyState(reason, honesty.degraded_to_bm25 === true);
+            return;
+        }
         this.resultsContainer.innerHTML = `
             <div class="empty-state">
                 <h3>Keine Treffer für „${this.escapeHtml(this.currentQuery)}“</h3>
@@ -1803,7 +2028,44 @@ class DocumentSearchApp {
         `;
         this.resultsCount.textContent = '0 Ergebnisse';
     }
-    
+
+    /**
+     * Die leere Antwort mit Grund: was Knovas ueber das "warum" gesagt hat,
+     * statt der allgemeinen Tipps. Bei leeren Filtern die ausdrueckliche Wahl
+     * "Filter entfernen". Per DOM statt innerHTML.
+     */
+    _showReasonedEmptyState(reason, degraded) {
+        const box = document.createElement('div');
+        box.className = 'empty-state';
+        const head = document.createElement('h3');
+        head.textContent = this.currentQuery
+            ? `Keine Treffer für „${this.currentQuery}“` : 'Keine Treffer';
+        const text = document.createElement('p');
+        text.textContent = DocumentSearchApp.NO_RESULTS_TEXTS[reason]
+            || DocumentSearchApp.NO_RESULTS_GENERIC;
+        box.append(head, text);
+        if (degraded) {
+            const note = document.createElement('p');
+            note.className = 'empty-state-note';
+            note.textContent = DocumentSearchApp.DEGRADED_TEXT;
+            box.appendChild(note);
+        }
+        const filterEmpty = reason === 'empty_where' || reason === 'empty_scope';
+        if (filterEmpty && this.docFields && this.docFields.hasSearchFilters()) {
+            const clear = document.createElement('button');
+            clear.type = 'button';
+            clear.className = 'btn btn-outline';
+            clear.textContent = 'Filter entfernen';
+            clear.addEventListener('click', () => {
+                this.docFields.clearFilters();
+                this.performSearch(this.currentQuery);
+            });
+            box.appendChild(clear);
+        }
+        this.resultsContainer.replaceChildren(box);
+        this.resultsCount.textContent = '0 Ergebnisse';
+    }
+
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;

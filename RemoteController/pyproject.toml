@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "remote-controller"
-version = "0.2.0"
+version = "0.3.0"
 description = "Customer-hosted Knovas Remote Controller — discover and sync local files to Semantix"
 readme = "README.md"
 requires-python = ">=3.11"

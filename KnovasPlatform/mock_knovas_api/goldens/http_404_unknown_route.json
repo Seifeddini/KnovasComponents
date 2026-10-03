@@ -1,0 +1,21 @@
+{
+  "name": "http_404_unknown_route",
+  "description": "An unknown route: the same JSON 404 the feature-off paths answer.",
+  "server_state": "filters",
+  "setup": [],
+  "request": {
+    "method": "GET",
+    "path": "/secured/graph/doc-nothing",
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "status": "error",
+      "error_code": "HTTP_404",
+      "error": "The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again."
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

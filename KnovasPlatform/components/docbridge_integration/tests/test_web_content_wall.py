@@ -181,6 +181,30 @@ class TestThePathMustBelongToThePointer:
             assert response.status_code == 404, given
 
 
+class TestARefusalIsLoggedWithoutThePointer:
+    """The gate's log line names the route and the reason, never the pointer
+    or the path: both name clients and matters (spec 6, D6). Sentinel values
+    stand for what a real pointer would say."""
+
+    def test_no_pointer_and_no_path_in_the_log(self, signed_in, caplog):
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        never = "rc-sync/Sentinel-Mandant/Sentinel-Akte.pdf"
+        assert signed_in.get(
+            f"/api/document/{never}/preview?path=Sentinel-Akte.pdf&q=Sentinel-Frage"
+        ).status_code == 404
+        assert signed_in.get(
+            f"/api/document/{READABLE}/download?path=Sentinel-Fremdakte.docx"
+        ).status_code == 404
+        refusals = [r.getMessage() for r in caplog.records
+                    if r.getMessage().startswith("Refusing ")]
+        assert len(refusals) == 2, refusals
+        text = "\n".join(r.getMessage() for r in caplog.records)
+        for needle in ("Sentinel", "open.docx", "mandat-meier"):
+            assert needle not in text, needle
+
+
 class TestOpenTokensCarryTheirSubject:
     """KC-B3-3. Redeem is exempt from the session and CSRF gates because the
     companion has no browser session, which is precisely why it cannot also be
