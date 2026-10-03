@@ -12,9 +12,10 @@ muss deshalb zuerst escapen und erst danach formatieren.
 
 from __future__ import annotations
 
+import inspect
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Jede Endung, die RemoteController standardmaessig aufnimmt
 # (sync/default_sync_body.py::_DEFAULT_INCLUDE_GLOBS), hat hier einen Eintrag.
@@ -64,15 +65,58 @@ def _markdown_limit(exc: Exception) -> bool:
     return str(getattr(exc, "what", "") or "").startswith("markdown")
 
 
+def _docx_layout(kind: str, extract: Any) -> Dict[str, Any]:
+    """``text_mode="layout"`` fuer eine DOCX, sofern ``extract`` es kennt.
+
+    Im Standardmodus ``plain`` stehen die Tabellen einer DOCX nicht im Text,
+    nur in ``content.tables``. Der Expansionswaechter verglich das Markdown,
+    Tabellen inklusive, deshalb mit den Absaetzen allein und brach bei jeder
+    DOCX ab, deren Tabellen ihren Fliesstext ueberwiegen; der reine Text des
+    Rueckfalls zeigte dann nur die Absaetze -- von einer Honorarabrechnung die
+    Ueberschrift. Im Layoutmodus stehen die Tabellenzeilen im Text (spec L3),
+    das Markdown bleibt dasselbe. knovas-extract vor 0.4 kennt ``text_mode``
+    nicht und wuerde TypeError werfen; dann bleibt es beim Standard. Ein 0.4
+    ohne DOCX-Layoutmodus liefert den Standardtext und eine Warnung.
+    """
+    if kind != "docx":
+        return {}
+    try:
+        accepted = "text_mode" in inspect.signature(extract).parameters
+    except (TypeError, ValueError):
+        accepted = False
+    return {"text_mode": "layout"} if accepted else {}
+
+
+def _markdown_or_text(
+    extract: Any, path: str, limits: Any, mode: Dict[str, Any]
+) -> Tuple[Any, str, List[str]]:
+    """Ergebnis, Markdown und eigene Warnungen der Vorschau. Loest das
+    Markdown eine Markdown-Grenze der Bibliothek aus, steht der reine Text an
+    seiner Stelle."""
+    from knovas_extract.errors import ResourceExhaustedError
+
+    try:
+        result = extract(path, limits=limits, emit_markdown=True, **mode)
+        return result, result.content.markdown or "", []
+    except ResourceExhaustedError as exc:
+        if not _markdown_limit(exc):
+            raise
+    result = extract(path, limits=limits, **mode)
+    return result, result.content.text or "", [MARKDOWN_FALLBACK_WARNING]
+
+
 def extract_markdown(path: str) -> Dict[str, Any]:
     """Extrahiert ``path`` nach sanitisiertem Markdown.
 
     PDF gehoert nicht hierher -- es wird im Browser nativ dargestellt.
 
-    Loest das Markdown eine Markdown-Grenze der Bibliothek aus -- eine DOCX
-    mit grossen Tabellen ergibt ein Vielfaches ihres Textes, und der
-    Expansionswaechter bricht ab --, zeigt die Vorschau den reinen Text statt
-    eines Fehlers (spec L7). Der Client escapt ihn wie jedes Markdown.
+    Eine DOCX wird im Layoutmodus gelesen (``_docx_layout``): ihre
+    Tabellenzeilen stehen im Text. Loest das Markdown trotzdem eine
+    Markdown-Grenze der Bibliothek aus -- eine Tabelle aus fast leeren Zellen
+    ergibt ein Vielfaches ihres Textes, und der Expansionswaechter bricht
+    ab --, zeigt die Vorschau den reinen Text statt eines Fehlers (spec L7),
+    die Tabellenzeilen eingeschlossen. Der Client escapt ihn wie jedes
+    Markdown.
     """
     kind = preview_kind(path)
     if kind is None or kind == "pdf":
@@ -83,17 +127,18 @@ def extract_markdown(path: str) -> Dict[str, Any]:
     from knovas_extract.result import Limits
 
     limits = Limits(max_input_bytes=MAX_INPUT_BYTES, max_text_bytes=MAX_TEXT_BYTES)
-    warnings: List[str] = []
+    extract = knovas_extract.extract
+    layout = _docx_layout(kind, extract)
     try:
         try:
-            result = knovas_extract.extract(path, limits=limits, emit_markdown=True)
-            markdown = result.content.markdown or ""
-        except ResourceExhaustedError as exc:
-            if not _markdown_limit(exc):
+            result, markdown, warnings = _markdown_or_text(extract, path, limits, layout)
+        except ResourceExhaustedError:
+            if not layout:
                 raise
-            result = knovas_extract.extract(path, limits=limits)
-            markdown = result.content.text or ""
-            warnings.append(MARKDOWN_FALLBACK_WARNING)
+            # Die Tabellenzeilen sind eine Zugabe: haelt der Layouttext eine
+            # Grenze der Bibliothek nicht ein, liest die Vorschau die DOCX im
+            # Standardmodus, wie zuvor.
+            result, markdown, warnings = _markdown_or_text(extract, path, limits, {})
     except (ExtractError, OSError, ValueError) as exc:
         # ExtractError covers the library's own typed hierarchy. ValueError
         # comes from its path validation (NUL bytes, control chars, etc.);
