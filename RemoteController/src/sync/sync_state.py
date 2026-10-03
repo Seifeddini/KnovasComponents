@@ -8,7 +8,12 @@ from typing import Any, Collection, Literal, Optional
 
 from config import get_config
 from sync.ocr_cache import OcrDiskCache
-from sync.sync_state_db import FieldsState, SyncStateDatabase, json_state_path_to_db
+from sync.sync_state_db import (
+    ExtractionState,
+    FieldsState,
+    SyncStateDatabase,
+    json_state_path_to_db,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +238,52 @@ class SyncStateStore:
 
     def fields_counts(self) -> dict[str, int]:
         return self._db.fields_counts()
+
+    # ----- re-extraction (spec L6) ---------------------------------------------
+
+    def extraction_state(self, relative_path: str) -> Optional[ExtractionState]:
+        return self._db.extraction_state(relative_path)
+
+    def set_extraction(
+        self, relative_path: str, stamp: Optional[str], text_sha: Optional[str]
+    ) -> bool:
+        """After an upload: its extraction stamp and the hash of what it
+        carried; the path leaves the re-extraction queue."""
+        return self._db.set_extraction(relative_path, stamp, text_sha)
+
+    def set_extraction_stamp(self, relative_path: str, stamp: str) -> bool:
+        return self._db.set_extraction_stamp(relative_path, stamp)
+
+    def record_reextract_unchanged(
+        self, relative_path: str, stamp: str, partial: Optional[dict[str, Any]]
+    ) -> None:
+        """A re-extraction that would upload exactly what Knovas holds:
+        nothing was sent. The stamp moves on, the path leaves the queue,
+        and the partial note follows the NEW extraction -- a born-digital
+        PDF an older release recorded partial is complete now and leaves
+        the backfill list. Fingerprint and upload columns stay."""
+        self._db.set_extraction_stamp(relative_path, stamp)
+        if partial:
+            self._db.set_partial(relative_path, dict(partial))
+        else:
+            self._db.clear_partial(relative_path)
+
+    def count_extraction_outdated(self, stamp: str) -> int:
+        return self._db.count_extraction_outdated(stamp)
+
+    def requeue_reextract(self, stamp: str) -> int:
+        """Queue every tracked path an older extraction produced (another
+        stamp, or none); returns how many were newly queued."""
+        return self._db.requeue_reextract(stamp)
+
+    def count_reextract_queued(self) -> int:
+        return self._db.count_reextract_queued()
+
+    def load_reextract_queue(self) -> dict[str, Optional[str]]:
+        return self._db.load_reextract_queue()
+
+    def count_reextract_failure(self, relative_path: str, max_attempts: int) -> bool:
+        return self._db.count_reextract_failure(relative_path, max_attempts)
 
     def status_for(self, relative_path: str, mtime_iso: str, size_bytes: int) -> str:
         """``synced`` / ``pending`` / ``modified`` for the file's current

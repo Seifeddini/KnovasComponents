@@ -46,6 +46,22 @@ _FIELDS_COLUMNS = (
     ("fields_attempts", "INTEGER NOT NULL DEFAULT 0"),
 )
 
+#: Re-extraction columns of ``documents`` (spec L6), added in place like the
+#: fields columns. ``extraction_stamp`` NULL means synced before stamps
+#: existed, i.e. by an older extraction. ``resend_reason`` is the side-queue
+#: marker (``RESEND_REEXTRACT``); ``resend_attempts`` counts failed
+#: re-extractions. An older RemoteController's ``INSERT OR REPLACE`` resets
+#: them to NULL / 0: outdated and not queued, the safe direction.
+_EXTRACTION_COLUMNS = (
+    ("extraction_stamp", "TEXT"),
+    ("text_sha256", "TEXT"),
+    ("resend_reason", "TEXT"),
+    ("resend_attempts", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+#: ``resend_reason`` of a row ``POST /sync/reextract/requeue`` queued.
+RESEND_REEXTRACT = "reextract"
+
 #: Stored instead of a digest when a document must come back for its fields
 #: although its governing digest may be "" (a clear the server never saw, a
 #: transient refusal). It never equals a sha256 or "", so the row counts as
@@ -70,6 +86,15 @@ class FieldsState(NamedTuple):
     sent: bool
     outcome: Optional[str]
     attempts: int
+
+
+class ExtractionState(NamedTuple):
+    """The re-extraction columns of one ``documents`` row."""
+
+    stamp: Optional[str]
+    text_sha256: Optional[str]
+    resend_reason: Optional[str]
+    resend_attempts: int
 
 
 def _now_iso() -> str:
@@ -124,15 +149,16 @@ class SyncStateDatabase:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(_SCHEMA)
-            self._ensure_fields_columns()
+            self._ensure_columns()
             self._maybe_migrate_from_json()
         return self._conn
 
-    def _ensure_fields_columns(self) -> None:
+    def _ensure_columns(self) -> None:
+        """Add the fields and the re-extraction columns to an older file."""
         conn = self._conn
         assert conn is not None
         present = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
-        for name, decl in _FIELDS_COLUMNS:
+        for name, decl in _FIELDS_COLUMNS + _EXTRACTION_COLUMNS:
             if name in present:
                 continue
             try:
@@ -426,6 +452,113 @@ class SyncStateDatabase:
         keys = ("with_fields", "refused", "not_accepted", "reupload_failed", "accepted", "requeued",
                 "not_accepted_requeued")
         return {key: int(value or 0) for key, value in zip(keys, row or ())}
+
+    # ----- re-extraction (spec L6) ---------------------------------------------
+
+    def extraction_state(self, relative_path: str) -> Optional[ExtractionState]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT extraction_stamp, text_sha256, resend_reason, resend_attempts "
+            "FROM documents WHERE relative_path = ?",
+            (relative_path,),
+        ).fetchone()
+        if not row:
+            return None
+        return ExtractionState(row[0], row[1], row[2], int(row[3] or 0))
+
+    def set_extraction(
+        self, relative_path: str, stamp: Optional[str], text_sha: Optional[str]
+    ) -> bool:
+        """After an upload: the stamp of the extraction that produced it and
+        the hash of what it carried; the row leaves the re-extraction queue.
+        Existing rows only; False when the path is not tracked."""
+        conn = self._connect()
+        cur = conn.execute(
+            "UPDATE documents SET extraction_stamp = ?, text_sha256 = ?, "
+            "resend_reason = NULL, resend_attempts = 0 WHERE relative_path = ?",
+            (stamp, text_sha, relative_path),
+        )
+        conn.commit()
+        return bool(cur.rowcount)
+
+    def set_extraction_stamp(self, relative_path: str, stamp: str) -> bool:
+        """The current extraction read the file and nothing was uploaded --
+        the upload would not change, or the file is unconvertible: the stamp
+        moves on, the stored hash stays, the row leaves the queue."""
+        conn = self._connect()
+        cur = conn.execute(
+            "UPDATE documents SET extraction_stamp = ?, resend_reason = NULL, "
+            "resend_attempts = 0 WHERE relative_path = ?",
+            (stamp, relative_path),
+        )
+        conn.commit()
+        return bool(cur.rowcount)
+
+    def count_extraction_outdated(self, stamp: str) -> int:
+        """Tracked rows an older extraction produced: another stamp, or none
+        (synced before stamps existed). Counts only, for ``/sync/status``."""
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM documents "
+            "WHERE extraction_stamp IS NULL OR extraction_stamp != ?",
+            (stamp,),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def requeue_reextract(self, stamp: str) -> int:
+        """Queue every outdated row for re-extraction (``resend_reason``);
+        returns how many were newly queued -- rows already waiting are not
+        counted twice."""
+        conn = self._connect()
+        cur = conn.execute(
+            "UPDATE documents SET resend_reason = ?, resend_attempts = 0 "
+            "WHERE (extraction_stamp IS NULL OR extraction_stamp != ?) "
+            "AND resend_reason IS NULL",
+            (RESEND_REEXTRACT, stamp),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+    def count_reextract_queued(self) -> int:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE resend_reason = ?", (RESEND_REEXTRACT,)
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def load_reextract_queue(self) -> dict[str, Optional[str]]:
+        """Queued rows and their stored ``text_sha256`` (None: uploaded
+        before hashes existed), read once per scan cycle."""
+        conn = self._connect()
+        cur = conn.execute(
+            "SELECT relative_path, text_sha256 FROM documents WHERE resend_reason = ?",
+            (RESEND_REEXTRACT,),
+        )
+        return {row[0]: row[1] for row in cur}
+
+    def count_reextract_failure(self, relative_path: str, max_attempts: int) -> bool:
+        """One more failed re-extraction of a queued row. At ``max_attempts``
+        the row leaves the queue -- still outdated, so the next request
+        queues it again. True when it left."""
+        conn = self._connect()
+        conn.execute(
+            "UPDATE documents SET resend_attempts = resend_attempts + 1 "
+            "WHERE relative_path = ? AND resend_reason = ?",
+            (relative_path, RESEND_REEXTRACT),
+        )
+        row = conn.execute(
+            "SELECT resend_attempts FROM documents WHERE relative_path = ? AND resend_reason = ?",
+            (relative_path, RESEND_REEXTRACT),
+        ).fetchone()
+        left = row is not None and int(row[0] or 0) >= max_attempts
+        if left:
+            conn.execute(
+                "UPDATE documents SET resend_reason = NULL, resend_attempts = 0 "
+                "WHERE relative_path = ?",
+                (relative_path,),
+            )
+        conn.commit()
+        return left
 
     def list_tracked_paths(self) -> list[str]:
         conn = self._connect()
