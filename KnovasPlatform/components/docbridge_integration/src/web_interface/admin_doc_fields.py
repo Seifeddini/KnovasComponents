@@ -343,6 +343,27 @@ def split_list(text: Any, sep: str = ",") -> List[str]:
     return out
 
 
+def aliases_text(aliases: Any) -> str:
+    """Other names as the forms show them: one input, comma-separated."""
+    return ", ".join(_str_list(aliases))
+
+
+def aliases_from_form(text: Any, stored: Any) -> List[str]:
+    """The other names an input posted, of a field or of one choice.
+
+    Knovas takes a comma inside a name (one set through the API), which the
+    comma-separated input cannot show. Text that is still what the form
+    showed for ``stored`` is therefore the stored list as it is, so a save
+    for another change does not split such a name in two; only text the
+    person changed is split at the commas. A browser drops line breaks from
+    an input's value, so the comparison does too.
+    """
+    shown = aliases_text(stored).replace("\r", "").replace("\n", "")
+    if str(text or "").strip() == shown.strip():
+        return _str_list(stored)
+    return split_list(text)
+
+
 #: ASCII digits only: ``\d`` takes any Unicode digit (see _fy_start_month).
 _CHOICE_CODE_RE = re.compile(r"^choice_code_([0-9]{1,4})$")
 
@@ -358,24 +379,29 @@ def has_choice_rows(form: Mapping[str, Any]) -> bool:
     return bool(_choice_indices(form))
 
 
-def parse_choice_rows(form: Mapping[str, Any]) -> List[Dict[str, Any]]:
+def parse_choice_rows(form: Mapping[str, Any], current: Any = None) -> List[Dict[str, Any]]:
     """The choice editor: one row per choice -> ``[{code, labels, aliases}]``.
 
     Row ``i`` is ``choice_code_<i>``, ``choice_label_<lang>_<i>`` for de,
     fr, it and en, and ``choice_aliases_<i>`` (other names,
     comma-separated), in the order of ``i``. ``labels`` holds the languages
-    filled in, ``aliases`` the names without repeats. An empty row is
-    skipped (the rows for new choices); a row with text but no code, a code
-    outside the server's pattern, a repeated code, more than 32 other names
-    or more than 500 choices is a FormError naming the row, never its input.
+    filled in, ``aliases`` the names without repeats. ``current`` is the
+    field's ``enum_values`` as Knovas holds them (an edit): a choice whose
+    other names are still as the editor showed them keeps its stored names
+    (``aliases_from_form``). An empty row is skipped (the rows for new
+    choices); a row with text but no code, a code outside the server's
+    pattern, a repeated code, more than 32 other names or more than 500
+    choices is a FormError naming the row, never its input.
     """
+    stored = {item["code"]: item.get("aliases") for item in _enum_entries(current)
+              if isinstance(item, dict)}
     rows: List[Dict[str, Any]] = []
     seen: set = set()
     for number, i in enumerate(_choice_indices(form), 1):
         code = _text(form, f"choice_code_{i}")
         labels = {lang: _text(form, f"choice_label_{lang}_{i}") for lang in LABEL_LANGS}
         labels = {lang: text for lang, text in labels.items() if text}
-        aliases = split_list(form.get(f"choice_aliases_{i}"))
+        aliases = aliases_from_form(form.get(f"choice_aliases_{i}"), stored.get(code))
         if not code:
             if labels or aliases:
                 raise FormError(f"Auswahlwerte, Zeile {number}: bitte einen Code angeben.")
@@ -460,7 +486,7 @@ def choice_rows(enum_values: Any) -> List[Dict[str, Any]]:
         labels = item.get("labels") or {}
         rows.append({"code": item["code"],
                      "labels": {lang: str(labels.get(lang) or "") for lang in LABEL_LANGS},
-                     "aliases_text": ", ".join(str(a) for a in item.get("aliases") or [])})
+                     "aliases_text": aliases_text(item.get("aliases"))})
     return rows
 
 
@@ -626,7 +652,7 @@ def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Di
     if labels != cur_labels:
         changes["labels"] = labels
     if "aliases" in form:
-        aliases = split_list(form.get("aliases"))
+        aliases = aliases_from_form(form.get("aliases"), current.get("aliases"))
         if aliases != list(current.get("aliases") or []):
             changes["aliases"] = aliases
     if "flags" in form:
@@ -642,7 +668,7 @@ def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Di
             changes["sensitivity"] = sensitivity
     datatype = current.get("datatype")
     if datatype == "enum" and has_choice_rows(form):
-        rows = parse_choice_rows(form)
+        rows = parse_choice_rows(form, current.get("enum_values"))
         if not rows:
             raise FormError("Ein Auswahlfeld braucht mindestens einen Code.")
         merged = merge_choices(current.get("enum_values"), rows)
@@ -811,7 +837,7 @@ def registry_rows(raw_fields: Any, node_types: Iterable[Mapping[str, Any]] = (),
             "label": next((str(labels[x]) for x in LABEL_LANGS if labels.get(x)), key),
             "labels": {lang: str(labels.get(lang) or "") for lang in LABEL_LANGS},
             "aliases": aliases,
-            "aliases_text": ", ".join(aliases),
+            "aliases_text": aliases_text(aliases),
             "datatype": datatype,
             "datatype_label": DATATYPE_LABELS.get(datatype, datatype),
             "cardinality": "many" if raw.get("cardinality") == "many" else "one",
@@ -1013,14 +1039,6 @@ def knovas_message(exc: BaseException, registry: Any = None) -> Tuple[str, int]:
         status = code if 400 <= code < 500 else 502
         return error_message(exc.error_code, exc.details, registry), status
     return "Die Anfrage an Knovas ist fehlgeschlagen.", 502
-
-
-def path_key(path: Any) -> Optional[str]:
-    """``set.doc_type[0]`` / ``where.mandant`` -> the field key, else None."""
-    if not isinstance(path, str) or "." not in path:
-        return None
-    key = re.sub(r"\[\d+\]$", "", path.split(".", 1)[1])
-    return key or None
 
 
 def _log_failure(action: str, exc: BaseException) -> None:

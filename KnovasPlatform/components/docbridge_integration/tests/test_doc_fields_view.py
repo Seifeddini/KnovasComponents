@@ -541,6 +541,30 @@ class TestMessages:
         text = view.error_message("invalid_value", {"path": "set.doc_type[0]"}, registry)
         assert "Dokumentart" in text
 
+    @pytest.mark.parametrize("path, label", [
+        ("where.amount.gte", "Betrag"),
+        ("where.amount.between", "Betrag"),
+        ("where.amount.between[0]", "Betrag"),
+        ("where.reference.in[2]", "Referenz"),
+        ("where.reference.prefix", "Referenz"),
+        ("where.document_date.within", "Dokumentdatum"),
+        ("where.document_date.match", "Dokumentdatum"),
+    ])
+    def test_a_refused_operand_names_its_field(self, registry, path, label):
+        """The rail sends operator objects (ab/bis, zwischen, beginnt mit,
+        liegt ganz in); Knovas names a refused operand by the clause's path
+        and the operator, the first of two as ``between[0]``. The person
+        reads the field's label, never the key and the operator."""
+        assert view.error_message("invalid_value", {"path": path}, registry) == \
+            f"Der Wert f\u00fcr \u201e{label}\u201c ist ung\u00fcltig."
+        assert view.field_label(registry, view.path_key(path)) == label
+
+    def test_only_a_trailing_operator_is_dropped(self):
+        assert view.path_key("set.doc_type[0]") == "doc_type"
+        assert view.path_key("where.in") == "in", "a key is never an operator"
+        assert view.path_key("where.amount.gte.x") == "amount.gte.x"
+        assert view.path_key("where") is None and view.path_key(None) is None
+
     def test_no_value_is_ever_repeated(self, registry):
         sentinel = "Muster-Sentinel-AG"
         for code in ("invalid_value", "type_mismatch", "unknown_field", "ambiguous_field",
@@ -666,6 +690,9 @@ class TestNotices:
          ("auto_scope_fallback", ["n1"])),
         ({"auto_scope": {"applied": False, "fallback": False, "node_ids": ["n1"]}}, (None, [])),
         ({"auto_scope": {"applied": True, "node_ids": []}}, (None, [])),
+        ({"auto_scope": {"applied": True, "node_ids": "0e81afe6"}}, (None, [])),
+        ({"auto_scope": {"applied": True, "node_ids": {"n1": 1}}}, (None, [])),
+        ({"auto_scope": {"fallback": True, "node_ids": 7}}, (None, [])),
         ({"auto_scope": "applied"}, (None, [])),
         ({}, (None, [])),
         (None, (None, [])),

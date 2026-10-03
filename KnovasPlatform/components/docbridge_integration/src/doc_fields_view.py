@@ -902,12 +902,23 @@ def warning_text(code: Any) -> str:
     return _WARNINGS.get(str(code or ""), str(code or ""))
 
 
-def _path_key(path: Any) -> Optional[str]:
-    """``where.mandant`` / ``set.doc_type[0]`` / ``fields.x`` -> the key."""
+#: The operator Knovas appends to the path of a refused operand
+#: (``where.amount.gte``, ``where.amount.between[0]``, ``where.reference.prefix``).
+_PATH_OPERATOR_RE = re.compile(r"\.(?:%s)$" % "|".join(_OPS_IN_ORDER + ("match",)))
+
+
+def path_key(path: Any) -> Optional[str]:
+    """``where.mandant`` / ``set.doc_type[0]`` / ``fields.x`` -> the key.
+
+    An operand of an operator clause names its field too: the trailing
+    operator (and its index) is dropped, so ``where.amount.between[0]`` is
+    ``amount``. A key is never itself taken for an operator (``where.in``).
+    """
     if not isinstance(path, str) or "." not in path:
         return None
     key = path.split(".", 1)[1]
     key = re.sub(r"\[\d+\]$", "", key)
+    key = _PATH_OPERATOR_RE.sub("", key)
     return key or None
 
 
@@ -925,7 +936,7 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
     code = str(code or "")
     details = details if isinstance(details, Mapping) else {}
     path = details.get("path")
-    key = _path_key(path)
+    key = path_key(path)
     field = _quoted(field_label(registry, key)) if key else None
 
     def _labels(keys: Any) -> str:
@@ -1065,11 +1076,13 @@ def auto_scope_of(meta: Any) -> Tuple[Optional[str], List[str]]:
     the question (``meta["auto_scope"]`` as knovas_client keeps it):
     ``auto_scope_applied`` when the search ran inside those nodes,
     ``auto_scope_fallback`` when that found nothing and Knovas searched
-    everything; ``(None, [])`` otherwise, or without node ids."""
+    everything; ``(None, [])`` otherwise, or without node ids (a list)."""
     block = meta.get("auto_scope") if isinstance(meta, Mapping) else None
     if not isinstance(block, Mapping):
         return None, []
-    ids = [i for i in block.get("node_ids") or () if isinstance(i, str) and i]
+    node_ids = block.get("node_ids")
+    ids = ([i for i in node_ids if isinstance(i, str) and i]
+           if isinstance(node_ids, list) else [])
     if not ids:
         return None, []
     if block.get("fallback") is True:

@@ -319,7 +319,7 @@ def filter_refusal(exc: BaseException,
         if code == "unknown_field":
             dfc.invalidate()
         path = details.get("path") if isinstance(details, Mapping) else None
-        key = _path_key(path)
+        key = dfv.path_key(path)
         specs = _by_key(registry)
 
         def labels(keys: Any) -> List[str]:
@@ -340,14 +340,6 @@ def filter_refusal(exc: BaseException,
     if status == 429:
         return _refusal("too_many_requests", dfv.error_message("too_many_requests"), 429)
     return _refusal("filter_temporarily_unavailable", dfv.error_message("where_unavailable"), 503)
-
-
-def _path_key(path: Any) -> Optional[str]:
-    """``where.mandant`` / ``set.doc_type[0]`` -> ``mandant`` / ``doc_type``."""
-    if not isinstance(path, str) or "." not in path:
-        return None
-    key = re.sub(r"\[\d+\]$", "", path.split(".", 1)[1])
-    return key or None
 
 
 def filter_not_applied() -> Tuple[Dict[str, Any], int]:
@@ -618,7 +610,7 @@ def _edit_refusal(exc: BaseException,
     if code == "anchor_quarantined":
         return _refusal("anchor_quarantined", dfv.error_message(code), 409, read_only=True)
     if status in (400, 422):
-        key = _path_key(path)
+        key = dfv.path_key(path)
         return _refusal("field_invalid", dfv.error_message(code, details, specs), 400,
                         code=code or None, field=key,
                         field_label=dfv.field_label(specs, key) if key else None)

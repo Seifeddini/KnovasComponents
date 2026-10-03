@@ -194,6 +194,54 @@ class TestChangesFromForm:
         assert changes_from_form({"target_node_type_id": ""}, visible) == {
             "target_node_type_id": None}
 
+    COMMA = dict(CURRENT, aliases=["art", "Art, Typ"], enum_values=[
+        {"code": "invoice", "labels": {"de": "Rechnung"}, "aliases": ["Faktura", "Rechnung, Kopie"]},
+        "other"])
+
+    def _shown(self, current, **over):
+        """The edit form as the page shows ``current``, posted back."""
+        from web_interface.admin_doc_fields import registry_rows
+
+        row = registry_rows([current])[0]
+        return self._form(rows=[(c["code"], c["labels"], c["aliases_text"])
+                                for c in row["choices"]],
+                          **{"aliases": row["aliases_text"], **over})
+
+    def test_an_other_name_with_a_comma_survives_an_unrelated_save(self):
+        """Knovas takes a comma inside an other name (one set through the
+        API). The inputs show the names comma-separated; a save that leaves
+        them as shown keeps the stored names instead of splitting them."""
+        from web_interface.admin_doc_fields import changes_from_form
+
+        form = self._shown(self.COMMA)
+        assert form["choice_aliases_0"] == "Faktura, Rechnung, Kopie"
+        assert form["aliases"] == "art, Art, Typ"
+        del form["facet"]                    # the one change the person makes
+        assert changes_from_form(form, self.COMMA) == {"facet": False}
+
+    def test_other_names_the_person_edits_are_split_at_the_commas(self):
+        from web_interface.admin_doc_fields import changes_from_form
+
+        changes = changes_from_form(self._shown(
+            self.COMMA, choice_aliases_0="Faktura, Rechnung, Kopie, Duplikat",
+            aliases="art, Art, Typ, Sorte"), self.COMMA)
+        assert changes == {
+            "aliases": ["art", "Art", "Typ", "Sorte"],
+            "enum_values": [{"code": "invoice", "labels": {"de": "Rechnung"},
+                             "aliases": ["Faktura", "Rechnung", "Kopie", "Duplikat"]},
+                            "other"]}
+
+    def test_the_limit_counts_the_stored_names(self):
+        """32 stored names, one with a comma: shown as 33 parts, still no
+        refusal for a row nobody touched."""
+        from web_interface.admin_doc_fields import changes_from_form
+
+        names = [f"n{i}" for i in range(31)] + ["Rechnung, Kopie"]
+        current = dict(self.COMMA, enum_values=[{"code": "invoice", "aliases": names}, "other"])
+        form = self._shown(current, label_de="Belegart")
+        assert changes_from_form(form, current) == {
+            "labels": {"de": "Belegart", "en": "Document type", "rm": "Gener"}}
+
     def test_type_relevant_changes_need_the_confirmation(self):
         from web_interface.admin_doc_fields import needs_use_confirmation
 
@@ -646,6 +694,36 @@ def _post(client, path, **fields):
 
 def _calls(api, name):
     return [args for method, args in api.doc_calls if method == name]
+
+
+def _form_values(form_html):
+    """What a browser posts for ``form_html`` as rendered: text and hidden
+    inputs, ticked boxes and each select's selected option."""
+    from html.parser import HTMLParser
+
+    class Form(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.values, self.select = {}, None
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            kind = a.get("type", "text")
+            if tag == "input" and a.get("name") and (
+                    kind in ("text", "hidden") or (kind == "checkbox" and "checked" in a)):
+                self.values[a["name"]] = a.get("value") or ""
+            elif tag == "select":
+                self.select = a.get("name")
+            elif tag == "option" and self.select and "selected" in a:
+                self.values[self.select] = a.get("value") or ""
+
+        def handle_endtag(self, tag):
+            if tag == "select":
+                self.select = None
+
+    parser = Form()
+    parser.feed(form_html)
+    return parser.values
 
 
 def _profile(platform_db, owner, *, prefix="kanzlei", sources=("/data/corpus",),
@@ -1107,6 +1185,23 @@ class TestChoiceEditor:
         assert _calls(api, "update_doc_field") == []
         form = self._form_of(refused.data.decode("utf-8"), field)
         assert 'name="choice_code_3" value="archived"' in form
+
+    def test_other_names_with_a_comma_stay_as_the_page_showed_them(self, as_admin):
+        """Names set through the API may hold a comma; the inputs show them
+        comma-separated. Posting the form back as rendered, with only "als
+        Filter anbieten" unticked, sends that change and nothing else."""
+        api = FakeDocFieldsApi.current
+        field = next(f for f in api.registry if f["key"] == "doc_type")
+        field["aliases"] = ["Belegart, intern", "Art & Weise"]
+        field["enum_values"][1]["aliases"] = ["Faktura", "Rechnung, Kopie"]
+        form = _form_values(self._form_of(as_admin.get("/admin/doc-fields").data.decode("utf-8"),
+                                          field))
+        assert form["choice_aliases_1"] == "Faktura, Rechnung, Kopie"
+        assert form["aliases"] == "Belegart, intern, Art & Weise"
+        del form["facet"]
+        response = as_admin.post(f"/admin/doc-fields/{field['id']}/update", data=form)
+        assert response.status_code == 200, response.data.decode("utf-8")[:500]
+        assert _calls(api, "update_doc_field")[0]["changes"] == {"facet": False}
 
 
 @needs_db
