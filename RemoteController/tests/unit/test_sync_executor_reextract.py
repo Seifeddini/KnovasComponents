@@ -368,6 +368,34 @@ class TestReextraction:
         finally:
             store.close()
 
+    def test_an_unchanged_re_extraction_keeps_the_backfills_mark(self, rc):
+        """A scan the backfill could not improve (a page that always fails)
+        is noted backfill_unchanged, and later runs skip it. An unchanged
+        re-extraction sent nothing -- Knovas holds what it held -- so the
+        mark stays and the next backfill run does not bill it again."""
+        note = {"ocr_pages_failed": 1, "ocr_pages": 2, "text_pages": 1, "ocr_backend": "tesserocr"}
+        rc.monkeypatch.setattr("sync.knovas_uploader.partial_note_for",
+                               lambda doc, expect_ocr: dict(note))
+        rc.write("scan.txt")
+        assert rc.run(rc.body()).files_partial == 1
+        store = rc.state()
+        try:
+            store.record_partial("scan.txt", FIXED_MTIME_ISO, len(TEXT), "tk-1",
+                                 {**note, "backfill_unchanged": 1})
+        finally:
+            store.close()
+        rc.upgrade()
+        _requeue(rc)
+        assert rc.run(rc.body()).reextract_unchanged == 1 and rc.server.inits == []
+        store = rc.state()
+        try:
+            assert store.partial_note("scan.txt") == {**note, "backfill_unchanged": 1}
+        finally:
+            store.close()
+        with patch("sync.sync_scheduler.load_last_sync_body", return_value=rc.body()):
+            assert _backfill_script().main(["--timeout", "0"]) == 0
+        assert rc.server.inits == [], "the backfill does not send it again"
+
 
 class TestKeptWhenTheCycleWouldSendLess:
     """A re-extraction never replaces Knovas's text with one that misses more

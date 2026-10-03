@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 #: it; ``document_status`` and ``summarize`` stay fingerprint-only.
 DocumentSyncStatus = Literal["synced", "pending", "modified", "excluded_max_age", "fields_changed"]
 
+#: Partial-note key ``scripts/backfill_partial_ocr.py`` writes (its
+#: ``UNCHANGED``): runs in a row that left the document no better. Later
+#: runs skip a note that carries it; every upload is billed.
+BACKFILL_UNCHANGED = "backfill_unchanged"
+
 
 @dataclass(frozen=True)
 class DocumentSyncRecord:
@@ -261,10 +266,17 @@ class SyncStateStore:
         nothing was sent. The stamp moves on, the path leaves the queue,
         and the partial note follows the NEW extraction -- a born-digital
         PDF an older release recorded partial is complete now and leaves
-        the backfill list. Fingerprint and upload columns stay."""
+        the backfill list. A still partial note keeps the backfill's
+        ``backfill_unchanged`` count: Knovas holds the text that pass could
+        not improve, and its next run would only send it again, billed.
+        Fingerprint and upload columns stay."""
         self._db.set_extraction_stamp(relative_path, stamp)
         if partial:
-            self._db.set_partial(relative_path, dict(partial))
+            note = dict(partial)
+            stored = (self._db.get_partial(relative_path) or {}).get(BACKFILL_UNCHANGED)
+            if isinstance(stored, int) and not isinstance(stored, bool) and stored > 0:
+                note[BACKFILL_UNCHANGED] = stored
+            self._db.set_partial(relative_path, note)
         else:
             self._db.clear_partial(relative_path)
 

@@ -65,7 +65,8 @@ RETRIES_EXHAUSTED = "extract_retries_exhausted"
 #: What the partial rule before spec E1 recorded for born-digital PDFs.
 LEGACY_COMPLETE_REASON = "ocr_backend_none"
 #: Note key: backfill attempts in a row that left the document unchanged
-#: (``_unchanged``). Later runs skip a note carrying it.
+#: (``_unchanged``). Later runs skip a note carrying it. An unchanged
+#: re-extraction keeps it (``sync_state.BACKFILL_UNCHANGED``).
 UNCHANGED = "backfill_unchanged"
 
 
