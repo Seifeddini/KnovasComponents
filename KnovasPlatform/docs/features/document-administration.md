@@ -152,8 +152,9 @@ without it the push fails at its first call. The root `docker-compose.yml` sets 
 **Neu extrahieren.** After an extractor upgrade the tab shows *N Dokumente
 mit älterer Extraktion*: the Knovas Connector's `/sync/status` →
 `extraction.outdated`, the documents whose extraction stamp (knovas-extract
-version, PDF and DOCX text modes, OCR engine, DPI, sentence gate) is not the
-current one. Only an `admin` gets the *Neu extrahieren* button
+version and git commit, PDF and DOCX text modes, the OCR engine in force --
+`off` while OCR is disabled -- and its languages, DPI, sentence gate) is not
+the current one. Only an `admin` gets the *Neu extrahieren* button
 (`POST /admin/ingestion/reextract`). The first click shows count, cost and
 duration — computed like a field change's, with the Connector's
 `RC_REEXTRACT_PER_CYCLE` — and nothing is queued until that confirmation,
@@ -162,7 +163,10 @@ confirmed again. The Connector then re-extracts at most that many documents
 per cycle and uploads only those whose text, page numbers, fields, title or
 description changed — each such upload is billed; the first round after the
 release that introduced this uploads all of them, since no comparison hash
-exists yet. The request is audited as `ingestion.reextract_requeued` with
+exists yet -- except a scan the cycle's OCR budget would read less completely
+than the text Knovas holds: it is not sent (`extraction.kept`), and
+`scripts/backfill_partial_ocr.py` brings a still-partial one up with its larger
+budget. The request is audited as `ingestion.reextract_requeued` with
 counts only. An older Connector is named: *Knovas Connector zu alt – bitte
 aktualisieren*.
 

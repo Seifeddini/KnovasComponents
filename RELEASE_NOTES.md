@@ -46,8 +46,16 @@ indexierte Dokumente profitieren davon erst, wenn sie neu extrahiert werden.
   Seitenzahlen, Felder, Titel, Beschreibung); jedes gesendete Dokument ist
   ein verrechneter Upload. Beim ersten Mal nach diesem Update werden alle
   gesendet, weil der Vergleichswert noch fehlt.
-- `GET /sync/status` des Connectors meldet `extraction.outdated`, `queued`
-  und `per_cycle` -- nur Zahlen.
+- Ein Scan, den der Durchlauf mit seinem OCR-Budget (500 Seiten, 240 s)
+  unvollstaendiger lesen wuerde als den Text, den Knovas hat, wird nicht
+  gesendet: Knovas behaelt ihn, `extraction.kept` zaehlt ihn. Ist er dort
+  noch unvollstaendig, holt `scripts/backfill_partial_ocr.py` ihn mit seinem
+  groesseren Budget nach.
+- Der Stempel enthaelt auch, ob die Texterkennung eingeschaltet ist, und
+  ihre Sprachen: wer OCR einschaltet oder eine Sprache ergaenzt, kann die
+  betroffenen Dokumente neu extrahieren.
+- `GET /sync/status` des Connectors meldet `extraction.outdated`, `queued`,
+  `kept` und `per_cycle` -- nur Zahlen.
 - Auch ein neuer Stand von knovas-extract mit gleicher Versionsnummer (vor
   dem Release ist jeder Stand `0.4.0a1`) zaehlt: der Stempel enthaelt den
   Git-Commit der Bibliothek, und *Verwaltung -> System* vergleicht Version
