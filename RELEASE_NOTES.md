@@ -19,8 +19,10 @@
   (verrechnet, mit Bestaetigung) und braucht einen Knovas Connector, der
   `metadata_fields_v2` meldet. Outlook-Kategorien liest knovas-extract
   0.4.0a1 noch nicht.
-- **E-Mail-Datum als Dokumentdatum funktioniert.** Gesendet wird der Tag
-  aus dem `Date`-Header (`2024-03-15`). Bisher ging der Zeitstempel mit
+- **E-Mail-Datum als Dokumentdatum funktioniert.** Gesendet wird der Tag,
+  an dem die E-Mail in der Kanzlei eintrifft (`2024-03-15`, Schweizer Zeit;
+  `RC_TIMEZONE` aendert die Zone) -- auch fuer Outlook-`.msg`, deren
+  Sendezeit in UTC vorliegt. Bisher ging der Zeitstempel mit
   Uhrzeit hinaus, den Knovas als `invalid_value` ablehnt -- keine E-Mail
   erhielt ein Dokumentdatum. E-Mails in Ordnern mit dieser Option werden
   einmal erneut gesendet (verrechnet, hoechstens 100 je Durchlauf), andere

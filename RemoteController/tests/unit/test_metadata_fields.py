@@ -66,22 +66,41 @@ def test_unknown_items_are_ignored():
 # --- email_date ---------------------------------------------------------------
 
 
+@pytest.fixture
+def firm_zone(monkeypatch):
+    """RC_TIMEZONE unset: the e-mail day is taken in Europe/Zurich."""
+    monkeypatch.delenv("RC_TIMEZONE", raising=False)
+
+
 @pytest.mark.parametrize("ext", [".eml", ".msg", ".EML", "msg"])
-def test_email_date_is_the_day_of_the_date_header(ext):
+def test_email_date_is_the_day_of_the_date_header(firm_zone, ext):
     # Knovas reads a date as a day, month, quarter or year; it refuses a
     # timestamp with time and offset as invalid_value.
     assert map_metadata(EML_MD, ext, {"email_date"}) == {"document_date": "2024-03-15"}
 
 
 @pytest.mark.parametrize("created,day", [
-    ("2024-03-15T23:30:00-05:00", "2024-03-15"),   # the header's own day, never converted
-    ("2024-03-15T00:10:00+02:00", "2024-03-15"),
-    ("2024-03-15 10:22:00", "2024-03-15"),
+    ("2024-03-15T10:22:00+01:00", "2024-03-15"),
+    ("2024-03-15T23:30:00-05:00", "2024-03-16"),   # New York evening: next morning at the firm
+    ("2026-03-15T23:30:00+00:00", "2026-03-16"),   # an Outlook .msg submit time in UTC: 00:30 CET
+    ("2024-07-01T22:30:00+00:00", "2024-07-02"),   # summer: 00:30 CEST
+    ("Fri, 15 Mar 2024 23:30:00 -0500", "2024-03-16"),   # RFC 2822, as the header writes it
+    ("2024-03-15 10:22:00", "2024-03-15"),   # no offset: the day as written
     ("2024-03-15", "2024-03-15"),
-    ("Fri, 15 Mar 2024 10:22:00 +0100", "2024-03-15"),   # RFC 2822, as the header writes it
 ])
-def test_email_date_takes_the_day_the_header_names(created, day):
+def test_email_date_is_the_day_the_mail_shows_at_the_firm(firm_zone, created, day):
+    """The .eml and the .msg of one mail get one day: the one Outlook shows in
+    Switzerland, whatever zone the sender or the container (UTC) runs in."""
     assert map_metadata({"created": created}, ".eml", {"email_date"}) == {"document_date": day}
+
+
+def test_email_date_follows_rc_timezone(monkeypatch):
+    monkeypatch.setenv("RC_TIMEZONE", "America/New_York")
+    assert map_metadata({"created": "2024-03-16T03:30:00+00:00"}, ".msg", {"email_date"}) == {
+        "document_date": "2024-03-15"}
+    monkeypatch.setenv("RC_TIMEZONE", "Not/A_Zone")   # unknown: the firm default, never an error
+    assert map_metadata({"created": "2024-03-16T03:30:00+00:00"}, ".msg", {"email_date"}) == {
+        "document_date": "2024-03-16"}
 
 
 @pytest.mark.parametrize("created", ["gestern", "2024-13-45T10:00:00", "2024-02-30", "15.03.2024 10:22"])

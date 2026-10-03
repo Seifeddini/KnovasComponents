@@ -7,8 +7,9 @@ extractor already read to one registry key of the ``core`` pack:
                                        (dc:language, often the authoring
                                        tool's locale); .eml Content-Language;
                                        never .msg
-    email_date       -> document_date  .eml/.msg only: the day of the Date
-                                       header (``2024-03-15``)
+    email_date       -> document_date  .eml/.msg only: the day the mail
+                                       shows at the firm (``2024-03-15``;
+                                       RC_TIMEZONE, else Europe/Zurich)
     email_doc_type   -> doc_type       .eml/.msg only: correspondence.email
     email_author     -> author         .eml/.msg From: display name, else
                                        the address
@@ -36,11 +37,13 @@ Values are customer data: nothing in this module logs.
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
-from datetime import date
+from datetime import datetime, tzinfo
 from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any, Iterable, Mapping, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 #: Bumped whenever a rule below changes what an item yields; it is part of
 #: the config digest, so a bump re-sends every source that uses metadata.
@@ -50,9 +53,9 @@ METADATA_MAPPING_VERSION = 1
 #: config digest carries them only for the files the item applies to, so
 #: only those are re-sent (within the per-cycle bound), not every document
 #: of every source with file properties as a METADATA_MAPPING_VERSION bump
-#: would. email_date 2: the Date header's day instead of its timestamp,
-#: which Knovas refuses as ``invalid_value`` (a date is a day, month,
-#: quarter or year), so no e-mail got a ``document_date``.
+#: would. email_date 2: the day the mail shows at the firm instead of the
+#: header's timestamp, which Knovas refuses as ``invalid_value`` (a date is
+#: a day, month, quarter or year), so no e-mail got a ``document_date``.
 ITEM_RULE_VERSIONS = {"email_date": 2}
 
 METADATA_ITEMS = (
@@ -143,22 +146,41 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
 _ISO_DAY_PREFIX = re.compile(r"(\d{4}-\d{2}-\d{2})(?:[T ]|$)")
 
 
+#: The firm's time zone while RC_TIMEZONE is unset (the container runs in UTC).
+DEFAULT_EMAIL_ZONE = "Europe/Zurich"
+
+
+def _email_zone() -> tzinfo:
+    """RC_TIMEZONE, the Connector's zone setting, else Europe/Zurich. An
+    unknown name counts as unset: this module never logs or raises on it."""
+    name = (os.environ.get("RC_TIMEZONE") or "").strip()
+    try:
+        return ZoneInfo(name or DEFAULT_EMAIL_ZONE)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_EMAIL_ZONE)
+
+
 def _email_day(value: Optional[str]) -> Optional[str]:
-    """The day an e-mail's Date header names, ``YYYY-MM-DD``; None when it
-    names none. The header's own day, in the sender's offset as written --
-    never converted to another zone."""
+    """The day an e-mail shows at the firm, ``YYYY-MM-DD``; None when the
+    value names no day. A timestamp with an offset -- the Date header of an
+    .eml, an Outlook .msg's submit time (in UTC in the container) -- is taken
+    in the firm's zone, so both copies of one mail get the day Outlook shows
+    there; a value without an offset keeps the day it names."""
     if value is None:
         return None
-    match = _ISO_DAY_PREFIX.match(value)
-    if match:
+    if _ISO_DAY_PREFIX.match(value):
         try:
-            return date.fromisoformat(match.group(1)).isoformat()
+            moment = datetime.fromisoformat(value)
         except ValueError:
             return None
-    try:
-        return parsedate_to_datetime(value).date().isoformat()
-    except (TypeError, ValueError, IndexError, OverflowError):
-        return None
+    else:
+        try:
+            moment = parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return None
+    if moment.tzinfo is None:
+        return moment.date().isoformat()
+    return moment.astimezone(_email_zone()).date().isoformat()
 
 
 def item_rule_versions(enabled: Iterable[str], ext: str) -> dict[str, int]:
@@ -294,8 +316,8 @@ def map_metadata(md: Optional[Mapping[str, Any]], ext: str, enabled: Iterable[st
         if language is not None:
             out[ITEM_TARGETS["language"]] = language
     if email and "email_date" in items:
-        # The day of the Date header (rule version 2). Never ``modified``,
-        # never a file or M365 date.
+        # The day the mail shows at the firm (rule version 2). Never
+        # ``modified``, never a file or M365 date.
         day = _email_day(_text(md, "created"))
         if day is not None:
             out[ITEM_TARGETS["email_date"]] = day
