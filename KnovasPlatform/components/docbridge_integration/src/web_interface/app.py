@@ -1955,7 +1955,8 @@ def create_app(config_path: Optional[str] = None):
             JSON with search results, plus ``document_fields`` (capability,
             filter_state, fields_unavailable, resolved) and ``honesty``
             (no_strong_matches, no_results_reason, relevance_gate_applied,
-            degraded_to_bm25; null where Knovas does not say).
+            degraded_to_bm25; null where Knovas does not say) and ``notices``
+            (spec F3: kinds, visible names and counts, never node ids).
 
         Document fields (spec 4.3, H1-H3): ``where`` goes to Knovas only when
         the tenant's capability is ``filters``, and its results are shown only
@@ -2152,6 +2153,11 @@ def create_app(config_path: Optional[str] = None):
                     plan, filter_state, semantix_meta.get('where'),
                     doc_fields_routes.current_capability(plan.capability)),
                 'honesty': doc_fields_routes.honesty_block(semantix_meta),
+                # What Knovas said about this answer, shown above the results
+                # (spec F3): kinds, names the person may see, counts.
+                'notices': doc_fields_routes.search_notices(
+                    api_client, plan, semantix_meta,
+                    doc_fields_routes.user_key_for(identity_gate)),
             }
             if 'semantix' in refined and isinstance(refined.get('semantix'), dict):
                 # Knovas's auto_scope stays on the server: its node ids may

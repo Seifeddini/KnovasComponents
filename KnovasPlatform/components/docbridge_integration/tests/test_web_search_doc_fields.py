@@ -11,7 +11,8 @@ What is pinned here is what the person sees and what leaves the Platform:
       score thresholds and the filename supplement stay out of it; a search
       refused only for ``return_fields`` is retried once without them;
     * F3 -- Knovas's ``auto_scope`` node ids stay on the server: they may
-      name nodes the person may not see;
+      name nodes the person may not see; the answer's ``notices`` name only
+      the nodes the person may see and count the others;
     * D8 -- with the feature off, Knovas gets exactly today's call and the
       browser only additive keys;
     * D6 -- no query text, filter value or pointer in a log line.
@@ -22,6 +23,7 @@ state of spec 2.1. Placeholder names only ("Muster AG", "Beispiel GmbH").
 
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -135,11 +137,12 @@ class TestFeatureOffParity:
         assert set(body) == {"success", "query", "results", "literal_query_matches",
                              "highlight_prefixes", "total", "has_more", "timestamp",
                              "onedrive_enrichment_loaded", "location_summary",
-                             "document_fields", "honesty"}
+                             "document_fields", "honesty", "notices"}
         assert body["document_fields"] == {"capability": "off", "filter_state": "none",
                                            "fields_unavailable": False, "resolved": []}
         assert body["honesty"] == {"no_strong_matches": None, "no_results_reason": None,
                                    "relevance_gate_applied": None, "degraded_to_bm25": None}
+        assert body["notices"] == []
         row = body["results"][0]
         assert row["doc_id"] == INVOICE
         assert row["fields_display"] == [] and row["title_from_values"] is False
@@ -621,6 +624,74 @@ class TestAutoScopeStaysOnTheServer:
         assert len(body["results"]) == 3
         assert body["semantix"] == plain, "only auto_scope stays behind"
         assert "hidden-node" not in response.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# F3: what Knovas said about the answer, above the results
+# ---------------------------------------------------------------------------
+
+class TestNotices:
+    def test_none_for_an_ordinary_search(self, filters_app, identity_repo):
+        app, api = filters_app
+        client = signed_in(app, identity_repo, role="member")
+        assert search(client).get_json()["notices"] == []
+
+    def test_values_knovas_could_not_read(self, filters_app, identity_repo):
+        app, api = filters_app
+        api.return_fields_unreadable = True
+        client = signed_in(app, identity_repo, role="member")
+        body = search(client).get_json()
+        assert body["notices"] == [{"kind": "return_fields_unavailable", "names": [],
+                                    "hidden_count": 0}]
+        assert body["results"] and all(r["fields_display"] == [] for r in body["results"])
+
+    def test_values_the_platform_could_not_ask_for(self, filters_app, identity_repo):
+        app, api = filters_app
+        api.fail_call("doc_fields", 503, "doc_fields_unavailable")
+        client = signed_in(app, identity_repo, role="member")
+        assert [n["kind"] for n in search(client).get_json()["notices"]] == [
+            "return_fields_unavailable"]
+
+    def test_degraded_results_are_marked(self, filters_app, identity_repo):
+        app, api = filters_app
+        api.degraded = True
+        client = signed_in(app, identity_repo, role="member")
+        body = search(client).get_json()
+        assert body["results"] and [n["kind"] for n in body["notices"]] == ["degraded_to_bm25"]
+
+    @pytest.mark.parametrize("applied, fallback, kind", [
+        (True, False, "auto_scope_applied"), (False, True, "auto_scope_fallback")])
+    def test_auto_scope_names_only_what_the_person_may_see(self, filters_app, identity_repo,
+                                                          applied, fallback, kind):
+        app, api = filters_app
+        api.auto_scope = {"applied": applied, "fallback": fallback,
+                          "node_ids": ["m1", "hidden-node"]}
+        client = signed_in(app, identity_repo, role="member")
+        body = search(client).get_json()
+        assert body["notices"] == [{"kind": kind, "names": ["Muster AG"], "hidden_count": 1}]
+        assert "hidden-node" not in json.dumps(body), "node ids never reach the browser"
+        assert api.graph_nodes_calls == [{"node_type_id": None, "q": None}]
+
+    def test_at_most_five_names(self, filters_app, identity_repo):
+        app, api = filters_app
+        for i in range(7):
+            api.nodes[f"x{i}"] = {"id": f"x{i}", "name": f"Firma {i}",
+                                  "node_type_id": "t-mandant"}
+        api.auto_scope = {"applied": True, "fallback": False,
+                          "node_ids": [f"x{i}" for i in range(7)]}
+        client = signed_in(app, identity_repo, role="member")
+        notice = search(client).get_json()["notices"][0]
+        assert notice["names"] == [f"Firma {i}" for i in range(5)]
+        assert notice["hidden_count"] == 2
+
+    def test_no_name_in_a_log_line(self, filters_app, identity_repo, caplog):
+        app, api = filters_app
+        api.nodes["s1"] = {"id": "s1", "name": "Sentinel-Knoten AG", "node_type_id": "t-mandant"}
+        api.auto_scope = {"applied": True, "fallback": False, "node_ids": ["s1"]}
+        client = signed_in(app, identity_repo, role="member")
+        caplog.set_level(logging.DEBUG)
+        assert search(client).get_json()["notices"][0]["names"] == ["Sentinel-Knoten AG"]
+        assert "Sentinel-Knoten" not in "\n".join(r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

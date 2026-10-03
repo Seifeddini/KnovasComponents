@@ -367,6 +367,39 @@ def honesty_block(meta: Any) -> Dict[str, Any]:
              "degraded_to_bm25")}
 
 
+def search_notices(client: Any, plan: SearchPlan, meta: Any,
+                   user_key: Any) -> List[Dict[str, Any]]:
+    """The ``notices`` of a search answer (spec F3): what Knovas said about
+    this answer that the person reads above the results.
+
+    - ``return_fields_unavailable``: Knovas answered ``return_fields:
+      {"applied": false}``, or the Platform could not ask for values under
+      a capability that shows them (registry unreadable, return_fields
+      refused and retried without).
+    - ``degraded_to_bm25``: ``meta.degraded_to_bm25`` is true.
+    - ``auto_scope_applied`` / ``auto_scope_fallback``: Knovas narrowed the
+      search by a name it recognised. Names are read through the knowledge-
+      graph client as this person (``node_names_for``): a node they may not
+      see is counted, never named; node ids never reach the browser.
+
+    Never raises; logs kinds and counts only.
+    """
+    meta = meta if isinstance(meta, Mapping) else {}
+    out: List[Dict[str, Any]] = []
+    echo = meta.get("return_fields")
+    if ((isinstance(echo, Mapping) and echo.get("applied") is False)
+            or (plan.fields_unavailable and plan.capability.sends_return_fields)):
+        out.append(dfv.notice("return_fields_unavailable"))
+    if meta.get("degraded_to_bm25") is True:
+        out.append(dfv.notice("degraded_to_bm25"))
+    kind, node_ids = dfv.auto_scope_of(meta)
+    if kind is not None:
+        names, hidden = dfc.node_names_for(client, user_key, node_ids)
+        out.append(dfv.notice(kind, names, hidden))
+        logger.info("Search notice %s: named=%d unnamed=%d", kind, len(names), hidden)
+    return out
+
+
 def decorate_rows(rows: Iterable[Dict[str, Any]],
                   registry: Optional[Iterable[Mapping[str, Any]]]) -> None:
     """Each result row gains ``fields_display``, ``title_from_values`` and

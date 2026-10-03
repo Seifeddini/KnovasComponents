@@ -639,6 +639,36 @@ class TestValuesEditAudit:
                                                            version_to=None)
 
 
+# ---------------------------------------------------------------------------
+# Notices above the results (spec F3)
+# ---------------------------------------------------------------------------
+
+class TestNotices:
+    def test_the_shape(self):
+        assert view.notice("degraded_to_bm25") == {
+            "kind": "degraded_to_bm25", "names": [], "hidden_count": 0}
+        assert view.notice("auto_scope_applied", ["Muster AG", ""], 2) == {
+            "kind": "auto_scope_applied", "names": ["Muster AG"], "hidden_count": 2}
+        many = view.notice("auto_scope_fallback", [f"Firma {i}" for i in range(7)], 1)
+        assert many["names"] == [f"Firma {i}" for i in range(5)] and many["hidden_count"] == 3
+        with pytest.raises(ValueError):
+            view.notice("something_else")
+
+    @pytest.mark.parametrize("meta, expected", [
+        ({"auto_scope": {"applied": True, "fallback": False, "node_ids": ["n1", "n2"]}},
+         ("auto_scope_applied", ["n1", "n2"])),
+        ({"auto_scope": {"applied": False, "fallback": True, "node_ids": ["n1"]}},
+         ("auto_scope_fallback", ["n1"])),
+        ({"auto_scope": {"applied": False, "fallback": False, "node_ids": ["n1"]}}, (None, [])),
+        ({"auto_scope": {"applied": True, "node_ids": []}}, (None, [])),
+        ({"auto_scope": "applied"}, (None, [])),
+        ({}, (None, [])),
+        (None, (None, [])),
+    ])
+    def test_auto_scope_of(self, meta, expected):
+        assert view.auto_scope_of(meta) == expected
+
+
 def test_new_modules_are_ascii_only():
     """scripts/check_ascii_py.py: umlauts go in templates or as escapes."""
     tests = Path(__file__).resolve().parent

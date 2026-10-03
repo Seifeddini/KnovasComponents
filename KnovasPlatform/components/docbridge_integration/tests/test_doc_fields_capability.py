@@ -2,8 +2,9 @@
 
 Spec 2.2: the probe classification, the TTLs, the four signals and the
 needs_calibration hold that a probe must not lift; D1/D13: nothing turns the
-feature on, and legacy mode is off without a request. Registry and entity
-names are cached per user and never fetched with ``q`` (D10).
+feature on, and legacy mode is off without a request. Registry, entity
+names and node names (F3) are cached per user and never fetched with ``q``
+(D10).
 """
 
 from __future__ import annotations
@@ -430,6 +431,69 @@ class TestEntityNamesFor:
         client = FakeDocFieldsApi("values")
         next(s for s in client.registry if s["key"] == "mandant")["target_node_type_id"] = None
         assert cap.entity_names_for(client, "alice", "mandant") is None
+
+
+class TestNodeNamesFor:
+    """F3: the names of auto-scope nodes, read as the person (one node list,
+    never with q); a node Knovas does not list for them is only counted."""
+
+    def test_names_in_order_hidden_counted_never_q(self):
+        client = FakeDocFieldsApi("filters")
+        names, hidden = cap.node_names_for(client, "alice", ["m2", "gone", "m1", "m2"])
+        assert names == ["Beispiel GmbH", "Muster AG"] and hidden == 1
+        assert client.graph_nodes_calls == [{"node_type_id": None, "q": None}]
+
+    def test_cached_per_user(self):
+        client = FakeDocFieldsApi("filters")
+        cap.node_names_for(client, "alice", ["m1"])
+        cap.node_names_for(client, "alice", ["m2"])
+        assert len(client.graph_nodes_calls) == 1
+        cap.node_names_for(client, "bob", ["m1"])
+        assert len(client.graph_nodes_calls) == 2
+        cap.invalidate("alice")
+        cap.node_names_for(client, "alice", ["m1"])
+        assert len(client.graph_nodes_calls) == 3
+
+    def test_a_failure_names_nobody_and_is_not_cached(self):
+        client = FakeDocFieldsApi("filters")
+        original = client.graph_nodes
+
+        def broken(**kw):
+            raise RuntimeError("graph down")
+
+        client.graph_nodes = broken
+        assert cap.node_names_for(client, "alice", ["m1", "m2"]) == ([], 2)
+        client.graph_nodes = original
+        assert cap.node_names_for(client, "alice", ["m1"]) == (["Muster AG"], 0)
+
+    def test_more_than_5000_nodes_names_nobody(self):
+        client = FakeDocFieldsApi("filters")
+        for i in range(5001):
+            client.nodes[f"x{i}"] = {"id": f"x{i}", "name": f"Firma {i}",
+                                     "node_type_id": "t-mandant"}
+        assert cap.node_names_for(client, "alice", ["m1"]) == ([], 1)
+
+    def test_nothing_is_asked_without_ids(self):
+        client = FakeDocFieldsApi("filters")
+        assert cap.node_names_for(client, "alice", []) == ([], 0)
+        assert client.graph_nodes_calls == []
+
+    def test_no_name_in_a_log_line(self, caplog):
+        import logging
+
+        sentinel = "Sentinel-Knoten-AG"
+        client = FakeDocFieldsApi("filters")
+        client.nodes["s1"] = {"id": "s1", "name": sentinel, "node_type_id": "t-mandant"}
+
+        def broken(**kw):
+            raise RuntimeError(sentinel)
+
+        with caplog.at_level(logging.DEBUG):
+            assert cap.node_names_for(client, "alice", ["s1"]) == ([sentinel], 0)
+            cap.invalidate()
+            client.graph_nodes = broken
+            assert cap.node_names_for(client, "alice", ["s1"]) == ([], 1)
+        assert caplog.records and sentinel not in caplog.text
 
 
 def test_the_conftest_resets_the_shared_state_between_tests_part_1():

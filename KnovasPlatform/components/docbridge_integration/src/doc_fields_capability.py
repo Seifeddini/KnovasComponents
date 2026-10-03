@@ -25,10 +25,10 @@ feature off without asking anyone (D1, D13). Nothing here can turn it on.
 Process-wide state
 ------------------
 One tenant per deployment, so one capability per process: ``shared_cache()``
-is a singleton (gunicorn workers each learn it on their own). The registry
-and entity-name caches are per *user*, because what Knovas returns depends on
-who asks (``target_type_hidden``, node visibility); they are never shared
-across people. ``reset_for_tests()`` clears all of it.
+is a singleton (gunicorn workers each learn it on their own). The registry,
+entity-name and node-name caches are per *user*, because what Knovas returns
+depends on who asks (``target_type_hidden``, node visibility); they are never
+shared across people. ``reset_for_tests()`` clears all of it.
 
 Nothing here logs a value: capability names, signal names and exception
 class names only.
@@ -41,7 +41,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from doc_fields_view import registry_targets, sanitize_registry
 
@@ -391,7 +391,7 @@ def observe_exception(exc: BaseException) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Per-user caches: registry and entity names
+# Per-user caches: registry, entity names and node names
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -405,6 +405,7 @@ _now: Callable[[], float] = time.monotonic
 _CACHE_LOCK = threading.Lock()
 _REGISTRY: Dict[str, _RegistryEntry] = {}
 _NAMES: Dict[Tuple[str, str], Tuple[float, Optional[Tuple[str, ...]]]] = {}
+_NODE_NAMES: Dict[str, Tuple[float, Optional[Dict[str, str]]]] = {}
 
 
 def _user(user_key: Any) -> str:
@@ -499,17 +500,63 @@ def entity_names_for(client: Any, user_key: Any, field: Any) -> Optional[List[st
     return list(names) if names is not None else None
 
 
+def node_names_for(client: Any, user_key: Any,
+                   node_ids: Iterable[Any]) -> Tuple[List[str], int]:
+    """``(names, hidden_count)`` for knowledge-graph node ids, as this
+    person may see them (spec F3, auto scope).
+
+    The names come from one node list read as this person
+    (``graph_nodes()`` without ``q`` or a type, cached per person for
+    ``registry_cache_seconds``): a node Knovas does not list for them is not
+    named, only counted -- and so is every node when the list cannot be read
+    (not cached) or holds more than 5000 nodes. Names keep the order of
+    ``node_ids``, each once. Never raises; logs exception class names only.
+    """
+    wanted = list(dict.fromkeys(str(i) for i in node_ids or () if i))
+    if not wanted:
+        return [], 0
+    who, now = _user(user_key), _now()
+    with _CACHE_LOCK:
+        cached = _NODE_NAMES.get(who)
+    if cached is not None and now < cached[0]:
+        by_id = cached[1]
+    else:
+        try:
+            nodes = client.graph_nodes()
+        except Exception as exc:  # noqa: BLE001 - names are optional
+            logger.warning("Node names unavailable: %s", type(exc).__name__)
+            return [], len(wanted)
+        by_id = None
+        if len(nodes or ()) <= ENTITY_NAMES_MAX:
+            by_id = {str(n["id"]): n["name"].strip() for n in nodes or ()
+                     if isinstance(n, dict) and n.get("id") and isinstance(n.get("name"), str)
+                     and n["name"].strip()}
+        ttl = settings(getattr(client, "config", None)).registry_cache_seconds
+        with _CACHE_LOCK:
+            _NODE_NAMES[who] = (now + ttl, by_id)
+    if by_id is None:
+        return [], len(wanted)
+    names: List[str] = []
+    for node_id in wanted:
+        name = by_id.get(node_id)
+        if name and name not in names:
+            names.append(name)
+    return names, sum(1 for node_id in wanted if not by_id.get(node_id))
+
+
 def invalidate(user_key: Any = None) -> None:
-    """Drop the registry and entity-name caches of one user, or of everyone
-    when ``user_key`` is None (after a registry write, or an
+    """Drop the registry, entity-name and node-name caches of one user, or
+    of everyone when ``user_key`` is None (after a registry write, or an
     ``unknown_field`` answer)."""
     with _CACHE_LOCK:
         if user_key is None:
             _REGISTRY.clear()
             _NAMES.clear()
+            _NODE_NAMES.clear()
             return
         who = _user(user_key)
         _REGISTRY.pop(who, None)
+        _NODE_NAMES.pop(who, None)
         for key in [k for k in _NAMES if k[0] == who]:
             _NAMES.pop(key, None)
 

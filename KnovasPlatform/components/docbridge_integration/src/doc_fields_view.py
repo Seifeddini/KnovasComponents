@@ -1028,3 +1028,50 @@ def no_results_message(reason: Any) -> str:
     """The empty-state text per ``no_results_reason`` (H8): always about the
     documents the person can see, never a claim about the whole corpus."""
     return _NO_RESULTS.get(str(reason or ""), NO_RESULTS_GENERIC)
+
+
+# ---------------------------------------------------------------------------
+# Notices above the results (spec F3)
+# ---------------------------------------------------------------------------
+
+#: What a search answer may say above its results, in display order. The
+#: browser words them (app.js); the server sends kinds, names and counts.
+NOTICE_KINDS = ("return_fields_unavailable", "degraded_to_bm25", "auto_scope_applied",
+                "auto_scope_fallback")
+#: The most knowledge-graph names one notice names; the others are counted.
+NOTICE_NAMES_MAX = 5
+
+
+def notice(kind: str, names: Iterable[Any] = (), hidden_count: Any = 0) -> Dict[str, Any]:
+    """One entry of a search answer's ``notices``: ``{kind, names,
+    hidden_count}``. ``names`` are node names the person may see (auto
+    scope only), at most five; ``hidden_count`` counts the nodes not named --
+    invisible to the person, or beyond the five."""
+    if kind not in NOTICE_KINDS:
+        raise ValueError(f"unknown notice kind: {kind!r}")
+    shown = [n.strip() for n in names or () if isinstance(n, str) and n.strip()]
+    try:
+        hidden = max(0, int(hidden_count or 0))
+    except (TypeError, ValueError):
+        hidden = 0
+    hidden += max(0, len(shown) - NOTICE_NAMES_MAX)
+    return {"kind": kind, "names": shown[:NOTICE_NAMES_MAX], "hidden_count": hidden}
+
+
+def auto_scope_of(meta: Any) -> Tuple[Optional[str], List[str]]:
+    """``(kind, node ids)`` of Knovas's narrowing by a name it recognised in
+    the question (``meta["auto_scope"]`` as knovas_client keeps it):
+    ``auto_scope_applied`` when the search ran inside those nodes,
+    ``auto_scope_fallback`` when that found nothing and Knovas searched
+    everything; ``(None, [])`` otherwise, or without node ids."""
+    block = meta.get("auto_scope") if isinstance(meta, Mapping) else None
+    if not isinstance(block, Mapping):
+        return None, []
+    ids = [i for i in block.get("node_ids") or () if isinstance(i, str) and i]
+    if not ids:
+        return None, []
+    if block.get("fallback") is True:
+        return "auto_scope_fallback", ids
+    if block.get("applied") is True:
+        return "auto_scope_applied", ids
+    return None, []
