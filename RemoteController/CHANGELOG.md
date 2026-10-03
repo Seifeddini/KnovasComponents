@@ -26,6 +26,12 @@
 - **Description** from file properties when the profile sets none: `docx:subject`, then `pdf:subject`, then `pdf:xmp_description` (the keys read before were never produced, so PDFs had none).
 - PyMuPDF pinned to `1.28.0` in `pyproject.toml`, the Platform's version: both images and both CI jobs run one PDF parser under knovas-extract.
 
+### Re-extraction after an extractor upgrade
+
+- Every upload records an **extraction stamp** (16 hex characters over the knovas-extract version, `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number) and the sha256 of what it carried. Rows synced before have no stamp and count as an older extraction; nothing is re-sent by itself.
+- **`POST /sync/reextract/requeue`** → `{"requeued": n}` queues them; each cycle re-extracts at most **`RC_REEXTRACT_PER_CYCLE`** (100, 1–10000) after new, modified and field re-uploads — partial first, then PDF, DOCX, e-mail, the rest — and uploads in place only what changed (the first round uploads all: no hash yet). A failure never uses `RC_EXTRACT_MAX_RETRIES`; after 3 the document leaves the queue, still outdated.
+- **`GET /sync/status`**: `extraction.outdated`, `extraction.queued`, `extraction.per_cycle` — counts only.
+
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
 Knovas 1.5.0 has Document fields on for every account. Where Knovas has them switched off, or against an older server, the bodies, the outcomes and the indexing are as in 0.2.0.

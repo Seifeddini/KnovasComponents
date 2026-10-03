@@ -215,3 +215,38 @@ def test_every_mid_cycle_pause_reason_counts_as_running():
         out = client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
         assert out == {"applied": "next_cycle"}, state
         assert ("POST", "start") not in _steps(session), state
+
+
+def test_requeue_reextract_posts_an_empty_body_as_the_signed_in_person():
+    session = _Session({("POST", "requeue"): _Resp(200, {"requeued": 12})})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    assert client.requeue_reextract() == {"requeued": 12}
+    method, url, body, headers = session.calls[0]
+    assert (method, url, body) == ("POST", f"{BASE}/sync/reextract/requeue", {})
+    assert headers["X-Platform-Principal"] == "token-for-u-1"
+
+
+@pytest.mark.parametrize("answer", [{"requeued": "viele"}, {"requeued": -3}, {}, ["x"], None])
+def test_requeue_reextract_reads_an_odd_answer_as_nothing_queued(answer):
+    session = _Session({("POST", "requeue"): _Resp(200, answer)})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    assert client.requeue_reextract() == {"requeued": 0}
+
+
+def test_requeue_reextract_on_an_old_connector_is_a_404_error():
+    session = _Session({("POST", "requeue"): _Resp(404, {"error": "Not Found"})})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(RemoteControllerError) as excinfo:
+        client.requeue_reextract()
+    assert excinfo.value.status == 404
+
+
+def test_requeue_reextract_on_an_unreachable_connector_has_no_status():
+    def down(_kw):
+        raise requests.exceptions.ConnectionError("refused")
+
+    session = _Session({("POST", "requeue"): down})
+    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(RemoteControllerError) as excinfo:
+        client.requeue_reextract()
+    assert excinfo.value.status is None

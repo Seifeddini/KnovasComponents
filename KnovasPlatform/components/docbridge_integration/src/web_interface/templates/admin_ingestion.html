@@ -12,6 +12,9 @@
 {# Document fields per folder (spec 4.8). ``doc_fields`` is absent in older
    render calls; every use below goes through ``df``. #}
 {% set df = doc_fields if doc_fields is defined else none %}
+{# Re-extraction after an extractor upgrade (spec L6); absent in older
+   render calls and for a Knovas Connector without the counts. #}
+{% set rx = reextract if reextract is defined else none %}
 {% macro fields_cell(n, f, items) -%}
 <td class="folder-fields">
     <details{% if f.fields_text|default('') or f.templates_text|default('') or f.metadata|default([]) %} open{% endif %}>
@@ -77,6 +80,18 @@
     </section>
     {% endif %}
 
+    {% if rx and rx.confirm %}
+    <section class="panel reextract-confirm">
+        <h2>Neu extrahieren bestätigen</h2>
+        <p>{{ rx.confirm.text }}</p>
+        <form class="inline" method="post" action="{{ url_for('admin.reextract') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="confirm_reextract" value="{{ rx.confirm.count }}">
+            <button type="submit">{{ rx.confirm.count }} Dokumente neu extrahieren</button>
+        </form>
+    </section>
+    {% endif %}
+
     <section class="ingestion-status-bar">
         <span class="status-dot {% if status.scheduler_state in ('running', 'active') %}is-online{% endif %}" aria-hidden="true"></span>
         <p>
@@ -117,6 +132,22 @@
             {% endfor %}
         </div>
         <p class="hint">Jedes erneut gesendete Dokument ist ein verrechneter Upload mit erneuter Texterkennung; der Knovas Connector sendet höchstens die eingestellte Anzahl pro Durchlauf.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    {% if rx %}
+    <section class="panel reextract-status">
+        <h2>Extraktion</h2>
+        <p>{{ rx.outdated }} Dokumente mit älterer Extraktion{% if rx.queued %} · {{ rx.queued }} davon zum Neu-Extrahieren vorgemerkt{% endif %}</p>
+        {% if rx.can_request %}
+        <form class="inline" method="post" action="{{ url_for('admin.reextract') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="secondary compact">Neu extrahieren</button>
+        </form>
+        <p class="hint">Vorher zeigt ein Dialog Anzahl, Kosten und Dauer. Gesendet wird nur, was sich geändert hat – jedes gesendete Dokument ist ein verrechneter Upload.</p>
+        {% elif rx.admin_only %}
+        <p class="hint">Neu extrahieren kann nur die Rolle admin auslösen.</p>
         {% endif %}
     </section>
     {% endif %}

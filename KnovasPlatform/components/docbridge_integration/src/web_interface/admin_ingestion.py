@@ -28,6 +28,14 @@ already carries some, so a save cannot drop them silently). Values,
 templates and captures stay on this page: the support JSON, the approvals
 summary, the audit row and every log line carry counts only.
 
+Re-extraction (spec L6)
+-----------------------
+After an extractor upgrade the tab shows how many documents an older
+extraction produced (the Knovas Connector's ``extraction.outdated``) and
+offers *Neu extrahieren* to an admin only, after a confirmation that states
+count, cost and duration and carries the count it showed. Audited with
+counts only.
+
 Plan: docs/superpowers/plans/2026-09-02-admin-ingestion-tab.md
 """
 from __future__ import annotations
@@ -510,6 +518,96 @@ def doc_fields_status(rc_status: Any, *, capability: Capability,
     return {"lines": lines, "requeue": requeue}
 
 
+# ---------------------------------------------------------------------------
+# Re-extraction after an extractor upgrade (spec L6)
+# ---------------------------------------------------------------------------
+#
+# Counts only: the Knovas Connector reports how many documents an older
+# extraction produced; no path, title or text reaches this page or a log.
+
+#: The Knovas Connector's default re-extraction bound (RC_REEXTRACT_PER_CYCLE),
+#: used when its status does not report ``per_cycle``.
+DEFAULT_REEXTRACT_PER_CYCLE = 100
+REEXTRACT_AUDIT_ACTION = "ingestion.reextract_requeued"
+REEXTRACT_UNCONFIRMED = "Bitte best\u00e4tigen, dass die Dokumente neu extrahiert werden."
+REEXTRACT_CHANGED = ("Seit der Anzeige sind weitere Dokumente mit \u00e4lterer Extraktion "
+                     "dazugekommen; bitte die neue Zahl best\u00e4tigen.")
+REEXTRACT_TOO_OLD = ("Knovas Connector zu alt \u2013 bitte aktualisieren: er kann Dokumente "
+                     "noch nicht neu extrahieren.")
+REEXTRACT_UNREACHABLE = ("Knovas Connector nicht erreichbar \u2013 bitte sp\u00e4ter erneut "
+                         "versuchen.")
+
+
+def extraction_block(rc_status: Any) -> Mapping[str, Any] | None:
+    """The Knovas Connector's ``extraction`` block when it counts outdated
+    documents (one that can re-extract); None for an older or unreachable
+    one."""
+    if not isinstance(rc_status, Mapping):
+        return None
+    block = rc_status.get("extraction")
+    if not isinstance(block, Mapping) or "outdated" not in block:
+        return None
+    return block
+
+
+def reextract_status(rc_status: Any, *, throughput: str = "normal",
+                     is_admin: bool = False) -> dict[str, Any] | None:
+    """The tab's re-extraction section: ``N Dokumente mit \u00e4lterer
+    Extraktion``, how many already wait, the per-cycle bound as the
+    throughput preset lets it through, and whether to offer *Neu
+    extrahieren* (admins only). None without the Connector's counts."""
+    block = extraction_block(rc_status)
+    if block is None:
+        return None
+    outdated = _count(block.get("outdated"))
+    per_cycle = _count(block.get("per_cycle")) or DEFAULT_REEXTRACT_PER_CYCLE
+    return {
+        "outdated": outdated,
+        "queued": _count(block.get("queued")),
+        "per_cycle": reupload_bound(per_cycle, throughput),
+        "can_request": bool(is_admin) and outdated > 0,
+        "admin_only": not is_admin and outdated > 0,
+        "confirm": None,
+    }
+
+
+def reextract_text(count: Any, per_cycle: Any, schedule: str, throughput: str) -> str:
+    """The cost sentence *Neu extrahieren* is confirmed against, computed
+    like a field change's (``reupload_text``). Only documents whose upload
+    changes are sent, so ``count`` is the upper bound of billed uploads."""
+    count = _count(count)
+    bound = reupload_bound(_count(per_cycle) or DEFAULT_REEXTRACT_PER_CYCLE, throughput)
+    eta = reupload_eta(count, bound, schedule, throughput)
+    return (f"{count} Dokumente wurden mit einer \u00e4lteren Extraktion indexiert. Der Knovas "
+            "Connector liest sie neu und sendet jedes, dessen Text, Seitenzahlen oder Felder "
+            "sich ge\u00e4ndert haben, erneut an Knovas \u2013 je ein verrechneter Upload, "
+            f"h\u00f6chstens {count}. Bei {bound} pro Durchlauf und Zeitplan "
+            f"\u201e{_schedule_label(schedule)}\u201c {eta}.")
+
+
+def _confirmed_count(raw: Any) -> int | None:
+    """The count a confirmation carries (``confirm_reextract``); None
+    without one. ASCII digits only, at most 18 of them (``isdigit`` alone
+    admits a superscript two, which ``int`` refuses, and ``int`` refuses a
+    number thousands of digits long): the field holds the number the dialog
+    showed."""
+    text = str(raw or "").strip()
+    if not (text.isascii() and text.isdigit()) or len(text) > 18:
+        return None
+    return int(text)
+
+
+def _reextract_error(exc: Exception) -> str:
+    """What the page says when the Knovas Connector refused or could not
+    be asked: 404 is an older Connector, no status an unreachable one."""
+    status = getattr(exc, "status", None)
+    if status == 404:
+        return REEXTRACT_TOO_OLD
+    if status is None:
+        return REEXTRACT_UNREACHABLE
+    return f"Neu extrahieren fehlgeschlagen: {exc}"
+
+
 def template_preview(templates: Sequence[str], entries: Sequence[Any], *,
                      recursive: bool = True, limit: int = PREVIEW_FILES_PER_SOURCE) -> dict:
     """Template captures over the files RemoteController reported.
@@ -952,7 +1050,8 @@ def execute_ingestion_change(payload: Mapping[str, Any], actor, *, conn, rc_clie
 
 
 def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
-                            client_factory, rc_client_factory, require_ingestion):
+                            client_factory, rc_client_factory, require_ingestion,
+                            require_admin):
     def _csrf_ok() -> bool:
         return csrf_valid(str(request.form.get("csrf_token", "") or ""))
 
@@ -1014,8 +1113,25 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             "advice": FOLDER_RULE_ADVICE,
         }
 
+    def _reextract_context(rc_status, current, *, confirm: bool) -> dict[str, Any] | None:
+        """The re-extraction section (spec L6); with ``confirm`` also the
+        dialog that states count, cost and duration, bound to that count."""
+        running = current.profile if current else None
+        schedule = running.schedule if running else "nightly"
+        throughput = running.throughput if running else "normal"
+        roles = set(getattr(gate.current_user(), "roles", ()) or ())
+        section = reextract_status(rc_status, throughput=throughput, is_admin="admin" in roles)
+        if section is not None and confirm and section["can_request"]:
+            section["confirm"] = {
+                "count": section["outdated"],
+                "text": reextract_text(section["outdated"], section["per_cycle"],
+                                       schedule, throughput),
+            }
+        return section
+
     def _page(form=None, *, error=None, notice=None, status=200, preview=None, support_json=None,
-              reupload_paths=None, restore_version=None, field_warnings=(), field_notes=()):
+              reupload_paths=None, restore_version=None, field_warnings=(), field_notes=(),
+              reextract_confirm=False):
         repo = IngestionProfileRepository(gate.connection())
         current = repo.current()
         rc_status: dict[str, Any] = {}
@@ -1050,6 +1166,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                 form, rc_status, current, reupload_paths=reupload_paths,
                 restore_version=restore_version, warnings=field_warnings, notes=field_notes,
                 rc_reachable=rc_reachable),
+            reextract=_reextract_context(rc_status, current, confirm=reextract_confirm),
             me=gate.current_user(),
             error=error,
             notice=notice,
@@ -1253,6 +1370,46 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         return _page(notice=(f"{count} Dokumente zum erneuten Senden vorgemerkt; "
                              "der Knovas Connector sendet sie in den n\u00e4chsten Durchl\u00e4ufen, "
                              "je ein verrechneter Upload."))
+
+    @bp.route("/ingestion/reextract", methods=["POST"])
+    @require_admin
+    def reextract():
+        """*Neu extrahieren* (spec L6): the Knovas Connector queues every
+        document an older extraction produced, re-extracts them within its
+        per-cycle bound and uploads those whose text changed -- each a billed
+        upload. Admin only; the first click shows count, cost and duration,
+        the second carries the count it showed. Audited with counts only."""
+        csrf_ok = _csrf_ok()
+        if not csrf_ok:
+            return _page(error="Formular ist abgelaufen. Bitte erneut versuchen.", status=400)
+        rc = rc_client_factory()
+        try:
+            block = extraction_block(rc.status())
+        except (RemoteControllerError, PermissionError) as exc:
+            return _page(error=_reextract_error(exc), status=502)
+        if block is None:
+            return _page(error=REEXTRACT_TOO_OLD, status=400)
+        outdated = _count(block.get("outdated"))
+        if not outdated:
+            return _page(notice="Keine Dokumente mit \u00e4lterer Extraktion.")
+        confirmed = _confirmed_count(request.form.get("confirm_reextract"))
+        if confirmed is None:
+            return _page(error=REEXTRACT_UNCONFIRMED, status=400, reextract_confirm=True)
+        if outdated > confirmed:
+            return _page(error=REEXTRACT_CHANGED, status=400, reextract_confirm=True)
+        try:
+            answer = rc.requeue_reextract()
+        except (RemoteControllerError, PermissionError) as exc:
+            return _page(error=_reextract_error(exc), status=502)
+        count = _count((answer or {}).get("requeued"))
+        audit.record(gate.connection(), action=REEXTRACT_AUDIT_ACTION, actor=gate.current_user(),
+                     target_type="remote_controller", target_id="sync",
+                     detail={"outdated": outdated, "requeued": count})
+        if not count:
+            return _page(notice="Keine Dokumente zum Neu-Extrahieren vorgemerkt.")
+        return _page(notice=(f"{count} Dokumente zum Neu-Extrahieren vorgemerkt; der Knovas "
+                             "Connector liest sie in den n\u00e4chsten Durchl\u00e4ufen neu und "
+                             "sendet die ge\u00e4nderten erneut \u2013 je ein verrechneter Upload."))
 
     @bp.route("/ingestion/template-preview", methods=["POST"])
     @require_ingestion

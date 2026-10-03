@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import heapq
 import logging
 import os
 import re
@@ -16,7 +17,12 @@ from typing import Any, Callable, Iterator, Mapping, Optional
 
 import requests
 
-from config import doc_fields_enabled, fields_reupload_max_attempts, fields_reupload_per_cycle
+from config import (
+    doc_fields_enabled,
+    fields_reupload_max_attempts,
+    fields_reupload_per_cycle,
+    reextract_per_cycle,
+)
 from discover.filesystem import resolve_root
 from m365.inventory import RemoteFile
 from m365.source import M365Source, active_m365_source, m365_configured, watch_root_subpath
@@ -44,6 +50,7 @@ from sync.document_text import (
     is_syncable_extension,
     is_unconvertible_error,
 )
+from sync.extraction_stamp import current_extraction_stamp
 from sync.knovas_uploader import SemantixUploader, UploadResult
 from sync.rate_metrics import IngestRateMetrics
 from sync.semantix_cert import ensure_mtls_certificate_freshness
@@ -85,6 +92,11 @@ MAX_EXTRACT_RETRIES = _env_int("RC_EXTRACT_MAX_RETRIES", 3, minimum=1)
 #: The partial note recorded when the retry cap is reached.
 RETRIES_EXHAUSTED_NOTE = {"reason": "extract_retries_exhausted"}
 
+#: Failed re-extractions of one queued document before it leaves the queue
+#: (spec L6). It stays outdated; the next ``POST /sync/reextract/requeue``
+#: queues it again.
+REEXTRACT_MAX_ATTEMPTS = 3
+
 UPLOAD_ORDERS = ("small_first", "scan")
 DEFAULT_UPLOAD_ORDER = "small_first"
 
@@ -109,6 +121,20 @@ def _ordered_upload_queue(queue: list[UploadItem], order: str):
     return list(queue)
 
 
+#: Re-extraction order after partial documents (spec L6): PDFs, Word files,
+#: e-mails, then everything else.
+_REEXTRACT_RANK = {".pdf": 1, ".docx": 2, ".eml": 3, ".msg": 3}
+_REEXTRACT_RANK_REST = 4
+
+
+def _reextract_rank(rel: str, partial: frozenset) -> int:
+    """Partial documents first -- a newer extractor most likely completes
+    them -- then by extension."""
+    if rel in partial:
+        return 0
+    return _REEXTRACT_RANK.get(os.path.splitext(rel)[1].lower(), _REEXTRACT_RANK_REST)
+
+
 def _matches_globs(rel_posix: str, patterns: list[str]) -> bool:
     path = Path(rel_posix)
     return any(path.match(g) or fnmatch.fnmatch(rel_posix, g) for g in patterns)
@@ -130,6 +156,14 @@ class SyncRunResult:
     scan_truncated: bool = False
     subfolder_progress: Optional[dict[str, Any]] = None
     rate_limit: Optional[dict[str, Any]] = None
+    #: Re-extraction (spec L6), counts only: re-extracted and uploaded,
+    #: re-extracted with an unchanged upload (nothing sent), failed; and the
+    #: queued rows this cycle's scan reached, counted before the uploads like
+    #: ``fields_changed`` (no idle backoff, no subfolder advance meanwhile).
+    reextract_uploaded: int = 0
+    reextract_unchanged: int = 0
+    reextract_failed: int = 0
+    reextract_reached: int = 0
     #: Knovas document fields of this run (codes and counts); None while
     #: RC_DOC_FIELDS is off.
     doc_fields: Optional["DocFieldsCycle"] = None
@@ -731,6 +765,7 @@ def record_upload_outcome(
     *,
     digest: Optional[str] = None,
     fields_reupload: bool = False,
+    reextract: bool = False,
     stats: Optional[DocFieldsCycle] = None,
 ) -> str:
     """Record one upload's outcome in the sync state; returns the outcome.
@@ -765,9 +800,29 @@ def record_upload_outcome(
     ``reupload_failed:<class>``. Such a re-upload never touches the
     extraction retry counter and is never recorded partial for exhausted
     retries: its text is already complete at Knovas.
+
+    Re-extraction (spec L6): every ``ok`` upload also stores its extraction
+    stamp and the hash of what it carried, and the row leaves the
+    re-extraction queue; a file found unconvertible takes the current
+    stamp -- the current extractor's verdict, not an older extraction.
+    ``"unchanged"``: a re-extraction (``reextract``) whose upload would
+    carry exactly what Knovas holds -- nothing was sent, the stamp moves on
+    and the partial note follows the new extraction. A failed re-extraction
+    never records a skip or a partial and never touches the extraction
+    retry counter (Knovas holds the last upload): unconvertible takes the
+    current stamp and leaves the queue, anything else counts an attempt and
+    leaves after ``REEXTRACT_MAX_ATTEMPTS``, still outdated.
     """
     incremental = mode == "incremental"
     fields_on = digest is not None
+    if upload.status == "unchanged":
+        # A re-extraction whose upload would carry exactly what Knovas
+        # holds: nothing was sent, nothing is billed. The stamp moves on and
+        # the partial note follows the new extraction.
+        state.record_reextract_unchanged(
+            relative_path, upload.extraction_stamp or current_extraction_stamp(), upload.partial
+        )
+        return "unchanged"
     if upload.status == "ok":
         key = upload.transmission_key_id
         record = _fields_record_for(upload, digest) if fields_on else None
@@ -787,6 +842,11 @@ def record_upload_outcome(
             elif record is not None and not incremental:
                 state.update_fields(relative_path, record)
             outcome = "synced"
+        if upload.extraction_stamp is not None:
+            # Which extraction produced this upload and what it carried
+            # (spec L6); the row leaves the re-extraction queue. Full mode
+            # updates rows that exist only, like the fields columns.
+            state.set_extraction(relative_path, upload.extraction_stamp, upload.text_sha256)
         if record is not None:
             if upload.fields is not None:
                 _note_fields(stats, upload.fields.outcome, upload.fields)
@@ -804,11 +864,24 @@ def record_upload_outcome(
     error = upload.error or "upload failed"
     if not incremental:
         return "retry"
+    if reextract:
+        # Knovas holds the document's last upload, so a failed re-extraction
+        # is no content failure: no skip, no partial, no extraction retry.
+        # Unconvertible is the current extractor's verdict -- the stamp moves
+        # on and the row leaves the queue. Anything else is tried again next
+        # cycle, at most REEXTRACT_MAX_ATTEMPTS times; the row stays outdated.
+        if _should_skip_failed_upload(upload, mode):
+            state.set_extraction_stamp(relative_path, current_extraction_stamp())
+            return "skipped"
+        state.count_reextract_failure(relative_path, REEXTRACT_MAX_ATTEMPTS)
+        return "retry"
     if _should_skip_failed_upload(upload, mode):
         state.record_skip(
             relative_path, mtime_iso, size_bytes, reason="unconvertible",
             fields=FieldsRecord(digest, OUTCOME_NONE) if fields_on else None,
         )
+        # The current extractor's verdict: not an older extraction (spec L6).
+        state.set_extraction_stamp(relative_path, current_extraction_stamp())
         ocr_metrics.SKIP_UNCONVERTIBLE.inc()
         if fields_reupload and stats is not None:
             stats.reuploads_done += 1
@@ -863,6 +936,15 @@ class _ScanPlan:
     fields_sent: dict[str, bool] = field(default_factory=dict)
     rel_collisions: int = 0
     template_errors: Counter = field(default_factory=Counter)
+    # Re-extractions (spec L6): at most RC_REEXTRACT_PER_CYCLE queued synced
+    # rows in ``_reextract_rank`` order, only where the file cap leaves room
+    # after the primary and the fields queue; uploaded last.
+    reextract_queue: list[UploadItem] = field(default_factory=list)
+    # The stored ``text_sha256`` per queued re-extraction (None: uploaded
+    # before hashes existed -- such a row is uploaded whatever the text).
+    reextract_text_sha: dict[str, Optional[str]] = field(default_factory=dict)
+    # Queued rows the scan reached, whether or not they fit this cycle.
+    reextract_reached: int = 0
 
     @property
     def sources_skipped(self) -> int:
@@ -1001,6 +1083,12 @@ def plan_sync_cycle(
     one's fields configuration governs every later duplicate of the cycle
     (each keeps its own access groups: content handling is unchanged), so
     the digests of the copies cannot alternate.
+
+    Re-extraction (spec L6): a synced file whose row ``POST
+    /sync/reextract/requeue`` queued is a candidate; the first
+    RC_REEXTRACT_PER_CYCLE by ``_reextract_rank`` (scan order within a rank)
+    form ``reextract_queue``, trimmed to what ``max_upload_files`` leaves
+    after the primary and the fields queue.
     """
     m365 = active_m365_source()
     if m365 is not None:
@@ -1024,6 +1112,12 @@ def plan_sync_cycle(
     fields_digests: dict[str, str] = {}
     fields_sent: dict[str, bool] = {}
     governing: dict[str, SourceSpec] = {}
+    # Re-extraction (spec L6): rows POST /sync/reextract/requeue queued
+    # (``resend_reason``), with their stored text hash, read once per cycle.
+    reextract_rows = state.load_reextract_queue() if incremental else {}
+    partial_rows = frozenset(state.partial_paths()) if reextract_rows else frozenset()
+    reextract_candidates: list[tuple[int, int, UploadItem, Optional[str], bool]] = []
+    reextract_seen: set[str] = set()
     rel_collisions = 0
     template_errors: Counter = Counter()
     walk_targets, _ = (
@@ -1144,11 +1238,35 @@ def plan_sync_cycle(
             if queued and digest is not None:
                 fields_digests[rel] = digest
                 fields_sent[rel] = bool(fields_state is not None and fields_state.sent)
+        elif status == "synced" and rel in reextract_rows and rel not in reextract_seen:
+            # A queued re-extraction the scan reached; one per path (the
+            # first source governs a duplicate, as it does for fields).
+            reextract_seen.add(rel)
+            reextract_candidates.append((
+                _reextract_rank(rel, partial_rows),
+                len(reextract_candidates),
+                (abs_path, rel, mtime_iso, size_bytes, spec),
+                digest,
+                bool(fields_state is not None and fields_state.sent),
+            ))
+
+    reextract_queue: list[UploadItem] = []
+    reextract_text_sha: dict[str, Optional[str]] = {}
+    for _rank, _seq, queued_item, queued_digest, queued_sent in heapq.nsmallest(
+        reextract_per_cycle(), reextract_candidates
+    ):
+        queued_rel = queued_item[1]
+        reextract_queue.append(queued_item)
+        reextract_text_sha[queued_rel] = reextract_rows.get(queued_rel)
+        if queued_digest is not None:
+            fields_digests[queued_rel] = queued_digest
+            fields_sent[queued_rel] = queued_sent
 
     if max_upload_files > 0:
         # Re-uploads only take what the cycle's file cap leaves after new
-        # and modified work.
+        # and modified work; re-extractions what is left after both.
         del fields_queue[max(0, max_upload_files - len(upload_queue)):]
+        del reextract_queue[max(0, max_upload_files - len(upload_queue) - len(fields_queue)):]
 
     if m365 is not None and not budget.stopped and not template_errors:
         # Only a complete pass describes the folder; a partial one would drop
@@ -1183,6 +1301,9 @@ def plan_sync_cycle(
         fields_sent=fields_sent,
         rel_collisions=rel_collisions,
         template_errors=template_errors,
+        reextract_queue=reextract_queue,
+        reextract_text_sha=reextract_text_sha,
+        reextract_reached=len(reextract_candidates),
     )
 
 
@@ -1408,12 +1529,17 @@ def run_sync_work(
                 "error": f"field_template_invalid: {plan.sources_skipped} source(s) skipped this cycle",
             })
         order = upload_order()
-        work = [(item, False) for item in _ordered_upload_queue(plan.upload_queue, order)]
-        work += [(item, True) for item in _ordered_upload_queue(plan.fields_queue, order)]
+        work = [(item, "new") for item in _ordered_upload_queue(plan.upload_queue, order)]
+        work += [(item, "fields") for item in _ordered_upload_queue(plan.fields_queue, order)]
+        # Last, in their own order (partial, .pdf, .docx, mail, the rest):
+        # the re-extractions an administrator asked for (spec L6).
+        work += [(item, "reextract") for item in plan.reextract_queue]
         # Spec F5: after the scan, before the first upload. When the probe
         # requeued this cycle's not_accepted rows, the echo check below is done.
         requeue_checked = stats is not None and _probe_doc_fields(uploader, state, plan, stats)
-        for (abs_path, rel, mtime_iso, size_bytes, spec), fields_reupload in work:
+        for (abs_path, rel, mtime_iso, size_bytes, spec), kind in work:
+            fields_reupload = kind == "fields"
+            reextract = kind == "reextract"
             if should_stop():
                 result.paused_reason = "stop_requested"
                 break
@@ -1429,6 +1555,12 @@ def run_sync_work(
             upload_kwargs = fields_upload_kwargs(
                 spec, fields_on=fields_on, previous_fields_sent=plan.fields_sent.get(rel, False)
             )
+            stored_sha = plan.reextract_text_sha.get(rel) if reextract else None
+            if stored_sha:
+                # Re-extract and compare: an upload that would carry what
+                # Knovas holds is not sent. Without a stored hash (uploaded
+                # before hashes existed) the document is uploaded as always.
+                upload_kwargs["unchanged_text_sha256"] = stored_sha
             try:
                 with _local_file(abs_path) as local_path:
                     upload = uploader.upload_file(local_path, rel, sync_body, **upload_kwargs)
@@ -1458,8 +1590,18 @@ def run_sync_work(
 
             outcome = record_upload_outcome(
                 state, rel, mtime_iso, size_bytes, upload, mode,
-                digest=digest, fields_reupload=fields_reupload, stats=stats,
+                digest=digest, fields_reupload=fields_reupload, reextract=reextract, stats=stats,
             )
+            if reextract:
+                if outcome == "unchanged":
+                    result.reextract_unchanged += 1
+                elif upload.status == "ok":
+                    result.reextract_uploaded += 1
+                else:
+                    result.reextract_failed += 1
+            if outcome == "unchanged":
+                # Nothing was transmitted, so there is no transmission entry.
+                continue
             if (
                 stats is not None
                 and not requeue_checked
@@ -1514,6 +1656,15 @@ def run_sync_work(
             else:
                 result.transmissions.append(tx_entry)
 
+        result.reextract_reached = plan.reextract_reached
+        if plan.reextract_queue:
+            # Counts only: never a path.
+            logger.info(
+                "reextract uploaded=%d unchanged=%d failed=%d reached=%d",
+                result.reextract_uploaded, result.reextract_unchanged,
+                result.reextract_failed, plan.reextract_reached,
+            )
+
         if stats is not None:
             # What a requeue request may queue until the next cycle: a row
             # this scan did not reach would wait for good (spec 3.7).
@@ -1563,16 +1714,17 @@ def run_sync_work(
             # scan was neither truncated nor paused. A second call here would
             # advance again and skip the next subfolder entirely (data loss).
             # Fields re-uploads count as modified: a subfolder completes only
-            # once they are done. So do the documents this cycle requeued:
-            # the probe (spec F5) can requeue in a quiet cycle, after the scan
-            # counted, and the next scan of this subfolder re-sends them -- a
-            # completed one is never scanned again. A source skipped for a bad
-            # template was not scanned at all and never advances.
+            # once they are done -- and so do queued re-extractions (spec
+            # L6) and the documents this cycle requeued: the probe (spec F5)
+            # can requeue in a quiet cycle, after the scan counted, and the
+            # next scan of this subfolder re-sends them -- a completed one is
+            # never scanned again. A source skipped for a bad template was
+            # not scanned at all and never advances.
             requeued = stats.requeued if stats is not None else 0
             queue.maybe_advance(
                 source_root,
                 pending=ds.pending,
-                modified=ds.modified + ds.fields_changed + requeued,
+                modified=ds.modified + ds.fields_changed + result.reextract_reached + requeued,
                 scan_truncated=result.scan_truncated,
                 paused_reason=result.paused_reason,
             )

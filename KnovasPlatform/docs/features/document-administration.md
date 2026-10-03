@@ -149,6 +149,23 @@ Knovas Connector must also have `RC_SYNC_CONFIG_API_ENABLED=true`: *Speichern un
 übertragen* reads and writes `/sync/config`, and that API is off by default --
 without it the push fails at its first call. The root `docker-compose.yml` sets it.
 
+**Neu extrahieren.** After an extractor upgrade the tab shows *N Dokumente
+mit älterer Extraktion*: the Knovas Connector's `/sync/status` →
+`extraction.outdated`, the documents whose extraction stamp (knovas-extract
+version, PDF and DOCX text modes, OCR engine, DPI, sentence gate) is not the
+current one. Only an `admin` gets the *Neu extrahieren* button
+(`POST /admin/ingestion/reextract`). The first click shows count, cost and
+duration — computed like a field change's, with the Connector's
+`RC_REEXTRACT_PER_CYCLE` — and nothing is queued until that confirmation,
+which carries the count it showed, is sent; a count that grew since is
+confirmed again. The Connector then re-extracts at most that many documents
+per cycle and uploads only those whose text, page numbers, fields, title or
+description changed — each such upload is billed; the first round after the
+release that introduced this uploads all of them, since no comparison hash
+exists yet. The request is audited as `ingestion.reextract_requeued` with
+counts only. An older Connector is named: *Knovas Connector zu alt – bitte
+aktualisieren*.
+
 ## Scale
 
 The Dokumente list pages by **keyset cursor**: the backend returns

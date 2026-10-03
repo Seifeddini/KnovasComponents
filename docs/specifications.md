@@ -200,6 +200,11 @@ Copy `RemoteController/.env.example` to `.env`. Required unless noted:
 - `RC_FIELDS_REUPLOAD_MAX_ATTEMPTS` (default `3`, 1–100) — failed re-uploads before a document leaves the queue
 - Details: `RemoteController/docs/configuration.md` (*Per-source document fields*)
 
+**Re-extraction after an extractor upgrade**
+
+- `RC_REEXTRACT_PER_CYCLE` (default `100`, 1–10000) — documents re-extracted per cycle after the Platform's *Neu extrahieren* (`POST /sync/reextract/requeue`); only a document whose upload would change is sent again, each such upload is billed
+- Details: `RemoteController/docs/operations.md` (*Re-extraction after an extractor upgrade*)
+
 **Optional OneDrive mirror**
 
 - `ONEDRIVE_DRIVE_ID`, `ONEDRIVE_TENANT_ID`, `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET`

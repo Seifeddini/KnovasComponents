@@ -38,6 +38,11 @@ from sync.doc_fields_payload import (
     parse_init_echo,
     refused_outcome,
 )
+from sync.extraction_stamp import (
+    current_extraction_stamp,
+    fields_values_digest,
+    upload_text_sha256,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +112,13 @@ class UploadResult:
     fields: Optional[FieldsOutcome] = None
     #: Values left out of ``fields`` before sending, by reason (counts).
     fields_dropped: dict[str, int] = field(default_factory=dict)
+    #: sha256 of what the upload carries to the index
+    #: (``extraction_stamp.upload_text_sha256``) and the stamp of the
+    #: extraction that produced it (spec L6). Set on ``ok`` and on
+    #: ``unchanged`` -- a re-extraction whose hash matched
+    #: ``unchanged_text_sha256``, for which no request was made.
+    text_sha256: Optional[str] = None
+    extraction_stamp: Optional[str] = None
 
 
 def _record_cache_metrics(doc: ExtractedDocument) -> None:
@@ -236,6 +248,7 @@ class SemantixUploader:
         *,
         source: Optional[SourceSpec] = None,
         previous_fields_sent: bool = False,
+        unchanged_text_sha256: Optional[str] = None,
     ) -> UploadResult:
         """Extract, init and transmit one file.
 
@@ -244,6 +257,12 @@ class SemantixUploader:
         becomes the init ``fields`` (spec 3.6). ``previous_fields_sent``
         (from the state row) makes an empty payload a ``{}`` clear. Without
         ``source`` the init body is exactly what it was before fields.
+
+        An ``ok`` result carries the extraction stamp and ``text_sha256``,
+        the hash of what the upload carried (spec L6). A re-extraction
+        passes the hash of the last upload as ``unchanged_text_sha256``:
+        when the new one matches, no request is made and the status is
+        ``unchanged``.
         """
         if source is not None:
             access_groups = source.access_groups
@@ -330,11 +349,34 @@ class SemantixUploader:
         if fields_on:
             payload = assemble(relative_path, source, doc.source_metadata, ext)
             dropped = {k: int(v) for k, v in payload.dropped.items() if v}
-            doc_fields_metrics.record_dropped(dropped)
             fields_value = fields_to_send(payload, previous_fields_sent)
             fields_digest = config_digest(relative_path, source)
             if fields_value is not None:
                 init_body["fields"] = fields_value
+
+        # What this upload carries to the index, and which extraction made it
+        # (spec L6). A re-extraction that would carry exactly what Knovas
+        # holds sends nothing: no init, no part, nothing billed.
+        stamp = current_extraction_stamp()
+        text_sha256 = upload_text_sha256(
+            parts,
+            fields_values_digest(fields_value),
+            title=init_body["title"],
+            description=init_body.get("description"),
+        )
+        if unchanged_text_sha256 is not None and text_sha256 == unchanged_text_sha256:
+            return UploadResult(
+                relative_path=relative_path,
+                transmission_key_id=None,
+                parts=part_count,
+                status="unchanged",
+                ingestion_requests=0,
+                partial=partial,
+                text_sha256=text_sha256,
+                extraction_stamp=stamp,
+            )
+        # Dropped values are counted only for what is actually sent.
+        doc_fields_metrics.record_dropped(dropped)
 
         fields_outcome: Optional[FieldsOutcome] = None
         if fields_value is None:
@@ -443,6 +485,8 @@ class SemantixUploader:
             partial=partial,
             fields=fields_outcome,
             fields_dropped=dropped,
+            text_sha256=text_sha256,
+            extraction_stamp=stamp,
         )
 
     def delete_by_pointer(self, pointer: str) -> tuple[bool, Optional[str]]:
