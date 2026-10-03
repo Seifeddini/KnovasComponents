@@ -235,6 +235,10 @@ class ExtractedDocument:
     extra: Optional[dict[str, Any]] = None
     page_count: Optional[int] = None
     source_metadata: dict[str, str] = field(default_factory=dict)
+    #: The library's ``result.warnings``: counts and fixed messages, never
+    #: document text (its contract). The parent counts them by class
+    #: (``sync.extract_metrics``); they are never logged.
+    warnings: tuple[str, ...] = ()
 
 
 def is_syncable_extension(suffix: str) -> bool:
@@ -850,6 +854,7 @@ def _extract_bytes(
         extra=extra,
         page_count=_int_or_none(getattr(result.metadata, "page_count", None)),
         source_metadata=source_metadata_from(result.metadata),
+        warnings=tuple(w for w in (getattr(result, "warnings", None) or ()) if isinstance(w, str)),
     )
 
 

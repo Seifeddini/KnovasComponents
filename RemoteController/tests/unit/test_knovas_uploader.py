@@ -325,3 +325,27 @@ def test_uploader_passes_the_relative_path_as_cache_key(mock_config, tmp_path):
         req.side_effect = [_ok_response(), _ok_response()]
         uploader.upload_file(pdf, "akten/x.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
     assert guarded.call_args.kwargs["document_key"] == "akten/x.pdf"
+
+
+def test_each_extraction_is_counted_once_in_the_parent(mock_config, tmp_path):
+    """The extraction child's registry dies with it: the uploader counts the
+    returned document (spec L5), even when the upload then fails."""
+    from sync.document_text import ExtractedDocument
+
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    doc = ExtractedDocument(text="Deckblatt.", sentences=None, extra={"pdf:ocr_pages": 3},
+                            warnings=("pdf: OCR applied to 3 of 4 pages via tesserocr",))
+    failed_init = MagicMock()
+    failed_init.status_code = 500
+    failed_init.content = b""
+    for answers in ([_ok_response(), _ok_response()], [failed_init]):
+        uploader = SemantixUploader()
+        with patch.object(uploader, "_request") as req, patch(
+            "sync.knovas_uploader.extract_document_guarded", return_value=doc
+        ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True), patch(
+            "sync.extract_metrics.record_extraction"
+        ) as record:
+            req.side_effect = answers
+            uploader.upload_file(pdf, "akten/scan.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
+        record.assert_called_once_with(doc)

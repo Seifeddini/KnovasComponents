@@ -795,3 +795,32 @@ def test_extract_under_default_rlimit_as_still_works(tmp_path, monkeypatch):
     from sync.document_text import extract_document_guarded
 
     assert "Unter dem Limit" in extract_document_guarded(p).text
+
+
+def test_extracted_document_carries_the_library_warnings(tmp_path, monkeypatch):
+    """The parent counts them by class (sync.extract_metrics); the texts
+    travel with the document, through the extraction child's queue too."""
+    import pickle
+
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "false")
+    fitz = pytest.importorskip("fitz")
+    pdf = fitz.open()
+    pdf.new_page()  # page 1 carries no text
+    pdf.new_page().insert_text((72, 72), "Seite zwei mit Text.")
+    p = tmp_path / "zwei.pdf"
+    p.write_bytes(pdf.tobytes())
+    pdf.close()
+
+    doc = extract_document(p)
+
+    assert isinstance(doc.warnings, tuple)
+    assert "first page produced no text (OCR may help for scanned PDFs)" in doc.warnings
+    # The child hands the document over a multiprocessing queue, which
+    # pickles it; this round trip only re-reads the object built above.
+    assert pickle.loads(pickle.dumps(doc)).warnings == doc.warnings
+
+
+def test_a_document_without_library_warnings_has_none(tmp_path):
+    p = tmp_path / "note.txt"
+    p.write_text("Ein Satz. Noch einer.", encoding="utf-8")
+    assert extract_document(p).warnings == ()
