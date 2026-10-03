@@ -1119,7 +1119,12 @@ class TestStatusBar:
                       "not_accepted": 140, "reupload_failed": 1},
         "last_cycle": {"staged": 40, "refused": {"unknown_field": 2, SENTINEL: 9},
                        "rel_collisions": 4},
-        "warnings": {"unresolved_entity": 12, "ambiguous_date": 1},
+        "warnings": [{"code": "unresolved_entity", "key": "party", "count": 12},
+                     {"code": "invalid_value", "key": "amount", "count": 3},
+                     {"code": "ambiguous_date", "key": "document_date", "count": 1},
+                     {"code": "invalid_value", "key": SENTINEL, "count": 2},
+                     {"code": SENTINEL, "key": "party", "count": 9},
+                     {"code": "invalid_value", "key": "amount", "count": 0}],
         "unknown_keys": ["mandat", SENTINEL],
         "suggest": {"mandat": ["mandant"]},
         "template_errors": {"field_template_invalid": 2},
@@ -1147,7 +1152,11 @@ class TestStatusBar:
         text = "\n".join(line["text"] for line in out["lines"])
         assert "Felder bei 140 Uploads nicht \u00fcbernommen: Funktion bei Knovas aus." in text
         assert "unknown_field 2\u00d7" in text
-        assert "unresolved_entity 12\u00d7 (nicht verkn\u00fcpft)" in text
+        assert ("Hinweise von Knovas: unresolved_entity 12\u00d7 (party), invalid_value 3\u00d7 "
+                "(amount), ambiguous_date 1\u00d7 (document_date), invalid_value 2\u00d7.") in text
+        assert ("Bedeutung der Codes \u2013 unresolved_entity: nicht verkn\u00fcpft; "
+                "invalid_value: Wert ung\u00fcltig, nicht \u00fcbernommen; "
+                "ambiguous_date: Datum mehrdeutig \u2013 bitte pr\u00fcfen.") in text
         assert "mandat (Vorschlag: mandant)" in text
         assert "7 Dokumente mit ge\u00e4nderten Feldeinstellungen" in text
         assert "56 Dokumente warten auf erneutes Senden (100 pro Durchlauf, ca. 1 Nacht)" in text
@@ -1190,6 +1199,29 @@ class TestStatusBar:
             "Noch keine R\u00fcckmeldung von Knovas zu Dokumentfeldern.",
         ]
         assert out["requeue"] == []
+
+    def test_an_older_connector_reports_codes_without_keys(self):
+        from doc_fields_capability import Capability
+        from web_interface.admin_ingestion import doc_fields_status
+
+        block = dict(self.BLOCK, warnings={"unresolved_entity": 12, "ambiguous_date": 1, SENTINEL: 4})
+        out = doc_fields_status(self._status(block=block), capability=Capability.values)
+        text = "\n".join(line["text"] for line in out["lines"])
+        assert "Hinweise von Knovas: ambiguous_date 1\u00d7, unresolved_entity 12\u00d7." in text
+        assert "Bedeutung der Codes \u2013 ambiguous_date: Datum mehrdeutig" in text
+        assert SENTINEL not in text
+
+    def test_at_most_fifty_warning_entries(self):
+        from doc_fields_capability import Capability
+        from web_interface.admin_ingestion import MAX_WARNING_ENTRIES, doc_fields_status
+
+        block = dict(self.BLOCK, warnings=[{"code": "invalid_value", "key": f"k{i}", "count": 1}
+                                           for i in range(60)])
+        out = doc_fields_status(self._status(block=block), capability=Capability.values)
+        (line,) = [entry["text"] for entry in out["lines"]
+                   if entry["text"].startswith("Hinweise von Knovas")]
+        assert MAX_WARNING_ENTRIES == 50
+        assert line.count("invalid_value 1\u00d7") == 50 and "(k49)" in line and "(k50)" not in line
 
 
 class TestTemplatePreviewEntries:

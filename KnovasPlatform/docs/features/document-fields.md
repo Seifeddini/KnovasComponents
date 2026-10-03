@@ -201,7 +201,9 @@ truth. On the *manual* schedule each Start re-sends one cycle's worth.
 
 The status panel shows what RemoteController reports: whether Knovas takes
 the fields, counts of refused / not accepted / failed documents, Knovas's
-warning codes, unknown keys with suggestions, pending re-uploads with an ETA,
+warnings per code and field key ("invalid_value 3× (amount)", at most 50, the
+most frequent first, with the meaning of each code below them), unknown keys
+with suggestions, pending re-uploads with an ETA,
 and identical relative paths in several folders (the first folder governs).
 *Erneut senden* re-queues not accepted (once Knovas serves fields), refused or
 failed documents — each a billed upload.

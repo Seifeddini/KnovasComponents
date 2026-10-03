@@ -377,6 +377,34 @@ def _codes(mapping: Any) -> list[tuple[str, int]]:
                   if isinstance(code, str) and _CODE_RE.match(code) and _count(n))
 
 
+#: Warning entries the status bar shows at most (the Knovas Connector sends
+#: at most 50, the most frequent first).
+MAX_WARNING_ENTRIES = 50
+
+
+def _warning_entries(value: Any) -> list[tuple[str, str, int]]:
+    """``(code, key, count)`` from a status block's ``warnings``.
+
+    A current Knovas Connector sends ``[{"code", "key", "count"}]`` (spec
+    F4), an older one ``{code: count}`` -- read with an empty key. Only
+    code-shaped codes, key-shaped keys and positive counts are kept, so
+    nothing but a code, a field key or a number reaches the page.
+    """
+    if isinstance(value, Mapping):
+        return [(code, "", n) for code, n in _codes(value)]
+    if not isinstance(value, (list, tuple)):
+        return []
+    entries: list[tuple[str, str, int]] = []
+    for entry in value:
+        if not isinstance(entry, Mapping):
+            continue
+        code, key, n = entry.get("code"), entry.get("key"), _count(entry.get("count"))
+        if not (isinstance(code, str) and _CODE_RE.match(code) and n):
+            continue
+        entries.append((code, key if isinstance(key, str) and _CODE_RE.match(key) else "", n))
+    return entries[:MAX_WARNING_ENTRIES]
+
+
 def doc_fields_status(rc_status: Any, *, capability: Capability,
                       schedule: str = "nightly", throughput: str = "normal") -> dict | None:
     """The RemoteController ``doc_fields`` block as status-bar lines.
@@ -428,10 +456,15 @@ def doc_fields_status(rc_status: Any, *, capability: Capability,
     if refusals:
         say("Abgelehnt im letzten Durchlauf: "
             + ", ".join(f"{code} {n}\u00d7" for code, n in refusals) + ".", "warn")
-    warnings = _codes(block.get("warnings"))
+    warnings = _warning_entries(block.get("warnings"))
     if warnings:
+        # "invalid_value 3x (amount)" per code and field key, then each
+        # code's meaning once (spec F4).
         say("Hinweise von Knovas: " + ", ".join(
-            f"{code} {n}\u00d7 ({warning_text(code)})" for code, n in warnings) + ".")
+            f"{code} {n}\u00d7" + (f" ({key})" if key else "") for code, key, n in warnings) + ".")
+        say("Bedeutung der Codes \u2013 " + "; ".join(
+            f"{code}: {warning_text(code)}"
+            for code in dict.fromkeys(code for code, _, _ in warnings)) + ".")
     unknown = [k for k in block.get("unknown_keys") or () if isinstance(k, str) and _CODE_RE.match(k)]
     if unknown:
         suggest = block.get("suggest") if isinstance(block.get("suggest"), Mapping) else {}
