@@ -7,12 +7,14 @@ and matters. Both vhosts therefore log `knovas_privacy`: time, method,
 status, size and duration -- nothing a person typed or a document is called.
 
 The same holds behind and in front of them: gunicorn's own access log in
-docker-compose.yml (its default format has the request line, path, query
-string and referer) and the host nginx example in KnovasPlatform/deploy.
+docker-compose.yml and in the image's CMD (its default format has the
+request line, path, query string and referer) and the host nginx example
+in KnovasPlatform/deploy.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -22,6 +24,7 @@ NGINX_DIR = Path(__file__).resolve().parents[1] / "nginx"
 CONFS = ("docbridge-web-local.conf", "docbridge-web.conf")
 COMPOSE = Path(__file__).resolve().parents[4] / "docker-compose.yml"
 HOST_NGINX = Path(__file__).resolve().parents[3] / "deploy" / "host-nginx"
+DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 
 # Every nginx variable that can carry the path, the query string, a value from
 # it, or a URL the browser sent along (the Referer names the page it came from).
@@ -121,6 +124,26 @@ def test_compose_gunicorn_access_log_has_no_uri():
     assert atoms, "an empty format would fall back to nothing useful"
     assert not atoms & GUNICORN_URI_ATOMS, atoms
     assert not {a for a in atoms if a.endswith(("}i", "}e"))}, "headers and environ carry the URI too"
+    assert atoms <= GUNICORN_ALLOWED_ATOMS, atoms
+
+
+def _image_command() -> str:
+    """The Platform image's CMD as one command line (exec form, JSON)."""
+    cmd = [line for line in DOCKERFILE.read_text(encoding="utf-8").splitlines()
+           if line.startswith("CMD ")]
+    assert len(cmd) == 1, "the Platform image has exactly one CMD"
+    return " ".join(json.loads(cmd[0][len("CMD "):]))
+
+
+def test_image_gunicorn_access_log_has_no_uri():
+    """A container started without compose (docker run, another
+    orchestrator) runs the image's CMD: the same URI-free format as
+    compose, so its access log carries no pointer or search word either."""
+    command = _image_command()
+    assert "--access-logfile=-" in command
+    atoms = set(re.findall(r"%\(([^)]+)\)s", _gunicorn_format(command)))
+    assert atoms, "an empty format would fall back to nothing useful"
+    assert not atoms & GUNICORN_URI_ATOMS, atoms
     assert atoms <= GUNICORN_ALLOWED_ATOMS, atoms
 
 

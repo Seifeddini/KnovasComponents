@@ -75,9 +75,12 @@ ENV PYTHONUNBUFFERED=1
 # Expose internal app port (NGINX proxies externally)
 EXPOSE 5000
 
-# Default command (can be overridden). --timeout must exceed the admin
-# upload's extraction ceiling (RC_EXTRACT_TIMEOUT_SECONDS, default 120 s):
-# the extraction child is killed by the request thread at that ceiling, and
-# gunicorn must not kill the worker first. The root docker-compose.yml passes
-# DOCBRIDGE_WEB_TIMEOUT for the same reason -- keep it above the ceiling.
-CMD ["gunicorn", "--workers=2", "--threads=4", "--timeout=180", "--bind=0.0.0.0:5000", "web_interface.wsgi:app"]
+# Default command (can be overridden): the gunicorn of the root
+# docker-compose.yml, so a container started without compose behaves the
+# same. --timeout (DOCBRIDGE_WEB_TIMEOUT, default 180 s) must exceed the
+# admin upload's extraction ceiling (RC_EXTRACT_TIMEOUT_SECONDS, default
+# 120 s): the extraction child is killed by the request thread at that
+# ceiling, and gunicorn must not kill the worker first. --access-logformat
+# keeps the request line, path, query string and referer -- document
+# pointers and search words -- out of the access log (knovas_privacy).
+CMD ["sh", "-c", "exec gunicorn --workers=${DOCBRIDGE_WEB_WORKERS:-2} --threads=${DOCBRIDGE_WEB_THREADS:-4} --timeout=${DOCBRIDGE_WEB_TIMEOUT:-180} --bind=0.0.0.0:5000 --access-logfile=- --access-logformat='%(t)s %(m)s %(s)s %(b)s %(L)s' web_interface.wsgi:app"]

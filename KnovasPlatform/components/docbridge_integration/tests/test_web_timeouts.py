@@ -36,6 +36,17 @@ def _compose_timeout() -> int:
     return int(match.group(1))
 
 
+def test_the_image_reads_the_timeout_compose_sets():
+    """A container started without compose runs the image's CMD: it reads
+    DOCBRIDGE_WEB_TIMEOUT with compose's default, so both stay above the
+    extraction ceiling together."""
+    from test_nginx_privacy_log import _image_command
+
+    match = GUNICORN_TIMEOUT.search(_image_command())
+    assert match, "the image's gunicorn ignores DOCBRIDGE_WEB_TIMEOUT"
+    assert int(match.group(1)) == _compose_timeout()
+
+
 def test_gunicorn_outlasts_the_extraction_ceiling():
     from knovas_extract_upload import DEFAULT_EXTRACT_TIMEOUT_SECONDS
 

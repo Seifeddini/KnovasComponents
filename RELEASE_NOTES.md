@@ -104,7 +104,9 @@ Konfiguration nur beim Start: ohne diesen Schritt wartet es weiter nur 120 s
 und schreibt weiter die aufgerufenen Adressen ins Zugriffsprotokoll (siehe
 *Zugriffsprotokolle ohne Adressen* unter Dokumentfelder). Ausserdem erneuern
 sie die Host-nginx-Seite aus der Vorlage
-(`./scripts/host-https.sh` erledigt das).
+(`./scripts/host-https.sh` erledigt das). Das Image der Plattform startet
+gunicorn wie compose (`DOCBRIDGE_WEB_TIMEOUT`, Zugriffsprotokoll ohne
+Adressen), auch wenn es ohne compose laeuft.
 
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
 

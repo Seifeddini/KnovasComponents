@@ -48,8 +48,8 @@ upload fails with `extraction timeout after Ns (child killed)` — a message
 that never starts with `resource limit exceeded`, the prefix that means "the
 library flagged the input" (GI-EXTRACT-02). The image sets
 `OMP_THREAD_LIMIT=1` and `TESSDATA_PREFIX`, and the gunicorn `--timeout`
-(Dockerfile `180`, compose `DOCBRIDGE_WEB_TIMEOUT`, default `180`) must stay
-above `RC_EXTRACT_TIMEOUT_SECONDS`; every nginx in front
+(`DOCBRIDGE_WEB_TIMEOUT`, default `180`, in the image's CMD and in compose)
+must stay above `RC_EXTRACT_TIMEOUT_SECONDS`; every nginx in front
 (`nginx/docbridge-web*.conf`, the host-nginx template) waits at least that long
 (`proxy_read_timeout 180s`, pinned by `tests/test_web_timeouts.py`).
 
