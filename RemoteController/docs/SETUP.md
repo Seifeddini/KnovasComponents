@@ -127,7 +127,7 @@ docker run -d --name remote-controller \
 
 Place NGINX or Envoy in front for HTTPS — do not publish port 5001 to the public internet.
 
-**Gunicorn workers:** The image runs **one** worker (`-w 1`). Continuous sync uses in-process locks; multiple workers cause duplicate schedulers and conflicting state files. If you run Gunicorn manually, keep `-w 1`.
+**Gunicorn workers:** The image runs **one** worker process (`-w 1`) with four request threads (`-k gthread --threads 4`). Continuous sync uses in-process locks; multiple worker processes cause duplicate schedulers and conflicting state files. The threads let `GET /sync/status` answer while a long `POST /sync` runs, and the worker is no longer killed when such a request outlasts `--timeout` (`RC_GUNICORN_TIMEOUT`, default 120 s). If you run Gunicorn manually, keep `-w 1` and use the same `-k gthread --threads 4`.
 
 **Python from source (dev/staging):** See [local-commands.md](local-commands.md).
 

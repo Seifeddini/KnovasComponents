@@ -24,6 +24,16 @@ The Platform console's *Speichern und uebertragen* writes `POST /sync/config`
 with `RC_SYNC_CONFIG_API_ENABLED=true`; with the default `false` the API answers
 404 and the console cannot transfer the profile at all.
 
+### RC_GUNICORN_TIMEOUT
+
+Seconds gunicorn waits for a silent worker process before it kills and
+restarts it (default `120`; read when the container starts). The image runs
+one worker process with four request threads (`-k gthread --threads 4`): the
+worker's main loop keeps reporting while a request thread works, so a long
+`POST /sync` (a one-time sync runs inside the request) is no longer cut off at
+this timeout, and `GET /sync/status` answers meanwhile. It bounds how long a
+hung worker process goes unnoticed, not how long a request may take.
+
 ### Search context sidecars
 
 Set `SEARCH_CONTEXT_STORE_PATH` to a directory shared with docbridge-web (same pattern as `ONEDRIVE_SEARCH_ENRICHMENT_PATH` / `SEARCH_ENRICHMENT_PATH`). Knovas Connector writes one JSON file per uploaded document during sync; docbridge reads them at query time to show first-page previews and match context in search results.

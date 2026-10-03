@@ -191,3 +191,59 @@ def test_the_worker_stops_after_a_cycle_when_the_reloaded_config_is_one_time(tmp
     assert len(seen) == 2, "cycle 2 ran the one_time config and the worker then stopped on its own"
     assert seen[1].sync_config["mode"] == "one_time"
     assert seen[1].sync_body["ingestion"]["identifier_prefix"] == "beta"
+
+
+def test_a_start_that_follows_a_stop_is_not_reported_stopped(monkeypatch):
+    """E6: with gunicorn's gthread worker, POST /sync/stop (which joins the
+    worker for up to 120 s) and POST /sync/start can run at the same time.
+    A start that slipped in after the stopped worker released the scheduler
+    lock had its "running" overwritten by the stop's "not_running" while its
+    own worker ran; the console then offered to start a running sync."""
+    import threading
+    import time
+
+    from sync import sync_scheduler
+
+    def idle_worker(_ctx):
+        while not sync_scheduler._stop_event.is_set():
+            time.sleep(0.01)
+
+    monkeypatch.setattr(sync_scheduler, "_continuous_worker", idle_worker)
+    ctx = SyncRunContext(sync_body={}, sync_config={})
+    assert sync_scheduler.start_continuous(ctx) == "running"
+
+    started_again = threading.Event()
+    stopper: dict = {}
+
+    def start_again():
+        sync_scheduler.start_continuous(ctx)
+        started_again.set()
+
+    starter = threading.Thread(target=start_again)
+    real_set_status = sync_scheduler._set_status
+
+    def set_status(status):
+        # The stop has joined the old worker and is about to report
+        # "not_running": a start arrives exactly now. Compared by thread
+        # object, not ident: an ident is recycled once its thread exits.
+        if status == "not_running" and threading.current_thread() is stopper.get("thread"):
+            starter.start()
+            started_again.wait(timeout=0.5)
+        real_set_status(status)
+
+    monkeypatch.setattr(sync_scheduler, "_set_status", set_status)
+
+    def stop():
+        stopper["thread"] = threading.current_thread()
+        sync_scheduler.stop_continuous()
+
+    stop_thread = threading.Thread(target=stop)
+    stop_thread.start()
+    stop_thread.join(timeout=30)
+    starter.join(timeout=30)
+    try:
+        assert sync_scheduler._worker_thread is not None and sync_scheduler._worker_thread.is_alive()
+        assert sync_scheduler._current_status == "running"
+    finally:
+        sync_scheduler.stop_continuous()
+        sync_scheduler._stop_event.clear()

@@ -23,11 +23,19 @@ class ExtractionPayload:
     tables: Optional[list[dict[str, Any]]]
 
 
+#: Where knovas-extract puts a document's own description, in order (spec
+#: L2): Word's subject, the PDF Info subject, the PDF XMP description. The
+#: keys read before ("subject", "description") are never produced.
+DESCRIPTION_KEYS = ("docx:subject", "pdf:subject", "pdf:xmp_description")
+
+
 def description_from_metadata(metadata: Any) -> Optional[str]:
+    """The upload's description when the ingestion profile sets none: the
+    first non-blank of ``DESCRIPTION_KEYS``, at most 2000 characters."""
     if metadata is None:
         return None
     extra = getattr(metadata, "extra", None) or {}
-    for key in ("docx:subject", "subject", "description"):
+    for key in DESCRIPTION_KEYS:
         val = extra.get(key) if isinstance(extra, dict) else None
         if val is not None:
             s = str(val).strip()

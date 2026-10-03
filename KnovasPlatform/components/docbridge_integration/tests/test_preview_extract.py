@@ -128,3 +128,151 @@ def test_extraction_does_not_escape_document_text(tmp_path):
 
     markdown = extract_markdown(str(target))["markdown"]
     assert "<script>" in markdown
+
+
+def test_a_markdown_limit_falls_back_to_the_plain_text(tmp_path, monkeypatch):
+    """L7: a DOCX whose tables make the Markdown many times its text trips
+    the expansion guard (ResourceExhaustedError "markdown expansion ratio");
+    the preview then shows the plain text instead of failing."""
+    import docx
+    import knovas_extract
+    from knovas_extract.errors import ResourceExhaustedError
+
+    target = tmp_path / "honorar.docx"
+    document = docx.Document()
+    document.add_paragraph("Honorarabrechnung Mandat 2024-001.")
+    document.save(str(target))
+
+    real_extract = knovas_extract.extract
+    calls: list = []
+
+    def guarded_extract(path, **kwargs):
+        calls.append(dict(kwargs))
+        if kwargs.get("emit_markdown"):
+            raise ResourceExhaustedError("markdown expansion ratio", 3.0, observed=93.0)
+        return real_extract(path, **kwargs)
+
+    monkeypatch.setattr(knovas_extract, "extract", guarded_extract)
+    result = extract_markdown(str(target))
+    assert [c.get("emit_markdown", False) for c in calls] == [True, False]
+    assert result["kind"] == "docx"
+    assert "Honorarabrechnung Mandat 2024-001." in result["markdown"]
+    assert result["warnings"][0] == "preview: markdown limit exceeded; plain text shown"
+    assert result["meta"]["word_count"] > 0
+
+
+def test_other_resource_limits_still_fail_the_preview(tmp_path, monkeypatch):
+    import knovas_extract
+    from knovas_extract.errors import ResourceExhaustedError
+
+    target = tmp_path / "notiz.txt"
+    target.write_text("Zeile.", encoding="utf-8")
+
+    def too_big(path, **kwargs):
+        raise ResourceExhaustedError("input size", 1, observed=2)
+
+    monkeypatch.setattr(knovas_extract, "extract", too_big)
+    with pytest.raises(PreviewFailed):
+        extract_markdown(str(target))
+
+
+def _fee_statement_docx(path, rows: int) -> None:
+    """One paragraph and a time-entry table, the shape of a fee statement."""
+    import docx
+
+    document = docx.Document()
+    document.add_paragraph("Honorarabrechnung Mandat 2024-001.")
+    table = document.add_table(rows=rows + 1, cols=4)
+    for col, title in enumerate(("Datum", "Stunden", "Leistung", "Betrag")):
+        table.cell(0, col).text = title
+    for row in range(1, rows + 1):
+        values = (f"2024-03-{row % 28 + 1:02d}", f"{row % 7 + 1}.5",
+                  f"Besprechung Klient Position {row}", f"CHF {row * 37 % 900 + 100}.00")
+        for col, value in enumerate(values):
+            table.cell(row, col).text = value
+    document.save(str(path))
+
+
+def test_a_docx_table_reaches_the_preview(tmp_path):
+    """Real library, no fake. In knovas-extract's default text mode a DOCX's
+    tables are not in the text, so the expansion guard compared the Markdown,
+    tables included, with the paragraphs alone: every DOCX whose tables
+    outweigh its prose tripped it, and the fallback showed the paragraphs
+    only. In layout mode the rows are in the text (spec L3), the guard
+    compares like with like and the Markdown is shown."""
+    from web_interface.preview import MARKDOWN_FALLBACK_WARNING
+
+    target = tmp_path / "honorar.docx"
+    _fee_statement_docx(target, rows=120)
+
+    result = extract_markdown(str(target))
+    assert "Honorarabrechnung Mandat 2024-001." in result["markdown"]
+    assert "Besprechung Klient Position 120" in result["markdown"]
+    assert MARKDOWN_FALLBACK_WARNING not in result["warnings"]
+
+
+def test_the_fallback_text_keeps_the_docx_table_rows(tmp_path, monkeypatch):
+    """When the Markdown trips a limit even so (a table of mostly empty cells
+    does), the text shown is the layout text, rows included."""
+    import knovas_extract
+    from knovas_extract.errors import ResourceExhaustedError
+
+    target = tmp_path / "honorar.docx"
+    _fee_statement_docx(target, rows=3)
+    real_extract = knovas_extract.extract
+    calls: list = []
+
+    def guarded_extract(path, *, text_mode="plain", **kwargs):
+        calls.append((kwargs.get("emit_markdown", False), text_mode))
+        if kwargs.get("emit_markdown"):
+            raise ResourceExhaustedError("markdown expansion ratio", 3.0, observed=7.5)
+        return real_extract(path, text_mode=text_mode, **kwargs)
+
+    monkeypatch.setattr(knovas_extract, "extract", guarded_extract)
+    result = extract_markdown(str(target))
+    assert calls == [(True, "layout"), (False, "layout")]
+    assert "Honorarabrechnung Mandat 2024-001." in result["markdown"]
+    assert "Besprechung Klient Position 3" in result["markdown"]
+    assert result["warnings"][0] == "preview: markdown limit exceeded; plain text shown"
+
+
+def test_a_library_without_text_mode_is_not_sent_it(tmp_path, monkeypatch):
+    """knovas-extract before 0.4 has no ``text_mode``: the keyword would raise
+    TypeError, and the route answers that with a 500."""
+    import knovas_extract
+
+    target = tmp_path / "honorar.docx"
+    _fee_statement_docx(target, rows=3)
+    real_extract = knovas_extract.extract
+
+    def extract_without_text_mode(path, *, limits=None, emit_markdown=False):
+        return real_extract(path, limits=limits, emit_markdown=emit_markdown)
+
+    monkeypatch.setattr(knovas_extract, "extract", extract_without_text_mode)
+    result = extract_markdown(str(target))
+    assert result["kind"] == "docx"
+    assert "Honorarabrechnung Mandat 2024-001." in result["markdown"]
+
+
+def test_a_limit_of_the_layout_text_falls_back_to_the_default_mode(tmp_path, monkeypatch):
+    """The table rows are an addition: when the layout text trips a limit of
+    its own, the preview shows what it showed without them."""
+    import knovas_extract
+    from knovas_extract.errors import ResourceExhaustedError
+
+    target = tmp_path / "honorar.docx"
+    _fee_statement_docx(target, rows=3)
+    real_extract = knovas_extract.extract
+    modes: list = []
+
+    def layout_text_too_big(path, *, text_mode="plain", **kwargs):
+        modes.append(text_mode)
+        if text_mode == "layout":
+            raise ResourceExhaustedError("text size", 1, observed=2)
+        return real_extract(path, **kwargs)
+
+    monkeypatch.setattr(knovas_extract, "extract", layout_text_too_big)
+    result = extract_markdown(str(target))
+    assert modes[0] == "layout"
+    assert modes[1:] and set(modes[1:]) == {"plain"}
+    assert "Honorarabrechnung Mandat 2024-001." in result["markdown"]

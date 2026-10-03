@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -15,6 +16,14 @@ from util.schema import validate
 logger = logging.getLogger(__name__)
 
 SCHEMA_FILE = "remote_controller_sync_config.schema.json"
+
+#: Serialises writes of the sync config file (spec E6). gunicorn's gthread
+#: worker runs requests concurrently: a GET /sync/config that seeds a missing
+#: file could otherwise overwrite the config a concurrent POST just stored
+#: (check, then write), and two renames onto one file must not race.
+#: Re-entrant: the seeding path saves under it.
+_CONFIG_FILE_LOCK = threading.RLock()
+
 FORBIDDEN_KEYS = {
     "rc_instance_token",
     "semantix_client_cert_path",
@@ -73,9 +82,11 @@ def load_sync_config(path: Optional[str] = None) -> dict[str, Any]:
     cfg = get_config()
     p = Path(path or cfg.rc_sync_config_path)
     if not p.exists():
-        doc = seed_from_env()
-        save_sync_config(doc, path=str(p))
-        return doc
+        with _CONFIG_FILE_LOCK:
+            if not p.exists():
+                doc = seed_from_env()
+                save_sync_config(doc, path=str(p))
+                return doc
     doc = json.loads(p.read_text(encoding="utf-8"))
     errors = validate_sync_config(doc)
     if errors:
@@ -89,21 +100,22 @@ def save_sync_config(doc: dict[str, Any], path: Optional[str] = None) -> None:
         raise ValueError(f"Invalid sync config: {'; '.join(errors)}")
     p = Path(path or get_config().rc_sync_config_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(doc, f, indent=2)
-        os.replace(tmp, p)
+    with _CONFIG_FILE_LOCK:
+        fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
         try:
-            os.chmod(p, 0o600)
-        except OSError:
-            pass
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(doc, f, indent=2)
+            os.replace(tmp, p)
+            try:
+                os.chmod(p, 0o600)
+            except OSError:
+                pass
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
 
 def config_snapshot_hash(doc: dict[str, Any]) -> str:

@@ -147,6 +147,8 @@ Image pages of PDFs are ingested via Tesseract when knovas-extract 0.4 (per-page
 
 **OCR settings the library refuses.** The Connector checks `RC_TESSERACT_LANG` (language packs joined by `+`), `RC_OCR_DPI` (30–1200), `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` (at least 1) itself and replaces an invalid value by its default, with one warning naming the setting. Should the library still refuse the OCR options, every PDF fails with `extraction configuration invalid: <setting>`: retried every cycle, never counted toward `RC_EXTRACT_MAX_RETRIES`, never parked or recorded partial. Correct the setting in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
 
+`./scripts/doctor.sh` checks the OCR settings in `knovas.env` by the Knovas Connector's rules (`RC_TESSERACT_LANG` language packs joined by `+`, `RC_OCR_DPI` 30–1200, `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` at least 1) and names each invalid setting in its section about the Knovas Connector.
+
 PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite and will not retry until those rows are removed:
 
 ```bash
@@ -214,4 +216,4 @@ OCR output is cached per page image in `/var/rc-state/.rc-ocr-cache.db` (beside 
 4. Rerun `scripts/build_context_sidecars.py --force` when the release changes extraction (see [configuration.md](configuration.md#search-context-sidecars)), and re-queue files the previous release parked (above).
 5. 0.3.0 (document fields) needs nothing: the new state columns are added on start, and a document's empty digest equals "no fields configured", so nothing is re-sent until a source is configured with fields.
 
-Use a **single** Gunicorn worker (`-w 1`) when running from source; multiple workers conflict on scheduler state.
+Use a **single** Gunicorn worker process (`-w 1`, with `-k gthread --threads 4` as in the image) when running from source; multiple worker processes conflict on scheduler state.
