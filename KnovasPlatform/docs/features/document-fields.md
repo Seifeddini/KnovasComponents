@@ -52,8 +52,8 @@ filtered search after that may meet the same answer once more.
 
 ## Honesty rules
 
-These are pinned by tests (the decisions live in Python; there is no JS test
-runner):
+These are pinned by tests (the decisions live in Python; the filter rail's
+value builder runs under Node in tests/test_frontend_static.py):
 
 - **A filter is applied or absent.** A search carries filters only in the
   `Werte + Filter` state, and results count as filtered only when Knovas
@@ -84,12 +84,20 @@ runner):
 ## Search, listing and cards
 
 - **Filter rail** (state `Werte + Filter`), built from the fields marked
-  *als Filter anbieten*: a select for code lists, a name field with
-  suggestions for entity fields, free text for dates and periods ("GJ 2024",
-  "Q1 2024", "15.03.2024" — Knovas parses them), Ja/Nein for yes/no fields.
-  Suggestions come from the field's node list, fetched **without** the typed
-  text and filtered inside the Platform: typed prefixes never reach Knovas.
-  Fields marked *besonders schützenswert* get no suggestions.
+  *als Filter anbieten*. Each field has a condition: choice lists *ist* (one
+  or several choices) and *beginnt mit*; identifiers *ist*, *beginnt mit*
+  and *eine von* (comma list); text *ist* and *beginnt mit*; amounts and
+  numbers *ist* and *ab / bis*; dates and periods *Zeitraum* (overlaps),
+  *von / bis* with *auch teilweise*, and *liegt ganz in*; yes/no fields
+  *Ja* / *Nein*; entity fields one or several names (separated by `;`) with
+  suggestions; every field *hat einen Wert*. Values are written as in the
+  documents ("GJ 2024", "Q1 2024", "CHF 1'000" — Knovas parses them).
+  "Verstanden als" names each condition ("eine von …", "zwischen … und …",
+  "auch teilweise", "hat einen Wert"). A filter holds at most 8 fields and
+  50 values per list; a larger one never leaves the Platform. Suggestions
+  come from the field's node list, fetched **without** the typed text and
+  filtered inside the Platform: typed prefixes never reach Knovas. Fields
+  marked *besonders schützenswert* get no suggestions.
 - **Liste anzeigen** (states with listing): without a question, the chosen
   fields list every matching document visible to the person, sorted by a date
   field or the path, page by page.

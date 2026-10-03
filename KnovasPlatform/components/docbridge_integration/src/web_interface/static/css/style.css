@@ -1653,6 +1653,23 @@ mark.context-snippet-match,
     min-width: 0;
 }
 
+/* Bedingung und Eingaben eines Filters: nur die der gewählten Bedingung
+   sind sichtbar (doc_fields.js setzt hidden; .doc-fields-range ist flex). */
+.doc-fields-control [hidden] {
+    display: none;
+}
+
+.doc-fields-control select[multiple] {
+    padding: 4px 6px;
+}
+
+.doc-fields-partly {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+}
+
 .doc-fields-rail-foot {
     display: flex;
     justify-content: space-between;

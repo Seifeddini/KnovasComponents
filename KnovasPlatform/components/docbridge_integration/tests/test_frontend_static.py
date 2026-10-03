@@ -250,3 +250,105 @@ def test_a_refusal_clears_the_listing_texts():
     assert "this._listing = null" in clear
     assert "this._setText(this.listNotice, '')" in clear
     assert "this._setText(this.banner, '')" in clear
+
+
+# ---------------------------------------------------------------------------
+# F2: the filter rail's operators (doc_fields.js under Node)
+# ---------------------------------------------------------------------------
+
+from test_experiments_frontend import _run_node, needs_node  # noqa: E402
+
+_DF_EXPORT = "\n;globalThis.__DF = DocFieldsUI;"
+_UNDEF = "__undefined__"
+_ALL_TYPES = ("enum", "code", "text", "money", "number", "date", "period", "bool",
+              "entity_ref")
+
+
+def _rail(body):
+    """``body`` with DocFieldsUI as ``__DF``, in the vm harness of
+    test_experiments_frontend."""
+    return _run_node(body, [DOC_FIELDS_JS], suffix=_DF_EXPORT)
+
+
+@needs_node
+class TestRailOperands:
+    """The ``where`` value per datatype and operator (spec F2's table). The
+    rail's controls read and restore through these two functions only, for
+    the search and for "Liste anzeigen" alike."""
+
+    TABLE = [
+        ("enum", {"op": "in", "choices": ["invoice"]}, "invoice"),
+        ("enum", {"op": "in", "choices": ["invoice", "contract"]}, ["invoice", "contract"]),
+        ("enum", {"op": "in", "choices": []}, _UNDEF),
+        ("enum", {"op": "prefix", "text": " correspondence "}, {"prefix": "correspondence"}),
+        ("code", {"op": "eq", "text": "4A_123/2024"}, "4A_123/2024"),
+        ("code", {"op": "prefix", "text": "E11"}, {"prefix": "E11"}),
+        ("code", {"op": "in", "text": "E11.90, E10.1, , E11.90"}, ["E11.90", "E10.1"]),
+        ("code", {"op": "in", "text": "E11.90"}, "E11.90"),
+        ("text", {"op": "eq", "text": "Telefon"}, "Telefon"),
+        ("text", {"op": "prefix", "text": "Tel"}, {"prefix": "Tel"}),
+        ("text", {"op": "eq", "text": "   "}, _UNDEF),
+        ("money", {"op": "eq", "text": "CHF 1'000"}, "CHF 1'000"),
+        ("money", {"op": "range", "lo": "CHF 1'000"}, {"gte": "CHF 1'000"}),
+        ("money", {"op": "range", "hi": "CHF 5'000"}, {"lte": "CHF 5'000"}),
+        ("money", {"op": "range", "lo": "CHF 1'000", "hi": "CHF 5'000"},
+         {"between": ["CHF 1'000", "CHF 5'000"]}),
+        ("number", {"op": "range", "lo": "10", "hi": "20"}, {"between": ["10", "20"]}),
+        ("number", {"op": "range"}, _UNDEF),
+        ("date", {"op": "overlaps", "text": "2024"}, "2024"),
+        ("date", {"op": "range", "lo": "01.01.2024", "hi": "30.06.2024"},
+         {"gte": "01.01.2024", "lte": "30.06.2024"}),
+        ("date", {"op": "range", "lo": "01.01.2024", "hi": "30.06.2024", "partly": True},
+         {"gte": "01.01.2024", "lte": "30.06.2024", "match": "possible"}),
+        ("date", {"op": "range", "hi": "30.06.2024", "partly": True},
+         {"lte": "30.06.2024", "match": "possible"}),
+        ("date", {"op": "within", "text": "2024"}, {"within": "2024"}),
+        ("period", {"op": "overlaps", "text": "GJ 2024"}, "GJ 2024"),
+        ("period", {"op": "within", "text": "GJ 2024"}, {"within": "GJ 2024"}),
+        ("bool", {"op": "true"}, True),
+        ("bool", {"op": "false"}, False),
+        ("bool", {"op": ""}, _UNDEF),
+        ("entity_ref", {"op": "in", "text": "Muster AG"}, {"name": "Muster AG"}),
+        ("entity_ref", {"op": "in", "text": "Muster AG; Beispiel GmbH;"},
+         [{"name": "Muster AG"}, {"name": "Beispiel GmbH"}]),
+        ("entity_ref", {"op": "in", "text": ""}, _UNDEF),
+    ] + [(t, {"op": "exists"}, {"exists": True}) for t in _ALL_TYPES]
+
+    def test_the_operator_table(self):
+        cases = [[t, s] for t, s, _ in self.TABLE]
+        result = _rail("const cases = " + json.dumps(cases) + ";\n"
+                       "out(cases.map(([type, state]) => {"
+                       " const v = __DF.buildOperand(type, state);"
+                       " return v === undefined ? '" + _UNDEF + "' : v; }));")
+        assert result == [v for _, _, v in self.TABLE]
+
+    def test_a_value_survives_a_rail_rebuild(self):
+        """load() reads the rail before it rebuilds it and writes the values
+        back; the Cortex handoff writes {name}: parseOperand must give back
+        what buildOperand made."""
+        values = [[t, v] for t, _, v in self.TABLE if v != _UNDEF]
+        result = _rail("const cases = " + json.dumps(values) + ";\n"
+                       "out(cases.map(([type, value]) =>"
+                       " __DF.buildOperand(type, __DF.parseOperand(type, value))));")
+        assert result == [v for _, v in values]
+
+    def test_an_empty_rail_starts_at_each_type_s_first_operator(self):
+        result = _rail("out(['enum', 'code', 'money', 'date', 'bool', 'entity_ref', 'weird']"
+                       ".map((t) => __DF.parseOperand(t, undefined).op));")
+        assert result == ["in", "eq", "eq", "overlaps", "", "in", "eq"]
+
+    def test_every_type_offers_hat_einen_wert(self):
+        result = _rail("out(" + json.dumps(list(_ALL_TYPES)) + ".map((t) =>"
+                       " __DF.OPERATORS[t].map(([op]) => op)));")
+        assert all("exists" in ops for ops in result)
+
+
+def test_the_rail_controls_use_the_one_builder():
+    """F2: every facet control reads and restores through buildOperand and
+    parseOperand, so search and "Liste anzeigen" send the same values."""
+    source = _source(DOC_FIELDS_JS)
+    body = _code(_method_body(source, "_controlFor"))
+    assert "DocFieldsUI.buildOperand(" in body and "DocFieldsUI.parseOperand(" in body
+    assert "_labelled" not in source
+    suggestions = _code(_method_body(source, "_suggestions"))
+    assert "this.suggest(field.key, last)" in suggestions

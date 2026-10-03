@@ -90,6 +90,10 @@ Feldbereich der Vorschau.
   und Benennung des Geschaeftsjahres, die Datumsreihenfolge eines
   Datumsfelds; Auswahlwerte je Zeile mit Code, Bezeichnungen DE/FR/IT/EN und
   weiteren Namen. Der Reiter zeigt "n von 256 Feldern".
+- **Filterleiste mit Bedingungen:** je Feld "ist", "eine von", "beginnt
+  mit", "ab / bis" bzw. "von / bis" (mit "auch teilweise"), "liegt ganz in"
+  und "hat einen Wert"; "Verstanden als" nennt jede Bedingung. Eine Liste im
+  Filter hat hoechstens 50 Werte.
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),
