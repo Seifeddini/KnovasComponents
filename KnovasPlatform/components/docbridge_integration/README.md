@@ -65,11 +65,9 @@ the search result carries it as `context_partial`.
 Typed values per document (filters, listing, cards, the field panel, the
 *Dokumentfelder* admin tab and per-folder fields in the Ingestion tab) —
 shown only as far as Knovas serves them for the tenant, in secured mode only.
-The field panel, the *Felder* drawer and value edits need a Knovas release that
-reads the `GET /secured/graph/doc-values` pointer from the JSON body (S2);
-an earlier one answers `400 invalid_value` (`pointer`) and the Platform shows
-*Knovas-Update nötig* (`./scripts/doctor.sh` says so too). In a BROKERED
-tenant, the Knovas Connector's entity values also need S1.
+Knovas 1.5.0 has them on for every account; the Platform checks every answer
+and behaves as before where Knovas has them off. In a BROKERED tenant, the
+Knovas Connector's entity values also need S1.
 Modules: `src/doc_fields_capability.py` (what Knovas serves; per-person
 registry cache), `src/doc_fields_view.py` (the honesty rules as pure
 functions), `src/web_interface/doc_fields_routes.py` (search side),

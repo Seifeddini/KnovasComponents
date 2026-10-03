@@ -193,7 +193,7 @@ Copy `RemoteController/.env.example` to `.env`. Required unless noted:
 - `RC_SYNC_DEFAULT_MAX_INGESTION_REQUESTS_PER_MINUTE`
 - `RC_SYNC_DEFAULT_SCAN_INTERVAL_SECONDS`
 
-**Document fields (optional; effective only once Knovas has enabled Document Fields for the tenant)**
+**Document fields (optional; on for every Knovas account since 1.5.0 — where Knovas has them off, or the server is older, the Knovas Connector behaves as before)**
 
 - `RC_DOC_FIELDS` (default `on`) — `off` never sends field values; it cannot switch the feature on at Knovas
 - `RC_FIELDS_REUPLOAD_PER_CYCLE` (default `100`, 1–10000) — documents re-sent per cycle after a source's field settings changed; each is a full, billed upload with OCR

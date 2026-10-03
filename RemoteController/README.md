@@ -9,7 +9,7 @@ Customer-hosted service: discover local files and sync them to **Knovas** (emplo
 
 **After sync**, deploy [KnovasPlatform](../KnovasPlatform/) for search.
 
-**Document fields (Dokumentfelder).** Per source, RC can send typed field values with each upload — fixed values, captures from path templates such as `{mandant}/{period}/**`, and opted-in file properties. They take effect only once Knovas has enabled Document Fields for the tenant; until then the server ignores them and `/sync/status` reports `not_accepted`. Changing a source's fields re-sends its documents (billed, with OCR), bounded per cycle. `RC_DOC_FIELDS=off` switches sending off. Details: [docs/configuration.md](docs/configuration.md#per-source-document-fields-dokumentfelder), status and requeue: [docs/operations.md](docs/operations.md#document-fields).
+**Document fields (Dokumentfelder).** Per source, RC can send typed field values with each upload — fixed values, captures from path templates such as `{mandant}/{period}/**`, and opted-in file properties. Knovas 1.5.0 has Document fields on for every account; where Knovas has them off (or the server is older), the server ignores them and `/sync/status` reports `not_accepted`. Changing a source's fields re-sends its documents (billed, with OCR), bounded per cycle. `RC_DOC_FIELDS=off` switches sending off. Details: [docs/configuration.md](docs/configuration.md#per-source-document-fields-dokumentfelder), status and requeue: [docs/operations.md](docs/operations.md#document-fields).
 
 ## Quick start (local only)
 

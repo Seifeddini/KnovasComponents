@@ -1,11 +1,10 @@
 # Document fields (Dokumentfelder) — what they do for your office
 
-**Available only once Knovas has enabled Document Fields for your tenant**,
-on a Knovas release that reads the document reference of the field panel from
-the request body (otherwise the panel and every value edit say *Knovas-Update
-nötig*; filters and lists still work).
-Until then the Platform shows none of what follows, and search works as
-before. Ask Knovas to enable it; afterwards **Verwaltung → System →
+**On for every Knovas account since Knovas 1.5.0**, including filtering by
+fields in search and in lists. Knovas can still switch it off for an account,
+and an older Knovas server does not have it; the Platform and the Knovas
+Connector check every answer, and while it is off the Platform shows none of
+what follows and search works as before. **Verwaltung → System →
 Dokumentfelder** says which level your tenant has:
 
 | Level | What you get |

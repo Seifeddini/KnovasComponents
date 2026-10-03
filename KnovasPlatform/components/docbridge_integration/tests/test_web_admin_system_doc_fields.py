@@ -37,7 +37,11 @@ class TestFourStates:
     def test_off(self):
         check = _doc_fields(_collect(FakeDocFieldsApi("off")))
         assert check["detail"] == "aus" and check["state"] == "skip"
-        assert "nicht freigeschaltet" in check["hint"]
+        # Knovas 1.5.0 has document fields on for every account: "aus" means
+        # Knovas switched them off, or the server predates them.
+        assert check["hint"] == ("Knovas hat Dokumentfelder fuer diesen Mandanten ausgeschaltet, "
+                                 "oder der Knovas-Server kennt sie noch nicht. Suche und "
+                                 "Ingestion laufen wie bisher.")
 
     def test_values(self):
         check = _doc_fields(_collect(FakeDocFieldsApi("values")))

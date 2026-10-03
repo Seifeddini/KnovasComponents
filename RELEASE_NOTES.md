@@ -6,26 +6,20 @@ Typisierte Werte je Dokument -- Mandant, Zeitraum, Dokumentart, Gericht,
 Frist -- als Filter in der Suche, als Liste, auf den Trefferkarten und im
 Feldbereich der Vorschau.
 
-- **Voraussetzung: Knovas muss Document Fields fuer den Mandanten
-  freischalten.** Bei Knovas ist die Funktion standardmaessig aus, und nichts
-  in `knovas.env` schaltet sie ein. Die Plattform fragt Knovas, was es fuer
-  den Mandanten anbietet, und zeigt nur das; ohne Freischaltung (oder mit einem
-  aelteren Server) bleibt alles wie bisher, ohne neue Oberflaeche und ohne
+- **Bei Knovas fuer jeden Mandanten eingeschaltet.** Seit Knovas 1.5.0 sind
+  Dokumentfelder, auch das Filtern nach Feldern in Suche und Listen, fuer
+  jeden Mandanten eingeschaltet; nichts in `knovas.env` schaltet sie ein.
+  Knovas kann sie fuer einen Mandanten abschalten, und aeltere Server kennen
+  sie nicht: Plattform und Knovas Connector pruefen jede Antwort und bleiben,
+  solange die Funktion aus ist, wie bisher, ohne neue Oberflaeche und ohne
   neue Schluessel in den Anfragen. *Verwaltung -> System -> Dokumentfelder*
   nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Filter in
   der Suche: Kalibrierung bei Knovas fehlt)` oder `Werte + Filter`.
   `./scripts/doctor.sh` prueft dasselbe.
-- **Mindestens noetige Knovas-Version:** Feldbereich, *Felder* unter
-  *Dokumente* und jede Wertbearbeitung brauchen eine Knovas-Version, die den
-  Dokumentverweis von `GET /secured/graph/doc-values` aus dem Anfragekoerper
-  liest (Aenderung S2; die Plattform setzt nie einen Verweis in eine Adresse).
-  Gegen eine aeltere Version mit Dokumentfeldern zeigen diese Stellen
-  *Knovas-Update noetig*, und nichts ist bearbeitbar; Filter und Listen sind
-  nicht betroffen. `./scripts/doctor.sh` meldet den Fall
-  (`FAIL Dokumentfelder: Knovas-Update noetig`). In einem BROKERED-Mandanten
-  brauchen Entitaetswerte vom Knovas Connector (z.B. `client`) zusaetzlich
-  Aenderung S1; vorher lehnt Knovas solche Uploads mit `assertion_rejected`
-  ab, und der Knovas Connector indexiert das Dokument ohne Felder.
+- **BROKERED-Mandanten:** Entitaetswerte vom Knovas Connector (z.B. `client`)
+  brauchen zusaetzlich Aenderung S1; vorher lehnt Knovas solche Uploads mit
+  `assertion_rejected` ab, und der Knovas Connector indexiert das Dokument
+  ohne Felder.
 - **Was die Plattform zeigt**, je nach Stufe: den Feldbereich in der Vorschau
   (Werte, Herkunft *Manuell / Upload / Ordnervorgabe*, Hinweise) und den
   Reiter *Dokumentfelder* (Felder, Pakete `core` und `legal_ch`,

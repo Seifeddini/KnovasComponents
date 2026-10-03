@@ -6,24 +6,19 @@ filters, listed, and corrected by hand. Knovas holds the values; the Platform
 shows only what Knovas confirms, and the Knovas Connector can send values with
 each upload.
 
-**Prerequisite: Knovas must enable Document Fields for the tenant.** It is
-off by default on the Knovas side. Nothing in `knovas.env` switches it on —
-the Platform asks Knovas what it serves and shows only that. Against a tenant
-without the feature, or an older server, the Platform behaves exactly as
-before: no new UI, and no new keys in its requests.
+**On for every account since Knovas 1.5.0.** Document fields, including
+filtering by fields in search and in lists, is on for every Knovas account.
+Knovas can still switch it off for an account, and an older server does not
+have it, so the Platform and the Knovas Connector check every answer: the
+Platform asks Knovas what it serves and shows only that, and nothing in
+`knovas.env` switches it on. Against an account with the feature off, or an
+older server, the Platform behaves exactly as before: no new UI, and no new
+keys in its requests.
 
-**Minimum Knovas release.** The field panel, the *Felder* drawer under
-*Dokumente* and every value edit need a Knovas release whose
-`GET /secured/graph/doc-values` reads the document pointer from the JSON body
-(integration change S2; the Platform never puts a pointer in a URL). Against
-an earlier release that has Document Fields, these places say *Knovas-Update
-nötig: der Server liest den Dokumentverweis noch nicht aus dem Anfragekörper*,
-and nothing can be edited; filters and lists are not affected.
-`./scripts/doctor.sh` names this case (`FAIL Dokumentfelder: Knovas-Update
-noetig`). In a BROKERED tenant, entity values sent by the Knovas Connector (for
-example `client`) also need change S1; before it, Knovas refuses such an
-upload with `401 assertion_rejected` and the Knovas Connector indexes the document
-without its fields (`refused:assertion_rejected`).
+In a BROKERED tenant, entity values sent by the Knovas Connector (for example
+`client`) also need change S1; before it, Knovas refuses such an upload with
+`401 assertion_rejected` and the Knovas Connector indexes the document without
+its fields (`refused:assertion_rejected`).
 
 Design and decisions: [`docs/superpowers/plans/2026-10-02-document-fields-integration.md`](../../../docs/superpowers/plans/2026-10-02-document-fields-integration.md).
 Knovas Connector side: [`RemoteController/docs/configuration.md`](../../../RemoteController/docs/configuration.md#per-source-document-fields-dokumentfelder).
@@ -38,7 +33,7 @@ names the state; nothing else in the UI mentions a reduced one.
 
 | State (System tab) | Knovas has | The Platform shows |
 |---|---|---|
-| `aus` | feature off, tenant not enabled, knowledge graph off, older server — or the Platform runs without mTLS (legacy mode), or `DOC_FIELDS_UI=off` | nothing new |
+| `aus` | feature switched off for the account, knowledge graph off, older server — or the Platform runs without mTLS (legacy mode), or `DOC_FIELDS_UI=off` | nothing new |
 | `Werte (ohne Filter)` | values | the field panel in the preview, the **Dokumentfelder** admin tab, the field drawer in **Dokumente** |
 | `Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)` | values and listing; search filters wait for a relevance calibration at Knovas | additionally: typed values on result cards, the **Liste anzeigen** listing, the admin **Feldfilter** |
 | `Werte + Filter` | everything | additionally: the filter rail in the search |

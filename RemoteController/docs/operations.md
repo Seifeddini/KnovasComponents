@@ -67,7 +67,7 @@ To prevent sync from auto-starting after a container restart, set `"enabled": fa
 
 ## Document fields
 
-Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Document fields work only once Knovas has enabled them for the tenant; until then the Knovas Connector sends them where configured, the server ignores them, and nothing else changes.
+Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Since Knovas 1.5.0, document fields are on for every account; where Knovas has them off (or the server is older), the Knovas Connector still sends them where configured, the server ignores them, and nothing else changes.
 
 ### Status
 

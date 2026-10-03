@@ -117,13 +117,14 @@ different groups under sequential mode.
 
 ### Per-source document fields (Dokumentfelder)
 
-Knovas can keep typed **document fields** per document (Mandant, Zeitraum,
-Dokumentart, …) — but only once Knovas has enabled *Document Fields* for the
-tenant. Nothing here switches that on: the Knovas Connector sends fields when a
+Knovas keeps typed **document fields** per document (Mandant, Zeitraum,
+Dokumentart, …); since Knovas 1.5.0 they are on for every account. Knovas can
+still switch them off for an account, and an older server does not have them,
+so nothing here switches them on: the Knovas Connector sends fields when a
 source is configured with them and reads from each init answer whether the
-server took them. Against a server or tenant without the feature the fields are
-ignored, the document is indexed exactly as before, and `/sync/status` says
-`"server": "not_accepted"` ([operations.md](operations.md#document-fields)).
+server took them. Against a server or account without the feature the fields
+are ignored, the document is indexed exactly as before, and `/sync/status`
+says `"server": "not_accepted"` ([operations.md](operations.md#document-fields)).
 
 Normally the KnovasPlatform Ingestion tab writes these keys (a folder's
 *Felder*: fixed values, path templates, file properties). Each `sources[]`
