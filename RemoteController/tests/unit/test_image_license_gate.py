@@ -22,7 +22,12 @@ CI = REPO / ".github" / "workflows" / "ci.yml"
 RC_DOCKERFILE = REPO / "RemoteController" / "Dockerfile"
 PYPROJECT = REPO / "RemoteController" / "pyproject.toml"
 PLATFORM = REPO / "KnovasPlatform" / "components" / "docbridge_integration"
-STEP = "- name: No pymupdf-layout (PolyForm-NC) in the customer image"
+LICENSE_STEPS = (
+    "- name: No pymupdf-layout (PolyForm-NC) in the Connector image",
+    "- name: No pymupdf-layout (PolyForm-NC) in the Platform image",
+)
+PIN_STEP = 'bash scripts/ci/check_knovas_extract_pin.sh >> "$GITHUB_ENV"'
+ASSERT_SCRIPT = "scripts/ci/assert_knovas_extract_pin.py"
 LIBRARY_GIT = "git+https://github.com/Seifeddini/knovas-extract-python.git"
 #: Spec 9: the Connector's extras; the Platform adds `markdown` (preview).
 IMAGES = {
@@ -35,10 +40,10 @@ needs_ci = pytest.mark.skipif(not CI.is_file(), reason="the workflow is not in t
 needs_platform = pytest.mark.skipif(not PLATFORM.is_dir(), reason="the Platform is not in this checkout")
 
 
-def _step(text: str) -> str:
-    start = text.index(STEP)
+def _step(text: str, step: str) -> str:
+    start = text.index(step)
     indent = text[:start].rsplit("\n", 1)[1]
-    rest = text[start + len(STEP):]
+    rest = text[start + len(step):]
     end = rest.find("\n" + indent + "- ")
     return rest if end < 0 else rest[:end]
 
@@ -50,10 +55,20 @@ def _arg(dockerfile: Path, name: str) -> str:
 
 
 @needs_ci
-def test_the_license_step_blocks_the_build():
-    step = _step(CI.read_text(encoding="utf-8"))
+@pytest.mark.parametrize("name", LICENSE_STEPS)
+def test_the_license_step_blocks_the_build_of_each_image(name):
+    step = _step(CI.read_text(encoding="utf-8"), name)
     assert "pip show pymupdf-layout" in step
     assert "continue-on-error" not in step
+
+
+@needs_ci
+def test_both_test_jobs_and_both_images_are_held_to_the_pin():
+    ci = CI.read_text(encoding="utf-8")
+    assert ci.count(PIN_STEP) == 2, "the Platform job and the Connector job"
+    # Both test jobs after their requirements, and inside both built images.
+    assert ci.count(ASSERT_SCRIPT) == 4
+    assert "KNOVAS_EXTRACT_SHA" not in ci
 
 
 def test_the_connector_pins_a_release_and_at_most_a_full_sha():

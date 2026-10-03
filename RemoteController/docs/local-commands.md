@@ -42,6 +42,11 @@ RC listens on the Docker network only; employees reach RC via HTTPS on port 443 
 ```bash
 cd RemoteController
 cp .env.example .env
+# knovas-extract: the pin both images use. While it is a git revision (until
+# 0.4.0a1 is on PyPI), install it first: the >=0.4.0a1 floor of
+# pyproject.toml cannot be resolved from PyPI alone.
+eval "$(bash ../scripts/ci/check_knovas_extract_pin.sh)"
+[ -z "$KNOVAS_EXTRACT_GIT_REF" ] || pip install "knovas-extract[pdf,docx,msg,html,rtf,sentences] @ git+https://github.com/Seifeddini/knovas-extract-python.git@$KNOVAS_EXTRACT_GIT_REF"
 pip install -e ".[dev]"
 export PYTHONPATH=src
 gunicorn -b 127.0.0.1:5001 -w 1 app:app
@@ -230,6 +235,8 @@ curl -sS "$RC_BASE/metrics"
 From the `RemoteController` directory:
 
 ```bash
+eval "$(bash ../scripts/ci/check_knovas_extract_pin.sh)"   # the knovas-extract pin, see above
+[ -z "$KNOVAS_EXTRACT_GIT_REF" ] || pip install "knovas-extract[pdf,docx,msg,html,rtf,sentences] @ git+https://github.com/Seifeddini/knovas-extract-python.git@$KNOVAS_EXTRACT_GIT_REF"
 pip install -e ".[dev]"
 pytest
 ```
