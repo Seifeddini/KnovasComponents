@@ -3,8 +3,9 @@
 Every upload the Knovas Connector makes is recorded with two values:
 
 * the **extraction stamp** -- 16 hex characters of sha256 over the settings
-  that shape a document's text: the installed knovas-extract version, the
-  PDF and DOCX text modes, the OCR engine, the DPI setting, the sentence
+  that shape a document's text: the installed knovas-extract version and,
+  for a git install, its commit (two builds of one version, as before a
+  release, differ only there), the PDF and DOCX text modes, the OCR engine, the DPI setting, the sentence
   gate and ``EXTRACTION_SCHEMA``. A row whose stamp is not
   ``current_extraction_stamp()`` (or that has none) was produced by an
   older extraction;
@@ -21,6 +22,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import re
 from importlib import metadata
 from typing import Any, Mapping, Optional, Sequence
 
@@ -39,6 +41,26 @@ EXTRACTION_SCHEMA = 1
 
 #: Hex characters of the stamp.
 STAMP_LENGTH = 16
+
+
+#: A full git commit id, as pip records it in ``direct_url.json``.
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+
+
+@functools.lru_cache(maxsize=1)
+def knovas_extract_commit() -> Optional[str]:
+    """The git commit knovas-extract was installed from (pip's
+    ``direct_url.json``: the images install a pinned commit until the
+    version is on PyPI); None for a release from PyPI or an editable
+    checkout. A pin bump keeps the version string, so only this tells the
+    two builds apart. Read once per process: another commit means another
+    image."""
+    try:
+        raw = metadata.distribution("knovas-extract").read_text("direct_url.json")
+        commit = (json.loads(raw or "{}").get("vcs_info") or {}).get("commit_id")
+    except Exception:  # noqa: BLE001 - not installed or unreadable: no commit
+        return None
+    return commit if isinstance(commit, str) and _COMMIT_RE.fullmatch(commit) else None
 
 
 @functools.lru_cache(maxsize=1)
@@ -63,6 +85,7 @@ def stamp_inputs() -> dict[str, Any]:
     """What the stamp covers: versions and settings, never document data."""
     return {
         "knovas_extract": _knovas_extract_version(),
+        "knovas_extract_commit": knovas_extract_commit(),
         "pdf_text_mode": pdf_text_mode(),
         "docx_text_mode": docx_text_mode(),
         "ocr_engine": ocr_engine(),

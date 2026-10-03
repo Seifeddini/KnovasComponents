@@ -29,10 +29,16 @@ class _Connector:
         return self._status
 
 
-def _status(version):
-    return {"capabilities": [], "extraction": {
-        "knovas_extract_version": version, "pdf_text_mode": "layout",
-        "docx_text_mode": "layout", "ocr_engine": "auto"}}
+PIN = "b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1"
+BUMP = "23f30ccddd12b08ddaeebf79ae528598443f8f27"
+
+
+def _status(version, commit=None):
+    block = {"knovas_extract_version": version, "pdf_text_mode": "layout",
+             "docx_text_mode": "layout", "ocr_engine": "auto"}
+    if commit is not None:
+        block["knovas_extract_commit"] = commit
+    return {"capabilities": [], "extraction": block}
 
 
 def _extractor(rc=None):
@@ -53,8 +59,9 @@ def platform_version(monkeypatch):
     """The Platform's own knovas-extract, as the tab reads it."""
     from web_interface import admin_system
 
-    def use(version):
+    def use(version, commit=None):
         monkeypatch.setattr(admin_system, "platform_extractor_version", lambda: version)
+        monkeypatch.setattr(admin_system, "platform_extractor_commit", lambda: commit)
 
     use("0.4.0a1")
     return use
@@ -101,11 +108,60 @@ class TestBothSides:
         assert rc.calls == 1, "the Connector line's ping answer is reused"
 
     def test_the_platform_side_is_the_installed_library(self):
+        import json
+        from importlib.metadata import distribution
+
         import knovas_extract
 
         from web_interface import admin_system
 
         assert admin_system.platform_extractor_version() == knovas_extract.__version__
+        url = json.loads(distribution("knovas-extract").read_text("direct_url.json") or "{}")
+        assert admin_system.platform_extractor_commit() == (url.get("vcs_info") or {}).get("commit_id")
+
+
+class TestBuilds:
+    """Before a release two pins share one version string (0.4.0a1): the
+    commit of a git install tells the builds apart."""
+
+    def test_the_same_build_is_ok_and_names_the_commit(self, platform_version):
+        platform_version("0.4.0a1", PIN)
+        check = _extractor(_Connector(_status("0.4.0a1", PIN)))
+        assert check["state"] == "ok"
+        assert check["detail"] == "Plattform 0.4.0a1 (git b5d4540), Knovas Connector 0.4.0a1 (git b5d4540)"
+
+    def test_one_version_from_two_commits_warns(self, platform_version):
+        platform_version("0.4.0a1", BUMP)
+        check = _extractor(_Connector(_status("0.4.0a1", PIN)))
+        assert check["state"] == "warn"
+        assert check["detail"] == "Plattform 0.4.0a1 (git 23f30cc), Knovas Connector 0.4.0a1 (git b5d4540)"
+        assert "Beide Images mit demselben Stand neu bauen" in check["hint"]
+
+    def test_a_git_build_and_a_release_of_one_version_warn(self, platform_version):
+        platform_version("0.4.0a1", None)
+        check = _extractor(_Connector(_status("0.4.0a1", PIN)))
+        assert check["state"] == "warn"
+        assert check["detail"] == "Plattform 0.4.0a1, Knovas Connector 0.4.0a1 (git b5d4540)"
+
+
+class TestCommitFromStatus:
+    @pytest.mark.parametrize("status", [
+        None, {}, {"extraction": {}}, _status("0.4.0a1"),
+        {"extraction": {"knovas_extract_commit": None}},
+        {"extraction": {"knovas_extract_commit": "main"}},
+        {"extraction": {"knovas_extract_commit": PIN.upper()}},
+        {"extraction": {"knovas_extract_commit": PIN + "0"}},
+        {"extraction": {"knovas_extract_commit": "<b>" + PIN[3:]}},
+    ])
+    def test_anything_but_a_full_commit_is_none(self, status):
+        from remote_controller_client import extractor_commit_from_status
+
+        assert extractor_commit_from_status(status) is None
+
+    def test_a_commit_is_returned_as_given(self):
+        from remote_controller_client import extractor_commit_from_status
+
+        assert extractor_commit_from_status(_status("0.4.0a1", PIN)) == PIN
 
 
 class TestVersionFromStatus:

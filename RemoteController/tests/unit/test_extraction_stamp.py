@@ -15,8 +15,9 @@ from sync.extraction_stamp import (
     upload_text_sha256,
 )
 
-#: The real lookup, captured before any test replaces it.
+#: The real lookups, captured before any test replaces them.
 REAL_VERSION = extraction_stamp._knovas_extract_version
+REAL_COMMIT = extraction_stamp.knovas_extract_commit
 SETTINGS = ("RC_PDF_TEXT_MODE", "RC_DOCX_TEXT_MODE", "RC_OCR_ENGINE", "RC_OCR_DPI",
             "RC_SENTENCE_EMIT_MAX_BYTES")
 PARTS = [
@@ -30,6 +31,7 @@ def defaults(monkeypatch):
     for key in SETTINGS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(extraction_stamp, "_knovas_extract_version", lambda: "0.4.0a1")
+    monkeypatch.setattr(extraction_stamp, "knovas_extract_commit", lambda: None)
 
 
 class TestStamp:
@@ -57,6 +59,15 @@ class TestStamp:
         monkeypatch.setattr(extraction_stamp, "_knovas_extract_version", lambda: None)
         assert re.fullmatch(r"[0-9a-f]{16}", current_extraction_stamp())
 
+    def test_the_library_commit_changes_it(self, monkeypatch):
+        """A pin bump keeps the version string (0.4.0a1 before and after
+        the release): the commit alone marks every document for re-extraction."""
+        before = current_extraction_stamp()
+        monkeypatch.setattr(extraction_stamp, "knovas_extract_commit", lambda: "b" * 40)
+        pinned = current_extraction_stamp()
+        monkeypatch.setattr(extraction_stamp, "knovas_extract_commit", lambda: "c" * 40)
+        assert len({before, pinned, current_extraction_stamp()}) == 3
+
     def test_the_schema_changes_it(self, monkeypatch):
         before = current_extraction_stamp()
         monkeypatch.setattr(extraction_stamp, "EXTRACTION_SCHEMA", EXTRACTION_SCHEMA + 1)
@@ -64,7 +75,8 @@ class TestStamp:
 
     def test_it_covers_versions_and_settings_only(self):
         assert stamp_inputs() == {
-            "knovas_extract": "0.4.0a1", "pdf_text_mode": "layout", "docx_text_mode": "layout",
+            "knovas_extract": "0.4.0a1", "knovas_extract_commit": None,
+            "pdf_text_mode": "layout", "docx_text_mode": "layout",
             "ocr_engine": "auto", "ocr_dpi": None, "sentence_emit_max_bytes": 0, "schema": 1,
         }
 
@@ -135,3 +147,42 @@ class TestFieldsValuesDigest:
     def test_a_clear_differs_from_values(self):
         assert fields_values_digest({}) != fields_values_digest({"doc_type": "invoice"})
         assert re.fullmatch(r"[0-9a-f]{64}", fields_values_digest({}))
+
+
+class _Dist:
+    def __init__(self, direct_url):
+        self._direct_url = direct_url
+
+    def read_text(self, name):
+        assert name == "direct_url.json"
+        return self._direct_url
+
+
+@pytest.mark.parametrize("direct_url,commit", [
+    ('{"url": "https://github.com/x/y.git", "vcs_info": {"vcs": "git", "commit_id": "%s"}}' % ("a1" * 20),
+     "a1" * 20),
+    ('{"url": "file:///src", "dir_info": {"editable": true}}', None),   # an editable checkout
+    (None, None),                                                       # a release from PyPI
+    ('{"vcs_info": {"commit_id": "main"}}', None),                      # never a branch name
+    ('{"vcs_info": {"commit_id": "%s"}}' % ("A" * 40), None),
+    ("not json", None),
+])
+def test_the_commit_comes_from_pips_direct_url(monkeypatch, direct_url, commit):
+    monkeypatch.setattr(extraction_stamp.metadata, "distribution", lambda name: _Dist(direct_url))
+    REAL_COMMIT.cache_clear()
+    try:
+        assert REAL_COMMIT() == commit
+    finally:
+        REAL_COMMIT.cache_clear()
+
+
+def test_no_installed_library_means_no_commit(monkeypatch):
+    def missing(name):
+        raise metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(extraction_stamp.metadata, "distribution", missing)
+    REAL_COMMIT.cache_clear()
+    try:
+        assert REAL_COMMIT() is None
+    finally:
+        REAL_COMMIT.cache_clear()

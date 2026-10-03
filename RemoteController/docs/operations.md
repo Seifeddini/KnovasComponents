@@ -27,10 +27,10 @@ Extraction adds four series, counted in the API process from what each extractio
 `GET /sync/status` names the same extractor and settings:
 
 ```json
-"extraction": {"knovas_extract_version": "0.4.0a1", "pdf_text_mode": "layout", "docx_text_mode": "layout", "ocr_engine": "auto"}
+"extraction": {"knovas_extract_version": "0.4.0a1", "knovas_extract_commit": "b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1", "pdf_text_mode": "layout", "docx_text_mode": "layout", "ocr_engine": "auto"}
 ```
 
-The Platform's *Verwaltung → System* compares `knovas_extract_version` with its own and warns when they differ.
+`knovas_extract_commit` is the git commit the library was installed from (`null` for a release from PyPI): until 0.4.0a1 is on PyPI the images install a pinned commit, and two pins share the version string. The Platform's *Verwaltung → System* compares both (version and commit) with its own and warns when they differ.
 
 ## Logs
 
@@ -227,13 +227,14 @@ OCR output is cached per page image in `/var/rc-state/.rc-ocr-cache.db` (beside 
 
 ## Re-extraction after an extractor upgrade
 
-Every upload records an **extraction stamp** — 16 hex characters of a hash over the installed knovas-extract version, `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number — and the sha256 of exactly what it carried (every part with its page and sentence number, the field values, title and description). A document whose stamp is not the current one — or that has none, because it was synced before this release — was produced by an **older extraction**. Nothing is re-extracted by itself: every upload is billed.
+Every upload records an **extraction stamp** — 16 hex characters of a hash over the installed knovas-extract version and its git commit (so a pin bump that keeps the version string still counts), `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number — and the sha256 of exactly what it carried (every part with its page and sentence number, the field values, title and description). A document whose stamp is not the current one — or that has none, because it was synced before this release — was produced by an **older extraction**. Nothing is re-extracted by itself: every upload is billed.
 
 `GET /sync/status` reports them, counts only:
 
 ```json
-"extraction": {"knovas_extract_version": "0.4.0a1", "pdf_text_mode": "layout",
-               "docx_text_mode": "layout", "ocr_engine": "auto",
+"extraction": {"knovas_extract_version": "0.4.0a1",
+               "knovas_extract_commit": "b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1",
+               "pdf_text_mode": "layout", "docx_text_mode": "layout", "ocr_engine": "auto",
                "outdated": 1234, "queued": 0, "per_cycle": 100}
 ```
 

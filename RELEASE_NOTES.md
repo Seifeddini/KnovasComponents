@@ -46,6 +46,10 @@ indexierte Dokumente profitieren davon erst, wenn sie neu extrahiert werden.
   gesendet, weil der Vergleichswert noch fehlt.
 - `GET /sync/status` des Connectors meldet `extraction.outdated`, `queued`
   und `per_cycle` -- nur Zahlen.
+- Auch ein neuer Stand von knovas-extract mit gleicher Versionsnummer (vor
+  dem Release ist jeder Stand `0.4.0a1`) zaehlt: der Stempel enthaelt den
+  Git-Commit der Bibliothek, und *Verwaltung -> System* vergleicht Version
+  und Commit beider Seiten.
 
 ## Extraktor: knovas-extract 0.4.0a1, eine Version fuer beide Seiten
 

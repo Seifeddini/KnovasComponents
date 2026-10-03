@@ -16,12 +16,18 @@ einzelnen Wort abgefragt; danach ist der Mandant unveraendert.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import time
 from typing import Any, Callable, Dict, List, Mapping
 
-from remote_controller_client import capabilities_from_status, extractor_version_from_status
+from remote_controller_client import (
+    capabilities_from_status,
+    extractor_commit_from_status,
+    extractor_version_from_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,20 +162,43 @@ def platform_extractor_version() -> str | None:
     return version if isinstance(version, str) and version else None
 
 
+def platform_extractor_commit() -> str | None:
+    """The git commit this Platform's knovas-extract was installed from
+    (pip's ``direct_url.json``; the image installs a pinned commit until the
+    version is on PyPI); None for a release from PyPI or without the library."""
+    try:
+        from importlib.metadata import distribution
+
+        raw = distribution("knovas-extract").read_text("direct_url.json")
+        commit = (json.loads(raw or "{}").get("vcs_info") or {}).get("commit_id")
+    except Exception:  # noqa: BLE001 - not installed or unreadable: no commit
+        return None
+    return commit if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) else None
+
+
+def _build(version: str, commit: str | None) -> str:
+    return f"{version} (git {commit[:7]})" if commit else version
+
+
 def _extractor_check(platform: str | None, connector: str | None,
-                     reached: bool | None) -> Check:
+                     reached: bool | None, *, platform_commit: str | None = None,
+                     connector_commit: str | None = None) -> Check:
     """Both sides' knovas-extract side by side (spec L5).
 
     ``reached`` is None without a Knovas Connector, False when its ping
     failed, True when it answered -- ``connector`` is then what its
-    /sync/status reports, None from one too old to report it. The admin
-    upload here and the Connector's sync extract into one index, so a
-    difference is worth a warning.
+    /sync/status reports, None from one too old to report it. A build is
+    the version and, for a git install, its commit: before a release two
+    pins share one version string. The admin upload here and the
+    Connector's sync extract into one index, so a difference is worth a
+    warning.
     """
     label = "Extraktor (knovas-extract)"
-    parts = [f"Plattform {platform}" if platform else "Plattform: nicht installiert"]
+    parts = [f"Plattform {_build(platform, platform_commit)}" if platform
+             else "Plattform: nicht installiert"]
     if reached is True:
-        parts.append(f"Knovas Connector {connector}" if connector else "Knovas Connector: keine Angabe")
+        parts.append(f"Knovas Connector {_build(connector, connector_commit)}" if connector
+                     else "Knovas Connector: keine Angabe")
     elif reached is False:
         parts.append("Knovas Connector nicht erreichbar")
     detail = ", ".join(parts)
@@ -184,7 +213,7 @@ def _extractor_check(platform: str | None, connector: str | None,
         return Check("extractor", label, WARN, detail,
                      hint="Diese Version des Knovas Connector meldet ihren Extraktor nicht. "
                           "Aktualisieren, damit beide Seiten denselben verwenden.")
-    if connector != platform:
+    if (connector, connector_commit) != (platform, platform_commit):
         return Check("extractor", label, WARN, detail,
                      hint="Die beiden Seiten extrahieren mit verschiedenen Versionen: dieselbe Datei "
                           "kann ueber den Upload hier anders im Index landen als ueber den Knovas "
@@ -376,6 +405,7 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
     # ── RemoteController ───────────────────────────────────────────────────
     rc_reached: bool | None = None
     rc_extractor: str | None = None
+    rc_commit: str | None = None
     if rc_client_factory is None:
         checks.append(Check("rc", "Knovas Connector", SKIP, "Nicht konfiguriert",
                             hint="Ohne ihn fehlt der Reiter Ingestion."))
@@ -390,6 +420,7 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
         answer, ms, exc = _timed(_rc_ping)
         rc_reached = exc is None
         rc_extractor = extractor_version_from_status(answer) if exc is None else None
+        rc_commit = extractor_commit_from_status(answer) if exc is None else None
         suffix, rc_hint = ("", "")
         if exc is None:
             suffix, rc_hint = _rc_doc_fields_note(answer, doc_fields_on)
@@ -401,7 +432,9 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
         ))
 
     # -- Extraktor ---------------------------------------------------------
-    checks.append(_extractor_check(platform_extractor_version(), rc_extractor, rc_reached))
+    checks.append(_extractor_check(platform_extractor_version(), rc_extractor, rc_reached,
+                                   platform_commit=platform_extractor_commit(),
+                                   connector_commit=rc_commit))
 
     return checks
 

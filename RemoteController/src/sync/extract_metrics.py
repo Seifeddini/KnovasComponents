@@ -175,12 +175,22 @@ def knovas_extract_version() -> Optional[str]:
     return version if isinstance(version, str) and version else None
 
 
+def knovas_extract_commit() -> Optional[str]:
+    """The git commit knovas-extract was installed from; None for a release
+    from PyPI (``sync.extraction_stamp.knovas_extract_commit``)."""
+    from sync import extraction_stamp  # imported late: no cycle through document_text
+
+    return extraction_stamp.knovas_extract_commit()
+
+
 def extraction_info() -> dict[str, Optional[str]]:
     """The extractor and its settings: the ``extraction`` block of
-    ``GET /sync/status`` and the labels of ``rc_build_info``. ``ocr_engine``
-    is ``off`` while ``RC_PDF_OCR_ENABLED`` is false."""
+    ``GET /sync/status`` and, but for the commit, the labels of
+    ``rc_build_info``. ``ocr_engine`` is ``off`` while
+    ``RC_PDF_OCR_ENABLED`` is false."""
     return {
         "knovas_extract_version": knovas_extract_version(),
+        "knovas_extract_commit": knovas_extract_commit(),
         "pdf_text_mode": pdf_text_mode(),
         "docx_text_mode": docx_text_mode(),
         "ocr_engine": ocr_engine() if pdf_ocr_enabled() else "off",

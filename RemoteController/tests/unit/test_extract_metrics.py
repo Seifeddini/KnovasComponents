@@ -151,8 +151,11 @@ def test_extraction_info_names_the_library_and_the_settings(monkeypatch):
     monkeypatch.setenv("RC_DOCX_TEXT_MODE", "plain")
     monkeypatch.setenv("RC_OCR_ENGINE", "cli")
     monkeypatch.delenv("RC_PDF_OCR_ENABLED", raising=False)
+    from sync.extraction_stamp import knovas_extract_commit
+
     assert em.extraction_info() == {
         "knovas_extract_version": knovas_extract.__version__,
+        "knovas_extract_commit": knovas_extract_commit(),
         "pdf_text_mode": "shadow",
         "docx_text_mode": "plain",
         "ocr_engine": "cli",

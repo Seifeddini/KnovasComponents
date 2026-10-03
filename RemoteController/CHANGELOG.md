@@ -36,6 +36,7 @@
 - Every upload records an **extraction stamp** (16 hex characters over the knovas-extract version, `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number) and the sha256 of what it carried. Rows synced before have no stamp and count as an older extraction; nothing is re-sent by itself.
 - **`POST /sync/reextract/requeue`** → `{"requeued": n}` queues them; each cycle re-extracts at most **`RC_REEXTRACT_PER_CYCLE`** (100, 1–10000) after new, modified and field re-uploads — partial first, then PDF, DOCX, e-mail, the rest — and uploads in place only what changed (the first round uploads all: no hash yet). A failure never uses `RC_EXTRACT_MAX_RETRIES`; after 3 the document leaves the queue, still outdated.
 - **`GET /sync/status`**: `extraction.outdated`, `extraction.queued`, `extraction.per_cycle` — counts only.
+- The stamp and `extraction.knovas_extract_commit` carry the git commit of the installed knovas-extract (pip's `direct_url.json`; `null` from PyPI): before the release every pin is `0.4.0a1`, so a pin bump would otherwise mark nothing for re-extraction, and the Platform's System tab compares version and commit.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 

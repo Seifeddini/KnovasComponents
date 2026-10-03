@@ -69,6 +69,26 @@ def extractor_version_from_status(status: Any) -> Optional[str]:
     return None
 
 
+#: A full git commit id, as the Knovas Connector reports it.
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+
+
+def extractor_commit_from_status(status: Any) -> Optional[str]:
+    """``extraction.knovas_extract_commit`` of a ``/sync/status`` answer: the
+    git commit the Connector's knovas-extract was installed from. None for a
+    release from PyPI, from a Connector too old to report it, or when the
+    value is not a full commit id."""
+    if not isinstance(status, Mapping):
+        return None
+    block = status.get("extraction")
+    if not isinstance(block, Mapping):
+        return None
+    commit = block.get("knovas_extract_commit")
+    if isinstance(commit, str) and _COMMIT_RE.fullmatch(commit):
+        return commit
+    return None
+
+
 def advertised_capabilities(rc_client: Any) -> Optional[frozenset[str]]:
     """What a RemoteController client advertises; None when it cannot be
     asked, so an unreachable one is never reported as too old. A client
