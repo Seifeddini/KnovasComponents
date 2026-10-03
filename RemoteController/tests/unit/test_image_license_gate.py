@@ -124,3 +124,15 @@ def test_both_components_cap_selectolax_below_1():
     requirements = PLATFORM / "requirements.txt"
     if requirements.is_file():
         assert "selectolax>=0.3.21,<1" in requirements.read_text(encoding="utf-8").splitlines()
+
+
+@pytest.mark.parametrize("image", sorted(IMAGES))
+def test_no_image_suggests_the_polyform_layout_package(image):
+    """PyMuPDF prints a hint to install pymupdf-layout once per process; the
+    Connector extracts every document in a child process, so without the
+    switch each PDF adds that line to the log."""
+    dockerfile = IMAGES[image][0]
+    if not dockerfile.is_file():
+        pytest.skip(f"{dockerfile} is not in this checkout")
+    text = dockerfile.read_text(encoding="utf-8")
+    assert re.search(r"^\s*PYMUPDF_SUGGEST_LAYOUT_ANALYZER=0\b", text, re.MULTILINE)

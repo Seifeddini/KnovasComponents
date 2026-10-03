@@ -27,9 +27,11 @@ RUN apt-get update && apt-get install -y \
 # OCR runs inside the admin upload's extraction child (knovas_extract_upload):
 # one Tesseract thread per worker (the pool parallelises per page, OMP would
 # oversubscribe the 4 cores shared with the search UI) and the Debian
-# tessdata folder the RC image uses as well. Mirrors RemoteController/Dockerfile.
+# tessdata folder the RC image uses as well; no PyMuPDF hint to install the
+# PolyForm-NC pymupdf-layout. Mirrors RemoteController/Dockerfile.
 ENV OMP_THREAD_LIMIT=1 \
-    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
+    PYMUPDF_SUGGEST_LAYOUT_ANALYZER=0
 
 # Install Microsoft ODBC Driver for SQL Server (if needed for Access alternative)
 # Note: For Access databases, you may need to install mdbtools

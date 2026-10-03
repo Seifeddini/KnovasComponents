@@ -74,8 +74,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # TESSDATA_PREFIX: where the Debian packages put the models, for tesserocr and
 # the CLI alike. OMP_THREAD_LIMIT=1: one Tesseract thread per OCR worker — the
 # RC parallelises per page, and OpenMP's own threads only fight each other.
+# PYMUPDF_SUGGEST_LAYOUT_ANALYZER=0: PyMuPDF otherwise prints a hint to install
+# pymupdf-layout (PolyForm-NC, kept out of this image) once per process -- one
+# log line per document, as every extraction runs in its own child process.
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
-    OMP_THREAD_LIMIT=1
+    OMP_THREAD_LIMIT=1 \
+    PYMUPDF_SUGGEST_LAYOUT_ANALYZER=0
 RUN useradd --create-home --uid 10001 rcuser
 WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
