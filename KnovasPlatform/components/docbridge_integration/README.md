@@ -24,6 +24,12 @@ ratio". Keywords the installed `knovas-extract` does not take (`text_mode=`,
 `ocr=`, the `Limits` OCR fields) are withheld, so the same source still runs
 against an older release; the image and CI install 0.4.0a1.
 
+In the unified stack, `knovas.env` sets `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`,
+`RC_OCR_ENGINE`, `RC_OCR_DPI` and `RC_TESSERACT_LANG` for both sides
+(`docker-compose.yml` passes them to `docbridge-web`, empty meaning the
+default), so a file reaches the index alike through the admin upload and the
+Knovas Connector. The time and size limits below are the Platform's own.
+
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `RC_PDF_TEXT_MODE` | `layout` | `plain` — the pre-0.4 text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME in-memory OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with one warning when the library has no `text_mode`. |
