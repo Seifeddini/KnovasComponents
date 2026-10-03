@@ -63,6 +63,19 @@ RC_CAPABILITIES = (
 # and the idle backoff below stretches that to an hour, during which the
 # console says the sync is running and nothing at all happens.
 _wake_event = threading.Event()
+#: Serialises writes of ``.rc-sync-last-request.json`` (spec E6). POST /sync,
+#: /sync/body and /sync/start all store the body, and gunicorn's gthread
+#: worker runs them at once: each write is an atomic rename; the lock keeps
+#: two renames onto one file from racing (on Windows the loser fails with
+#: PermissionError) and makes "the last request wins" an order.
+_body_file_lock = threading.Lock()
+#: Serialises POST /sync/start, /sync/stop and the start of a one-time run
+#: (spec E6). A start that slipped in after a stopped worker released
+#: ``_scheduler_lock`` had its "running" overwritten by the stop's
+#: "not_running" while its own worker ran. A stop holds it while it joins the
+#: worker (up to 120 s); a one-time run holds it only to start, so a stop can
+#: still interrupt the run.
+_control_lock = threading.Lock()
 
 
 @dataclass
@@ -88,21 +101,22 @@ def _last_sync_body_path() -> Path:
 def save_last_sync_body(body: dict[str, Any]) -> None:
     p = _last_sync_body_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(body, f)
-        os.replace(tmp, p)
+    with _body_file_lock:
+        fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
         try:
-            os.chmod(p, 0o600)
-        except OSError:
-            pass
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(body, f)
+            os.replace(tmp, p)
+            try:
+                os.chmod(p, 0o600)
+            except OSError:
+                pass
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
 
 def load_last_sync_body() -> Optional[dict[str, Any]]:
@@ -406,10 +420,11 @@ def _pending_work(result: SyncRunResult) -> int:
 
 
 def run_one_time(ctx: SyncRunContext) -> tuple[str, SyncRunResult]:
-    if not _scheduler_lock.acquire(blocking=False):
-        return "already_running", SyncRunResult()
-    try:
+    with _control_lock:
+        if not _scheduler_lock.acquire(blocking=False):
+            return "already_running", SyncRunResult()
         _stop_event.clear()
+    try:
         result = _run_once(ctx)
         return _current_status, result
     finally:
@@ -499,38 +514,40 @@ def request_cycle_now() -> None:
 
 def start_continuous(ctx: SyncRunContext) -> str:
     global _worker_thread
-    if not _scheduler_lock.acquire(blocking=False):
-        return "already_running"
+    with _control_lock:
+        if not _scheduler_lock.acquire(blocking=False):
+            return "already_running"
 
-    def _worker_wrapper() -> None:
-        global _last_worker_error
-        try:
-            _continuous_worker(ctx)
-        except Exception as exc:
-            _last_worker_error = str(exc)
-            logger.exception("Continuous sync worker crashed")
-            _set_status("worker_crashed")
-        finally:
+        def _worker_wrapper() -> None:
+            global _last_worker_error
             try:
-                _scheduler_lock.release()
-            except RuntimeError:
-                pass
-            if _current_status == "running":
-                _set_status("not_running")
+                _continuous_worker(ctx)
+            except Exception as exc:
+                _last_worker_error = str(exc)
+                logger.exception("Continuous sync worker crashed")
+                _set_status("worker_crashed")
+            finally:
+                try:
+                    _scheduler_lock.release()
+                except RuntimeError:
+                    pass
+                if _current_status == "running":
+                    _set_status("not_running")
 
-    _stop_event.clear()
-    _worker_thread = threading.Thread(target=_worker_wrapper, daemon=True)
-    _worker_thread.start()
-    _set_status("running")
-    return "running"
+        _stop_event.clear()
+        _worker_thread = threading.Thread(target=_worker_wrapper, daemon=True)
+        _worker_thread.start()
+        _set_status("running")
+        return "running"
 
 
 def stop_continuous() -> str:
-    _stop_event.set()
-    if _worker_thread and _worker_thread.is_alive():
-        _worker_thread.join(timeout=120)
-    _set_status("not_running")
-    return "not_running"
+    with _control_lock:
+        _stop_event.set()
+        if _worker_thread and _worker_thread.is_alive():
+            _worker_thread.join(timeout=120)
+        _set_status("not_running")
+        return "not_running"
 
 
 def maybe_auto_start() -> None:
