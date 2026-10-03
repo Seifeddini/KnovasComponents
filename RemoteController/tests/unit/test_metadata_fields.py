@@ -6,14 +6,17 @@ created/modified date. Each of those is pinned below.
 """
 import inspect
 import io
+import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from sync.metadata_fields import (
     EMAIL_DOC_TYPE,
+    FILE_PROPERTY_KEYS,
     ITEM_TARGETS,
     JUNK_AUTHORS,
     METADATA_ITEMS,
@@ -30,14 +33,20 @@ EML_MD = {
 }
 
 
+VECTORS = Path(__file__).resolve().parents[2] / "contracts" / "vectors" / "metadata_fields.json"
+
+
 def test_mapping_version_and_items():
+    # New items need no bump: a bump re-sends every source that uses file properties.
     assert METADATA_MAPPING_VERSION == 1
-    assert set(METADATA_ITEMS) == {
+    assert METADATA_ITEMS == (
         "language", "email_date", "email_doc_type", "email_author", "document_author",
-    }
+        "keywords", "document_status",
+    )
     assert set(ITEM_TARGETS) == set(METADATA_ITEMS)
     # No Message-ID, sender or recipient mapping (spec section 3.5).
-    assert set(ITEM_TARGETS.values()) == {"language", "document_date", "doc_type", "author"}
+    assert set(ITEM_TARGETS.values()) == {
+        "language", "document_date", "doc_type", "author", "keywords", "status"}
 
 
 def test_nothing_enabled_maps_nothing():
@@ -275,6 +284,60 @@ def test_all_items_for_a_msg():
         "doc_type": "correspondence.email",
         "author": "Muster AG",
     }
+
+
+# --- keywords and document_status (spec L1) ----------------------------------------------
+
+
+def test_golden_vectors():
+    cases = json.loads(VECTORS.read_text(encoding="utf-8"))
+    assert len(cases) >= 12
+    assert {"keywords", "document_status"} <= {item for case in cases for item in case["items"]}
+    assert set(FILE_PROPERTY_KEYS) <= {key for case in cases for key in case["source_metadata"]}
+    failed = [case["name"] for case in cases
+              if map_metadata(case["source_metadata"], case["ext"], case["items"]) != case["fields"]]
+    assert failed == []
+
+
+def test_keywords_are_capped_at_32_values_in_order():
+    raw = ", ".join(f"Stichwort {i}" for i in range(40))
+    assert map_metadata({"docx:keywords": raw}, ".docx", {"keywords"}) == {
+        "keywords": [f"Stichwort {i}" for i in range(32)]}
+
+
+def test_a_keyword_over_256_characters_is_skipped_not_cut():
+    raw = ";".join(["a" * 257, "b" * 256, "c"])
+    assert map_metadata({"pdf:keywords": raw}, ".pdf", {"keywords"}) == {"keywords": ["b" * 256, "c"]}
+
+
+def test_skipped_keywords_do_not_use_up_the_cap():
+    raw = ", ".join([" "] * 10 + ["x" * 300] * 10 + [f"k{i}" for i in range(40)])
+    assert map_metadata({"pdf:keywords": raw}, ".pdf", {"keywords"})["keywords"] == [
+        f"k{i}" for i in range(32)]
+
+
+def test_status_final_is_sent_as_written_and_empty_values_are_skipped():
+    assert map_metadata({"docx:content_status": "Final"}, ".docx", {"document_status"}) == {
+        "status": "Final"}
+    assert map_metadata({"docx:content_status": "  "}, ".docx", {"document_status"}) == {}
+    assert map_metadata({"docx:keywords": " ; , "}, ".docx", {"keywords"}) == {}
+
+
+def test_word_keywords_and_status_end_to_end(tmp_path):
+    docx = pytest.importorskip("docx")
+    from sync.document_text import extract_document
+
+    document = docx.Document()
+    document.add_paragraph("Mietvertrag mit Beispiel GmbH.")
+    document.core_properties.keywords = "Vertrag, Miete; vertrag"
+    document.core_properties.content_status = "Final"
+    buf = io.BytesIO()
+    document.save(buf)
+    path = tmp_path / "mietvertrag.docx"
+    path.write_bytes(buf.getvalue())
+    md = extract_document(path).source_metadata
+    assert map_metadata(md, ".docx", {"keywords", "document_status"}) == {
+        "keywords": ["Vertrag", "Miete"], "status": "Final"}
 
 
 # --- source_metadata_from --------------------------------------------------------------

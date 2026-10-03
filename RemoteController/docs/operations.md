@@ -74,7 +74,7 @@ Configuration and costs: [configuration.md](configuration.md#per-source-document
 `GET /sync/status` (authenticated) carries two additions — keys, codes and counts, never values:
 
 ```json
-"capabilities": ["source_fields_v1", "field_templates_v1", "metadata_fields_v1", "fields_requeue_v1"],
+"capabilities": ["source_fields_v1", "field_templates_v1", "metadata_fields_v1", "fields_requeue_v1", "metadata_fields_v2"],
 "doc_fields": {
   "enabled": true,
   "server": "accepted",
@@ -92,6 +92,7 @@ Configuration and costs: [configuration.md](configuration.md#per-source-document
 ```
 
 - `capabilities` tells the Platform which sync-body keys this RemoteController understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("RemoteController zu alt").
+- `metadata_fields_v2`: the sync body may carry the file-property items `keywords` and `document_status`; the Platform sends them only to a Connector that reports it.
 - `enabled` is `RC_DOC_FIELDS`. `server` is `accepted` once an answer carried the fields echo (or a fields refusal, which also shows the feature is on), `not_accepted` when fields were sent and no echo came back (feature off at Knovas, or an older server), `unknown` before either. "Not accepted" never means "stored".
 - `documents.pending_reupload` estimates the documents still to be re-sent: `fields_changed` from the last scan not yet done, plus those requeued since (before the first cycle after a start, the stored requeued rows). `refused`, `not_accepted` and `reupload_failed` are the stored outcomes. `server` follows the latest cycle that got an answer, so idle cycles do not turn it back to `unknown`.
 - `unknown_keys` / `suggest` hold registry keys only (at most 20, from the last cycle): a configured key Knovas does not know, and the keys it suggests instead.

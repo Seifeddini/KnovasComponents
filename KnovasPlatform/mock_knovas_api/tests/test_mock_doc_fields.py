@@ -361,6 +361,23 @@ class TestValuesInit:
         assert POINTER not in mock.state.stored_pointers
         assert mock.init()[0] == 201                     # the retry without fields
 
+    def test_file_property_values(self):
+        """What the Knovas Connector's file-property opt-ins send (L1): Word's
+        content status as written is matched against the status choices'
+        labels; one Knovas does not know is dropped with an invalid_value
+        warning naming the key, never the value; keywords are text values."""
+        mock = Mock(doc_fields="values")
+        status, body = mock.init(fields={"status": "Final", "keywords": ["Vertrag", "Miete"]})
+        assert status == 201
+        assert body["fields"]["staged"] == 2 and body["fields"]["warnings"] == []
+        assert mock.values()[1]["fields"] == {"keywords": ["Vertrag", "Miete"], "status": "final"}
+        other = "rc-sync/Vertraege/review.docx"
+        status, body = mock.init(pointer=other, fields={"status": "In Review"})
+        assert status == 201 and body["fields"]["staged"] == 0
+        assert body["fields"]["warnings"] == [
+            {"key": "status", "path": "fields.status", "code": "invalid_value"}]
+        assert "status" not in mock.values(other)[1]["fields"]
+
 
 class TestValuesRead:
     def test_get_with_pointer_in_body(self):

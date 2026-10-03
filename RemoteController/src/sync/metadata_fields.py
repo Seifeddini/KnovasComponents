@@ -12,6 +12,14 @@ extractor already read to one registry key of the ``core`` pack:
     email_author     -> author         .eml/.msg From: display name, else
                                        the address
     document_author  -> author         pdf/docx/md author, junk skipped
+    keywords         -> keywords       pdf/docx keywords, .msg categories:
+                                       split on , and ;, trimmed, NFC,
+                                       de-duplicated ignoring case, at most
+                                       32 values of at most 256 characters
+    document_status  -> status         .docx content status, trimmed and
+                                       sent as written: Knovas matches it
+                                       against the status choices and drops
+                                       one it does not know (invalid_value)
 
 Never mapped: the file mtime, the Microsoft 365 lastModifiedDateTime and
 the PDF/DOCX/MD created/modified dates never become ``document_date`` (a
@@ -26,7 +34,9 @@ Values are customer data: nothing in this module logs.
 """
 from __future__ import annotations
 
+import json
 import re
+import unicodedata
 from email.utils import getaddresses
 from typing import Any, Iterable, Mapping, Optional
 
@@ -34,7 +44,10 @@ from typing import Any, Iterable, Mapping, Optional
 #: the config digest, so a bump re-sends every source that uses metadata.
 METADATA_MAPPING_VERSION = 1
 
-METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author")
+METADATA_ITEMS = (
+    "language", "email_date", "email_doc_type", "email_author", "document_author",
+    "keywords", "document_status",
+)
 
 #: The registry key each item writes.
 ITEM_TARGETS = {
@@ -43,6 +56,8 @@ ITEM_TARGETS = {
     "email_doc_type": "doc_type",
     "email_author": "author",
     "document_author": "author",
+    "keywords": "keywords",
+    "document_status": "status",
 }
 
 EMAIL_DOC_TYPE = "correspondence.email"
@@ -68,6 +83,12 @@ FILE_PROPERTY_KEYS = (PDF_KEYWORDS, DOCX_KEYWORDS, MSG_CATEGORIES, DOCX_CONTENT_
 #: value this long may be cut: it is left out, never carried cut (a cut
 #: keyword list ends in half a word).
 MAX_SOURCE_VALUE_CHARS = 4096
+#: The file property each format keeps its keywords in.
+KEYWORD_SOURCES = {".pdf": PDF_KEYWORDS, ".docx": DOCX_KEYWORDS, ".msg": MSG_CATEGORIES}
+#: The Knovas 1.5.0 limits of a field that holds several values.
+MAX_KEYWORDS = 32
+MAX_KEYWORD_CHARS = 256
+_KEYWORD_SEPARATORS = re.compile(r"[,;]")
 
 LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 _SKIPPED_LANGUAGES = frozenset({"x-default", "und"})
@@ -156,6 +177,42 @@ def _document_author(raw: Optional[str]) -> Optional[str]:
     return raw
 
 
+def _keyword_items(raw: str) -> list[str]:
+    """The items of a keywords value: a JSON array of strings (how
+    knovas-extract writes a list into ``extra``, e.g. Outlook categories)
+    gives its items whole; any other text is split on ``,`` and ``;``."""
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, str)]
+    return _KEYWORD_SEPARATORS.split(raw)
+
+
+def _keywords(raw: Optional[str]) -> list[str]:
+    """Trimmed, NFC, de-duplicated ignoring case (the first spelling stays),
+    at most MAX_KEYWORDS values of at most MAX_KEYWORD_CHARS characters. An
+    empty or over-long item is skipped, never cut, and does not count."""
+    if raw is None:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in _keyword_items(raw):
+        value = unicodedata.normalize("NFC", item.strip())
+        if not value or len(value) > MAX_KEYWORD_CHARS:
+            continue
+        folded = value.casefold()
+        if folded in seen:
+            continue
+        seen.add(folded)
+        out.append(value)
+        if len(out) == MAX_KEYWORDS:
+            break
+    return out
+
+
 def map_metadata(md: Optional[Mapping[str, Any]], ext: str, enabled: Iterable[str]) -> dict[str, Any]:
     """The field values the enabled items yield for one document.
 
@@ -193,4 +250,12 @@ def map_metadata(md: Optional[Mapping[str, Any]], ext: str, enabled: Iterable[st
         author = _document_author(_text(md, "author"))
         if author is not None:
             out[ITEM_TARGETS["document_author"]] = author
+    if "keywords" in items:
+        keywords = _keywords(_text(md, KEYWORD_SOURCES.get(ext, "")))
+        if keywords:
+            out[ITEM_TARGETS["keywords"]] = keywords
+    if ext == ".docx" and "document_status" in items:
+        status = _text(md, DOCX_CONTENT_STATUS)
+        if status is not None:
+            out[ITEM_TARGETS["document_status"]] = status
     return out

@@ -40,8 +40,8 @@
           "metadata_fields": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "enum": ["language", "email_date", "email_doc_type", "email_author", "document_author"] },
-            "description": "Extractor metadata items mapped into upload fields for this source, each one opted into by the administrator. Mapped keys are never registered automatically."
+            "items": { "enum": ["language", "email_date", "email_doc_type", "email_author", "document_author", "keywords", "document_status"] },
+            "description": "Extractor metadata items mapped into upload fields for this source, each one opted into by the administrator. Mapped keys are never registered automatically. keywords and document_status need the capability metadata_fields_v2. Golden vectors: contracts/vectors/metadata_fields.json."
           }
         }
       }

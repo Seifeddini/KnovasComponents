@@ -161,12 +161,16 @@ Golden vectors: [contracts/vectors/field_templates.json](../contracts/vectors/fi
 | `email_doc_type` | `doc_type` = `correspondence.email` | `.eml` / `.msg` only. |
 | `email_author` | `author` | `.eml` / `.msg` `From:` display name, else the address. |
 | `document_author` | `author` | `.pdf` / `.docx` author; placeholder authors (`Administrator`, `User`, `Microsoft Office User`, …) are skipped. |
+| `keywords` | `keywords` | `.pdf` / `.docx` keywords, `.msg` categories: split on `,` and `;`, trimmed, Unicode NFC, duplicates ignoring case dropped (the first spelling stays), at most 32 values of at most 256 characters. knovas-extract 0.4.0a1 does not read Outlook categories yet (extract-msg 0.56 has none on a message), so `.msg` files give none until it does. |
+| `document_status` | `status` | `.docx` content status (*Dokumentstatus*), trimmed and sent as written. Knovas matches it against the labels and other names of the `status` choices; one it does not know is dropped with an `invalid_value` warning (counted per key in `/sync/status`). |
 
-`.md` and `.txt` files never yield `author` or `language`: they are extracted
-as plain text, which has no document properties. A file's modification time,
-the Microsoft 365 `lastModifiedDateTime` and PDF/DOCX created/modified dates
-never become `document_date`, and no Message-ID or sender/recipient key is
-mapped.
+`.md` and `.txt` files never yield `author`, `language`, `keywords` or `status`:
+they are extracted as plain text, which has no document properties. A file's
+modification time, the Microsoft 365 `lastModifiedDateTime` and PDF/DOCX
+created/modified dates never become `document_date`, and no Message-ID or
+sender/recipient key is mapped. `keywords` and `document_status` need a
+Platform and a Connector that know them (capability `metadata_fields_v2`);
+golden vectors: [contracts/vectors/metadata_fields.json](../contracts/vectors/metadata_fields.json).
 
 **Precedence.** Per key: template capture, then the fixed value, then the file
 property. All three land in Knovas's **upload layer**, which outranks a

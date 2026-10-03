@@ -57,6 +57,8 @@ RC_CAPABILITIES = (
     "field_templates_v1",
     "metadata_fields_v1",
     "fields_requeue_v1",
+    # The file-property items ``keywords`` and ``document_status`` (spec L1).
+    "metadata_fields_v2",
 )
 # Set when a new folder list is stored, so the worker stops waiting and looks
 # now. Without it, saving a profile took effect at the top of the next cycle --

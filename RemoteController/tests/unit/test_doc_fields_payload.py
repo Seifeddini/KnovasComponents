@@ -382,6 +382,28 @@ def test_digest_is_non_empty_for_a_metadata_source_even_when_the_payload_is_empt
     assert config_digest("a/b.pdf", spec) != ""
 
 
+def test_a_new_file_property_item_changes_the_digest_and_the_old_items_keep_theirs():
+    """Spec L1: enabling keywords or document_status re-sends the source
+    within the bound. METADATA_MAPPING_VERSION stays, so a source with the
+    old items only keeps its digest (a bump would re-send every one)."""
+    rel = "a/b.pdf"
+    base = _spec(metadata_fields=["language"])
+    assert config_digest(rel, base) == "9d8c959313ac1d672a40f5ecebb11a7f4a40d639c7a8287ccf0a5bfe26381d9c"
+    digests = {config_digest(rel, _spec(metadata_fields=items))
+               for items in (["language"], ["language", "keywords"], ["language", "document_status"])}
+    assert len(digests) == 3
+
+
+def test_file_properties_stay_below_templates_and_fixed_values():
+    md = {"docx:keywords": "Vertrag, Miete", "docx:content_status": "Final"}
+    spec = _spec(fields={"keywords": ["Akte"]}, metadata_fields=["keywords", "document_status"])
+    assert assemble("a/Vertrag.docx", spec, md, ".docx").values == {
+        "keywords": ["Akte"], "status": "Final"}
+    only_properties = _spec(metadata_fields=["keywords", "document_status"])
+    assert assemble("a/Vertrag.docx", only_properties, md, ".docx").values == {
+        "keywords": ["Vertrag", "Miete"], "status": "Final"}
+
+
 # --- fields_to_send ------------------------------------------------------------------------
 
 
