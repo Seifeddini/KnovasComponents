@@ -4,6 +4,10 @@
 
 - Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.
 
+### Document fields per Knovas 1.5.0 (Knovas Connector)
+
+- **Upload warnings name their field** (F4): `GET /sync/status` → `doc_fields.warnings` is a list of `{code, key, count}` for the last cycle, the most frequent first, at most 50 (it was `{code: count}`; the `POST /sync` summary keeps that shape). Field keys only — never a value or the warning's JSON path; a "key" that is not key-shaped is reported as `""`. `rc_doc_fields_warnings_total{code}` counts `ambiguous_number` (Knovas 1.5.0) instead of `other`.
+
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
 Takes effect only for a tenant where Knovas has enabled Document Fields. Against any other server the bodies, the outcomes and the indexing are as in 0.2.0.

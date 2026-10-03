@@ -326,7 +326,7 @@ class TestRoutes:
         assert block["per_cycle"] == 100
         assert block["documents"]["with_fields"] == 1
         assert block["last_cycle"]["staged"] == 1
-        assert block["warnings"] == {"unresolved_entity": 1}
+        assert block["warnings"] == [{"code": "unresolved_entity", "key": "party", "count": 1}]
         assert block["unknown_keys"] == ["doctype"]
         assert block["suggest"] == {"doctype": ["doc_type"]}
         assert block["template_errors"] == {"field_template_invalid": 0}

@@ -51,6 +51,7 @@ class Server:
         self.refuse: dict[str, requests.Response] = {}
         self.fail: dict[str, Callable[[], requests.Response]] = {}
         self.inits: list[dict] = []
+        self.echo_warnings: list[dict] = []
 
     def rels(self) -> list[str]:
         return [b["path"] for b in self.inits]
@@ -70,7 +71,7 @@ class Server:
                         return answer
             out = {"status": "success", "transmission_key_id": f"tk-{len(self.inits)}"}
             if self.mode == "values" and "fields" in body:
-                out["fields"] = echo_for(body["fields"])
+                out["fields"] = dict(echo_for(body["fields"]), warnings=list(self.echo_warnings))
             return _response(201, out)
         if path == PART:
             return _response(200, {"status": "success", "transmission_complete": True})
@@ -849,3 +850,45 @@ class TestConfiguration:
         ]
         self._load(monkeypatch, RC_DOC_FIELDS="off", RC_FIELDS_REUPLOAD_PER_CYCLE="250")
         assert _doc_fields_config_problems() == []
+
+
+class TestWarningKeys:
+    """Spec F4: Knovas's upload warnings are counted per (code, key) and
+    /sync/status lists them; the code counts stay for the POST /sync summary."""
+
+    def test_pairs_per_cycle_and_in_the_status(self, rc):
+        from sync.sync_scheduler import _remember_doc_fields, doc_fields_status
+
+        rc.server.echo_warnings = [
+            {"key": "mandant", "path": "fields.mandant", "code": "unresolved_entity"},
+            {"key": "period", "path": "fields.period", "code": "invalid_value"},
+        ]
+        for i in range(3):
+            rc.write(f"Muster AG/GJ 2024/R{i}.txt")
+        result = rc.run(rc.body(rc.source(**MANDATE)))
+        assert result.files_uploaded == 3
+        assert result.doc_fields.warning_pairs == Counter({
+            ("unresolved_entity", "mandant"): 3, ("invalid_value", "period"): 3})
+        assert result.doc_fields.as_dict()["warnings"] == {"invalid_value": 3, "unresolved_entity": 3}
+        _remember_doc_fields(result)
+        assert doc_fields_status()["warnings"] == [
+            {"code": "invalid_value", "key": "period", "count": 3},
+            {"code": "unresolved_entity", "key": "mandant", "count": 3},
+        ]
+
+
+def test_warning_entries_are_the_most_frequent_first_and_capped():
+    from sync.doc_fields_payload import FieldsOutcome
+    from sync.sync_executor import MAX_REPORTED_WARNINGS, DocFieldsCycle
+
+    cycle = DocFieldsCycle()
+    pairs = tuple(("invalid_value", f"k{i:02d}") for i in range(60))
+    cycle.note_outcome("staged", FieldsOutcome("staged", warnings=pairs))
+    cycle.note_outcome("staged", FieldsOutcome(
+        "staged", warnings=(("ambiguous_date", "document_date"),) * 3))
+    entries = cycle.warning_entries()
+    assert MAX_REPORTED_WARNINGS == 50 and len(entries) == 50
+    assert entries[0] == {"code": "ambiguous_date", "key": "document_date", "count": 3}
+    assert entries[1] == {"code": "invalid_value", "key": "k00", "count": 1}
+    assert entries[-1] == {"code": "invalid_value", "key": "k48", "count": 1}
+    assert DocFieldsCycle().warning_entries() == []

@@ -138,6 +138,9 @@ class SyncRunResult:
 
 #: At most this many unknown keys / suggestions are kept per cycle.
 MAX_REPORTED_KEYS = 20
+#: At most this many ``(code, key)`` warning entries are reported per cycle
+#: (spec F4), the most frequent first.
+MAX_REPORTED_WARNINGS = 50
 
 
 @dataclass
@@ -145,14 +148,17 @@ class DocFieldsCycle:
     """What one cycle did with Knovas document fields (spec 3.8).
 
     Outcome names, refusal and warning codes, failure classes and counts --
-    plus the registry or configuration KEYS the server did not know. Never a
-    value, a capture, a path or a pointer.
+    plus the registry or configuration KEYS the server did not know or named
+    in a warning. Never a value, a capture, a path or a pointer.
     """
 
     outcomes: Counter = field(default_factory=Counter)
     refused: Counter = field(default_factory=Counter)
     reupload_failed: Counter = field(default_factory=Counter)
     warnings: Counter = field(default_factory=Counter)
+    #: ``(code, key)`` per Knovas upload warning (spec F4): the field key,
+    #: never the value or the warning's path.
+    warning_pairs: Counter = field(default_factory=Counter)
     dropped: Counter = field(default_factory=Counter)
     unknown_keys: list[str] = field(default_factory=list)
     suggest: dict[str, list[str]] = field(default_factory=dict)
@@ -173,6 +179,7 @@ class DocFieldsCycle:
         if fields is None:
             return
         self.warnings.update(fields.warning_codes)
+        self.warning_pairs.update(fields.warnings)
         for key in fields.unknown_keys:
             if key not in self.unknown_keys and len(self.unknown_keys) < MAX_REPORTED_KEYS:
                 self.unknown_keys.append(key)
@@ -204,6 +211,16 @@ class DocFieldsCycle:
             "rel_collisions": self.rel_collisions,
             "requeued": self.requeued,
         }
+
+    def warning_entries(self) -> list[dict[str, Any]]:
+        """``[{"code", "key", "count"}]`` for /sync/status (spec F4): the most
+        frequent first (ties by code, then key), at most MAX_REPORTED_WARNINGS.
+        Codes and field keys only."""
+        ranked = sorted(self.warning_pairs.items(), key=lambda item: (-item[1], item[0]))
+        return [
+            {"code": code, "key": key, "count": count}
+            for (code, key), count in ranked[:MAX_REPORTED_WARNINGS]
+        ]
 
     def as_dict(self) -> dict[str, Any]:
         """The ``doc_fields`` block of the /sync response."""
