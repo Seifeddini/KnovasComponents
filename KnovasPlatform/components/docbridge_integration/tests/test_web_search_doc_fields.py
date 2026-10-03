@@ -123,13 +123,15 @@ class TestFeatureOffParity:
         client = signed_in(identity_app, identity_repo, role="member")
         response = search(client)
         assert response.status_code == 200
-        assert knovas.search_requests == [{"query": "Kuendigungsfrist", "limit": 20,
+        # 40: the page of 20 plus the margin main asks for, so experiment hits
+        # taken out never leave the page short (_fetch_search_page).
+        assert knovas.search_requests == [{"query": "Kuendigungsfrist", "limit": 40,
                                           "filters": {}, "where": None,
                                           "return_fields": None}]
         body = response.get_json()
         # Today's keys plus two blocks; nothing renamed, nothing removed.
         assert set(body) == {"success", "query", "results", "literal_query_matches",
-                             "highlight_prefixes", "total", "timestamp",
+                             "highlight_prefixes", "total", "has_more", "timestamp",
                              "onedrive_enrichment_loaded", "location_summary",
                              "document_fields", "honesty"}
         assert body["document_fields"] == {"capability": "off", "filter_state": "none",
@@ -510,8 +512,10 @@ class TestRows:
         assert all("patient" not in {d["key"] for d in r["fields_display"]}
                    for r in body["results"])
 
-    @pytest.mark.parametrize("limit, sent", [(100, 50), (51, 50), (50, 50), (0, 1),
-                                             (-5, 1), ("viele", 20), (None, 20)])
+    # ``sent`` is what Knovas is asked for: the clamped page plus the
+    # experiments margin (_search_fetch_size), never more than 50.
+    @pytest.mark.parametrize("limit, sent", [(100, 50), (51, 50), (50, 50), (0, 2),
+                                             (-5, 2), ("viele", 40), (None, 40)])
     def test_limit_is_clamped(self, filters_app, identity_repo, limit, sent):
         app, api = filters_app
         client = signed_in(app, identity_repo, role="member")

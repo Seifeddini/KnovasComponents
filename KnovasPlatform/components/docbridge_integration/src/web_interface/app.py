@@ -3385,10 +3385,12 @@ def _apply_search_refinement(
 #: page one document short, and "Mehr laden" (offered for a full page only)
 #: would disappear with it.
 SEARCH_FETCH_MARGIN = 20
-#: The most /api/search asks Knovas for to make room -- the ceiling the
-#: module's own search uses as well (ExperimentService.search). A page
-#: larger than this is asked for as it is.
-SEARCH_FETCH_CEILING = 200
+#: The most /api/search asks Knovas for to make room: /secured/query answers
+#: 422 above 50 (_SEARCH_LIMIT_MAX; knovas_client clamps to the same), so a
+#: larger question would only be cut down there and make has_more read
+#: "no more" when Knovas could not say. A page larger than this is asked
+#: for as it is.
+SEARCH_FETCH_CEILING = _SEARCH_LIMIT_MAX
 
 
 def _search_page_limit(raw: Any, default: Any) -> int:
