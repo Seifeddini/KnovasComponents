@@ -10,6 +10,8 @@ What is pinned here is what the person sees and what leaves the Platform:
     * H3 -- a filtered search is never retried unfiltered, and the client
       score thresholds and the filename supplement stay out of it; a search
       refused only for ``return_fields`` is retried once without them;
+    * F3 -- Knovas's ``auto_scope`` node ids stay on the server: they may
+      name nodes the person may not see;
     * D8 -- with the feature off, Knovas gets exactly today's call and the
       browser only additive keys;
     * D6 -- no query text, filter value or pointer in a log line.
@@ -581,6 +583,44 @@ class TestGrants:
         client = signed_in(app, identity_repo, role="member")
         search(client, where={"doc_type": "invoice"})
         assert client.get(f"/api/document/{INVOICE}/download").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# F3: Knovas's auto_scope stays on the server
+# ---------------------------------------------------------------------------
+
+class TestAutoScopeStaysOnTheServer:
+    def test_node_ids_never_reach_the_browser(self, filters_app, identity_repo, monkeypatch):
+        """Knovas narrowed the search to the nodes it recognised in the
+        question. Their ids may name nodes this person may not see, so the
+        semantix block reaches the browser without auto_scope, and otherwise
+        unchanged."""
+        from knovas_client import _secured_query_honesty
+
+        app, api = filters_app
+        # What the real client keeps of Knovas's block.
+        kept = _secured_query_honesty({"auto_scope": {
+            "detections": [{"node_id": "hidden-node", "identifier_id": "i-9",
+                            "channel": "lexical", "score": 0.97}],
+            "node_ids": ["m1", "hidden-node"], "applied": True,
+            "fallback": False}})["auto_scope"]
+        assert kept["node_ids"] == ["hidden-node", "m1"]
+        answer = api.search_documents
+
+        def narrowed(*args, **kwargs):
+            out = answer(*args, **kwargs)
+            out["semantix"]["auto_scope"] = kept
+            return out
+
+        client = signed_in(app, identity_repo, role="member")
+        plain = search(client).get_json()["semantix"]
+        monkeypatch.setattr(api, "search_documents", narrowed)
+        response = search(client)
+        assert response.status_code == 200
+        body = response.get_json()
+        assert len(body["results"]) == 3
+        assert body["semantix"] == plain, "only auto_scope stays behind"
+        assert "hidden-node" not in response.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------

@@ -2154,7 +2154,10 @@ def create_app(config_path: Optional[str] = None):
                 'honesty': doc_fields_routes.honesty_block(semantix_meta),
             }
             if 'semantix' in refined and isinstance(refined.get('semantix'), dict):
-                payload['semantix'] = refined['semantix']
+                # Knovas's auto_scope stays on the server: its node ids may
+                # name nodes this person may not see (spec F3).
+                payload['semantix'] = {k: v for k, v in refined['semantix'].items()
+                                       if k != 'auto_scope'}
             if config.get_bool('web.search.expose_similarity_scores_in_json', False):
                 payload['similarity_debug'] = _build_similarity_debug(final_results)
 
