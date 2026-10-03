@@ -1,5 +1,26 @@
 # Unreleased
 
+## Neu extrahieren nach einem Extraktor-Update
+
+Neuere Versionen von knovas-extract lesen manche Dokumente besser (Tabellen
+in Word-Dateien, Seitenzahlen grosser Scans, Texterkennung je Seite). Bereits
+indexierte Dokumente profitieren davon erst, wenn sie neu extrahiert werden.
+
+- *Verwaltung -> Ingestion* zeigt "N Dokumente mit aelterer Extraktion" und
+  bietet Administratoren *Neu extrahieren* an. Ein Dialog nennt vorher
+  Anzahl, Kosten und Dauer wie bei einer Feldaenderung; ohne diese
+  Bestaetigung wird nichts neu extrahiert. Die Anfrage steht mit Zahlen im
+  Protokoll (`ingestion.reextract_requeued`).
+- Der Knovas Connector liest die Dokumente neu, hoechstens
+  `RC_REEXTRACT_PER_CYCLE` (100) je Durchlauf, nach neuen, geaenderten und
+  wegen Feldern erneut zu sendenden Dateien -- teilweise extrahierte zuerst,
+  dann PDF, Word, E-Mails. Gesendet wird nur, was sich geaendert hat (Text,
+  Seitenzahlen, Felder, Titel, Beschreibung); jedes gesendete Dokument ist
+  ein verrechneter Upload. Beim ersten Mal nach diesem Update werden alle
+  gesendet, weil der Vergleichswert noch fehlt.
+- `GET /sync/status` des Connectors meldet `extraction.outdated`, `queued`
+  und `per_cycle` -- nur Zahlen.
+
 ## Dokumentfelder (Dokumentwerte)
 
 Typisierte Werte je Dokument -- Mandant, Zeitraum, Dokumentart, Gericht,

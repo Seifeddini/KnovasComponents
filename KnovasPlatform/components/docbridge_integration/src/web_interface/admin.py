@@ -370,6 +370,7 @@ def create_admin_blueprint(
             client_factory=client_factory,
             rc_client_factory=rc_client_factory,
             require_ingestion=require_ingestion,
+            require_admin=require_admin,
         )
         executors["ingestion_profile_change"] = lambda payload, actor: (
             execute_ingestion_change(payload, actor, conn=gate.connection(),

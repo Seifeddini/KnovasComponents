@@ -27,6 +27,11 @@ class FakeRemoteControllerClient:
     doc_fields_block = None
     document_sync = None
     requeue_answer = 0
+    #: Re-extraction (spec L6). None leaves ``extraction`` out of status(),
+    #: the way an older Knovas Connector answers.
+    extraction_block = None
+    reextract_answer: dict = {"requeued": 0}
+    reextract_error = None
     #: Extra /discover answers by root, for the template preview.
     extra_entries: dict = {}
 
@@ -76,6 +81,8 @@ class FakeRemoteControllerClient:
             out["doc_fields"] = self.doc_fields_block
         if self.document_sync is not None:
             out["document_sync"] = self.document_sync
+        if self.extraction_block is not None:
+            out["extraction"] = self.extraction_block
         return out
 
     def capabilities(self):
@@ -86,6 +93,12 @@ class FakeRemoteControllerClient:
         self.calls.append("requeue_doc_fields")
         self.requeued.append(outcome)
         return self.requeue_answer
+
+    def requeue_reextract(self):
+        self.calls.append("requeue_reextract")
+        if self.reextract_error is not None:
+            raise self.reextract_error
+        return dict(self.reextract_answer)
 
     def start(self):
         self.calls.append("start")
@@ -128,7 +141,9 @@ class TestShape:
         from web_interface import admin_ingestion
 
         src = inspect.getsource(admin_ingestion)
-        assert src.count("@bp.route") == src.count("@require_ingestion")
+        # Every route has a gate; *Neu extrahieren* is admin only (spec L6).
+        assert src.count("@bp.route") == (src.count("@require_ingestion")
+                                          + src.count("@require_admin"))
         first_state_change = {
             "def preview(": "rc_client_factory()",
             "def save(": "run_guarded(",
@@ -136,6 +151,7 @@ class TestShape:
             "def start(": "rc_client_factory().start()",
             "def stop(": "run_guarded(",
             "def requeue_doc_fields(": "rc_client_factory()",
+            "def reextract(": "rc_client_factory()",
             "def template_preview_json(": "rc_client_factory()",
         }
         for fn, marker in first_state_change.items():
@@ -2069,3 +2085,261 @@ class TestStaleApprovalNeverResendsUnconfirmed:
         admin_ingestion.execute_ingestion_change(approved.payload, people["c"],
                                                  conn=platform_db, rc_client=rc)
         assert IngestionProfileRepository(platform_db).current().profile.schedule == "continuous"
+
+
+class TestReextractSection:
+    """Spec L6: "N Dokumente mit \u00e4lterer Extraktion" and the cost of *Neu
+    extrahieren*, from the Knovas Connector's counts only."""
+
+    BLOCK = {"knovas_extract_version": "0.4.0a1", "outdated": 20000, "queued": 0,
+             "per_cycle": 100}
+
+    def test_a_connector_without_the_counts_shows_nothing(self):
+        from web_interface.admin_ingestion import reextract_status
+
+        assert reextract_status(None) is None
+        assert reextract_status({"scheduler_state": "x"}) is None
+        assert reextract_status({"extraction": {"knovas_extract_version": "0.4.0a1"}}) is None
+
+    def test_the_counts_and_who_may_ask(self):
+        from web_interface.admin_ingestion import reextract_status
+
+        status = {"extraction": dict(self.BLOCK, queued=12)}
+        admin = reextract_status(status, is_admin=True)
+        assert (admin["outdated"], admin["queued"], admin["per_cycle"]) == (20000, 12, 100)
+        assert admin["can_request"] is True and admin["admin_only"] is False
+        other = reextract_status(status, is_admin=False)
+        assert other["can_request"] is False and other["admin_only"] is True
+        current = reextract_status({"extraction": {"outdated": 0}}, is_admin=True)
+        assert current["can_request"] is False and current["admin_only"] is False
+        assert reextract_status({"extraction": {"outdated": "viele"}}, is_admin=True)["outdated"] == 0
+
+    def test_the_bound_is_the_connectors_capped_by_the_speed(self):
+        from web_interface.admin_ingestion import reextract_status
+
+        status = {"extraction": dict(self.BLOCK, per_cycle=500)}
+        assert reextract_status(status, throughput="gentle")["per_cycle"] == 100
+        assert reextract_status({"extraction": {"outdated": 3}})["per_cycle"] == 100, "default bound"
+
+    def test_the_sentence_states_count_cost_and_duration_like_a_field_change(self):
+        from web_interface.admin_ingestion import reextract_text
+
+        text = reextract_text(20000, 100, "nightly", "normal")
+        assert text.startswith("20000 Dokumente wurden mit einer \u00e4lteren Extraktion indexiert.")
+        assert "je ein verrechneter Upload, h\u00f6chstens 20000" in text
+        assert "Bei 100 pro Durchlauf" in text and "ca. 3 N\u00e4chte" in text
+        assert "10-mal Start" in reextract_text(1000, 500, "manual", "gentle")
+
+    def test_a_confirmation_is_a_plain_number(self):
+        from web_interface.admin_ingestion import _confirmed_count
+
+        assert _confirmed_count(" 20000 ") == 20000
+        assert _confirmed_count(None) is None and _confirmed_count("") is None
+        assert _confirmed_count("-3") is None and _confirmed_count("20 000") is None
+        # isdigit() alone admits a superscript two, which int() refuses; and a number
+        # longer than int() parses must not end in a 500 either.
+        assert _confirmed_count("\u00b2") is None
+        assert _confirmed_count("9" * 5000) is None
+
+
+def _rx(**overrides):
+    rx = {"outdated": 7, "queued": 0, "per_cycle": 100, "can_request": True,
+          "admin_only": False, "confirm": None}
+    rx.update(overrides)
+    return rx
+
+
+class TestTemplateReextract:
+    def test_without_the_counts_the_page_is_as_before(self):
+        html = _render()
+        assert "\u00e4lterer Extraktion" not in html and "reextract" not in html
+
+    def test_the_section_and_its_button(self):
+        html = _render(reextract=_rx(queued=2))
+        assert "7 Dokumente mit \u00e4lterer Extraktion" in html
+        assert "2 davon zum Neu-Extrahieren vorgemerkt" in html
+        assert 'action="/admin/reextract"' in html and ">Neu extrahieren</button>" in html
+        assert 'name="confirm_reextract"' not in html, "the button only opens the confirmation"
+        assert html.count('name="csrf_token"') >= html.count('method="post"')
+
+    def test_who_may_not_ask_is_told_so(self):
+        html = _render(reextract=_rx(can_request=False, admin_only=True))
+        assert 'action="/admin/reextract"' not in html
+        assert "nur die Rolle admin" in html
+
+    def test_the_confirmation_carries_the_count_it_showed(self):
+        html = _render(reextract=_rx(confirm={"count": 7, "text": "7 Dokumente wurden ..."}))
+        assert "Neu extrahieren best\u00e4tigen" in html and "7 Dokumente wurden ..." in html
+        assert 'name="confirm_reextract" value="7"' in html
+        assert "7 Dokumente neu extrahieren</button>" in html
+
+
+@pytest.mark.skipif(not platform_db_reachable(),
+                    reason="No PostgreSQL at the identity test DSN")
+class TestLiveReextract:
+    """*Neu extrahieren* through the real app, login and audit log (spec L6)."""
+
+    BLOCK = {"knovas_extract_version": "0.4.0a1", "pdf_text_mode": "layout",
+             "docx_text_mode": "layout", "ocr_engine": "auto",
+             "outdated": 20000, "queued": 0, "per_cycle": 100}
+
+    @pytest.fixture
+    def rc(self, monkeypatch):
+        import remote_controller_client
+
+        FakeRemoteControllerClient.last_instance = None
+        monkeypatch.setattr(remote_controller_client, "RemoteControllerClient",
+                            FakeRemoteControllerClient)
+        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block", dict(self.BLOCK))
+        monkeypatch.setattr(FakeRemoteControllerClient, "reextract_answer", {"requeued": 20000})
+        return FakeRemoteControllerClient
+
+    @pytest.fixture
+    def client(self, rc, identity_app):
+        return identity_app.test_client()
+
+    @pytest.fixture
+    def people(self, identity_repo):
+        from _console import PASSWORD
+
+        out = {}
+        for email, role in (("chef@kanzlei.ch", "admin"),
+                            ("ingest@kanzlei.ch", "ingestion_manager"),
+                            ("anwalt@kanzlei.ch", "member")):
+            u = identity_repo.create(email=email, display_name=email.split("@")[0],
+                                     password=PASSWORD)
+            identity_repo.grant_role(u.id, role)
+            out[email] = identity_repo.get(u.id)
+        return out
+
+    @staticmethod
+    def _post(client, **fields):
+        from _console import post_form
+
+        return post_form(client, "/admin/ingestion/reextract", page="/admin/ingestion", **fields)
+
+    def test_the_count_shows_and_only_an_admin_gets_the_button(self, client, people):
+        from _console import sign_in
+
+        sign_in(client, "chef@kanzlei.ch")
+        html = client.get("/admin/ingestion").data.decode("utf-8")
+        assert "20000 Dokumente mit \u00e4lterer Extraktion" in html
+        assert 'action="/admin/ingestion/reextract"' in html
+        _logout(client)
+        sign_in(client, "ingest@kanzlei.ch")
+        html = client.get("/admin/ingestion").data.decode("utf-8")
+        assert "20000 Dokumente mit \u00e4lterer Extraktion" in html
+        assert 'action="/admin/ingestion/reextract"' not in html
+        assert "nur die Rolle admin" in html
+
+    def test_anyone_but_an_admin_is_refused_the_post(self, client, people, rc):
+        from _console import sign_in
+
+        for email in ("ingest@kanzlei.ch", "anwalt@kanzlei.ch"):
+            sign_in(client, email)
+            with client.session_transaction() as sess:
+                token = sess.get("csrf_token")
+            r = client.post("/admin/ingestion/reextract",
+                            data={"csrf_token": token, "confirm_reextract": "20000"})
+            assert r.status_code == 403, email
+            _logout(client)
+        assert rc.last_instance.count("requeue_reextract") == 0
+
+    def test_the_post_checks_csrf_first(self, client, people, rc):
+        from _console import sign_in
+
+        sign_in(client, "chef@kanzlei.ch")
+        r = client.post("/admin/ingestion/reextract", data={"confirm_reextract": "20000"})
+        assert r.status_code == 400
+        assert rc.last_instance.count("requeue_reextract") == 0
+
+    def test_a_click_shows_count_cost_and_duration_and_queues_nothing(
+        self, client, people, rc, platform_db
+    ):
+        from _console import sign_in
+
+        sign_in(client, "chef@kanzlei.ch")
+        r = self._post(client)
+        html = r.data.decode("utf-8")
+        assert r.status_code == 400
+        assert "Neu extrahieren best\u00e4tigen" in html
+        assert "20000 Dokumente wurden mit einer \u00e4lteren Extraktion indexiert" in html
+        assert "je ein verrechneter Upload, h\u00f6chstens 20000" in html
+        assert "Bei 100 pro Durchlauf" in html and "ca. 3 N\u00e4chte" in html
+        assert 'name="confirm_reextract" value="20000"' in html
+        assert rc.last_instance.count("requeue_reextract") == 0
+        assert platform_db.execute("SELECT count(*) FROM audit_log "
+                                   "WHERE action = 'ingestion.reextract_requeued'").fetchone()[0] == 0
+
+    def test_the_confirmed_click_queues_and_is_audited_with_counts_only(
+        self, client, people, rc, platform_db
+    ):
+        from _console import sign_in
+
+        sign_in(client, "chef@kanzlei.ch")
+        r = self._post(client, confirm_reextract="20000")
+        assert r.status_code == 200
+        assert "20000 Dokumente zum Neu-Extrahieren vorgemerkt" in r.data.decode("utf-8")
+        assert rc.last_instance.count("requeue_reextract") == 1
+        row = platform_db.execute("SELECT detail FROM audit_log "
+                                  "WHERE action = 'ingestion.reextract_requeued'").fetchone()
+        assert row[0] == {"outdated": 20000, "requeued": 20000}
+
+    def test_a_count_that_grew_since_the_dialog_is_confirmed_again(self, client, people, rc):
+        from _console import sign_in
+
+        sign_in(client, "chef@kanzlei.ch")
+        r = self._post(client, confirm_reextract="150")
+        assert r.status_code == 400
+        assert 'name="confirm_reextract" value="20000"' in r.data.decode("utf-8")
+        assert rc.last_instance.count("requeue_reextract") == 0
+
+    def test_nothing_outdated_queues_nothing(self, client, people, rc, monkeypatch):
+        from _console import sign_in
+
+        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block",
+                            dict(self.BLOCK, outdated=0))
+        sign_in(client, "chef@kanzlei.ch")
+        r = self._post(client, confirm_reextract="0")
+        assert r.status_code == 200
+        assert "Keine Dokumente mit \u00e4lterer Extraktion." in r.data.decode("utf-8")
+        assert rc.last_instance.count("requeue_reextract") == 0
+
+    def test_an_old_connector_is_told_to_update(self, client, people, rc, monkeypatch):
+        from _console import sign_in
+        from remote_controller_client import RemoteControllerError
+
+        monkeypatch.setattr(FakeRemoteControllerClient, "reextract_error",
+                            RemoteControllerError("HTTP 404", status=404))
+        sign_in(client, "chef@kanzlei.ch")
+        r = self._post(client, confirm_reextract="20000")
+        assert r.status_code == 502
+        assert "Knovas Connector zu alt \u2013 bitte aktualisieren" in r.data.decode("utf-8")
+
+    def test_a_connector_without_the_counts_is_too_old_and_never_asked(
+        self, client, people, rc, monkeypatch
+    ):
+        from _console import sign_in
+
+        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block", None)
+        sign_in(client, "chef@kanzlei.ch")
+        assert "\u00e4lterer Extraktion" not in client.get("/admin/ingestion").data.decode("utf-8")
+        r = self._post(client, confirm_reextract="20000")
+        assert r.status_code == 400
+        assert "Knovas Connector zu alt \u2013 bitte aktualisieren" in r.data.decode("utf-8")
+        assert rc.last_instance.count("requeue_reextract") == 0
+
+    def test_an_unreachable_connector_is_not_called_too_old(self, client, people, rc, monkeypatch):
+        from _console import sign_in
+        from remote_controller_client import RemoteControllerError
+
+        def down(self):
+            raise RemoteControllerError("Knovas Connector nicht erreichbar: timeout", status=None)
+
+        monkeypatch.setattr(FakeRemoteControllerClient, "status", down)
+        sign_in(client, "chef@kanzlei.ch")
+        r = self._post(client, confirm_reextract="20000")
+        html = r.data.decode("utf-8")
+        assert r.status_code == 502
+        assert "Knovas Connector nicht erreichbar" in html and "zu alt" not in html
+        assert rc.last_instance.count("requeue_reextract") == 0
