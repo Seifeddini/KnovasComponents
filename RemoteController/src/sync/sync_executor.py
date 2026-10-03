@@ -41,6 +41,7 @@ from sync.document_text import (
     is_syncable_extension,
     is_unconvertible_error,
 )
+from sync.extraction_stamp import current_extraction_stamp
 from sync.knovas_uploader import SemantixUploader, UploadResult
 from sync.rate_metrics import IngestRateMetrics
 from sync.semantix_cert import ensure_mtls_certificate_freshness
@@ -736,6 +737,11 @@ def record_upload_outcome(
     ``reupload_failed:<class>``. Such a re-upload never touches the
     extraction retry counter and is never recorded partial for exhausted
     retries: its text is already complete at Knovas.
+
+    Re-extraction (spec L6): every ``ok`` upload also stores its extraction
+    stamp and the hash of what it carried, and the row leaves the
+    re-extraction queue; a file found unconvertible takes the current
+    stamp -- the current extractor's verdict, not an older extraction.
     """
     incremental = mode == "incremental"
     fields_on = digest is not None
@@ -758,6 +764,11 @@ def record_upload_outcome(
             elif record is not None and not incremental:
                 state.update_fields(relative_path, record)
             outcome = "synced"
+        if upload.extraction_stamp is not None:
+            # Which extraction produced this upload and what it carried
+            # (spec L6); the row leaves the re-extraction queue. Full mode
+            # updates rows that exist only, like the fields columns.
+            state.set_extraction(relative_path, upload.extraction_stamp, upload.text_sha256)
         if record is not None:
             if upload.fields is not None:
                 _note_fields(stats, upload.fields.outcome, upload.fields)
@@ -780,6 +791,8 @@ def record_upload_outcome(
             relative_path, mtime_iso, size_bytes, reason="unconvertible",
             fields=FieldsRecord(digest, OUTCOME_NONE) if fields_on else None,
         )
+        # The current extractor's verdict: not an older extraction (spec L6).
+        state.set_extraction_stamp(relative_path, current_extraction_stamp())
         ocr_metrics.SKIP_UNCONVERTIBLE.inc()
         if fields_reupload and stats is not None:
             stats.reuploads_done += 1
