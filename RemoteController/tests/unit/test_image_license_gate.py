@@ -114,3 +114,13 @@ def test_the_floors_carry_the_release_and_the_rtf_extra():
         assert [line for line in lines if line.startswith("knovas-extract")] == [
             "knovas-extract[pdf,docx,msg,html,rtf,markdown,sentences]>=0.4.0a1"
         ]
+
+
+def test_both_components_cap_selectolax_below_1():
+    """selectolax 1.0 dropped the module knovas-extract 0.4.0a1 imports for
+    HTML and the Markdown preview. Both dependency lists cap it; the
+    Dockerfiles install them before knovas-extract, which then keeps it."""
+    assert '"selectolax>=0.3.21,<1",' in PYPROJECT.read_text(encoding="utf-8")
+    requirements = PLATFORM / "requirements.txt"
+    if requirements.is_file():
+        assert "selectolax>=0.3.21,<1" in requirements.read_text(encoding="utf-8").splitlines()

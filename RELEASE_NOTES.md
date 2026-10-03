@@ -54,6 +54,11 @@ indexierte Dokumente profitieren davon erst, wenn sie neu extrahiert werden.
 - *Verwaltung -> System* nennt die Extraktor-Version der Plattform und des
   Knovas Connector und warnt, wenn sie sich unterscheiden oder der Knovas
   Connector keine meldet (dann ist er aelter als die Plattform).
+- **selectolax bleibt unter Version 1.0.** selectolax 1.0.0 (3.10.2026) hat
+  das Modul entfernt, mit dem knovas-extract 0.4.0a1 HTML liest; ein neu
+  gebautes Image haette die Vorschau von Word-Dateien und E-Mails
+  gebrochen. Beide Seiten begrenzen die Version, und CI liest in beiden
+  Images eine HTML-Seite.
 
 ## Dokumentfelder (Dokumentwerte)
 

@@ -63,3 +63,16 @@ def test_without_a_pin_it_is_a_usage_error():
     done = _run()
     assert done.returncode == 2
     assert "KNOVAS_EXTRACT_VERSION is not set" in done.stderr
+
+
+def test_a_selectolax_without_its_parser_module_fails(tmp_path):
+    """selectolax 1.0 ships no ``selectolax.parser``, which knovas-extract
+    0.4.0a1 imports for HTML: an install that lost the cap below 1 fails."""
+    fake = tmp_path / "selectolax"
+    fake.mkdir()
+    (fake / "__init__.py").write_text('__version__ = "1.0.0"\n', encoding="utf-8")
+    version, commit = _installed()
+    done = _run(KNOVAS_EXTRACT_VERSION=version, KNOVAS_EXTRACT_GIT_REF=commit,
+                PYTHONPATH=str(tmp_path))
+    assert done.returncode == 1
+    assert "knovas-extract cannot read HTML" in done.stderr

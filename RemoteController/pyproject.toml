@@ -31,6 +31,12 @@ dependencies = [
     # only: the images and CI install the exact pin (Dockerfile ARG
     # KNOVAS_EXTRACT_VERSION / KNOVAS_EXTRACT_GIT_REF).
     "knovas-extract[pdf,docx,msg,html,rtf,sentences]>=0.4.0a1",
+    # selectolax 1.0 dropped `selectolax.parser`, which knovas-extract 0.4.0a1
+    # imports for HTML (and the Platform's Markdown preview); the [html] extra
+    # of the pinned revision has no upper bound. Listed here, the image
+    # installs it before knovas-extract; scripts/ci/assert_knovas_extract_pin.py
+    # reads a page of HTML in CI and in the built image.
+    "selectolax>=0.3.21,<1",
 ]
 
 [project.optional-dependencies]
