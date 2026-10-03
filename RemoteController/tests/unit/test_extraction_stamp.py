@@ -19,7 +19,7 @@ from sync.extraction_stamp import (
 REAL_VERSION = extraction_stamp._knovas_extract_version
 REAL_COMMIT = extraction_stamp.knovas_extract_commit
 SETTINGS = ("RC_PDF_TEXT_MODE", "RC_DOCX_TEXT_MODE", "RC_OCR_ENGINE", "RC_OCR_DPI",
-            "RC_SENTENCE_EMIT_MAX_BYTES")
+            "RC_SENTENCE_EMIT_MAX_BYTES", "RC_PDF_OCR_ENABLED", "RC_TESSERACT_LANG")
 PARTS = [
     {"snippet": "Rechnung 17 an Muster AG", "page_number": 1, "sentence_number": 1},
     {"snippet": "\fSeite zwei: Honorar CHF 1'200", "page_number": 2, "sentence_number": 4},
@@ -46,11 +46,24 @@ class TestStamp:
         ("RC_OCR_ENGINE", "cli"),
         ("RC_OCR_DPI", "200"),
         ("RC_SENTENCE_EMIT_MAX_BYTES", "1048576"),
+        # Scans uploaded with OCR off, or without a language, must become
+        # outdated when it is switched on or added.
+        ("RC_PDF_OCR_ENABLED", "false"),
+        ("RC_TESSERACT_LANG", "deu+eng+fra"),
     ])
     def test_each_setting_changes_it(self, monkeypatch, key, value):
         before = current_extraction_stamp()
         monkeypatch.setenv(key, value)
         assert current_extraction_stamp() != before
+
+    @pytest.mark.parametrize("enabled", [None, "true", "false", "off"])
+    def test_its_ocr_engine_is_the_one_the_status_reports(self, monkeypatch, enabled):
+        """``off`` while RC_PDF_OCR_ENABLED is false, as /sync/status says."""
+        from sync.extract_metrics import extraction_info
+
+        if enabled is not None:
+            monkeypatch.setenv("RC_PDF_OCR_ENABLED", enabled)
+        assert stamp_inputs()["ocr_engine"] == extraction_info()["ocr_engine"]
 
     def test_the_library_version_changes_it(self, monkeypatch):
         before = current_extraction_stamp()
@@ -77,7 +90,8 @@ class TestStamp:
         assert stamp_inputs() == {
             "knovas_extract": "0.4.0a1", "knovas_extract_commit": None,
             "pdf_text_mode": "layout", "docx_text_mode": "layout",
-            "ocr_engine": "auto", "ocr_dpi": None, "sentence_emit_max_bytes": 0, "schema": 1,
+            "ocr_engine": "auto", "ocr_language": "deu+eng", "ocr_dpi": None,
+            "sentence_emit_max_bytes": 0, "schema": 1,
         }
 
     def test_the_version_is_the_installed_distribution(self):

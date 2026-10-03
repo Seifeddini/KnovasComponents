@@ -291,16 +291,20 @@ def reextract_status() -> dict[str, int]:
     """The re-extraction counts of GET /sync/status (spec L6), merged into
     its ``extraction`` block: ``outdated`` (tracked documents an older
     extraction produced -- another stamp, or none), ``queued`` (waiting for
-    re-extraction) and ``per_cycle`` (RC_REEXTRACT_PER_CYCLE). Counts only."""
+    re-extraction), ``kept`` (re-extracted, but not sent because the result
+    missed more OCR pages than the text Knovas holds, which stays) and
+    ``per_cycle`` (RC_REEXTRACT_PER_CYCLE). Counts only."""
     from sync.sync_state import SyncStateStore
 
     store = SyncStateStore()
     try:
         outdated = store.count_extraction_outdated(current_extraction_stamp())
         queued = store.count_reextract_queued()
+        kept = store.count_reextract_kept()
     finally:
         store.close()
-    return {"outdated": outdated, "queued": queued, "per_cycle": reextract_per_cycle()}
+    return {"outdated": outdated, "queued": queued, "kept": kept,
+            "per_cycle": reextract_per_cycle()}
 
 
 def requeue_reextract() -> int:

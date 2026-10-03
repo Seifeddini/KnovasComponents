@@ -19,8 +19,7 @@ from typing import Any, Optional
 from sync.document_text import (
     ExtractedDocument,
     docx_text_mode,
-    ocr_engine,
-    pdf_ocr_enabled,
+    effective_ocr_engine,
     pdf_text_mode,
 )
 
@@ -193,7 +192,7 @@ def extraction_info() -> dict[str, Optional[str]]:
         "knovas_extract_commit": knovas_extract_commit(),
         "pdf_text_mode": pdf_text_mode(),
         "docx_text_mode": docx_text_mode(),
-        "ocr_engine": ocr_engine() if pdf_ocr_enabled() else "off",
+        "ocr_engine": effective_ocr_engine(),
     }
 
 

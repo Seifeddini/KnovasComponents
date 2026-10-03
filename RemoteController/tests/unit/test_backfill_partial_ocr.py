@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import os
+import shutil
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
@@ -256,6 +258,105 @@ def test_fewer_pages_missing_is_progress_and_is_tried_again(tmp_path, monkeypatc
         }
     finally:
         state.close()
+
+
+def test_a_document_landed_with_ocr_off_records_the_connectors_stamp(tmp_path, monkeypatch, backfill):
+    """Exhausted retries are backfilled with OCR off, and the stamp covers
+    the OCR switch. That one-off override is no new extraction: the row
+    records the stamp of the Connector's own settings. With the override's
+    it would count as outdated, and every request would queue it to be read
+    with OCR on again -- into the page that hung, at the full ceiling."""
+    from sync.extraction_stamp import current_extraction_stamp
+
+    root, state_path = _setup(tmp_path, monkeypatch)
+    (root / "Mandant" / "gone.pdf").write_bytes(b"%PDF-1.4 stub")
+    monkeypatch.delenv("RC_PDF_OCR_ENABLED", raising=False)
+    connector_stamp = current_extraction_stamp()
+    seen: dict = {}
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        import os
+
+        # As the uploader does: the stamp of the settings in force meanwhile.
+        seen[rel] = os.environ.get("RC_PDF_OCR_ENABLED")
+        return UploadResult(rel, "tk-new", 1, "ok", 2, text_sha256="a" * 64,
+                            extraction_stamp=current_extraction_stamp())
+
+    with _uploading(_body(root), fake_upload):
+        assert backfill.main([]) == 0
+    assert seen == {"Mandant/gone.pdf": "false", "Mandant/scan.pdf": None}
+    state = SyncStateStore(str(state_path))
+    try:
+        assert state.extraction_state("Mandant/gone.pdf").stamp == connector_stamp
+        assert state.count_extraction_outdated(connector_stamp) == 0
+        assert state.requeue_reextract(connector_stamp) == 0, "not queued into the hung page"
+    finally:
+        state.close()
+
+
+def _link_file(link: Path, target: Path) -> None:
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("creating a symbolic link needs a privilege here")
+
+
+def _link_folder(link: Path, target: Path) -> None:
+    """A symbolic link to a folder; on Windows without the right to create
+    one, a junction, which must not be followed either."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        if os.name != "nt":
+            pytest.skip("no symbolic links here")
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+
+
+def _nothing_uploaded(root, state_path, backfill) -> None:
+    uploaded: list = []
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        uploaded.append(rel)
+        return UploadResult(rel, "tk-new", 1, "ok", 2)
+
+    with _uploading(_body(root), fake_upload):
+        assert backfill.main([]) == 0
+    assert uploaded == [], "nothing is read through a link"
+    state = SyncStateStore(str(state_path))
+    try:
+        assert state.partial_note("Mandant/scan.pdf") == {"ocr_pages_skipped": 2, "ocr_pages": 3}, \
+            "the scan does not see it either: left for the prune"
+    finally:
+        state.close()
+
+
+def test_a_link_in_place_of_a_partial_file_is_not_read(tmp_path, monkeypatch, backfill):
+    """The scan never follows a symbolic link, and neither does the backfill:
+    a partial document replaced by a link to any file the Connector can read
+    must not be uploaded under its identifier and access groups."""
+    root, state_path = _setup(tmp_path, monkeypatch)
+    secret = tmp_path / "secret" / "client-key.pem"
+    secret.parent.mkdir()
+    secret.write_text("-----BEGIN PRIVATE KEY-----", encoding="utf-8")
+    (root / "Mandant" / "scan.pdf").unlink()
+    _link_file(root / "Mandant" / "scan.pdf", secret)
+    _nothing_uploaded(root, state_path, backfill)
+
+
+@pytest.mark.parametrize("within", [False, True], ids=["out-of-the-source", "within-the-source"])
+def test_a_folder_link_on_the_way_is_not_followed(tmp_path, monkeypatch, backfill, within):
+    """Out of the source: any folder the Connector can read. Within it:
+    another client's folder, whose file Knovas's folder rule would show
+    under this path. The scan descends into neither."""
+    root, state_path = _setup(tmp_path, monkeypatch)
+    target = (root / "Andere") if within else (tmp_path / "elsewhere")
+    target.mkdir()
+    (target / "scan.pdf").write_bytes(b"%PDF-1.4 not this document")
+    shutil.rmtree(root / "Mandant")
+    _link_folder(root / "Mandant", target)
+    _nothing_uploaded(root, state_path, backfill)
 
 
 def test_documents_left_unchanged_do_not_use_up_the_limit(tmp_path, monkeypatch, backfill):

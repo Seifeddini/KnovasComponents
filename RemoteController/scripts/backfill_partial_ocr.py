@@ -65,7 +65,8 @@ RETRIES_EXHAUSTED = "extract_retries_exhausted"
 #: What the partial rule before spec E1 recorded for born-digital PDFs.
 LEGACY_COMPLETE_REASON = "ocr_backend_none"
 #: Note key: backfill attempts in a row that left the document unchanged
-#: (``_unchanged``). Later runs skip a note carrying it.
+#: (``_unchanged``). Later runs skip a note carrying it. An unchanged
+#: re-extraction keeps it (``sync_state.BACKFILL_UNCHANGED``).
 UNCHANGED = "backfill_unchanged"
 
 
@@ -110,11 +111,21 @@ def _sources(body: dict[str, Any]) -> list[tuple[Path, Any]]:
 
 def _locate(rel: str, sources: list[tuple[Path, Any]]) -> Optional[tuple[Path, Any]]:
     """The file and the spec of the FIRST source that has it: the source
-    whose fields govern a relative path, as in the sync cycle."""
+    whose fields govern a relative path, as in the sync cycle.
+
+    Like the scan, it never follows a symbolic link: not in place of the
+    file, and not in a folder on its way, so the file must resolve to its
+    own path under the resolved source root. Otherwise any file the
+    Connector can read would be uploaded under this document's identifier
+    and access groups.
+    """
     for root, spec in sources:
         candidate = root / rel
-        if candidate.is_file():
-            return candidate, spec
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        if Path(os.path.realpath(candidate)) != Path(os.path.realpath(root), rel):
+            continue
+        return candidate, spec
     return None
 
 
@@ -213,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     from m365.source import m365_configured
     from sync.default_sync_body import build_default_sync_body
     from sync.doc_fields_payload import config_digest
+    from sync.extraction_stamp import current_extraction_stamp
     from sync.knovas_uploader import SemantixUploader
     from sync.sync_executor import fields_upload_kwargs, record_upload_outcome
     from sync.sync_scheduler import load_last_sync_body
@@ -253,6 +265,13 @@ def main(argv: list[str] | None = None) -> int:
         }
         left_unchanged = 0
         uploader = None if args.dry_run else SemantixUploader()
+        # Uploads record the stamp of the Connector's own settings, taken
+        # before any override: a larger budget, or OCR off after exhausted
+        # retries, is no new extraction. With the override's stamp a
+        # document landed with OCR off would count as outdated, and every
+        # request would queue it to be read with OCR on, into the page that
+        # hung.
+        connector_stamp = current_extraction_stamp()
         started = time.monotonic()
         for rel in partial:
             note = state.partial_note(rel) or {}
@@ -265,7 +284,9 @@ def main(argv: list[str] | None = None) -> int:
             located = _locate(rel, sources)
             if located is None:
                 counts["missing"] += 1
-                logger.warning("Not on the share any more (left for the prune): %s", rel)
+                logger.warning(
+                    "Not on the share any more, or behind a symbolic link (left for the prune): %s", rel
+                )
                 continue
             path, spec = located
             env = _env_for(note, args)
@@ -298,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         os.environ[key] = value
             mtime_iso, size_bytes = _mtime_iso(path)
+            if upload.extraction_stamp is not None:
+                upload = replace(upload, extraction_stamp=connector_stamp)
             if upload.status == "ok" and upload.partial and _unchanged(note, upload.partial):
                 # Recorded with the count, so the next run skips it.
                 upload = replace(upload, partial={**upload.partial, UNCHANGED: (_count(note, UNCHANGED) or 0) + 1})

@@ -49,9 +49,10 @@ _FIELDS_COLUMNS = (
 #: Re-extraction columns of ``documents`` (spec L6), added in place like the
 #: fields columns. ``extraction_stamp`` NULL means synced before stamps
 #: existed, i.e. by an older extraction. ``resend_reason`` is the side-queue
-#: marker (``RESEND_REEXTRACT``); ``resend_attempts`` counts failed
-#: re-extractions. An older RemoteController's ``INSERT OR REPLACE`` resets
-#: them to NULL / 0: outdated and not queued, the safe direction.
+#: marker (``RESEND_REEXTRACT``), or ``RESEND_KEPT`` after a re-extraction
+#: that was not sent; ``resend_attempts`` counts failed re-extractions. An
+#: older RemoteController's ``INSERT OR REPLACE`` resets them to NULL / 0:
+#: outdated and not queued, the safe direction.
 _EXTRACTION_COLUMNS = (
     ("extraction_stamp", "TEXT"),
     ("text_sha256", "TEXT"),
@@ -61,6 +62,11 @@ _EXTRACTION_COLUMNS = (
 
 #: ``resend_reason`` of a row ``POST /sync/reextract/requeue`` queued.
 RESEND_REEXTRACT = "reextract"
+#: ``resend_reason`` of a row whose re-extraction missed more OCR pages than
+#: the text Knovas holds and was not sent: Knovas keeps the text of an older
+#: extraction. Counted, never processed; the next upload clears it, and a
+#: request after the stamp changed queues the row again.
+RESEND_KEPT = "kept"
 
 #: Stored instead of a digest when a document must come back for its fields
 #: although its governing digest may be "" (a clear the server never saw, a
@@ -494,6 +500,26 @@ class SyncStateDatabase:
         conn.commit()
         return bool(cur.rowcount)
 
+    def set_extraction_kept(self, relative_path: str, stamp: str) -> bool:
+        """The current extraction would have sent less than Knovas holds,
+        so nothing was sent: the stamp moves on and the row leaves the queue
+        marked ``RESEND_KEPT``; the stored hash stays."""
+        conn = self._connect()
+        cur = conn.execute(
+            "UPDATE documents SET extraction_stamp = ?, resend_reason = ?, "
+            "resend_attempts = 0 WHERE relative_path = ?",
+            (stamp, RESEND_KEPT, relative_path),
+        )
+        conn.commit()
+        return bool(cur.rowcount)
+
+    def count_reextract_kept(self) -> int:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE resend_reason = ?", (RESEND_KEPT,)
+        ).fetchone()
+        return int(row[0]) if row else 0
+
     def count_extraction_outdated(self, stamp: str) -> int:
         """Tracked rows an older extraction produced: another stamp, or none
         (synced before stamps existed). Counts only, for ``/sync/status``."""
@@ -508,13 +534,14 @@ class SyncStateDatabase:
     def requeue_reextract(self, stamp: str) -> int:
         """Queue every outdated row for re-extraction (``resend_reason``);
         returns how many were newly queued -- rows already waiting are not
-        counted twice."""
+        counted twice. A kept row is outdated again only once the stamp
+        changed, and is then queued like any other."""
         conn = self._connect()
         cur = conn.execute(
             "UPDATE documents SET resend_reason = ?, resend_attempts = 0 "
             "WHERE (extraction_stamp IS NULL OR extraction_stamp != ?) "
-            "AND resend_reason IS NULL",
-            (RESEND_REEXTRACT, stamp),
+            "AND (resend_reason IS NULL OR resend_reason = ?)",
+            (RESEND_REEXTRACT, stamp, RESEND_KEPT),
         )
         conn.commit()
         return int(cur.rowcount or 0)

@@ -203,6 +203,47 @@ class TestStampAndQueue:
         store.record_reextract_unchanged("scan.pdf", STAMP, {"ocr_pages_skipped": 3})
         assert store.partial_note("scan.pdf") == {"ocr_pages_skipped": 3}
 
+    def test_unchanged_keeps_the_backfills_unchanged_mark(self, store):
+        """Nothing was sent: Knovas holds the text the backfill could not
+        improve, so its next run must not send (and bill) it again."""
+        store.record_partial("scan.pdf", TS, 1, "tk", {"ocr_pages_failed": 1, "backfill_unchanged": 2})
+        store.set_extraction("scan.pdf", OLDER, SHA)
+        store.requeue_reextract(STAMP)
+        store.record_reextract_unchanged("scan.pdf", STAMP, {"ocr_pages_failed": 1, "ocr_pages": 3})
+        assert store.partial_note("scan.pdf") == {
+            "ocr_pages_failed": 1, "ocr_pages": 3, "backfill_unchanged": 2,
+        }
+        store.set_extraction("scan.pdf", OLDER, SHA)
+        store.requeue_reextract(STAMP)
+        store.record_reextract_unchanged("scan.pdf", STAMP, None)
+        assert store.partial_paths() == [], "complete now: the note goes, mark and all"
+
+    def test_kept_moves_the_stamp_keeps_hash_and_note_and_is_counted(self, store):
+        """A re-extraction that would have sent less than Knovas holds."""
+        store.record_partial("scan.pdf", TS, 1, "tk", {"ocr_pages_skipped": 1})
+        store.set_extraction("scan.pdf", OLDER, SHA)
+        store.requeue_reextract(STAMP)
+        store.record_reextract_kept("scan.pdf", STAMP)
+        state = store.extraction_state("scan.pdf")
+        assert (state.stamp, state.text_sha256, state.resend_attempts) == (STAMP, SHA, 0)
+        assert store.partial_note("scan.pdf") == {"ocr_pages_skipped": 1}, "what Knovas holds"
+        assert store.count_reextract_kept() == 1 and store.count_reextract_queued() == 0
+        assert store.load_reextract_queue() == {}
+        assert store.count_extraction_outdated(STAMP) == 0
+        assert store.requeue_reextract(STAMP) == 0, "current: not queued for nothing"
+
+    def test_a_kept_row_is_queued_by_the_next_extraction_and_an_upload_ends_it(self, store):
+        newer = "1111111111111111"
+        store.record_upload("a.pdf", TS, 1, "tk")
+        store.requeue_reextract(STAMP)
+        store.record_reextract_kept("a.pdf", STAMP)
+        assert store.requeue_reextract(newer) == 1
+        assert (store.count_reextract_kept(), store.count_reextract_queued()) == (0, 1)
+        store.record_reextract_kept("a.pdf", newer)
+        assert store.set_extraction("a.pdf", newer, SHA) is True
+        assert store.count_reextract_kept() == 0, "an upload replaced the text Knovas kept"
+        assert store.extraction_state("a.pdf") == ExtractionState(newer, SHA, None, 0)
+
     def test_failures_leave_the_queue_after_the_cap_and_stay_outdated(self, store):
         store.record_upload("a.pdf", TS, 1, "tk")
         store.requeue_reextract(STAMP)

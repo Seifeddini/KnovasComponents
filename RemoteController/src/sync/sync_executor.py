@@ -49,6 +49,7 @@ from sync.document_text import (
     DEFAULT_INCLUDE_GLOBS,
     is_syncable_extension,
     is_unconvertible_error,
+    ocr_pages_missing,
 )
 from sync.extraction_stamp import current_extraction_stamp
 from sync.knovas_uploader import SemantixUploader, UploadResult
@@ -157,11 +158,13 @@ class SyncRunResult:
     subfolder_progress: Optional[dict[str, Any]] = None
     rate_limit: Optional[dict[str, Any]] = None
     #: Re-extraction (spec L6), counts only: re-extracted and uploaded,
-    #: re-extracted with an unchanged upload (nothing sent), failed; and the
-    #: queued rows this cycle's scan reached, counted before the uploads like
-    #: ``fields_changed`` (no idle backoff, no subfolder advance meanwhile).
+    #: re-extracted with an unchanged upload (nothing sent), kept (missing
+    #: more OCR pages than the text Knovas holds: nothing sent), failed; and
+    #: the queued rows this cycle's scan reached, counted before the uploads
+    #: like ``fields_changed`` (no idle backoff, no subfolder advance meanwhile).
     reextract_uploaded: int = 0
     reextract_unchanged: int = 0
+    reextract_kept: int = 0
     reextract_failed: int = 0
     reextract_reached: int = 0
     #: Knovas document fields of this run (codes and counts); None while
@@ -807,7 +810,10 @@ def record_upload_outcome(
     stamp -- the current extractor's verdict, not an older extraction.
     ``"unchanged"``: a re-extraction (``reextract``) whose upload would
     carry exactly what Knovas holds -- nothing was sent, the stamp moves on
-    and the partial note follows the new extraction. A failed re-extraction
+    and the partial note follows the new extraction. ``"kept"``: a
+    re-extraction that would have missed more OCR pages than the text
+    Knovas holds -- nothing was sent, the stamp moves on, hash and partial
+    note stay, and the row counts as kept. A failed re-extraction
     never records a skip or a partial and never touches the extraction
     retry counter (Knovas holds the last upload): unconvertible takes the
     current stamp and leaves the queue, anything else counts an attempt and
@@ -823,6 +829,14 @@ def record_upload_outcome(
             relative_path, upload.extraction_stamp or current_extraction_stamp(), upload.partial
         )
         return "unchanged"
+    if upload.status == "kept":
+        # A re-extraction that would have missed more OCR pages than the
+        # text Knovas holds: nothing was sent. Knovas keeps that text; the
+        # row keeps its hash and partial note and leaves the queue.
+        state.record_reextract_kept(
+            relative_path, upload.extraction_stamp or current_extraction_stamp()
+        )
+        return "kept"
     if upload.status == "ok":
         key = upload.transmission_key_id
         record = _fields_record_for(upload, digest) if fields_on else None
@@ -1561,6 +1575,15 @@ def run_sync_work(
                 # Knovas holds is not sent. Without a stored hash (uploaded
                 # before hashes existed) the document is uploaded as always.
                 upload_kwargs["unchanged_text_sha256"] = stored_sha
+            if reextract:
+                # Nor one that misses more OCR pages than the text Knovas
+                # holds: the backfill may have completed a large scan with a
+                # far larger OCR budget than this cycle's. A fields re-send
+                # is not held back -- only an upload delivers its values, and
+                # its partial note lists the document for the backfill.
+                upload_kwargs["ocr_pages_missing_at_knovas"] = ocr_pages_missing(
+                    state.partial_note(rel)
+                )
             try:
                 with _local_file(abs_path) as local_path:
                     upload = uploader.upload_file(local_path, rel, sync_body, **upload_kwargs)
@@ -1595,11 +1618,13 @@ def run_sync_work(
             if reextract:
                 if outcome == "unchanged":
                     result.reextract_unchanged += 1
+                elif outcome == "kept":
+                    result.reextract_kept += 1
                 elif upload.status == "ok":
                     result.reextract_uploaded += 1
                 else:
                     result.reextract_failed += 1
-            if outcome == "unchanged":
+            if outcome in ("unchanged", "kept"):
                 # Nothing was transmitted, so there is no transmission entry.
                 continue
             if (
@@ -1660,8 +1685,8 @@ def run_sync_work(
         if plan.reextract_queue:
             # Counts only: never a path.
             logger.info(
-                "reextract uploaded=%d unchanged=%d failed=%d reached=%d",
-                result.reextract_uploaded, result.reextract_unchanged,
+                "reextract uploaded=%d unchanged=%d kept=%d failed=%d reached=%d",
+                result.reextract_uploaded, result.reextract_unchanged, result.reextract_kept,
                 result.reextract_failed, plan.reextract_reached,
             )
 
