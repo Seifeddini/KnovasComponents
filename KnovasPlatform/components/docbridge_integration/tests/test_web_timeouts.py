@@ -50,3 +50,19 @@ def test_every_nginx_waits_at_least_as_long_as_gunicorn(conf):
                                           conf.read_text(encoding="utf-8"), re.M)]
     assert seconds, f"{conf.name} sets no proxy_read_timeout (nginx default: 60 s)"
     assert min(seconds) >= _compose_timeout(), (conf.name, seconds)
+
+
+def test_the_upgrade_note_recreates_the_bundled_nginx():
+    """docbridge-web-nginx reads its conf only at start, through a single-file
+    bind mount, and its compose service did not change: ./scripts/start.sh
+    (up -d --build) neither recreates nor reloads it. An upgraded
+    installation keeps waiting 120 s, and keeps the request URI in its access
+    log, until the container is recreated; the release note must say so."""
+    notes = REPO / "RELEASE_NOTES.md"
+    if not notes.is_file():
+        pytest.skip("RELEASE_NOTES.md is not in this checkout")
+    _, heading, rest = notes.read_text(encoding="utf-8").partition(
+        "\n## nginx wartet so lange wie gunicorn\n")
+    assert heading, "RELEASE_NOTES.md has no section for the nginx timeout"
+    section = " ".join(rest.split("\n## ", 1)[0].split())
+    assert "up -d --force-recreate docbridge-web-nginx" in section, section

@@ -96,7 +96,14 @@ Das mitgelieferte nginx (`docbridge-web-nginx`) und die Host-nginx-Vorlage
 warten jetzt 180 s auf die Plattform (`proxy_read_timeout`), so lange wie
 gunicorn. Mit 120 s gab nginx genau dann auf, wenn die Textextraktion eines
 Admin-Uploads an ihrer 120-s-Grenze abbrach, und statt der Meldung kam ein
-504. Bestehende Installationen erneuern die Host-nginx-Seite aus der Vorlage
+504. Bestehende Installationen erstellen nach dem Update das mitgelieferte
+nginx neu:
+`docker compose --env-file knovas.env up -d --force-recreate docbridge-web-nginx`.
+`./scripts/start.sh` allein tut das nicht, und nginx liest seine
+Konfiguration nur beim Start: ohne diesen Schritt wartet es weiter nur 120 s
+und schreibt weiter die aufgerufenen Adressen ins Zugriffsprotokoll (siehe
+*Zugriffsprotokolle ohne Adressen* unter Dokumentfelder). Ausserdem erneuern
+sie die Host-nginx-Seite aus der Vorlage
 (`./scripts/host-https.sh` erledigt das).
 
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
