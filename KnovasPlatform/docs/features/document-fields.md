@@ -160,9 +160,12 @@ Visible to `admin` in every state except `aus`.
   order for `03/04/2024` (default: the account setting). Choice lists have
   one row per choice — code, labels DE/FR/IT/EN, other names (comma list);
   *Weitere Zeile* adds rows. Create sends only what differs from Knovas's
-  defaults; an edit sends only what changed. What decides how values are
-  read locks once a field is confirmed or in use ("Diese Änderung ist nicht
-  mehr möglich …"). The tab counts "n von 256 Feldern" (retired fields count).
+  defaults; an edit sends only what changed. Other names left as the form
+  shows them stay as Knovas holds them, so a name with a comma in it (set
+  through the API) is not split by a save for another change. What decides
+  how values are read locks once a field is confirmed or in use ("Diese
+  Änderung ist nicht mehr möglich …"). The tab counts "n von 256 Feldern"
+  (retired fields count).
   Knovas refuses keys that look personal. A field the current Ingestion
   profile uses asks for a confirmation before it is changed or retired:
   uploads with a retired key are no longer accepted.
