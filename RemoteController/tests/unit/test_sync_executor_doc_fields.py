@@ -1000,3 +1000,28 @@ class TestCapabilityProbe:
         rc.run(body)
         assert rc.server.probes == []
         assert rc.fields(REL).outcome == "not_accepted" and rc.fields(REL).digest
+
+    def test_a_sequential_subfolder_stays_current_until_its_requeued_rows_are_re_sent(self, rc):
+        """The probe can requeue in a subfolder's last, quiet cycle, after the
+        scan counted its work; a completed subfolder is never scanned again."""
+        a, b = "A/Muster AG/R.txt", "B/Beispiel GmbH/R.txt"
+        rc.write(a)
+        rc.write(b)
+        cfg = {"sequential_subfolders": True}
+        body = rc.body(rc.source(field_templates=["*/{mandant}/**"]))
+        rc.server.mode = "off"
+        assert rc.run(body, sync_config=cfg).subfolder_progress["current_subfolder"] == "A"
+        assert rc.fields(a).outcome == "not_accepted"
+        rc.server.mode = "values"
+        rc.server.probe_status = 200
+        quiet = rc.run(body, sync_config=cfg)
+        assert quiet.doc_fields.requeued == 1 and quiet.files_uploaded == 0
+        assert quiet.subfolder_progress["current_subfolder"] == "A", "A's requeued row is A's work"
+        sent, last = [], None
+        for _ in range(4):
+            last = rc.run(body, sync_config=cfg)
+            sent.append(rc.server.rels())
+        assert sent == [[a], [], [b], []], "a is re-sent before B starts"
+        assert rc.fields(a).outcome == "staged" and rc.fields(a).digest
+        assert last.subfolder_progress["completed"] is True
+        assert rc.server.probes == [("GET", None)]

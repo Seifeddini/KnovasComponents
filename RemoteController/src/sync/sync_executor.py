@@ -1553,12 +1553,16 @@ def run_sync_work(
             # scan was neither truncated nor paused. A second call here would
             # advance again and skip the next subfolder entirely (data loss).
             # Fields re-uploads count as modified: a subfolder completes only
-            # once they are done. A source skipped for a bad template was
-            # not scanned at all and never advances.
+            # once they are done. So do the documents this cycle requeued:
+            # the probe (spec F5) can requeue in a quiet cycle, after the scan
+            # counted, and the next scan of this subfolder re-sends them -- a
+            # completed one is never scanned again. A source skipped for a bad
+            # template was not scanned at all and never advances.
+            requeued = stats.requeued if stats is not None else 0
             queue.maybe_advance(
                 source_root,
                 pending=ds.pending,
-                modified=ds.modified + ds.fields_changed,
+                modified=ds.modified + ds.fields_changed + requeued,
                 scan_truncated=result.scan_truncated,
                 paused_reason=result.paused_reason,
             )
