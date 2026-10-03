@@ -90,18 +90,21 @@ decoded as cp1252 and two `test_experiments_frontend.py::TestSearchHitCards` tes
 | Task | State | Commit |
 |---|---|---|
 | A1 library CI green | done | `2767bd0` on `release/0.4.0a1` |
-| A2–A4 library (e-mail HTML, sentence cap, DOCX layout) | in progress (workflow) | — |
-| A7, A5, A6 library | next | — |
+| A2–A4 library (e-mail HTML, sentence cap, DOCX layout) | done | `82f63ee`, `b3f76f6`, `a0383c4` on `release/0.4.0a1` |
+| A7 library (MSG categories), release hygiene, selectolax below 1.0 | done | `26c36ef`, `bd16695`, `23f30cc` on `release/0.4.0a1` (pushed) |
+| A5, A6 library merge and pin | open: the owner merges the library PR, then both Dockerfiles take its merge commit (no PyPI release for now) | — |
 | SETUP | done (`$SP/setup-venvs.sh`; per-section PostgreSQL containers) | — |
-| INT-1 merge | done | `ac878c3` |
-| INT-2 search over-fetch fix | done | `731dbae` |
-| INT-4 rename cherry-pick | done | `3a5443c` |
-| INT-3a–d, INT-5, INT-6 | in progress (branch `sec/int`) | — |
-| EXT-1 … EXT-15 | in progress (branch `sec/ext`) | — |
-| FLD-1 … FLD-13 | in progress (branch `sec/fld`) | — |
-| RCF-1 … RCF-8 | in progress (branch `sec/rcf`) | — |
-| PIN-1, PIN-2, PIN-4 → REX-1 … REX-5b | after EXT (branch `sec/pinrex` from `sec/ext`) | — |
-| VER-1 … VER-5 | after all sections are merged | — |
+| INT-1 merge, INT-2, INT-4 | done | `ac878c3`, `731dbae`, `3a5443c` |
+| INT-3a–d, INT-5, INT-6 | done | merge `de09209` |
+| RCF-1 … RCF-8 | done | merge `5589b29` |
+| EXT-1 … EXT-15 | done | merges `d122e0b` (lane 1), `a653680` (lane 2) |
+| REX-1 … REX-5b | done | merge `9adfb69` |
+| PIN-1, PIN-2, PIN-4 | done; the pin stays `b5d4540` (the interim pin `d473496` to the unmerged library branch is left out) | merge `f3d5f03` |
+| FLD-1 … FLD-13 | done; the section-end review's findings fixed (`ad10a11`, and `2c48709` … `3f60d18` merged in `f88e8a0`) | merges `acc57f6`, `93747d4`, `f88e8a0` |
+| VER-1 | done | `6017d0c` |
+| VER-2 … VER-4 | done: Linux suites at the pin and with the library release branch; both images (licence, pin, HTML check, gthread); end to end at the pin and with the release branch; the upgrade path pin → release | — |
+| VER-5 | review done (five areas, each finding verified by a second agent); every confirmed finding fixed with a test; push and PR wait for the owner's OK | fixes `7ca8c61` … `e4c0e41` (re-extraction fixes merged in `74110bb`) |
+| Beyond the plan | selectolax cap in both components and an HTML check in CI (`d517609`); `email_date` sends the day at the firm (`eeacf27`, `64b2d3c`); the library's git commit in the stamp and the System tab (`a78e2f6`); the library's sentence cap drops citations, not the file (`bc67f65`); the admin upload gets the Connector's text settings (`cf5f712`); no PyMuPDF layout hint in the logs (`23a7b0f`); a registry read Knovas does not answer is remembered for 30 s and the last registry used meanwhile (`0c09718`, merged in `8fcd390`) | — |
 
 Execution model: each section runs in its own git worktree (`$SP/wt-<section>`, branch `sec/<section>`)
 from the integration tip `3a5443c`, with its own PostgreSQL container; a test-first implementer commits
