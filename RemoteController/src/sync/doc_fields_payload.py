@@ -368,14 +368,26 @@ def _keys(values: Any) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _warning_key(value: Any) -> str:
+    """A warning's field key, or ``""`` when it is not key-shaped (spec F4)."""
+    return value if _is_key(value) else ""
+
+
 @dataclass(frozen=True)
 class FieldsEcho:
-    """The init ``fields`` echo, reduced to keys, codes and counts."""
+    """The init ``fields`` echo, reduced to keys, codes and counts.
+
+    ``warnings`` keeps one ``(code, key)`` pair per echo warning, in the
+    server's order (spec F4): the code exactly as ``warning_codes`` counts
+    it, and the warning's field key -- ``""`` when what the server named is
+    not key-shaped. The warning's ``path`` is not kept.
+    """
 
     staged: int
     unknown_keys: tuple[str, ...] = ()
     warning_codes: Counter = field(default_factory=Counter, hash=False)
     suggest: Mapping[str, tuple[str, ...]] = field(default_factory=dict, hash=False)
+    warnings: tuple[tuple[str, str], ...] = ()
 
 
 def parse_init_echo(init_json: Any) -> Optional[FieldsEcho]:
@@ -385,7 +397,8 @@ def parse_init_echo(init_json: Any) -> Optional[FieldsEcho]:
     feature) and when it is malformed: an echo that does not say how many
     keys were staged confirms nothing, so it is read as no echo
     (``not_accepted``), never as stored. Keys outside the key pattern and
-    codes outside the code pattern are dropped or counted as ``other``.
+    codes outside the code pattern are dropped or counted as ``other``; a
+    warning's key outside the pattern becomes ``""`` (its code still counts).
     """
     if not isinstance(init_json, MappingABC):
         return None
@@ -396,11 +409,14 @@ def parse_init_echo(init_json: Any) -> Optional[FieldsEcho]:
     if isinstance(staged, bool) or not isinstance(staged, int) or staged < 0:
         return None
     codes: Counter = Counter()
+    pairs: list[tuple[str, str]] = []
     warnings = echo.get("warnings")
     if isinstance(warnings, list):
         for warning in warnings:
             if isinstance(warning, MappingABC):
-                codes[_code(warning.get("code"))] += 1
+                code = _code(warning.get("code"))
+                codes[code] += 1
+                pairs.append((code, _warning_key(warning.get("key"))))
     suggest: dict[str, tuple[str, ...]] = {}
     raw_suggest = echo.get("suggest")
     if isinstance(raw_suggest, MappingABC):
@@ -413,6 +429,7 @@ def parse_init_echo(init_json: Any) -> Optional[FieldsEcho]:
         unknown_keys=_keys(echo.get("unknown_keys")),
         warning_codes=codes,
         suggest=suggest,
+        warnings=tuple(pairs),
     )
 
 
@@ -473,6 +490,8 @@ class FieldsOutcome:
     suggest: Mapping[str, tuple[str, ...]] = field(default_factory=dict, hash=False)
     digest: str = ""
     transient: bool = False
+    #: ``(code, key)`` per echo warning (spec F4); empty without an echo.
+    warnings: tuple[tuple[str, str], ...] = ()
 
     @property
     def refusal_code(self) -> Optional[str]:
@@ -522,6 +541,7 @@ def outcome_after_init(
         unknown_keys=echo.unknown_keys,
         suggest=dict(echo.suggest),
         digest=digest,
+        warnings=echo.warnings,
     )
 
 
