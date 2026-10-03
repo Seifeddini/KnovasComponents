@@ -73,6 +73,10 @@ jobs:
         working-directory: .
         run: bash scripts/lib/test_stack_identity.sh
 
+      - name: Connector extraction settings contract
+        working-directory: .
+        run: bash scripts/lib/test_rc_extraction_settings.sh
+
       - name: Generate compose inputs
         working-directory: .
         run: |

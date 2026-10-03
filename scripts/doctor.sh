@@ -20,6 +20,8 @@ cd "$ROOT_DIR"
 KNOVAS_ENV="$ROOT_DIR/knovas.env"
 # shellcheck source=lib/stack_identity.sh
 source "$ROOT_DIR/scripts/lib/stack_identity.sh"
+# shellcheck source=lib/rc_extraction_settings.sh
+source "$ROOT_DIR/scripts/lib/rc_extraction_settings.sh"
 knovas_load_compose_project "$KNOVAS_ENV" "$ROOT_DIR"
 DC=(docker compose --env-file "$KNOVAS_ENV")
 QUERY="${*:-Rechnung}"
@@ -929,6 +931,13 @@ if src == "graph":
 PY
 
 head_ "Knovas Connector"
+# OCR settings the Connector would replace by its default (spec E5): it logs
+# one warning per document and goes on, which nobody sees. Read from
+# knovas.env, so this is said whether or not the container runs.
+while IFS= read -r problem; do
+  [[ -n "$problem" ]] && warn "$problem"
+done < <(knovas_rc_extraction_problems "$KNOVAS_ENV")
+
 # Whether anything new reaches the index, and whether the text under a result
 # exists at all: RemoteController writes the context sidecars as it reads each
 # file. Every section above passes while it stands still.
