@@ -268,7 +268,7 @@ services:
     build: ./KnovasPlatform/components/experiments_runner
     image: knovas-experiments-runner:0.1.0
     network_mode: none
-    # Its own uid, shared with no other image (RemoteController is 10001): the
+    # Its own uid, shared with no other image (the Knovas Connector is 10001): the
     # per-job process limit is counted per uid across the whole host. The same
     # number is in the Dockerfile and in the socket volume's options below.
     user: "10101:10101"

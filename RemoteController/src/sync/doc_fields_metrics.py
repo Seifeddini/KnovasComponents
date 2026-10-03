@@ -93,7 +93,7 @@ WARNINGS = _counter(
 )
 CLIENT_DROPPED = _counter(
     "rc_doc_fields_client_dropped_total",
-    "Field values the RemoteController left out of an init before sending, by reason",
+    "Field values the Knovas Connector left out of an init before sending, by reason",
     "reason",
 )
 

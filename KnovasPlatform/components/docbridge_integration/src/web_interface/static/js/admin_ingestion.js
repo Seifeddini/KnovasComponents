@@ -231,7 +231,7 @@
         target.textContent = '';
         (body.errors || []).forEach(function (err) {
             target.appendChild(textEl('p', 'Pfadvorlage ' + err.index + ': ' + err.text +
-                ' – RemoteController würde diesen Ordner überspringen.', 'msg error'));
+                ' – der Knovas Connector würde diesen Ordner überspringen.', 'msg error'));
         });
         target.appendChild(textEl('p', (body.matched || 0) + ' von ' + (body.files || 0) +
             ' Dateien im Ausschnitt passen.', 'hint'));

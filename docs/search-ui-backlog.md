@@ -157,7 +157,7 @@ Für die Trefferliste sind drei Punkte daraus unmittelbar relevant:
   `app.py:3027-3030`): nach `cosine_similarity` statt nach dem gerankten
   `final_score` — der ColBERT-Rerank und der Namens-Boost des Servers kommen
   in der Liste nicht an. Fix: `server_rank` mitführen und danach sortieren.
-- **Trefferkontext kommt ausschliesslich aus den Sidecars** des RemoteControllers;
+- **Trefferkontext kommt ausschliesslich aus den Sidecars** des Knovas Connectors;
   für Dateien über 2 MiB (Scans, MSG mit Anhängen) sind sie leer, der Anker trifft
   bei Satznummern-Drift den Briefkopf, und Bilanzzeilen fallen durch den
   „thin location"-Filter (`context_store.py:560-564`).

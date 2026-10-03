@@ -17,7 +17,7 @@ otherwise stay incomplete; this script is the nightly pass that finishes it:
 A clean upload clears the partial note; a still-partial result updates it;
 a failure leaves it for the next run. Nothing is uploaded with `--dry-run`.
 
-Run it inside the RemoteController container (same env, same volumes),
+Run it inside the Knovas Connector container (same env, same volumes),
 outside the sync window:
 
     docker compose --env-file knovas.env run --rm remote-controller \\

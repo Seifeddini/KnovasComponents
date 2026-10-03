@@ -12,7 +12,7 @@ pytest   # from this directory
 
 Documents uploaded through the admin console are extracted with
 [`knovas-extract`](https://github.com/Seifeddini/knovas-extract-python) by
-`src/knovas_extract_upload.py`, which mirrors the RemoteController's sync
+`src/knovas_extract_upload.py`, which mirrors the Knovas Connector's sync
 pipeline (`RemoteController/src/sync/document_text.py`, `knovas_uploader.py`):
 a document uploaded here and the same document synced by the RC reach the
 server in the same wire format. The environment variable names are the RC's
@@ -69,7 +69,7 @@ The field panel, the *Felder* drawer and value edits need a Knovas release that
 reads the `GET /secured/graph/doc-values` pointer from the JSON body (S2);
 an earlier one answers `400 invalid_value` (`pointer`) and the Platform shows
 *Knovas-Update nötig* (`./scripts/doctor.sh` says so too). In a BROKERED
-tenant, RemoteController's entity values also need S1.
+tenant, the Knovas Connector's entity values also need S1.
 Modules: `src/doc_fields_capability.py` (what Knovas serves; per-person
 registry cache), `src/doc_fields_view.py` (the honesty rules as pure
 functions), `src/web_interface/doc_fields_routes.py` (search side),

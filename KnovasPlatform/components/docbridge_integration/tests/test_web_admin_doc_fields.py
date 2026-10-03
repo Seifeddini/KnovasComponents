@@ -724,7 +724,7 @@ class TestRegistryWrites:
         assert "angelegt" in html and "Abgelehnte Uploads erneut senden" not in html
         response = _post(client, "/admin/doc-fields/requeue")
         assert response.status_code == 409
-        assert "RemoteController aktualisieren" in response.data.decode("utf-8")
+        assert "bitte den Knovas Connector aktualisieren" in response.data.decode("utf-8")
 
     def test_an_older_remote_controller_server_is_not_offered_requeue(
             self, platform_db, tmp_path, monkeypatch, admin):
@@ -739,7 +739,7 @@ class TestRegistryWrites:
         assert "angelegt" in html and "Abgelehnte Uploads erneut senden" not in html
         response = _post(client, "/admin/doc-fields/requeue")
         assert response.status_code == 409
-        assert "RemoteController aktualisieren" in response.data.decode("utf-8")
+        assert "bitte den Knovas Connector aktualisieren" in response.data.decode("utf-8")
         assert not [c for s in sessions for c in s.calls if c[0] == "POST"], "never asked"
 
     def test_an_unreachable_remote_controller_is_not_called_too_old(
@@ -754,7 +754,7 @@ class TestRegistryWrites:
         response = _post(client, "/admin/doc-fields/requeue")
         body = response.data.decode("utf-8")
         assert response.status_code == 502
-        assert "nicht erreichbar" in body and "RemoteController aktualisieren" not in body
+        assert "nicht erreichbar" in body and "Knovas Connector aktualisieren" not in body
         assert not [c for s in sessions for c in s.calls if c[0] == "POST"]
 
     def test_the_full_clearance_refusal_is_explained(self, as_admin):

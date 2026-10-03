@@ -141,7 +141,8 @@ class TestRemoteController:
         check = _rc(_collect(FakeDocFieldsApi("values"), _RC()))
         assert check["state"] == "warn"
         assert "nicht unterstuetzt" in check["detail"]
-        assert "RemoteController aktualisieren" in check["hint"]
+        assert check["hint"] == ("Den Knovas Connector aktualisieren, damit die Ingestion "
+                                 "Feldwerte mitsenden kann.")
 
     def test_the_ping_answer_decides_not_a_second_request(self):
         """platform-admin-ingestion-5: a status request that fails after the

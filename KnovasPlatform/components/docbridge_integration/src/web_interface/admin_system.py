@@ -142,7 +142,7 @@ def _rc_doc_fields_note(status: Any, doc_fields_on: bool) -> tuple[str, str]:
         return "; Dokumentfelder: " + ", ".join(known), ""
     if doc_fields_on:
         return ("; Dokumentfelder: nicht unterstuetzt",
-                "RemoteController aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
+                "Den Knovas Connector aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
     return "", ""
 
 

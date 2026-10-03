@@ -67,7 +67,7 @@ To prevent sync from auto-starting after a container restart, set `"enabled": fa
 
 ## Document fields
 
-Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Document fields work only once Knovas has enabled them for the tenant; until then the RemoteController sends them where configured, the server ignores them, and nothing else changes.
+Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Document fields work only once Knovas has enabled them for the tenant; until then the Knovas Connector sends them where configured, the server ignores them, and nothing else changes.
 
 ### Status
 
@@ -90,7 +90,7 @@ Configuration and costs: [configuration.md](configuration.md#per-source-document
 }
 ```
 
-- `capabilities` tells the Platform which sync-body keys this RemoteController understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("RemoteController zu alt").
+- `capabilities` tells the Platform which sync-body keys this Knovas Connector understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("Der Knovas Connector ist zu alt").
 - `enabled` is `RC_DOC_FIELDS`. `server` is `accepted` once an answer carried the fields echo (or a fields refusal, which also shows the feature is on), `not_accepted` when fields were sent and no echo came back (feature off at Knovas, or an older server), `unknown` before either. "Not accepted" never means "stored".
 - `documents.pending_reupload` estimates the documents still to be re-sent: `fields_changed` from the last scan not yet done, plus those requeued since (before the first cycle after a start, the stored requeued rows). `refused`, `not_accepted` and `reupload_failed` are the stored outcomes. `server` follows the latest cycle that got an answer, so idle cycles do not turn it back to `unknown`.
 - `unknown_keys` / `suggest` hold registry keys only (at most 20, from the last cycle): a configured key Knovas does not know, and the keys it suggests instead.
@@ -122,7 +122,7 @@ curl -sS -X POST "$RC_BASE/sync/doc-fields/requeue" \
 
 ### State
 
-The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`, `fields_outcome`, `fields_warning_codes`, `fields_attempts`), added on first start; an older RemoteController ignores them. `fields_digest` is a hash of the configuration, never the values. Resetting the sync state (above) also forgets which documents had fields: the next full upload sends them again.
+The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`, `fields_outcome`, `fields_warning_codes`, `fields_attempts`), added on first start; an older Knovas Connector ignores them. `fields_digest` is a hash of the configuration, never the values. Resetting the sync state (above) also forgets which documents had fields: the next full upload sends them again.
 
 ## Large corpora (100s of GB)
 

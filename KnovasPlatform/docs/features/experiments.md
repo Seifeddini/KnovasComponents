@@ -175,7 +175,7 @@ gesetzte, aber leere Variable (`EXPERIMENTS_INDEX_ENABLED=`) gilt als «Vorgabe�
 | `EXPERIMENTS_ACCESS_GROUPS` | leer | Knovas-Zugriffsgruppen jedes Experiment-Dokuments, durch Komma getrennt. Leer: es wird **nichts** in Knovas hochgeladen. |
 | `EXPERIMENTS_INDEX_UNRESTRICTED` | `false` | Hochladen ohne Zugriffsgruppe erlauben – nur zusammen mit einer Ordnerregel auf `experiments/`, siehe unten. |
 | `EXPERIMENTS_INDEX_ENABLED` | `true` | `false`: Experimente werden nicht mehr hochgeladen (Löschungen laufen weiter). |
-| `EXPERIMENTS_INDEX_PER_MINUTE` | `2` | Uploads pro Minute (1–60), über alle Prozesse zusammen. Der Mandant erlaubt nur wenige Dokument-Uploads pro Minute und teilt sie mit RemoteController. |
+| `EXPERIMENTS_INDEX_PER_MINUTE` | `2` | Uploads pro Minute (1–60), über alle Prozesse zusammen. Der Mandant erlaubt nur wenige Dokument-Uploads pro Minute und teilt sie mit dem Knovas Connector. |
 | `EXPERIMENTS_INDEX_DEBOUNCE_SECONDS` | `60` | Änderungen innerhalb dieses Fensters werden einmal hochgeladen (0–3600). |
 | `EXPERIMENTS_POINTER_PREFIX` | `experiments` | Erstes Pfadstück der Knovas-Dokumente (`experiments/<bereich>/<SCHLÜSSEL>`). Darf nicht mit `KNOVAS_IDENTIFIER_PREFIX` übereinstimmen. Nach einer Änderung: `purge-index` mit dem alten Wert, dann `reindex --all`. |
 | `EXPERIMENTS_RUNNER_URL` | leer | Adresse der Rechenumgebung, mit dem Profil `unix:///run/experiments-runner/runner.sock`. Leer: nur eingebaute Auswerter. |
@@ -1507,7 +1507,7 @@ als Eingabe) und laufen ohne Rechenumgebung.
   laufende Aufträge und der Dienst teilen sie, zwei Stacks auf einem Rechner
   ebenfalls. Startet ein Auftrag sehr viele Threads, kann der Start eines
   anderen scheitern; dessen Protokoll nennt dann die Prozessgrenze. Die uid
-  gehört sonst keinem Dienst des Stacks (RemoteController läuft als 10001).
+  gehört sonst keinem Dienst des Stacks (der Knovas Connector läuft als 10001).
 - **Auswerter sehen die Daten ihres Experiments** und können sie in ihre
   Ausgabe schreiben; die Ausgabe landet im Experiment und in Knovas. Das ist der
   Zweck eines Auswerters.

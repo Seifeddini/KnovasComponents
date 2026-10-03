@@ -1185,7 +1185,7 @@ class TestStatusBar:
                                              document_sync={"total": 10}),
                                 capability=Capability.off)
         assert [line["text"] for line in out["lines"]] == [
-            "Dokumentfelder sind im RemoteController ausgeschaltet (RC_DOC_FIELDS=off); "
+            "Dokumentfelder sind im Knovas Connector ausgeschaltet (RC_DOC_FIELDS=off); "
             "es werden keine Felder gesendet.",
             "Noch keine R\u00fcckmeldung von Knovas zu Dokumentfeldern.",
         ]
@@ -1251,7 +1251,7 @@ class TestCheckProfileFields:
         with pytest.raises(ProfileError) as excinfo:
             self._check(_profile(_folder(**source_kw)), rc=_RC(caps=caps))
         assert str(excinfo.value) == RC_TOO_OLD
-        assert "RemoteController zu alt \u2013 bitte aktualisieren" in RC_TOO_OLD
+        assert "Der Knovas Connector ist zu alt \u2013 bitte aktualisieren" in RC_TOO_OLD
 
     def test_an_unreachable_remote_controller_is_not_called_too_old(self):
         from identity.ingestion_compiler import RC_UNREACHABLE, ProfileError
@@ -1348,7 +1348,7 @@ class TestCheckProfileFields:
     def test_the_preview_gets_the_problem_instead_of_an_exception(self):
         check = self._check(_profile(_folder(fields={"doc_type": "invoice"})), rc=_RC(caps=()),
                             strict=False)
-        assert "RemoteController zu alt" in check.error
+        assert "Der Knovas Connector ist zu alt" in check.error
 
 
 class TestTheExecutorRefusesAnOldRemoteController:
@@ -1609,13 +1609,13 @@ class TestTemplateFields:
     def test_notes_when_knovas_or_remote_controller_cannot_take_them(self):
         html = _render(doc_fields=_df(available=False, rc_supports=False, multi_source=True))
         assert "Knovas stellt Dokumentfelder derzeit nicht bereit" in html
-        assert "RemoteController meldet keine Unterst\u00fctzung" in html
+        assert "Der Knovas Connector meldet keine Unterst\u00fctzung" in html
         assert "der erste Ordner" in html
 
     def test_an_unreachable_remote_controller_is_not_called_too_old(self):
         html = _render(doc_fields=_df(rc_supports=None))
-        assert "RemoteController ist nicht erreichbar" in html
-        assert "RemoteController meldet keine Unterst\u00fctzung" not in html
+        assert "Der Knovas Connector ist nicht erreichbar" in html
+        assert "Der Knovas Connector meldet keine Unterst\u00fctzung" not in html
 
     def test_the_confirmation_sits_inside_the_profile_form(self):
         html = _render(doc_fields=_df(reupload={"paths": ["/a"], "text": "Alle Dokumente X",
@@ -1742,7 +1742,7 @@ class TestLiveDocumentFields:
         monkeypatch.setattr(FakeRemoteControllerClient, "capabilities_advertised", None)
         r = self._save(client, **self.FORM)
         assert r.status_code == 400
-        assert "RemoteController zu alt" in r.data.decode("utf-8")
+        assert "Der Knovas Connector ist zu alt" in r.data.decode("utf-8")
         assert rc.last_instance.count("push") == 0
         assert platform_db.execute("SELECT count(*) FROM ingestion_profiles").fetchone()[0] == 0
 
@@ -1763,8 +1763,8 @@ class TestLiveDocumentFields:
 
         monkeypatch.setattr(FakeRemoteControllerClient, "status", timeout)
         html = client.get("/admin/ingestion").data.decode("utf-8")
-        assert "RemoteController ist nicht erreichbar" in html
-        assert "RemoteController meldet keine Unterst\u00fctzung" not in html
+        assert "Der Knovas Connector ist nicht erreichbar" in html
+        assert "Der Knovas Connector meldet keine Unterst\u00fctzung" not in html
 
     def test_an_old_remote_controller_still_takes_a_profile_without_fields(
         self, client, rc, monkeypatch
