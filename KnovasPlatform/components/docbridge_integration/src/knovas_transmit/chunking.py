@@ -15,6 +15,7 @@ from knovas_extract.result import Page, Section, Sentence
 from knovas_transmit.page_markers import (
     PageStart,
     apply_page_markers,
+    line_start_offsets,
     marker_count_inside,
     markers_inside,
     text_page_starts,
@@ -58,6 +59,42 @@ def _location_for_offset(
     return s.page_number, s.index + 1
 
 
+def _page_number_starts(pages: Optional[Sequence[Page]], text: str) -> Tuple[List[int], List[int]]:
+    """Ascending first-character offsets of the TEXT pages, and their numbers.
+
+    The source of ``page_number`` when a document has no sentences (spec E4:
+    the size gate, a sentence cap, an extractor without ``[sentences]``).
+    Same contract as ``_location_for_offset`` (``knovas_transmit.page_markers``):
+    a part's page is the page of its first character, and the join whitespace
+    between two pages belongs to the preceding page -- a page's lines run
+    from its ``line_start`` to the next text page's, so its ``line_end``
+    adds nothing. Empty pages carry no ``line_start`` and are skipped; the
+    next text page keeps its own number (``index + 1``).
+    """
+    if not pages:
+        return [], []
+    line_offsets = line_start_offsets(text)
+    entries: List[Tuple[int, int]] = []
+    for page in pages:
+        if not page.text or page.line_start is None:
+            continue
+        line = int(page.line_start)
+        if 1 <= line <= len(line_offsets):
+            entries.append((line_offsets[line - 1], int(page.index) + 1))
+    entries.sort()
+    return [offset for offset, _ in entries], [number for _, number in entries]
+
+
+def _page_for_offset(starts: Sequence[int], numbers: Sequence[int], offset: int) -> Optional[int]:
+    """The number of the text page holding ``offset``; before the first text
+    page (leading whitespace) the first one, as the first sentence is in
+    ``_location_for_offset``."""
+    if not starts:
+        return None
+    idx = bisect.bisect_right(starts, offset) - 1
+    return numbers[max(idx, 0)]
+
+
 def _is_char_boundary(text: str, index: int) -> bool:
     if index <= 0 or index >= len(text):
         return True
@@ -82,7 +119,9 @@ def iter_text_chunks_with_location(
     ``sentences`` — knovas-extract ``Sentence`` objects (char offsets into
     ``content.text``). When provided, each chunk's location uses binary search
     on ``Sentence.char_start`` for ``page_number`` and ``index + 1`` as
-    ``sentence_number``.
+    ``sentence_number``. Without sentences ``page_number`` comes from
+    ``pages`` (spec E4, ``_page_number_starts``) and ``sentence_number`` is
+    None.
 
     ``sections`` / ``pages`` — when provided, chunk boundaries prefer section
     and page breaks; section headings are injected into snippets at section
@@ -102,6 +141,7 @@ def iter_text_chunks_with_location(
         return
 
     starts = [s.char_start for s in sentences] if sentences else []
+    page_offsets, page_numbers = ([], []) if sentences else _page_number_starts(pages, text)
     page_starts: list[PageStart] = text_page_starts(pages, text) if (page_markers and pages) else []
 
     start = 0
@@ -123,7 +163,7 @@ def iter_text_chunks_with_location(
         if sentences:
             page_number, sentence_number = _location_for_offset(starts, sentences, start)
         else:
-            page_number, sentence_number = None, None
+            page_number, sentence_number = _page_for_offset(page_offsets, page_numbers, start), None
         snippet, shift = apply_section_heading(text[start:end], prefix)
         if page_starts:
             markers = [(offset - start, count) for offset, count in markers_inside(page_starts, start, end)]

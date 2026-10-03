@@ -26,6 +26,7 @@ page_markers=True)``. RED until the feature lands.
 
 from __future__ import annotations
 
+import pytest
 from knovas_extract.result import Page, Sentence
 
 FF = "\f"
@@ -197,3 +198,45 @@ class TestDeclaredPageMechanism:
         ))
         assert [(p, s, o) for _, p, s, o in without] == [(p, s, o) for _, p, s, o in with_markers]
         assert [t.replace(FF, "") for t, *_ in with_markers] == [t for t, *_ in without]
+
+
+class TestDeclaredPageWithoutSentences:
+    """Spec E4: without sentences (the size gate, a sentence cap) a part's
+    page_number comes from content.pages under the same contract -- the
+    page of its first character, join whitespace to the preceding page."""
+
+    @pytest.mark.parametrize("page_texts", [
+        ["Seite eins.", "Seite zwei.", "Seite drei."],
+        ["Seite eins. " * 20, None, "Seite drei. " * 20, "Seite vier. " * 20],
+        [None, None, "Seite drei. " * 10, "Seite vier. " * 10],
+        ["Zeile eins\nZeile zwei\nZeile drei", "Seite zwei.\nNoch eine Zeile."],
+    ])
+    @pytest.mark.parametrize("part_max", [7, 13, 40, 120, 10_000])
+    def test_pages_give_the_same_page_numbers_as_sentences(self, page_texts, part_max):
+        from sync.chunking import iter_text_chunks_with_location
+
+        text, pages, sentences = _pages_and_text(page_texts)
+        with_sentences = list(iter_text_chunks_with_location(text, part_max, sentences=sentences, pages=pages))
+        from_pages = list(iter_text_chunks_with_location(text, part_max, pages=pages))
+        assert [(t, o) for t, _p, _s, o in from_pages] == [(t, o) for t, _p, _s, o in with_sentences]
+        assert [p for _t, p, _s, _o in from_pages] == [p for _t, p, _s, _o in with_sentences]
+        assert all(s is None for _t, _p, s, _o in from_pages)
+
+    def test_three_pages_get_page_numbers_one_to_three(self):
+        from sync.chunking import iter_text_chunks_with_location
+
+        text, pages, _ = _pages_and_text(["Seite eins.", "Seite zwei.", "Seite drei."])
+        parts = list(iter_text_chunks_with_location(text, text.index("Seite zwei."), pages=pages))
+        assert [p for _t, p, _s, _o in parts] == [1, 2, 3]
+
+    def test_an_empty_page_keeps_the_numbering(self):
+        from sync.chunking import iter_text_chunks_with_location
+
+        text, pages, _ = _pages_and_text(["Seite eins.", None, "Seite drei."])
+        parts = list(iter_text_chunks_with_location(text, text.index("Seite drei."), pages=pages))
+        assert [p for _t, p, _s, _o in parts] == [1, 3]
+
+    def test_no_pages_no_page_number(self):
+        from sync.chunking import iter_text_chunks_with_location
+
+        assert [p for _t, p, _s, _o in iter_text_chunks_with_location("Ohne Seiten.", 5)] == [None, None, None]

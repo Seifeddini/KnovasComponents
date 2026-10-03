@@ -355,3 +355,30 @@ def test_uploader_passes_the_relative_path_as_cache_key(mock_config, tmp_path):
         req.side_effect = [_ok_response(), _ok_response()]
         uploader.upload_file(pdf, "akten/x.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
     assert guarded.call_args.kwargs["document_key"] == "akten/x.pdf"
+
+
+def test_parts_carry_page_numbers_without_sentences(mock_config, tmp_path):
+    """Spec E4: a PDF extracted without sentences still gets every part's
+    page number, from content.pages."""
+    from knovas_extract.result import Page
+
+    from sync.document_text import ExtractedDocument
+
+    text = "Seite eins.\n\nSeite zwei.\n\nSeite drei."
+    pages = [Page(index=i, text=t, line_start=1 + 2 * i, line_end=1 + 2 * i)
+             for i, t in enumerate(("Seite eins.", "Seite zwei.", "Seite drei."))]
+    doc = ExtractedDocument(text=text, sentences=None, pages=pages)
+    pdf = tmp_path / "drei.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=doc
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response() for _ in range(4)]
+        result = uploader.upload_file(
+            pdf, "akten/drei.pdf", {"ingestion": {"identifier_prefix": "corpus", "part_max_chars": 13}},
+        )
+    assert result.status == "ok" and result.parts == 3
+    bodies = [c.kwargs["json_body"] for c in req.call_args_list[1:]]
+    assert [b["page_number"] for b in bodies] == [1, 2, 3]
+    assert all("sentence_number" not in b for b in bodies)
