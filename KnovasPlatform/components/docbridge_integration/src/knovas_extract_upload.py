@@ -7,6 +7,11 @@ synced by the RC reach the server in the same wire format:
 
 * ``emit_markdown=False`` — markdown cost ~8 s per document and its expansion
   guard parked every mixed PDF and every DOCX with large tables (plan M0).
+* Sentences for every PDF (split page by page); any other input only while
+  its extracted text is at most ``UNPAGED_SENTENCE_MAX_CHARS`` (2 MiB) --
+  pysbd's time grows with the square of one text. A DOCX, an MSG or a larger
+  file is extracted without sentences first to measure its text (the
+  Connector's rule, spec E4).
 * The 0.4 keywords ``text_mode=`` and ``ocr=`` are sent only when
   ``extract_accepts(name)`` says the installed library takes them; the OCR
   page cap, time budget and page timeout live on ``Limits`` in 0.4.0a1 and
@@ -104,6 +109,20 @@ _EXT_TO_MIME = {
 }
 
 _PART_MAX_CHARS = 50_000
+
+#: Input other than PDF gets sentences only while its extracted text is at
+#: most this many characters -- the Knovas Connector's rule (spec E4, L7).
+#: knovas-extract splits a PDF page by page; any other input is ONE text, and
+#: pysbd maps each sentence back by searching it from its start, in time that
+#: grows with the square of the text (a 60 000-row DOCX table in layout mode
+#: ran past the 120 s ceiling). 2 MiB keeps the split near 40 s.
+UNPAGED_SENTENCE_MAX_CHARS = 2 * 1024 * 1024
+
+#: Formats whose text is never longer than the file (decoded and stripped of
+#: markup, never decompressed): a file of at most `UNPAGED_SENTENCE_MAX_CHARS`
+#: bytes is split in one pass. A DOCX (zipped XML, table rows in the text) or
+#: an MSG (compressed RTF body) is extracted without sentences first.
+_TEXT_NOT_LONGER_THAN_FILE = frozenset({".txt", ".md", ".eml"})
 
 # Wall-clock ceiling for one admin upload's extraction (child process).
 # Override with RC_EXTRACT_TIMEOUT_SECONDS; 0 extracts in-process with no
@@ -729,6 +748,32 @@ def _pdf_extract_kwargs(
     return kwargs, True, cache, "shadow"
 
 
+def _text_may_exceed_sentence_limit(raw: bytes, ext: str) -> bool:
+    """Whether an input's text may be longer than ``UNPAGED_SENTENCE_MAX_CHARS``
+    before anything is extracted: never for a PDF (split per page), for TXT,
+    Markdown and EML only when the file is, always for DOCX and MSG."""
+    if ext == ".pdf":
+        return False
+    return ext not in _TEXT_NOT_LONGER_THAN_FILE or len(raw) > UNPAGED_SENTENCE_MAX_CHARS
+
+
+def _with_sentences_if_short(raw: bytes, ext: str, kwargs: dict[str, Any], result: Any) -> Any:
+    """``result`` was extracted without sentences to measure its text: extract
+    again with sentences when the text is at most ``UNPAGED_SENTENCE_MAX_CHARS``
+    characters, else keep it (text uploaded, no citations; counts only in
+    the log)."""
+    text = str(result.content.text or "")
+    if len(text) > UNPAGED_SENTENCE_MAX_CHARS:
+        logger.info(
+            "Skipping sentence emission: %d characters of text exceed %d (ext=%s)",
+            len(text), UNPAGED_SENTENCE_MAX_CHARS, ext,
+        )
+        return result
+    if not text.strip():
+        return result  # "no extractable text" follows; nothing to split
+    return extract(raw, **{**kwargs, "emit_sentences": True})
+
+
 def _extract_bytes(
     raw: bytes,
     ext: str,
@@ -745,9 +790,12 @@ def _extract_bytes(
     if mime is None:
         raise ExtractionError(f"unsupported extension: {ext}")
 
+    # Input other than PDF is split as one text (UNPAGED_SENTENCE_MAX_CHARS):
+    # unless the file size bounds that text, extract without sentences first.
+    measure_text_first = _text_may_exceed_sentence_limit(raw, ext)
     extract_kwargs: dict[str, Any] = {
         "mime": mime,
-        "emit_sentences": True,
+        "emit_sentences": not measure_text_first,
         # Never: ~8 s per document, and the expansion guard parked every mixed
         # PDF and every DOCX with large tables (plan M0).
         "emit_markdown": False,
@@ -768,6 +816,8 @@ def _extract_bytes(
     started = time.monotonic()
     try:
         result = extract(raw, **extract_kwargs)
+        if measure_text_first:
+            result = _with_sentences_if_short(raw, ext, extract_kwargs, result)
     except Exception as exc:
         raise ExtractionError(f"{type(exc).__name__}: {exc}") from exc
     seconds_plain = time.monotonic() - started

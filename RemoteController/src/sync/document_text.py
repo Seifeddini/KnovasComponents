@@ -24,13 +24,19 @@ Markdown is never requested (`emit_markdown=False`): it cost ~8 s per
 document and its expansion guard parked every mixed PDF and every DOCX with
 large tables as "resource limit exceeded: markdown expansion ratio".
 
-Sentences are emitted for every input (spec E4). The size gate
-`RC_SENTENCE_EMIT_MAX_BYTES` (default `0`: no gate) guarded against the
-quadratic line counting in `split_sentences` that knovas-extract 0.3 fixed;
-measured on raw file size it switched off the citations -- and with them
-every part's `page_number` -- of most multi-page scans. A positive value
-restores it: above that many raw bytes only the citations and context
-previews are dropped, the text is still uploaded.
+Sentences are emitted for every PDF (spec E4): knovas-extract splits a PDF
+page by page, in time linear in its pages. Every other input is split as
+ONE text, and pysbd maps each sentence back by searching that text from its
+start, so the time grows with the square of the text (2 MiB of export rows
+~40 s, 8 MiB past the 300 s ceiling; knovas-extract 0.3 fixed only its own
+line counting). Such input gets sentences while its extracted text is at
+most `UNPAGED_SENTENCE_MAX_CHARS` (2 MiB): a DOCX (tables in the text), an
+MSG or a file larger than that is extracted without sentences first and
+again with them when its text is short enough. `RC_SENTENCE_EMIT_MAX_BYTES`
+(default `0`: off) is the old gate on raw file size, which switched off the
+citations of most multi-page scans; a positive value applies it to every
+input. Without sentences only the citations and context previews are
+dropped, the text is still uploaded.
 
 Errors from `knovas-extract` are re-raised as `ConversionError` with
 message substrings that `is_unconvertible_error()` recognizes, so
@@ -106,9 +112,21 @@ logger = logging.getLogger(__name__)
 
 SYNCABLE_EXTENSIONS = frozenset({".md", ".txt", ".docx", ".pdf", ".eml", ".msg"})
 
-# RC_SENTENCE_EMIT_MAX_BYTES: 0 (default) emits sentences for every input; a
+# RC_SENTENCE_EMIT_MAX_BYTES: 0 (default) is no gate on the raw size; a
 # positive value skips sentence emission above that many raw bytes.
 DEFAULT_SENTENCE_EMIT_MAX_BYTES = 0
+
+#: Input other than PDF gets sentences only while its extracted text is at
+#: most this many characters: pysbd's time grows with the square of one text
+#: (module docstring). 2 MiB, the old gate's size, keeps it near 40 s.
+UNPAGED_SENTENCE_MAX_CHARS = 2 * 1024 * 1024
+
+#: Formats whose text is never longer than the file -- decoded and stripped
+#: of markup, never decompressed -- so a file of at most
+#: `UNPAGED_SENTENCE_MAX_CHARS` bytes is split in one pass. A DOCX (zipped
+#: XML, table rows in the text) or an MSG (compressed RTF body) can hold far
+#: more text than bytes: its text is measured first.
+_TEXT_NOT_LONGER_THAN_FILE = frozenset({".txt", ".md", ".eml"})
 
 # Wall-clock ceiling for one document's extraction. Override with
 # RC_EXTRACT_TIMEOUT_SECONDS; 0 extracts in-process with no ceiling. When the
@@ -914,6 +932,34 @@ def _pdf_extract_kwargs(
     return kwargs, True, cache
 
 
+def _text_may_exceed_sentence_limit(raw: bytes, ext: str) -> bool:
+    """Whether an input's text may be longer than `UNPAGED_SENTENCE_MAX_CHARS`
+    before anything is extracted: never for a PDF (split per page), for
+    TXT, Markdown and EML only when the file is, always for DOCX and MSG."""
+    if ext == ".pdf":
+        return False
+    return ext not in _TEXT_NOT_LONGER_THAN_FILE or len(raw) > UNPAGED_SENTENCE_MAX_CHARS
+
+
+def _with_sentences_if_short(raw: bytes, ext: str, kwargs: dict[str, object], result: Any) -> Any:
+    """`result` was extracted without sentences to measure its text: extract
+    again with sentences when the text is at most `UNPAGED_SENTENCE_MAX_CHARS`
+    characters, else keep it (text uploaded, no citations; counts only in
+    the log)."""
+    text = str(result.content.text or "")
+    if len(text) > UNPAGED_SENTENCE_MAX_CHARS:
+        logger.info(
+            "Skipping sentence emission: %d characters of text exceed %d (ext=%s)",
+            len(text),
+            UNPAGED_SENTENCE_MAX_CHARS,
+            ext,
+        )
+        return result
+    if not text.strip():
+        return result  # "no extractable text" follows; nothing to split
+    return extract(raw, **{**kwargs, "emit_sentences": True})
+
+
 def _extract_bytes(
     raw: bytes,
     ext: str,
@@ -934,10 +980,13 @@ def _extract_bytes(
             max_sentence_bytes,
             ext,
         )
+    # Input other than PDF is split as one text (module docstring): unless the
+    # file size bounds that text, extract without sentences first and measure.
+    measure_text_first = emit_sentences and _text_may_exceed_sentence_limit(raw, ext)
 
     extract_kwargs: dict[str, object] = {
         "mime": mime,
-        "emit_sentences": emit_sentences,
+        "emit_sentences": emit_sentences and not measure_text_first,
         # Never: ~8 s per document, and the expansion guard parked every mixed
         # PDF and every DOCX with large tables (plan M0).
         "emit_markdown": False,
@@ -958,6 +1007,8 @@ def _extract_bytes(
     started = time.monotonic()
     try:
         result = extract(raw, **extract_kwargs)
+        if measure_text_first:
+            result = _with_sentences_if_short(raw, ext, extract_kwargs, result)
     except UnsupportedFormatError as exc:
         raise ConversionError(f"unsupported extension: {ext}", extension=ext) from exc
     except CorruptDocumentError as exc:

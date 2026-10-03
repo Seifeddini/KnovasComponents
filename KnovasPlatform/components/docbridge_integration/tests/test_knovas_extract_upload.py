@@ -80,7 +80,115 @@ def test_emit_markdown_is_never_requested(monkeypatch):
         with pytest.raises(m.ExtractionError):
             m._extract_bytes(b"stub", ext)
         assert seen["emit_markdown"] is False, ext
-        assert seen["emit_sentences"] is True
+        # a DOCX's text is measured before it is split (see below)
+        assert seen["emit_sentences"] is (ext != ".docx"), ext
+
+
+# --- one unpaged text gets sentences only up to UNPAGED_SENTENCE_MAX_CHARS ----
+# The Knovas Connector's rule (spec E4, L7): pysbd maps every sentence back by
+# searching the text from its start, so one unpaged text costs time in the
+# square of its size -- a large-table DOCX in layout mode ran past the 120 s
+# ceiling. A PDF is split page by page.
+
+
+def _spy_extract(monkeypatch):
+    """The real extract(), recording ``emit_sentences`` of every call (its
+    signature kept, so ``extract_accepts`` still sees ``text_mode=``)."""
+    import functools
+
+    calls: list = []
+    real = m.extract
+
+    @functools.wraps(real)
+    def spy(raw, **kwargs):
+        calls.append(kwargs.get("emit_sentences"))
+        return real(raw, **kwargs)
+
+    monkeypatch.setattr(m, "extract", spy)
+    return calls
+
+
+def _export_rows(size: int) -> bytes:
+    """A weakly punctuated text export: one short "sentence" per row."""
+    rows, total, i = [], 0, 0
+    while total < size:
+        row = f"{i:07d};K{1000 + i % 9000};{i % 99999}.{i % 100:02d};Konto {100 + i % 900} Mandant {1 + i % 50}\n"
+        rows.append(row)
+        total += len(row)
+        i += 1
+    return "".join(rows).encode()
+
+
+def _docx_bytes(paragraphs, table_rows: int = 0) -> bytes:
+    docx = pytest.importorskip("docx")
+    import io
+
+    document = docx.Document()
+    for text in paragraphs:
+        document.add_paragraph(text)
+    if table_rows:
+        table = document.add_table(rows=0, cols=3)
+        for i in range(table_rows):
+            cells = table.add_row().cells
+            cells[0].text, cells[1].text, cells[2].text = f"Pos {i}", f"Konto {1000 + i}", f"{i}.50"
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+def test_a_short_text_is_split_in_one_pass(monkeypatch):
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(b"First sentence. Second sentence.", ".txt")
+    assert calls == [True]
+    assert len(content.sentences) == 2
+
+
+def test_an_unpaged_text_over_the_limit_is_uploaded_without_sentences(monkeypatch, caplog):
+    monkeypatch.setattr(m, "UNPAGED_SENTENCE_MAX_CHARS", 1000)
+    calls = _spy_extract(monkeypatch)
+    with caplog.at_level(logging.INFO, logger="knovas_extract_upload"):
+        content = m._extract_bytes(_export_rows(5000), ".txt")
+    assert calls == [False], "extracted once, without sentences"
+    assert content.sentences is None
+    assert content.text.startswith("0000000;K1000;")
+    assert any("Skipping sentence emission" in r.getMessage() for r in caplog.records)
+    assert not any("Konto" in r.getMessage() for r in caplog.records), "counts only"
+
+
+def test_a_docx_is_measured_before_it_is_split(monkeypatch):
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(_docx_bytes(["Erster Satz. Zweiter Satz."]), ".docx")
+    assert calls == [False, True]
+    assert [s.text for s in content.sentences] == ["Erster Satz.", "Zweiter Satz."]
+
+
+def test_a_docx_table_over_the_limit_is_uploaded_without_sentences(monkeypatch):
+    monkeypatch.setattr(m, "UNPAGED_SENTENCE_MAX_CHARS", 20_000)
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(_docx_bytes(["Kontoauszug."], table_rows=2000), ".docx")
+    if not m.docx_tables_in_text(content.extra):
+        pytest.skip("the installed knovas-extract has no DOCX layout mode")
+    assert calls == [False], "extracted once: the rows are over the limit"
+    assert content.sentences is None
+    assert "Pos 1999" in content.text
+
+
+def test_a_pdf_is_split_per_page_whatever_its_text_size(monkeypatch):
+    monkeypatch.setattr(m, "UNPAGED_SENTENCE_MAX_CHARS", 10)
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(_three_page_pdf(), ".pdf", use_ocr=False)
+    assert calls == [True]
+    assert {s.page_number for s in content.sentences} == {1, 2, 3}
+
+
+def test_a_4_mib_text_export_is_extracted_in_seconds():
+    """Real library, real size: split whole, this text took pysbd minutes."""
+    raw = _export_rows(4 * 1024 * 1024)
+    started = time.monotonic()
+    content = m._extract_bytes(raw, ".txt")
+    assert time.monotonic() - started < 30
+    assert content.sentences is None
+    assert len(content.text) > m.UNPAGED_SENTENCE_MAX_CHARS
 
 
 # --- 0.4 keywords (text_mode=, ocr=, limits=) are introspected ---------------

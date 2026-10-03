@@ -52,6 +52,14 @@ library flagged the input" (GI-EXTRACT-02). The image sets
 (Dockerfile `180`, compose `DOCBRIDGE_WEB_TIMEOUT`, default `180`) must stay
 above `RC_EXTRACT_TIMEOUT_SECONDS`.
 
+**Sentences.** Every PDF gets sentence citations: the library splits it page
+by page. Any other upload is split as one text, in time that grows with the
+square of its size (a 60 000-row DOCX table ran past the 120 s ceiling), so
+it gets them only while its extracted text is at most 2 MiB
+(`UNPAGED_SENTENCE_MAX_CHARS`, the Knovas Connector's rule); a DOCX, an MSG
+or a larger file is extracted without sentences first to measure its text.
+A longer text is uploaded without citations.
+
 **Partial uploads.** The same rule as the Knovas Connector (spec E1):
 `pdf:ocr_pages_skipped > 0` (budget or page cap, or no OCR engine —
 knovas-extract 0.4 counts those pages as skipped), `pdf:ocr_pages_failed > 0`,

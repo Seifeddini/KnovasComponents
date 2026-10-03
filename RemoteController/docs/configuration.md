@@ -306,7 +306,7 @@ All read from the environment by `src/sync/document_text.py`, `knovas_uploader.p
 | `RC_PAGE_BREAK_MARKERS` | `true` | Form feed(s) before every text-page start inside a part so the server serves a hit on its own page (GI-INGEST-17). The part's `page_number` stays the page of its first character; the context sidecar is written from the unmarked text. |
 | `RC_SEND_PDF_TABLES` | `false` | Send `tables` payloads for PDF parts. The server drops them at the Redis buffer; table rows have to live in the text (`RC_PDF_TEXT_MODE=layout`). DOCX tables are sent unless the library wrote their rows into the text (`RC_DOCX_TEXT_MODE=layout`). |
 | `RC_UPLOAD_ORDER` | `small_first` | Order of a cycle's upload queue: smallest file first (`scan` keeps the directory order). |
-| `RC_SENTENCE_EMIT_MAX_BYTES` | `0` | `0`: sentence citations for every input. A positive value skips them (and the context previews) above that many raw bytes; the text is still uploaded. |
+| `RC_SENTENCE_EMIT_MAX_BYTES` | `0` | `0`: no gate on the file size. Every PDF gets sentence citations (the library splits it page by page). Any other file is split as one text, in time that grows with the square of its size (2 MiB of export rows take ~40 s), so it gets citations while its extracted text is at most 2 MiB; a larger text — a text export, a DOCX with big tables in its text — is uploaded without them. A positive value skips citations (and the context previews) above that many raw bytes for every file; the text is still uploaded. |
 
 Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
 
