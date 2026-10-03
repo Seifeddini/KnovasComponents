@@ -89,6 +89,10 @@ MAX_EVALUATOR_CODE = 200_000
 MAX_CONFIG_DESCRIPTION = 2_000
 MAX_SEARCH_WORDS = 8
 MAX_QUERY_CHARS = 200
+#: The most the module's search asks Knovas for (it asks for five times the
+#: page): /secured/query answers 422 above 50 and knovas_client cuts a
+#: larger limit to the same, so asking for more only hid the refusal.
+KNOVAS_SEARCH_MAX = 50
 #: Values beyond this magnitude are refused (csv_import uses the same bound):
 #: sums over many rows must stay far from the float8 limit.
 MAX_ABS_VALUE = csv_import.MAX_ABS_VALUE
@@ -2557,7 +2561,8 @@ class ExperimentService:
                 warning = MSG_MISSING_GROUP
         if use_knovas:
             try:
-                answer = self.knovas_search(" ".join(words), min(200, limit * 5)) or {}
+                answer = self.knovas_search(" ".join(words),
+                                            min(KNOVAS_SEARCH_MAX, limit * 5)) or {}
                 knovas = self._knovas_hits(answer)
             except Exception:  # noqa: BLE001 - the database search still answers
                 logger.warning("Knovas search for experiments failed.", exc_info=True)
