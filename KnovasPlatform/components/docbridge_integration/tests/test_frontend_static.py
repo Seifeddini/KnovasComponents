@@ -91,7 +91,7 @@ def test_app_js_renders_field_data_without_markup():
     refusal box put server data in with textContent only."""
     source = _source(APP_JS)
     for name in ("_appendFieldChips", "_showReasonedEmptyState", "displayListing",
-                 "displayRefusal"):
+                 "displayRefusal", "_renderSearchNotices"):
         body = _code(_method_body(source, name))
         for sink in _MARKUP_SINKS:
             assert sink not in body, f"{name} uses {sink}"
@@ -168,11 +168,12 @@ def test_index_loads_doc_fields_after_app_and_has_its_containers():
     assert html.index("js/app.js") < html.index("js/doc_fields.js")
     for element_id in ("docFieldsRail", "docFieldsUnderstood", "docFieldsBanner",
                        "docFieldsNotice", "previewFieldsSection", "previewFields",
-                       "showListButton", "resultsHeading"):
+                       "showListButton", "resultsHeading", "searchNotices"):
         assert f'id="{element_id}"' in html, element_id
     # Gated UI ships hidden; doc_fields.js shows it only for its capability.
     assert 'id="docFieldsRail" hidden' in html
     assert 'id="previewFieldsSection" hidden' in html
+    assert 'id="searchNotices" hidden' in html
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -364,3 +365,85 @@ def test_the_listing_sorts_by_path_both_ways():
 def test_collect_sort_reads_pointer_descending():
     result = _rail("out(__DF.prototype.collectSort.call({ _sortControl: { value: 'pointer:desc' } }));")
     assert result == {"field": "pointer", "order": "desc"}
+
+
+def test_search_notices_come_from_the_answer():
+    """F3: the page shows what the server put in ``notices``; listings,
+    refusals and a cleared list carry none."""
+    source = _source(APP_JS)
+    assert "this._renderSearchNotices(data.notices" in _code(_method_body(source, "performSearch"))
+    for name in ("displayListing", "displayRefusal", "clearResults"):
+        assert "this._renderSearchNotices([], 0)" in _code(_method_body(source, name)), name
+
+
+_APP_EXPORT = "\n;globalThis.__App = DocumentSearchApp;"
+
+
+@needs_node
+class TestSearchNotices:
+    def _run(self, body):
+        return _run_node(body, [APP_JS], suffix=_APP_EXPORT)
+
+    CASES = [
+        ({"kind": "return_fields_unavailable"},
+         "Feldwerte konnten nicht gelesen werden; die Treffer werden ohne Werte angezeigt."),
+        ({"kind": "degraded_to_bm25"},
+         "Eingeschr\u00e4nkte Suchqualit\u00e4t: diese Treffer wurden nur \u00fcber genaue "
+         "W\u00f6rter gefunden. F\u00fcr die volle Qualit\u00e4t sp\u00e4ter erneut suchen."),
+        ({"kind": "auto_scope_applied", "names": ["Muster AG"], "hidden_count": 0},
+         "Suche automatisch auf Muster AG eingegrenzt (in der Frage erkannt)."),
+        ({"kind": "auto_scope_applied", "names": ["Muster AG", "Beispiel GmbH"],
+          "hidden_count": 0},
+         "Suche automatisch auf Muster AG und Beispiel GmbH eingegrenzt (in der Frage erkannt)."),
+        ({"kind": "auto_scope_applied", "names": ["Muster AG"], "hidden_count": 1},
+         "Suche automatisch auf Muster AG und 1 weiteren Eintrag eingegrenzt "
+         "(in der Frage erkannt)."),
+        ({"kind": "auto_scope_applied", "names": ["Muster AG", "Beispiel GmbH"],
+          "hidden_count": 2},
+         "Suche automatisch auf Muster AG, Beispiel GmbH und 2 weitere Eintr\u00e4ge "
+         "eingegrenzt (in der Frage erkannt)."),
+        ({"kind": "auto_scope_applied", "names": [], "hidden_count": 2},
+         "Suche automatisch auf 2 Eintr\u00e4ge eingegrenzt (in der Frage erkannt)."),
+        ({"kind": "auto_scope_applied", "names": [], "hidden_count": 1},
+         "Suche automatisch auf 1 Eintrag eingegrenzt (in der Frage erkannt)."),
+        ({"kind": "auto_scope_fallback", "names": ["Muster AG"], "hidden_count": 0},
+         "In Muster AG nichts gefunden \u2013 alle Dokumente durchsucht."),
+        ({"kind": "auto_scope_fallback", "names": ["Muster AG"], "hidden_count": 2},
+         "In Muster AG und 2 weiteren Eintr\u00e4gen nichts gefunden \u2013 "
+         "alle Dokumente durchsucht."),
+        ({"kind": "auto_scope_fallback", "names": [], "hidden_count": 1},
+         "In 1 erkannten Eintrag nichts gefunden \u2013 alle Dokumente durchsucht."),
+        ({"kind": "something_new"}, ""),
+    ]
+
+    def test_each_kind_reads_in_german(self):
+        notices = [n for n, _ in self.CASES]
+        result = self._run("const cases = " + json.dumps(notices) + ";\n"
+                           "out(cases.map((n) => __App.prototype._searchNoticeText"
+                           ".call(__App.prototype, n)));")
+        assert result == [text for _, text in self.CASES]
+
+    def test_notices_go_above_the_results_as_text(self):
+        result = self._run(r"""
+        const box = new FakeEl('div');
+        const app = Object.create(__App.prototype);
+        app.searchNotices = box;
+        app._renderSearchNotices([
+          { kind: 'auto_scope_applied', names: ['<b>Muster AG</b>'], hidden_count: 0 },
+          { kind: 'degraded_to_bm25', names: [], hidden_count: 0 },
+          { kind: 'something_new' },
+        ], 3);
+        const shown = { hidden: box.hidden, kinds: box.children.map((c) => c.dataset.kind),
+                        first: box.children[0].textContent };
+        app._renderSearchNotices([{ kind: 'degraded_to_bm25' },
+          { kind: 'return_fields_unavailable' },
+          { kind: 'auto_scope_fallback', names: ['Muster AG'], hidden_count: 0 }], 0);
+        const empty = box.children.map((c) => c.dataset.kind);
+        app._renderSearchNotices([], 0);
+        out({ shown, empty, hiddenAfter: box.hidden });
+        """)
+        assert result["shown"] == {
+            "hidden": False, "kinds": ["auto_scope_applied", "degraded_to_bm25"],
+            "first": "Suche automatisch auf <b>Muster AG</b> eingegrenzt (in der Frage erkannt)."}
+        assert result["empty"] == ["auto_scope_fallback"]
+        assert result["hiddenAfter"] is True

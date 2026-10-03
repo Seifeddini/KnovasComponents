@@ -95,6 +95,11 @@ Feldbereich der Vorschau.
   und "hat einen Wert"; "Verstanden als" nennt jede Bedingung. Eine Liste im
   Filter hat hoechstens 50 Werte.
 - *Liste anzeigen* sortiert auch nach Dokumentpfad absteigend.
+- **Hinweise ueber den Treffern:** wenn Knovas die Feldwerte nicht lesen
+  konnte, nur ueber genaue Woerter gesucht hat, oder die Suche automatisch
+  auf einen in der Frage erkannten Namen eingegrenzt hat ("Suche automatisch
+  auf Muster AG eingegrenzt"; Namen, die die Person nicht sehen darf, werden
+  nur gezaehlt).
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),

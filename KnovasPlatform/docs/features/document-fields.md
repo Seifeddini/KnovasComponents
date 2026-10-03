@@ -107,6 +107,15 @@ value builder runs under Node in tests/test_frontend_static.py):
   characters and not just the file name) replaces the file name; an entity the
   person may not see shows as "verborgen"; a weak hit is marked "unsicherer
   Treffer".
+- **Notices above the results** (spec F3): "Feldwerte konnten nicht gelesen
+  werden …" when Knovas could not read the values asked for (or the Platform
+  could not ask), "Eingeschränkte Suchqualität …" when Knovas found the
+  results by exact words only, and "Suche automatisch auf … eingegrenzt" /
+  "In … nichts gefunden – alle Dokumente durchsucht" when Knovas narrowed the
+  search by a name it recognised in the question. Names are read through the
+  person's own knowledge-graph view; nodes they may not see are counted, never
+  named. The API has no switch to turn the narrowing off, so the notice
+  explains and offers no action.
 - **Cortex**: an entity whose type is the target of an entity field offers
   "Dokumente mit <Feld> = <Name>", which opens that listing (handed over in
   `sessionStorage`, not in the URL).
