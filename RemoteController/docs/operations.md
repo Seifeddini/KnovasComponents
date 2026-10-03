@@ -195,6 +195,38 @@ OCR output is cached per page image in `/var/rc-state/.rc-ocr-cache.db` (beside 
 - **Reset:** when you reset the sync state by hand (`DELETE FROM documents …`), remove the cache file as well; it is a copy of document text at rest and belongs to the same lifecycle. Code paths that reset the state (`SyncStateStore.reset_all`) drop it.
 - The cache is opened only in the forked extraction child; the API worker never holds it open.
 
+## Re-extraction after an extractor upgrade
+
+Every upload records an **extraction stamp** — 16 hex characters of a hash over the installed knovas-extract version, `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number — and the sha256 of exactly what it carried (every part with its page and sentence number, the field values, title and description). A document whose stamp is not the current one — or that has none, because it was synced before this release — was produced by an **older extraction**. Nothing is re-extracted by itself: every upload is billed.
+
+`GET /sync/status` reports them, counts only:
+
+```json
+"extraction": {"knovas_extract_version": "0.4.0a1", "pdf_text_mode": "layout",
+               "docx_text_mode": "layout", "ocr_engine": "auto",
+               "outdated": 1234, "queued": 0, "per_cycle": 100}
+```
+
+The Platform's Ingestion tab shows `outdated` as *N Dokumente mit älterer Extraktion* and offers *Neu extrahieren* to an administrator after a confirmation that states count, cost and duration. It calls:
+
+```bash
+curl -sS -X POST "$RC_BASE/sync/reextract/requeue" \
+  -H "Authorization: Bearer $EMPLOYEE_JWT" \
+  -H "Content-Type: application/json" -d '{}'
+# {"requeued": 1234}
+```
+
+Same authorization as `/sync/doc-fields/requeue`; no body is read. Every outdated document is queued (state column `resend_reason = 'reextract'`; a document already queued is not counted again) and a running worker starts its next cycle at once. Each cycle then takes — after new, modified and field re-uploads, and within `max_files_per_cycle` — at most `RC_REEXTRACT_PER_CYCLE` queued documents its scan reached, partial ones first, then PDFs, Word files, e-mails and the rest, and re-extracts each one:
+
+- **unchanged** — the upload would carry exactly what Knovas holds: nothing is sent and nothing billed; the stamp is updated and the partial note follows the new extraction (a born-digital PDF an older release recorded partial leaves the backfill list);
+- **changed** — uploaded in place (same identifier): **a billed upload**;
+- **unconvertible** — the stamp is updated, nothing is sent;
+- **any other failure** — tried again on the next cycle, at most 3 times; the document stays outdated, and the next request queues it again. It never counts toward `RC_EXTRACT_MAX_RETRIES` and is never recorded partial: Knovas still holds its last upload.
+
+Documents uploaded before this release have no hash, so the **first** re-extraction uploads every one of them; later upgrades upload only what changed. While queued documents wait, the worker does not back off and a sequential subfolder does not advance. A queued document no scan reaches any more (a completed subfolder of a sequential import, a removed file kept by `delete_on_remove: false`) stays queued and counted. Each cycle that re-extracts logs one line of counts: `reextract uploaded=… unchanged=… failed=… reached=…`.
+
+The SQLite `documents` table gains `extraction_stamp`, `text_sha256`, `resend_reason` and `resend_attempts` on first start; an older Knovas Connector ignores them, and a row it rewrites counts as outdated again.
+
 ## Upgrades
 
 1. Stop continuous worker (`POST /sync/stop` — remember the `-d '{}'` body).

@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
-from config import doc_fields_enabled, fields_reupload_per_cycle, get_config
+from config import doc_fields_enabled, fields_reupload_per_cycle, get_config, reextract_per_cycle
 from sync.ingest_rate_limit import configure as configure_ingest
 from sync.rate_metrics import IngestRateMetrics
 from sync.sync_config import load_sync_config
 from sync.default_sync_body import build_default_sync_body
+from sync.extraction_stamp import current_extraction_stamp
 from sync.sync_executor import DocFieldsCycle, SyncRunResult, run_sync_work
 from sync.knovas_uploader import SemantixUploader
 from sync.window import is_in_window
@@ -262,6 +263,37 @@ def requeue_doc_fields(outcome: str) -> int:
     return count
 
 
+def reextract_status() -> dict[str, int]:
+    """The re-extraction counts of GET /sync/status (spec L6), merged into
+    its ``extraction`` block: ``outdated`` (tracked documents an older
+    extraction produced -- another stamp, or none), ``queued`` (waiting for
+    re-extraction) and ``per_cycle`` (RC_REEXTRACT_PER_CYCLE). Counts only."""
+    from sync.sync_state import SyncStateStore
+
+    store = SyncStateStore()
+    try:
+        outdated = store.count_extraction_outdated(current_extraction_stamp())
+        queued = store.count_reextract_queued()
+    finally:
+        store.close()
+    return {"outdated": outdated, "queued": queued, "per_cycle": reextract_per_cycle()}
+
+
+def requeue_reextract() -> int:
+    """POST /sync/reextract/requeue: queue every tracked document an older
+    extraction produced; returns how many were newly queued. The next
+    cycles re-extract them within RC_REEXTRACT_PER_CYCLE (spec L6)."""
+    from sync.sync_state import SyncStateStore
+
+    store = SyncStateStore()
+    try:
+        count = store.requeue_reextract(current_extraction_stamp())
+    finally:
+        store.close()
+    logger.info("reextract requeued=%d", count)
+    return count
+
+
 def _run_once(ctx: SyncRunContext) -> SyncRunResult:
     global _last_run_at, _files_processed, _last_document_sync, _last_worker_error
     cfg_doc = ctx.sync_config
@@ -398,11 +430,12 @@ def _remember_doc_fields(result: SyncRunResult) -> None:
 
 
 def _pending_work(result: SyncRunResult) -> int:
-    """New, modified and fields-changed documents the last scan found."""
+    """New, modified and fields-changed documents the last scan found, and
+    the queued re-extractions it reached (spec L6)."""
     ds = result.document_sync
     if ds is None:
-        return 0
-    return ds.pending + ds.modified + ds.fields_changed
+        return result.reextract_reached
+    return ds.pending + ds.modified + ds.fields_changed + result.reextract_reached
 
 
 def run_one_time(ctx: SyncRunContext) -> tuple[str, SyncRunResult]:

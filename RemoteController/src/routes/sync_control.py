@@ -11,8 +11,10 @@ from sync.sync_scheduler import (
     doc_fields_status,
     get_scheduler_status,
     load_last_sync_body,
+    reextract_status,
     request_cycle_now,
     requeue_doc_fields,
+    requeue_reextract,
     save_last_sync_body,
     start_continuous,
     stop_continuous,
@@ -76,6 +78,10 @@ def sync_status():
     # Knovas document-fields state: keys, codes and counts, never values.
     status["capabilities"] = list(RC_CAPABILITIES)
     status["doc_fields"] = doc_fields_status()
+    # Re-extraction (spec L6): documents an older extraction produced, those
+    # queued, and the per-cycle bound -- counts only. Merged into the
+    # ``extraction`` block wherever that block was built.
+    status.setdefault("extraction", {}).update(reextract_status())
     if request.args.get("live") == "1":
         body = load_last_sync_body()
         if body:
@@ -133,6 +139,24 @@ def sync_doc_fields_requeue():
             "status": "error",
         }), 400
     requeued = requeue_doc_fields(outcome)
+    if requeued:
+        # A running worker picks them up now rather than after its idle wait.
+        request_cycle_now()
+    return jsonify({"requeued": requeued}), 200
+
+
+@sync_control_bp.route("/sync/reextract/requeue", methods=["POST"])
+@_apply_decorators
+def sync_reextract_requeue():
+    """Re-extract the documents an older extraction produced (spec L6).
+
+    Queues every tracked document whose extraction stamp is not the current
+    one (``resend_reason`` = ``reextract``); the next cycles re-extract them
+    within RC_REEXTRACT_PER_CYCLE and upload those whose text, parts or
+    fields changed -- each such upload is billed. No body is read. Answers
+    ``{"requeued": n}``: newly queued, never counted twice.
+    """
+    requeued = requeue_reextract()
     if requeued:
         # A running worker picks them up now rather than after its idle wait.
         request_cycle_now()

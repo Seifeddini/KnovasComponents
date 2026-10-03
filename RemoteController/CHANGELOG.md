@@ -4,6 +4,12 @@
 
 - Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.
 
+### Re-extraction after an extractor upgrade
+
+- Every upload records an **extraction stamp** (16 hex characters over the knovas-extract version, `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number) and the sha256 of what it carried. Rows synced before have no stamp and count as an older extraction; nothing is re-sent by itself.
+- **`POST /sync/reextract/requeue`** → `{"requeued": n}` queues them; each cycle re-extracts at most **`RC_REEXTRACT_PER_CYCLE`** (100, 1–10000) after new, modified and field re-uploads — partial first, then PDF, DOCX, e-mail, the rest — and uploads in place only what changed (the first round uploads all: no hash yet). A failure never uses `RC_EXTRACT_MAX_RETRIES`; after 3 the document leaves the queue, still outdated.
+- **`GET /sync/status`**: `extraction.outdated`, `extraction.queued`, `extraction.per_cycle` — counts only.
+
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
 Takes effect only for a tenant where Knovas has enabled Document Fields. Against any other server the bodies, the outcomes and the indexing are as in 0.2.0.

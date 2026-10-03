@@ -309,6 +309,14 @@ All read from the environment by `src/sync/document_text.py`, `knovas_uploader.p
 
 Legacy `.doc` is not supported in v1. Raise `max_file_bytes` in the sync body for large PDFs (default 10 MiB).
 
+### Re-extraction after an extractor upgrade
+
+Read by `config.py`; see [operations.md](operations.md#re-extraction-after-an-extractor-upgrade).
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `RC_REEXTRACT_PER_CYCLE` | `100` | Documents re-extracted per cycle after `POST /sync/reextract/requeue` (the Platform's *Neu extrahieren*), on top of `RC_FIELDS_REUPLOAD_PER_CYCLE` and within `max_files_per_cycle` (range 1–10000; outside it the boot stops). Only a document whose upload would change is sent again — each such upload is billed. |
+
 ## Microsoft 365 (OneDrive / SharePoint) as the document source
 
 | Variable | Meaning |
