@@ -7,6 +7,7 @@ RemoteController's require_operator_or_tenant_admin. No session, no call.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
@@ -46,6 +47,26 @@ def capabilities_from_status(status: Any) -> frozenset[str]:
     if not isinstance(raw, (list, tuple)):
         return frozenset()
     return frozenset(c for c in raw if isinstance(c, str) and c)
+
+
+#: A version as knovas-extract spells it (PEP 440); anything else in an
+#: answer is not shown.
+_EXTRACTOR_VERSION_RE = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+!_-]{0,39}")
+
+
+def extractor_version_from_status(status: Any) -> Optional[str]:
+    """``extraction.knovas_extract_version`` of a ``/sync/status`` answer;
+    None from a Knovas Connector too old to report it, or when the value is
+    not a plain version string."""
+    if not isinstance(status, Mapping):
+        return None
+    block = status.get("extraction")
+    if not isinstance(block, Mapping):
+        return None
+    version = block.get("knovas_extract_version")
+    if isinstance(version, str) and _EXTRACTOR_VERSION_RE.fullmatch(version):
+        return version
+    return None
 
 
 def advertised_capabilities(rc_client: Any) -> Optional[frozenset[str]]:

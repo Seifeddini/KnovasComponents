@@ -11,7 +11,7 @@ from typing import Any, Callable, Optional
 import requests
 
 from config import doc_fields_enabled, get_config
-from sync import doc_fields_metrics, ocr_metrics
+from sync import doc_fields_metrics, extract_metrics, ocr_metrics
 from sync.ingest_rate_limit import acquire_chars, acquire_request
 from sync.rate_metrics import IngestRateMetrics
 from sync.chunking import PART_MAX_CHARS, build_transmission_parts
@@ -274,6 +274,9 @@ class SemantixUploader:
         ext = file_path.suffix.lower()
         try:
             doc = extract_document_guarded(file_path, document_key=relative_path)
+            # Counted here, in the process that serves /metrics: the
+            # extraction child's registry died with it (spec L5).
+            extract_metrics.record_extraction(doc)
             text, sentences = doc.text, doc.sentences
             extracted_title = doc.title
             tables = doc.tables

@@ -15,6 +15,23 @@ Day-to-day curl examples: [local-commands.md](local-commands.md). First-time set
 
 Document fields add four counters (see [Document fields](#document-fields)). Every label value comes from a closed set, anything else counts as `other`, so no field key, value, path or pointer can become a label.
 
+Extraction adds four series, counted in the API process from what each extraction returns (the extraction child's own registry dies with it):
+
+| Series | Labels | Meaning |
+|--------|--------|---------|
+| `rc_build_info` | `rc_version`, `knovas_extract_version`, `pdf_text_mode`, `docx_text_mode`, `ocr_engine` (`auto`, `tesserocr`, `cli`, `mupdf`; `off` while `RC_PDF_OCR_ENABLED=false`) | always 1, set at start |
+| `rc_ocr_pages_total` | `result`: `ocr` (text from OCR), `failed` (OCR failed, the page stays empty), `skipped` (time budget, page cap, pixel cap or no OCR engine) | PDF pages |
+| `rc_ocr_seconds_total` | — | wall-clock seconds knovas-extract spent on OCR |
+| `rc_extract_warnings_total` | `class`: `ocr`, `layout`, `metadata`, `markdown`, `tables`, `sentences`, `other` | the library's warnings by class, never their text; `ocr` includes the informational "OCR applied to N of M pages" line, so watch the `failed` and `skipped` results of `rc_ocr_pages_total` for trouble |
+
+`GET /sync/status` names the same extractor and settings:
+
+```json
+"extraction": {"knovas_extract_version": "0.4.0a1", "pdf_text_mode": "layout", "docx_text_mode": "layout", "ocr_engine": "auto"}
+```
+
+The Platform's *Verwaltung → System* compares `knovas_extract_version` with its own and warns when they differ.
+
 ## Logs
 
 - Structured logs use file **basenames** only (not full paths).

@@ -206,3 +206,26 @@ def test_sync_body_accepts_the_platform_principal_like_sync(rc_client, tmp_path,
     resp = rc_client.post("/sync/body", json=SYNC_BODY,
                           headers={"X-Platform-Principal": mint(private, pub, rol=["member"])})
     assert resp.status_code == 403
+
+
+def test_sync_status_reports_the_extractor(rc_client, auth_headers, monkeypatch):
+    """Versions and setting names only; the Platform's System tab compares
+    the version with its own (spec L5)."""
+    import knovas_extract
+
+    monkeypatch.setenv("RC_PDF_TEXT_MODE", "plain")
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "layout")
+    monkeypatch.setenv("RC_OCR_ENGINE", "cli")
+    monkeypatch.delenv("RC_PDF_OCR_ENABLED", raising=False)
+    with patch("auth.knovas_verify_client.get_verify_client") as mock_client:
+        mock_client.return_value.verify_operator.return_value = (True, "c", None)
+        resp = rc_client.get("/sync/status", headers=auth_headers)
+    assert resp.status_code == 200
+    block = resp.get_json()["extraction"]
+    assert {key: block[key] for key in ("knovas_extract_version", "pdf_text_mode",
+                                        "docx_text_mode", "ocr_engine")} == {
+        "knovas_extract_version": knovas_extract.__version__,
+        "pdf_text_mode": "plain",
+        "docx_text_mode": "layout",
+        "ocr_engine": "cli",
+    }

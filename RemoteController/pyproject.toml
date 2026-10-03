@@ -26,8 +26,11 @@ dependencies = [
     # pymupdf-layout into the customer image. [html] (selectolax) stays so CI
     # and the image install one extras set; EML/MSG HTML bodies do not use it,
     # knovas-extract converts them with its own HTML-to-text helper. The Docker image adds [ocr]
-    # (tesserocr; Linux wheels only) — see Dockerfile KNOVAS_EXTRACT_EXTRAS.
-    "knovas-extract[pdf,docx,msg,html,sentences]>=0.2",
+    # (tesserocr; Linux wheels only) — see the Dockerfile.
+    # [rtf]: striprtf, for Outlook mails whose only body is RTF. A floor
+    # only: the images and CI install the exact pin (Dockerfile ARG
+    # KNOVAS_EXTRACT_VERSION / KNOVAS_EXTRACT_GIT_REF).
+    "knovas-extract[pdf,docx,msg,html,rtf,sentences]>=0.4.0a1",
 ]
 
 [project.optional-dependencies]

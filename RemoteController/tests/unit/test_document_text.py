@@ -400,6 +400,23 @@ def test_a_4_mib_text_export_is_extracted_in_seconds(monkeypatch):
     assert len(doc.text) > document_text.UNPAGED_SENTENCE_MAX_CHARS
 
 
+@pytest.mark.parametrize("gate", [None, "0"], ids=["unset", "zero"])
+def test_sentence_gate_of_zero_is_no_gate(tmp_path, monkeypatch, gate):
+    """0, the default (spec E4), means no gate, never "no sentences": read as
+    a ceiling it dropped the sentence citations of every document."""
+    if gate is None:
+        monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    else:
+        monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", gate)
+    p = tmp_path / "note.txt"
+    p.write_text("First sentence. Second sentence.", encoding="utf-8")
+
+    doc = extract_document(p)
+
+    assert doc.sentences is not None
+    assert len(doc.sentences) == 2
+
+
 # --- per-file extraction timeout --------------------------------------------
 # One pathological document must not occupy the single sync worker forever.
 
@@ -1323,3 +1340,32 @@ def test_docx_tables_in_text_reads_the_library_metadata():
     assert docx_tables_in_text(layout) is True
     assert docx_tables_in_text(ExtractedDocument(text="x", sentences=None, extra={})) is False
     assert docx_tables_in_text(ExtractedDocument(text="x", sentences=None, extra=None)) is False
+
+
+def test_extracted_document_carries_the_library_warnings(tmp_path, monkeypatch):
+    """The parent counts them by class (sync.extract_metrics); the texts
+    travel with the document, through the extraction child's queue too."""
+    import pickle
+
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "false")
+    fitz = pytest.importorskip("fitz")
+    pdf = fitz.open()
+    pdf.new_page()  # page 1 carries no text
+    pdf.new_page().insert_text((72, 72), "Seite zwei mit Text.")
+    p = tmp_path / "zwei.pdf"
+    p.write_bytes(pdf.tobytes())
+    pdf.close()
+
+    doc = extract_document(p)
+
+    assert isinstance(doc.warnings, tuple)
+    assert "first page produced no text (OCR may help for scanned PDFs)" in doc.warnings
+    # The child hands the document over a multiprocessing queue, which
+    # pickles it; this round trip only re-reads the object built above.
+    assert pickle.loads(pickle.dumps(doc)).warnings == doc.warnings
+
+
+def test_a_document_without_library_warnings_has_none(tmp_path):
+    p = tmp_path / "note.txt"
+    p.write_text("Ein Satz. Noch einer.", encoding="utf-8")
+    assert extract_document(p).warnings == ()

@@ -21,7 +21,7 @@ import os
 import time
 from typing import Any, Callable, Dict, List, Mapping
 
-from remote_controller_client import capabilities_from_status
+from remote_controller_client import capabilities_from_status, extractor_version_from_status
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,52 @@ def _rc_doc_fields_note(status: Any, doc_fields_on: bool) -> tuple[str, str]:
         return ("; Dokumentfelder: nicht unterstuetzt",
                 "Den Knovas Connector aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
     return "", ""
+
+
+def platform_extractor_version() -> str | None:
+    """``knovas_extract.__version__`` of this Platform; None without the library."""
+    try:
+        import knovas_extract
+    except Exception:  # noqa: BLE001 - the check names the missing library
+        return None
+    version = getattr(knovas_extract, "__version__", None)
+    return version if isinstance(version, str) and version else None
+
+
+def _extractor_check(platform: str | None, connector: str | None,
+                     reached: bool | None) -> Check:
+    """Both sides' knovas-extract side by side (spec L5).
+
+    ``reached`` is None without a Knovas Connector, False when its ping
+    failed, True when it answered -- ``connector`` is then what its
+    /sync/status reports, None from one too old to report it. The admin
+    upload here and the Connector's sync extract into one index, so a
+    difference is worth a warning.
+    """
+    label = "Extraktor (knovas-extract)"
+    parts = [f"Plattform {platform}" if platform else "Plattform: nicht installiert"]
+    if reached is True:
+        parts.append(f"Knovas Connector {connector}" if connector else "Knovas Connector: keine Angabe")
+    elif reached is False:
+        parts.append("Knovas Connector nicht erreichbar")
+    detail = ", ".join(parts)
+    if platform is None:
+        return Check("extractor", label, WARN, detail,
+                     hint="Ohne knovas-extract scheitern Upload und Vorschau in der Verwaltung.")
+    if reached is None:
+        return Check("extractor", label, OK, detail)
+    if reached is False:
+        return Check("extractor", label, SKIP, detail)
+    if connector is None:
+        return Check("extractor", label, WARN, detail,
+                     hint="Diese Version des Knovas Connector meldet ihren Extraktor nicht. "
+                          "Aktualisieren, damit beide Seiten denselben verwenden.")
+    if connector != platform:
+        return Check("extractor", label, WARN, detail,
+                     hint="Die beiden Seiten extrahieren mit verschiedenen Versionen: dieselbe Datei "
+                          "kann ueber den Upload hier anders im Index landen als ueber den Knovas "
+                          "Connector. Beide Images mit demselben Stand neu bauen.")
+    return Check("extractor", label, OK, detail)
 
 
 def collect(client_factory: Callable[[], Any], *, gate=None,
@@ -328,6 +374,8 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
     ))
 
     # ── RemoteController ───────────────────────────────────────────────────
+    rc_reached: bool | None = None
+    rc_extractor: str | None = None
     if rc_client_factory is None:
         checks.append(Check("rc", "Knovas Connector", SKIP, "Nicht konfiguriert",
                             hint="Ohne ihn fehlt der Reiter Ingestion."))
@@ -340,6 +388,8 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
             return probe()
 
         answer, ms, exc = _timed(_rc_ping)
+        rc_reached = exc is None
+        rc_extractor = extractor_version_from_status(answer) if exc is None else None
         suffix, rc_hint = ("", "")
         if exc is None:
             suffix, rc_hint = _rc_doc_fields_note(answer, doc_fields_on)
@@ -349,6 +399,9 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
             ("antwortet" + suffix) if exc is None else _short(exc), ms=ms,
             hint=rc_hint if exc is None else "Betrifft nur den Reiter Ingestion.",
         ))
+
+    # -- Extraktor ---------------------------------------------------------
+    checks.append(_extractor_check(platform_extractor_version(), rc_extractor, rc_reached))
 
     return checks
 
