@@ -831,6 +831,53 @@ class TestFiltersUncalibrated:
         assert (status, body["error_code"], body["path"]) == (400, "invalid_value", "where")
 
 
+class TestAutoScope:
+    """QUERY_AUTO_SCOPE_ENABLED: Knovas narrows a search to the nodes it
+    recognises in the question (shape of query_pipeline.py, KB develop)."""
+
+    def test_off_by_default_and_from_the_environment(self, monkeypatch):
+        monkeypatch.delenv("MOCK_AUTO_SCOPE", raising=False)
+        assert "auto_scope" not in Mock(doc_fields="filters").query(Input="Muster AG")[1]
+        monkeypatch.setenv("MOCK_AUTO_SCOPE", "applied")
+        assert Mock(doc_fields="filters").state.auto_scope == "applied"
+
+    @pytest.mark.parametrize("mode", ["off", "values", "filters"])
+    def test_applied_names_the_detected_node(self, mode):
+        status, body = Mock(doc_fields=mode, auto_scope="applied").query(
+            Input="Was schuldet die muster ag?")
+        node = testing.mock_module().stable_id("node", "Muster AG")
+        assert status == 200
+        assert body["auto_scope"] == {
+            "detections": [{"node_id": node, "identifier_id": None, "channel": "lexical",
+                            "score": 1.0}],
+            "node_ids": [node], "applied": True, "fallback": False,
+            "canonicalized": False, "residualized": False}
+
+    def test_fallback(self):
+        block = Mock(doc_fields="filters", auto_scope="fallback").query(
+            Input="Beispiel GmbH")[1]["auto_scope"]
+        assert (block["applied"], block["fallback"]) == (False, True)
+
+    def test_no_name_no_block(self):
+        assert "auto_scope" not in Mock(doc_fields="filters", auto_scope="applied").query(
+            Input="lease")[1]
+
+    def test_a_bad_mode_fails_loudly(self):
+        with pytest.raises(ValueError):
+            testing.load_mock_app(auto_scope="sometimes")
+
+
+class TestReturnFieldsUnreadable:
+    def test_values_cannot_be_read(self):
+        mock = Mock(doc_fields="filters")
+        mock.state.return_fields_unreadable = True
+        body = mock.query(Input="lease", return_fields=["doc_type"])[1]
+        assert body["return_fields"] == {"applied": False}
+        assert body["results"] and all("fields" not in r for r in body["results"])
+        body = mock.query(Input="lease", where={"doc_type": "contract"}, return_fields=True)[1]
+        assert body["where"]["applied"] is True and body["return_fields"] == {"applied": False}
+
+
 class TestFind:
     def _mock(self, n=5):
         mock = Mock(doc_fields="filters")

@@ -10,7 +10,8 @@ RemoteController (src/app.py) already uses.
 and `pytest.skip` when the file is absent (a checkout without the mock).
 
 - `load_mock_app(**kw)`: `create_app(**kw)` of the mock (doc_fields,
-  calibrated, refuse_init_fields, brokered); a fresh app with its own state.
+  calibrated, refuse_init_fields, brokered, auto_scope); a fresh app with its
+  own state.
 - `mock_state(app)`: that app's `MockState` (request log, seeds, switches).
 - `WsgiSession(app)`: a `requests.Session` whose adapters hand every request
   to `app.test_client()`. Clients keep their real `https://` base URL and
@@ -59,7 +60,7 @@ def mock_module():
 
 def load_mock_app(**kw: Any):
     """A new mock app: create_app(doc_fields=..., calibrated=...,
-    refuse_init_fields=..., brokered=...). Apps share no state."""
+    refuse_init_fields=..., brokered=..., auto_scope=...). Apps share no state."""
     return mock_module().create_app(**kw)
 
 

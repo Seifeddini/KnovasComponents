@@ -312,6 +312,32 @@ class TestRoutesOnTheMock:
         assert listed.status_code == 200
         assert len(listed.get_json()["documents"]) == 2
 
+    def test_auto_scope_is_named_through_the_person_s_graph(self, platform_db, tmp_path,
+                                                            monkeypatch, identity_repo):
+        """F3 end to end: the mock recognises "Muster AG"; the Platform names
+        it from GET /secured/graph/nodes as the person, without q."""
+        app, state = _app_on_mock(platform_db, tmp_path, monkeypatch, "filters",
+                                  auto_scope="applied")
+        state.add_document("rc-sync/Muster AG/Vertrag_1.pdf", title="Vertrag Muster AG",
+                           snippet="Mietvertrag mit der Muster AG",
+                           fields={"doc_type": "contract"})
+        client = signed_in(app, identity_repo, role="member")
+        body = client.post("/api/search", json={"query": "Muster AG"}).get_json()
+        assert [r["doc_id"] for r in body["results"]] == ["rc-sync/Muster AG/Vertrag_1.pdf"]
+        assert body["notices"] == [{"kind": "auto_scope_applied", "names": ["Muster AG"],
+                                    "hidden_count": 0}]
+        reads = [r for r in state.requests if r["path"] == "/secured/graph/nodes"]
+        assert len(reads) == 1 and reads[0]["query"] == {}, "never with the typed text"
+
+    def test_unreadable_values_are_said(self, platform_db, tmp_path, monkeypatch,
+                                        identity_repo):
+        app, state = _app_on_mock(platform_db, tmp_path, monkeypatch, "filters")
+        state.return_fields_unreadable = True
+        client = signed_in(app, identity_repo, role="member")
+        body = client.post("/api/search", json={"query": "lease"}).get_json()
+        assert body["results"] and body["results"][0]["fields_display"] == []
+        assert [n["kind"] for n in body["notices"]] == ["return_fields_unavailable"]
+
     def test_no_value_in_any_log_line_end_to_end(self, platform_db, tmp_path, monkeypatch,
                                                  identity_repo, caplog):
         """D6 through the real client: refused filters and edits log keys and
