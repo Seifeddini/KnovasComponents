@@ -147,8 +147,8 @@ _FIELD_WARNINGS = {
 
 OFF_TEXT = "Dokumentfelder sind bei Knovas nicht freigeschaltet."
 OFF_HINT = (
-    "Sobald Knovas die Funktion f\u00fcr diesen Mandanten freischaltet, erscheint "
-    "hier das Feldverzeichnis. Suche und Ingestion laufen bis dahin wie bisher."
+    "Knovas hat Dokumentfelder f\u00fcr diesen Mandanten ausgeschaltet, oder der "
+    "Knovas-Server kennt sie noch nicht. Suche und Ingestion laufen wie bisher."
 )
 # The capability probe did not answer clearly (401/403/429/5xx, a network
 # error, an answer without its echo): nothing is shown and nothing written,

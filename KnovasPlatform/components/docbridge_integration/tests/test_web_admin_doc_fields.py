@@ -572,6 +572,12 @@ class TestUnknownIsNotOff:
         client = _signed_in(make_app("off"), admin.email)
         html = client.get("/admin/doc-fields").data.decode("utf-8")
         assert OFF_TEXT in html and UNKNOWN_TEXT not in html
+        # Knovas 1.5.0 has document fields on for every account: "off" means
+        # Knovas switched them off, or the server predates them (the System
+        # tab's hint), not a step still to come.
+        assert ("Knovas hat Dokumentfelder f\u00fcr diesen Mandanten ausgeschaltet, oder der "
+                "Knovas-Server kennt sie noch nicht. Suche und Ingestion laufen wie bisher."
+                ) in html
 
 
 @needs_db
