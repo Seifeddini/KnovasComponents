@@ -49,7 +49,9 @@ that never starts with `resource limit exceeded`, the prefix that means "the
 library flagged the input" (GI-EXTRACT-02). The image sets
 `OMP_THREAD_LIMIT=1` and `TESSDATA_PREFIX`, and the gunicorn `--timeout`
 (Dockerfile `180`, compose `DOCBRIDGE_WEB_TIMEOUT`, default `180`) must stay
-above `RC_EXTRACT_TIMEOUT_SECONDS`.
+above `RC_EXTRACT_TIMEOUT_SECONDS`; every nginx in front
+(`nginx/docbridge-web*.conf`, the host-nginx template) waits at least that long
+(`proxy_read_timeout 180s`, pinned by `tests/test_web_timeouts.py`).
 
 **Partial uploads.** `metadata.extra` is read defensively: `pdf:ocr_pages_skipped > 0`
 (budget trip), or `pdf:ocr_backend = "none"` with OCR configured and no

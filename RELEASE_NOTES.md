@@ -90,6 +90,15 @@ Die API-Referenz `docs/KnovasAPI/Secure_API.md` ist zugunsten des Knovas
 Developer Kit stillgelegt (wie zuvor `KnovasPlatform/knovas-docs/`); die
 Dokumentfelder stehen nur dort.
 
+## nginx wartet so lange wie gunicorn
+
+Das mitgelieferte nginx (`docbridge-web-nginx`) und die Host-nginx-Vorlage
+warten jetzt 180 s auf die Plattform (`proxy_read_timeout`), so lange wie
+gunicorn. Mit 120 s gab nginx genau dann auf, wenn die Textextraktion eines
+Admin-Uploads an ihrer 120-s-Grenze abbrach, und statt der Meldung kam ein
+504. Bestehende Installationen erneuern die Host-nginx-Seite aus der Vorlage
+(`./scripts/host-https.sh` erledigt das).
+
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
 
 Statt `KNOVAS_DOCUMENTS_PATH` kann `knovas.env` die Adresse eines OneDrive- oder
