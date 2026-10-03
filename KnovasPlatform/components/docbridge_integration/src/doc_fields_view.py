@@ -954,7 +954,11 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
     if code == "field_key_exists":
         return "Ein Feld mit diesem Schl\u00fcssel gibt es bereits."
     if code == "field_type_locked":
-        return "Der Typ dieses Feldes kann nicht mehr ge\u00e4ndert werden."
+        # Knovas 1.5.0: what decides how values are read locks once a field
+        # is confirmed or in use (spec F1).
+        return ("Diese \u00c4nderung ist nicht mehr m\u00f6glich: Typ, Kennungsschema, "
+                "Gesch\u00e4ftsjahr, Datumsreihenfolge und vorhandene Auswahlwerte eines "
+                "best\u00e4tigten oder genutzten Feldes bleiben, wie sie sind.")
     if code == "field_cap_reached":
         return "Die H\u00f6chstzahl an Feldern ist erreicht."
     if code == "invalid_field_definition":

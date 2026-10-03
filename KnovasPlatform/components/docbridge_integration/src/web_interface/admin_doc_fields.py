@@ -87,6 +87,20 @@ SENSITIVITIES = ("normal", "special")
 UNKNOWN_KEY_MODES = ("ignore", "reject", "register")
 DATE_ORDERS = ("dmy", "mdy", "ymd")
 LABEL_LANGS = ("de", "fr", "it", "en")
+CODE_SCHEMES = ("generic", "che_uid", "iban", "qr_ref", "bger", "bvger", "ecli", "icd10gm",
+                "bcp47")
+LINK_POLICIES = ("resolve", "never")
+FY_LABELS = ("start", "end")
+
+#: An account can have up to 256 fields (Knovas 1.5.0); retired ones count.
+FIELD_CAP = 256
+
+#: What Knovas applies when a field definition leaves a setting out (spec
+#: F1). Create sends a setting only when it differs from this.
+READING_DEFAULTS: Dict[str, Any] = {
+    "code_scheme": "generic", "link_policy": "resolve",
+    "fy_start_month": None, "fy_label": None, "date_order": None,
+}
 
 #: Rows of the folder-rule value form. A rule may name up to 64 keys at
 #: Knovas; a handful per save is what a person fills in, and saving the same
@@ -131,6 +145,27 @@ DATE_ORDER_LABELS = {
     "mdy": "Monat/Tag/Jahr (03/04/2024 = 4. M\u00e4rz)",
     "ymd": "Jahr/Monat/Tag",
 }
+CODE_SCHEME_LABELS = {
+    "generic": "allgemein (ohne Pr\u00fcfung)",
+    "che_uid": "UID (CHE-123.456.789, mit Pr\u00fcfziffer)",
+    "iban": "IBAN (mit Pr\u00fcfziffer)",
+    "qr_ref": "QR-Referenz (mit Pr\u00fcfziffer)",
+    "bger": "Gesch\u00e4ftsnummer Bundesgericht (4A_123/2024)",
+    "bvger": "Gesch\u00e4ftsnummer Bundesverwaltungsgericht (E-2228/2020)",
+    "ecli": "ECLI",
+    "icd10gm": "ICD-10-GM (E11.90)",
+    "bcp47": "Sprachcode (de-CH)",
+}
+LINK_POLICY_LABELS = {
+    "resolve": "mit Eintr\u00e4gen des Wissensgraphen verkn\u00fcpfen",
+    "never": "nie verkn\u00fcpfen (Namen bleiben Namen)",
+}
+FY_LABEL_LABELS = {
+    "start": "nach dem Anfangsjahr (GJ 2024 = 2024/25)",
+    "end": "nach dem Endjahr (GJ 2024 = 2023/24)",
+}
+MONTH_LABELS = ("Januar", "Februar", "M\u00e4rz", "April", "Mai", "Juni", "Juli", "August",
+                "September", "Oktober", "November", "Dezember")
 #: Knovas returns pack keys and versions only (contract 4.8, gap 7); the
 #: console names them itself.
 PACK_LABELS = {
@@ -198,6 +233,10 @@ HELD_TEXT = (
 )
 LOCKED_ENTITY_HINT = "enth\u00e4lt Eintr\u00e4ge, die Sie nicht sehen \u2013 hier nicht \u00e4nderbar"
 EXPIRED_FORM = "Formular ist abgelaufen. Bitte erneut versuchen."
+FY_LABEL_REQUIRED = (
+    "Beginnt das Gesch\u00e4ftsjahr nicht im Januar, bitte angeben, ob \u201eGJ 2024\u201c "
+    "nach dem Anfangs- oder dem Endjahr benannt ist."
+)
 
 
 class FormError(ValueError):
@@ -404,6 +443,68 @@ def labels_from_form(form: Mapping[str, Any], current: Optional[Mapping[str, Any
     return labels
 
 
+def _select(form: Mapping[str, Any], name: str, allowed: Sequence[str],
+            message: str) -> Optional[str]:
+    """A select's value: None when empty, else one of ``allowed``."""
+    value = _text(form, name)
+    if not value:
+        return None
+    if value not in allowed:
+        raise FormError(message)
+    return value
+
+
+def _fy_start_month(form: Mapping[str, Any]) -> Optional[int]:
+    value = _text(form, "fy_start_month")
+    if not value:
+        return None
+    # ASCII digits only: int() takes any Unicode digit and fails on some
+    # (superscripts) and on very long numbers.
+    if not re.fullmatch(r"[0-9]{1,2}", value) or not 1 <= int(value) <= 12:
+        raise FormError("Der Monat, in dem das Gesch\u00e4ftsjahr beginnt, ist 1 bis 12.")
+    return int(value)
+
+
+def _check_fiscal_year(month: Any, label: Any) -> None:
+    """Knovas refuses a business year that does not start in January
+    without its naming (registry.py, ``fy_label``)."""
+    if month not in (None, 1) and not label:
+        raise FormError(FY_LABEL_REQUIRED)
+
+
+def reading_from_form(form: Mapping[str, Any], datatype: Any,
+                      current: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+    """How values of a ``datatype`` are read, as the form sets it (spec F1):
+    ``code_scheme`` for a code, ``link_policy`` for an entity field,
+    ``fy_start_month`` and ``fy_label`` for a period, ``date_order`` for a
+    date. Only inputs the form carries, and only those of its datatype; an
+    empty select is Knovas's default (``READING_DEFAULTS``).
+
+    ``current`` is the field as Knovas holds it (an edit). Its own code
+    scheme stays a valid choice even when ``CODE_SCHEMES`` does not list it:
+    Knovas takes any scheme of its pattern, and an edit that leaves it alone
+    must not turn it into ``generic``."""
+    out: Dict[str, Any] = {}
+    if datatype == "code" and "code_scheme" in form:
+        own = (current or {}).get("code_scheme")
+        schemes = CODE_SCHEMES + ((own,) if isinstance(own, str) and own else ())
+        out["code_scheme"] = _select(form, "code_scheme", schemes,
+                                     "Unbekanntes Kennungsschema.") or "generic"
+    if datatype == "entity_ref" and "link_policy" in form:
+        out["link_policy"] = _select(form, "link_policy", LINK_POLICIES,
+                                     "Unbekannte Verkn\u00fcpfungsregel.") or "resolve"
+    if datatype == "period":
+        if "fy_start_month" in form:
+            out["fy_start_month"] = _fy_start_month(form)
+        if "fy_label" in form:
+            out["fy_label"] = _select(form, "fy_label", FY_LABELS,
+                                      "Unbekannte Benennung des Gesch\u00e4ftsjahres.")
+    if datatype == "date" and "date_order" in form:
+        out["date_order"] = _select(form, "date_order", DATE_ORDERS,
+                                    "Unbekannte Datumsreihenfolge.")
+    return out
+
+
 def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
     """The ``POST /doc-fields`` body for the "Neues Feld" form.
 
@@ -450,6 +551,11 @@ def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
             if role not in DATE_ROLES:
                 raise FormError("Unbekannte Datumsrolle.")
             defn["date_role"] = role
+    reading = reading_from_form(form, datatype)
+    _check_fiscal_year(reading.get("fy_start_month"), reading.get("fy_label"))
+    for name, value in reading.items():
+        if value != READING_DEFAULTS[name]:
+            defn[name] = value
     defn["display"] = _checked(form, "display")
     defn["facet"] = _checked(form, "facet")
     defn["sensitivity"] = sensitivity
@@ -503,6 +609,14 @@ def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Di
             raise FormError("Unbekannte Datumsrolle.")
         if role != (current.get("date_role") or None):
             changes["date_role"] = role
+    reading = reading_from_form(form, datatype, current)
+    if "fy_start_month" in reading or "fy_label" in reading:
+        _check_fiscal_year(reading.get("fy_start_month", current.get("fy_start_month")),
+                           reading.get("fy_label", current.get("fy_label")))
+    for name, value in reading.items():
+        stored = current.get(name)
+        if (READING_DEFAULTS[name] if stored is None else stored) != value:
+            changes[name] = value
     return changes
 
 
@@ -580,6 +694,41 @@ def _str_list(value: Any) -> List[str]:
     return [str(v) for v in value or () if isinstance(v, str)] if isinstance(value, (list, tuple)) else []
 
 
+def reading_text(raw: Mapping[str, Any]) -> str:
+    """How a field reads values, in words for the registry table: a code
+    scheme other than ``generic``, a business year that does not start in
+    January, a date field's own order, names that are never linked. Empty
+    when the field reads as Knovas does by default."""
+    datatype = raw.get("datatype")
+    if datatype == "code":
+        scheme = str(raw.get("code_scheme") or "generic")
+        return "" if scheme == "generic" else f"Schema: {CODE_SCHEME_LABELS.get(scheme, scheme)}"
+    if datatype == "period":
+        month = raw.get("fy_start_month")
+        if isinstance(month, int) and not isinstance(month, bool) and 2 <= month <= 12:
+            naming = {"start": ", benannt nach dem Anfangsjahr",
+                      "end": ", benannt nach dem Endjahr"}.get(str(raw.get("fy_label") or ""), "")
+            return f"Gesch\u00e4ftsjahr ab {MONTH_LABELS[month - 1]}{naming}"
+        return ""
+    if datatype == "date" and raw.get("date_order") in DATE_ORDERS:
+        return f"liest 03/04/2024 als {DATE_ORDER_LABELS[raw['date_order']].split(' (')[0]}"
+    if datatype == "entity_ref" and raw.get("link_policy") == "never":
+        return "Namen bleiben unverkn\u00fcpft"
+    return ""
+
+
+def field_count_text(raw_fields: Any) -> str:
+    """The counter "n von 256 Feldern" (spec F1). Every field Knovas lists
+    counts, retired ones too: the cap counts every registry row."""
+    count = sum(1 for raw in raw_fields or ()
+                if isinstance(raw, Mapping) and isinstance(raw.get("key"), str))
+    text = f"{count} von {FIELD_CAP} Feldern"
+    if count >= FIELD_CAP:
+        text += (" \u2013 die H\u00f6chstzahl ist erreicht (stillgelegte Felder "
+                 "z\u00e4hlen mit).")
+    return text
+
+
 def registry_rows(raw_fields: Any, node_types: Iterable[Mapping[str, Any]] = (),
                   in_use: Iterable[str] = ()) -> List[Dict[str, Any]]:
     """The registry table: one row per field as Knovas listed it.
@@ -631,6 +780,14 @@ def registry_rows(raw_fields: Any, node_types: Iterable[Mapping[str, Any]] = (),
             "target_hidden": hidden,
             "date_role": date_role or "",
             "date_role_label": DATE_ROLE_LABELS.get(date_role or "", ""),
+            "code_scheme": str(raw.get("code_scheme") or "generic"),
+            "link_policy": "never" if raw.get("link_policy") == "never" else "resolve",
+            "fy_start_month": (raw.get("fy_start_month")
+                               if isinstance(raw.get("fy_start_month"), int)
+                               and not isinstance(raw.get("fy_start_month"), bool) else None),
+            "fy_label": raw.get("fy_label") if raw.get("fy_label") in FY_LABELS else "",
+            "date_order": raw.get("date_order") if raw.get("date_order") in DATE_ORDERS else "",
+            "reading": reading_text(raw),
             "warnings": [_FIELD_WARNINGS.get(w, w) for w in warnings],
             "in_use": key in used,
             "deprecated": status == "deprecated",
@@ -660,6 +817,14 @@ def refill_field_row(rows: List[Dict[str, Any]], field_id: Any, form: Mapping[st
         row["target_id"] = _text(form, "target_node_type_id")
     if "date_role" in form and _text(form, "date_role") in ("", *DATE_ROLES):
         row["date_role"] = _text(form, "date_role")
+    for name, allowed in (("code_scheme", CODE_SCHEMES), ("link_policy", LINK_POLICIES),
+                          ("fy_label", ("", *FY_LABELS)), ("date_order", ("", *DATE_ORDERS))):
+        if name in form and _text(form, name) in allowed:
+            row[name] = _text(form, name)
+    if "fy_start_month" in form:
+        month = _text(form, "fy_start_month")
+        if month == "" or (re.fullmatch(r"[0-9]{1,2}", month) and 1 <= int(month) <= 12):
+            row["fy_start_month"] = int(month) if month else None
     if "flags" in form:
         row["display"] = _checked(form, "display")
         row["facet"] = _checked(form, "facet")
@@ -1232,12 +1397,17 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             "date_roles": [(r, DATE_ROLE_LABELS[r]) for r in DATE_ROLES],
             "unknown_key_modes": [(m, UNKNOWN_KEY_LABELS[m]) for m in UNKNOWN_KEY_MODES],
             "date_orders": [(o, DATE_ORDER_LABELS[o]) for o in DATE_ORDERS],
+            "code_schemes": [(s, CODE_SCHEME_LABELS[s]) for s in CODE_SCHEMES],
+            "link_policies": [(p, LINK_POLICY_LABELS[p]) for p in LINK_POLICIES],
+            "fy_months": [(m, MONTH_LABELS[m - 1]) for m in range(1, 13)],
+            "fy_labels": [(label, FY_LABEL_LABELS[label]) for label in FY_LABELS],
             "texts": {"read_only": READ_ONLY_TEXT, "in_use_deprecate": IN_USE_DEPRECATE,
                       "in_use_update": IN_USE_UPDATE, "reapply": REAPPLY_TEXT,
                       "multi_source": MULTI_SOURCE_CONFIRM},
         }
         problems: List[str] = []
         raw_fields: List[Dict[str, Any]] = []
+        registry_read = True
         try:
             raw_fields = client.doc_fields()
         except DocFieldsUnavailable as exc:
@@ -1246,6 +1416,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         except Exception as exc:  # noqa: BLE001
             _log_failure("registry read", exc)
             problems.append("Das Feldverzeichnis ist derzeit nicht abrufbar.")
+            registry_read = False
         registry = sanitize_registry(raw_fields)
         packs: List[Dict[str, Any]] = []
         try:
@@ -1292,6 +1463,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             refill_field_row(rows, field_form.get("id"), field_form.get("form") or {})
         context.update({
             "fields": rows,
+            "field_count_text": field_count_text(raw_fields) if registry_read else "",
             "rule_fields": [s for s in registry if s.get("status") != "deprecated"],
             "node_types": [{"id": str(t.get("id")), "name": str(t.get("name") or "")}
                            for t in node_types if isinstance(t, Mapping) and t.get("id")],

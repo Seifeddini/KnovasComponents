@@ -165,6 +165,126 @@ class TestChangesFromForm:
         assert not needs_use_confirmation({"labels": {}, "aliases": [], "display": True})
 
 
+class TestReadingSettings:
+    """F1: how values of a field are read -- per datatype, sent on create
+    only when it differs from Knovas's default, on edit only when changed."""
+
+    def test_each_setting_goes_only_with_its_type(self):
+        from web_interface.admin_doc_fields import definition_from_form
+
+        everything = {"code_scheme": "bger", "link_policy": "never", "fy_start_month": "7",
+                      "fy_label": "start", "date_order": "mdy"}
+        code = definition_from_form({"key": "aktenzeichen", "datatype": "code", **everything})
+        assert code["code_scheme"] == "bger"
+        assert not {"link_policy", "fy_start_month", "fy_label", "date_order"} & set(code)
+        entity = definition_from_form({"key": "gegenpartei", "datatype": "entity_ref",
+                                       **everything})
+        assert entity["link_policy"] == "never" and "code_scheme" not in entity
+        period = definition_from_form({"key": "geschaeftsjahr", "datatype": "period",
+                                       **everything})
+        assert (period["fy_start_month"], period["fy_label"]) == (7, "start")
+        date = definition_from_form({"key": "eingang", "datatype": "date", **everything})
+        assert date["date_order"] == "mdy" and "fy_start_month" not in date
+
+    def test_defaults_are_not_sent(self):
+        from web_interface.admin_doc_fields import definition_from_form
+
+        assert "code_scheme" not in definition_from_form(
+            {"key": "belegnummer", "datatype": "code", "code_scheme": "generic"})
+        assert "link_policy" not in definition_from_form(
+            {"key": "gegenpartei", "datatype": "entity_ref", "link_policy": "resolve"})
+        period = definition_from_form({"key": "jahr", "datatype": "period",
+                                       "fy_start_month": "", "fy_label": ""})
+        assert "fy_start_month" not in period and "fy_label" not in period
+        assert "date_order" not in definition_from_form(
+            {"key": "eingang", "datatype": "date", "date_order": ""})
+        january = definition_from_form({"key": "jahr", "datatype": "period",
+                                        "fy_start_month": "1"})
+        assert january["fy_start_month"] == 1 and "fy_label" not in january
+
+    @pytest.mark.parametrize("form", [
+        {"key": "k", "datatype": "code", "code_scheme": "isbn"},
+        {"key": "k", "datatype": "entity_ref", "link_policy": "maybe"},
+        {"key": "k", "datatype": "period", "fy_start_month": "13", "fy_label": "start"},
+        {"key": "k", "datatype": "period", "fy_start_month": "Juli", "fy_label": "start"},
+        {"key": "k", "datatype": "period", "fy_start_month": "\u00b2", "fy_label": "start"},
+        {"key": "k", "datatype": "period", "fy_start_month": "7"},
+        {"key": "k", "datatype": "period", "fy_label": "middle"},
+        {"key": "k", "datatype": "date", "date_order": "dym"},
+    ])
+    def test_refused_before_knovas(self, form):
+        from web_interface.admin_doc_fields import FormError, definition_from_form
+
+        with pytest.raises(FormError):
+            definition_from_form(form)
+
+    CODE = {"id": "f2", "key": "aktenzeichen", "datatype": "code", "code_scheme": "generic",
+            "labels": {"de": "Aktenzeichen"}, "aliases": [], "display": False, "facet": False,
+            "sensitivity": "normal", "warnings": []}
+    PERIOD = {"id": "f3", "key": "geschaeftsjahr", "datatype": "period", "fy_start_month": 7,
+              "fy_label": "start", "labels": {"de": "Gesch\u00e4ftsjahr"}, "aliases": [],
+              "display": False, "facet": False, "sensitivity": "normal", "warnings": []}
+    DATE = {"id": "f4", "key": "eingang", "datatype": "date", "date_order": None,
+            "labels": {}, "display": False, "facet": False, "warnings": []}
+
+    def test_an_edit_sends_only_changed_settings(self):
+        from web_interface.admin_doc_fields import changes_from_form, needs_use_confirmation
+
+        assert changes_from_form({"code_scheme": "generic"}, self.CODE) == {}
+        changes = changes_from_form({"code_scheme": "bger"}, self.CODE)
+        assert changes == {"code_scheme": "bger"} and needs_use_confirmation(changes)
+        assert changes_from_form({"fy_start_month": "7", "fy_label": "start"},
+                                 self.PERIOD) == {}
+        assert changes_from_form({"fy_start_month": "", "fy_label": ""}, self.PERIOD) == {
+            "fy_start_month": None, "fy_label": None}
+        assert changes_from_form({"date_order": ""}, self.DATE) == {}
+        assert changes_from_form({"date_order": "ymd"}, self.DATE) == {"date_order": "ymd"}
+        # A setting of another datatype is never read from the form.
+        assert changes_from_form({"date_order": "ymd", "code_scheme": "iban"},
+                                 self.PERIOD) == {}
+
+    def test_a_business_year_keeps_its_naming(self):
+        from web_interface.admin_doc_fields import FormError, changes_from_form
+
+        with pytest.raises(FormError):
+            changes_from_form({"fy_label": ""}, self.PERIOD)  # July stays, naming gone
+        assert changes_from_form({"fy_start_month": "9"}, self.PERIOD) == {"fy_start_month": 9}
+
+    def test_a_scheme_the_form_does_not_list_stays(self):
+        """Knovas takes any code scheme of its pattern (registry.py
+        _SCHEME_RE). The field's own scheme stays a valid choice on edit, so
+        an edit that leaves it alone never turns it into "generic"."""
+        from web_interface.admin_doc_fields import FormError, changes_from_form
+
+        other = {**self.CODE, "code_scheme": "legal_case_ch"}
+        assert changes_from_form({"code_scheme": "legal_case_ch"}, other) == {}
+        assert changes_from_form({"code_scheme": "bger"}, other) == {"code_scheme": "bger"}
+        with pytest.raises(FormError):
+            changes_from_form({"code_scheme": "isbn"}, other)
+
+    def test_reading_text_for_the_registry_table(self):
+        from web_interface.admin_doc_fields import reading_text
+
+        assert reading_text({"datatype": "code", "code_scheme": "iban"}) == \
+            "Schema: IBAN (mit Pr\u00fcfziffer)"
+        assert reading_text({"datatype": "code", "code_scheme": "generic"}) == ""
+        assert reading_text(self.PERIOD) == \
+            "Gesch\u00e4ftsjahr ab Juli, benannt nach dem Anfangsjahr"
+        assert reading_text({"datatype": "date", "date_order": "mdy"}) == \
+            "liest 03/04/2024 als Monat/Tag/Jahr"
+        assert reading_text({"datatype": "entity_ref", "link_policy": "never"}) == \
+            "Namen bleiben unverkn\u00fcpft"
+        assert reading_text({"datatype": "text"}) == ""
+
+    def test_the_field_counter(self):
+        from web_interface.admin_doc_fields import field_count_text
+
+        assert field_count_text(core_fields()) == "12 von 256 Feldern"
+        full = [field_def(f"f{i:03d}", "text", "F") for i in range(256)]
+        assert field_count_text(full).startswith(
+            "256 von 256 Feldern \u2013 die H\u00f6chstzahl ist erreicht")
+
+
 class TestRuleValuesFromForm:
     @pytest.fixture(autouse=True)
     def _registry(self):
@@ -656,6 +776,8 @@ class TestFeatureOff:
             rule_form={"folder_path": "", "pointer_prefix": "", "rows": []},
             rule_rows_count=adf.RULE_ROWS, capability="values",
             datatypes=[], date_roles=[], unknown_key_modes=[], date_orders=[],
+            code_schemes=[], link_policies=[], fy_months=[], fy_labels=[],
+            field_count_text="",
             texts={"read_only": "", "in_use_deprecate": "", "in_use_update": "",
                    "reapply": "", "multi_source": adf.MULTI_SOURCE_CONFIRM},
             fields=[], registry=[], rule_fields=[], node_types=[], packs=[], settings={},
@@ -795,6 +917,69 @@ class TestRegistryWrites:
                          label_de="Betrag", label_en="amount")
         assert "Keine \u00c4nderung" in response.data.decode("utf-8")
         assert _calls(api, "update_doc_field") == []
+
+
+@needs_db
+class TestReadingSettingsOnThePage:
+    def test_the_page_counts_the_fields_and_offers_the_settings(self, as_admin):
+        html = as_admin.get("/admin/doc-fields").data.decode("utf-8")
+        assert "12 von 256 Feldern" in html
+        create = html[html.index("doc-field-create-form"):]
+        create = create[:create.index("</form>")]
+        for name in ("code_scheme", "link_policy", "fy_start_month", "fy_label", "date_order"):
+            assert f'name="{name}"' in create, name
+        language = next(f for f in FakeDocFieldsApi.current.registry if f["key"] == "language")
+        form = html[html.index(f'/admin/doc-fields/{language["id"]}/update'):]
+        form = form[:form.index("</form>")]
+        assert '<option value="generic" selected>' in form
+        assert 'name="fy_start_month"' not in form
+
+    def test_create_sends_the_settings(self, as_admin):
+        _post(as_admin, "/admin/doc-fields/create", key="geschaeftsjahr", datatype="period",
+              fy_start_month="7", fy_label="start", code_scheme="iban", date_order="mdy")
+        sent = _calls(FakeDocFieldsApi.current, "create_doc_field")[0]["defn"]
+        assert (sent["fy_start_month"], sent["fy_label"]) == (7, "start")
+        assert "code_scheme" not in sent and "date_order" not in sent
+
+    def test_a_locked_setting_is_explained(self, as_admin):
+        api = FakeDocFieldsApi.current
+        language = next(f for f in api.registry if f["key"] == "language")
+        api.fail_call("update_doc_field", 409, "field_type_locked")
+        response = _post(as_admin, f"/admin/doc-fields/{language['id']}/update",
+                         code_scheme="bcp47")
+        assert response.status_code == 409
+        assert "Kennungsschema" in response.data.decode("utf-8")
+        assert _calls(api, "update_doc_field")[0]["changes"] == {"code_scheme": "bcp47"}
+
+    def test_the_confirmation_keeps_the_posted_setting(self, as_admin, platform_db, admin):
+        _profile(platform_db, admin, fields={"language": "de-CH"})
+        api = FakeDocFieldsApi.current
+        language = next(f for f in api.registry if f["key"] == "language")
+        refused = _post(as_admin, f"/admin/doc-fields/{language['id']}/update",
+                        code_scheme="bcp47")
+        assert refused.status_code == 409
+        assert _calls(api, "update_doc_field") == []
+        html = refused.data.decode("utf-8")
+        form = html[html.index(f'/admin/doc-fields/{language["id"]}/update'):]
+        form = form[:form.index("</form>")]
+        assert '<option value="bcp47" selected>' in form
+
+    def test_a_scheme_the_form_does_not_list_is_kept(self, as_admin):
+        """The edit form shows the field's own scheme selected, so saving a
+        label change sends the label only."""
+        api = FakeDocFieldsApi.current
+        reference = next(f for f in api.registry if f["key"] == "reference")
+        reference["code_scheme"] = "legal_case_ch"
+        html = as_admin.get("/admin/doc-fields").data.decode("utf-8")
+        form = html[html.index(f'/admin/doc-fields/{reference["id"]}/update'):]
+        form = form[:form.index("</form>")]
+        assert '<option value="legal_case_ch" selected>' in form
+        assert '<option value="generic" selected>' not in form
+        response = _post(as_admin, f"/admin/doc-fields/{reference['id']}/update",
+                         label_de="Referenznummer", code_scheme="legal_case_ch")
+        assert response.status_code == 200
+        assert _calls(api, "update_doc_field")[0]["changes"] == {
+            "labels": {"de": "Referenznummer", "en": "reference"}}
 
 
 @needs_db

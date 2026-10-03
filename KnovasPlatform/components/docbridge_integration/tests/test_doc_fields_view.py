@@ -520,6 +520,15 @@ class TestMessages:
                      "doc_fields_unavailable", "too_many_requests", "transport_error"):
             assert view.error_message(code)
 
+    def test_a_locked_field_names_what_is_locked(self):
+        """F1: type, code scheme, business year, date order and existing
+        choices lock together (Knovas 409 field_type_locked)."""
+        text = view.error_message("field_type_locked")
+        assert "nicht mehr m\u00f6glich" in text
+        for word in ("Typ", "Kennungsschema", "Gesch\u00e4ftsjahr", "Datumsreihenfolge",
+                     "Auswahlwerte"):
+            assert word in text, word
+
     def test_warnings(self):
         assert view.warning_text("unresolved_entity") == "nicht verkn\u00fcpft"
         assert view.warning_text("ambiguous_date") == "Datum mehrdeutig \u2013 bitte pr\u00fcfen"

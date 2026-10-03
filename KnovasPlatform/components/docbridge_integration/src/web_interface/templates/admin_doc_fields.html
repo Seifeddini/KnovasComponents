@@ -65,6 +65,7 @@
 
     <section class="admin-section doc-fields-registry">
         <h2 class="section-label">Felder</h2>
+        {% if field_count_text %}<p class="hint doc-fields-count">{{ field_count_text }}</p>{% endif %}
         <div class="table-wrap">
             <table>
                 <thead>
@@ -92,7 +93,7 @@
                         </td>
                         <td>
                             {{ f.datatype_label }}
-                            <span class="sub">{{ f.cardinality_label }}{% if f.date_role_label %} · {{ f.date_role_label }}{% endif %}{% if f.target_name %} · Ziel: {{ f.target_name }}{% endif %}</span>
+                            <span class="sub">{{ f.cardinality_label }}{% if f.date_role_label %} · {{ f.date_role_label }}{% endif %}{% if f.reading %} · {{ f.reading }}{% endif %}{% if f.target_name %} · Ziel: {{ f.target_name }}{% endif %}</span>
                             {% if f.display %}<span class="field-badge">Karte</span>{% endif %}
                             {% if f.facet %}<span class="field-badge">Filter</span>{% endif %}
                         </td>
@@ -141,6 +142,58 @@
                                                 {% endfor %}
                                             </select>
                                         </label>
+                                        {% endif %}
+                                        {% if f.datatype == 'code' %}
+                                        <label>Kennungsschema
+                                            <select name="code_scheme">
+                                                {% for value, label in code_schemes %}
+                                                <option value="{{ value }}" {% if value == f.code_scheme %}selected{% endif %}>{{ label }}</option>
+                                                {% endfor %}
+                                                {% if f.code_scheme not in code_schemes|map('first')|list %}
+                                                <option value="{{ f.code_scheme }}" selected>{{ f.code_scheme }}</option>
+                                                {% endif %}
+                                            </select>
+                                        </label>
+                                        {% endif %}
+                                        {% if f.datatype == 'entity_ref' %}
+                                        <label>Namen
+                                            <select name="link_policy">
+                                                {% for value, label in link_policies %}
+                                                <option value="{{ value }}" {% if value == f.link_policy %}selected{% endif %}>{{ label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+                                        {% endif %}
+                                        {% if f.datatype == 'period' %}
+                                        <label>Geschäftsjahr beginnt im
+                                            <select name="fy_start_month">
+                                                <option value="" {% if f.fy_start_month is none %}selected{% endif %}>— Kalenderjahr (Standard) —</option>
+                                                {% for value, label in fy_months %}
+                                                <option value="{{ value }}" {% if value == f.fy_start_month %}selected{% endif %}>{{ label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+                                        <label>Geschäftsjahr benannt
+                                            <select name="fy_label">
+                                                <option value="" {% if not f.fy_label %}selected{% endif %}>— nicht festgelegt —</option>
+                                                {% for value, label in fy_labels %}
+                                                <option value="{{ value }}" {% if value == f.fy_label %}selected{% endif %}>{{ label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+                                        {% endif %}
+                                        {% if f.datatype == 'date' %}
+                                        <label>Datumsangaben mit Schrägstrich lesen als
+                                            <select name="date_order">
+                                                <option value="" {% if not f.date_order %}selected{% endif %}>Kontoeinstellung (Standard)</option>
+                                                {% for value, label in date_orders %}
+                                                <option value="{{ value }}" {% if value == f.date_order %}selected{% endif %}>{{ label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+                                        {% endif %}
+                                        {% if f.datatype in ('code', 'period', 'date') %}
+                                        <p class="hint">Wie Werte gelesen werden, lässt sich nur bei vorläufigen, kaum genutzten Feldern ändern.</p>
                                         {% endif %}
                                         <label class="admin-check"><input type="checkbox" name="display" value="1" {% if f.display %}checked{% endif %}> <span>auf Trefferkarten zeigen</span></label>
                                         <label class="admin-check"><input type="checkbox" name="facet" value="1" {% if f.facet %}checked{% endif %}> <span>als Filter anbieten</span></label>
@@ -239,6 +292,38 @@
                         {% for value, label in date_roles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
                     </select>
                 </label>
+                <label data-df-only="code">Kennungsschema
+                    <select name="code_scheme">
+                        {% for value, label in code_schemes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label data-df-only="entity_ref">Namen
+                    <select name="link_policy">
+                        {% for value, label in link_policies %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label data-df-only="period">Geschäftsjahr beginnt im
+                    <select name="fy_start_month">
+                        <option value="">— Kalenderjahr (Standard) —</option>
+                        {% for value, label in fy_months %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label data-df-only="period">Geschäftsjahr benannt
+                    <select name="fy_label">
+                        <option value="">— nicht festgelegt —</option>
+                        {% for value, label in fy_labels %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label data-df-only="date">Datumsangaben mit Schrägstrich lesen als
+                    <select name="date_order">
+                        <option value="">Kontoeinstellung (Standard)</option>
+                        {% for value, label in date_orders %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <p class="hint" data-df-only="code period date">
+                    Wie Werte gelesen werden, lässt sich später nur in engen Fällen ändern:
+                    vor dem ersten Upload festlegen.
+                </p>
                 <label class="admin-check"><input type="checkbox" name="display" value="1"> <span>auf Trefferkarten zeigen</span></label>
                 <label class="admin-check"><input type="checkbox" name="facet" value="1"> <span>als Filter anbieten</span></label>
                 <p class="hint">
