@@ -73,8 +73,8 @@ _body_file_lock = threading.Lock()
 #: (spec E6). A start that slipped in after a stopped worker released
 #: ``_scheduler_lock`` had its "running" overwritten by the stop's
 #: "not_running" while its own worker ran. A stop holds it while it joins the
-#: worker (up to 120 s); a one-time run holds it only to start, so a stop can
-#: still interrupt the run.
+#: worker or waits for a one-time run to end (up to 120 s); a one-time run
+#: holds it only to start, so a stop can still interrupt the run.
 _control_lock = threading.Lock()
 
 
@@ -146,7 +146,11 @@ def get_scheduler_status() -> dict[str, Any]:
 
     cfg = load_sync_config()
     synced_local = _synced_paths_in_state()
-    worker_alive = _worker_thread is not None and _worker_thread.is_alive()
+    # A one-time run (POST /sync with a one_time config) syncs in its request
+    # thread, not in _worker_thread, and gunicorn's gthread worker answers
+    # this status meanwhile (spec E6). Both hold _scheduler_lock while they
+    # sync, so "stop, then wait until worker_alive is false" covers both.
+    worker_alive = (_worker_thread is not None and _worker_thread.is_alive()) or _scheduler_lock.locked()
     state = _current_status
     if state == "running" and not worker_alive:
         state = "worker_stopped"
@@ -544,8 +548,14 @@ def start_continuous(ctx: SyncRunContext) -> str:
 def stop_continuous() -> str:
     with _control_lock:
         _stop_event.set()
+        deadline = time.monotonic() + 120
         if _worker_thread and _worker_thread.is_alive():
             _worker_thread.join(timeout=120)
+        # A one-time run (POST /sync) holds the scheduler in its request
+        # thread. Like the worker it ends after its current file; only then
+        # is "not_running" both the answer and the state.
+        if _scheduler_lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            _scheduler_lock.release()
         _set_status("not_running")
         return "not_running"
 

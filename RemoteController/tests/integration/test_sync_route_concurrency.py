@@ -3,12 +3,15 @@
 The image runs gunicorn's gthread worker with four request threads, so
 POST /sync/config, /sync/body, /sync/start and /sync/stop can run at the
 same time. What they write must come out as one complete document, and a
-GET that seeds a missing config file must never undo a POST.
+GET that seeds a missing config file must never undo a POST. A one-time
+POST /sync syncs inside its request; what the status, start and stop
+routes answer meanwhile must account for it.
 """
 from __future__ import annotations
 
 import json
 import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -138,3 +141,66 @@ def test_two_concurrent_body_writes_leave_one_complete_body(app_and_config_path,
     _run_together(*(post(body) for body in bodies))
     assert statuses == [200, 200]
     assert load_last_sync_body() in bodies
+
+
+def test_status_start_and_stop_while_a_one_time_sync_runs(app_and_config_path, auth_headers, monkeypatch):
+    """With a one_time config, POST /sync runs the sync inside its request,
+    and gthread answers the other routes meanwhile. Only the continuous
+    worker counted: the status said "worker_stopped" (the console showed the
+    sync offline, and a profile push "started" a scheduler that was busy),
+    and POST /sync/stop answered "not_running" at once while the upload went
+    on -- "stop, then wait until worker_alive is false" before an upgrade
+    no longer waited for it."""
+    from sync import sync_scheduler
+    from sync.sync_executor import SyncRunResult
+
+    application, _config_path = app_and_config_path
+    working, finished = threading.Event(), threading.Event()
+
+    def one_large_file(sync_body, uploader, *, should_stop, is_in_sync_window, sync_config):
+        # The executor looks at should_stop() between files only (pause_policy
+        # finish_current_unit_then_pause): a stop lets this upload finish.
+        working.set()
+        deadline = time.monotonic() + 20
+        while not should_stop() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        stopped = should_stop()
+        time.sleep(0.3)  # the rest of the upload
+        finished.set()
+        return SyncRunResult(paused_reason="stop_requested" if stopped else None)
+
+    monkeypatch.setattr(sync_scheduler, "run_sync_work", one_large_file)
+    monkeypatch.setattr(sync_scheduler, "is_in_window", lambda *args: True)
+    with application.test_client() as client:
+        one_time = {**_config(60), "mode": "one_time"}
+        assert client.post("/sync/config", json=one_time, headers=auth_headers).status_code == 200
+
+    answers: dict = {}
+
+    def one_time_sync():
+        with application.test_client() as client:
+            response = client.post("/sync", json=SYNC_BODY, headers=auth_headers)
+            answers["sync"] = (response.status_code, response.get_json()["status"])
+
+    run = threading.Thread(target=one_time_sync)
+    run.start()
+    try:
+        assert working.wait(timeout=10)
+        with application.test_client() as client:
+            during = client.get("/sync/status", headers=auth_headers).get_json()
+            start = client.post("/sync/start", json={}, headers=auth_headers).get_json()
+            stop = client.post("/sync/stop", json={}, headers=auth_headers).get_json()
+            ended_when_the_stop_answered = finished.is_set()
+            after = client.get("/sync/status", headers=auth_headers).get_json()
+    finally:
+        sync_scheduler._stop_event.set()  # ends the run if an assertion above failed
+        run.join(timeout=30)
+        sync_scheduler._stop_event.clear()
+
+    assert (during["scheduler_state"], during["worker_alive"]) == ("running", True)
+    assert start["status"] == "already_running"
+    assert not (sync_scheduler._worker_thread and sync_scheduler._worker_thread.is_alive()), "no second sync"
+    assert stop["status"] == "not_running"
+    assert ended_when_the_stop_answered, "the stop answers once the run has ended"
+    assert (after["scheduler_state"], after["worker_alive"]) == ("not_running", False)
+    assert answers["sync"] == (200, "stop_requested")
