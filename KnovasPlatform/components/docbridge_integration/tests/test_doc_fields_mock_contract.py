@@ -149,6 +149,29 @@ class TestClientAgainstTheMock:
         assert last["next_after"] is None and last["complete"] is True
         assert "total_count" not in last
 
+    def test_the_field_form_s_definitions_are_accepted(self):
+        """F1: what the Dokumentfelder form builds is what the server takes
+        (the mock checks definitions like registry.py)."""
+        from web_interface.admin_doc_fields import definition_from_form
+
+        client, state = mock_client("values")
+        for form in (
+            {"key": "aktenzeichen", "datatype": "code", "code_scheme": "bger"},
+            {"key": "geschaeftsjahr", "datatype": "period", "fy_start_month": "7",
+             "fy_label": "start"},
+            {"key": "eingang", "datatype": "date", "date_order": "mdy"},
+            {"key": "gegenseite", "datatype": "entity_ref", "link_policy": "never"},
+            {"key": "kostenstelle", "datatype": "enum", "choice_code_0": "4100",
+             "choice_label_de_0": "Verwaltung", "choice_label_fr_0": "Administration",
+             "choice_aliases_0": "Verw", "choice_code_1": "4200"},
+        ):
+            assert client.create_doc_field(definition_from_form(form))["key"] == form["key"]
+        fields = {f["key"]: f for f in client.doc_fields()}
+        assert fields["aktenzeichen"]["code_scheme"] == "bger"
+        assert (fields["geschaeftsjahr"]["fy_start_month"],
+                fields["geschaeftsjahr"]["fy_label"]) == (7, "start")
+        assert fields["kostenstelle"]["enum_values"][0]["aliases"] == ["Verw"]
+
 
 # ---------------------------------------------------------------------------
 # The Platform routes on the real client, against the mock

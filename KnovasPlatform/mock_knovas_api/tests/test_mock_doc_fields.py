@@ -573,6 +573,68 @@ class TestValuesRegistry:
             assert (status, body["error_code"], body["path"]) == (400, "invalid_value", path)
 
 
+class TestFieldReadingSettings:
+    """Knovas 1.5.0 field options as registry.py checks them
+    (_clean_columns, _check_merged, _clean_enum_values), so the Platform's
+    field forms are tested against the server's rules."""
+
+    def _create(self, mock, **body):
+        return mock.call("POST", "/secured/graph/doc-fields", body)
+
+    def test_options_are_stored(self):
+        mock = Mock(doc_fields="values")
+        status, body = self._create(mock, key="aktenzeichen", datatype="code",
+                                    code_scheme="bger")
+        assert status == 201 and body["field"]["code_scheme"] == "bger"
+        assert self._create(mock, key="belegnummer", datatype="code")[1]["field"][
+            "code_scheme"] == "generic"
+        status, body = self._create(mock, key="geschaeftsjahr", datatype="period",
+                                    fy_start_month=7, fy_label="start")
+        assert status == 201
+        assert (body["field"]["fy_start_month"], body["field"]["fy_label"]) == (7, "start")
+        status, body = self._create(mock, key="eingang", datatype="date", date_order="mdy")
+        assert status == 201 and body["field"]["date_order"] == "mdy"
+        status, body = self._create(mock, key="gegenseite", datatype="entity_ref",
+                                    link_policy="never")
+        assert status == 201 and body["field"]["link_policy"] == "never"
+        status, body = self._create(mock, key="kostenstelle", datatype="enum", enum_values=[
+            {"code": "4100", "labels": {"de": "Verwaltung", "fr": "Administration"},
+             "aliases": ["Verw"]}, "4200"])
+        assert status == 201 and body["field"]["enum_values"][0]["aliases"] == ["Verw"]
+
+    @pytest.mark.parametrize("body, path", [
+        ({"key": "jahr_x", "datatype": "period", "fy_start_month": 7}, "fy_label"),
+        ({"key": "jahr_x", "datatype": "period", "fy_start_month": 13, "fy_label": "start"},
+         "fy_start_month"),
+        ({"key": "jahr_x", "datatype": "date", "fy_start_month": 7, "fy_label": "start"},
+         "fy_start_month"),
+        ({"key": "jahr_x", "datatype": "period", "fy_label": "middle"}, "fy_label"),
+        ({"key": "kennung_x", "datatype": "text", "code_scheme": "iban"}, "code_scheme"),
+        ({"key": "kennung_x", "datatype": "code", "code_scheme": "IBAN!"}, "code_scheme"),
+        ({"key": "datum_x", "datatype": "date", "date_order": "dym"}, "date_order"),
+        ({"key": "art_x", "datatype": "enum", "enum_values": ["a", "a"]}, "enum_values[1]"),
+        ({"key": "art_x", "datatype": "enum", "enum_values": [{"code": "a", "x": 1}]},
+         "enum_values[0]"),
+        ({"key": "art_x", "datatype": "enum",
+          "enum_values": [{"code": "a", "aliases": ["n"] * 33}]}, "enum_values[0].aliases"),
+    ])
+    def test_refused_like_the_server(self, body, path):
+        status, answer = self._create(Mock(doc_fields="values"), **body)
+        assert (status, answer["error_code"], answer.get("path")) == (
+            400, "invalid_field_definition", path)
+
+    def test_the_code_scheme_locks_and_the_link_policy_does_not(self):
+        mock = Mock(doc_fields="values")
+        field_id = self._create(mock, key="aktenzeichen", datatype="code")[1]["field"]["id"]
+        status, body = mock.call("PATCH", f"/secured/graph/doc-fields/{field_id}",
+                                 {"code_scheme": "bger"})
+        assert (status, body["error_code"]) == (409, "field_type_locked")
+        entity_id = self._create(mock, key="gegenseite", datatype="entity_ref")[1]["field"]["id"]
+        status, body = mock.call("PATCH", f"/secured/graph/doc-fields/{entity_id}",
+                                 {"link_policy": "never"})
+        assert status == 200 and body["field"]["link_policy"] == "never"
+
+
 class TestValuesRules:
     def test_put_get_apply_and_retire(self):
         mock = Mock(doc_fields="values")

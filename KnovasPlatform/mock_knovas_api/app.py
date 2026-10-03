@@ -143,6 +143,10 @@ OPS = ("eq", "in", "gt", "gte", "lt", "lte", "between", "overlaps", "within", "p
 RANGE_OPS = ("gt", "gte", "lt", "lte", "between")
 CALLER_KEYS = ("access_groups", "principal_assertion", "actor_ref")
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+# registry.py: _ENUM_CODE_RE, _SCHEME_RE, DATE_ORDERS.
+ENUM_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$")
+SCHEME_RE = re.compile(r"^[a-z0-9][a-z0-9_:.\-]{0,63}$")
+DATE_ORDERS = ("dmy", "mdy", "ymd")
 
 MAX_UPLOAD_KEYS = 64
 MAX_UPLOAD_BYTES = 16384
@@ -590,6 +594,37 @@ def typed_value(datatype: str, raw: Any) -> Any:
     if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
         raise _Refused("type_mismatch")
     return _decimal_text(Decimal(str(raw)) if not isinstance(raw, str) else _decimal(raw, money=False))
+
+
+def _check_enum_values(values: Any) -> None:
+    """The server's enum_values shape (registry._clean_enum_values): codes or
+    {code, labels?, aliases?}, codes unique and of the code pattern, labels
+    of at most 200 characters, at most 32 other names of at most 64."""
+    if values is None:
+        return
+    if not isinstance(values, list) or not values or len(values) > 500:
+        raise DocFieldError("invalid_field_definition", 400, "enum_values")
+    seen = set()
+    for i, item in enumerate(values):
+        path = f"enum_values[{i}]"
+        if isinstance(item, str):
+            code = item
+        elif isinstance(item, dict) and not set(item) - {"code", "labels", "aliases"}:
+            code = item.get("code")
+            labels = item.get("labels") or {}
+            if not isinstance(labels, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str) and v.strip() and len(v) <= 200
+                    for k, v in labels.items()):
+                raise DocFieldError("invalid_field_definition", 400, f"{path}.labels")
+            aliases = item.get("aliases") or []
+            if not isinstance(aliases, list) or len(aliases) > 32 or not all(
+                    isinstance(a, str) and a.strip() and len(a) <= 64 for a in aliases):
+                raise DocFieldError("invalid_field_definition", 400, f"{path}.aliases")
+        else:
+            raise DocFieldError("invalid_field_definition", 400, path)
+        if not isinstance(code, str) or not ENUM_CODE_RE.match(code) or code in seen:
+            raise DocFieldError("invalid_field_definition", 400, path)
+        seen.add(code)
 
 
 class MockState:
@@ -1984,6 +2019,8 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             "pack_key": None, "pack_version": None,
             "display": definition.get("display", False), "facet": definition.get("facet", False),
         }
+        if datatype == "code" and row["code_scheme"] is None:
+            row["code_scheme"] = "generic"          # registry.py create_field
         _check_definition(row)
         state.fields[row["id"]] = row
         return row
@@ -2012,6 +2049,23 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             raise DocFieldError("invalid_field_definition", 400, "target_node_type_id")
         if row["link_policy"] not in ("resolve", "never"):
             raise DocFieldError("invalid_field_definition", 400, "link_policy")
+        if row["date_order"] is not None and row["date_order"] not in DATE_ORDERS:
+            raise DocFieldError("invalid_field_definition", 400, "date_order")
+        month = row["fy_start_month"]
+        if month is not None and (isinstance(month, bool) or not isinstance(month, int)
+                                  or not 1 <= month <= 12):
+            raise DocFieldError("invalid_field_definition", 400, "fy_start_month")
+        if row["fy_label"] is not None and row["fy_label"] not in ("start", "end"):
+            raise DocFieldError("invalid_field_definition", 400, "fy_label")
+        if (month is not None or row["fy_label"] is not None) and row["datatype"] != "period":
+            raise DocFieldError("invalid_field_definition", 400, "fy_start_month")
+        if month not in (None, 1) and row["fy_label"] is None:
+            raise DocFieldError("invalid_field_definition", 400, "fy_label")
+        scheme = row["code_scheme"]
+        if scheme is not None and (not isinstance(scheme, str) or not SCHEME_RE.match(scheme)
+                                   or row["datatype"] != "code"):
+            raise DocFieldError("invalid_field_definition", 400, "code_scheme")
+        _check_enum_values(row["enum_values"])
         if row["sensitivity"] not in ("normal", "special"):
             raise DocFieldError("invalid_field_definition", 400, "sensitivity")
         if row["status"] not in ("active", "provisional"):
