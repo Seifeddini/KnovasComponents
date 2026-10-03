@@ -44,7 +44,7 @@ cd RemoteController
 cp .env.example .env
 pip install -e ".[dev]"
 export PYTHONPATH=src
-gunicorn -b 127.0.0.1:5001 -w 1 app:app
+gunicorn -b 127.0.0.1:5001 -w 1 -k gthread --threads 4 app:app
 ```
 
 Or use the Flask dev server (uses `RC_API_PORT` from `.env`):
@@ -53,7 +53,7 @@ Or use the Flask dev server (uses `RC_API_PORT` from `.env`):
 python src/app.py
 ```
 
-Use **one** Gunicorn worker for continuous sync (`-w 1`).
+Use **one** Gunicorn worker process for continuous sync (`-w 1`), with `-k gthread --threads 4` as in the image.
 
 ---
 

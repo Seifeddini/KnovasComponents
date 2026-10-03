@@ -205,4 +205,4 @@ OCR output is cached per page image in `/var/rc-state/.rc-ocr-cache.db` (beside 
 4. Rerun `scripts/build_context_sidecars.py --force` when the release changes extraction (see [configuration.md](configuration.md#search-context-sidecars)), and re-queue files the previous release parked (above).
 5. 0.3.0 (document fields) needs nothing: the new state columns are added on start, and a document's empty digest equals "no fields configured", so nothing is re-sent until a source is configured with fields.
 
-Use a **single** Gunicorn worker (`-w 1`) when running from source; multiple workers conflict on scheduler state.
+Use a **single** Gunicorn worker process (`-w 1`, with `-k gthread --threads 4` as in the image) when running from source; multiple worker processes conflict on scheduler state.

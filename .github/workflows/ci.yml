@@ -354,4 +354,12 @@ jobs:
             remote-controller:ci
           sleep 3
           docker exec rc-ci python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:5001/health'); assert r.status==200, r.status"
+          # E6: PID 1 is gunicorn itself (shell-form CMD with exec), one
+          # gthread worker with four threads, the default 120 s timeout.
+          pid1="$(docker exec rc-ci sh -c 'tr "\0" " " < /proc/1/cmdline')"
+          echo "PID 1: $pid1"
+          case "$pid1" in
+            *gunicorn*"-w 1 -k gthread --threads 4 --timeout 120 "*) ;;
+            *) echo "the image does not run the gthread gunicorn as PID 1"; exit 1 ;;
+          esac
           docker stop rc-ci

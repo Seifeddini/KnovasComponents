@@ -71,5 +71,10 @@ ENV RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json
 USER rcuser
 ENV PYTHONPATH=/app/src
 EXPOSE 5001
-# Single worker: continuous sync scheduler uses in-process locks (see docs/SETUP.md).
-CMD ["gunicorn", "-b", "0.0.0.0:5001", "-w", "1", "--timeout", "120", "app:app"]
+# One worker process -- the continuous sync scheduler and its locks live in it
+# (docs/SETUP.md) -- with four request threads: gthread's main loop keeps
+# reporting while a long POST /sync runs, so --timeout no longer kills the
+# worker and the scheduler thread with it, and GET /sync/status answers
+# meanwhile. Shell form so RC_GUNICORN_TIMEOUT (default 120 s) is read at
+# start; exec keeps gunicorn PID 1 so it receives docker's SIGTERM.
+CMD exec gunicorn -b 0.0.0.0:5001 -w 1 -k gthread --threads 4 --timeout "${RC_GUNICORN_TIMEOUT:-120}" app:app

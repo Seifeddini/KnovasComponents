@@ -7,6 +7,7 @@
 ### Extraction (knovas-extract 0.4.0a1)
 
 - `./scripts/doctor.sh` warns about OCR settings in `knovas.env` that the Knovas Connector would replace by its default (same rules, `scripts/lib/rc_extraction_settings.sh`).
+- **Web server**: the image runs one gunicorn `gthread` worker with four threads and `--timeout ${RC_GUNICORN_TIMEOUT:-120}` (shell-form CMD, gunicorn stays PID 1). A long `POST /sync` no longer gets the worker — and the scheduler thread — killed, and `GET /sync/status` answers meanwhile. Config and body writes and start/stop are serialised.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
