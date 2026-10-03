@@ -10,6 +10,9 @@
   baut beide Images neu.
 - **Outlook-Mails, deren Text nur als RTF vorliegt**, werden gelesen (bisher
   leerer Text).
+- *Verwaltung -> System* nennt die Extraktor-Version der Plattform und des
+  Knovas Connector und warnt, wenn sie sich unterscheiden oder der Knovas
+  Connector keine meldet (dann ist er aelter als die Plattform).
 
 ## Dokumentfelder (Dokumentwerte)
 
