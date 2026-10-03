@@ -206,6 +206,22 @@ class RemoteControllerClient:
         except (TypeError, ValueError, AttributeError):
             return 0
 
+    def requeue_reextract(self) -> dict:
+        """Queue every document an older extraction produced for
+        re-extraction (``POST /sync/reextract/requeue``); ``{"requeued": n}``.
+
+        The Knovas Connector re-extracts them within its per-cycle bound and
+        uploads only those whose text changed -- each such upload is billed.
+        An older Connector answers 404: RemoteControllerError with
+        ``status == 404``.
+        """
+        payload = self._call("POST", "/sync/reextract/requeue", body={})
+        try:
+            requeued = max(0, int((payload or {}).get("requeued") or 0))
+        except (TypeError, ValueError, AttributeError):
+            requeued = 0
+        return {"requeued": requeued}
+
     def start(self) -> dict:
         return self._call("POST", "/sync/start", body={})
 
