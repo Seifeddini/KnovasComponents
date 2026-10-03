@@ -36,6 +36,7 @@ SYSTEM_KEYS = ("title", "description", "path", "ingested_at")
 RETURN_FIELDS_MAX = 64
 TITLE_FROM_VALUES_MAX = 100
 WHERE_MAX_KEYS = 8
+WHERE_LIST_MAX = 50
 WHERE_MAX_DEPTH = 3
 WHERE_MAX_BYTES = 8 * 1024
 _WHERE_KEY_RE = re.compile(r"^[a-z0-9_.\- ]{1,64}$")
@@ -567,35 +568,54 @@ def listing_empty_text(page: Any) -> Optional[str]:
 
 _OP_PREFIX = {
     "gt": "nach ", "gte": "ab ", "lt": "vor ", "lte": "bis ",
-    "overlaps": "\u00fcberschneidet ", "within": "innerhalb ",
+    "overlaps": "\u00fcberschneidet ", "within": "liegt ganz in ",
     "prefix": "beginnt mit ",
 }
+_OPS_IN_ORDER = ("eq", "in", "gt", "gte", "lt", "lte", "between", "overlaps", "within",
+                 "prefix", "exists")
+#: What the "Verstanden als" chips say for what is not a value (spec F2).
+EXISTS_TEXT = "hat einen Wert"
+PARTLY_TEXT = "auch teilweise"
+
+
+def _between_text(spec: Optional[Mapping[str, Any]], lo: Any, hi: Any) -> str:
+    return f"zwischen {_operand_text(spec, lo)} und {_operand_text(spec, hi)}"
 
 
 def _operand_text(spec: Optional[Mapping[str, Any]], operand: Any) -> str:
-    """The person's own operand as text: enum codes become labels, entity
-    operands their name. A ``node_id`` operand is never shown as the id."""
+    """The person's own operand in German (spec F2): "eine von ...",
+    "beginnt mit ...", "ab ...", "bis ...", "zwischen ... und ...",
+    "liegt ganz in ...", ", auch teilweise", "hat einen Wert". Enum codes
+    become labels, entity operands their name; a ``node_id`` operand is never
+    shown as the id."""
     if isinstance(operand, (list, tuple)):
-        parts = [_operand_text(spec, item) for item in operand]
-        return "; ".join(part for part in parts if part)
+        parts = [part for part in (_operand_text(spec, item) for item in operand) if part]
+        if len(parts) > 1:
+            return "eine von " + "; ".join(parts)
+        return parts[0] if parts else ""
     if isinstance(operand, Mapping):
         if "name" in operand or "node_id" in operand:
             return _format_entity(operand)
         parts: List[str] = []
-        if "gte" in operand and "lte" in operand:
-            parts.append(f"{_operand_text(spec, operand['gte'])} \u2013 "
-                         f"{_operand_text(spec, operand['lte'])}")
-        for op in ("eq", "in", "gt", "gte", "lt", "lte", "between", "overlaps",
-                   "within", "prefix", "exists"):
-            if op not in operand or (op in ("gte", "lte") and "gte" in operand and "lte" in operand):
+        both = "gte" in operand and "lte" in operand
+        if both:
+            parts.append(_between_text(spec, operand["gte"], operand["lte"]))
+        for op in _OPS_IN_ORDER:
+            if op not in operand or (both and op in ("gte", "lte")):
                 continue
             value = operand[op]
             if op == "exists":
-                parts.append("vorhanden")
+                parts.append(EXISTS_TEXT)
+            elif op in ("eq", "in"):
+                parts.append(_operand_text(spec, value))
             elif op == "between" and isinstance(value, (list, tuple)) and len(value) == 2:
-                parts.append(f"{_operand_text(spec, value[0])} \u2013 {_operand_text(spec, value[1])}")
+                parts.append(_between_text(spec, value[0], value[1]))
+            elif op == "within" and isinstance(value, (list, tuple)) and len(value) == 2:
+                parts.append("liegt ganz " + _between_text(spec, value[0], value[1]))
             else:
                 parts.append(_OP_PREFIX.get(op, "") + _operand_text(spec, value))
+        if operand.get("match") == "possible":
+            parts.append(PARTLY_TEXT)
         return ", ".join(part for part in parts if part)
     if isinstance(operand, bool):
         return _format_bool(operand)
@@ -608,7 +628,7 @@ def _operand_op(operand: Any) -> str:
     if isinstance(operand, (list, tuple)):
         return "in"
     if isinstance(operand, Mapping):
-        ops = [op for op in operand if op not in ("name", "node_id")]
+        ops = [op for op in operand if op not in ("name", "node_id", "match")]
         return ops[0] if len(ops) == 1 else ("eq" if not ops else "range")
     return "eq"
 
@@ -669,14 +689,25 @@ def _depth(value: Any) -> int:
     return 0
 
 
+def _longest_list(value: Any) -> int:
+    """The longest list anywhere in an operand: ``["a", "b"]`` is 2,
+    ``{"in": [...]}`` the length of its list, ``"x"`` 0."""
+    if isinstance(value, Mapping):
+        return max((_longest_list(v) for v in value.values()), default=0)
+    if isinstance(value, (list, tuple)):
+        return max([len(value)] + [_longest_list(v) for v in value])
+    return 0
+
+
 def validate_where(obj: Any) -> Dict[str, Any]:
     """Bound a ``where`` that came from the browser; return it unchanged.
 
     A non-empty object of at most 8 keys, each matching
-    ``^[a-z0-9_.\\- ]{1,64}$``, operands nested at most 3 deep, at most
-    8 KiB as compact JSON. Raises ValueError (with a message that names no
-    value). Knovas validates the meaning; this only keeps an oversized or
-    oddly shaped body from leaving the Platform.
+    ``^[a-z0-9_.\\- ]{1,64}$``, operands nested at most 3 deep with lists of
+    at most 50 values (Knovas: "8 keys per search and 50 values per list"),
+    at most 8 KiB as compact JSON. Raises ValueError (with a message that
+    names no value). Knovas validates the meaning; this only keeps an
+    oversized or oddly shaped body from leaving the Platform.
     """
     if not isinstance(obj, Mapping) or isinstance(obj, (str, bytes)):
         raise ValueError("where must be an object")
@@ -689,6 +720,8 @@ def validate_where(obj: Any) -> Dict[str, Any]:
             raise ValueError("where has a key that is not a field key")
         if _depth(operand) > WHERE_MAX_DEPTH:
             raise ValueError("where is nested too deeply")
+        if _longest_list(operand) > WHERE_LIST_MAX:
+            raise ValueError(f"where has a list of more than {WHERE_LIST_MAX} values")
     try:
         size = len(json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     except (TypeError, ValueError):
@@ -934,7 +967,8 @@ def error_message(code: Any, details: Any = None, registry: Any = None) -> str:
         note = warning_text(code)
         return f"{field}: {note}" if field else note
     if code == "where_too_complex":
-        return f"Der Filter ist zu umfangreich (h\u00f6chstens {WHERE_MAX_KEYS} Felder)."
+        return (f"Der Filter ist zu umfangreich (h\u00f6chstens {WHERE_MAX_KEYS} Felder "
+                f"und {WHERE_LIST_MAX} Werte pro Liste).")
     if code == "invalid_cursor":
         return "Die Liste hat sich ge\u00e4ndert. Bitte neu laden."
     if code == "version_conflict":

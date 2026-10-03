@@ -354,8 +354,9 @@ class TestResolvedChips:
             "period": {"gte": "2024", "lte": "2025"},
         }, None, registry)
         texts = {c["field"]: c["text"] for c in chips}
-        assert texts == {"document_date": "ab 01.10.2026", "doc_type": "Rechnung; Vertrag",
-                         "mandant": view.LINKED_ENTITY, "period": "2024 \u2013 2025"}
+        assert texts == {"document_date": "ab 01.10.2026",
+                         "doc_type": "eine von Rechnung; Vertrag",
+                         "mandant": view.LINKED_ENTITY, "period": "zwischen 2024 und 2025"}
         assert {c["field"]: c["op"] for c in chips}["doc_type"] == "in"
         assert all("linked_count" not in c for c in chips)
 
@@ -368,6 +369,32 @@ class TestResolvedChips:
 
     def test_not_a_filter(self, registry):
         assert view.resolved_chips(None, None, registry) == []
+
+    @pytest.mark.parametrize("key, operand, text, op", [
+        ("doc_type", ["invoice", "contract"], "eine von Rechnung; Vertrag", "in"),
+        ("doc_type", "invoice", "Rechnung", "eq"),
+        ("doc_type", {"prefix": "corr"}, "beginnt mit corr", "prefix"),
+        ("reference", ["E11.90", "E10.1"], "eine von E11.90; E10.1", "in"),
+        ("reference", {"in": ["E11.90", "E10.1"]}, "eine von E11.90; E10.1", "in"),
+        ("amount", {"gte": "CHF 1'000"}, "ab CHF 1'000", "gte"),
+        ("amount", {"lte": "CHF 5'000"}, "bis CHF 5'000", "lte"),
+        ("amount", {"between": ["CHF 1'000", "CHF 5'000"]},
+         "zwischen CHF 1'000 und CHF 5'000", "between"),
+        ("period", "GJ 2024", "GJ 2024", "eq"),
+        ("period", {"gte": "2024", "lte": "2025"}, "zwischen 2024 und 2025", "range"),
+        ("document_date", {"gte": "01.01.2024", "lte": "30.06.2024", "match": "possible"},
+         "zwischen 01.01.2024 und 30.06.2024, auch teilweise", "range"),
+        ("document_date", {"lte": "30.06.2024", "match": "possible"},
+         "bis 30.06.2024, auch teilweise", "lte"),
+        ("period", {"within": "2024"}, "liegt ganz in 2024", "within"),
+        ("status", {"exists": True}, "hat einen Wert", "exists"),
+        ("mandant", [{"name": "Muster AG"}, {"name": "Beispiel GmbH"}],
+         "eine von Muster AG; Beispiel GmbH", "in"),
+        ("privileged", True, "Ja", "eq"),
+    ])
+    def test_every_operator_reads_in_german(self, registry, key, operand, text, op):
+        chip = view.resolved_chips({key: operand}, None, registry)[0]
+        assert (chip["text"], chip["op"]) == (text, op)
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +426,27 @@ class TestValidateWhere:
         with pytest.raises(ValueError) as caught:
             view.validate_where({"k": "Muster-Sentinel " * 1000})
         assert "Sentinel" not in str(caught.value)
+
+    def test_lists_hold_at_most_50_values(self):
+        """Knovas: "8 keys per search and 50 values per list" (1.5.0)."""
+        assert view.WHERE_LIST_MAX == 50
+        view.validate_where({"reference": [f"R-{i}" for i in range(50)]})
+        for bad in ({"reference": [f"R-{i}" for i in range(51)]},
+                    {"reference": {"in": [f"R-{i}" for i in range(51)]}},
+                    {"mandant": [{"name": f"Firma {i}"} for i in range(51)]}):
+            with pytest.raises(ValueError):
+                view.validate_where(bad)
+
+    def test_every_operator_the_rail_builds_passes(self):
+        where = {
+            "doc_type": {"prefix": "corr"},
+            "amount": {"between": ["CHF 1'000", "CHF 5'000"]},
+            "document_date": {"gte": "01.01.2024", "lte": "30.06.2024", "match": "possible"},
+            "period": {"within": "2024"}, "status": {"exists": True},
+            "mandant": [{"name": "Muster AG"}, {"name": "Beispiel GmbH"}],
+            "reference": ["E11.90", "E10.1"], "privileged": False,
+        }
+        assert view.validate_where(where) == where
 
 
 class TestCanEdit:
@@ -519,6 +567,10 @@ class TestMessages:
                      "invalid_field_definition", "pack_not_found", "NOT_FOUND", "HTTP_404",
                      "doc_fields_unavailable", "too_many_requests", "transport_error"):
             assert view.error_message(code)
+
+    def test_too_complex_names_both_limits(self):
+        text = view.error_message("where_too_complex")
+        assert "8 Felder" in text and "50 Werte" in text
 
     def test_a_locked_field_names_what_is_locked(self):
         """F1: type, code scheme, business year, date order and existing

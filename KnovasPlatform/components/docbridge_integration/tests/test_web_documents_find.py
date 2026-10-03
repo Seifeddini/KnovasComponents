@@ -86,6 +86,7 @@ class TestGating:
         {"where": {}},
         {"where": "doc_type"},
         {"where": {f"k{i}": 1 for i in range(9)}},
+        {"where": {"doc_type": ["invoice"] * 51}},
         {"where": {"doc_type": "invoice"}, "sort": {"field": "document_date", "x": 1}},
         {"where": {"doc_type": "invoice"}, "sort": {"field": "Bad Field", "order": "asc"}},
         {"where": {"doc_type": "invoice"}, "sort": {"field": "document_date", "order": "up"}},

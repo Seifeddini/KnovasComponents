@@ -288,11 +288,29 @@ class TestWhatGoesOut:
         client = signed_in(app, identity_repo, role="member")
         too_many = {f"k{i}": "x" for i in range(9)}
         for where in (too_many, {"Bad Key!": "x"}, {"doc_type": {"a": {"b": {"c": {"d": 1}}}}},
-                      ["doc_type"], "doc_type"):
+                      ["doc_type"], "doc_type", {"reference": [f"R-{i}" for i in range(51)]}):
             response = search(client, where=where)
             assert response.status_code == 400, where
             assert response.get_json()["error_code"] == "filter_invalid"
         assert api.search_requests == []
+
+    def test_operators_reach_knovas_and_read_back_in_german(self, filters_app, identity_repo):
+        """F2: the rail's operators go out as written; "Verstanden als" says
+        each one in German."""
+        app, api = filters_app
+        client = signed_in(app, identity_repo, role="member")
+        where = {"doc_type": ["invoice", "contract"],
+                 "document_date": {"gte": "01.01.2024", "lte": "31.12.2024",
+                                   "match": "possible"},
+                 "status": {"exists": True}}
+        response = search(client, where=where)
+        assert response.status_code == 200
+        assert api.search_requests[-1]["where"] == where
+        texts = {c["field"]: c["text"]
+                 for c in response.get_json()["document_fields"]["resolved"]}
+        assert texts == {"doc_type": "eine von Rechnung; Vertrag",
+                         "document_date": "zwischen 01.01.2024 und 31.12.2024, auch teilweise",
+                         "status": "hat einen Wert"}
 
 
 # ---------------------------------------------------------------------------
