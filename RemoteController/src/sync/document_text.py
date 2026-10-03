@@ -21,12 +21,13 @@ Markdown is never requested (`emit_markdown=False`): it cost ~8 s per
 document and its expansion guard parked every mixed PDF and every DOCX with
 large tables as "resource limit exceeded: markdown expansion ratio".
 
-Sentence emission is skipped for inputs larger than
-`RC_SENTENCE_EMIT_MAX_BYTES` (default 2 MiB). `split_sentences` degrades
-badly on large, weakly-punctuated text — tariff tables and similar
-dumps — where it can occupy the single sync worker for many minutes per
-file and stall ingestion. Text extraction and upload are unaffected;
-only sentence-level citations and context previews are dropped.
+Sentences are emitted for every input (spec E4). The size gate
+`RC_SENTENCE_EMIT_MAX_BYTES` (default `0`: no gate) guarded against the
+quadratic line counting in `split_sentences` that knovas-extract 0.3 fixed;
+measured on raw file size it switched off the citations -- and with them
+every part's `page_number` -- of most multi-page scans. A positive value
+restores it: above that many raw bytes only the citations and context
+previews are dropped, the text is still uploaded.
 
 Errors from `knovas-extract` are re-raised as `ConversionError` with
 message substrings that `is_unconvertible_error()` recognizes, so
@@ -102,9 +103,9 @@ logger = logging.getLogger(__name__)
 
 SYNCABLE_EXTENSIONS = frozenset({".md", ".txt", ".docx", ".pdf", ".eml", ".msg"})
 
-# Inputs above this size skip sentence emission. Override with
-# RC_SENTENCE_EMIT_MAX_BYTES; 0 disables sentence emission entirely.
-DEFAULT_SENTENCE_EMIT_MAX_BYTES = 2 * 1024 * 1024
+# RC_SENTENCE_EMIT_MAX_BYTES: 0 (default) emits sentences for every input; a
+# positive value skips sentence emission above that many raw bytes.
+DEFAULT_SENTENCE_EMIT_MAX_BYTES = 0
 
 # Wall-clock ceiling for one document's extraction. Override with
 # RC_EXTRACT_TIMEOUT_SECONDS; 0 extracts in-process with no ceiling. When the
@@ -773,7 +774,7 @@ def _extract_bytes(
         raise ConversionError(f"unsupported extension: {ext}", extension=ext)
 
     max_sentence_bytes = sentence_emit_max_bytes()
-    emit_sentences = len(raw) <= max_sentence_bytes
+    emit_sentences = max_sentence_bytes <= 0 or len(raw) <= max_sentence_bytes
     if not emit_sentences:
         logger.info(
             "Skipping sentence emission: %d bytes exceeds %d (ext=%s)",

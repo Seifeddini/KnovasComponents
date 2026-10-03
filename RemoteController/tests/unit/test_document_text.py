@@ -213,6 +213,23 @@ def test_small_text_still_emits_sentences(tmp_path, monkeypatch):
     assert len(doc.sentences) == 2
 
 
+@pytest.mark.parametrize("gate", [None, "0"], ids=["unset", "zero"])
+def test_sentence_gate_of_zero_is_no_gate(tmp_path, monkeypatch, gate):
+    """0, the default (spec E4), means no gate, never "no sentences": read as
+    a ceiling it dropped the sentence citations of every document."""
+    if gate is None:
+        monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    else:
+        monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", gate)
+    p = tmp_path / "note.txt"
+    p.write_text("First sentence. Second sentence.", encoding="utf-8")
+
+    doc = extract_document(p)
+
+    assert doc.sentences is not None
+    assert len(doc.sentences) == 2
+
+
 # --- per-file extraction timeout --------------------------------------------
 # One pathological document must not occupy the single sync worker forever.
 
