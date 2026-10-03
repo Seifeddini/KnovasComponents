@@ -130,7 +130,9 @@ EXTRACT_CHILD_NICE = 10
 DEFAULT_TESSERACT_LANG = "deu+eng"
 DEFAULT_OCR_ENGINE = "auto"
 OCR_ENGINES = ("auto", "tesserocr", "cli", "mupdf")
-DEFAULT_OCR_DPI = 300
+# RC_OCR_DPI: unset sends no dpi (the library's native-resolution rule).
+OCR_DPI_MIN = 30
+OCR_DPI_MAX = 1200
 DEFAULT_OCR_WORKERS = 1
 DEFAULT_OCR_MAX_WORKERS = 8
 DEFAULT_OCR_MAX_PAGES = 50
@@ -186,6 +188,12 @@ def _env_flag(name: str, default: bool) -> bool:
     return default
 
 
+def _non_negative_int(raw: str) -> Optional[int]:
+    """``raw`` as an int when it is ASCII digits only, else None (the
+    Connector's rule)."""
+    return int(raw) if raw.isascii() and raw.isdigit() else None
+
+
 def extract_timeout_seconds() -> int:
     """Wall-clock ceiling for one document's extraction; 0 disables."""
     return _env_int("RC_EXTRACT_TIMEOUT_SECONDS", DEFAULT_EXTRACT_TIMEOUT_SECONDS)
@@ -238,6 +246,23 @@ def ocr_engine() -> str:
     return DEFAULT_OCR_ENGINE
 
 
+def ocr_dpi() -> Optional[int]:
+    """``RC_OCR_DPI``, the Connector's rule (spec E3): unset sends no dpi --
+    native resolution, at most 300, never upsampled; set must be 30-1200,
+    anything else logs one warning and counts as unset."""
+    raw = (os.environ.get("RC_OCR_DPI") or "").strip()
+    if not raw:
+        return None
+    value = _non_negative_int(raw)
+    if value is None or not OCR_DPI_MIN <= value <= OCR_DPI_MAX:
+        logger.warning(
+            "Invalid RC_OCR_DPI=%r (%d-%d); rendering at the native resolution",
+            raw, OCR_DPI_MIN, OCR_DPI_MAX,
+        )
+        return None
+    return value
+
+
 def ocr_workers() -> int:
     """``RC_OCR_WORKERS``, default 1 (a gunicorn worker shares the host with
     the search UI), at most 8."""
@@ -276,15 +301,18 @@ def ocr_options_kwargs(timeout_seconds: Optional[int] = None, language: str = DE
     """
     timeout = extract_timeout_seconds() if timeout_seconds is None else int(timeout_seconds)
     page_timeout = _env_int("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, minimum=1)
-    return {
+    options: dict[str, Any] = {
         "engine": ocr_engine(),
-        "dpi": _env_int("RC_OCR_DPI", DEFAULT_OCR_DPI, minimum=72),
         "workers": ocr_workers(),
         "max_ocr_pages": _env_int("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES),
         "time_budget_seconds": ocr_time_budget_seconds(timeout, page_timeout),
         "page_timeout_seconds": page_timeout,
         "language": tesseract_language(language),
     }
+    dpi = ocr_dpi()
+    if dpi is not None:
+        options["dpi"] = dpi
+    return options
 
 
 #: The library's field names are introspected; these are the spellings the

@@ -8,8 +8,9 @@ accurate `page_number` / `sentence_number`.
 Image-only PDF pages are OCR'd when `RC_PDF_OCR_ENABLED` is true (default)
 and Tesseract is installed. Language packs are selected via
 `RC_TESSERACT_LANG` (default `deu+eng`). With a knovas-extract that takes
-`ocr=OcrOptions(...)` the OCR engine, dpi, workers, page cap, time budget
-and the RC's disk cache (`sync.ocr_cache`) are passed along; with one that
+`ocr=OcrOptions(...)` the OCR engine, the page cap, the time budget, the
+RC's disk cache (`sync.ocr_cache`) and -- only when set -- the worker count
+and the dpi are passed along (unset, the library decides both); with one that
 takes `text_mode=` the `RC_PDF_TEXT_MODE` switch selects `plain`, `layout`
 (markdown-lite rows for fiduciary tables) or `shadow` (upload plain, log one
 numbers-only `ShadowDiff` against layout — the two renderings share ONE OCR
@@ -129,7 +130,10 @@ EXTRACT_CHILD_NICE = 10
 DEFAULT_TESSERACT_LANG = "deu+eng"
 DEFAULT_OCR_ENGINE = "auto"
 OCR_ENGINES = ("auto", "tesserocr", "cli", "mupdf")
-DEFAULT_OCR_DPI = 300
+# RC_OCR_DPI: unset sends no dpi (the library's native-resolution rule); a
+# set value must lie in the range OcrOptions accepts.
+OCR_DPI_MIN = 30
+OCR_DPI_MAX = 1200
 DEFAULT_OCR_MAX_PAGES = 500
 DEFAULT_OCR_TIME_BUDGET_SECONDS = 240
 DEFAULT_OCR_PAGE_TIMEOUT_SECONDS = 60
@@ -297,6 +301,12 @@ def _env_flag(name: str, default: bool) -> bool:
     return default
 
 
+def _non_negative_int(raw: str) -> Optional[int]:
+    """`raw` as an int when it is ASCII digits only, else None -- the rule
+    `scripts/doctor.sh` applies to the same settings (no sign, no `1_000`)."""
+    return int(raw) if raw.isascii() and raw.isdigit() else None
+
+
 def sentence_emit_max_bytes() -> int:
     """Size ceiling for sentence emission (see module docstring)."""
     return _env_int("RC_SENTENCE_EMIT_MAX_BYTES", DEFAULT_SENTENCE_EMIT_MAX_BYTES)
@@ -362,6 +372,26 @@ def ocr_engine() -> str:
     return DEFAULT_OCR_ENGINE
 
 
+def ocr_dpi() -> Optional[int]:
+    """`RC_OCR_DPI` (spec E3). Unset (default): None, no `dpi` is passed and
+    the library renders each page at its native resolution, at most 300 dpi,
+    never upsampled -- a 150 dpi fax is OCR'd at 150 dpi. Set: every page is
+    rendered at exactly that resolution (30-1200, the range `OcrOptions`
+    accepts), so a lower-resolution scan IS upsampled. Anything else logs
+    one warning and counts as unset."""
+    raw = (os.environ.get("RC_OCR_DPI") or "").strip()
+    if not raw:
+        return None
+    value = _non_negative_int(raw)
+    if value is None or not OCR_DPI_MIN <= value <= OCR_DPI_MAX:
+        logger.warning(
+            "Invalid RC_OCR_DPI=%r (%d-%d); rendering at the native resolution",
+            raw, OCR_DPI_MIN, OCR_DPI_MAX,
+        )
+        return None
+    return value
+
+
 def ocr_workers() -> Optional[int]:
     """`RC_OCR_WORKERS`. Unset (default): None, and the library sizes the pool
     itself -- `min(Limits.max_ocr_workers, CPUs - 1)`, the CPUs counted from
@@ -416,15 +446,20 @@ def ocr_options_kwargs(timeout_seconds: Optional[int] = None) -> dict[str, Any]:
     """
     timeout = extract_timeout_seconds() if timeout_seconds is None else int(timeout_seconds)
     page_timeout = _env_int("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, minimum=1)
-    return {
+    options: dict[str, Any] = {
         "engine": ocr_engine(),
-        "dpi": _env_int("RC_OCR_DPI", DEFAULT_OCR_DPI, minimum=72),
         "workers": ocr_workers(),
         "max_ocr_pages": _env_int("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES),
         "time_budget_seconds": ocr_time_budget_seconds(timeout, page_timeout),
         "page_timeout_seconds": page_timeout,
         "language": tesseract_language(),
     }
+    dpi = ocr_dpi()
+    if dpi is not None:
+        # Only when set: an explicit dpi is used as is and upsamples a 150 dpi
+        # fax to 300 (CER 0.145 against 0.028 at its native resolution).
+        options["dpi"] = dpi
+    return options
 
 
 #: The library's field names are introspected; these are the spellings the

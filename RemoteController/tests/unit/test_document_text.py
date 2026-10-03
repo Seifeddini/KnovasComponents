@@ -909,3 +909,55 @@ def test_extract_under_default_rlimit_as_still_works(tmp_path, monkeypatch):
     from sync.document_text import extract_document_guarded
 
     assert "Unter dem Limit" in extract_document_guarded(p).text
+
+
+# --- resolution: the library's native-resolution rule unless set (spec E3) ---
+
+
+def test_ocr_dpi_env(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import ocr_dpi
+
+    monkeypatch.delenv("RC_OCR_DPI", raising=False)
+    assert ocr_dpi() is None, "unset: native resolution, never upsampled"
+    for raw, expected in (("200", 200), ("30", 30), ("1200", 1200), (" 150 ", 150), ("0150", 150)):
+        monkeypatch.setenv("RC_OCR_DPI", raw)
+        assert ocr_dpi() == expected, raw
+    # The same values scripts/lib/test_rc_extraction_settings.sh refuses.
+    for raw in ("29", "1201", "0", "-300", "300dpi", "3e2"):
+        monkeypatch.setenv("RC_OCR_DPI", raw)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+            assert ocr_dpi() is None, raw
+        assert [r.getMessage().split("=")[0] for r in caplog.records] == ["Invalid RC_OCR_DPI"], raw
+
+
+def test_no_dpi_reaches_the_library_unless_configured(monkeypatch):
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=False)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", _FakeOcrOptions)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    monkeypatch.delenv("RC_OCR_DPI", raising=False)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert "dpi" not in seen["ocr"].kwargs
+    monkeypatch.setenv("RC_OCR_DPI", "150")
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert seen["ocr"].kwargs["dpi"] == 150
+
+
+def test_the_library_default_dpi_applies_when_unset(monkeypatch):
+    """With the real OcrOptions: no dpi keeps its None default -- native
+    resolution capped at 300, never upsampled (a 150 dpi fax: CER 0.028
+    native against 0.145 upsampled to 300)."""
+    from sync import document_text
+
+    if document_text.OcrOptions is None:
+        pytest.skip("needs knovas-extract >= 0.4")
+    monkeypatch.delenv("RC_OCR_DPI", raising=False)
+    options = document_text.build_ocr_options(document_text.ocr_options_kwargs(300))
+    assert options.dpi is None

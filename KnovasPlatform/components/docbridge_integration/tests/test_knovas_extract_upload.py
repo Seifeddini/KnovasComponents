@@ -597,3 +597,19 @@ def test_child_limits_apply_nice_and_rlimit_as():
     assert soft == expected
     # the parent is untouched
     assert os.nice(0) == parent_nice
+
+
+def test_ocr_dpi_env(monkeypatch, caplog):
+    assert m.ocr_dpi() is None, "unset: native resolution, never upsampled"
+    monkeypatch.setenv("RC_OCR_DPI", "200")
+    assert m.ocr_dpi() == 200
+    monkeypatch.setenv("RC_OCR_DPI", "1201")
+    with caplog.at_level(logging.WARNING, logger="knovas_extract_upload"):
+        assert m.ocr_dpi() is None
+    assert any("RC_OCR_DPI" in r.getMessage() for r in caplog.records)
+
+
+def test_no_dpi_is_sent_unless_configured(monkeypatch):
+    assert "dpi" not in m.ocr_options_kwargs()
+    monkeypatch.setenv("RC_OCR_DPI", "150")
+    assert m.ocr_options_kwargs()["dpi"] == 150

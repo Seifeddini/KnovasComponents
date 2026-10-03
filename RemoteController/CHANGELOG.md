@@ -10,6 +10,7 @@
 - **Backfill**: `scripts/backfill_partial_ocr.py` gives failed OCR pages a longer page timeout (`--ocr-page-timeout`, default 120 s, twice the cycle's). A result that is still partial with no fewer pages missing (a page that fails again, the pixel cap, no OCR engine) is noted `backfill_unchanged` and skipped by later runs, so the document is no longer uploaded again, and billed, on every run; the summary line counts these documents as `unchanged`, and `--retry-unchanged` sends them again.
 - `scripts/backfill_partial_ocr.py` clears the old rule's notes `{"reason": "ocr_backend_none"}` (born-digital PDFs, complete at Knovas) without an upload; the summary line counts them as `cleared`.
 - **OCR time budget** no longer collapses to its 10 s floor on hosts with 7+ cores: the cap is `timeout − page_timeout − 10`, because pages in flight finish in parallel (the Platform's formula too; its numbers are unchanged at one worker). **`RC_OCR_WORKERS` unset** sends `workers=None`: the library sizes the pool (CPUs − 1 with affinity and the cgroup CPU quota, at most 8); a set value is used as before.
+- **`RC_OCR_DPI` is unset by default** (Connector and Platform): no `dpi` is passed and the library renders each page at its native resolution (≤ 300 dpi, never upsampled; the forced 300 dpi upsampled faxes). A set value must be 30–1200, else one warning and it counts as unset.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 

@@ -29,7 +29,7 @@ ratio". Keywords the installed `knovas-extract` does not take (`text_mode=`,
 | `RC_PDF_TEXT_MODE` | `layout` | `plain` — the pre-0.4 text. `layout` — markdown-lite rows for fiduciary tables (knovas-extract ≥ 0.4). `shadow` — upload plain, also render layout from the SAME in-memory OCR cache (each page OCR'd once) and log one numbers-only `ShadowDiff` line (numeric-token Jaccard, row-line ratios, length ratio, OCR pages, seconds — never text). Falls back to `plain` with one warning when the library has no `text_mode`. |
 | `RC_TESSERACT_LANG` | config `advanced.extraction.ocr_language` (`deu+eng`) | Tesseract language packs; the env value wins over the config value. OCR itself is switched by `advanced.extraction.use_ocr` (default on). |
 | `RC_OCR_ENGINE` | `auto` | `auto` / `tesserocr` / `cli` / `mupdf` (knovas-extract ≥ 0.4). |
-| `RC_OCR_DPI` | `300` | Render dpi ceiling; the library never upsamples a lower-resolution scan. |
+| `RC_OCR_DPI` | (unset) | Unset: no `dpi` is passed — native resolution, at most 300 dpi, never upsampled. Set (30–1200): every page at exactly this resolution (a lower-resolution scan is upsampled). Any other value logs a warning and counts as unset. |
 | `RC_OCR_WORKERS` | `1` | OCR pages in parallel, at most 8. One by default: a gunicorn worker shares the host with the search UI. |
 | `RC_OCR_MAX_PAGES` | `50` | OCR page budget per upload. Beyond it the remaining image pages are skipped and COUNTED; the document is uploaded and reported `partial`. |
 | `RC_OCR_TIME_BUDGET_SECONDS` | `min(60, timeout − 30)` | OCR time budget per upload; never more than `timeout − page_timeout − 10` (pages still running finish in parallel within one page timeout), so the partial result reaches the request before the wall-clock kill. |
