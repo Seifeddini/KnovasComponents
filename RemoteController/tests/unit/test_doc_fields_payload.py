@@ -404,6 +404,21 @@ def test_file_properties_stay_below_templates_and_fixed_values():
         "keywords": ["Vertrag", "Miete"], "status": "Final"}
 
 
+@pytest.mark.parametrize("raw", [
+    '["\\ud800", "Vertrag"]',  # ASCII text a JSON decoder turns into a lone surrogate
+    "\ud800, Vertrag",  # a lone surrogate in the property itself
+    "[" * 4095,  # deeper than the JSON decoder of a Windows Python goes
+], ids=["escaped-surrogate", "lone-surrogate", "deep-brackets"])
+@pytest.mark.parametrize("ext", sorted(metadata_fields.KEYWORD_SOURCES))
+def test_an_odd_keywords_property_never_stops_the_upload(ext, raw):
+    """D5: fields never block indexing. ``assemble`` runs outside the
+    uploader's extraction guard, so a keywords value that the JSON decoder
+    or the UTF-8 encoder chokes on costs keywords, never the upload."""
+    md = {metadata_fields.KEYWORD_SOURCES[ext]: raw, "docx:content_status": "Final"}
+    payload = assemble("a/b" + ext, _spec(metadata_fields=["keywords", "document_status"]), md, ext)
+    assert encoded_size(payload.values) <= MAX_PAYLOAD_BYTES
+
+
 # --- fields_to_send ------------------------------------------------------------------------
 
 

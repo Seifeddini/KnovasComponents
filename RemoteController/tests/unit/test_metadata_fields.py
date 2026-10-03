@@ -14,11 +14,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from sync import metadata_fields
 from sync.metadata_fields import (
     EMAIL_DOC_TYPE,
     FILE_PROPERTY_KEYS,
     ITEM_TARGETS,
     JUNK_AUTHORS,
+    KEYWORD_SOURCES,
     METADATA_ITEMS,
     METADATA_MAPPING_VERSION,
     map_metadata,
@@ -338,6 +340,35 @@ def test_word_keywords_and_status_end_to_end(tmp_path):
     md = extract_document(path).source_metadata
     assert map_metadata(md, ".docx", {"keywords", "document_status"}) == {
         "keywords": ["Vertrag", "Miete"], "status": "Final"}
+
+
+def test_a_keyword_utf8_cannot_encode_is_skipped_and_does_not_count():
+    # Lone surrogates, and a pair kept as two code points: the payload goes out
+    # as UTF-8 JSON, which cannot carry them, so keeping one would stop the
+    # document's upload, not only its fields.
+    raw = ", ".join(["\ud800", "Akte \udcff", chr(0xD83D) + chr(0xDE00)] + [f"k{i}" for i in range(40)])
+    for ext, key in sorted(KEYWORD_SOURCES.items()):
+        assert map_metadata({key: raw}, ext, {"keywords"}) == {
+            "keywords": [f"k{i}" for i in range(32)]}, ext
+
+
+@pytest.mark.parametrize("ext,key", sorted(KEYWORD_SOURCES.items()))
+def test_brackets_nested_deeper_than_the_json_decoder_goes_yield_no_keywords(ext, key):
+    # The longest value source_metadata_from carries; the JSON decoder of a
+    # Windows Python gives up after about 3000 levels with a RecursionError.
+    raw = "[" * 4095
+    assert source_metadata_from(SimpleNamespace(extra={key: raw})) == {key: raw}
+    assert map_metadata({key: raw}, ext, {"keywords"}) == {}
+
+
+def test_a_recursion_error_of_the_json_decoder_reads_the_categories_as_text(monkeypatch):
+    # Pins the guard on every platform: a Linux Python only gives up at 10000 levels.
+    def too_deep(_raw):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(metadata_fields, "json", SimpleNamespace(loads=too_deep))
+    assert map_metadata({"msg:categories": '["Projekt Alpha"]'}, ".msg", {"keywords"}) == {
+        "keywords": ['["Projekt Alpha"]']}
 
 
 # --- source_metadata_from --------------------------------------------------------------

@@ -96,5 +96,26 @@
     "items": ["document_author", "keywords", "document_status"],
     "source_metadata": {"author": "Beispiel GmbH", "docx:keywords": "Vertrag", "docx:content_status": "Entwurf"},
     "fields": {"author": "Beispiel GmbH", "keywords": ["Vertrag"], "status": "Entwurf"}
+  },
+  {
+    "name": "pdf keywords are text even when they look like a JSON array: split, never decoded",
+    "ext": ".pdf",
+    "items": ["keywords"],
+    "source_metadata": {"pdf:keywords": "[\"\\ud800\", \"Vertrag\"]"},
+    "fields": {"keywords": ["[\"\\ud800\"", "\"Vertrag\"]"]}
+  },
+  {
+    "name": "word keywords are text even when they look like a JSON array",
+    "ext": ".docx",
+    "items": ["keywords"],
+    "source_metadata": {"docx:keywords": "[\"Vertrag\", \"Miete\"]"},
+    "fields": {"keywords": ["[\"Vertrag\"", "\"Miete\"]"]}
+  },
+  {
+    "name": "msg categories: an item UTF-8 cannot encode (a lone surrogate) is skipped",
+    "ext": ".msg",
+    "items": ["keywords"],
+    "source_metadata": {"msg:categories": "[\"\\ud800\", \"Kunde\"]"},
+    "fields": {"keywords": ["Kunde"]}
   }
 ]

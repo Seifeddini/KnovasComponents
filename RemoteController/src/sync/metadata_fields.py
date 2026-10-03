@@ -177,31 +177,45 @@ def _document_author(raw: Optional[str]) -> Optional[str]:
     return raw
 
 
-def _keyword_items(raw: str) -> list[str]:
-    """The items of a keywords value: a JSON array of strings (how
-    knovas-extract writes a list into ``extra``, e.g. Outlook categories)
-    gives its items whole; any other text is split on ``,`` and ``;``."""
-    if raw.startswith("["):
+def _keyword_items(raw: str, *, json_list: bool) -> list[str]:
+    """The items of a keywords value. With ``json_list`` (``msg:categories``,
+    a list knovas-extract writes as a JSON array of strings) the array's
+    items are kept whole. Any other value, and one that does not decode or
+    nests deeper than the decoder goes (RecursionError), is text split on
+    ``,`` and ``;``: PDF and Word keywords are typed text, never decoded."""
+    if json_list and raw.startswith("["):
         try:
             parsed = json.loads(raw)
-        except ValueError:
+        except (ValueError, RecursionError):
             parsed = None
         if isinstance(parsed, list):
             return [item for item in parsed if isinstance(item, str)]
     return _KEYWORD_SEPARATORS.split(raw)
 
 
-def _keywords(raw: Optional[str]) -> list[str]:
+def _utf8(value: str) -> bool:
+    """False for a string with a surrogate code point: the payload goes out
+    as UTF-8 JSON, which cannot carry one, and the failed encoding would
+    stop the document's upload, not only its fields."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _keywords(raw: Optional[str], *, json_list: bool) -> list[str]:
     """Trimmed, NFC, de-duplicated ignoring case (the first spelling stays),
     at most MAX_KEYWORDS values of at most MAX_KEYWORD_CHARS characters. An
-    empty or over-long item is skipped, never cut, and does not count."""
+    empty, over-long or not UTF-8 encodable item is skipped, never cut, and
+    does not count."""
     if raw is None:
         return []
     out: list[str] = []
     seen: set[str] = set()
-    for item in _keyword_items(raw):
+    for item in _keyword_items(raw, json_list=json_list):
         value = unicodedata.normalize("NFC", item.strip())
-        if not value or len(value) > MAX_KEYWORD_CHARS:
+        if not value or len(value) > MAX_KEYWORD_CHARS or not _utf8(value):
             continue
         folded = value.casefold()
         if folded in seen:
@@ -251,7 +265,8 @@ def map_metadata(md: Optional[Mapping[str, Any]], ext: str, enabled: Iterable[st
         if author is not None:
             out[ITEM_TARGETS["document_author"]] = author
     if "keywords" in items:
-        keywords = _keywords(_text(md, KEYWORD_SOURCES.get(ext, "")))
+        source = KEYWORD_SOURCES.get(ext, "")
+        keywords = _keywords(_text(md, source), json_list=source == MSG_CATEGORIES)
         if keywords:
             out[ITEM_TARGETS["keywords"]] = keywords
     if ext == ".docx" and "document_status" in items:
