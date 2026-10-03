@@ -45,7 +45,7 @@ DOC_FIELDS_STATES = {
 #: RemoteController capabilities that concern document fields
 #: (``/sync/status`` -> ``capabilities``).
 RC_DOC_FIELD_CAPABILITIES = ("source_fields_v1", "field_templates_v1",
-                             "metadata_fields_v1", "fields_requeue_v1")
+                             "metadata_fields_v1", "fields_requeue_v1", "metadata_fields_v2")
 
 
 class Check(dict):

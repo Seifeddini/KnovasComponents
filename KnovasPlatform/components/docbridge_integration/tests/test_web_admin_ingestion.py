@@ -1066,6 +1066,12 @@ class TestFieldInputsParse:
         assert (row["fields_text"], row["templates_text"], row["metadata"]) == (
             "doc_type = x", "{mandant}/**", ["language"])
 
+    def test_the_file_property_opt_ins_parse_in_form_order(self):
+        from web_interface.admin_ingestion import parse_metadata_items
+
+        assert parse_metadata_items(["document_status", "keywords", "language"], 1) == (
+            "language", "keywords", "document_status")
+
 
 class TestReuploadCost:
     @pytest.mark.parametrize("count,per_cycle,schedule,throughput,expected", [
@@ -1119,7 +1125,12 @@ class TestStatusBar:
                       "not_accepted": 140, "reupload_failed": 1},
         "last_cycle": {"staged": 40, "refused": {"unknown_field": 2, SENTINEL: 9},
                        "rel_collisions": 4},
-        "warnings": {"unresolved_entity": 12, "ambiguous_date": 1},
+        "warnings": [{"code": "unresolved_entity", "key": "party", "count": 12},
+                     {"code": "invalid_value", "key": "amount", "count": 3},
+                     {"code": "ambiguous_date", "key": "document_date", "count": 1},
+                     {"code": "invalid_value", "key": SENTINEL, "count": 2},
+                     {"code": SENTINEL, "key": "party", "count": 9},
+                     {"code": "invalid_value", "key": "amount", "count": 0}],
         "unknown_keys": ["mandat", SENTINEL],
         "suggest": {"mandat": ["mandant"]},
         "template_errors": {"field_template_invalid": 2},
@@ -1147,7 +1158,11 @@ class TestStatusBar:
         text = "\n".join(line["text"] for line in out["lines"])
         assert "Felder bei 140 Uploads nicht \u00fcbernommen: Funktion bei Knovas aus." in text
         assert "unknown_field 2\u00d7" in text
-        assert "unresolved_entity 12\u00d7 (nicht verkn\u00fcpft)" in text
+        assert ("Hinweise von Knovas: unresolved_entity 12\u00d7 (party), invalid_value 3\u00d7 "
+                "(amount), ambiguous_date 1\u00d7 (document_date), invalid_value 2\u00d7.") in text
+        assert ("Bedeutung der Codes \u2013 unresolved_entity: nicht verkn\u00fcpft; "
+                "invalid_value: Wert ung\u00fcltig, nicht \u00fcbernommen; "
+                "ambiguous_date: Datum mehrdeutig \u2013 bitte pr\u00fcfen.") in text
         assert "mandat (Vorschlag: mandant)" in text
         assert "7 Dokumente mit ge\u00e4nderten Feldeinstellungen" in text
         assert "56 Dokumente warten auf erneutes Senden (100 pro Durchlauf, ca. 1 Nacht)" in text
@@ -1190,6 +1205,29 @@ class TestStatusBar:
             "Noch keine R\u00fcckmeldung von Knovas zu Dokumentfeldern.",
         ]
         assert out["requeue"] == []
+
+    def test_an_older_connector_reports_codes_without_keys(self):
+        from doc_fields_capability import Capability
+        from web_interface.admin_ingestion import doc_fields_status
+
+        block = dict(self.BLOCK, warnings={"unresolved_entity": 12, "ambiguous_date": 1, SENTINEL: 4})
+        out = doc_fields_status(self._status(block=block), capability=Capability.values)
+        text = "\n".join(line["text"] for line in out["lines"])
+        assert "Hinweise von Knovas: ambiguous_date 1\u00d7, unresolved_entity 12\u00d7." in text
+        assert "Bedeutung der Codes \u2013 ambiguous_date: Datum mehrdeutig" in text
+        assert SENTINEL not in text
+
+    def test_at_most_fifty_warning_entries(self):
+        from doc_fields_capability import Capability
+        from web_interface.admin_ingestion import MAX_WARNING_ENTRIES, doc_fields_status
+
+        block = dict(self.BLOCK, warnings=[{"code": "invalid_value", "key": f"k{i}", "count": 1}
+                                           for i in range(60)])
+        out = doc_fields_status(self._status(block=block), capability=Capability.values)
+        (line,) = [entry["text"] for entry in out["lines"]
+                   if entry["text"].startswith("Hinweise von Knovas")]
+        assert MAX_WARNING_ENTRIES == 50
+        assert line.count("invalid_value 1\u00d7") == 50 and "(k49)" in line and "(k50)" not in line
 
 
 class TestTemplatePreviewEntries:
@@ -1349,6 +1387,17 @@ class TestCheckProfileFields:
         check = self._check(_profile(_folder(fields={"doc_type": "invoice"})), rc=_RC(caps=()),
                             strict=False)
         assert "Der Knovas Connector ist zu alt" in check.error
+
+    def test_keywords_or_status_need_a_connector_that_knows_them(self):
+        from identity.ingestion_compiler import RC_TOO_OLD, ProfileError
+
+        for item in ("keywords", "document_status"):
+            with pytest.raises(ProfileError) as excinfo:
+                self._check(_profile(_folder(metadata_fields=("language", item))))
+            assert str(excinfo.value) == RC_TOO_OLD
+        check = self._check(_profile(_folder(metadata_fields=("keywords", "document_status"))),
+                            rc=_RC(caps=ALL_CAPS + ("metadata_fields_v2",)))
+        assert check.profile.sources[0].metadata_fields == ("keywords", "document_status")
 
 
 class TestTheExecutorRefusesAnOldRemoteController:
@@ -1551,6 +1600,17 @@ class TestRemoteControllerClientDocFields:
             {"path": "/a", "field_templates": ["{x}/**"]}]}) == {
             "source_fields_v1", "field_templates_v1"}
 
+    def test_the_file_property_items_need_v2(self):
+        from remote_controller_client import CAP_METADATA_FIELDS_V2, required_capabilities
+
+        assert CAP_METADATA_FIELDS_V2 == "metadata_fields_v2"
+        assert required_capabilities({"sources": [{"path": "/a", "metadata_fields": ["language"]}]}) == {
+            "source_fields_v1", "metadata_fields_v1"}
+        for item in ("keywords", "document_status"):
+            assert required_capabilities({"sources": [
+                {"path": "/a", "metadata_fields": ["language", item]}]}) == {
+                "source_fields_v1", "metadata_fields_v1", "metadata_fields_v2"}
+
 
 def _render(**overrides):
     import jinja2
@@ -1652,6 +1712,21 @@ class TestTemplateFields:
 
     def test_the_description_label_says_what_it_does(self):
         assert "wird jedem Dokument als Beschreibung mitgegeben" in _render()
+
+    def test_the_file_property_opt_ins_are_offered(self):
+        from identity.ingestion_compiler import METADATA_ITEMS
+        from web_interface.admin_ingestion import METADATA_LABELS
+
+        assert set(METADATA_LABELS) == set(METADATA_ITEMS)
+        keywords = ("Stichw\u00f6rter aus Datei-Eigenschaften "
+                    "(PDF/Word-Stichw\u00f6rter, Outlook-Kategorien)")
+        assert METADATA_LABELS["keywords"] == keywords
+        assert METADATA_LABELS["document_status"] == "Status aus Word-Dokumentstatus"
+        html = _render(doc_fields=_df())
+        for key in ("keywords", "document_status"):
+            assert f'name="folder-0-metadata" value="{key}"' in html
+            assert f'name="folder-__n__-metadata" value="{key}"' in html
+        assert keywords in html and "Status aus Word-Dokumentstatus" in html
 
 
 class TestFrontendStaysTextOnly:

@@ -12,6 +12,14 @@ extractor already read to one registry key of the ``core`` pack:
     email_author     -> author         .eml/.msg From: display name, else
                                        the address
     document_author  -> author         pdf/docx/md author, junk skipped
+    keywords         -> keywords       pdf/docx keywords, .msg categories:
+                                       split on , and ;, trimmed, NFC,
+                                       de-duplicated ignoring case, at most
+                                       32 values of at most 256 characters
+    document_status  -> status         .docx content status, trimmed and
+                                       sent as written: Knovas matches it
+                                       against the status choices and drops
+                                       one it does not know (invalid_value)
 
 Never mapped: the file mtime, the Microsoft 365 lastModifiedDateTime and
 the PDF/DOCX/MD created/modified dates never become ``document_date`` (a
@@ -26,7 +34,9 @@ Values are customer data: nothing in this module logs.
 """
 from __future__ import annotations
 
+import json
 import re
+import unicodedata
 from email.utils import getaddresses
 from typing import Any, Iterable, Mapping, Optional
 
@@ -34,7 +44,10 @@ from typing import Any, Iterable, Mapping, Optional
 #: the config digest, so a bump re-sends every source that uses metadata.
 METADATA_MAPPING_VERSION = 1
 
-METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author")
+METADATA_ITEMS = (
+    "language", "email_date", "email_doc_type", "email_author", "document_author",
+    "keywords", "document_status",
+)
 
 #: The registry key each item writes.
 ITEM_TARGETS = {
@@ -43,6 +56,8 @@ ITEM_TARGETS = {
     "email_doc_type": "doc_type",
     "email_author": "author",
     "document_author": "author",
+    "keywords": "keywords",
+    "document_status": "status",
 }
 
 EMAIL_DOC_TYPE = "correspondence.email"
@@ -51,9 +66,29 @@ EMAIL_EXTENSIONS = frozenset({".eml", ".msg"})
 DOCUMENT_EXTENSIONS = frozenset({".pdf", ".docx", ".md"})
 
 #: Keys of ``ExtractedDocument.source_metadata`` (knovas-extract ``Metadata``
-#: attributes, plus the .eml Content-Language header from ``extra``).
+#: attributes, plus the .eml Content-Language header and the file properties
+#: below from ``extra``).
 SOURCE_METADATA_ATTRIBUTES = ("author", "language", "created", "modified")
 EML_CONTENT_LANGUAGE = "eml:content_language"
+#: File properties for the ``keywords`` and ``document_status`` items
+#: (knovas-extract ``Metadata.extra`` keys). ``msg:categories`` is a list the
+#: library writes as a JSON array.
+PDF_KEYWORDS = "pdf:keywords"
+DOCX_KEYWORDS = "docx:keywords"
+MSG_CATEGORIES = "msg:categories"
+DOCX_CONTENT_STATUS = "docx:content_status"
+FILE_PROPERTY_KEYS = (PDF_KEYWORDS, DOCX_KEYWORDS, MSG_CATEGORIES, DOCX_CONTENT_STATUS)
+#: knovas-extract's ``Limits.max_metadata_value_length``. The library strips
+#: an ``extra`` value and crops a longer one to exactly this length, so a
+#: value this long may be cut: it is left out, never carried cut (a cut
+#: keyword list ends in half a word).
+MAX_SOURCE_VALUE_CHARS = 4096
+#: The file property each format keeps its keywords in.
+KEYWORD_SOURCES = {".pdf": PDF_KEYWORDS, ".docx": DOCX_KEYWORDS, ".msg": MSG_CATEGORIES}
+#: The Knovas 1.5.0 limits of a field that holds several values.
+MAX_KEYWORDS = 32
+MAX_KEYWORD_CHARS = 256
+_KEYWORD_SEPARATORS = re.compile(r"[,;]")
 
 LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 _SKIPPED_LANGUAGES = frozenset({"x-default", "und"})
@@ -68,9 +103,11 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
     """The extractor values the mapping may use, as plain strings.
 
     Reads ``author``, ``language``, ``created`` and ``modified`` from a
-    knovas-extract ``Metadata`` and ``extra["eml:content_language"]``.
-    Missing, non-string and blank values are left out; values are stripped
-    but otherwise kept verbatim.
+    knovas-extract ``Metadata``, and ``eml:content_language`` and the file
+    properties (``FILE_PROPERTY_KEYS``) from its ``extra``. Missing,
+    non-string and blank values are left out, and so is an ``extra`` value
+    of ``MAX_SOURCE_VALUE_CHARS`` characters or more (the library may have
+    cut it); values are stripped but otherwise kept verbatim.
     """
     out: dict[str, str] = {}
     if metadata is None:
@@ -81,9 +118,10 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
             out[name] = value.strip()
     extra = getattr(metadata, "extra", None)
     if isinstance(extra, dict):
-        value = extra.get(EML_CONTENT_LANGUAGE)
-        if isinstance(value, str) and value.strip():
-            out[EML_CONTENT_LANGUAGE] = value.strip()
+        for key in (EML_CONTENT_LANGUAGE, *FILE_PROPERTY_KEYS):
+            value = extra.get(key)
+            if isinstance(value, str) and value.strip() and len(value) < MAX_SOURCE_VALUE_CHARS:
+                out[key] = value.strip()
     return out
 
 
@@ -139,6 +177,56 @@ def _document_author(raw: Optional[str]) -> Optional[str]:
     return raw
 
 
+def _keyword_items(raw: str, *, json_list: bool) -> list[str]:
+    """The items of a keywords value. With ``json_list`` (``msg:categories``,
+    a list knovas-extract writes as a JSON array of strings) the array's
+    items are kept whole. Any other value, and one that does not decode or
+    nests deeper than the decoder goes (RecursionError), is text split on
+    ``,`` and ``;``: PDF and Word keywords are typed text, never decoded."""
+    if json_list and raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, RecursionError):
+            parsed = None
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, str)]
+    return _KEYWORD_SEPARATORS.split(raw)
+
+
+def _utf8(value: str) -> bool:
+    """False for a string with a surrogate code point: the payload goes out
+    as UTF-8 JSON, which cannot carry one, and the failed encoding would
+    stop the document's upload, not only its fields."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _keywords(raw: Optional[str], *, json_list: bool) -> list[str]:
+    """Trimmed, NFC, de-duplicated ignoring case (the first spelling stays),
+    at most MAX_KEYWORDS values of at most MAX_KEYWORD_CHARS characters. An
+    empty, over-long or not UTF-8 encodable item is skipped, never cut, and
+    does not count."""
+    if raw is None:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in _keyword_items(raw, json_list=json_list):
+        value = unicodedata.normalize("NFC", item.strip())
+        if not value or len(value) > MAX_KEYWORD_CHARS or not _utf8(value):
+            continue
+        folded = value.casefold()
+        if folded in seen:
+            continue
+        seen.add(folded)
+        out.append(value)
+        if len(out) == MAX_KEYWORDS:
+            break
+    return out
+
+
 def map_metadata(md: Optional[Mapping[str, Any]], ext: str, enabled: Iterable[str]) -> dict[str, Any]:
     """The field values the enabled items yield for one document.
 
@@ -176,4 +264,13 @@ def map_metadata(md: Optional[Mapping[str, Any]], ext: str, enabled: Iterable[st
         author = _document_author(_text(md, "author"))
         if author is not None:
             out[ITEM_TARGETS["document_author"]] = author
+    if "keywords" in items:
+        source = KEYWORD_SOURCES.get(ext, "")
+        keywords = _keywords(_text(md, source), json_list=source == MSG_CATEGORIES)
+        if keywords:
+            out[ITEM_TARGETS["keywords"]] = keywords
+    if ext == ".docx" and "document_status" in items:
+        status = _text(md, DOCX_CONTENT_STATUS)
+        if status is not None:
+            out[ITEM_TARGETS["document_status"]] = status
     return out

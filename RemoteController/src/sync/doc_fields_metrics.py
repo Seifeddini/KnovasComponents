@@ -42,6 +42,7 @@ WARNING_CODES = frozenset(
         "restricted_identifier",
         "cap_exceeded",
         "ambiguous_date",
+        "ambiguous_number",
         "unresolved_entity",
         "ambiguous_entity",
         "key_looks_personal",

@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -265,6 +266,60 @@ def test_mail_metadata_reaches_the_server(rig):
     assert "document_date" in init["json"]["fields"]
 
 
+class TestCapabilityProbe:
+    """Spec F5: the probe against every server state the mock plays."""
+
+    @pytest.mark.parametrize("mode,expected", [("off", False), ("values", True), ("filters", True)])
+    def test_the_answer_follows_the_server_state(self, rig, mode, expected):
+        from sync.knovas_uploader import SemantixUploader
+
+        state = rig.mock(doc_fields=mode)
+        assert SemantixUploader().probe_doc_fields() is expected
+        (probe,) = [r for r in state.requests if r["path"] == "/secured/graph/doc-fields"]
+        assert probe["method"] == "GET" and probe["body"] == b"" and probe["query"] == {}
+
+    def test_a_brokered_tenant_asks_for_an_assertion_and_that_means_on(self, rig):
+        """BROKERED: every graph route wants a principal assertion the
+        Connector does not send (401); the route exists, so fields are on."""
+        from sync.knovas_uploader import SemantixUploader
+
+        rig.mock(doc_fields="values", brokered=True)
+        assert SemantixUploader().probe_doc_fields() is True
+
+
+def _word(path: Path, *, keywords: str = "", status: str = "") -> Path:
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
+    document.add_paragraph("Vertrag mit Beispiel GmbH.")
+    document.core_properties.keywords = keywords
+    document.core_properties.content_status = status
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document.save(str(path))
+    os.utime(path, (FIXED_MTIME, FIXED_MTIME))
+    return path
+
+
+def test_word_keywords_and_status_reach_the_server(rig):
+    """L1 against the mock: keywords are staged as a list; Word's status
+    "Final" matches the status choice ``final``; one Knovas does not know is
+    dropped with an invalid_value warning counted under its key (F4)."""
+    rig.mock(doc_fields="values")
+    _word(rig.root / "Vertraege" / "final.docx", keywords="Vertrag, Miete; vertrag", status="Final")
+    _word(rig.root / "Vertraege" / "review.docx", status="In Review")
+    body = rig.body(metadata_fields=["keywords", "document_status"])
+    body["filters"]["include_globs"] = ["*.docx"]
+    result = rig.run(body)
+    assert result.files_uploaded == 2 and result.errors == []
+    sent = {r["json"]["path"]: r["json"].get("fields") for r in rig.init_requests()}
+    assert sent == {"Vertraege/final.docx": {"keywords": ["Vertrag", "Miete"], "status": "Final"},
+                    "Vertraege/review.docx": {"status": "In Review"}}
+    final = rig.state.anchors["rc-sync/Vertraege/final.docx"]["upload"]
+    assert final["status"]["values"] == ["final"]
+    assert final["keywords"]["values"] == ["Vertrag", "Miete"]
+    assert "status" not in rig.state.anchors["rc-sync/Vertraege/review.docx"]["upload"]
+    assert result.doc_fields.warning_pairs == Counter({("invalid_value", "status"): 1})
+
+
 def _sync_response(result) -> dict:
     from routes.sync import _build_sync_response
 
@@ -320,13 +375,14 @@ class TestRoutes:
         employee.post("/sync", json=rig.body(**SOURCE_FIELDS), headers=auth_headers)
         status = employee.get("/sync/status", headers=auth_headers).get_json()
         assert status["capabilities"] == ["source_fields_v1", "field_templates_v1",
-                                          "metadata_fields_v1", "fields_requeue_v1"]
+                                          "metadata_fields_v1", "fields_requeue_v1",
+                                          "metadata_fields_v2"]
         block = status["doc_fields"]
         assert block["enabled"] is True and block["server"] == "accepted"
         assert block["per_cycle"] == 100
         assert block["documents"]["with_fields"] == 1
         assert block["last_cycle"]["staged"] == 1
-        assert block["warnings"] == {"unresolved_entity": 1}
+        assert block["warnings"] == [{"code": "unresolved_entity", "key": "party", "count": 1}]
         assert block["unknown_keys"] == ["doctype"]
         assert block["suggest"] == {"doctype": ["doc_type"]}
         assert block["template_errors"] == {"field_template_invalid": 0}

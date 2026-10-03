@@ -28,7 +28,8 @@ PLATFORM_COPY = (
 )
 
 SYSTEM_KEYS = ("title", "description", "path", "ingested_at", "pointer")
-METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author")
+METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author",
+                  "keywords", "document_status")
 
 
 def _body(**source_extra):
@@ -164,7 +165,8 @@ class TestRequestRefusesBadFields:
     def test_empty_template(self):
         assert _errors(_body(field_templates=[""]))
 
-    @pytest.mark.parametrize("item", ["email_message_id", "sender", "recipients", "created", "LANGUAGE"])
+    @pytest.mark.parametrize("item", ["email_message_id", "sender", "recipients", "created", "LANGUAGE",
+                                      "status", "categories"])
     def test_unknown_metadata_items(self, item):
         assert _errors(_body(metadata_fields=[item]))
 

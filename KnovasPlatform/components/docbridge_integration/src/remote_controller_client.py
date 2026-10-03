@@ -25,7 +25,13 @@ PRINCIPAL_HEADER = "X-Platform-Principal"
 CAP_SOURCE_FIELDS = "source_fields_v1"
 CAP_FIELD_TEMPLATES = "field_templates_v1"
 CAP_METADATA_FIELDS = "metadata_fields_v1"
+#: A Knovas Connector that maps the file-property items ``keywords`` and
+#: ``document_status`` (spec L1); an older one refuses them in the sync body.
+CAP_METADATA_FIELDS_V2 = "metadata_fields_v2"
 CAP_FIELDS_REQUEUE = "fields_requeue_v1"
+
+#: The metadata items only a Connector with ``metadata_fields_v2`` accepts.
+METADATA_ITEMS_V2 = frozenset({"keywords", "document_status"})
 
 #: ``POST /sync/doc-fields/requeue`` outcomes (spec 3.7).
 REQUEUE_OUTCOMES = frozenset({"not_accepted", "refused", "reupload_failed", "all"})
@@ -71,7 +77,8 @@ def required_capabilities(sync_request: Mapping[str, Any]) -> frozenset[str]:
 
     Empty for a body without document fields, which every RemoteController
     accepts. ``fields`` needs ``source_fields_v1``; templates and metadata
-    items need theirs on top of it.
+    items need theirs on top of it, and the items ``keywords`` and
+    ``document_status`` also ``metadata_fields_v2``.
     """
     needed: set[str] = set()
     for source in (sync_request or {}).get("sources") or ():
@@ -81,8 +88,11 @@ def required_capabilities(sync_request: Mapping[str, Any]) -> frozenset[str]:
             needed.add(CAP_SOURCE_FIELDS)
         if source.get("field_templates"):
             needed.update((CAP_SOURCE_FIELDS, CAP_FIELD_TEMPLATES))
-        if source.get("metadata_fields"):
+        items = source.get("metadata_fields")
+        if items:
             needed.update((CAP_SOURCE_FIELDS, CAP_METADATA_FIELDS))
+            if any(item in METADATA_ITEMS_V2 for item in items):
+                needed.add(CAP_METADATA_FIELDS_V2)
     return frozenset(needed)
 
 #: The scheduler states RemoteController reports while a continuous worker

@@ -9,6 +9,7 @@ with the real uploader against a scripted Secure API.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections import Counter
 from pathlib import Path
@@ -25,6 +26,7 @@ from sync.sync_state_db import REQUEUE_DIGEST
 INIT = "/secured/init_document_transmission"
 PART = "/secured/transmit_document_part"
 DELETE = "/secured/delete_information_object"
+PROBE = "/secured/graph/doc-fields"
 FIXED_MTIME = 1_700_000_000
 
 
@@ -51,6 +53,13 @@ class Server:
         self.refuse: dict[str, requests.Response] = {}
         self.fail: dict[str, Callable[[], requests.Response]] = {}
         self.inits: list[dict] = []
+        self.echo_warnings: list[dict] = []
+        #: The capability probe (spec F5): its answer -- a status, or None for
+        #: no answer at all -- and the calls it got. 404: fields are off.
+        self.probe_status: Optional[int] = 404
+        #: The ``error_code`` of a refused probe (none by default).
+        self.probe_error_code: Optional[str] = None
+        self.probes: list[tuple[str, Any]] = []
 
     def rels(self) -> list[str]:
         return [b["path"] for b in self.inits]
@@ -70,12 +79,22 @@ class Server:
                         return answer
             out = {"status": "success", "transmission_key_id": f"tk-{len(self.inits)}"}
             if self.mode == "values" and "fields" in body:
-                out["fields"] = echo_for(body["fields"])
+                out["fields"] = dict(echo_for(body["fields"]), warnings=list(self.echo_warnings))
             return _response(201, out)
         if path == PART:
             return _response(200, {"status": "success", "transmission_complete": True})
         if path == DELETE:
             return _response(200, {"status": "success"})
+        if path == PROBE:
+            self.probes.append((method, json))
+            if self.probe_status is None:
+                raise requests.ConnectionError("no answer")
+            if self.probe_status == 200:
+                return _response(200, {"status": "success", "fields": []})
+            refusal = {"status": "error"}
+            if self.probe_error_code:
+                refusal["error_code"] = self.probe_error_code
+            return _response(self.probe_status, refusal)
         return _response(404, {"status": "error", "error_code": "HTTP_404"})
 
 
@@ -849,3 +868,216 @@ class TestConfiguration:
         ]
         self._load(monkeypatch, RC_DOC_FIELDS="off", RC_FIELDS_REUPLOAD_PER_CYCLE="250")
         assert _doc_fields_config_problems() == []
+
+
+class TestWarningKeys:
+    """Spec F4: Knovas's upload warnings are counted per (code, key) and
+    /sync/status lists them; the code counts stay for the POST /sync summary."""
+
+    def test_pairs_per_cycle_and_in_the_status(self, rc):
+        from sync.sync_scheduler import _remember_doc_fields, doc_fields_status
+
+        rc.server.echo_warnings = [
+            {"key": "mandant", "path": "fields.mandant", "code": "unresolved_entity"},
+            {"key": "period", "path": "fields.period", "code": "invalid_value"},
+        ]
+        for i in range(3):
+            rc.write(f"Muster AG/GJ 2024/R{i}.txt")
+        result = rc.run(rc.body(rc.source(**MANDATE)))
+        assert result.files_uploaded == 3
+        assert result.doc_fields.warning_pairs == Counter({
+            ("unresolved_entity", "mandant"): 3, ("invalid_value", "period"): 3})
+        assert result.doc_fields.as_dict()["warnings"] == {"invalid_value": 3, "unresolved_entity": 3}
+        _remember_doc_fields(result)
+        assert doc_fields_status()["warnings"] == [
+            {"code": "invalid_value", "key": "period", "count": 3},
+            {"code": "unresolved_entity", "key": "mandant", "count": 3},
+        ]
+
+
+def test_warning_entries_are_the_most_frequent_first_and_capped():
+    from sync.doc_fields_payload import FieldsOutcome
+    from sync.sync_executor import MAX_REPORTED_WARNINGS, DocFieldsCycle
+
+    cycle = DocFieldsCycle()
+    pairs = tuple(("invalid_value", f"k{i:02d}") for i in range(60))
+    cycle.note_outcome("staged", FieldsOutcome("staged", warnings=pairs))
+    cycle.note_outcome("staged", FieldsOutcome(
+        "staged", warnings=(("ambiguous_date", "document_date"),) * 3))
+    entries = cycle.warning_entries()
+    assert MAX_REPORTED_WARNINGS == 50 and len(entries) == 50
+    assert entries[0] == {"code": "ambiguous_date", "key": "document_date", "count": 3}
+    assert entries[1] == {"code": "invalid_value", "key": "k00", "count": 1}
+    assert entries[-1] == {"code": "invalid_value", "key": "k48", "count": 1}
+    assert DocFieldsCycle().warning_entries() == []
+
+
+class TestCapabilityProbe:
+    """Spec F5: documents Knovas did not take fields for come back without
+    a trigger upload once Knovas answers the probe -- one probe an hour at
+    most, only when the scan reached such documents, never with a body."""
+
+    @staticmethod
+    def _not_accepted(rc, *rels: str) -> dict:
+        body = rc.body(rc.source(**MANDATE))
+        for rel in rels:
+            rc.write(rel)
+        rc.server.mode = "off"
+        rc.run(body)
+        assert rc.server.probes == [], "no not_accepted row yet: nothing to ask about"
+        assert all(rc.fields(rel).outcome == "not_accepted" for rel in rels)
+        return body
+
+    def test_off_404_changes_nothing(self, rc, caplog):
+        body = self._not_accepted(rc, REL)
+        caplog.set_level(logging.INFO, logger="sync.sync_executor")
+        result = rc.run(body)
+        assert rc.server.probes == [("GET", None)]
+        assert result.doc_fields.requeued == 0 and result.files_uploaded == 0
+        assert rc.fields(REL).outcome == "not_accepted" and rc.fields(REL).digest
+        assert "doc_fields probe=off requeued=0" in caplog.text
+        assert rc.run(body).document_sync.fields_changed == 0
+
+    @pytest.mark.parametrize("status,code", [(200, None), (401, "assertion_rejected")],
+                             ids=["ok", "brokered-assertion-rejected"])
+    def test_on_requeues_the_reached_rows_and_they_come_back_within_the_bound(
+        self, rc, caplog, status, code
+    ):
+        """On: a 2xx, or a refusal only the route itself raises (a BROKERED
+        account's missing principal assertion, behind the fields gate)."""
+        rels = [f"Muster AG/GJ 2024/R{i}.txt" for i in range(5)]
+        rc.env(RC_FIELDS_REUPLOAD_PER_CYCLE="2")
+        body = self._not_accepted(rc, *rels)
+        rc.server.mode = "values"
+        rc.server.probe_status, rc.server.probe_error_code = status, code
+        caplog.set_level(logging.INFO, logger="sync.sync_executor")
+        first = rc.run(body)
+        assert first.doc_fields.requeued == 5 and first.files_uploaded == 0
+        assert "doc_fields probe=on requeued=5" in caplog.text
+        sent = [rc.run(body).files_uploaded for _ in range(3)]
+        assert sent == [2, 2, 1], "the side queue's per-cycle bound"
+        assert all(rc.fields(rel).outcome == "staged" for rel in rels)
+        assert rc.server.probes == [("GET", None)], "one probe an hour"
+
+    # 400/401/403 without a code from behind the fields gate: Knovas refuses
+    # in front of the gate too (certificate, signature), for any account.
+    @pytest.mark.parametrize("answer", [500, 503, 429, None, 400, 401, 403])
+    def test_unknown_changes_nothing_and_is_asked_again_an_hour_later(self, rc, answer):
+        import sync.sync_executor as executor
+
+        body = self._not_accepted(rc, REL)
+        rc.server.probe_status = answer
+        assert rc.run(body).doc_fields.requeued == 0
+        assert rc.run(body).doc_fields.requeued == 0
+        assert len(rc.server.probes) == 1, "single try, and not again within the hour"
+        rc.monkeypatch.setattr(executor, "_last_doc_fields_probe",
+                               executor._last_doc_fields_probe
+                               - executor.DOC_FIELDS_PROBE_INTERVAL_SECONDS)
+        rc.server.probe_status = 200
+        assert rc.run(body).doc_fields.requeued == 1
+        assert len(rc.server.probes) == 2
+
+    def test_a_transient_certificate_refusal_re_sends_nothing_while_fields_are_off(self, rc):
+        """Knovas checks the certificate before its per-account fields gate,
+        and answers 401 AUTH_FAILED when its own eligibility lookup fails --
+        to an account whose fields are off as well. Read as on, every
+        not_accepted document was re-sent, each a billed upload, while
+        Knovas still ignored the fields."""
+        rels = [f"Muster AG/GJ 2024/R{i}.txt" for i in range(5)]
+        body = self._not_accepted(rc, *rels)
+        rc.server.probe_status, rc.server.probe_error_code = 401, "AUTH_FAILED"
+        quiet = rc.run(body)
+        assert quiet.doc_fields.requeued == 0 and quiet.files_uploaded == 0
+        rc.server.probe_status, rc.server.probe_error_code = 404, None
+        assert [rc.run(body).files_uploaded for _ in range(3)] == [0, 0, 0]
+        assert all(rc.fields(rel).outcome == "not_accepted" for rel in rels)
+        assert len(rc.server.probes) == 1
+
+    def test_a_certificate_outage_keeps_the_rows_for_when_knovas_turns_fields_on(self, rc):
+        """While every call is refused in front of the fields gate, the probe
+        included, nothing is requeued. Read as on, the requeued rows failed
+        their re-sends and left the queue for good as
+        reupload_failed:init_401, which neither the probe nor the echo
+        trigger requeues."""
+        import sync.sync_executor as executor
+
+        rels = [f"Muster AG/GJ 2024/R{i}.txt" for i in range(3)]
+        body = self._not_accepted(rc, *rels)
+        rc.server.probe_status, rc.server.probe_error_code = 401, "AUTH_FAILED"
+        rc.server.fail = {".txt": lambda: _response(401, {"status": "error", "error_code": "AUTH_FAILED"})}
+        for _ in range(5):
+            rc.run(body)
+        assert all(rc.fields(rel).outcome == "not_accepted" for rel in rels)
+        # The outage ends, Knovas switches fields on, and an hour passes.
+        rc.server.fail = {}
+        rc.server.mode = "values"
+        rc.server.probe_status, rc.server.probe_error_code = 200, None
+        rc.monkeypatch.setattr(executor, "_last_doc_fields_probe",
+                               executor._last_doc_fields_probe
+                               - executor.DOC_FIELDS_PROBE_INTERVAL_SECONDS)
+        assert [rc.run(body).files_uploaded for _ in range(3)] == [0, 3, 0]
+        assert all(rc.fields(rel).outcome == "staged" for rel in rels)
+        assert len(rc.server.probes) == 2
+
+    def test_the_echo_trigger_still_works_when_the_probe_says_off(self, rc):
+        body = self._not_accepted(rc, REL)
+        rc.server.mode = "values"          # inits echo again ...
+        rc.server.probe_status = 404       # ... while the probe still says off
+        rc.write("Muster AG/GJ 2024/Neu.txt")
+        result = rc.run(body)
+        assert len(rc.server.probes) == 1
+        assert result.doc_fields.requeued == 1, "the first staged echo queued it"
+        assert rc.run(body).document_sync.fields_changed == 1
+        assert rc.fields(REL).outcome == "staged"
+
+    def test_no_probe_without_not_accepted_rows_or_with_the_kill_switch(self, rc):
+        body = rc.body(rc.source(**MANDATE))
+        rc.write(REL)
+        rc.run(body)
+        rc.run(body)
+        assert rc.server.probes == [], "staged rows give nothing to ask about"
+        rc.server.mode = "off"
+        rc.write("Muster AG/GJ 2024/Neu.txt")
+        rc.run(body)
+        rc.env(RC_DOC_FIELDS="off")
+        rc.server.probe_status = 200
+        rc.run(body)
+        assert rc.server.probes == [], "RC_DOC_FIELDS=off sends nothing, no probe either"
+
+    def test_a_row_the_scan_does_not_reach_is_no_reason_to_probe(self, rc):
+        body = rc.body(rc.source(**MANDATE))
+        body["ingestion"]["delete_on_remove"] = False
+        rc.write(REL)
+        rc.server.mode = "off"
+        rc.run(body)
+        (rc.root / REL).unlink()
+        rc.write("Beispiel GmbH/GJ 2024/Neu.txt")
+        rc.server.probe_status = 200
+        rc.run(body)
+        assert rc.server.probes == []
+        assert rc.fields(REL).outcome == "not_accepted" and rc.fields(REL).digest
+
+    def test_a_sequential_subfolder_stays_current_until_its_requeued_rows_are_re_sent(self, rc):
+        """The probe can requeue in a subfolder's last, quiet cycle, after the
+        scan counted its work; a completed subfolder is never scanned again."""
+        a, b = "A/Muster AG/R.txt", "B/Beispiel GmbH/R.txt"
+        rc.write(a)
+        rc.write(b)
+        cfg = {"sequential_subfolders": True}
+        body = rc.body(rc.source(field_templates=["*/{mandant}/**"]))
+        rc.server.mode = "off"
+        assert rc.run(body, sync_config=cfg).subfolder_progress["current_subfolder"] == "A"
+        assert rc.fields(a).outcome == "not_accepted"
+        rc.server.mode = "values"
+        rc.server.probe_status = 200
+        quiet = rc.run(body, sync_config=cfg)
+        assert quiet.doc_fields.requeued == 1 and quiet.files_uploaded == 0
+        assert quiet.subfolder_progress["current_subfolder"] == "A", "A's requeued row is A's work"
+        sent, last = [], None
+        for _ in range(4):
+            last = rc.run(body, sync_config=cfg)
+            sent.append(rc.server.rels())
+        assert sent == [[a], [], [b], []], "a is re-sent before B starts"
+        assert rc.fields(a).outcome == "staged" and rc.fields(a).digest
+        assert last.subfolder_progress["completed"] is True
+        assert rc.server.probes == [("GET", None)]

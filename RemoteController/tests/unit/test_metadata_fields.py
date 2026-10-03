@@ -6,16 +6,21 @@ created/modified date. Each of those is pinned below.
 """
 import inspect
 import io
+import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from sync import metadata_fields
 from sync.metadata_fields import (
     EMAIL_DOC_TYPE,
+    FILE_PROPERTY_KEYS,
     ITEM_TARGETS,
     JUNK_AUTHORS,
+    KEYWORD_SOURCES,
     METADATA_ITEMS,
     METADATA_MAPPING_VERSION,
     map_metadata,
@@ -30,14 +35,20 @@ EML_MD = {
 }
 
 
+VECTORS = Path(__file__).resolve().parents[2] / "contracts" / "vectors" / "metadata_fields.json"
+
+
 def test_mapping_version_and_items():
+    # New items need no bump: a bump re-sends every source that uses file properties.
     assert METADATA_MAPPING_VERSION == 1
-    assert set(METADATA_ITEMS) == {
+    assert METADATA_ITEMS == (
         "language", "email_date", "email_doc_type", "email_author", "document_author",
-    }
+        "keywords", "document_status",
+    )
     assert set(ITEM_TARGETS) == set(METADATA_ITEMS)
     # No Message-ID, sender or recipient mapping (spec section 3.5).
-    assert set(ITEM_TARGETS.values()) == {"language", "document_date", "doc_type", "author"}
+    assert set(ITEM_TARGETS.values()) == {
+        "language", "document_date", "doc_type", "author", "keywords", "status"}
 
 
 def test_nothing_enabled_maps_nothing():
@@ -277,6 +288,89 @@ def test_all_items_for_a_msg():
     }
 
 
+# --- keywords and document_status (spec L1) ----------------------------------------------
+
+
+def test_golden_vectors():
+    cases = json.loads(VECTORS.read_text(encoding="utf-8"))
+    assert len(cases) >= 12
+    assert {"keywords", "document_status"} <= {item for case in cases for item in case["items"]}
+    assert set(FILE_PROPERTY_KEYS) <= {key for case in cases for key in case["source_metadata"]}
+    failed = [case["name"] for case in cases
+              if map_metadata(case["source_metadata"], case["ext"], case["items"]) != case["fields"]]
+    assert failed == []
+
+
+def test_keywords_are_capped_at_32_values_in_order():
+    raw = ", ".join(f"Stichwort {i}" for i in range(40))
+    assert map_metadata({"docx:keywords": raw}, ".docx", {"keywords"}) == {
+        "keywords": [f"Stichwort {i}" for i in range(32)]}
+
+
+def test_a_keyword_over_256_characters_is_skipped_not_cut():
+    raw = ";".join(["a" * 257, "b" * 256, "c"])
+    assert map_metadata({"pdf:keywords": raw}, ".pdf", {"keywords"}) == {"keywords": ["b" * 256, "c"]}
+
+
+def test_skipped_keywords_do_not_use_up_the_cap():
+    raw = ", ".join([" "] * 10 + ["x" * 300] * 10 + [f"k{i}" for i in range(40)])
+    assert map_metadata({"pdf:keywords": raw}, ".pdf", {"keywords"})["keywords"] == [
+        f"k{i}" for i in range(32)]
+
+
+def test_status_final_is_sent_as_written_and_empty_values_are_skipped():
+    assert map_metadata({"docx:content_status": "Final"}, ".docx", {"document_status"}) == {
+        "status": "Final"}
+    assert map_metadata({"docx:content_status": "  "}, ".docx", {"document_status"}) == {}
+    assert map_metadata({"docx:keywords": " ; , "}, ".docx", {"keywords"}) == {}
+
+
+def test_word_keywords_and_status_end_to_end(tmp_path):
+    docx = pytest.importorskip("docx")
+    from sync.document_text import extract_document
+
+    document = docx.Document()
+    document.add_paragraph("Mietvertrag mit Beispiel GmbH.")
+    document.core_properties.keywords = "Vertrag, Miete; vertrag"
+    document.core_properties.content_status = "Final"
+    buf = io.BytesIO()
+    document.save(buf)
+    path = tmp_path / "mietvertrag.docx"
+    path.write_bytes(buf.getvalue())
+    md = extract_document(path).source_metadata
+    assert map_metadata(md, ".docx", {"keywords", "document_status"}) == {
+        "keywords": ["Vertrag", "Miete"], "status": "Final"}
+
+
+def test_a_keyword_utf8_cannot_encode_is_skipped_and_does_not_count():
+    # Lone surrogates, and a pair kept as two code points: the payload goes out
+    # as UTF-8 JSON, which cannot carry them, so keeping one would stop the
+    # document's upload, not only its fields.
+    raw = ", ".join(["\ud800", "Akte \udcff", chr(0xD83D) + chr(0xDE00)] + [f"k{i}" for i in range(40)])
+    for ext, key in sorted(KEYWORD_SOURCES.items()):
+        assert map_metadata({key: raw}, ext, {"keywords"}) == {
+            "keywords": [f"k{i}" for i in range(32)]}, ext
+
+
+@pytest.mark.parametrize("ext,key", sorted(KEYWORD_SOURCES.items()))
+def test_brackets_nested_deeper_than_the_json_decoder_goes_yield_no_keywords(ext, key):
+    # The longest value source_metadata_from carries; the JSON decoder of a
+    # Windows Python gives up after about 3000 levels with a RecursionError.
+    raw = "[" * 4095
+    assert source_metadata_from(SimpleNamespace(extra={key: raw})) == {key: raw}
+    assert map_metadata({key: raw}, ext, {"keywords"}) == {}
+
+
+def test_a_recursion_error_of_the_json_decoder_reads_the_categories_as_text(monkeypatch):
+    # Pins the guard on every platform: a Linux Python only gives up at 10000 levels.
+    def too_deep(_raw):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(metadata_fields, "json", SimpleNamespace(loads=too_deep))
+    assert map_metadata({"msg:categories": '["Projekt Alpha"]'}, ".msg", {"keywords"}) == {
+        "keywords": ['["Projekt Alpha"]']}
+
+
 # --- source_metadata_from --------------------------------------------------------------
 
 
@@ -300,3 +394,35 @@ def test_source_metadata_from_skips_missing_and_non_string_values():
     assert source_metadata_from(metadata) == {}
     assert source_metadata_from(None) == {}
     assert source_metadata_from(object()) == {}
+
+
+def test_source_metadata_from_reads_the_file_properties():
+    metadata = SimpleNamespace(
+        author=None, language=None, created=None, modified=None,
+        extra={"pdf:keywords": " Rechnung, Kreditor ", "docx:keywords": "Vertrag",
+               "msg:categories": '["Projekt Alpha"]', "docx:content_status": "Final",
+               "docx:category": "Intern", "pdf:subject": "Offerte", "docx:revision": "3"},
+    )
+    assert source_metadata_from(metadata) == {
+        "pdf:keywords": "Rechnung, Kreditor",
+        "docx:keywords": "Vertrag",
+        "msg:categories": '["Projekt Alpha"]',
+        "docx:content_status": "Final",
+    }
+
+
+def test_a_file_property_at_or_over_the_cap_is_left_out_not_cut():
+    from sync.metadata_fields import MAX_SOURCE_VALUE_CHARS
+
+    assert MAX_SOURCE_VALUE_CHARS == 4096
+    # knovas-extract strips an extra value, then crops it to exactly the cap:
+    # a value of that length may be cut, also one that ends in a space.
+    metadata = SimpleNamespace(extra={
+        "pdf:keywords": "k" * (MAX_SOURCE_VALUE_CHARS + 1),
+        "docx:keywords": "k" * MAX_SOURCE_VALUE_CHARS,
+        "msg:categories": "k" * (MAX_SOURCE_VALUE_CHARS - 1) + " ",
+        "docx:content_status": 3,
+    })
+    assert source_metadata_from(metadata) == {}
+    shorter = SimpleNamespace(extra={"docx:keywords": "k" * (MAX_SOURCE_VALUE_CHARS - 1)})
+    assert source_metadata_from(shorter) == {"docx:keywords": "k" * (MAX_SOURCE_VALUE_CHARS - 1)}

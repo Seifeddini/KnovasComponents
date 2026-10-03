@@ -42,6 +42,16 @@ logger = logging.getLogger(__name__)
 RETRY_STATUS = {429, 503, 504}
 MAX_BACKOFF = 30.0
 INIT_PATH = "/secured/init_document_transmission"
+#: The capability probe (spec F5). While Document fields are off, Knovas
+#: answers every ``/secured/graph/doc-*`` route with its unknown-route 404.
+DOC_FIELDS_PROBE_PATH = "/secured/graph/doc-fields"
+#: The probe's 401/403 ``error_code``s that Knovas raises only behind its
+#: per-tenant fields gate: the graph caller's principal check (a BROKERED
+#: tenant's missing assertion). A refusal in front of the gate -- the mTLS
+#: gateway's 400, the certificate check's ``AUTH_FAILED`` (also its
+#: fail-closed answer when its own lookup fails), the signature gate's
+#: ``SIGNATURE_REQUIRED`` -- reaches a tenant whose fields are off as well.
+PROBE_PAST_GATE_CODES = frozenset({"assertion_rejected"})
 #: The Secure API refuses longer titles (secure_api.py init validation); an
 #: uncapped one made such a file fail its init every cycle.
 MAX_TITLE_CHARS = 500
@@ -440,3 +450,37 @@ class SemantixUploader:
         if resp.status_code in (200, 404):
             return True, None
         return False, f"delete failed: {resp.status_code}"
+
+    def probe_doc_fields(self) -> Optional[bool]:
+        """Whether Knovas takes document fields now (spec F5).
+
+        One ``GET /secured/graph/doc-fields`` without a body, under the same
+        mTLS and ingest limiter as every other call and without a retry (the
+        executor asks again an hour later): ``404`` -> False (off, or a
+        Knovas without the feature). Only an answer from behind the
+        per-tenant fields gate -> True: a 2xx, or a 401/403 whose
+        ``error_code`` is in ``PROBE_PAST_GATE_CODES`` (the route wants more
+        than this call carries). Anything else -> None (unknown): a 5xx, a
+        429, no answer at all, and every refusal in front of the gate, which
+        a tenant whose fields are off gets too -- read as on, it would
+        requeue and re-send billed documents. Of the answer's body only a
+        refusal's ``error_code`` is read.
+        """
+        try:
+            resp = self._request("GET", DOC_FIELDS_PROBE_PATH, max_retries=1)
+        except Exception:  # noqa: BLE001 - a probe never fails a cycle; no answer is "unknown"
+            return None
+        status = resp.status_code
+        if status == 404:
+            return False
+        if 200 <= status < 300:
+            return True
+        if status in (401, 403):
+            try:
+                body = resp.json()
+            except Exception:  # noqa: BLE001 - a gateway page, or too deep to parse: unknown
+                return None
+            code = body.get("error_code") if isinstance(body, dict) else None
+            if isinstance(code, str) and code in PROBE_PAST_GATE_CODES:
+                return True
+        return None

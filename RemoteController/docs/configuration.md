@@ -162,12 +162,16 @@ Golden vectors: [contracts/vectors/field_templates.json](../contracts/vectors/fi
 | `email_doc_type` | `doc_type` = `correspondence.email` | `.eml` / `.msg` only. |
 | `email_author` | `author` | `.eml` / `.msg` `From:` display name, else the address. |
 | `document_author` | `author` | `.pdf` / `.docx` author; placeholder authors (`Administrator`, `User`, `Microsoft Office User`, …) are skipped. |
+| `keywords` | `keywords` | `.pdf` / `.docx` keywords, `.msg` categories: split on `,` and `;`, trimmed, Unicode NFC, duplicates ignoring case dropped (the first spelling stays), at most 32 values of at most 256 characters. knovas-extract 0.4.0a1 does not read Outlook categories yet (extract-msg 0.56 has none on a message), so `.msg` files give none until it does. |
+| `document_status` | `status` | `.docx` content status (*Dokumentstatus*), trimmed and sent as written. Knovas matches it against the labels and other names of the `status` choices; one it does not know is dropped with an `invalid_value` warning (counted per key in `/sync/status`). |
 
-`.md` and `.txt` files never yield `author` or `language`: they are extracted
-as plain text, which has no document properties. A file's modification time,
-the Microsoft 365 `lastModifiedDateTime` and PDF/DOCX created/modified dates
-never become `document_date`, and no Message-ID or sender/recipient key is
-mapped.
+`.md` and `.txt` files never yield `author`, `language`, `keywords` or `status`:
+they are extracted as plain text, which has no document properties. A file's
+modification time, the Microsoft 365 `lastModifiedDateTime` and PDF/DOCX
+created/modified dates never become `document_date`, and no Message-ID or
+sender/recipient key is mapped. `keywords` and `document_status` need a
+Platform and a Connector that know them (capability `metadata_fields_v2`);
+golden vectors: [contracts/vectors/metadata_fields.json](../contracts/vectors/metadata_fields.json).
 
 **Precedence.** Per key: template capture, then the fixed value, then the file
 property. All three land in Knovas's **upload layer**, which outranks a
@@ -237,7 +241,20 @@ documents need 200 runs. There is no separate bound for `one_time` runs.
 **When the server starts accepting.** While the feature is off at Knovas,
 uploads with fields are recorded `not_accepted`. The first upload whose answer
 carries the fields echo (`staged`) queues every `not_accepted` document that
-cycle's scan reached for a re-upload, within the bound. `POST /sync/doc-fields/requeue` does the same on
+cycle's scan reached for a re-upload, within the bound. A cycle that uploads
+nothing new gets no echo, so at the start of a cycle whose scan reaches
+`not_accepted` documents the Knovas Connector also asks Knovas, at most once
+an hour, whether it takes fields (`GET /secured/graph/doc-fields`, no body,
+one try): `404` means still off. Only an answer from behind Knovas's
+per-account fields gate means on: a 2xx, or a 401/403 whose `error_code` is
+`assertion_rejected` (a BROKERED account's missing principal assertion); those
+documents are then queued exactly as after an echo. Every other answer means
+unknown and is asked again an hour later: a 5xx, a 429, no answer, and a
+refusal in front of the gate — the certificate check's `401 AUTH_FAILED`
+(also its answer when its own lookup fails), `401 SIGNATURE_REQUIRED`, the
+mTLS gateway's 400 — which an account whose fields are off gets too; read as
+on, it would re-send billed documents that Knovas still takes without their
+fields. `POST /sync/doc-fields/requeue` does the same on
 request for `not_accepted`, `refused`, `reupload_failed` or `all`
 ([operations.md](operations.md#document-fields)).
 

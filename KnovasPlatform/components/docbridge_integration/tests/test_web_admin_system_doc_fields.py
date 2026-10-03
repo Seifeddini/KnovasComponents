@@ -159,3 +159,9 @@ class TestRemoteController:
     def test_with_fields_off_an_old_remote_controller_reads_as_before(self):
         check = _rc(_collect(FakeDocFieldsApi("off"), _RCWithCaps(set())))
         assert check["state"] == "ok" and check["detail"] == "antwortet"
+
+    def test_the_file_property_capability_is_named(self):
+        rc = _RCWithCaps({"source_fields_v1", "metadata_fields_v1", "metadata_fields_v2"})
+        check = _rc(_collect(FakeDocFieldsApi("values"), rc))
+        assert check["detail"] == ("antwortet; Dokumentfelder: source_fields_v1, "
+                                   "metadata_fields_v1, metadata_fields_v2")

@@ -1,0 +1,121 @@
+[
+  {
+    "name": "pdf keywords: split on comma and semicolon, trimmed, the first spelling kept",
+    "ext": ".pdf",
+    "items": ["keywords"],
+    "source_metadata": {"pdf:keywords": " Rechnung, Kreditor;rechnung ;; 2024 "},
+    "fields": {"keywords": ["Rechnung", "Kreditor", "2024"]}
+  },
+  {
+    "name": "docx keywords",
+    "ext": ".docx",
+    "items": ["keywords"],
+    "source_metadata": {"docx:keywords": "Vertrag; Miete"},
+    "fields": {"keywords": ["Vertrag", "Miete"]}
+  },
+  {
+    "name": "keywords are NFC and de-duplicated ignoring case",
+    "ext": ".docx",
+    "items": ["keywords"],
+    "source_metadata": {"docx:keywords": "Müller, Müller; MÜLLER, Straße, STRASSE"},
+    "fields": {"keywords": ["Müller", "Straße"]}
+  },
+  {
+    "name": "msg categories as the JSON array knovas-extract writes: items kept whole",
+    "ext": ".msg",
+    "items": ["keywords"],
+    "source_metadata": {"msg:categories": "[\"Projekt Alpha\", \"Kunde; Muster AG\", \"projekt alpha\"]"},
+    "fields": {"keywords": ["Projekt Alpha", "Kunde; Muster AG"]}
+  },
+  {
+    "name": "msg categories as plain text are split",
+    "ext": ".msg",
+    "items": ["keywords"],
+    "source_metadata": {"msg:categories": "Projekt Alpha; Kunde"},
+    "fields": {"keywords": ["Projekt Alpha", "Kunde"]}
+  },
+  {
+    "name": "separators and blanks only: no keywords",
+    "ext": ".pdf",
+    "items": ["keywords"],
+    "source_metadata": {"pdf:keywords": " , ;; , "},
+    "fields": {}
+  },
+  {
+    "name": "each format reads its own keywords only",
+    "ext": ".pdf",
+    "items": ["keywords"],
+    "source_metadata": {"docx:keywords": "Vertrag", "msg:categories": "Kunde"},
+    "fields": {}
+  },
+  {
+    "name": "no keywords for .eml, .md or .txt",
+    "ext": ".eml",
+    "items": ["keywords"],
+    "source_metadata": {"pdf:keywords": "Rechnung", "docx:keywords": "Vertrag"},
+    "fields": {}
+  },
+  {
+    "name": "word content status is sent as written",
+    "ext": ".docx",
+    "items": ["document_status"],
+    "source_metadata": {"docx:content_status": "Final"},
+    "fields": {"status": "Final"}
+  },
+  {
+    "name": "status is trimmed, never translated",
+    "ext": ".docx",
+    "items": ["document_status"],
+    "source_metadata": {"docx:content_status": "  In Review "},
+    "fields": {"status": "In Review"}
+  },
+  {
+    "name": "a blank status yields nothing",
+    "ext": ".docx",
+    "items": ["document_status"],
+    "source_metadata": {"docx:content_status": "   "},
+    "fields": {}
+  },
+  {
+    "name": "status only from Word files",
+    "ext": ".pdf",
+    "items": ["document_status"],
+    "source_metadata": {"docx:content_status": "Final"},
+    "fields": {}
+  },
+  {
+    "name": "nothing without the opt-in",
+    "ext": ".docx",
+    "items": ["language", "document_author"],
+    "source_metadata": {"docx:keywords": "Vertrag", "docx:content_status": "Final"},
+    "fields": {}
+  },
+  {
+    "name": "both items next to an existing one",
+    "ext": ".docx",
+    "items": ["document_author", "keywords", "document_status"],
+    "source_metadata": {"author": "Beispiel GmbH", "docx:keywords": "Vertrag", "docx:content_status": "Entwurf"},
+    "fields": {"author": "Beispiel GmbH", "keywords": ["Vertrag"], "status": "Entwurf"}
+  },
+  {
+    "name": "pdf keywords are text even when they look like a JSON array: split, never decoded",
+    "ext": ".pdf",
+    "items": ["keywords"],
+    "source_metadata": {"pdf:keywords": "[\"\\ud800\", \"Vertrag\"]"},
+    "fields": {"keywords": ["[\"\\ud800\"", "\"Vertrag\"]"]}
+  },
+  {
+    "name": "word keywords are text even when they look like a JSON array",
+    "ext": ".docx",
+    "items": ["keywords"],
+    "source_metadata": {"docx:keywords": "[\"Vertrag\", \"Miete\"]"},
+    "fields": {"keywords": ["[\"Vertrag\"", "\"Miete\"]"]}
+  },
+  {
+    "name": "msg categories: an item UTF-8 cannot encode (a lone surrogate) is skipped",
+    "ext": ".msg",
+    "items": ["keywords"],
+    "source_metadata": {"msg:categories": "[\"\\ud800\", \"Kunde\"]"},
+    "fields": {"keywords": ["Kunde"]}
+  }
+]

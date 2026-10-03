@@ -55,6 +55,7 @@ class Server:
         self.mode = "values"
         self.refuse: Optional[requests.Response] = None
         self.fail_all: Optional[requests.Response] = None
+        self.extra_warnings: list[dict[str, Any]] = []
 
     def __call__(self, method: str, url: str, json: Optional[dict] = None, **_: Any):
         path = "/" + url.split("/", 3)[3]
@@ -71,8 +72,11 @@ class Server:
                     "staged": len(fields),
                     "mapped_keys": {k: k for k in fields},
                     "unknown_keys": ["mandat"],
-                    "warnings": [{"key": k, "path": f"fields.{k}", "code": "unresolved_entity"}
-                                 for k in fields] + [{"key": "x", "path": "fields.x", "code": STATIC}],
+                    "warnings": (
+                        [{"key": k, "path": f"fields.{k}", "code": "unresolved_entity"} for k in fields]
+                        + [{"key": "x", "path": "fields.x", "code": STATIC}]
+                        + list(self.extra_warnings)
+                    ),
                     "suggest": {"mandat": ["mandant", STATIC]},
                 }
             return _response(201, out)
@@ -226,3 +230,40 @@ def test_labels_outside_the_closed_sets_become_other():
     for labels in m.label_sets().values():
         assert "other" in labels
         assert all(isinstance(v, str) and v.replace("_", "").isalnum() for v in labels)
+
+
+def test_warning_keys_reach_the_status_never_a_value(rig, caplog):
+    """Spec F4: /sync/status names the field key of each warning. A "key"
+    that is really a value, and the warning's path, never appear -- nor in
+    a log line."""
+    from sync.sync_scheduler import _remember_doc_fields, doc_fields_status
+
+    root, server = rig
+    caplog.set_level(logging.DEBUG)
+    server.extra_warnings = [
+        {"key": STATIC, "path": "fields.keywords[0]", "code": "invalid_value"},
+        {"key": "keywords", "path": f"fields.keywords.{CAPTURE}", "code": "invalid_value"},
+    ]
+    _write(root / CAPTURE / PERIOD / "Rechnung.txt")
+    result = _run(_body(root, fields={"doc_type": STATIC, "keywords": [STATIC]},
+                        field_templates=["{party}/{period}/**"]))
+    _remember_doc_fields(result)
+    status = doc_fields_status()
+    entries = {(w["code"], w["key"]): w["count"] for w in status["warnings"]}
+    assert entries[("invalid_value", "keywords")] == 1
+    assert entries[("invalid_value", "")] == 1, "a value in the key slot is dropped, the warning counted"
+    assert entries[("unresolved_entity", "doc_type")] == 1
+    assert entries[("other", "x")] == 1
+    text = json.dumps(status, ensure_ascii=False)
+    for sentinel in SENTINELS:
+        assert sentinel not in text
+    _assert_clean(caplog, *SENTINELS)
+
+
+def test_every_warning_code_of_knovas_1_5_is_a_metric_label():
+    from sync import doc_fields_metrics as m
+
+    documented = {"invalid_value", "type_mismatch", "checksum_failed", "restricted_identifier",
+                  "cap_exceeded", "ambiguous_date", "ambiguous_number", "unresolved_entity",
+                  "ambiguous_entity"}
+    assert documented <= m.WARNING_CODES

@@ -57,6 +57,8 @@ RC_CAPABILITIES = (
     "field_templates_v1",
     "metadata_fields_v1",
     "fields_requeue_v1",
+    # The file-property items ``keywords`` and ``document_status`` (spec L1).
+    "metadata_fields_v2",
 )
 # Set when a new folder list is stored, so the worker stops waiting and looks
 # now. Without it, saving a profile took effect at the top of the next cycle --
@@ -199,6 +201,10 @@ def _server_accepts_fields(
 def doc_fields_status() -> dict[str, Any]:
     """The ``doc_fields`` block of GET /sync/status: keys, codes and counts.
 
+    ``warnings`` lists ``{"code", "key", "count"}`` of the last cycle, the
+    most frequent first (spec F4); the POST /sync summary keeps
+    ``{code: count}``.
+
     ``pending_reupload`` is an estimate for the Platform's ETA: what the last
     scan found ``fields_changed`` and the cycle did not finish, plus the rows
     re-queued since. Only before the first cycle (after a restart) do the
@@ -235,7 +241,7 @@ def doc_fields_status() -> dict[str, Any]:
             "reupload_failed": counts.get("reupload_failed", 0),
         },
         "last_cycle": cycle.last_cycle(),
-        "warnings": dict(sorted(cycle.warnings.items())),
+        "warnings": cycle.warning_entries(),
         "dropped": dict(sorted(cycle.dropped.items())),
         "unknown_keys": list(cycle.unknown_keys),
         "suggest": {key: list(values) for key, values in sorted(cycle.suggest.items())},

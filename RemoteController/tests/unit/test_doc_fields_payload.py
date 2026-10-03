@@ -382,6 +382,43 @@ def test_digest_is_non_empty_for_a_metadata_source_even_when_the_payload_is_empt
     assert config_digest("a/b.pdf", spec) != ""
 
 
+def test_a_new_file_property_item_changes_the_digest_and_the_old_items_keep_theirs():
+    """Spec L1: enabling keywords or document_status re-sends the source
+    within the bound. METADATA_MAPPING_VERSION stays, so a source with the
+    old items only keeps its digest (a bump would re-send every one)."""
+    rel = "a/b.pdf"
+    base = _spec(metadata_fields=["language"])
+    assert config_digest(rel, base) == "9d8c959313ac1d672a40f5ecebb11a7f4a40d639c7a8287ccf0a5bfe26381d9c"
+    digests = {config_digest(rel, _spec(metadata_fields=items))
+               for items in (["language"], ["language", "keywords"], ["language", "document_status"])}
+    assert len(digests) == 3
+
+
+def test_file_properties_stay_below_templates_and_fixed_values():
+    md = {"docx:keywords": "Vertrag, Miete", "docx:content_status": "Final"}
+    spec = _spec(fields={"keywords": ["Akte"]}, metadata_fields=["keywords", "document_status"])
+    assert assemble("a/Vertrag.docx", spec, md, ".docx").values == {
+        "keywords": ["Akte"], "status": "Final"}
+    only_properties = _spec(metadata_fields=["keywords", "document_status"])
+    assert assemble("a/Vertrag.docx", only_properties, md, ".docx").values == {
+        "keywords": ["Vertrag", "Miete"], "status": "Final"}
+
+
+@pytest.mark.parametrize("raw", [
+    '["\\ud800", "Vertrag"]',  # ASCII text a JSON decoder turns into a lone surrogate
+    "\ud800, Vertrag",  # a lone surrogate in the property itself
+    "[" * 4095,  # deeper than the JSON decoder of a Windows Python goes
+], ids=["escaped-surrogate", "lone-surrogate", "deep-brackets"])
+@pytest.mark.parametrize("ext", sorted(metadata_fields.KEYWORD_SOURCES))
+def test_an_odd_keywords_property_never_stops_the_upload(ext, raw):
+    """D5: fields never block indexing. ``assemble`` runs outside the
+    uploader's extraction guard, so a keywords value that the JSON decoder
+    or the UTF-8 encoder chokes on costs keywords, never the upload."""
+    md = {metadata_fields.KEYWORD_SOURCES[ext]: raw, "docx:content_status": "Final"}
+    payload = assemble("a/b" + ext, _spec(metadata_fields=["keywords", "document_status"]), md, ext)
+    assert encoded_size(payload.values) <= MAX_PAYLOAD_BYTES
+
+
 # --- fields_to_send ------------------------------------------------------------------------
 
 
@@ -421,6 +458,12 @@ def test_echo_present():
         unknown_keys=("mandat",),
         warning_codes=Counter({"unresolved_entity": 2, "ambiguous_date": 1, "other": 1}),
         suggest={"mandat": ("mandant", "mandate", "mandat_nr")},
+        warnings=(
+            ("unresolved_entity", "mandant"),
+            ("ambiguous_date", "period"),
+            ("unresolved_entity", "x"),
+            ("other", "y"),
+        ),
     )
 
 
@@ -446,6 +489,41 @@ def test_echo_malformed_reads_as_no_echo(fields):
 def test_echo_tolerates_malformed_sub_keys():
     echo = parse_init_echo({"fields": {"staged": 1, "unknown_keys": "mandat", "warnings": {}, "suggest": []}})
     assert echo == FieldsEcho(staged=1)
+
+
+def test_echo_warning_keys_are_keys_only():
+    """Spec F4: a warning names its field key. Anything that is not
+    key-shaped (a label, a value, a number) is kept as "" -- its code still
+    counts -- and the warning's path never travels."""
+    body = {"fields": {"staged": 1, "warnings": [
+        {"key": "party", "path": "fields.party[0]", "code": "unresolved_entity"},
+        {"key": "Muster AG", "path": "fields.party[1]", "code": "unresolved_entity"},
+        {"key": "Dokumentdatum", "path": "fields.Dokumentdatum", "code": "ambiguous_date"},
+        {"path": "fields.amount", "code": "invalid_value"},
+        {"key": 7, "code": "Muster AG"},
+    ]}}
+    echo = parse_init_echo(body)
+    assert echo.warnings == (
+        ("unresolved_entity", "party"),
+        ("unresolved_entity", ""),
+        ("ambiguous_date", ""),
+        ("invalid_value", ""),
+        ("other", ""),
+    )
+    assert echo.warning_codes == Counter(code for code, _ in echo.warnings)
+    assert "fields.party[0]" not in repr(echo) and "Muster AG" not in repr(echo)
+
+
+def test_outcome_carries_the_warning_pairs():
+    echo = parse_init_echo({"fields": {"staged": 1, "warnings": [
+        {"key": "amount", "path": "fields.amount", "code": "invalid_value"}]}})
+    out = outcome_after_init({"amount": "CHF x"}, echo, "d1")
+    assert out.warnings == (("invalid_value", "amount"),)
+    # The transmission entry and the stored record keep codes only.
+    assert out.as_tx_entry() == {"outcome": "staged", "staged": 1, "warning_codes": ["invalid_value"]}
+    assert record_for(out).warning_codes == ("invalid_value",)
+    assert outcome_after_init({"amount": "CHF x"}, None, "d1").warnings == ()
+    assert refused_outcome("unknown_field", "d1").warnings == ()
 
 
 # --- classify_init_refusal -------------------------------------------------------------------

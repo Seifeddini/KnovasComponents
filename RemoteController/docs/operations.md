@@ -74,7 +74,7 @@ Configuration and costs: [configuration.md](configuration.md#per-source-document
 `GET /sync/status` (authenticated) carries two additions — keys, codes and counts, never values:
 
 ```json
-"capabilities": ["source_fields_v1", "field_templates_v1", "metadata_fields_v1", "fields_requeue_v1"],
+"capabilities": ["source_fields_v1", "field_templates_v1", "metadata_fields_v1", "fields_requeue_v1", "metadata_fields_v2"],
 "doc_fields": {
   "enabled": true,
   "server": "accepted",
@@ -82,7 +82,8 @@ Configuration and costs: [configuration.md](configuration.md#per-source-document
   "documents": {"with_fields": 1234, "pending_reupload": 56, "refused": 3, "not_accepted": 0, "reupload_failed": 1},
   "last_cycle": {"staged": 40, "not_accepted": 0, "cleared": 0, "none": 12,
                  "refused": {"unknown_field": 2}, "reupload_failed": {}, "rel_collisions": 0, "requeued": 0},
-  "warnings": {"unresolved_entity": 12, "ambiguous_date": 1},
+  "warnings": [{"code": "unresolved_entity", "key": "party", "count": 12},
+               {"code": "ambiguous_date", "key": "document_date", "count": 1}],
   "dropped": {},
   "unknown_keys": ["mandat"],
   "suggest": {"mandat": ["mandant"]},
@@ -91,9 +92,11 @@ Configuration and costs: [configuration.md](configuration.md#per-source-document
 ```
 
 - `capabilities` tells the Platform which sync-body keys this Knovas Connector understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("Der Knovas Connector ist zu alt").
+- `metadata_fields_v2`: the sync body may carry the file-property items `keywords` and `document_status`; the Platform sends them only to a Knovas Connector that reports it.
 - `enabled` is `RC_DOC_FIELDS`. `server` is `accepted` once an answer carried the fields echo (or a fields refusal, which also shows the feature is on), `not_accepted` when fields were sent and no echo came back (feature off at Knovas, or an older server), `unknown` before either. "Not accepted" never means "stored".
 - `documents.pending_reupload` estimates the documents still to be re-sent: `fields_changed` from the last scan not yet done, plus those requeued since (before the first cycle after a start, the stored requeued rows). `refused`, `not_accepted` and `reupload_failed` are the stored outcomes. `server` follows the latest cycle that got an answer, so idle cycles do not turn it back to `unknown`.
 - `unknown_keys` / `suggest` hold registry keys only (at most 20, from the last cycle): a configured key Knovas does not know, and the keys it suggests instead.
+- `warnings` lists Knovas's upload warnings of the last cycle per code and field key, the most frequent first, at most 50. The key is the field's key, never a value or the warning's JSON path; what is not key-shaped is reported as `""`. Before this release the block was `{code: count}`; the `POST /sync` summary keeps that shape, and the metric `rc_doc_fields_warnings_total` stays per code.
 - `document_sync.fields_changed` (also in `?live=1`) counts files whose content is synced but whose field configuration changed.
 
 `/health` is unchanged (it is unauthenticated). A `POST /sync` answer adds `document_sync.fields_changed`, a per-transmission `fields` entry `{outcome, staged, warning_codes}` when the init carried fields, and a top-level `doc_fields` summary of the run.
@@ -109,7 +112,7 @@ curl -sS -X POST "$RC_BASE/sync/doc-fields/requeue" \
 # {"requeued": 140}
 ```
 
-`outcome` is `not_accepted`, `refused`, `reupload_failed` or `all`; anything else is a 400. The matching documents the last cycle's scan reached become `fields_changed` and are re-sent within `RC_FIELDS_REUPLOAD_PER_CYCLE` per cycle (a document no scan visits again — a completed subfolder of a sequential import, a removed file kept by `delete_on_remove: false` — is not queued and keeps its outcome; before the first cycle after a start the request is not limited); a running worker starts its next cycle at once. Same authorization as `/sync/start` (the Platform's Ingestion tab offers it as *Erneut senden*). **Each re-sent document is a full, billed upload with a fresh extraction and OCR** — see [configuration.md](configuration.md#re-uploads-and-what-they-cost). Documents recorded `not_accepted` are queued automatically the first time Knovas answers with an echo (those that cycle's scan reached). A fields re-send that keeps failing never counts toward the extraction retries of `RC_EXTRACT_MAX_RETRIES`: Knovas already holds its text, so it is not recorded partial and leaves the queue as `reupload_failed:extract`.
+`outcome` is `not_accepted`, `refused`, `reupload_failed` or `all`; anything else is a 400. The matching documents the last cycle's scan reached become `fields_changed` and are re-sent within `RC_FIELDS_REUPLOAD_PER_CYCLE` per cycle (a document no scan visits again — a completed subfolder of a sequential import, a removed file kept by `delete_on_remove: false` — is not queued and keeps its outcome; before the first cycle after a start the request is not limited); a running worker starts its next cycle at once. Same authorization as `/sync/start` (the Platform's Ingestion tab offers it as *Erneut senden*). **Each re-sent document is a full, billed upload with a fresh extraction and OCR** — see [configuration.md](configuration.md#re-uploads-and-what-they-cost). Documents recorded `not_accepted` are queued automatically the first time Knovas answers with an echo, or when the hourly capability probe finds the feature on (those that cycle's scan reached; log line `doc_fields probe=on|off|unknown requeued=n`; see [configuration.md](configuration.md#re-uploads-and-what-they-cost)). A fields re-send that keeps failing never counts toward the extraction retries of `RC_EXTRACT_MAX_RETRIES`: Knovas already holds its text, so it is not recorded partial and leaves the queue as `reupload_failed:extract`.
 
 ### Metrics
 
@@ -117,7 +120,7 @@ curl -sS -X POST "$RC_BASE/sync/doc-fields/requeue" \
 |---------|--------|
 | `rc_doc_fields_uploads_total{outcome}` | `staged`, `cleared`, `not_accepted`, `none`, `refused`, `reupload_failed`, `other` |
 | `rc_doc_fields_refusals_total{code}` | `invalid_fields`, `unknown_field`, `ambiguous_field`, `fields_too_large`, `doc_fields_unavailable`, `doc_fields_ingest_unavailable`, `assertion_rejected`, `other` |
-| `rc_doc_fields_warnings_total{code}` | the echo warning codes (`invalid_value`, `checksum_failed`, `type_mismatch`, `restricted_identifier`, `cap_exceeded`, `ambiguous_date`, `unresolved_entity`, `ambiguous_entity`, `key_looks_personal`), `other` |
+| `rc_doc_fields_warnings_total{code}` | the echo warning codes (`invalid_value`, `checksum_failed`, `type_mismatch`, `restricted_identifier`, `cap_exceeded`, `ambiguous_date`, `ambiguous_number`, `unresolved_entity`, `ambiguous_entity`, `key_looks_personal`), `other` |
 | `rc_doc_fields_client_dropped_total{reason}` | values left out before sending: `system_key`, `value_too_long`, `cap_exceeded`, `too_large`, `invalid_value`, `other` |
 
 ### State

@@ -85,7 +85,8 @@ def reset_rate_limiters():
 @pytest.fixture(autouse=True)
 def fresh_doc_fields_memory(monkeypatch):
     """The scheduler keeps the last cycle's document-fields answers and the
-    requeue scope in module memory; no test sees another test's."""
+    requeue scope in module memory, the executor its last capability probe
+    (spec F5); no test sees another test's."""
     import sys
 
     scheduler = sys.modules.get("sync.sync_scheduler")
@@ -94,6 +95,9 @@ def fresh_doc_fields_memory(monkeypatch):
                             ("_fields_requeued_since_scan", 0), ("_last_fields_answer", None),
                             ("_requeue_reachable", None)):
             monkeypatch.setattr(scheduler, name, value, raising=False)
+    executor = sys.modules.get("sync.sync_executor")
+    if executor is not None:
+        monkeypatch.setattr(executor, "_last_doc_fields_probe", None, raising=False)
     yield
 
 
