@@ -12,6 +12,7 @@ Placeholder names only ("Muster AG", "Beispiel GmbH").
 
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -36,6 +37,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 import doc_fields_view as dfv  # noqa: E402
+
+#: An experiment document as the Experimente module writes it to Knovas.
+EXP_POINTER = "experiments/marketing/MKT-1"
 
 
 def find(client, where, **extra):
@@ -385,6 +389,43 @@ class TestGrants:
         find(finder, {"doc_type": "invoice"})
         other = signed_in(app, identity_repo, "zweite@kanzlei.ch", role="member")
         assert other.get(f"/api/document/{INVOICE}/download").status_code == 404
+
+
+class TestExperimentDocuments:
+    """Experiment documents (experiments/<domain>/<KEY>) reach nobody through
+    the listing, as they reach nobody through search (SearchIntegration.split):
+    Knovas cannot know who holds an Experimente role, and an experiment
+    pointer is never a file grant. Today they carry no fields, but a folder
+    default could give them values."""
+
+    def test_the_listing_drops_them_and_grants_none(self, listing, identity_repo, tmp_path):
+        from document_grants import DocumentGrantStore
+
+        app, api = listing
+        api.add_document(EXP_POINTER, fields={"doc_type": "invoice"}, in_search=False)
+        client = signed_in(app, identity_repo, role="member")
+        body = find(client, {"doc_type": "invoice"}).get_json()
+        assert [d["doc_id"] for d in body["documents"]] == [INVOICE]
+        assert "experiments/" not in json.dumps(body["documents"])
+        member = identity_repo.get_by_email("anwalt@kanzlei.ch")
+        grants = DocumentGrantStore(str(tmp_path / "grants.sqlite3"))
+        assert grants.granted(str(member.id), INVOICE)
+        assert not grants.granted(str(member.id), EXP_POINTER)
+        assert not grants.granted(str(member.id), "/" + EXP_POINTER)
+
+    def test_a_page_of_experiments_only_is_passed_on_empty(self, listing, identity_repo):
+        """Dropped before the empty-state rules: a page with a successor
+        still says nothing about the documents after it (H5, H8)."""
+        app, api = listing
+        api.scripted_pages = [
+            {"documents": [{"pointer": EXP_POINTER, "title": "MKT-1"}],
+             "next_after": "c1", "complete": False, "total_count": 2,
+             "where": {"applied": True, "clauses": 1, "resolved": []}},
+        ]
+        client = signed_in(app, identity_repo, role="member")
+        body = find(client, {"doc_type": "invoice"}).get_json()
+        assert body["documents"] == [] and body["next_after"] == "c1"
+        assert "empty_text" not in body
 
 
 class TestNoValuesInLogs:

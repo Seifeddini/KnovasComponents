@@ -1936,6 +1936,7 @@ def create_app(config_path: Optional[str] = None):
         grant=_grant_for_current_user,
         grant_check=_readable_for_current_user,
         enhance=_enhance_listing_rows,
+        split=experiments_search.split,
     )
 
     @app.route('/api/search', methods=['POST'])
