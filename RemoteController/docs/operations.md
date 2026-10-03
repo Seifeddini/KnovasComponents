@@ -235,7 +235,7 @@ Every upload records an **extraction stamp** — 16 hex characters of a hash ove
 "extraction": {"knovas_extract_version": "0.4.0a1",
                "knovas_extract_commit": "b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1",
                "pdf_text_mode": "layout", "docx_text_mode": "layout", "ocr_engine": "auto",
-               "outdated": 1234, "queued": 0, "per_cycle": 100}
+               "outdated": 1234, "queued": 0, "kept": 0, "per_cycle": 100}
 ```
 
 The Platform's Ingestion tab shows `outdated` as *N Dokumente mit älterer Extraktion* and offers *Neu extrahieren* to an administrator after a confirmation that states count, cost and duration. It calls:
@@ -250,13 +250,14 @@ curl -sS -X POST "$RC_BASE/sync/reextract/requeue" \
 Same authorization as `/sync/doc-fields/requeue`; no body is read. Every outdated document is queued (state column `resend_reason = 'reextract'`; a document already queued is not counted again) and a running worker starts its next cycle at once. Each cycle then takes — after new, modified and field re-uploads, and within `max_files_per_cycle` — at most `RC_REEXTRACT_PER_CYCLE` queued documents its scan reached, partial ones first, then PDFs, Word files, e-mails and the rest, and re-extracts each one:
 
 - **unchanged** — the upload would carry exactly what Knovas holds: nothing is sent and nothing billed; the stamp is updated and the partial note follows the new extraction (a born-digital PDF an older release recorded partial leaves the backfill list);
+- **kept** — the result misses more OCR pages (skipped plus failed) than the text Knovas holds, as its partial note counts them (no note: none). Typically a large scan the backfill completed with its 5000-page / 1800 s budget, read again within the cycle's `RC_OCR_MAX_PAGES` / `RC_OCR_TIME_BUDGET_SECONDS`. Nothing is sent and nothing billed; Knovas, the search-context sidecar and the partial note keep what they hold. The stamp is updated, so the document leaves the queue and a later request does not read it again for nothing; `extraction.kept` counts it until an upload replaces that text. A partial document stays on the backfill list, and the backfill's larger budget brings it to the new extraction. A complete one is not on that list (the backfill takes partial documents only): it keeps the older extraction's text until the file changes, or until the stamp changes again and a request queues it;
 - **changed** — uploaded in place (same identifier): **a billed upload**;
 - **unconvertible** — the stamp is updated, nothing is sent;
 - **any other failure** — tried again on the next cycle, at most 3 times; the document stays outdated, and the next request queues it again. It never counts toward `RC_EXTRACT_MAX_RETRIES` and is never recorded partial: Knovas still holds its last upload.
 
-Documents uploaded before this release have no hash, so the **first** re-extraction uploads every one of them; later upgrades upload only what changed. While queued documents wait, the worker does not back off and a sequential subfolder does not advance. A queued document no scan reaches any more (a completed subfolder of a sequential import, a removed file kept by `delete_on_remove: false`) stays queued and counted. Each cycle that re-extracts logs one line of counts: `reextract uploaded=… unchanged=… failed=… reached=…`.
+Documents uploaded before this release have no hash, so the **first** re-extraction uploads every one of them; later upgrades upload only what changed. A document whose retries ran out (note `extract_retries_exhausted`) has no OCR counts to compare and is never kept. Field re-uploads are not held back either: only an upload delivers their values, so a large scan is sent within the cycle's budget and its partial note lists it for the backfill. While queued documents wait, the worker does not back off and a sequential subfolder does not advance. A queued document no scan reaches any more (a completed subfolder of a sequential import, a removed file kept by `delete_on_remove: false`) stays queued and counted. Each cycle that re-extracts logs one line of counts: `reextract uploaded=… unchanged=… kept=… failed=… reached=…`.
 
-The SQLite `documents` table gains `extraction_stamp`, `text_sha256`, `resend_reason` and `resend_attempts` on first start; an older Knovas Connector ignores them, and a row it rewrites counts as outdated again.
+The SQLite `documents` table gains `extraction_stamp`, `text_sha256`, `resend_reason` (`reextract` while queued, `kept` after a kept re-extraction) and `resend_attempts` on first start; an older Knovas Connector ignores them, and a row it rewrites counts as outdated again.
 
 ## Upgrades
 

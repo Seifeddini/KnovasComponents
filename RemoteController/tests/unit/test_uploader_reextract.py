@@ -115,3 +115,40 @@ def test_field_values_and_the_description_are_part_of_it(env):
     same = SemantixUploader().upload_file(path, REL, BODY, source=invoice,
                                           unchanged_text_sha256=first.text_sha256)
     assert same.status == "unchanged"
+
+
+def _extraction_misses(monkeypatch, note) -> None:
+    monkeypatch.setattr("sync.knovas_uploader.partial_note_for", lambda doc, expect_ocr: dict(note))
+
+
+def test_an_extraction_missing_more_ocr_pages_than_knovas_holds_is_kept(env, monkeypatch):
+    """``ocr_pages_missing_at_knovas``: OCR pages the text Knovas holds
+    lacks (0: complete). An extraction missing more -- skipped plus failed
+    -- is not sent: no init, no part, nothing billed."""
+    server, path = env
+    _extraction_misses(monkeypatch, {"ocr_pages_skipped": 2, "ocr_pages_failed": 1, "ocr_pages": 5})
+    kept = SemantixUploader().upload_file(path, REL, BODY, ocr_pages_missing_at_knovas=2)
+    assert server.calls == [] and kept.status == "kept"
+    assert (kept.transmission_key_id, kept.ingestion_requests, kept.error) == (None, 0, None)
+    assert kept.extraction_stamp == current_extraction_stamp()
+    assert kept.text_sha256 is None, "not what Knovas holds: never stored"
+    assert SemantixUploader().upload_file(path, REL, BODY, ocr_pages_missing_at_knovas=3).status == "ok"
+    assert SemantixUploader().upload_file(path, REL, BODY).status == "ok", "no baseline: sent as always"
+
+
+def test_a_complete_extraction_is_never_kept(env):
+    server, path = env
+    up = SemantixUploader().upload_file(path, REL, BODY, ocr_pages_missing_at_knovas=0)
+    assert up.status == "ok" and len(server.inits) == 1
+
+
+def test_the_same_text_missing_more_pages_is_kept_not_unchanged(env, monkeypatch):
+    """A page OCR'd blank before and skipped now: the same upload, but its
+    note would put a complete document on the backfill list."""
+    server, path = env
+    first = SemantixUploader().upload_file(path, REL, BODY)
+    server.calls.clear()
+    _extraction_misses(monkeypatch, {"ocr_pages_skipped": 1, "ocr_pages": 1})
+    again = SemantixUploader().upload_file(path, REL, BODY, unchanged_text_sha256=first.text_sha256,
+                                           ocr_pages_missing_at_knovas=0)
+    assert again.status == "kept" and server.calls == []

@@ -91,6 +91,24 @@ def test_the_status_counts_outdated_and_queued_documents_and_the_bound(
     assert "Muster" not in text and "b.docx" not in text
 
 
+def test_the_status_counts_documents_whose_re_extraction_was_kept(
+    employee, auth_headers, state_path
+):
+    """Not sent because it would have missed more OCR pages than the text
+    Knovas holds: no longer outdated, but counted -- never named."""
+    _seed(state_path, REL, "b.docx")
+    store = SyncStateStore(str(state_path))
+    try:
+        store.requeue_reextract(current_extraction_stamp())
+        store.record_reextract_kept(REL, current_extraction_stamp())
+    finally:
+        store.close()
+    block = _extraction(employee, auth_headers)
+    assert (block["outdated"], block["queued"], block["kept"]) == (1, 1, 1)
+    text = employee.get("/sync/status", headers=auth_headers).get_data(as_text=True)
+    assert "Muster" not in text
+
+
 def test_the_bound_is_the_connectors_setting(employee, auth_headers, monkeypatch):
     from config import load_config, reset_config
 

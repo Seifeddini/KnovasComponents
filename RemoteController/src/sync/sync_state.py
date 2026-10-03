@@ -268,6 +268,18 @@ class SyncStateStore:
         else:
             self._db.clear_partial(relative_path)
 
+    def record_reextract_kept(self, relative_path: str, stamp: str) -> None:
+        """A re-extraction that would have missed more OCR pages than the
+        text Knovas holds: nothing was sent. The stamp moves on, so the path
+        leaves the queue and a later request does not read it again for
+        nothing; it is counted as kept until an upload replaces that text.
+        Hash and partial note stay: they describe what Knovas holds, and a
+        partial document stays on the backfill list."""
+        self._db.set_extraction_kept(relative_path, stamp)
+
+    def count_reextract_kept(self) -> int:
+        return self._db.count_reextract_kept()
+
     def count_extraction_outdated(self, stamp: str) -> int:
         return self._db.count_extraction_outdated(stamp)
 

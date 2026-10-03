@@ -37,6 +37,7 @@
 - **`POST /sync/reextract/requeue`** → `{"requeued": n}` queues them; each cycle re-extracts at most **`RC_REEXTRACT_PER_CYCLE`** (100, 1–10000) after new, modified and field re-uploads — partial first, then PDF, DOCX, e-mail, the rest — and uploads in place only what changed (the first round uploads all: no hash yet). A failure never uses `RC_EXTRACT_MAX_RETRIES`; after 3 the document leaves the queue, still outdated.
 - **`GET /sync/status`**: `extraction.outdated`, `extraction.queued`, `extraction.per_cycle` — counts only.
 - The stamp and `extraction.knovas_extract_commit` carry the git commit of the installed knovas-extract (pip's `direct_url.json`; `null` from PyPI): before the release every pin is `0.4.0a1`, so a pin bump would otherwise mark nothing for re-extraction, and the Platform's System tab compares version and commit.
+- **A re-extraction never replaces a text with one missing more OCR pages** (skipped plus failed) than the partial note of what Knovas holds says (no note: none). A large scan the backfill completed, read again within the cycle's OCR budget, was uploaded partial — billed, its later pages gone from the index and the context sidecar, and billed once more by the next backfill. Now nothing is sent: the stamp moves on, hash and note stay, a partial document stays on the backfill list. Counted as `extraction.kept` in `GET /sync/status` and `kept=` in the cycle's log line. Field re-uploads are not held back.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 

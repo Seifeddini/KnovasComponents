@@ -11,11 +11,14 @@ text files.
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
+import io
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
+from unittest.mock import patch
 
 import pytest
 import requests
@@ -23,6 +26,7 @@ import requests
 from sync.extraction_stamp import current_extraction_stamp
 from sync.sync_state import SyncStateStore
 
+BACKFILL = Path(__file__).resolve().parents[2] / "scripts" / "backfill_partial_ocr.py"
 INIT = "/secured/init_document_transmission"
 PART = "/secured/transmit_document_part"
 DELETE = "/secured/delete_information_object"
@@ -44,6 +48,7 @@ class Server:
 
     def __init__(self) -> None:
         self.inits: list[dict] = []
+        self.snippets: list[str] = []
         self.fail_init: Optional[int] = None
 
     def rels(self) -> list[str]:
@@ -57,6 +62,8 @@ class Server:
                 return _response(self.fail_init, {"status": "error"})
             return _response(201, {"status": "success",
                                    "transmission_key_id": f"tk-{len(self.inits)}"})
+        if path == PART:
+            self.snippets.append((json or {}).get("snippet", ""))
         if path in (PART, DELETE):
             return _response(200, {"status": "success", "transmission_complete": True})
         return _response(404, {"status": "error", "error_code": "HTTP_404"})
@@ -90,6 +97,7 @@ class Harness:
 
         self.monkeypatch.setattr("sync.knovas_uploader.requests.request", self.server)
         self.server.inits.clear()
+        self.server.snippets.clear()
         return run_sync_work(body, SemantixUploader(), sync_config=sync_config)
 
     def state(self) -> SyncStateStore:
@@ -235,6 +243,69 @@ def _newer_extractor_reads(rc, suffix: str) -> None:
     rc.monkeypatch.setattr("sync.knovas_uploader.extract_document_guarded", newer)
 
 
+def _cycle_budget_trips(rc, note: dict, text: str = "Rechnung") -> None:
+    """The cycle's OCR budget (RC_OCR_MAX_PAGES, RC_OCR_TIME_BUDGET_SECONDS)
+    trips on a long scan the backfill completed with its larger one: the
+    extraction returns fewer pages and a partial note."""
+    from sync import knovas_uploader
+
+    real = knovas_uploader.extract_document_guarded
+
+    def cut(path, **kwargs):
+        return dataclasses.replace(real(path, **kwargs), text=text, sentences=None,
+                                   sections=None, pages=None)
+
+    rc.monkeypatch.setattr("sync.knovas_uploader.extract_document_guarded", cut)
+    rc.monkeypatch.setattr("sync.knovas_uploader.partial_note_for",
+                           lambda doc, expect_ocr: dict(note))
+
+
+def _kept(rc) -> int:
+    store = rc.state()
+    try:
+        return store.count_reextract_kept()
+    finally:
+        store.close()
+
+
+def _scanned_pdf(pages: int) -> bytes:
+    """Image-only pages, each with its own mark: every page needs OCR."""
+    fitz = pytest.importorskip("fitz")
+    image = pytest.importorskip("PIL.Image")
+    doc = fitz.open()
+    for index in range(pages):
+        page = doc.new_page(width=595, height=842)
+        img = image.new("L", (600, 850), color=255)
+        for x in range(10 + index * 7, 60 + index * 7):
+            for y in range(10, 40):
+                img.putpixel((x, y), 0)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        page.insert_image(page.rect, stream=buf.getvalue())
+    out = doc.tobytes()
+    doc.close()
+    return out
+
+
+class _PageEngine:
+    """An OCR engine (``OcrOptions.backend``) that reads a page as its number."""
+
+    name = "fake"
+    version = "1"
+    needs_image = False
+
+    def recognize(self, page_image):
+        return f"Seite {page_image.page_index + 1} erkannter Text."
+
+
+def _backfill_script():
+    spec = importlib.util.spec_from_file_location("backfill_partial_ocr", BACKFILL)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 class TestReextraction:
     def test_unchanged_text_is_not_uploaded_again(self, rc):
         rc.write("a.txt")
@@ -296,6 +367,148 @@ class TestReextraction:
             assert store.partial_paths() == []
         finally:
             store.close()
+
+
+class TestKeptWhenTheCycleWouldSendLess:
+    """A re-extraction never replaces Knovas's text with one that misses more
+    OCR pages. A large scan the backfill completed (5000 pages / 1800 s)
+    comes back partial under the cycle's budget (500 pages / 240 s): sent,
+    it would be billed, the pages past the budget would leave the index and
+    the search-context sidecar, and the next backfill would bill it again."""
+
+    def test_a_complete_text_is_not_replaced_by_a_partial_one(self, rc, caplog):
+        rc.write("akte.txt")
+        rc.run(rc.body())
+        sha = rc.extraction("akte.txt").text_sha256
+        rc.upgrade()
+        assert _requeue(rc) == 1
+        sidecars: list = []
+        rc.monkeypatch.setattr("sync.knovas_uploader.write_context_sidecar",
+                               lambda *args, **kwargs: sidecars.append(args[1]))
+        _cycle_budget_trips(rc, {"ocr_pages_skipped": 400, "ocr_pages": 500, "ocr_backend": "tesserocr"})
+        caplog.clear()
+        caplog.set_level(logging.INFO)
+        result = rc.run(rc.body())
+        assert rc.server.inits == [], "nothing sent: no billing"
+        assert sidecars == [], "the sidecar keeps the text Knovas holds"
+        assert (result.reextract_kept, result.reextract_uploaded, result.reextract_unchanged,
+                result.files_uploaded, result.files_partial) == (1, 0, 0, 0, 0)
+        assert result.transmissions == [] and result.errors == []
+        assert "reextract uploaded=0 unchanged=0 kept=1 failed=0 reached=1" in caplog.text
+        assert "akte" not in caplog.text
+        state = rc.extraction("akte.txt")
+        assert (state.stamp, state.text_sha256) == (current_extraction_stamp(), sha), \
+            "the stamp moves on, the hash stays: Knovas keeps its text"
+        store = rc.state()
+        try:
+            assert store.partial_paths() == [], "Knovas's text is complete: nothing to backfill"
+        finally:
+            store.close()
+        assert _kept(rc) == 1 and rc.outdated() == 0
+        assert _requeue(rc) == 0, "a later request does not re-read it for nothing"
+        assert rc.run(rc.body()).reextract_reached == 0, "it left the queue"
+
+    @pytest.mark.parametrize("stored, again, sent", [
+        ({"ocr_pages_skipped": 1, "ocr_pages": 9}, {"ocr_pages_skipped": 3, "ocr_pages": 7}, False),
+        ({"ocr_pages_failed": 1, "ocr_pages": 9, "backfill_unchanged": 1},
+         {"ocr_pages_skipped": 2, "ocr_pages": 8}, False),
+        ({"ocr_pages_skipped": 1, "ocr_pages": 9}, {"ocr_pages_failed": 1, "ocr_pages": 9}, True),
+        ({"ocr_pages_skipped": 3, "ocr_pages": 7}, {"ocr_pages_skipped": 1, "ocr_pages": 9}, True),
+        # Retries ran out: Knovas holds no text of this version to compare with.
+        ({"reason": "extract_retries_exhausted"}, {"ocr_pages_skipped": 3, "ocr_pages": 7}, True),
+    ], ids=["more-missing", "more-than-the-backfill-left", "as-many", "fewer", "retries-exhausted"])
+    def test_a_partial_text_is_replaced_only_by_one_missing_no_more(self, rc, stored, again, sent):
+        rc.write("scan.txt")
+        rc.run(rc.body())
+        store = rc.state()
+        try:
+            store.record_partial("scan.txt", FIXED_MTIME_ISO, len(TEXT), "tk-1", stored)
+        finally:
+            store.close()
+        rc.upgrade()
+        _requeue(rc)
+        _cycle_budget_trips(rc, again)
+        result = rc.run(rc.body())
+        assert (len(rc.server.inits), result.reextract_uploaded, result.reextract_kept) == \
+            ((1, 1, 0) if sent else (0, 0, 1))
+        store = rc.state()
+        try:
+            # Kept: the note still says what Knovas holds, so the document
+            # stays on the backfill list -- its larger budget brings it to
+            # the new extraction.
+            assert store.partial_note("scan.txt") == (again if sent else stored)
+        finally:
+            store.close()
+        assert rc.outdated() == 0 and _kept(rc) == (0 if sent else 1)
+
+    def test_the_next_extractor_queues_a_kept_document_again(self, rc):
+        from sync import knovas_uploader
+
+        real_extract = knovas_uploader.extract_document_guarded
+        real_note = knovas_uploader.partial_note_for
+        rc.write("akte.txt")
+        rc.run(rc.body())
+        rc.upgrade()
+        _requeue(rc)
+        _cycle_budget_trips(rc, {"ocr_pages_skipped": 400, "ocr_pages": 500})
+        assert rc.run(rc.body()).reextract_kept == 1
+        rc.monkeypatch.setattr("sync.extraction_stamp._knovas_extract_version", lambda: "100.0.0")
+        rc.monkeypatch.setattr("sync.knovas_uploader.extract_document_guarded", real_extract)
+        rc.monkeypatch.setattr("sync.knovas_uploader.partial_note_for", real_note)
+        assert rc.outdated() == 1 and _requeue(rc) == 1
+        result = rc.run(rc.body())
+        assert result.reextract_unchanged == 1 and rc.server.inits == []
+        assert _kept(rc) == 0 and rc.outdated() == 0
+
+    def test_a_scan_the_backfill_completed_end_to_end(self, rc, monkeypatch):
+        """The real PDF extraction with an OCR engine that reads each page
+        as its number: the cycle OCRs 3 of 6 pages (its budget), the backfill
+        script completes the scan, and after an extractor upgrade the
+        re-extraction -- 3 pages again -- leaves Knovas's text alone."""
+        import sync.document_text as document_text
+
+        real_build = document_text.build_ocr_options
+        monkeypatch.setattr(document_text, "build_ocr_options",
+                            lambda options: real_build({**options, "backend": _PageEngine()}))
+        monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+        monkeypatch.setenv("RC_OCR_MAX_PAGES", "3")  # the cycle's 500, scaled down
+        (rc.root / "akte.pdf").write_bytes(_scanned_pdf(6))
+        assert rc.run(rc.body()).files_partial == 1
+        assert not any("Seite 6" in snippet for snippet in rc.server.snippets)
+
+        backfill = _backfill_script()
+        rc.server.snippets.clear()
+        with patch("sync.sync_scheduler.load_last_sync_body", return_value=rc.body()):
+            assert backfill.main(["--timeout", "0", "--max-ocr-pages", "100"]) == 0
+        assert any("Seite 6" in snippet for snippet in rc.server.snippets), "complete at Knovas"
+        store = rc.state()
+        try:
+            assert store.partial_paths() == []
+        finally:
+            store.close()
+        sha = rc.extraction("akte.pdf").text_sha256
+
+        rc.upgrade()
+        assert _requeue(rc) == 1
+        result = rc.run(rc.body())
+        assert rc.server.inits == [] and result.reextract_kept == 1
+        assert rc.extraction("akte.pdf").text_sha256 == sha
+        store = rc.state()
+        try:
+            assert store.partial_paths() == [], "nothing for the backfill to send (and bill) again"
+        finally:
+            store.close()
+
+    def test_a_fields_re_send_is_not_held_back(self, rc):
+        """A fields re-send exists to deliver values that only an upload
+        carries, so it is sent even when it misses more pages; the partial
+        note puts the document on the backfill list, which restores it."""
+        rc.write("akte.txt")
+        rc.run(rc.body())
+        _cycle_budget_trips(rc, {"ocr_pages_skipped": 400, "ocr_pages": 500})
+        result = rc.run(rc.body(fields={"doc_type": "court_file"}))
+        assert rc.server.rels() == ["akte.txt"] and result.files_partial == 1
+        assert _kept(rc) == 0
 
 
 class TestQueueOrderAndBounds:
@@ -480,5 +693,5 @@ def test_a_re_extraction_logs_counts_only(rc, caplog):
     assert _requeue(rc) == 1
     result = rc.run(rc.body())
     assert result.reextract_unchanged == 1
-    assert "reextract uploaded=0 unchanged=1 failed=0 reached=1" in caplog.text
+    assert "reextract uploaded=0 unchanged=1 kept=0 failed=0 reached=1" in caplog.text
     assert secret not in caplog.text and "Honorarnote" not in caplog.text

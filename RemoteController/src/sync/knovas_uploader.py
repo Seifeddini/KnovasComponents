@@ -23,6 +23,7 @@ from sync.document_text import (
     docx_tables_in_text,
     extract_document_guarded,
     ocr_backend_missing,
+    ocr_pages_missing,
     partial_note_for,
     pdf_ocr_enabled,
 )
@@ -116,7 +117,10 @@ class UploadResult:
     #: (``extraction_stamp.upload_text_sha256``) and the stamp of the
     #: extraction that produced it (spec L6). Set on ``ok`` and on
     #: ``unchanged`` -- a re-extraction whose hash matched
-    #: ``unchanged_text_sha256``, for which no request was made.
+    #: ``unchanged_text_sha256``, for which no request was made. ``kept``
+    #: (a re-extraction missing more OCR pages than the text Knovas holds,
+    #: not sent either) carries the stamp only: its hash is not what
+    #: Knovas holds.
     text_sha256: Optional[str] = None
     extraction_stamp: Optional[str] = None
 
@@ -249,6 +253,7 @@ class SemantixUploader:
         source: Optional[SourceSpec] = None,
         previous_fields_sent: bool = False,
         unchanged_text_sha256: Optional[str] = None,
+        ocr_pages_missing_at_knovas: Optional[int] = None,
     ) -> UploadResult:
         """Extract, init and transmit one file.
 
@@ -262,7 +267,10 @@ class SemantixUploader:
         the hash of what the upload carried (spec L6). A re-extraction
         passes the hash of the last upload as ``unchanged_text_sha256``:
         when the new one matches, no request is made and the status is
-        ``unchanged``.
+        ``unchanged``. It also passes how many OCR pages the text Knovas
+        holds lacks as ``ocr_pages_missing_at_knovas`` (0: complete): an
+        extraction missing more (``document_text.ocr_pages_missing``) is
+        not sent either, and the status is ``kept``.
         """
         if source is not None:
             access_groups = source.access_groups
@@ -296,15 +304,6 @@ class SemantixUploader:
                 tables=tables,
                 page_markers=page_break_markers_enabled(),
             )
-            # Always from the UNMARKED text: the sidecar's offsets are the
-            # extractor's, the markers exist only on the wire.
-            write_context_sidecar(
-                context_store_dir_from_env(),
-                identifier,
-                relative_path,
-                text,
-                sentences,
-            )
             part_count = len(parts)
             partial = partial_note_for(doc, expect_ocr=(ext == ".pdf" and bool(pdf_ocr_enabled())))
             _record_cache_metrics(doc)
@@ -319,6 +318,35 @@ class SemantixUploader:
                 ingestion_requests=0,
                 error=str(exc),
             )
+
+        if ocr_pages_missing_at_knovas is not None:
+            missing = ocr_pages_missing(partial)
+            if missing is not None and missing > ocr_pages_missing_at_knovas:
+                # A re-extraction would replace Knovas's text with one that
+                # misses more OCR pages: a large scan the backfill completed,
+                # read again within the cycle's smaller OCR budget. Nothing
+                # is sent or billed, and the sidecar keeps the text Knovas
+                # holds. Checked before the hash: the same text with a page
+                # skipped instead of OCR'd blank must not be recorded partial.
+                return UploadResult(
+                    relative_path=relative_path,
+                    transmission_key_id=None,
+                    parts=part_count,
+                    status="kept",
+                    ingestion_requests=0,
+                    partial=partial,
+                    extraction_stamp=current_extraction_stamp(),
+                )
+
+        # Always from the UNMARKED text: the sidecar's offsets are the
+        # extractor's, the markers exist only on the wire.
+        write_context_sidecar(
+            context_store_dir_from_env(),
+            identifier,
+            relative_path,
+            text,
+            sentences,
+        )
 
         # Prefer the extractor-supplied title (email subject, PDF /Title, DOCX
         # core.xml title) so email search on the subject line still works after

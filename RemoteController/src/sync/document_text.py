@@ -56,7 +56,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import knovas_extract
 from knovas_extract import (
@@ -788,6 +788,18 @@ def ocr_backend_missing(note: Optional[dict[str, Any]]) -> bool:
     because no backend was available. Feeds ``rc_ocr_backend_degraded_total``
     only; a budget trip or a failed page is not a degraded backend."""
     return bool(note) and note.get("ocr_backend") == "none"
+
+
+def ocr_pages_missing(note: Optional[Mapping[str, Any]]) -> Optional[int]:
+    """The OCR pages a text lacks by its partial note: skipped plus failed
+    (``partial_note_for``). No note is a complete text: 0. None for a note
+    without these counts -- ``extract_retries_exhausted``, or the rule
+    before spec E1 -- which gives nothing to compare."""
+    if note is None:
+        return 0
+    counts = [_int_or_none(note.get(key)) for key in ("ocr_pages_skipped", "ocr_pages_failed")]
+    known = [count for count in counts if count is not None]
+    return sum(known) if known else None
 
 
 # --- shadow mode (numbers only, never text) ----------------------------------
