@@ -9,6 +9,7 @@ with the real uploader against a scripted Secure API.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections import Counter
 from pathlib import Path
@@ -25,6 +26,7 @@ from sync.sync_state_db import REQUEUE_DIGEST
 INIT = "/secured/init_document_transmission"
 PART = "/secured/transmit_document_part"
 DELETE = "/secured/delete_information_object"
+PROBE = "/secured/graph/doc-fields"
 FIXED_MTIME = 1_700_000_000
 
 
@@ -52,6 +54,10 @@ class Server:
         self.fail: dict[str, Callable[[], requests.Response]] = {}
         self.inits: list[dict] = []
         self.echo_warnings: list[dict] = []
+        #: The capability probe (spec F5): its answer -- a status, or None for
+        #: no answer at all -- and the calls it got. 404: fields are off.
+        self.probe_status: Optional[int] = 404
+        self.probes: list[tuple[str, Any]] = []
 
     def rels(self) -> list[str]:
         return [b["path"] for b in self.inits]
@@ -77,6 +83,12 @@ class Server:
             return _response(200, {"status": "success", "transmission_complete": True})
         if path == DELETE:
             return _response(200, {"status": "success"})
+        if path == PROBE:
+            self.probes.append((method, json))
+            if self.probe_status is None:
+                raise requests.ConnectionError("no answer")
+            return _response(self.probe_status, {"status": "success", "fields": []}
+                             if self.probe_status == 200 else {"status": "error"})
         return _response(404, {"status": "error", "error_code": "HTTP_404"})
 
 
@@ -892,3 +904,99 @@ def test_warning_entries_are_the_most_frequent_first_and_capped():
     assert entries[1] == {"code": "invalid_value", "key": "k00", "count": 1}
     assert entries[-1] == {"code": "invalid_value", "key": "k48", "count": 1}
     assert DocFieldsCycle().warning_entries() == []
+
+
+class TestCapabilityProbe:
+    """Spec F5: documents Knovas did not take fields for come back without
+    a trigger upload once Knovas answers the probe -- one probe an hour at
+    most, only when the scan reached such documents, never with a body."""
+
+    @staticmethod
+    def _not_accepted(rc, *rels: str) -> dict:
+        body = rc.body(rc.source(**MANDATE))
+        for rel in rels:
+            rc.write(rel)
+        rc.server.mode = "off"
+        rc.run(body)
+        assert rc.server.probes == [], "no not_accepted row yet: nothing to ask about"
+        assert all(rc.fields(rel).outcome == "not_accepted" for rel in rels)
+        return body
+
+    def test_off_404_changes_nothing(self, rc, caplog):
+        body = self._not_accepted(rc, REL)
+        caplog.set_level(logging.INFO, logger="sync.sync_executor")
+        result = rc.run(body)
+        assert rc.server.probes == [("GET", None)]
+        assert result.doc_fields.requeued == 0 and result.files_uploaded == 0
+        assert rc.fields(REL).outcome == "not_accepted" and rc.fields(REL).digest
+        assert "doc_fields probe=off requeued=0" in caplog.text
+        assert rc.run(body).document_sync.fields_changed == 0
+
+    def test_on_requeues_the_reached_rows_and_they_come_back_within_the_bound(self, rc, caplog):
+        rels = [f"Muster AG/GJ 2024/R{i}.txt" for i in range(5)]
+        rc.env(RC_FIELDS_REUPLOAD_PER_CYCLE="2")
+        body = self._not_accepted(rc, *rels)
+        rc.server.mode = "values"
+        rc.server.probe_status = 200
+        caplog.set_level(logging.INFO, logger="sync.sync_executor")
+        first = rc.run(body)
+        assert first.doc_fields.requeued == 5 and first.files_uploaded == 0
+        assert "doc_fields probe=on requeued=5" in caplog.text
+        sent = [rc.run(body).files_uploaded for _ in range(3)]
+        assert sent == [2, 2, 1], "the side queue's per-cycle bound"
+        assert all(rc.fields(rel).outcome == "staged" for rel in rels)
+        assert rc.server.probes == [("GET", None)], "one probe an hour"
+
+    @pytest.mark.parametrize("answer", [500, 503, 429, None])
+    def test_unknown_changes_nothing_and_is_asked_again_an_hour_later(self, rc, answer):
+        import sync.sync_executor as executor
+
+        body = self._not_accepted(rc, REL)
+        rc.server.probe_status = answer
+        assert rc.run(body).doc_fields.requeued == 0
+        assert rc.run(body).doc_fields.requeued == 0
+        assert len(rc.server.probes) == 1, "single try, and not again within the hour"
+        rc.monkeypatch.setattr(executor, "_last_doc_fields_probe",
+                               executor._last_doc_fields_probe
+                               - executor.DOC_FIELDS_PROBE_INTERVAL_SECONDS)
+        rc.server.probe_status = 200
+        assert rc.run(body).doc_fields.requeued == 1
+        assert len(rc.server.probes) == 2
+
+    def test_the_echo_trigger_still_works_when_the_probe_says_off(self, rc):
+        body = self._not_accepted(rc, REL)
+        rc.server.mode = "values"          # inits echo again ...
+        rc.server.probe_status = 404       # ... while the probe still says off
+        rc.write("Muster AG/GJ 2024/Neu.txt")
+        result = rc.run(body)
+        assert len(rc.server.probes) == 1
+        assert result.doc_fields.requeued == 1, "the first staged echo queued it"
+        assert rc.run(body).document_sync.fields_changed == 1
+        assert rc.fields(REL).outcome == "staged"
+
+    def test_no_probe_without_not_accepted_rows_or_with_the_kill_switch(self, rc):
+        body = rc.body(rc.source(**MANDATE))
+        rc.write(REL)
+        rc.run(body)
+        rc.run(body)
+        assert rc.server.probes == [], "staged rows give nothing to ask about"
+        rc.server.mode = "off"
+        rc.write("Muster AG/GJ 2024/Neu.txt")
+        rc.run(body)
+        rc.env(RC_DOC_FIELDS="off")
+        rc.server.probe_status = 200
+        rc.run(body)
+        assert rc.server.probes == [], "RC_DOC_FIELDS=off sends nothing, no probe either"
+
+    def test_a_row_the_scan_does_not_reach_is_no_reason_to_probe(self, rc):
+        body = rc.body(rc.source(**MANDATE))
+        body["ingestion"]["delete_on_remove"] = False
+        rc.write(REL)
+        rc.server.mode = "off"
+        rc.run(body)
+        (rc.root / REL).unlink()
+        rc.write("Beispiel GmbH/GJ 2024/Neu.txt")
+        rc.server.probe_status = 200
+        rc.run(body)
+        assert rc.server.probes == []
+        assert rc.fields(REL).outcome == "not_accepted" and rc.fields(REL).digest

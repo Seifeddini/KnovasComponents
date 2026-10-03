@@ -5,6 +5,8 @@ import fnmatch
 import logging
 import os
 import re
+import threading
+import time
 from collections import Counter
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
@@ -1269,6 +1271,66 @@ def _default_max_sync_duration_minutes(sync_config: dict[str, Any] | None) -> Op
     return None
 
 
+#: Spec F5: a cycle asks Knovas at most this often whether it takes fields.
+DOC_FIELDS_PROBE_INTERVAL_SECONDS = 3600.0
+#: ``time.monotonic()`` of the last probe. Module memory, like the
+#: scheduler's last-cycle state: it survives the worker's cycle loop and the
+#: one-time runs of POST /sync (the uploader is built anew for every cycle,
+#: so it cannot keep it); a restart costs at most one extra GET.
+_last_doc_fields_probe: Optional[float] = None
+_doc_fields_probe_lock = threading.Lock()
+
+
+def _claim_doc_fields_probe() -> bool:
+    """True when no probe ran within DOC_FIELDS_PROBE_INTERVAL_SECONDS; the
+    slot is then taken, whatever the probe will answer."""
+    global _last_doc_fields_probe
+    now = time.monotonic()
+    with _doc_fields_probe_lock:
+        last = _last_doc_fields_probe
+        if last is not None and now - last < DOC_FIELDS_PROBE_INTERVAL_SECONDS:
+            return False
+        _last_doc_fields_probe = now
+        return True
+
+
+def _requeue_not_accepted(state: SyncStateStore, plan: _ScanPlan, stats: DocFieldsCycle) -> int:
+    """Queue the ``not_accepted`` rows this cycle's scan reached for a fields
+    re-upload: the next cycle finds them ``fields_changed`` and re-sends them
+    within RC_FIELDS_REUPLOAD_PER_CYCLE. Returns how many."""
+    count = state.requeue_fields(OUTCOME_NOT_ACCEPTED, plan.scanned_paths)
+    stats.requeued += count
+    return count
+
+
+def _probe_doc_fields(
+    uploader: Any, state: SyncStateStore, plan: _ScanPlan, stats: DocFieldsCycle
+) -> bool:
+    """Spec F5: re-send without a trigger upload.
+
+    ``not_accepted`` rows come back after the first upload whose answer
+    carries the fields echo -- and a cycle that uploads nothing new gets
+    none. So when this cycle's scan reached such rows, at most once an hour,
+    ask Knovas (``uploader.probe_doc_fields``: one GET, no body). On: the
+    rows are requeued exactly like after a ``staged`` echo, and True tells
+    the caller that this cycle's echo check is done. Off or unknown: nothing
+    changes, and the echo trigger still works. Logs the answer class and a
+    count only.
+    """
+    probe = getattr(uploader, "probe_doc_fields", None)
+    if not callable(probe):
+        return False
+    if not state.count_fields_requeue_candidates(OUTCOME_NOT_ACCEPTED, plan.scanned_paths):
+        return False
+    if not _claim_doc_fields_probe():
+        return False
+    answer = probe()
+    requeued = _requeue_not_accepted(state, plan, stats) if answer is True else 0
+    label = "on" if answer is True else "off" if answer is False else "unknown"
+    logger.info("doc_fields probe=%s requeued=%d", label, requeued)
+    return answer is True
+
+
 def run_sync_work(
     sync_body: dict[str, Any],
     uploader: SemantixUploader,
@@ -1338,7 +1400,9 @@ def run_sync_work(
         order = upload_order()
         work = [(item, False) for item in _ordered_upload_queue(plan.upload_queue, order)]
         work += [(item, True) for item in _ordered_upload_queue(plan.fields_queue, order)]
-        requeue_checked = False
+        # Spec F5: after the scan, before the first upload. When the probe
+        # requeued this cycle's not_accepted rows, the echo check below is done.
+        requeue_checked = stats is not None and _probe_doc_fields(uploader, state, plan, stats)
         for (abs_path, rel, mtime_iso, size_bytes, spec), fields_reupload in work:
             if should_stop():
                 result.paused_reason = "stop_requested"
@@ -1400,8 +1464,7 @@ def run_sync_work(
                 # removed file kept tracked) would wait for good and be
                 # reported as pending forever.
                 requeue_checked = True
-                if state.count_fields_requeue_candidates(OUTCOME_NOT_ACCEPTED, plan.scanned_paths):
-                    stats.requeued += state.requeue_fields(OUTCOME_NOT_ACCEPTED, plan.scanned_paths)
+                if _requeue_not_accepted(state, plan, stats):
                     logger.info("doc_fields requeued=%d outcome=not_accepted", stats.requeued)
             tx_entry: dict[str, Any]
             if upload.status == "ok":

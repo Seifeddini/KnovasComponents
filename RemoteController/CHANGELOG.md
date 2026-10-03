@@ -7,6 +7,7 @@
 ### Document fields per Knovas 1.5.0 (Knovas Connector)
 
 - **Upload warnings name their field** (F4): `GET /sync/status` → `doc_fields.warnings` is a list of `{code, key, count}` for the last cycle, the most frequent first, at most 50 (it was `{code: count}`; the `POST /sync` summary keeps that shape). Field keys only — never a value or the warning's JSON path; a "key" that is not key-shaped is reported as `""`. `rc_doc_fields_warnings_total{code}` counts `ambiguous_number` (Knovas 1.5.0) instead of `other`.
+- **Not accepted fields come back without a trigger upload** (F5): at the start of a cycle whose scan reaches documents recorded `not_accepted`, at most once an hour, the Knovas Connector asks `GET /secured/graph/doc-fields` (mTLS, no body, one try). `404`: still off, nothing changes. A 5xx, a 429 or no answer: unknown, asked again an hour later. Any other answer: those documents are requeued exactly as after a `staged` echo and re-sent within `RC_FIELDS_REUPLOAD_PER_CYCLE`. The echo trigger stays. Log line `doc_fields probe=on|off|unknown requeued=n`.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 

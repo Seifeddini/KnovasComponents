@@ -236,7 +236,13 @@ documents need 200 runs. There is no separate bound for `one_time` runs.
 **When the server starts accepting.** While the feature is off at Knovas,
 uploads with fields are recorded `not_accepted`. The first upload whose answer
 carries the fields echo (`staged`) queues every `not_accepted` document that
-cycle's scan reached for a re-upload, within the bound. `POST /sync/doc-fields/requeue` does the same on
+cycle's scan reached for a re-upload, within the bound. A cycle that uploads
+nothing new gets no echo, so at the start of a cycle whose scan reaches
+`not_accepted` documents the Knovas Connector also asks Knovas, at most once
+an hour, whether it takes fields (`GET /secured/graph/doc-fields`, no body,
+one try): `404` means still off; a 5xx, a 429 or no answer means unknown
+(asked again an hour later); any other answer means on, and those documents
+are queued exactly as after an echo. `POST /sync/doc-fields/requeue` does the same on
 request for `not_accepted`, `refused`, `reupload_failed` or `all`
 ([operations.md](operations.md#document-fields)).
 
