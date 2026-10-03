@@ -3,30 +3,25 @@
 Typed values per document — Mandant, Zeitraum, Dokumentart, Gericht, Frist —
 that Knovas keeps next to the text: shown on result cards, used as search
 filters, listed, and corrected by hand. Knovas holds the values; the Platform
-shows only what Knovas confirms, and RemoteController can send values with
+shows only what Knovas confirms, and the Knovas Connector can send values with
 each upload.
 
-**Prerequisite: Knovas must enable Document Fields for the tenant.** It is
-off by default on the Knovas side. Nothing in `knovas.env` switches it on —
-the Platform asks Knovas what it serves and shows only that. Against a tenant
-without the feature, or an older server, the Platform behaves exactly as
-before: no new UI, and no new keys in its requests.
+**On for every account since Knovas 1.5.0.** Document fields, including
+filtering by fields in search and in lists, is on for every Knovas account.
+Knovas can still switch it off for an account, and an older server does not
+have it, so the Platform and the Knovas Connector check every answer: the
+Platform asks Knovas what it serves and shows only that, and nothing in
+`knovas.env` switches it on. Against an account with the feature off, or an
+older server, the Platform behaves exactly as before: no new UI, and no new
+keys in its requests.
 
-**Minimum Knovas release.** The field panel, the *Felder* drawer under
-*Dokumente* and every value edit need a Knovas release whose
-`GET /secured/graph/doc-values` reads the document pointer from the JSON body
-(integration change S2; the Platform never puts a pointer in a URL). Against
-an earlier release that has Document Fields, these places say *Knovas-Update
-nötig: der Server liest den Dokumentverweis noch nicht aus dem Anfragekörper*,
-and nothing can be edited; filters and lists are not affected.
-`./scripts/doctor.sh` names this case (`FAIL Dokumentfelder: Knovas-Update
-noetig`). In a BROKERED tenant, entity values sent by RemoteController (for
-example `client`) also need change S1; before it, Knovas refuses such an
-upload with `401 assertion_rejected` and RemoteController indexes the document
-without its fields (`refused:assertion_rejected`).
+In a BROKERED tenant, entity values sent by the Knovas Connector (for example
+`client`) also need change S1; before it, Knovas refuses such an upload with
+`401 assertion_rejected` and the Knovas Connector indexes the document without
+its fields (`refused:assertion_rejected`).
 
 Design and decisions: [`docs/superpowers/plans/2026-10-02-document-fields-integration.md`](../../../docs/superpowers/plans/2026-10-02-document-fields-integration.md).
-RemoteController side: [`RemoteController/docs/configuration.md`](../../../RemoteController/docs/configuration.md#per-source-document-fields-dokumentfelder).
+Knovas Connector side: [`RemoteController/docs/configuration.md`](../../../RemoteController/docs/configuration.md#per-source-document-fields-dokumentfelder).
 Customer one-pager: [`docs/client/document-fields.md`](../../../docs/client/document-fields.md).
 
 ## What the tenant gets, by state
@@ -38,7 +33,7 @@ names the state; nothing else in the UI mentions a reduced one.
 
 | State (System tab) | Knovas has | The Platform shows |
 |---|---|---|
-| `aus` | feature off, tenant not enabled, knowledge graph off, older server — or the Platform runs without mTLS (legacy mode), or `DOC_FIELDS_UI=off` | nothing new |
+| `aus` | feature switched off for the account, knowledge graph off, older server — or the Platform runs without mTLS (legacy mode), or `DOC_FIELDS_UI=off` | nothing new |
 | `Werte (ohne Filter)` | values | the field panel in the preview, the **Dokumentfelder** admin tab, the field drawer in **Dokumente** |
 | `Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)` | values and listing; search filters wait for a relevance calibration at Knovas | additionally: typed values on result cards, the **Liste anzeigen** listing, the admin **Feldfilter** |
 | `Werte + Filter` | everything | additionally: the filter rail in the search |
@@ -71,7 +66,7 @@ runner):
   keine Fristenkontrolle".
 - **Empty states speak of what the person can see** ("in den für Sie
   sichtbaren Dokumenten"), never of the corpus.
-- **No echo, no "gespeichert".** RemoteController and the Ingestion tab say
+- **No echo, no "gespeichert".** The Knovas Connector and the Ingestion tab say
   "nicht übernommen" when Knovas did not confirm.
 - **Shown is not searchable.** A manual title is shown, not searched ("Titel
   wird angezeigt, nicht durchsucht"). `privileged` is a marker, not an access
@@ -91,7 +86,8 @@ runner):
   Fields marked *besonders schützenswert* get no suggestions.
 - **Liste anzeigen** (states with listing): without a question, the chosen
   fields list every matching document visible to the person, sorted by a date
-  field or the path, page by page.
+  field or the path, page by page. Experiment documents (*Experimente*) never
+  appear in it, as in the search.
 - **Cards** show the values of fields marked *auf Trefferkarten zeigen*, except
   *besonders schützenswert* fields. A real title from the values (at most 100
   characters and not just the file name) replaces the file name; an entity the
@@ -145,7 +141,7 @@ Visible to `admin` in every state except `aus`.
   then refuse.
 - **Ordnervorgaben** (folder rules): default values for every document under
   a folder, applied at Knovas without re-uploading ("wird angewendet (meist
-  Minuten)"). The folder is picked from the RemoteController tree (or typed as
+  Minuten)"). The folder is picked from the Knovas Connector's tree (or typed as
   a pointer prefix ending in `/`). Pointers leave out the source folder, so a
   rule on `rc-sync/Muster AG/` applies in every source with a top folder
   `Muster AG` — a profile with several sources asks for that confirmation.
@@ -187,8 +183,8 @@ unless the state is `aus`):
 Saving checks every key against the registry (active fields only, code-list
 values, template keys, the targets of the file properties) and warns when a
 key is also set by a folder rule under the profile's prefix. It refuses when
-RemoteController does not report the needed capability ("RemoteController zu
-alt – bitte aktualisieren").
+the Knovas Connector does not report the needed capability ("Der Knovas
+Connector ist zu alt – bitte aktualisieren").
 
 **A change re-sends documents, and that costs.** Changing a folder's fixed
 values, templates or file properties re-uploads every document of that folder:
@@ -199,7 +195,7 @@ at 100 per cycle on the nightly schedule — `ceil(documents / per cycle)` cycle
 window. Text recognition is not included, so it is the short side of the
 truth. On the *manual* schedule each Start re-sends one cycle's worth.
 
-The status panel shows what RemoteController reports: whether Knovas takes
+The status panel shows what the Knovas Connector reports: whether Knovas takes
 the fields, counts of refused / not accepted / failed documents, Knovas's
 warning codes, unknown keys with suggestions, pending re-uploads with an ETA,
 and identical relative paths in several folders (the first folder governs).
@@ -208,7 +204,7 @@ failed documents — each a billed upload.
 
 **Downgrading the Platform** to a release without document fields: it drops
 the per-folder fields when it reads the profile. If it pushes that profile,
-RemoteController clears those documents' upload values at Knovas on their next
+the Knovas Connector clears those documents' upload values at Knovas on their next
 re-upload (bounded per cycle). Folder rules and manual values stay.
 
 ## Configuration
@@ -234,10 +230,10 @@ automated tests.
 - **Known limitation (application logs):** application log lines that predate
   document fields still name document paths and pointers — opening,
   downloading and previewing a document, a failed preview or thumbnail, the
-  legacy search (its query text), and RemoteController's upload-failure,
+  legacy search (its query text), and the Knovas Connector's upload-failure,
   partial-OCR and removal lines. Folder names are where path-template values
   come from, so these lines can carry field values too. Treat the Platform's
-  and RemoteController's container logs as confidential, like the documents.
+  and the Knovas Connector's container logs as confidential, like the documents.
 - **Access logs carry no URIs**: the bundled nginx and gunicorn log time,
   method, status, size and duration only (`knovas_privacy`); so does the host
   nginx template (`deploy/host-nginx`). Operators lose per-path access logs in

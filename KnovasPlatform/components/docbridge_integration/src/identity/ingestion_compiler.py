@@ -378,7 +378,7 @@ def _reject_secrets(document: dict[str, Any], which: str) -> None:
     if leaked:
         raise ProfileError(
             f"The compiled {which} contained {', '.join(sorted(leaked))}, which "
-            "RemoteController refuses. This is a bug in the compiler, not in "
+            "the Knovas Connector refuses. This is a bug in the compiler, not in "
             "your configuration."
         )
 
@@ -474,10 +474,10 @@ TEMPLATE_ERROR_TEXT = {
 
 #: RemoteController refuses a body with field keys it does not know; the
 #: Platform says so before it tries (spec 2.5, 4.8).
-RC_TOO_OLD = ("RemoteController zu alt \u2013 bitte aktualisieren: er meldet keine "
+RC_TOO_OLD = ("Der Knovas Connector ist zu alt \u2013 bitte aktualisieren: er meldet keine "
               "Unterst\u00fctzung f\u00fcr Dokumentfelder.")
 #: ...and when it cannot be asked at all, it is not called too old.
-RC_UNREACHABLE = ("RemoteController nicht erreichbar \u2013 ob er Dokumentfelder "
+RC_UNREACHABLE = ("Der Knovas Connector ist nicht erreichbar \u2013 ob er Dokumentfelder "
                   "unterst\u00fctzt, l\u00e4sst sich jetzt nicht pr\u00fcfen. Bitte "
                   "sp\u00e4ter erneut speichern.")
 

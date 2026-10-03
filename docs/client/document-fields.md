@@ -1,11 +1,10 @@
 # Document fields (Dokumentfelder) — what they do for your office
 
-**Available only once Knovas has enabled Document Fields for your tenant**,
-on a Knovas release that reads the document reference of the field panel from
-the request body (otherwise the panel and every value edit say *Knovas-Update
-nötig*; filters and lists still work).
-Until then the Platform shows none of what follows, and search works as
-before. Ask Knovas to enable it; afterwards **Verwaltung → System →
+**On for every Knovas account since Knovas 1.5.0**, including filtering by
+fields in search and in lists. Knovas can still switch it off for an account,
+and an older Knovas server does not have it; the Platform and the Knovas
+Connector check every answer, and while it is off the Platform shows none of
+what follows and search works as before. **Verwaltung → System →
 Dokumentfelder** says which level your tenant has:
 
 | Level | What you get |
@@ -20,7 +19,7 @@ and the most specific wins:
 
 1. **Your edits** in the preview (*Manuell*), by the roles your administrator
    allows (by default administrators only).
-2. **Your folders**, sent by RemoteController with each upload (*Upload*): a
+2. **Your folders**, sent by the Knovas Connector with each upload (*Upload*): a
    fixed value per folder ("everything in *Kreditoren* is an invoice"), or a
    **path template** that reads the value from the folder name:
    `{mandant}/{period}/**` turns `Muster AG/GJ 2024/Rechnung_17.pdf` into
@@ -79,7 +78,7 @@ and the most specific wins:
 - The document-fields features write no field value into logs, new URLs or
   the audit log of the Platform. Older log lines (opening or previewing a
   document, a failed upload) still name document paths, and folder names can
-  be field values: keep the Platform's and RemoteController's logs as
+  be field values: keep the Platform's and the Knovas Connector's logs as
   confidential as the documents.
 
 Details for administrators: [KnovasPlatform/docs/features/document-fields.md](../../KnovasPlatform/docs/features/document-fields.md).

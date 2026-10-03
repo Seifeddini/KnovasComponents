@@ -116,7 +116,7 @@
             </form>
             {% endfor %}
         </div>
-        <p class="hint">Jedes erneut gesendete Dokument ist ein verrechneter Upload mit erneuter Texterkennung; RemoteController sendet höchstens die eingestellte Anzahl pro Durchlauf.</p>
+        <p class="hint">Jedes erneut gesendete Dokument ist ein verrechneter Upload mit erneuter Texterkennung; der Knovas Connector sendet höchstens die eingestellte Anzahl pro Durchlauf.</p>
         {% endif %}
     </section>
     {% endif %}
@@ -135,7 +135,7 @@
                     {% if p.templates is defined and p.templates %}
                     <tr class="template-preview-row"><td colspan="3">
                         {% for e in p.templates.errors %}
-                        <p class="msg error">Pfadvorlage {{ e.index }}: {{ e.text }} – RemoteController würde diesen Ordner überspringen.</p>
+                        <p class="msg error">Pfadvorlage {{ e.index }}: {{ e.text }} – der Knovas Connector würde diesen Ordner überspringen.</p>
                         {% endfor %}
                         <p class="hint">Pfadvorlagen: {{ p.templates.matched }} von {{ p.templates.files }} Dateien im Ausschnitt passen{% if p.templates.truncated %} (die ersten {{ p.templates.rows|length }} gezeigt){% endif %}.</p>
                         {% if p.templates.rows %}
@@ -210,9 +210,9 @@
                 <p class="msg error">Knovas stellt Dokumentfelder derzeit nicht bereit. Vorhandene Einstellungen bleiben erhalten; Änderungen werden erst nach einer Prüfung übertragen.</p>
                 {% endif %}
                 {% if df.rc_supports is none %}
-                <p class="msg warn">RemoteController ist nicht erreichbar; ob er Dokumentfelder unterstützt, lässt sich gerade nicht prüfen. Ordner mit Feldern werden erst gespeichert, wenn er antwortet.</p>
+                <p class="msg warn">Der Knovas Connector ist nicht erreichbar; ob er Dokumentfelder unterstützt, lässt sich gerade nicht prüfen. Ordner mit Feldern werden erst gespeichert, wenn er antwortet.</p>
                 {% elif not df.rc_supports %}
-                <p class="msg error">RemoteController meldet keine Unterstützung für Dokumentfelder – bitte aktualisieren, bevor Ordner mit Feldern gespeichert werden.</p>
+                <p class="msg error">Der Knovas Connector meldet keine Unterstützung für Dokumentfelder – bitte aktualisieren, bevor Ordner mit Feldern gespeichert werden.</p>
                 {% endif %}
                 {% if df.multi_source %}
                 <p class="hint">Mehrere Ordner: Dateien mit gleichem relativem Pfad teilen sich bei Knovas einen Eintrag; ihre Felder bestimmt der erste Ordner.</p>

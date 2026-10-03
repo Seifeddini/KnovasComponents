@@ -147,8 +147,8 @@ _FIELD_WARNINGS = {
 
 OFF_TEXT = "Dokumentfelder sind bei Knovas nicht freigeschaltet."
 OFF_HINT = (
-    "Sobald Knovas die Funktion f\u00fcr diesen Mandanten freischaltet, erscheint "
-    "hier das Feldverzeichnis. Suche und Ingestion laufen bis dahin wie bisher."
+    "Knovas hat Dokumentfelder f\u00fcr diesen Mandanten ausgeschaltet, oder der "
+    "Knovas-Server kennt sie noch nicht. Suche und Ingestion laufen wie bisher."
 )
 # The capability probe did not answer clearly (401/403/429/5xx, a network
 # error, an answer without its echo): nothing is shown and nothing written,
@@ -183,11 +183,11 @@ NO_LIVE_RULE = "keine aktive Vorgabe"
 MULTI_SOURCE_CONFIRM = "gilt in allen Quellen mit diesem Unterordner"
 REQUEUE_OFFER = "Abgelehnte Uploads erneut senden"
 REQUEUE_UNSUPPORTED = (
-    "Der RemoteController kennt das erneute Senden noch nicht \u2013 bitte "
-    "RemoteController aktualisieren."
+    "Der Knovas Connector kennt das erneute Senden noch nicht \u2013 bitte "
+    "den Knovas Connector aktualisieren."
 )
 REQUEUE_UNREACHABLE = (
-    "Der RemoteController ist nicht erreichbar; es wurde nichts erneut gesendet. "
+    "Der Knovas Connector ist nicht erreichbar; es wurde nichts erneut gesendet. "
     "Bitte sp\u00e4ter erneut versuchen."
 )
 UNSET_TEXT = "aufgehoben"
@@ -1167,7 +1167,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         try:
             return rc_client_factory()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("RemoteController client unavailable: %s", type(exc).__name__)
+            logger.warning("Knovas Connector client unavailable: %s", type(exc).__name__)
             return None
 
     def _requeue_support() -> Optional[bool]:
@@ -1176,7 +1176,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         try:
             return requeue_supported(_rc())
         except Exception as exc:  # noqa: BLE001 - asked, not answered
-            logger.warning("RemoteController capabilities unavailable: %s", type(exc).__name__)
+            logger.warning("Knovas Connector capabilities unavailable: %s", type(exc).__name__)
             return None
 
     def _admin_member(client) -> Optional[bool]:
@@ -1635,7 +1635,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             count = int(_rc().requeue_doc_fields("refused") or 0)
         except Exception as exc:  # noqa: BLE001
             logger.warning("doc-fields requeue failed: %s", type(exc).__name__)
-            return _page(error="Der RemoteController hat das erneute Senden nicht angenommen.",
+            return _page(error="Der Knovas Connector hat das erneute Senden nicht angenommen.",
                          status=502)
         audit.record(gate.connection(), actor=gate.current_user(),
                      **requeue_audit("refused", count))

@@ -103,8 +103,8 @@ def _doc_fields_check(client) -> tuple[Check, bool]:
                      "bleibt ausgeblendet, bis eine Antwort kommt."), False
         return Check(
             "doc_fields", "Dokumentfelder", SKIP, DOC_FIELDS_STATES["off"], ms=ms,
-            hint="Knovas hat Dokumentfelder fuer diesen Mandanten nicht freigeschaltet. "
-                 "Suche und Ingestion laufen wie bisher."), False
+            hint="Knovas hat Dokumentfelder fuer diesen Mandanten ausgeschaltet, oder der "
+                 "Knovas-Server kennt sie noch nicht. Suche und Ingestion laufen wie bisher."), False
     parts = [DOC_FIELDS_STATES.get(capability.value, capability.value)]
     try:
         fields = client.doc_fields() or []
@@ -142,7 +142,7 @@ def _rc_doc_fields_note(status: Any, doc_fields_on: bool) -> tuple[str, str]:
         return "; Dokumentfelder: " + ", ".join(known), ""
     if doc_fields_on:
         return ("; Dokumentfelder: nicht unterstuetzt",
-                "RemoteController aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
+                "Den Knovas Connector aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
     return "", ""
 
 

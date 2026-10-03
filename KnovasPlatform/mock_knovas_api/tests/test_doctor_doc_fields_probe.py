@@ -107,5 +107,8 @@ def test_feature_off_probes_nothing_more():
     app = testing.load_mock_app(doc_fields="off")
     lines = _lines(_doctor(app))
     assert len(lines) == 1 and lines[0].startswith("info  Dokumentfelder: aus")
+    # Knovas 1.5.0 has document fields on for every account: "aus" is a
+    # switch Knovas turned (or an older server), not a step still to come.
+    assert "switched off for this tenant at Knovas" in lines[0]
     assert not [r for r in testing.mock_state(app).requests
                 if r["method"] == "GET" and r["path"] == "/secured/graph/doc-values"]

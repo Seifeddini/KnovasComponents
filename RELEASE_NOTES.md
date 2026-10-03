@@ -6,26 +6,20 @@ Typisierte Werte je Dokument -- Mandant, Zeitraum, Dokumentart, Gericht,
 Frist -- als Filter in der Suche, als Liste, auf den Trefferkarten und im
 Feldbereich der Vorschau.
 
-- **Voraussetzung: Knovas muss Document Fields fuer den Mandanten
-  freischalten.** Bei Knovas ist die Funktion standardmaessig aus, und nichts
-  in `knovas.env` schaltet sie ein. Die Plattform fragt Knovas, was es fuer
-  den Mandanten anbietet, und zeigt nur das; ohne Freischaltung (oder mit einem
-  aelteren Server) bleibt alles wie bisher, ohne neue Oberflaeche und ohne
+- **Bei Knovas fuer jeden Mandanten eingeschaltet.** Seit Knovas 1.5.0 sind
+  Dokumentfelder, auch das Filtern nach Feldern in Suche und Listen, fuer
+  jeden Mandanten eingeschaltet; nichts in `knovas.env` schaltet sie ein.
+  Knovas kann sie fuer einen Mandanten abschalten, und aeltere Server kennen
+  sie nicht: Plattform und Knovas Connector pruefen jede Antwort und bleiben,
+  solange die Funktion aus ist, wie bisher, ohne neue Oberflaeche und ohne
   neue Schluessel in den Anfragen. *Verwaltung -> System -> Dokumentfelder*
   nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Filter in
   der Suche: Kalibrierung bei Knovas fehlt)` oder `Werte + Filter`.
   `./scripts/doctor.sh` prueft dasselbe.
-- **Mindestens noetige Knovas-Version:** Feldbereich, *Felder* unter
-  *Dokumente* und jede Wertbearbeitung brauchen eine Knovas-Version, die den
-  Dokumentverweis von `GET /secured/graph/doc-values` aus dem Anfragekoerper
-  liest (Aenderung S2; die Plattform setzt nie einen Verweis in eine Adresse).
-  Gegen eine aeltere Version mit Dokumentfeldern zeigen diese Stellen
-  *Knovas-Update noetig*, und nichts ist bearbeitbar; Filter und Listen sind
-  nicht betroffen. `./scripts/doctor.sh` meldet den Fall
-  (`FAIL Dokumentfelder: Knovas-Update noetig`). In einem BROKERED-Mandanten
-  brauchen Entitaetswerte von RemoteController (z.B. `client`) zusaetzlich
-  Aenderung S1; vorher lehnt Knovas solche Uploads mit `assertion_rejected`
-  ab, und RemoteController indexiert das Dokument ohne Felder.
+- **BROKERED-Mandanten:** Entitaetswerte vom Knovas Connector (z.B. `client`)
+  brauchen zusaetzlich Aenderung S1; vorher lehnt Knovas solche Uploads mit
+  `assertion_rejected` ab, und der Knovas Connector indexiert das Dokument
+  ohne Felder.
 - **Was die Plattform zeigt**, je nach Stufe: den Feldbereich in der Vorschau
   (Werte, Herkunft *Manuell / Upload / Ordnervorgabe*, Hinweise) und den
   Reiter *Dokumentfelder* (Felder, Pakete `core` und `legal_ch`,
@@ -39,15 +33,15 @@ Feldbereich der Vorschau.
   ungefilterte Treffer. Listen sagen "Liste unvollstaendig", wenn sie es sind;
   eine Liste nach Frist ist ausdruecklich keine Fristenkontrolle. Ein
   bearbeiteter Titel wird angezeigt, nicht durchsucht.
-- **Was RemoteController sendet:** je Ordner der Ingestion feste Werte
+- **Was der Knovas Connector sendet:** je Ordner der Ingestion feste Werte
   (`schluessel = Wert; Wert2`), Pfadvorlagen (`{mandant}/{period}/**`) und
   gewaehlte Dateieigenschaften, als Upload-Werte bei jedem Upload. Felder
   blockieren nie die Indexierung: lehnt Knovas sie ab, wird ohne Felder
-  indexiert, und eine Pfadvorlage, die RemoteController nicht uebersetzen
+  indexiert, und eine Pfadvorlage, die der Knovas Connector nicht uebersetzen
   kann, lehnt er schon beim Speichern ab. `RC_DOC_FIELDS=off` schaltet das
   Senden ab.
 - **Was erneutes Senden kostet:** Aendern sich die Felder eines Ordners,
-  sendet RemoteController alle seine Dokumente erneut -- jedes ein
+  sendet der Knovas Connector alle seine Dokumente erneut -- jedes ein
   verrechneter Upload mit erneuter Texterkennung --, hoechstens
   `RC_FIELDS_REUPLOAD_PER_CYCLE` (100) je Durchlauf und erst nach neuen und
   geaenderten Dateien. 20'000 Dokumente brauchen beim naechtlichen Zeitplan ca.
@@ -69,7 +63,7 @@ Feldbereich der Vorschau.
   scheitert.
 - Der neue Code fuer Dokumentfelder schreibt keine Feldwerte, Titel, Pfade
   oder Suchtexte in Logzeilen, Audit-Eintraege oder neue Adressen. Bekannte
-  Grenze: aeltere Logzeilen von Plattform und RemoteController nennen
+  Grenze: aeltere Logzeilen von Plattform und Knovas Connector nennen
   weiterhin Dokumentpfade und Verweise (Oeffnen, Herunterladen und Vorschau
   eines Dokuments, fehlgeschlagene Vorschau, die alte Suche mit ihrem
   Suchtext, fehlgeschlagene oder teilweise Uploads, entfernte Dokumente).
@@ -79,16 +73,41 @@ Feldbereich der Vorschau.
 - Umbenennen oder Verschieben einer Datei macht sie bei Knovas zu einem neuen
   Dokument; manuelle Werte des alten werden nicht uebernommen. Ein Downgrade
   der Plattform verwirft die Felder je Ordner; uebertraegt die alte Plattform
-  das Profil, loescht RemoteController die Upload-Werte der betroffenen
+  das Profil, loescht der Knovas Connector die Upload-Werte der betroffenen
   Dokumente beim naechsten erneuten Senden.
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),
-RemoteController: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md) (0.3.0).
+Knovas Connector: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md) (0.3.0).
 
 Die API-Referenz `docs/KnovasAPI/Secure_API.md` ist zugunsten des Knovas
 Developer Kit stillgelegt (wie zuvor `KnovasPlatform/knovas-docs/`); die
 Dokumentfelder stehen nur dort.
+
+## nginx wartet so lange wie gunicorn
+
+Das mitgelieferte nginx (`docbridge-web-nginx`) und die Host-nginx-Vorlage
+warten jetzt 180 s auf die Plattform (`proxy_read_timeout`), so lange wie
+gunicorn. Mit 120 s gab nginx genau dann auf, wenn die Textextraktion eines
+Admin-Uploads an ihrer 120-s-Grenze abbrach, und statt der Meldung kam ein
+504. Bestehende Installationen erstellen nach dem Update das mitgelieferte
+nginx neu:
+`docker compose --env-file knovas.env up -d --force-recreate docbridge-web-nginx`.
+`./scripts/start.sh` allein tut das nicht, und nginx liest seine
+Konfiguration nur beim Start: ohne diesen Schritt wartet es weiter nur 120 s
+und schreibt weiter die aufgerufenen Adressen ins Zugriffsprotokoll (siehe
+*Zugriffsprotokolle ohne Adressen* unter Dokumentfelder). Ausserdem erneuern
+sie die Host-nginx-Seite aus der Vorlage
+(`./scripts/host-https.sh` erledigt das). Das Image der Plattform startet
+gunicorn wie compose (`DOCBRIDGE_WEB_TIMEOUT`, Zugriffsprotokoll ohne
+Adressen), auch wenn es ohne compose laeuft.
+
+## RemoteController heisst jetzt Knovas Connector
+
+Nur der Name, den man liest: Dokumentation, Oberflaeche und Ausgaben der
+Skripte. Ordner `RemoteController/`, Docker-Dienst `remote-controller`, die
+`RC_*`-Einstellungen und die Konfigurationsschluessel bleiben, wie sie sind --
+eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
 
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
 
@@ -97,7 +116,7 @@ SharePoint-Ordners nennen, so wie der Browser sie zeigt, dazu `M365_CLIENT_ID`
 und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
 `Sites.Read.All`. Eine Einstellung fuer beide.
 
-- **Keine Kopie auf dem Server.** RemoteController fragt Microsoft Graph nach
+- **Keine Kopie auf dem Server.** Knovas Connector fragt Microsoft Graph nach
   Aenderungen, laedt nur neue und geaenderte Dateien in ein temporaeres
   Verzeichnis, indexiert sie und loescht sie wieder.
 - **Oeffnen und Vorschau in Microsoft 365.** Treffer oeffnen in
@@ -105,7 +124,7 @@ und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
   Seite der Fundstelle. Textauszuege und Fundstellen bleiben wie bisher.
 - **Uebernahme im Admin-Bereich** zeigt die Unterordner aus OneDrive/SharePoint;
   Zugriffsgruppen je Ordner funktionieren unveraendert.
-- Das Client-Secret gelangt nur in den RemoteController-Container, nie in die
+- Das Client-Secret gelangt nur in den Knovas-Connector-Container, nie in die
   generierten `.env.generated` und nie in die Plattform.
 - `start.sh` und `doctor.sh` pruefen Anmeldung, Adresse und Ordner.
 
@@ -126,7 +145,7 @@ Anleitung: [docs/microsoft-365.md](docs/microsoft-365.md).
 
 Schritt fuer Schritt: [docs/azure-server.md](docs/azure-server.md).
 
-Behoben dabei: Das Standardprofil von RemoteController uebernahm keine Dateien,
+Behoben dabei: Das Standardprofil von Knovas Connector uebernahm keine Dateien,
 die direkt im obersten Ordner liegen (`**/*.pdf` braucht vor Python 3.13 ein
 Unterverzeichnis).
 

@@ -12,7 +12,7 @@ pytest   # from this directory
 
 Documents uploaded through the admin console are extracted with
 [`knovas-extract`](https://github.com/Seifeddini/knovas-extract-python) by
-`src/knovas_extract_upload.py`, which mirrors the RemoteController's sync
+`src/knovas_extract_upload.py`, which mirrors the Knovas Connector's sync
 pipeline (`RemoteController/src/sync/document_text.py`, `knovas_uploader.py`):
 a document uploaded here and the same document synced by the RC reach the
 server in the same wire format. The environment variable names are the RC's
@@ -48,8 +48,10 @@ upload fails with `extraction timeout after Ns (child killed)` — a message
 that never starts with `resource limit exceeded`, the prefix that means "the
 library flagged the input" (GI-EXTRACT-02). The image sets
 `OMP_THREAD_LIMIT=1` and `TESSDATA_PREFIX`, and the gunicorn `--timeout`
-(Dockerfile `180`, compose `DOCBRIDGE_WEB_TIMEOUT`, default `180`) must stay
-above `RC_EXTRACT_TIMEOUT_SECONDS`.
+(`DOCBRIDGE_WEB_TIMEOUT`, default `180`, in the image's CMD and in compose)
+must stay above `RC_EXTRACT_TIMEOUT_SECONDS`; every nginx in front
+(`nginx/docbridge-web*.conf`, the host-nginx template) waits at least that long
+(`proxy_read_timeout 180s`, pinned by `tests/test_web_timeouts.py`).
 
 **Partial uploads.** `metadata.extra` is read defensively: `pdf:ocr_pages_skipped > 0`
 (budget trip), or `pdf:ocr_backend = "none"` with OCR configured and no
@@ -63,11 +65,9 @@ the search result carries it as `context_partial`.
 Typed values per document (filters, listing, cards, the field panel, the
 *Dokumentfelder* admin tab and per-folder fields in the Ingestion tab) —
 shown only as far as Knovas serves them for the tenant, in secured mode only.
-The field panel, the *Felder* drawer and value edits need a Knovas release that
-reads the `GET /secured/graph/doc-values` pointer from the JSON body (S2);
-an earlier one answers `400 invalid_value` (`pointer`) and the Platform shows
-*Knovas-Update nötig* (`./scripts/doctor.sh` says so too). In a BROKERED
-tenant, RemoteController's entity values also need S1.
+Knovas 1.5.0 has them on for every account; the Platform checks every answer
+and behaves as before where Knovas has them off. In a BROKERED tenant, the
+Knovas Connector's entity values also need S1.
 Modules: `src/doc_fields_capability.py` (what Knovas serves; per-person
 registry cache), `src/doc_fields_view.py` (the honesty rules as pure
 functions), `src/web_interface/doc_fields_routes.py` (search side),

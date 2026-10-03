@@ -348,7 +348,7 @@ def reupload_text(paths: Sequence[str], total: Any, per_cycle: Any,
         eta = reupload_eta(total, bound, schedule, throughput)
         return (f"{head} H\u00f6chstens {total} Dokumente; bei {bound} pro Durchlauf und "
                 f"Zeitplan \u201e{label}\u201c {eta}.")
-    return (f"{head} Wie viele Dokumente es sind, meldet RemoteController erst nach einem "
+    return (f"{head} Wie viele Dokumente es sind, meldet der Knovas Connector erst nach einem "
             f"Abgleich; gesendet werden {bound} pro Durchlauf, Zeitplan \u201e{label}\u201c.")
 
 
@@ -404,7 +404,7 @@ def doc_fields_status(rc_status: Any, *, capability: Capability,
         lines.append({"text": text, "level": level})
 
     if block.get("enabled") is False:
-        say("Dokumentfelder sind im RemoteController ausgeschaltet (RC_DOC_FIELDS=off); "
+        say("Dokumentfelder sind im Knovas Connector ausgeschaltet (RC_DOC_FIELDS=off); "
             "es werden keine Felder gesendet.")
     server = block.get("server")
     if server == "accepted":
@@ -1212,7 +1212,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             # so instead of promising a re-send (spec 3.7).
             return _page(notice="Keine Dokumente zum erneuten Senden vorgemerkt.")
         return _page(notice=(f"{count} Dokumente zum erneuten Senden vorgemerkt; "
-                             "RemoteController sendet sie in den n\u00e4chsten Durchl\u00e4ufen, "
+                             "der Knovas Connector sendet sie in den n\u00e4chsten Durchl\u00e4ufen, "
                              "je ein verrechneter Upload."))
 
     @bp.route("/ingestion/template-preview", methods=["POST"])

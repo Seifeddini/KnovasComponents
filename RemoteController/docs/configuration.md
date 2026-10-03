@@ -117,13 +117,14 @@ different groups under sequential mode.
 
 ### Per-source document fields (Dokumentfelder)
 
-Knovas can keep typed **document fields** per document (Mandant, Zeitraum,
-Dokumentart, …) — but only once Knovas has enabled *Document Fields* for the
-tenant. Nothing here switches that on: the RemoteController sends fields when a
+Knovas keeps typed **document fields** per document (Mandant, Zeitraum,
+Dokumentart, …); since Knovas 1.5.0 they are on for every account. Knovas can
+still switch them off for an account, and an older server does not have them,
+so nothing here switches them on: the Knovas Connector sends fields when a
 source is configured with them and reads from each init answer whether the
-server took them. Against a server or tenant without the feature the fields are
-ignored, the document is indexed exactly as before, and `/sync/status` says
-`"server": "not_accepted"` ([operations.md](operations.md#document-fields)).
+server took them. Against a server or account without the feature the fields
+are ignored, the document is indexed exactly as before, and `/sync/status`
+says `"server": "not_accepted"` ([operations.md](operations.md#document-fields)).
 
 Normally the KnovasPlatform Ingestion tab writes these keys (a folder's
 *Felder*: fixed values, path templates, file properties). Each `sources[]`
@@ -185,7 +186,7 @@ refuses longer ones).
 **Refusals never block indexing.** When the server refuses an init because of
 its fields (`invalid_fields`, `unknown_field`, `ambiguous_field`,
 `fields_too_large`, a `fields…` path, 503 `doc_fields_*`, or a BROKERED 401
-`assertion_rejected`), the RemoteController re-posts the init **once without
+`assertion_rejected`), the Knovas Connector re-posts the init **once without
 fields**. If that succeeds the document is indexed, its previous upload-layer
 values stay, and the outcome is `refused:<code>`; a transient 503 keeps the old
 digest so the fields are tried again later. If the retry fails too, the refusal
@@ -200,11 +201,11 @@ was not about fields and the ordinary upload error applies.
 | `RC_FIELDS_REUPLOAD_MAX_ATTEMPTS` | `3` | Failed re-uploads of one document (range 1–100) before it leaves the queue as `reupload_failed:<class>` (`init_401`, `init_403`, `init_4xx`, `init_5xx`, `fields_unavailable`, `extract`, `other`). Rate-limit pauses do not count. |
 
 In the unified stack these go into `knovas.env` (`RC_*` is passed through to
-the RemoteController).
+the Knovas Connector).
 
 #### Re-uploads and what they cost
 
-The RemoteController stores a digest of each document's governing field
+The Knovas Connector stores a digest of each document's governing field
 configuration (fixed values, its captures, the metadata items, the mapping
 version). When a source's fixed values, templates or metadata items change,
 every document of that source is `fields_changed` and is **re-uploaded in
@@ -218,7 +219,7 @@ full**:
 Re-uploads never displace new work: each cycle first takes new and modified
 files up to its cap, then at most `RC_FIELDS_REUPLOAD_PER_CYCLE` re-uploads
 while the cap leaves room, last in the upload order. A document's stored NULL
-digest equals an empty configuration, so upgrading the RemoteController does
+digest equals an empty configuration, so upgrading the Knovas Connector does
 not re-send anything by itself.
 
 **How long it takes.** The Platform's Ingestion tab shows an estimate before
@@ -249,7 +250,7 @@ as `last_cycle.rel_collisions`.
 
 **Downgrading the Platform.** The new keys live only inside `sources[]`; an
 older Platform drops them when it re-reads a profile. If it then pushes that
-profile, the RemoteController sees an empty configuration for those sources
+profile, the Knovas Connector sees an empty configuration for those sources
 and, on the next re-upload of each affected document (bounded per cycle),
 sends `"fields": {}` — which clears that document's upload-layer values at
 Knovas. Folder rules and manual edits are not affected.

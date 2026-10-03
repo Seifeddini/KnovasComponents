@@ -22,8 +22,8 @@ kit (rate limits in particular), the kit is right.
 **Document fields** (typed values per document: init `fields`, query `where` /
 `return_fields`, `/secured/graph/doc-values`, `doc-fields`, folder defaults)
 are documented only in the kit (`Secure_API.md`, and `Knowledge_Graph_API.md`
-→ *Document values and fields*). They take effect only for a tenant where
-Knovas has enabled them.
+→ *Document values and fields*). Since Knovas 1.5.0 they are on for every
+account; Knovas can still switch them off, so clients check every answer.
 
 ## Read order
 

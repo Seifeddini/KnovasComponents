@@ -857,7 +857,7 @@ error_code = answer.get("error_code")
 seen = seen_of(code, error_code)
 values_on = False
 if code == 404 and error_code not in ("NOT_FOUND", "pack_not_found"):
-    print(f"   info  Dokumentfelder: aus ({seen}) -- not enabled for this tenant at Knovas,")
+    print(f"   info  Dokumentfelder: aus ({seen}) -- switched off for this tenant at Knovas,")
     print("         or the server predates them. The Platform shows no document-field UI.")
 elif code == 400 and error_code == "where_unsupported":
     values_on = True

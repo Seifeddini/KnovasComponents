@@ -6,7 +6,7 @@
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
-Takes effect only for a tenant where Knovas has enabled Document Fields. Against any other server the bodies, the outcomes and the indexing are as in 0.2.0.
+Knovas 1.5.0 has Document fields on for every account. Where Knovas has them switched off, or against an older server, the bodies, the outcomes and the indexing are as in 0.2.0.
 
 - **Per-source fields in the sync body** (`sources[].fields`, `field_templates`, `metadata_fields`; `contracts/sync_request.schema.json`, golden template vectors in `contracts/vectors/field_templates.json`). Fixed values, path-template captures (`{mandant}/{period}/**`, first match wins, matched on the folders of the source-relative path) and opted-in file properties (`language`, `email_date`, `email_doc_type`, `email_author`, `document_author`) are sent as init `fields` — Knovas's upload layer. Precedence per key: capture, fixed value, file property. Entity values are names, never node ids. `.md`/`.txt` carry no author or language.
 - **Fields never block indexing.** A refusal caused by the fields re-posts the init once without them (`refused:<code>`); the previous upload-layer values survive. No echo means `not_accepted`, never "stored". Titles are capped at 500 characters (a longer one used to loop forever). `/sync`, `/sync/body` and `/sync/start` refuse a body whose field template does not compile (`400 $.sources[i].field_templates[j]: field_template_invalid (<code>)`); a body stored before keeps working, its bad source skipped per cycle. A fields re-send that keeps failing never uses up the extraction retries and is never recorded partial (`reupload_failed:extract`).

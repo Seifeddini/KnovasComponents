@@ -135,7 +135,7 @@ class RemoteControllerClient:
     def _headers(self) -> dict[str, str]:
         user = self._broker.current_user()
         if user is None:
-            raise PermissionError("Kein angemeldeter Benutzer; RemoteController wird nicht aufgerufen.")
+            raise PermissionError("Kein angemeldeter Benutzer; der Knovas Connector wird nicht aufgerufen.")
         return {PRINCIPAL_HEADER: self._broker.assertion_for(user),
                 "Content-Type": "application/json"}
 
@@ -148,7 +148,7 @@ class RemoteControllerClient:
             resp = self._session.request(method, url, json=body, headers=self._headers(),
                                          timeout=self._timeout if timeout is None else timeout)
         except requests.RequestException as exc:
-            raise RemoteControllerError(f"RemoteController nicht erreichbar: {exc}", status=None) from exc
+            raise RemoteControllerError(f"Der Knovas Connector ist nicht erreichbar: {exc}", status=None) from exc
         try:
             payload = resp.json()
         except Exception:  # noqa: BLE001
@@ -189,7 +189,7 @@ class RemoteControllerClient:
         try:
             return capabilities_from_status(self.status())
         except (RemoteControllerError, PermissionError) as exc:
-            logger.info("RemoteController-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
+            logger.info("Knovas-Connector-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
             return None
 
     def requeue_doc_fields(self, outcome: str) -> int:
@@ -228,7 +228,7 @@ class RemoteControllerClient:
         except RemoteControllerError as exc:
             if exc.status == 404:
                 raise RemoteControllerError(
-                    "RemoteController hat die Sync-Konfigurations-API abgeschaltet "
+                    "Der Knovas Connector hat die Sync-Konfigurations-API abgeschaltet "
                     "(RC_SYNC_CONFIG_API_ENABLED=false); ohne sie kann das Profil "
                     "nicht uebertragen werden.",
                     status=404,

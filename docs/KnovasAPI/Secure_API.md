@@ -24,6 +24,6 @@ document-listing routes, and the rate limits now served by
 | Onboarding, chunking, errors | `api/Client_Integration_Guide.md` ([older copy here](Client_Integration_Guide.md)) |
 | mTLS certificate filenames and permissions | [../certificates.md](../certificates.md) |
 
-**Document fields** take effect only for a tenant where Knovas has enabled
-them. On any other tenant the new request keys are ignored and the answers
-carry none of the new keys.
+**Document fields** are on for every account since Knovas 1.5.0. Where Knovas
+has them off, or on an older server, the new request keys are ignored and the
+answers carry none of the new keys.

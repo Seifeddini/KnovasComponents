@@ -680,14 +680,17 @@ def edit_keys(ops: Mapping[str, Any]) -> List[str]:
 
 def attach(app: Any, *, config: Any, client_factory: Callable[[], Any], identity_gate: Any,
            grant: Callable[[List[Dict[str, Any]]], Any], grant_check: Callable[[str], bool],
-           enhance: Callable[[Dict[str, Any]], Dict[str, Any]]) -> None:
+           enhance: Callable[[Dict[str, Any]], Dict[str, Any]],
+           split: Callable[[Any], Tuple[Any, List[Dict[str, Any]]]]) -> None:
     """Register the document-fields routes on ``app`` (spec 4.4).
 
     ``grant(rows)`` records what a listing handed the person, as search does;
     ``grant_check(doc_id)`` asks whether the person's own search or listing
     returned that document (``_readable_for_current_user``); ``enhance`` is
-    the search path's row enrichment. Every POST here goes through the
-    app-wide ``X-CSRF-Token`` gate.
+    the search path's row enrichment; ``split`` is the search path's
+    experiment split (``SearchIntegration.split``), so experiment documents
+    leave a listing page the way they leave every search answer. Every POST
+    here goes through the app-wide ``X-CSRF-Token`` gate.
     """
 
     def _settings() -> dfc.DocFieldsSettings:
@@ -769,7 +772,8 @@ def attach(app: Any, *, config: Any, client_factory: Callable[[], Any], identity
 
         Shown only when Knovas echoed ``where.applied`` (H2); the incomplete
         notice only on the last page (H5); rows are granted like search rows,
-        so a listed document can be previewed.
+        so a listed document can be previewed. Experiment documents are taken
+        out first, as in search: never listed, never granted.
         """
         client = client_factory()
         capability = capability_now(client)
@@ -811,6 +815,11 @@ def attach(app: Any, *, config: Any, client_factory: Callable[[], Any], identity
             return jsonify(payload), status
         rows = [dfv.find_row(doc, registry or []) for doc in page.get("documents") or ()
                 if isinstance(doc, Mapping) and doc.get("pointer")]
+        # Experiment documents (experiments/<domain>/<KEY>) leave here as they
+        # leave every search answer: before the enrichment, so they get no
+        # open hints, and before grant(), so their pointer never becomes a
+        # file grant. Only search brings them back, as experiment rows.
+        rows = list((split({"results": rows})[0] or {}).get("results") or [])
         rows = list((enhance({"results": rows}) or {}).get("results") or rows)
         decorate_rows(rows, registry)
         grant(rows)
