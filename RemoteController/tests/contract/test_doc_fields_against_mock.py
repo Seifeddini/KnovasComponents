@@ -259,11 +259,16 @@ def test_mail_metadata_reaches_the_server(rig):
     target = rig.root / "Postfach" / "sample.eml"
     target.parent.mkdir()
     target.write_bytes(fixture.read_bytes())
-    rig.run(rig.body(metadata_fields=["email_date", "email_doc_type", "email_author"]))
+    result = rig.run(rig.body(metadata_fields=["email_date", "email_doc_type", "email_author"]))
     (init,) = rig.init_requests()
     assert init["json"]["fields"]["doc_type"] == "correspondence.email"
     assert init["json"]["fields"]["author"] == "sender@example.com"
-    assert "document_date" in init["json"]["fields"]
+    # The Date header's day: Knovas reads a date as a day, month, quarter or
+    # year and refuses a timestamp with time and offset (invalid_value).
+    assert init["json"]["fields"]["document_date"] == "2024-01-01"
+    upload = rig.state.anchors["rc-sync/Postfach/sample.eml"]["upload"]
+    assert upload["document_date"]["values"] == [{"lo": "2024-01-01", "hi": "2024-01-01", "precision": "day"}]
+    assert ("invalid_value", "document_date") not in result.doc_fields.warning_pairs
 
 
 class TestCapabilityProbe:

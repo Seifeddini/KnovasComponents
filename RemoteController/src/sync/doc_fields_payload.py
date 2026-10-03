@@ -38,6 +38,7 @@ import re
 from collections import Counter
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any, Mapping, Optional, Union
 
 from sync import metadata_fields as _metadata
@@ -301,10 +302,12 @@ def config_digest(rel: str, spec: Optional[SourceSpec]) -> str:
     """sha256 of the configuration that governs ``rel``'s fields.
 
     Canonical JSON of the static values, this path's captures, the sorted
-    metadata items and both rule versions. ``""`` when static values,
-    captures and metadata items are all empty. Extractor values are not
-    part of it: they are unknown before extraction. A template change that
-    leaves this path's captures alone does not change it.
+    metadata items and both rule versions, plus the rule versions of the
+    enabled items that apply to this file (``item_rules``, only when there
+    are any: every other digest stays as it was). ``""`` when static
+    values, captures and metadata items are all empty. Extractor values are
+    not part of it: they are unknown before extraction. A template change
+    that leaves this path's captures alone does not change it.
     """
     if spec is None:
         return ""
@@ -315,14 +318,18 @@ def config_digest(rel: str, spec: Optional[SourceSpec]) -> str:
     metadata = sorted(spec.metadata_fields)
     if not static and not caps and not metadata:
         return ""
+    document: dict[str, Any] = {
+        "v": FIELDS_PAYLOAD_VERSION,
+        "static": static,
+        "captures": caps,
+        "metadata": metadata,
+        "mapping_version": _metadata.METADATA_MAPPING_VERSION,
+    }
+    rules = _metadata.item_rule_versions(metadata, PurePosixPath(rel.replace("\\", "/")).suffix)
+    if rules:
+        document["item_rules"] = rules
     canonical = json.dumps(
-        {
-            "v": FIELDS_PAYLOAD_VERSION,
-            "static": static,
-            "captures": caps,
-            "metadata": metadata,
-            "mapping_version": _metadata.METADATA_MAPPING_VERSION,
-        },
+        document,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,

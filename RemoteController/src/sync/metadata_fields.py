@@ -7,7 +7,8 @@ extractor already read to one registry key of the ``core`` pack:
                                        (dc:language, often the authoring
                                        tool's locale); .eml Content-Language;
                                        never .msg
-    email_date       -> document_date  .eml/.msg only: the Date header
+    email_date       -> document_date  .eml/.msg only: the day of the Date
+                                       header (``2024-03-15``)
     email_doc_type   -> doc_type       .eml/.msg only: correspondence.email
     email_author     -> author         .eml/.msg From: display name, else
                                        the address
@@ -37,12 +38,22 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from email.utils import getaddresses
+from datetime import date
+from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any, Iterable, Mapping, Optional
 
 #: Bumped whenever a rule below changes what an item yields; it is part of
 #: the config digest, so a bump re-sends every source that uses metadata.
 METADATA_MAPPING_VERSION = 1
+
+#: Rule versions of single items, for a change to what one item yields: the
+#: config digest carries them only for the files the item applies to, so
+#: only those are re-sent (within the per-cycle bound), not every document
+#: of every source with file properties as a METADATA_MAPPING_VERSION bump
+#: would. email_date 2: the Date header's day instead of its timestamp,
+#: which Knovas refuses as ``invalid_value`` (a date is a day, month,
+#: quarter or year), so no e-mail got a ``document_date``.
+ITEM_RULE_VERSIONS = {"email_date": 2}
 
 METADATA_ITEMS = (
     "language", "email_date", "email_doc_type", "email_author", "document_author",
@@ -64,6 +75,9 @@ EMAIL_DOC_TYPE = "correspondence.email"
 
 EMAIL_EXTENSIONS = frozenset({".eml", ".msg"})
 DOCUMENT_EXTENSIONS = frozenset({".pdf", ".docx", ".md"})
+
+#: The files an item with a rule version applies to.
+_ITEM_EXTENSIONS = {"email_date": EMAIL_EXTENSIONS}
 
 #: Keys of ``ExtractedDocument.source_metadata`` (knovas-extract ``Metadata``
 #: attributes, plus the .eml Content-Language header and the file properties
@@ -123,6 +137,37 @@ def source_metadata_from(metadata: Any) -> dict[str, str]:
             if isinstance(value, str) and value.strip() and len(value) < MAX_SOURCE_VALUE_CHARS:
                 out[key] = value.strip()
     return out
+
+
+#: The ISO day at the start of a timestamp (``2024-03-15T10:22:00+01:00``).
+_ISO_DAY_PREFIX = re.compile(r"(\d{4}-\d{2}-\d{2})(?:[T ]|$)")
+
+
+def _email_day(value: Optional[str]) -> Optional[str]:
+    """The day an e-mail's Date header names, ``YYYY-MM-DD``; None when it
+    names none. The header's own day, in the sender's offset as written --
+    never converted to another zone."""
+    if value is None:
+        return None
+    match = _ISO_DAY_PREFIX.match(value)
+    if match:
+        try:
+            return date.fromisoformat(match.group(1)).isoformat()
+        except ValueError:
+            return None
+    try:
+        return parsedate_to_datetime(value).date().isoformat()
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+
+
+def item_rule_versions(enabled: Iterable[str], ext: str) -> dict[str, int]:
+    """The ``ITEM_RULE_VERSIONS`` of the enabled items that apply to a file
+    with extension ``ext``; empty for every other file."""
+    ext = _normalize_ext(ext)
+    items = frozenset(enabled or ())
+    return {item: version for item, version in sorted(ITEM_RULE_VERSIONS.items())
+            if item in items and ext in _ITEM_EXTENSIONS.get(item, ())}
 
 
 def _normalize_ext(ext: str) -> str:
@@ -249,11 +294,11 @@ def map_metadata(md: Optional[Mapping[str, Any]], ext: str, enabled: Iterable[st
         if language is not None:
             out[ITEM_TARGETS["language"]] = language
     if email and "email_date" in items:
-        # The Date header, verbatim; the server reads its date part. Never
-        # ``modified``, never a file or M365 date.
-        created = _text(md, "created")
-        if created is not None:
-            out[ITEM_TARGETS["email_date"]] = created
+        # The day of the Date header (rule version 2). Never ``modified``,
+        # never a file or M365 date.
+        day = _email_day(_text(md, "created"))
+        if day is not None:
+            out[ITEM_TARGETS["email_date"]] = day
     if email and "email_doc_type" in items:
         out[ITEM_TARGETS["email_doc_type"]] = EMAIL_DOC_TYPE
     if email and "email_author" in items:

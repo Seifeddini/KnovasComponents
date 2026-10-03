@@ -121,7 +121,7 @@ def test_capture_beats_static_beats_metadata():
     assert result.values == {
         "doc_type": "contract",                          # capture over static and metadata
         "author": "Beispiel GmbH",                       # static over metadata
-        "document_date": "2024-03-15T10:22:00+01:00",    # metadata alone
+        "document_date": "2024-03-15",                   # metadata alone
     }
     assert result.dropped == Counter()
 
@@ -372,6 +372,23 @@ def test_digest_follows_both_rule_versions(monkeypatch):
     monkeypatch.setattr(metadata_fields, "METADATA_MAPPING_VERSION", 1)
     monkeypatch.setattr(payload_mod, "FIELDS_PAYLOAD_VERSION", FIELDS_PAYLOAD_VERSION + 1)
     assert config_digest("a/b.eml", spec) != before
+
+
+def test_the_email_date_rule_changes_only_the_digests_of_mails(monkeypatch):
+    """email_date sends the Date header's day since rule version 2: the mails
+    of a source with email_date are re-sent once (within the bound), its
+    other files and every other source keep their digests."""
+    sources = {"mail": _spec(metadata_fields=["email_date", "language"]),
+               "other": _spec(metadata_fields=["language"])}
+
+    def digests():
+        return {(rel, name): config_digest(rel, spec)
+                for rel in ("a/b.eml", "a/B.MSG", "a/b.pdf") for name, spec in sources.items()}
+
+    now = digests()
+    monkeypatch.setattr(metadata_fields, "ITEM_RULE_VERSIONS", {})
+    before = digests()
+    assert {key for key in now if now[key] != before[key]} == {("a/b.eml", "mail"), ("a/B.MSG", "mail")}
 
 
 def test_digest_is_non_empty_for_a_metadata_source_even_when_the_payload_is_empty():

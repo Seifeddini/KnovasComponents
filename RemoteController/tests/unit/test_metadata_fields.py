@@ -22,6 +22,7 @@ from sync.metadata_fields import (
     JUNK_AUTHORS,
     KEYWORD_SOURCES,
     METADATA_ITEMS,
+    ITEM_RULE_VERSIONS,
     METADATA_MAPPING_VERSION,
     map_metadata,
     source_metadata_from,
@@ -41,6 +42,8 @@ VECTORS = Path(__file__).resolve().parents[2] / "contracts" / "vectors" / "metad
 def test_mapping_version_and_items():
     # New items need no bump: a bump re-sends every source that uses file properties.
     assert METADATA_MAPPING_VERSION == 1
+    # A rule change for one item re-sends only the files that item applies to.
+    assert ITEM_RULE_VERSIONS == {"email_date": 2}
     assert METADATA_ITEMS == (
         "language", "email_date", "email_doc_type", "email_author", "document_author",
         "keywords", "document_status",
@@ -64,8 +67,26 @@ def test_unknown_items_are_ignored():
 
 
 @pytest.mark.parametrize("ext", [".eml", ".msg", ".EML", "msg"])
-def test_email_date_is_the_date_header_verbatim(ext):
-    assert map_metadata(EML_MD, ext, {"email_date"}) == {"document_date": "2024-03-15T10:22:00+01:00"}
+def test_email_date_is_the_day_of_the_date_header(ext):
+    # Knovas reads a date as a day, month, quarter or year; it refuses a
+    # timestamp with time and offset as invalid_value.
+    assert map_metadata(EML_MD, ext, {"email_date"}) == {"document_date": "2024-03-15"}
+
+
+@pytest.mark.parametrize("created,day", [
+    ("2024-03-15T23:30:00-05:00", "2024-03-15"),   # the header's own day, never converted
+    ("2024-03-15T00:10:00+02:00", "2024-03-15"),
+    ("2024-03-15 10:22:00", "2024-03-15"),
+    ("2024-03-15", "2024-03-15"),
+    ("Fri, 15 Mar 2024 10:22:00 +0100", "2024-03-15"),   # RFC 2822, as the header writes it
+])
+def test_email_date_takes_the_day_the_header_names(created, day):
+    assert map_metadata({"created": created}, ".eml", {"email_date"}) == {"document_date": day}
+
+
+@pytest.mark.parametrize("created", ["gestern", "2024-13-45T10:00:00", "2024-02-30", "15.03.2024 10:22"])
+def test_email_date_skips_a_value_that_names_no_day(created):
+    assert map_metadata({"created": created}, ".msg", {"email_date"}) == {}
 
 
 @pytest.mark.parametrize("ext", [".pdf", ".docx", ".md", ".txt"])
@@ -274,7 +295,7 @@ def test_language_pattern_refuses(value):
 def test_all_items_for_an_eml():
     assert map_metadata(EML_MD, ".eml", ALL_ITEMS) == {
         "language": "de-CH",
-        "document_date": "2024-03-15T10:22:00+01:00",
+        "document_date": "2024-03-15",
         "doc_type": "correspondence.email",
         "author": "Muster AG",
     }
@@ -282,7 +303,7 @@ def test_all_items_for_an_eml():
 
 def test_all_items_for_a_msg():
     assert map_metadata(EML_MD, ".msg", ALL_ITEMS) == {
-        "document_date": "2024-03-15T10:22:00+01:00",
+        "document_date": "2024-03-15",
         "doc_type": "correspondence.email",
         "author": "Muster AG",
     }

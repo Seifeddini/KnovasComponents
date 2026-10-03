@@ -168,7 +168,7 @@ Golden vectors: [contracts/vectors/field_templates.json](../contracts/vectors/fi
 | Item | Writes | From |
 |------|--------|------|
 | `language` | `language` | `.pdf` / `.docx` document properties (`dc:language` — often the authoring program's locale, not the document's language); `.eml` `Content-Language`. `x-default` and `und` are skipped. |
-| `email_date` | `document_date` | `.eml` / `.msg` only: the `Date` header. |
+| `email_date` | `document_date` | `.eml` / `.msg` only: the day of the `Date` header (`2024-03-15`, as the header names it, no zone conversion). Knovas reads a date as a day, month, quarter or year and refuses a timestamp with time and offset. |
 | `email_doc_type` | `doc_type` = `correspondence.email` | `.eml` / `.msg` only. |
 | `email_author` | `author` | `.eml` / `.msg` `From:` display name, else the address. |
 | `document_author` | `author` | `.pdf` / `.docx` author; placeholder authors (`Administrator`, `User`, `Microsoft Office User`, …) are skipped. |
