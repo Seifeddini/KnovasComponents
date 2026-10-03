@@ -84,6 +84,12 @@ Feldbereich der Vorschau.
 - Die Suche schickt `top_k`, `filters` und `encryption_matrix` nicht mehr an
   Knovas, und `SEMANTIX_ENCRYPTION_MATRIX_PATH` wird nicht mehr gelesen: der
   Server liest keinen dieser Schluessel (Knovas 1.5.0). `limit` bleibt.
+- **Felder anlegen wie in Knovas 1.5.0** (Reiter *Dokumentfelder*): je Typ
+  das Kennungsschema (UID, IBAN, QR-Referenz, Geschaeftsnummern, ECLI,
+  ICD-10-GM, Sprachcode), ob Namen mit Eintraegen verknuepft werden, Beginn
+  und Benennung des Geschaeftsjahres, die Datumsreihenfolge eines
+  Datumsfelds; Auswahlwerte je Zeile mit Code, Bezeichnungen DE/FR/IT/EN und
+  weiteren Namen. Der Reiter zeigt "n von 256 Feldern".
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),

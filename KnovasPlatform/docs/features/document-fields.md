@@ -133,12 +133,23 @@ Visible to `admin` in every state except `aus`.
 
 - **Felder**: create, change and retire (*Stilllegen*) fields — key, type
   (Text, Auswahl, Datum, Zeitraum, Betrag, Zahl, Kennung, Ja/Nein, Eintrag
-  aus dem Wissensgraph), one or several
-  values, labels DE/FR/IT/EN, other names, the entity target, *auf
-  Trefferkarten zeigen*, *als Filter anbieten*, *normal* / *besonders
-  schützenswert*. Knovas refuses keys that look personal. A field the current
-  Ingestion profile uses asks for a confirmation before it is changed or
-  retired: uploads with a retired key are no longer accepted.
+  aus dem Wissensgraph), one or several values, labels DE/FR/IT/EN, other
+  names, the entity target, *auf Trefferkarten zeigen*, *als Filter
+  anbieten*, *normal* / *besonders schützenswert* — and how values are read:
+  the *Kennungsschema* of an identifier (UID, IBAN, QR reference, case
+  numbers of the Federal Supreme and Administrative Courts, ECLI, ICD-10-GM,
+  language codes; *allgemein* by default), whether entity names are linked
+  (*nie verknüpfen* keeps them as names), the first month of a business year
+  and whether "GJ 2024" names its start or end year, and a date field's own
+  order for `03/04/2024` (default: the account setting). Choice lists have
+  one row per choice — code, labels DE/FR/IT/EN, other names (comma list);
+  *Weitere Zeile* adds rows. Create sends only what differs from Knovas's
+  defaults; an edit sends only what changed. What decides how values are
+  read locks once a field is confirmed or in use ("Diese Änderung ist nicht
+  mehr möglich …"). The tab counts "n von 256 Feldern" (retired fields count).
+  Knovas refuses keys that look personal. A field the current Ingestion
+  profile uses asks for a confirmation before it is changed or retired:
+  uploads with a retired key are no longer accepted.
 - **Pakete**: install `core` (installed automatically on first use) or
   `legal_ch`.
 - **Einstellungen**: what an upload with an unknown key does, and how

@@ -95,6 +95,15 @@ FY_LABELS = ("start", "end")
 #: An account can have up to 256 fields (Knovas 1.5.0); retired ones count.
 FIELD_CAP = 256
 
+#: Choices per field and other names per choice (registry.py
+#: _MAX_ENUM_VALUES, _MAX_ALIASES).
+CHOICES_MAX = 500
+CHOICE_ALIASES_MAX = 32
+#: Empty choice rows in "Neues Feld" and below a field's own choices. More
+#: come with "Weitere Zeile" (admin_doc_fields.js) or after saving.
+CHOICE_ROWS_NEW = 4
+CHOICE_ROWS_EXTRA = 2
+
 #: What Knovas applies when a field definition leaves a setting out (spec
 #: F1). Create sends a setting only when it differs from this.
 READING_DEFAULTS: Dict[str, Any] = {
@@ -334,50 +343,57 @@ def split_list(text: Any, sep: str = ",") -> List[str]:
     return out
 
 
-def parse_enum_lines(text: Any) -> List[Tuple[str, str]]:
-    """``code = Bezeichnung`` per line -> ``[(code, label)]``.
+#: ASCII digits only: ``\d`` takes any Unicode digit (see _fy_start_month).
+_CHOICE_CODE_RE = re.compile(r"^choice_code_([0-9]{1,4})$")
 
-    A line without ``=`` is a bare code. Codes follow the server's pattern;
-    a bad or repeated code is a FormError naming the line, not the input.
+
+def _choice_indices(form: Mapping[str, Any]) -> List[int]:
+    """The row numbers of the choice editor's rows in ``form``, in order."""
+    found = {int(m.group(1)) for m in (_CHOICE_CODE_RE.match(str(name)) for name in form) if m}
+    return sorted(found)
+
+
+def has_choice_rows(form: Mapping[str, Any]) -> bool:
+    """Whether ``form`` carries the choice editor (an enum field's form)."""
+    return bool(_choice_indices(form))
+
+
+def parse_choice_rows(form: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """The choice editor: one row per choice -> ``[{code, labels, aliases}]``.
+
+    Row ``i`` is ``choice_code_<i>``, ``choice_label_<lang>_<i>`` for de,
+    fr, it and en, and ``choice_aliases_<i>`` (other names,
+    comma-separated), in the order of ``i``. ``labels`` holds the languages
+    filled in, ``aliases`` the names without repeats. An empty row is
+    skipped (the rows for new choices); a row with text but no code, a code
+    outside the server's pattern, a repeated code, more than 32 other names
+    or more than 500 choices is a FormError naming the row, never its input.
     """
-    out: List[Tuple[str, str]] = []
+    rows: List[Dict[str, Any]] = []
     seen: set = set()
-    for number, line in enumerate(str(text or "").splitlines(), 1):
-        line = line.strip()
-        if not line:
+    for number, i in enumerate(_choice_indices(form), 1):
+        code = _text(form, f"choice_code_{i}")
+        labels = {lang: _text(form, f"choice_label_{lang}_{i}") for lang in LABEL_LANGS}
+        labels = {lang: text for lang, text in labels.items() if text}
+        aliases = split_list(form.get(f"choice_aliases_{i}"))
+        if not code:
+            if labels or aliases:
+                raise FormError(f"Auswahlwerte, Zeile {number}: bitte einen Code angeben.")
             continue
-        code, _, label = line.partition("=")
-        code, label = code.strip(), label.strip()
         if not ENUM_CODE_RE.match(code):
             raise FormError(
                 f"Auswahlwerte, Zeile {number}: ein Code besteht aus Buchstaben, "
                 "Ziffern, Punkt, Bindestrich und _ (h\u00f6chstens 64 Zeichen).")
         if code in seen:
             raise FormError(f"Auswahlwerte, Zeile {number}: dieser Code kommt zweimal vor.")
+        if len(aliases) > CHOICE_ALIASES_MAX:
+            raise FormError(f"Auswahlwerte, Zeile {number}: h\u00f6chstens "
+                            f"{CHOICE_ALIASES_MAX} weitere Namen.")
         seen.add(code)
-        out.append((code, label))
-    return out
-
-
-def _shown_enum_label(labels: Any) -> str:
-    """The label the textarea shows for one code: ``de``, else the first
-    other language (so the code is recognisable), else nothing."""
-    labels = labels if isinstance(labels, Mapping) else {}
-    if labels.get("de"):
-        return str(labels["de"])
-    return str(next((labels.get(x) for x in LABEL_LANGS if labels.get(x)), ""))
-
-
-def enum_lines(enum_values: Any) -> str:
-    """The textarea form of ``enum_values``: ``code = Bezeichnung (de)``."""
-    lines: List[str] = []
-    for item in enum_values or ():
-        if isinstance(item, str):
-            lines.append(item)
-        elif isinstance(item, Mapping) and isinstance(item.get("code"), str):
-            label = _shown_enum_label(item.get("labels"))
-            lines.append(f"{item['code']} = {label}" if label else item["code"])
-    return "\n".join(lines)
+        rows.append({"code": code, "labels": labels, "aliases": aliases})
+    if len(rows) > CHOICES_MAX:
+        raise FormError(f"H\u00f6chstens {CHOICES_MAX} Auswahlwerte pro Feld.")
+    return rows
 
 
 def _enum_entries(enum_values: Any) -> List[Any]:
@@ -397,34 +413,68 @@ def _enum_entries(enum_values: Any) -> List[Any]:
     return out
 
 
-def merge_enum(current: Any, items: Sequence[Tuple[str, str]]) -> List[Any]:
-    """The new ``enum_values`` from the textarea, keeping what it cannot show.
+def merge_choices(current: Any, rows: Sequence[Mapping[str, Any]]) -> List[Any]:
+    """The new ``enum_values`` from the choice rows.
 
-    The textarea carries one German label per code. A code that already had
-    labels in other languages or aliases keeps them; only its ``de`` label
-    changes (an empty label keeps the old ones). Dropping them would be a
-    silent loss in a form that never displayed them.
+    The rows show the code, the labels in DE/FR/IT/EN and the other names,
+    so what they hold is what is sent: an emptied input removes that label
+    or those names. Labels in other languages (Knovas keeps up to 16) are
+    not shown and stay. A choice without labels and other names goes as its
+    bare code when it was one (or is new), so an untouched form compares
+    equal to what Knovas holds and changes nothing.
     """
     by_code: Dict[str, Any] = {}
     for item in _enum_entries(current):
         by_code[item if isinstance(item, str) else item["code"]] = item
     out: List[Any] = []
-    for code, label in items:
+    for row in rows:
+        code = str(row["code"])
         old = by_code.get(code)
+        kept: Dict[str, str] = {}
         if isinstance(old, dict):
-            entry = dict(old)
-            labels = dict(entry.get("labels") or {})
-            # A code without a German label shows another language's; that
-            # line sent back unchanged is no German label (and no change).
-            fallback = not labels.get("de") and label == _shown_enum_label(labels)
-            if label and not fallback:
-                entry["labels"] = {**labels, "de": label}
-            out.append(entry)
-        elif label:
-            out.append({"code": code, "labels": {"de": label}})
-        else:
+            kept = {lang: text for lang, text in (old.get("labels") or {}).items()
+                    if lang not in LABEL_LANGS}
+        labels = {**kept, **dict(row.get("labels") or {})}
+        aliases = list(row.get("aliases") or [])
+        if not labels and not aliases and not isinstance(old, dict):
             out.append(code)
+            continue
+        entry: Dict[str, Any] = {"code": code}
+        if labels:
+            entry["labels"] = labels
+        if aliases:
+            entry["aliases"] = aliases
+        out.append(entry)
     return out
+
+
+def choice_rows(enum_values: Any) -> List[Dict[str, Any]]:
+    """``enum_values`` as the choice editor shows them: the code, the labels
+    in DE/FR/IT/EN (empty where none) and the other names as text."""
+    rows: List[Dict[str, Any]] = []
+    for item in _enum_entries(enum_values):
+        if isinstance(item, str):
+            rows.append({"code": item, "labels": dict.fromkeys(LABEL_LANGS, ""),
+                         "aliases_text": ""})
+            continue
+        labels = item.get("labels") or {}
+        rows.append({"code": item["code"],
+                     "labels": {lang: str(labels.get(lang) or "") for lang in LABEL_LANGS},
+                     "aliases_text": ", ".join(str(a) for a in item.get("aliases") or [])})
+    return rows
+
+
+def posted_choice_rows(form: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """The choice rows exactly as posted (rows with any input), to show them
+    again with a confirmation -- unchecked, the person's own page only."""
+    rows: List[Dict[str, Any]] = []
+    for i in _choice_indices(form):
+        row = {"code": _text(form, f"choice_code_{i}"),
+               "labels": {lang: _text(form, f"choice_label_{lang}_{i}") for lang in LABEL_LANGS},
+               "aliases_text": _text(form, f"choice_aliases_{i}")}
+        if row["code"] or any(row["labels"].values()) or row["aliases_text"]:
+            rows.append(row)
+    return rows
 
 
 def labels_from_form(form: Mapping[str, Any], current: Optional[Mapping[str, Any]] = None) -> Dict[str, str]:
@@ -537,10 +587,10 @@ def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
     if aliases:
         defn["aliases"] = aliases
     if datatype == "enum":
-        items = parse_enum_lines(form.get("enum_values"))
-        if not items:
+        rows = parse_choice_rows(form)
+        if not rows:
             raise FormError("Ein Auswahlfeld braucht mindestens einen Code.")
-        defn["enum_values"] = merge_enum(None, items)
+        defn["enum_values"] = merge_choices(None, rows)
     if datatype == "entity_ref":
         target = _text(form, "target_node_type_id")
         if target:
@@ -565,8 +615,8 @@ def definition_from_form(form: Mapping[str, Any]) -> Dict[str, Any]:
 def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Dict[str, Any]:
     """The ``PATCH /doc-fields/<id>`` body: only what the form changed.
 
-    Labels and enum values are merged with what the form cannot show (see
-    ``merge_enum``). The display/facet checkboxes are read only when the
+    Labels and choices are merged with the languages the form cannot show (see
+    ``merge_choices``). The display/facet checkboxes are read only when the
     form carries its ``flags`` marker, so a form without them is not read
     as "switch both off". A hidden entity target is never sent back.
     """
@@ -591,11 +641,11 @@ def changes_from_form(form: Mapping[str, Any], current: Mapping[str, Any]) -> Di
         if sensitivity != (current.get("sensitivity") or "normal"):
             changes["sensitivity"] = sensitivity
     datatype = current.get("datatype")
-    if datatype == "enum" and "enum_values" in form:
-        items = parse_enum_lines(form.get("enum_values"))
-        if not items:
+    if datatype == "enum" and has_choice_rows(form):
+        rows = parse_choice_rows(form)
+        if not rows:
             raise FormError("Ein Auswahlfeld braucht mindestens einen Code.")
-        merged = merge_enum(current.get("enum_values"), items)
+        merged = merge_choices(current.get("enum_values"), rows)
         if merged != _enum_entries(current.get("enum_values")):
             changes["enum_values"] = merged
     hidden = "target_type_hidden" in (current.get("warnings") or ())
@@ -774,7 +824,7 @@ def registry_rows(raw_fields: Any, node_types: Iterable[Mapping[str, Any]] = (),
             "display": raw.get("display") is True,
             "facet": raw.get("facet") is True,
             "sensitivity": "normal" if raw.get("sensitivity") in (None, "normal") else "special",
-            "enum_text": enum_lines(raw.get("enum_values")),
+            "choices": choice_rows(raw.get("enum_values")),
             "target_id": str(target or ""),
             "target_name": "verborgen" if hidden else names.get(str(target or ""), ""),
             "target_hidden": hidden,
@@ -811,8 +861,8 @@ def refill_field_row(rows: List[Dict[str, Any]], field_id: Any, form: Mapping[st
     row["labels"] = labels
     if "aliases" in form:
         row["aliases_text"] = _text(form, "aliases")
-    if "enum_values" in form:
-        row["enum_text"] = str(form.get("enum_values") or "")
+    if has_choice_rows(form):
+        row["choices"] = posted_choice_rows(form)
     if "target_node_type_id" in form and not row.get("target_hidden"):
         row["target_id"] = _text(form, "target_node_type_id")
     if "date_role" in form and _text(form, "date_role") in ("", *DATE_ROLES):
@@ -1401,6 +1451,8 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             "link_policies": [(p, LINK_POLICY_LABELS[p]) for p in LINK_POLICIES],
             "fy_months": [(m, MONTH_LABELS[m - 1]) for m in range(1, 13)],
             "fy_labels": [(label, FY_LABEL_LABELS[label]) for label in FY_LABELS],
+            "choice_rows_new": CHOICE_ROWS_NEW,
+            "choice_rows_extra": CHOICE_ROWS_EXTRA,
             "texts": {"read_only": READ_ONLY_TEXT, "in_use_deprecate": IN_USE_DEPRECATE,
                       "in_use_update": IN_USE_UPDATE, "reapply": REAPPLY_TEXT,
                       "multi_source": MULTI_SOURCE_CONFIRM},

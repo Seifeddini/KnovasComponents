@@ -14,6 +14,26 @@
 <div class="app-content">
 
 <main class="admin doc-fields-admin">
+{% macro choice_row(i, c) -%}
+<div class="choice-row" data-df-choice-row>
+    <input type="text" name="choice_code_{{ i }}" value="{{ c.code if c else '' }}" aria-label="Code" autocomplete="off" spellcheck="false" maxlength="64">
+    {% for lang in ('de', 'fr', 'it', 'en') %}
+    <input type="text" name="choice_label_{{ lang }}_{{ i }}" value="{{ c.labels[lang] if c else '' }}" aria-label="Bezeichnung {{ lang|upper }}" maxlength="200">
+    {% endfor %}
+    <input type="text" name="choice_aliases_{{ i }}" value="{{ c.aliases_text if c else '' }}" aria-label="Weitere Namen (mit Komma getrennt)">
+</div>
+{%- endmacro %}
+{% macro choice_editor(choices, extra) -%}
+<fieldset class="choice-rows" data-df-choices>
+    <legend>Auswahlwerte</legend>
+    <div class="choice-row choice-row-head" aria-hidden="true">
+        <span>Code</span><span>DE</span><span>FR</span><span>IT</span><span>EN</span><span>Weitere Namen (Komma)</span>
+    </div>
+    {% for c in choices %}{{ choice_row(loop.index0, c) }}{% endfor %}
+    {% for j in range(extra) %}{{ choice_row(choices|length + j, None) }}{% endfor %}
+    <button type="button" class="secondary compact" data-df-choice-add>Weitere Zeile</button>
+</fieldset>
+{%- endmacro %}
     <header class="admin-page-header">
         <div>
             <h1>Dokumentfelder</h1>
@@ -118,9 +138,7 @@
                                         <label>Bezeichnung EN <input type="text" name="label_en" value="{{ f.labels.en }}" maxlength="200"></label>
                                         <label>Weitere Namen (mit Komma getrennt) <input type="text" name="aliases" value="{{ f.aliases_text }}"></label>
                                         {% if f.datatype == 'enum' %}
-                                        <label>Auswahlwerte (je Zeile: Code = Bezeichnung)
-                                            <textarea name="enum_values" rows="5">{{ f.enum_text }}</textarea>
-                                        </label>
+                                        {{ choice_editor(f.choices, choice_rows_extra) }}
                                         <p class="hint">Codes entfernen geht nur bei vorläufigen, kaum genutzten Feldern.</p>
                                         {% endif %}
                                         {% if f.datatype == 'entity_ref' and not f.target_hidden %}
@@ -277,9 +295,9 @@
                     <label>Bezeichnung EN <input type="text" name="label_en" maxlength="200"></label>
                 </div>
                 <label>Weitere Namen (mit Komma getrennt) <input type="text" name="aliases"></label>
-                <label data-df-only="enum">Auswahlwerte (je Zeile: Code = Bezeichnung)
-                    <textarea name="enum_values" rows="4" placeholder="rechnung = Rechnung&#10;offerte = Offerte"></textarea>
-                </label>
+                <div data-df-only="enum">
+                    {{ choice_editor([], choice_rows_new) }}
+                </div>
                 <label data-df-only="entity_ref">Verknüpfen mit Typ
                     <select name="target_node_type_id">
                         <option value="">— kein Ziel (Namen bleiben unverknüpft) —</option>

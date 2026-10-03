@@ -1744,6 +1744,42 @@
     align-items: end;
 }
 
+/* Auswahlwerte: eine Zeile je Auswahl -- Code, DE, FR, IT, EN, weitere Namen. */
+.admin .choice-rows {
+    border: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.admin .choice-rows legend {
+    font-size: 0.83rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.admin .choice-row {
+    display: grid;
+    grid-template-columns: minmax(70px, 0.8fr) repeat(4, minmax(80px, 1fr)) minmax(110px, 1.4fr);
+    gap: 6px;
+    align-items: center;
+}
+
+.admin .choice-row input[type=text] {
+    max-width: none;
+    margin-top: 0;
+}
+
+.admin .choice-row-head {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.admin .choice-rows > button {
+    justify-self: start;
+}
+
 .doc-fields-filter > summary {
     cursor: pointer;
 }
@@ -1889,6 +1925,14 @@
 @media (max-width: 720px) {
     .rule-value-row {
         grid-template-columns: 1fr;
+    }
+
+    .admin .choice-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .admin .choice-row-head {
+        display: none;
     }
 
     .admin .folder-fields textarea { min-width: 0; }
