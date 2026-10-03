@@ -166,7 +166,7 @@ Image pages of PDFs are ingested via Tesseract when knovas-extract 0.4 (per-page
 
 `./scripts/doctor.sh` checks the OCR settings in `knovas.env` by the Knovas Connector's rules (`RC_TESSERACT_LANG` language packs joined by `+`, `RC_OCR_DPI` 30–1200, `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` at least 1) and names each invalid setting in its section about the Knovas Connector.
 
-PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite and will not retry until those rows are removed:
+PDFs that failed with `no extractable text` before OCR was enabled were recorded as `skip:unconvertible` in SQLite. The extraction stamp covers the OCR switch, so once OCR is on they count as outdated and *Neu extrahieren* re-reads them ([Re-extraction after an extractor upgrade](#re-extraction-after-an-extractor-upgrade)). Otherwise they do not retry until those rows are removed:
 
 ```bash
 sqlite3 /var/rc-state/.rc-sync-state.db \
@@ -227,7 +227,7 @@ OCR output is cached per page image in `/var/rc-state/.rc-ocr-cache.db` (beside 
 
 ## Re-extraction after an extractor upgrade
 
-Every upload records an **extraction stamp** — 16 hex characters of a hash over the installed knovas-extract version and its git commit (so a pin bump that keeps the version string still counts), `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number — and the sha256 of exactly what it carried (every part with its page and sentence number, the field values, title and description). A document whose stamp is not the current one — or that has none, because it was synced before this release — was produced by an **older extraction**. Nothing is re-extracted by itself: every upload is billed.
+Every upload records an **extraction stamp** — 16 hex characters of a hash over the installed knovas-extract version and its git commit (so a pin bump that keeps the version string still counts), `RC_PDF_TEXT_MODE`, `RC_DOCX_TEXT_MODE`, the OCR engine in force (`RC_OCR_ENGINE`, or `off` while `RC_PDF_OCR_ENABLED` is false, as `extraction.ocr_engine` reports it), `RC_TESSERACT_LANG`, `RC_OCR_DPI`, `RC_SENTENCE_EMIT_MAX_BYTES` and an internal schema number — and the sha256 of exactly what it carried (every part with its page and sentence number, the field values, title and description). A document whose stamp is not the current one — or that has none, because it was synced before this release — was produced by an **older extraction**: switching OCR on or adding a language makes the scans uploaded before outdated. Nothing is re-extracted by itself: every upload is billed. The backfill's one-off settings (its larger OCR budget, and OCR off after exhausted retries) are no new extraction: its uploads record the stamp of the Connector's own settings, so a document it landed with OCR off is not queued again to be read with OCR on, into the page that hung.
 
 `GET /sync/status` reports them, counts only:
 

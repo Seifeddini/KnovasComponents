@@ -258,6 +258,40 @@ def test_fewer_pages_missing_is_progress_and_is_tried_again(tmp_path, monkeypatc
         state.close()
 
 
+def test_a_document_landed_with_ocr_off_records_the_connectors_stamp(tmp_path, monkeypatch, backfill):
+    """Exhausted retries are backfilled with OCR off, and the stamp covers
+    the OCR switch. That one-off override is no new extraction: the row
+    records the stamp of the Connector's own settings. With the override's
+    it would count as outdated, and every request would queue it to be read
+    with OCR on again -- into the page that hung, at the full ceiling."""
+    from sync.extraction_stamp import current_extraction_stamp
+
+    root, state_path = _setup(tmp_path, monkeypatch)
+    (root / "Mandant" / "gone.pdf").write_bytes(b"%PDF-1.4 stub")
+    monkeypatch.delenv("RC_PDF_OCR_ENABLED", raising=False)
+    connector_stamp = current_extraction_stamp()
+    seen: dict = {}
+
+    def fake_upload(self, local_path, rel, sync_body, access_groups=()):
+        import os
+
+        # As the uploader does: the stamp of the settings in force meanwhile.
+        seen[rel] = os.environ.get("RC_PDF_OCR_ENABLED")
+        return UploadResult(rel, "tk-new", 1, "ok", 2, text_sha256="a" * 64,
+                            extraction_stamp=current_extraction_stamp())
+
+    with _uploading(_body(root), fake_upload):
+        assert backfill.main([]) == 0
+    assert seen == {"Mandant/gone.pdf": "false", "Mandant/scan.pdf": None}
+    state = SyncStateStore(str(state_path))
+    try:
+        assert state.extraction_state("Mandant/gone.pdf").stamp == connector_stamp
+        assert state.count_extraction_outdated(connector_stamp) == 0
+        assert state.requeue_reextract(connector_stamp) == 0, "not queued into the hung page"
+    finally:
+        state.close()
+
+
 def test_documents_left_unchanged_do_not_use_up_the_limit(tmp_path, monkeypatch, backfill):
     root, state_path = _setup(tmp_path, monkeypatch)
     (root / "Mandant" / "alt.pdf").write_bytes(b"%PDF-1.4 stub")

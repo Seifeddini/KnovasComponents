@@ -5,10 +5,11 @@ Every upload the Knovas Connector makes is recorded with two values:
 * the **extraction stamp** -- 16 hex characters of sha256 over the settings
   that shape a document's text: the installed knovas-extract version and,
   for a git install, its commit (two builds of one version, as before a
-  release, differ only there), the PDF and DOCX text modes, the OCR engine, the DPI setting, the sentence
-  gate and ``EXTRACTION_SCHEMA``. A row whose stamp is not
-  ``current_extraction_stamp()`` (or that has none) was produced by an
-  older extraction;
+  release, differ only there), the PDF and DOCX text modes, the OCR engine
+  in force (``off`` while RC_PDF_OCR_ENABLED is false), the Tesseract
+  languages, the DPI setting, the sentence gate and ``EXTRACTION_SCHEMA``.
+  A row whose stamp is not ``current_extraction_stamp()`` (or that has
+  none) was produced by an older extraction;
 * the **uploaded-text hash** (``upload_text_sha256``) -- sha256 over exactly
   what the upload carried to the index. A re-extraction whose hash equals
   the stored one is not sent again: every upload is billed.
@@ -28,10 +29,11 @@ from typing import Any, Mapping, Optional, Sequence
 
 from sync.document_text import (
     docx_text_mode,
+    effective_ocr_engine,
     ocr_dpi,
-    ocr_engine,
     pdf_text_mode,
     sentence_emit_max_bytes,
+    tesseract_language,
 )
 
 #: Bump when the Connector's own processing changes what an upload carries
@@ -82,13 +84,16 @@ def _canonical(value: Any) -> bytes:
 
 
 def stamp_inputs() -> dict[str, Any]:
-    """What the stamp covers: versions and settings, never document data."""
+    """What the stamp covers: versions and settings, never document data.
+    The OCR engine is the one in force, as ``GET /sync/status`` reports it:
+    scans uploaded while OCR was off become outdated when it is switched on."""
     return {
         "knovas_extract": _knovas_extract_version(),
         "knovas_extract_commit": knovas_extract_commit(),
         "pdf_text_mode": pdf_text_mode(),
         "docx_text_mode": docx_text_mode(),
-        "ocr_engine": ocr_engine(),
+        "ocr_engine": effective_ocr_engine(),
+        "ocr_language": tesseract_language(),
         "ocr_dpi": ocr_dpi(),
         "sentence_emit_max_bytes": sentence_emit_max_bytes(),
         "schema": EXTRACTION_SCHEMA,

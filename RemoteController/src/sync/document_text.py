@@ -492,6 +492,13 @@ def ocr_engine() -> str:
     return DEFAULT_OCR_ENGINE
 
 
+def effective_ocr_engine() -> str:
+    """The OCR engine in force: ``RC_OCR_ENGINE``, or ``off`` while
+    ``RC_PDF_OCR_ENABLED`` is false. What ``GET /sync/status`` reports and
+    the extraction stamp covers."""
+    return ocr_engine() if pdf_ocr_enabled() else "off"
+
+
 def ocr_dpi() -> Optional[int]:
     """`RC_OCR_DPI` (spec E3). Unset (default): None, no `dpi` is passed and
     the library renders each page at its native resolution, at most 300 dpi,

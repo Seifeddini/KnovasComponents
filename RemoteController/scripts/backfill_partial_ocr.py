@@ -213,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     from m365.source import m365_configured
     from sync.default_sync_body import build_default_sync_body
     from sync.doc_fields_payload import config_digest
+    from sync.extraction_stamp import current_extraction_stamp
     from sync.knovas_uploader import SemantixUploader
     from sync.sync_executor import fields_upload_kwargs, record_upload_outcome
     from sync.sync_scheduler import load_last_sync_body
@@ -253,6 +254,13 @@ def main(argv: list[str] | None = None) -> int:
         }
         left_unchanged = 0
         uploader = None if args.dry_run else SemantixUploader()
+        # Uploads record the stamp of the Connector's own settings, taken
+        # before any override: a larger budget, or OCR off after exhausted
+        # retries, is no new extraction. With the override's stamp a
+        # document landed with OCR off would count as outdated, and every
+        # request would queue it to be read with OCR on, into the page that
+        # hung.
+        connector_stamp = current_extraction_stamp()
         started = time.monotonic()
         for rel in partial:
             note = state.partial_note(rel) or {}
@@ -298,6 +306,8 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         os.environ[key] = value
             mtime_iso, size_bytes = _mtime_iso(path)
+            if upload.extraction_stamp is not None:
+                upload = replace(upload, extraction_stamp=connector_stamp)
             if upload.status == "ok" and upload.partial and _unchanged(note, upload.partial):
                 # Recorded with the count, so the next run skips it.
                 upload = replace(upload, partial={**upload.partial, UNCHANGED: (_count(note, UNCHANGED) or 0) + 1})
