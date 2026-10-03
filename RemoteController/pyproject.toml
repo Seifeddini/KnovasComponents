@@ -15,6 +15,11 @@ dependencies = [
     "jsonschema>=4.21,<5",
     "prometheus-client>=0.20,<1",
     "gunicorn>=22.0,<24",
+    # The Platform's PyMuPDF (docbridge_integration/requirements.txt): one PDF
+    # parser under both images and both CI jobs (spec L7). The Dockerfile
+    # installs these dependencies before knovas-extract, whose
+    # pymupdf>=1.24 floor this satisfies.
+    "pymupdf==1.28.0",
     # No [markdown]: sync never asks for emit_markdown (sync/document_text.py)
     # — it cost ~8 s per document and parked mixed PDFs and large-table DOCX
     # through the expansion guard — and the extra pulled the PolyForm-NC

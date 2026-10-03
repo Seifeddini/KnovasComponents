@@ -9,6 +9,7 @@
 - `./scripts/doctor.sh` warns about OCR settings in `knovas.env` that the Knovas Connector would replace by its default (same rules, `scripts/lib/rc_extraction_settings.sh`).
 - **Web server**: the image runs one gunicorn `gthread` worker with four threads and `--timeout ${RC_GUNICORN_TIMEOUT:-120}` (shell-form CMD, gunicorn stays PID 1). A long `POST /sync` no longer gets the worker — and the scheduler thread — killed, and `GET /sync/status` answers meanwhile. Config and body writes and start/stop are serialised.
 - **Description** from file properties when the profile sets none: `docx:subject`, then `pdf:subject`, then `pdf:xmp_description` (the keys read before were never produced, so PDFs had none).
+- PyMuPDF pinned to `1.28.0` in `pyproject.toml`, the Platform's version: both images and both CI jobs run one PDF parser under knovas-extract.
 
 ### 0.3.0 — Knovas document fields (Dokumentfelder)
 
