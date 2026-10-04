@@ -62,7 +62,7 @@ RUN grep -v '^knovas-extract' requirements.txt > /tmp/requirements-other.txt \
 # markdown (emit_markdown=False). Never `pdf-markdown`: it pulls the
 # PolyForm-NC pymupdf-layout, which CI refuses in the built image.
 ARG KNOVAS_EXTRACT_VERSION=0.4.0a1
-ARG KNOVAS_EXTRACT_GIT_REF=b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1
+ARG KNOVAS_EXTRACT_GIT_REF=2c95cbc0a8e1cae072f0e0b6f63200d84a29a672
 RUN if [ -n "${KNOVAS_EXTRACT_GIT_REF}" ]; then \
       pip install --no-cache-dir \
         "knovas-extract[pdf,ocr,docx,msg,html,rtf,markdown,sentences] @ git+https://github.com/Seifeddini/knovas-extract-python.git@${KNOVAS_EXTRACT_GIT_REF}"; \

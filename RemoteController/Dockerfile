@@ -26,7 +26,7 @@ PY
 #   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> remote-controller
 #   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF= remote-controller   # PyPI
 ARG KNOVAS_EXTRACT_VERSION=0.4.0a1
-ARG KNOVAS_EXTRACT_GIT_REF=b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1
+ARG KNOVAS_EXTRACT_GIT_REF=2c95cbc0a8e1cae072f0e0b6f63200d84a29a672
 # Extras: [pdf,ocr,docx,msg,html,rtf,sentences]. No [markdown]: the RC never
 # asks for emit_markdown (it cost ~8 s/document and parked mixed PDFs and
 # large-table DOCX through the expansion guard). [ocr] is tesserocr

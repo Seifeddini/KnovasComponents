@@ -43,8 +43,9 @@ tenacity==8.2.3
 # (Dockerfile ARG KNOVAS_EXTRACT_VERSION / KNOVAS_EXTRACT_GIT_REF).
 knovas-extract[pdf,docx,msg,html,rtf,markdown,sentences]>=0.4.0a1
 # selectolax 1.0 dropped `selectolax.parser`, which knovas-extract 0.4.0a1
-# imports for HTML and for the DOCX/EML/MSG preview (Markdown); the extras of
-# the pinned revision have no upper bound. The Dockerfile installs this line
+# imports for HTML and for the DOCX/EML/MSG preview (Markdown). The pinned
+# release caps it below 1 in its own extras; builds before it (b5d4540 and
+# older) did not, so the cap stays here too. The Dockerfile installs this line
 # before knovas-extract; scripts/ci/assert_knovas_extract_pin.py reads a
 # page of HTML in CI and in the built image.
 selectolax>=0.3.21,<1

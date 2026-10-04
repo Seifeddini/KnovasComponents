@@ -195,9 +195,9 @@ def _fee_statement_docx(path, rows: int) -> None:
 
 def _library_renders_docx_tables() -> bool:
     """True when the installed knovas-extract writes a DOCX's tables into the
-    text in layout mode. The pinned build b5d4540 does not (it answers
-    ``text_mode="layout"`` for DOCX with plain text and a warning); the
-    0.4.0a1 release branch does. CI installs the pin."""
+    text in layout mode. Builds before the 0.4.0a1 release (b5d4540 and
+    older) do not (they answer ``text_mode="layout"`` for DOCX with plain
+    text and a warning); the release, which CI installs as the pin, does."""
     import io
 
     import docx
@@ -218,8 +218,8 @@ def _library_renders_docx_tables() -> bool:
 
 needs_docx_layout = pytest.mark.skipif(
     not _library_renders_docx_tables(),
-    reason="the installed knovas-extract has no DOCX layout mode (the pin b5d4540); "
-           "these run once the pin moves to the 0.4.0a1 release")
+    reason="the installed knovas-extract has no DOCX layout mode (a build before "
+           "the 0.4.0a1 release)")
 
 
 @needs_docx_layout

@@ -17,8 +17,7 @@
   fuellt `status`; Knovas uebernimmt einen Status nur, wenn er zu einer
   Status-Auswahl passt. Einschalten sendet die Dokumente des Ordners erneut
   (verrechnet, mit Bestaetigung) und braucht einen Knovas Connector, der
-  `metadata_fields_v2` meldet. Outlook-Kategorien liest knovas-extract
-  0.4.0a1 noch nicht.
+  `metadata_fields_v2` meldet.
 - **E-Mail-Datum als Dokumentdatum funktioniert.** Gesendet wird der Tag,
   an dem die E-Mail in der Kanzlei eintrifft (`2024-03-15`, Schweizer Zeit;
   `RC_TIMEZONE` aendert die Zone) -- auch fuer Outlook-`.msg`, deren
@@ -71,6 +70,12 @@ indexierte Dokumente profitieren davon erst, wenn sie neu extrahiert werden.
   baut beide Images neu.
 - **Outlook-Mails, deren Text nur als RTF vorliegt**, werden gelesen (bisher
   leerer Text).
+- **Der Pin steht auf dem 0.4.0a1-Release der Bibliothek** (`2c95cbc`):
+  Word-Tabellen stehen im durchsuchbaren Text, HTML-E-Mails kommen ohne
+  `&uuml;` und ohne CSS an, Outlook-Kategorien fuellen die Stichwoerter, und
+  eine zu lange Satzliste wird gekuerzt statt die Datei abzulehnen. Bereits
+  indexierte Dokumente profitieren nach einem *Neu extrahieren* (nur
+  geaenderte werden gesendet).
 - *Verwaltung -> System* nennt die Extraktor-Version der Plattform und des
   Knovas Connector und warnt, wenn sie sich unterscheiden oder der Knovas
   Connector keine meldet (dann ist er aelter als die Plattform).

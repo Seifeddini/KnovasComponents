@@ -993,7 +993,7 @@ def _with_sentences_if_short(raw: bytes, ext: str, kwargs: dict[str, object], re
 
 
 def _is_sentence_cap(exc: BaseException) -> bool:
-    """knovas-extract before its fail-soft sentence cap (the pinned b5d4540)
+    """knovas-extract before its fail-soft sentence cap (b5d4540 and older)
     raises ``ResourceExhaustedError("sentence count")`` when one text holds
     more than ``Limits.max_sentences`` sentences; the 0.4.0a1 release
     truncates instead. Either way the text is good: only the citations go."""
