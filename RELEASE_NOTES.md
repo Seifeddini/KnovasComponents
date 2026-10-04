@@ -174,6 +174,16 @@ Feldbereich der Vorschau.
   auf einen in der Frage erkannten Namen eingegrenzt hat ("Suche automatisch
   auf Muster AG eingegrenzt"; Namen, die die Person nicht sehen darf, werden
   nur gezaehlt).
+- **Faellt das Feldverzeichnis bei Knovas aus, sucht die Plattform mit dem
+  zuletzt gelesenen weiter.** Antwortet Knovas auf
+  `GET /secured/graph/doc-fields` nicht (Zeitueberschreitung, keine
+  Verbindung, 5xx, 429), fragt die Plattform fuer diese Person 30 s lang
+  nicht erneut und nimmt das zuletzt gelesene Verzeichnis; gibt es keines,
+  sucht sie wie bisher ohne Feldwerte. Bisher wartete jede Suche nach Ablauf
+  des Zwischenspeichers (5 Minuten) erneut alle Wiederholungen ab, meist bis
+  zum 504 von nginx. Gleichzeitige Anfragen einer Person lesen das
+  Verzeichnis nur einmal. Bekannte Grenze: die eine Anfrage, die das
+  Verzeichnis neu liest, wartet weiterhin so lange wie bisher.
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),
