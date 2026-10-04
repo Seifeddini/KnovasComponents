@@ -16,13 +16,13 @@ response (or `POST /secured/sign_certificate` when you rotate via CSR). See the
 them on disk is up to you with raw `curl` — but each component expects a
 specific spelling.
 
-| Response field | Client Integration Guide | RemoteController | KnovasPlatform | Sensitive |
+| Response field | Client Integration Guide | Knovas Connector | KnovasPlatform | Sensitive |
 |---|---|---|---|---|
 | `certificate_pem` | `client_cert.pem` | `client-cert.pem` | `client.crt` | No |
 | `private_key` | `client_key.pem` | `client-key.pem` | `client.key` | **Yes — mode 0600** |
 | `ca_root_cert` | `ca_root_cert.pem` | `ca-root.pem` | `ca.crt` | No |
 
-Underscores in the guide, hyphens in RemoteController, `.crt`/`.key` in
+Underscores in the guide, hyphens in Knovas Connector, `.crt`/`.key` in
 KnovasPlatform. There is no deeper meaning to the difference — just match it.
 
 Knovas may additionally ship `client-key.password.txt`, the passphrase for an
@@ -30,21 +30,21 @@ encrypted key. It is sensitive, and it is not a passphrase you chose.
 
 ## Per-component placement
 
-| | RemoteController | KnovasPlatform |
+| | Knovas Connector | KnovasPlatform |
 |---|---|---|
 | **Directory on disk** | `KnovasComponents/certs/` (monorepo root — *not* `RemoteController/certs/`) | `KnovasComponents/KnovasPlatform/certs/` |
 | **Mounted at** | `/certs` | `/app/certs` |
 | **Env vars** | `SEMANTIX_CLIENT_CERT_PATH`, `SEMANTIX_CLIENT_KEY_PATH`, `SEMANTIX_CA_CERT_PATH` | `SEMANTIX_CLIENT_CERT`, `SEMANTIX_CLIENT_KEY`, `SEMANTIX_CA_CERT` |
 | **Container user** | `rcuser`, uid **10001** | root |
 
-Note the env var names differ too: RemoteController uses a `_PATH` suffix,
+Note the env var names differ too: Knovas Connector uses a `_PATH` suffix,
 KnovasPlatform does not. Both are absolute **container** paths, never host paths.
 The `SEMANTIX_` prefix is a legacy internal name kept for compatibility — it
 refers to the Knovas API.
 
-## RemoteController
+## Knovas Connector
 
-RemoteController runs as **uid 10001**, so both the files *and the directory*
+Knovas Connector runs as **uid 10001**, so both the files *and the directory*
 must be readable by that uid. A `chmod 600` key inside a `chmod 700` root-owned
 directory is unreadable no matter what the file mode says — and `ls -la` from
 inside the container still lists it, which makes this failure look like
@@ -84,7 +84,7 @@ SEMANTIX_CLIENT_KEY_PATH=/certs/client-key.plain.pem
 
 That passphrase comes from Knovas — it is not one you chose at install time.
 
-### Verify RemoteController can actually read them
+### Verify Knovas Connector can actually read them
 
 `ls -la` is not sufficient; it shows modes, not whether uid 10001 can `open()`
 each file. Run as the image's own user:
@@ -157,16 +157,16 @@ a first start, and a new key is created: recreate the container without the
 volume and you have silently rotated your key. Losing the key means
 re-registering the public half with Knovas.
 
-**The key directory is also mounted into RemoteController, private half and all.**
+**The key directory is also mounted into Knovas Connector, private half and all.**
 The root `docker-compose.yml` mounts the whole `docbridge_broker_key` volume at
-`/app/secrets/broker:ro` so RemoteController can read `broker_ed25519.pub` and
+`/app/secrets/broker:ro` so Knovas Connector can read `broker_ed25519.pub` and
 verify the console's `X-Platform-Principal`. `:ro` does not hide the `.pem`. What
 keeps it unreadable is a uid difference nobody had written down: docbridge-web
 runs as **root** (`KnovasPlatform/components/docbridge_integration/Dockerfile` has
 no `USER`) and writes `broker_ed25519.pem` as `root:root` mode `0600`, while
-RemoteController runs as **uid 10001**. Add a `USER 10001` to the Platform image,
-or run RemoteController as root, and the key that can assert any of your people
-becomes readable by the service that parses untrusted documents. RemoteController
+Knovas Connector runs as **uid 10001**. Add a `USER 10001` to the Platform image,
+or run Knovas Connector as root, and the key that can assert any of your people
+becomes readable by the service that parses untrusted documents. Knovas Connector
 therefore checks at startup: if it can read `broker_ed25519.pem` in that
 directory it logs `platform broker private key ... is readable by this process`
 at CRITICAL and exits rather than serving. The lasting fix is a pub-only volume;
@@ -191,6 +191,6 @@ The errors above are ordered by how deep they occur in the handshake. Reaching a
 
 ## Related
 
-- [RemoteController local setup](../RemoteController/docs/local-setup.md) · [production setup](../RemoteController/docs/SETUP.md)
+- [Knovas Connector local setup](../RemoteController/docs/local-setup.md) · [production setup](../RemoteController/docs/SETUP.md)
 - [KnovasPlatform setup](../KnovasPlatform/docs/setup.md)
 - [Client Integration Guide](KnovasAPI/Client_Integration_Guide.md) — raw API access without either component

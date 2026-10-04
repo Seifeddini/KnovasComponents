@@ -1,6 +1,6 @@
 # Local commands — run, sync, test
 
-API reference and pytest for Remote Controller. **First-time local setup:** follow [local-setup.md](local-setup.md) step by step. **Production setup:** [SETUP.md](SETUP.md).
+API reference and pytest for Knovas Connector. **First-time local setup:** follow [local-setup.md](local-setup.md) step by step. **Production setup:** [SETUP.md](SETUP.md).
 
 ## Run the service
 
@@ -42,9 +42,14 @@ RC listens on the Docker network only; employees reach RC via HTTPS on port 443 
 ```bash
 cd RemoteController
 cp .env.example .env
+# knovas-extract: the pin both images use. While it is a git revision (until
+# 0.4.0a1 is on PyPI), install it first: the >=0.4.0a1 floor of
+# pyproject.toml cannot be resolved from PyPI alone.
+eval "$(bash ../scripts/ci/check_knovas_extract_pin.sh)"
+[ -z "$KNOVAS_EXTRACT_GIT_REF" ] || pip install "knovas-extract[pdf,docx,msg,html,rtf,sentences] @ git+https://github.com/Seifeddini/knovas-extract-python.git@$KNOVAS_EXTRACT_GIT_REF"
 pip install -e ".[dev]"
 export PYTHONPATH=src
-gunicorn -b 127.0.0.1:5001 -w 1 app:app
+gunicorn -b 127.0.0.1:5001 -w 1 -k gthread --threads 4 app:app
 ```
 
 Or use the Flask dev server (uses `RC_API_PORT` from `.env`):
@@ -53,7 +58,7 @@ Or use the Flask dev server (uses `RC_API_PORT` from `.env`):
 python src/app.py
 ```
 
-Use **one** Gunicorn worker for continuous sync (`-w 1`).
+Use **one** Gunicorn worker process for continuous sync (`-w 1`), with `-k gthread --threads 4` as in the image.
 
 ---
 
@@ -230,6 +235,8 @@ curl -sS "$RC_BASE/metrics"
 From the `RemoteController` directory:
 
 ```bash
+eval "$(bash ../scripts/ci/check_knovas_extract_pin.sh)"   # the knovas-extract pin, see above
+[ -z "$KNOVAS_EXTRACT_GIT_REF" ] || pip install "knovas-extract[pdf,docx,msg,html,rtf,sentences] @ git+https://github.com/Seifeddini/knovas-extract-python.git@$KNOVAS_EXTRACT_GIT_REF"
 pip install -e ".[dev]"
 pytest
 ```

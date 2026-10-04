@@ -273,8 +273,11 @@ class TestSearchPageHelpers:
         assert _search_fetch_size(1) == 2
         assert _search_fetch_size(10) == 20
         assert _search_fetch_size(20) == 40
-        assert _search_fetch_size(100) == 120
-        assert _search_fetch_size(190) == 200
+        # The ceiling is Knovas' own maximum (50, see _SEARCH_LIMIT_MAX).
+        assert _search_fetch_size(30) == 50
+        assert _search_fetch_size(50) == 50
+        assert _search_fetch_size(100) == 100
+        assert _search_fetch_size(190) == 190
         assert _search_fetch_size(500) == 500
 
     @pytest.mark.parametrize("raw, expected", [

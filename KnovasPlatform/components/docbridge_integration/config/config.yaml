@@ -68,10 +68,6 @@ api:
   # Keep false in production. Set true only for explicit mock/dev usage.
   allow_legacy_api_fallback: "${SEMANTIX_ALLOW_LEGACY_API_FALLBACK:-false}"
 
-  # When the tenant uses encrypted embeddings, POST /secured/query requires
-  # "encryption_matrix" (orthogonal matrix JSON). Path to a JSON file, or empty.
-  encryption_matrix_path: "${SEMANTIX_ENCRYPTION_MATRIX_PATH:-}"
-
   # Legacy authentication (only relevant in legacy/mock mode)
   auth_type: "bearer"  # or "api_key"
   api_key: "${SEMANTIX_API_KEY}"
@@ -210,6 +206,28 @@ web:
     context_store_path: "${SEARCH_CONTEXT_STORE_PATH:-/mnt/autodoc/.search_context}"
     context_sentences: 10
     hover_preview: true
+
+  # Document fields (typed values per document: Dokumentart, Mandant, Datum,
+  # ...). Nothing here switches them on: the Platform asks Knovas what this
+  # tenant supports (src/doc_fields_capability.py) and shows only that. "off"
+  # hides every part of it; there is no "on". Secured mode (mTLS) only.
+  doc_fields:
+    ui: "${DOC_FIELDS_UI:-auto}"            # auto | off
+    # How long the answer of the capability probe is kept per worker.
+    capability_ttl_seconds: 300
+    # After Knovas answers a filtered search with 503
+    # where_requires_calibration ("a problem on the Knovas side, try again
+    # later"), how long the Platform keeps the listing without the search
+    # filters before asking again.
+    calibration_recheck_seconds: 300
+    # Field registry and entity-name suggestions, cached per person.
+    registry_cache_seconds: 300
+    # Roles that may edit document values (comma list of admin, approver,
+    # ingestion_manager, member). "member" is read-only by design; fields with
+    # sensitivity "special" are always admin-only.
+    edit_roles: "${DOC_FIELDS_EDIT_ROLES:-admin}"
+    # Documents per page of the field listing (at most 200).
+    find_page_size: 50
 
   # Document opening
   document_handler:

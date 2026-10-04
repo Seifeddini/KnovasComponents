@@ -83,7 +83,7 @@ anderen drei Formaten rendern wir bereits selbst, und dort sieht es aus wie Knov
 Die Trefferliste gruppiert nach `akten_id` (siehe
 `docs/superpowers/specs/2026-07-30-trefferliste-design.md`, Abschnitt 2). Dieses
 Feld kommt **nicht** von der Knovas-API, sondern aus der lokalen
-`.search_enrichment.jsonl`, die der RemoteController schreibt.
+`.search_enrichment.jsonl`, die der Knovas Connector schreibt.
 
 Ist sie nicht konfiguriert oder nicht vorhanden — wie in der lokalen Demo, wo
 `/mnt/autodoc/.search_enrichment.jsonl` schlicht fehlt —, tragen die Treffer kein
@@ -157,7 +157,7 @@ Für die Trefferliste sind drei Punkte daraus unmittelbar relevant:
   `app.py:3027-3030`): nach `cosine_similarity` statt nach dem gerankten
   `final_score` — der ColBERT-Rerank und der Namens-Boost des Servers kommen
   in der Liste nicht an. Fix: `server_rank` mitführen und danach sortieren.
-- **Trefferkontext kommt ausschliesslich aus den Sidecars** des RemoteControllers;
+- **Trefferkontext kommt ausschliesslich aus den Sidecars** des Knovas Connectors;
   für Dateien über 2 MiB (Scans, MSG mit Anhängen) sind sie leer, der Anker trifft
   bei Satznummern-Drift den Briefkopf, und Bilanzzeilen fallen durch den
   „thin location"-Filter (`context_store.py:560-564`).

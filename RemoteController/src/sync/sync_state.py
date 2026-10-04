@@ -4,15 +4,29 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Collection, Literal, Optional
 
 from config import get_config
 from sync.ocr_cache import OcrDiskCache
-from sync.sync_state_db import SyncStateDatabase, json_state_path_to_db
+from sync.sync_state_db import (
+    ExtractionState,
+    FieldsState,
+    SyncStateDatabase,
+    json_state_path_to_db,
+)
 
 logger = logging.getLogger(__name__)
 
-DocumentSyncStatus = Literal["synced", "pending", "modified", "excluded_max_age"]
+#: ``fields_changed``: the file itself is synced, but the Knovas document
+#: fields configuration that governs it changed since it was uploaded
+#: (``sync_executor._classify_status``). Only the executor's scan produces
+#: it; ``document_status`` and ``summarize`` stay fingerprint-only.
+DocumentSyncStatus = Literal["synced", "pending", "modified", "excluded_max_age", "fields_changed"]
+
+#: Partial-note key ``scripts/backfill_partial_ocr.py`` writes (its
+#: ``UNCHANGED``): runs in a row that left the document no better. Later
+#: runs skip a note that carries it; every upload is billed.
+BACKFILL_UNCHANGED = "backfill_unchanged"
 
 
 @dataclass(frozen=True)
@@ -30,6 +44,7 @@ class DocumentSyncSummary:
     pending: int = 0
     modified: int = 0
     excluded_max_age: int = 0
+    fields_changed: int = 0
     documents: list[DocumentSyncRecord] = field(default_factory=list)
 
     def as_dict(self, *, include_documents: bool = False) -> dict[str, Any]:
@@ -39,6 +54,7 @@ class DocumentSyncSummary:
             "pending": self.pending,
             "modified": self.modified,
             "excluded_max_age": self.excluded_max_age,
+            "fields_changed": self.fields_changed,
         }
         if include_documents:
             out["documents"] = [
@@ -109,9 +125,12 @@ class SyncStateStore:
         mtime_iso: str,
         size_bytes: int,
         transmission_key_id: str,
+        *,
+        fields: Any = None,
     ) -> None:
         """Record a clean upload: fingerprint stored, any partial note and
-        retry counter for the path cleared."""
+        retry counter for the path cleared. ``fields`` (a ``FieldsRecord``)
+        writes the document-fields columns; None leaves them untouched."""
         fp_map = self.load_fingerprints()
         self._db.record_upload(
             relative_path,
@@ -119,6 +138,7 @@ class SyncStateStore:
             size_bytes,
             transmission_key_id,
             fingerprints=fp_map,
+            fields=fields,
         )
         self._db.clear_partial(relative_path)
         self._db.clear_retries(relative_path)
@@ -130,9 +150,10 @@ class SyncStateStore:
         size_bytes: int,
         *,
         reason: str,
+        fields: Any = None,
     ) -> None:
         """Mark a path handled so incremental sync does not retry it forever."""
-        self.record_upload(relative_path, mtime_iso, size_bytes, f"skip:{reason}")
+        self.record_upload(relative_path, mtime_iso, size_bytes, f"skip:{reason}", fields=fields)
 
     # ----- partial documents (GI-EXTRACT-02) ---------------------------------
 
@@ -143,6 +164,8 @@ class SyncStateStore:
         size_bytes: int,
         transmission_key_id: str,
         note: dict[str, Any],
+        *,
+        fields: Any = None,
     ) -> None:
         """Record a document whose text landed only in part.
 
@@ -158,6 +181,7 @@ class SyncStateStore:
             size_bytes,
             transmission_key_id,
             fingerprints=fp_map,
+            fields=fields,
         )
         self._db.set_partial(relative_path, dict(note or {}))
         self._db.clear_retries(relative_path)
@@ -185,6 +209,105 @@ class SyncStateStore:
 
     def clear_retries(self, relative_path: str) -> None:
         self._db.clear_retries(relative_path)
+
+    # ----- Knovas document fields (spec 3.7) ----------------------------------
+
+    def load_fields_states(self) -> dict[str, FieldsState]:
+        """The fields columns of every tracked path, read once per scan cycle."""
+        return self._db.load_fields_states()
+
+    def fields_state(self, relative_path: str) -> Optional[FieldsState]:
+        return self._db.fields_state(relative_path)
+
+    def update_fields(self, relative_path: str, record: Any) -> Optional[int]:
+        """Write only the fields columns of a tracked path (no fingerprint);
+        returns ``fields_attempts`` afterwards, None when untracked."""
+        return self._db.update_fields(relative_path, record)
+
+    def increment_fields_attempts(self, relative_path: str) -> int:
+        return self._db.increment_fields_attempts(relative_path)
+
+    def requeue_fields(self, outcome: str, paths: Optional[Collection[str]] = None) -> int:
+        """Queue documents with this stored outcome for a fields re-upload
+        (``not_accepted``, ``refused``, ``reupload_failed`` or ``all``);
+        ``paths`` limits it to documents a scan reaches."""
+        return self._db.requeue_fields(outcome, paths)
+
+    def count_fields_requeue_candidates(
+        self, outcome: str, paths: Optional[Collection[str]] = None
+    ) -> int:
+        return self._db.count_fields_requeue_candidates(outcome, paths)
+
+    def fields_requeue_candidate_paths(self, outcome: str = "all") -> list[str]:
+        return self._db.fields_requeue_candidate_paths(outcome)
+
+    def fields_counts(self) -> dict[str, int]:
+        return self._db.fields_counts()
+
+    # ----- re-extraction (spec L6) ---------------------------------------------
+
+    def extraction_state(self, relative_path: str) -> Optional[ExtractionState]:
+        return self._db.extraction_state(relative_path)
+
+    def set_extraction(
+        self, relative_path: str, stamp: Optional[str], text_sha: Optional[str]
+    ) -> bool:
+        """After an upload: its extraction stamp and the hash of what it
+        carried; the path leaves the re-extraction queue."""
+        return self._db.set_extraction(relative_path, stamp, text_sha)
+
+    def set_extraction_stamp(self, relative_path: str, stamp: str) -> bool:
+        return self._db.set_extraction_stamp(relative_path, stamp)
+
+    def record_reextract_unchanged(
+        self, relative_path: str, stamp: str, partial: Optional[dict[str, Any]]
+    ) -> None:
+        """A re-extraction that would upload exactly what Knovas holds:
+        nothing was sent. The stamp moves on, the path leaves the queue,
+        and the partial note follows the NEW extraction -- a born-digital
+        PDF an older release recorded partial is complete now and leaves
+        the backfill list. A still partial note keeps the backfill's
+        ``backfill_unchanged`` count: Knovas holds the text that pass could
+        not improve, and its next run would only send it again, billed.
+        Fingerprint and upload columns stay."""
+        self._db.set_extraction_stamp(relative_path, stamp)
+        if partial:
+            note = dict(partial)
+            stored = (self._db.get_partial(relative_path) or {}).get(BACKFILL_UNCHANGED)
+            if isinstance(stored, int) and not isinstance(stored, bool) and stored > 0:
+                note[BACKFILL_UNCHANGED] = stored
+            self._db.set_partial(relative_path, note)
+        else:
+            self._db.clear_partial(relative_path)
+
+    def record_reextract_kept(self, relative_path: str, stamp: str) -> None:
+        """A re-extraction that would have missed more OCR pages than the
+        text Knovas holds: nothing was sent. The stamp moves on, so the path
+        leaves the queue and a later request does not read it again for
+        nothing; it is counted as kept until an upload replaces that text.
+        Hash and partial note stay: they describe what Knovas holds, and a
+        partial document stays on the backfill list."""
+        self._db.set_extraction_kept(relative_path, stamp)
+
+    def count_reextract_kept(self) -> int:
+        return self._db.count_reextract_kept()
+
+    def count_extraction_outdated(self, stamp: str) -> int:
+        return self._db.count_extraction_outdated(stamp)
+
+    def requeue_reextract(self, stamp: str) -> int:
+        """Queue every tracked path an older extraction produced (another
+        stamp, or none); returns how many were newly queued."""
+        return self._db.requeue_reextract(stamp)
+
+    def count_reextract_queued(self) -> int:
+        return self._db.count_reextract_queued()
+
+    def load_reextract_queue(self) -> dict[str, Optional[str]]:
+        return self._db.load_reextract_queue()
+
+    def count_reextract_failure(self, relative_path: str, max_attempts: int) -> bool:
+        return self._db.count_reextract_failure(relative_path, max_attempts)
 
     def status_for(self, relative_path: str, mtime_iso: str, size_bytes: int) -> str:
         """``synced`` / ``pending`` / ``modified`` for the file's current

@@ -1625,3 +1625,315 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ── Dokumentfelder (Reiter, Schublade, Feldfilter) ─────────────────────── */
+
+.admin .msg.warn {
+    background: rgba(var(--admin-warn-rgb), 0.08);
+    border-color: rgba(var(--admin-warn-rgb), 0.30);
+    color: var(--admin-warn);
+}
+
+.admin .msg.info {
+    background: var(--surface-sunken);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.admin ul.msg {
+    margin-left: 0;
+    padding-left: 30px;
+}
+
+.admin .warn-text { color: var(--admin-warn); }
+
+.admin .field-badge,
+.admin .knovas-admin-badge {
+    display: inline-block;
+    margin: 2px 4px 2px 0;
+    padding: 1px 7px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.admin .field-badge.in-use { border-color: var(--accent); color: var(--primary-color); }
+.admin .field-badge.special { border-color: rgba(var(--admin-warn-rgb), 0.45); color: var(--admin-warn); }
+.admin .field-badge.layer-manual { border-color: var(--accent); color: var(--primary-color); }
+
+.admin .knovas-admin-badge {
+    border-color: var(--accent);
+    background: #E9EEFB;
+    color: var(--primary-color);
+    cursor: help;
+}
+
+.admin .field-status { font-size: 0.8rem; }
+.admin .field-status.status-deprecated { color: var(--text-secondary); }
+.admin .field-status.status-provisional { color: var(--admin-warn); }
+.admin tr.is-deprecated td { color: var(--text-secondary); }
+
+.admin .field-chip {
+    display: inline-flex;
+    gap: 4px;
+    margin: 2px 6px 2px 0;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--surface-sunken);
+    font-size: 0.78rem;
+}
+
+.admin .field-chip-label { color: var(--text-secondary); }
+
+.admin details.field-edit > summary {
+    list-style: none;
+    cursor: pointer;
+    display: inline-block;
+}
+
+.admin details.field-edit[open] {
+    position: relative;
+}
+
+.admin details.field-edit form {
+    min-width: 280px;
+    margin-top: 10px;
+    text-align: left;
+}
+
+.admin details.field-edit fieldset,
+.admin .doc-fields-create fieldset,
+.admin .doc-fields-settings fieldset,
+.admin .doc-fields-rule-form fieldset {
+    border: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+
+.admin fieldset[disabled] { opacity: 0.6; }
+
+.admin .confirm-check span { color: var(--admin-warn); }
+
+.admin .doc-fields-admin textarea,
+.admin .doc-fields-drawer textarea {
+    width: 100%;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    color: var(--text-primary);
+}
+
+.rule-value-rows {
+    display: grid;
+    gap: 6px;
+}
+
+.rule-value-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+    gap: 8px;
+    align-items: end;
+}
+
+/* Auswahlwerte: eine Zeile je Auswahl -- Code, DE, FR, IT, EN, weitere Namen. */
+.admin .choice-rows {
+    border: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.admin .choice-rows legend {
+    font-size: 0.83rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.admin .choice-row {
+    display: grid;
+    grid-template-columns: minmax(70px, 0.8fr) repeat(4, minmax(80px, 1fr)) minmax(110px, 1.4fr);
+    gap: 6px;
+    align-items: center;
+}
+
+.admin .choice-row input[type=text] {
+    max-width: none;
+    margin-top: 0;
+}
+
+.admin .choice-row-head {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.admin .choice-rows > button {
+    justify-self: start;
+}
+
+.doc-fields-filter > summary {
+    cursor: pointer;
+}
+
+.doc-fields-filter-row label,
+.doc-fields-filter-form .inline-form-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.doc-fields-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(460px, 100vw);
+    overflow-y: auto;
+    z-index: 40;
+    padding: 18px 20px 40px;
+    border-left: 1px solid var(--border-color);
+    background: var(--card-bg);
+    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
+}
+
+.doc-fields-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.doc-fields-drawer-header h2 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.doc-fields-drawer h3 {
+    margin: 14px 0 4px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.doc-fields-drawer input[type=text],
+.doc-fields-drawer select {
+    width: 100%;
+}
+
+.doc-fields-values dt {
+    margin-top: 12px;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.doc-fields-values dd {
+    margin: 4px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: center;
+}
+
+.doc-fields-values dd .sub {
+    display: block;
+    width: 100%;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.doc-fields-layers ul {
+    margin: 4px 0 0;
+    padding-left: 16px;
+    font-size: 0.8rem;
+}
+
+.doc-fields-layers li.is-effective { font-weight: 600; }
+
+/* Ingestion: Felder je Ordner, Vorlagen-Vorschau, Status der Dokumentfelder */
+
+.admin .folder-fields details > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.admin .folder-fields label {
+    display: block;
+    margin-top: 8px;
+}
+
+.admin .folder-fields label .hint {
+    display: block;
+    margin: 2px 0 4px;
+}
+
+.admin .folder-fields textarea {
+    width: 100%;
+    min-width: 16rem;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.admin .folder-fields fieldset {
+    display: grid;
+    gap: 4px;
+    margin: 10px 0 0;
+    padding: 0;
+    border: none;
+}
+
+.admin .folder-fields .template-test { margin-top: 6px; }
+.admin .template-test-result:empty { display: none; }
+.admin .template-test-result { margin-top: 6px; }
+
+/* Kompakt: steht in einer Tabellenzelle der Vorschau bzw. unter dem Ordner. */
+.admin-page .admin table.template-preview,
+.admin-page .admin .table-wrap table.template-preview {
+    min-width: 0;
+    margin: 8px 0 0;
+    font-size: 0.72rem;
+}
+
+.admin-page .admin table.template-preview thead th,
+.admin-page .admin table.template-preview tbody td {
+    padding: 5px 8px;
+}
+
+.admin-page .admin table.template-preview .ptr { max-width: 260px; }
+
+.admin .doc-fields-status ul {
+    margin: 6px 0 10px;
+    padding-left: 18px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.admin .doc-fields-status li + li { margin-top: 3px; }
+
+@media (max-width: 720px) {
+    .rule-value-row {
+        grid-template-columns: 1fr;
+    }
+
+    .admin .choice-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .admin .choice-row-head {
+        display: none;
+    }
+
+    .admin .folder-fields textarea { min-width: 0; }
+}

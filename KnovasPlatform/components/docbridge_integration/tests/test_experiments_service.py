@@ -1024,6 +1024,24 @@ def test_search_merges_knovas_hits_with_the_database(w):
     assert len(w.svc(w.eva).search("Karussell", limit=1)["items"]) == 1
 
 
+def test_search_asks_knovas_for_at_most_50(w):
+    """/secured/query answers 422 above 50: the default page (30) asked for
+    150 and the largest (100) for 200, and the refusal sent the search to
+    the database alone without a word."""
+    calls = []
+
+    def knovas(query, limit):
+        calls.append(limit)
+        return {"results": []}
+
+    w.repo.set_access_groups(w.eva.id, ["g-exp"])
+    svc = w.svc(w.eva, knovas_search=knovas)
+    svc.search("Karussell")
+    svc.search("Karussell", limit=100)
+    svc.search("Karussell", limit=2)
+    assert calls == [50, 50, 10]
+
+
 def test_list_experiments_filters_and_pages(w):
     svc = w.experimenter
     first = w.create(tags=["q3"])

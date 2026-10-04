@@ -4,14 +4,14 @@ from __future__ import annotations
 import logging
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 import requests
 
-from config import get_config
-from sync import ocr_metrics
+from config import doc_fields_enabled, get_config
+from sync import doc_fields_metrics, extract_metrics, ocr_metrics
 from sync.ingest_rate_limit import acquire_chars, acquire_request
 from sync.rate_metrics import IngestRateMetrics
 from sync.chunking import PART_MAX_CHARS, build_transmission_parts
@@ -20,15 +20,65 @@ from sync.document_text import (
     ConversionError,
     ExtractedDocument,
     _env_flag,
+    docx_tables_in_text,
     extract_document_guarded,
+    ocr_backend_missing,
+    ocr_pages_missing,
     partial_note_for,
     pdf_ocr_enabled,
+)
+from sync.doc_fields_payload import (
+    FieldsOutcome,
+    SourceSpec,
+    assemble,
+    classify_init_refusal,
+    config_digest,
+    fields_to_send,
+    is_doc_fields_unavailable,
+    outcome_after_init,
+    parse_init_echo,
+    refused_outcome,
+)
+from sync.extraction_stamp import (
+    current_extraction_stamp,
+    fields_values_digest,
+    upload_text_sha256,
 )
 
 logger = logging.getLogger(__name__)
 
 RETRY_STATUS = {429, 503, 504}
 MAX_BACKOFF = 30.0
+INIT_PATH = "/secured/init_document_transmission"
+#: The capability probe (spec F5). While Document fields are off, Knovas
+#: answers every ``/secured/graph/doc-*`` route with its unknown-route 404.
+DOC_FIELDS_PROBE_PATH = "/secured/graph/doc-fields"
+#: The probe's 401/403 ``error_code``s that Knovas raises only behind its
+#: per-tenant fields gate: the graph caller's principal check (a BROKERED
+#: tenant's missing assertion). A refusal in front of the gate -- the mTLS
+#: gateway's 400, the certificate check's ``AUTH_FAILED`` (also its
+#: fail-closed answer when its own lookup fails), the signature gate's
+#: ``SIGNATURE_REQUIRED`` -- reaches a tenant whose fields are off as well.
+PROBE_PAST_GATE_CODES = frozenset({"assertion_rejected"})
+#: The Secure API refuses longer titles (secure_api.py init validation); an
+#: uncapped one made such a file fail its init every cycle.
+MAX_TITLE_CHARS = 500
+
+
+def _json_or_none(resp: requests.Response) -> Any:
+    try:
+        return resp.json() if resp.content else None
+    except ValueError:
+        return None
+
+
+def _retry_unless_doc_fields_unavailable(resp: requests.Response) -> bool:
+    """``retry_status`` of an init that carries ``fields``: a 503 whose
+    ``error_code`` starts with ``doc_fields_`` comes back at once (the RC
+    re-posts without fields) instead of after five backoff rounds."""
+    if resp.status_code not in RETRY_STATUS:
+        return False
+    return not is_doc_fields_unavailable(resp.status_code, _json_or_none(resp))
 
 
 def page_break_markers_enabled() -> bool:
@@ -53,10 +103,26 @@ class UploadResult:
     status: str
     ingestion_requests: int
     error: Optional[str] = None
-    #: Counts and reasons when the text landed only in part (OCR pages
-    #: skipped on a budget trip, no OCR backend although one was configured);
-    #: None for a complete document. Recorded by the executor (GI-EXTRACT-02).
+    #: The library's OCR counts when the text landed only in part (pages
+    #: skipped on a budget trip or for want of an engine, pages that failed
+    #: OCR; ``document_text.partial_note_for``); None for a complete
+    #: document. Recorded by the executor (GI-EXTRACT-02).
     partial: Optional[dict[str, Any]] = None
+    #: What happened to the init ``fields`` (spec 3.6); None when the upload
+    #: was not given a ``source`` or the init did not succeed.
+    fields: Optional[FieldsOutcome] = None
+    #: Values left out of ``fields`` before sending, by reason (counts).
+    fields_dropped: dict[str, int] = field(default_factory=dict)
+    #: sha256 of what the upload carries to the index
+    #: (``extraction_stamp.upload_text_sha256``) and the stamp of the
+    #: extraction that produced it (spec L6). Set on ``ok`` and on
+    #: ``unchanged`` -- a re-extraction whose hash matched
+    #: ``unchanged_text_sha256``, for which no request was made. ``kept``
+    #: (a re-extraction missing more OCR pages than the text Knovas holds,
+    #: not sent either) carries the stamp only: its hash is not what
+    #: Knovas holds.
+    text_sha256: Optional[str] = None
+    extraction_stamp: Optional[str] = None
 
 
 def _record_cache_metrics(doc: ExtractedDocument) -> None:
@@ -116,8 +182,17 @@ class SemantixUploader:
         return 1
 
     def _request(
-        self, method: str, path: str, *, json_body: Optional[dict] = None, max_retries: int = 5
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: Optional[dict] = None,
+        max_retries: int = 5,
+        retry_status: Optional[Callable[[requests.Response], bool]] = None,
     ) -> requests.Response:
+        """One API call with backoff. ``retry_status`` decides whether an
+        answer is retried; default: its status is in ``RETRY_STATUS``."""
+        should_retry = retry_status or (lambda resp: resp.status_code in RETRY_STATUS)
         url = f"{self._base}{path}"
         backoff = 1.0
         last_exc: Optional[Exception] = None
@@ -159,7 +234,7 @@ class SemantixUploader:
                     success=200 <= resp.status_code < 300,
                 )
 
-            if resp.status_code not in RETRY_STATUS:
+            if not should_retry(resp):
                 return resp
             if attempt >= max_retries - 1:
                 return resp
@@ -174,7 +249,31 @@ class SemantixUploader:
         relative_path: str,
         sync_body: dict[str, Any],
         access_groups: tuple[str, ...] = (),
+        *,
+        source: Optional[SourceSpec] = None,
+        previous_fields_sent: bool = False,
+        unchanged_text_sha256: Optional[str] = None,
+        ocr_pages_missing_at_knovas: Optional[int] = None,
     ) -> UploadResult:
+        """Extract, init and transmit one file.
+
+        ``source`` is the governing source's ``SourceSpec``: its access
+        groups win over ``access_groups``, and its fields configuration
+        becomes the init ``fields`` (spec 3.6). ``previous_fields_sent``
+        (from the state row) makes an empty payload a ``{}`` clear. Without
+        ``source`` the init body is exactly what it was before fields.
+
+        An ``ok`` result carries the extraction stamp and ``text_sha256``,
+        the hash of what the upload carried (spec L6). A re-extraction
+        passes the hash of the last upload as ``unchanged_text_sha256``:
+        when the new one matches, no request is made and the status is
+        ``unchanged``. It also passes how many OCR pages the text Knovas
+        holds lacks as ``ocr_pages_missing_at_knovas`` (0: complete): an
+        extraction missing more (``document_text.ocr_pages_missing``) is
+        not sent either, and the status is ``kept``.
+        """
+        if source is not None:
+            access_groups = source.access_groups
         ingestion = sync_body.get("ingestion") or {}
         prefix = ingestion.get("identifier_prefix", "rc-sync")
         part_max = min(int(ingestion.get("part_max_chars", PART_MAX_CHARS)), PART_MAX_CHARS)
@@ -183,10 +282,18 @@ class SemantixUploader:
         ext = file_path.suffix.lower()
         try:
             doc = extract_document_guarded(file_path, document_key=relative_path)
+            # Counted here, in the process that serves /metrics: the
+            # extraction child's registry died with it (spec L5).
+            extract_metrics.record_extraction(doc)
             text, sentences = doc.text, doc.sentences
             extracted_title = doc.title
             tables = doc.tables
             if ext == ".pdf" and not send_pdf_tables_enabled():
+                tables = None
+            elif ext == ".docx" and docx_tables_in_text(doc):
+                # Layout mode wrote the rows into the text (spec L3): a
+                # payload would be indexed twice if the server ever stopped
+                # dropping it at its part buffer.
                 tables = None
             parts = build_transmission_parts(
                 text,
@@ -197,19 +304,10 @@ class SemantixUploader:
                 tables=tables,
                 page_markers=page_break_markers_enabled(),
             )
-            # Always from the UNMARKED text: the sidecar's offsets are the
-            # extractor's, the markers exist only on the wire.
-            write_context_sidecar(
-                context_store_dir_from_env(),
-                identifier,
-                relative_path,
-                text,
-                sentences,
-            )
             part_count = len(parts)
             partial = partial_note_for(doc, expect_ocr=(ext == ".pdf" and bool(pdf_ocr_enabled())))
             _record_cache_metrics(doc)
-            if partial and partial.get("reason") == "ocr_backend_none":
+            if ocr_backend_missing(partial):
                 ocr_metrics.OCR_BACKEND_DEGRADED.inc()
         except Exception as exc:
             return UploadResult(
@@ -221,11 +319,40 @@ class SemantixUploader:
                 error=str(exc),
             )
 
+        if ocr_pages_missing_at_knovas is not None:
+            missing = ocr_pages_missing(partial)
+            if missing is not None and missing > ocr_pages_missing_at_knovas:
+                # A re-extraction would replace Knovas's text with one that
+                # misses more OCR pages: a large scan the backfill completed,
+                # read again within the cycle's smaller OCR budget. Nothing
+                # is sent or billed, and the sidecar keeps the text Knovas
+                # holds. Checked before the hash: the same text with a page
+                # skipped instead of OCR'd blank must not be recorded partial.
+                return UploadResult(
+                    relative_path=relative_path,
+                    transmission_key_id=None,
+                    parts=part_count,
+                    status="kept",
+                    ingestion_requests=0,
+                    partial=partial,
+                    extraction_stamp=current_extraction_stamp(),
+                )
+
+        # Always from the UNMARKED text: the sidecar's offsets are the
+        # extractor's, the markers exist only on the wire.
+        write_context_sidecar(
+            context_store_dir_from_env(),
+            identifier,
+            relative_path,
+            text,
+            sentences,
+        )
+
         # Prefer the extractor-supplied title (email subject, PDF /Title, DOCX
         # core.xml title) so email search on the subject line still works after
         # migrating off the legacy '# Subject' body-prefix shape. Falls back to
         # filename when no title was extracted.
-        title = extracted_title or file_path.name
+        title = (extracted_title or file_path.name)[:MAX_TITLE_CHARS]
 
         init_body: dict[str, Any] = {
             "identifier": identifier,
@@ -242,12 +369,67 @@ class SemantixUploader:
             # "deliberately unrestricted" and would override it.
             init_body["access_groups"] = list(access_groups)
 
-        init_resp = self._request(
-            "POST",
-            "/secured/init_document_transmission",
-            json_body=init_body,
+        # Knovas document fields (spec 3.6): only with a source, only while
+        # RC_DOC_FIELDS is on, and only when there is something to send --
+        # values, or {} to clear values an earlier upload staged. Every other
+        # init body stays byte-identical to the one before fields existed.
+        fields_on = source is not None and doc_fields_enabled()
+        fields_value: Optional[dict[str, Any]] = None
+        fields_digest = ""
+        dropped: dict[str, int] = {}
+        if fields_on:
+            payload = assemble(relative_path, source, doc.source_metadata, ext)
+            dropped = {k: int(v) for k, v in payload.dropped.items() if v}
+            fields_value = fields_to_send(payload, previous_fields_sent)
+            fields_digest = config_digest(relative_path, source)
+            if fields_value is not None:
+                init_body["fields"] = fields_value
+
+        # What this upload carries to the index, and which extraction made it
+        # (spec L6). A re-extraction that would carry exactly what Knovas
+        # holds sends nothing: no init, no part, nothing billed.
+        stamp = current_extraction_stamp()
+        text_sha256 = upload_text_sha256(
+            parts,
+            fields_values_digest(fields_value),
+            title=init_body["title"],
+            description=init_body.get("description"),
         )
+        if unchanged_text_sha256 is not None and text_sha256 == unchanged_text_sha256:
+            return UploadResult(
+                relative_path=relative_path,
+                transmission_key_id=None,
+                parts=part_count,
+                status="unchanged",
+                ingestion_requests=0,
+                partial=partial,
+                text_sha256=text_sha256,
+                extraction_stamp=stamp,
+            )
+        # Dropped values are counted only for what is actually sent.
+        doc_fields_metrics.record_dropped(dropped)
+
+        fields_outcome: Optional[FieldsOutcome] = None
+        if fields_value is None:
+            init_resp = self._request("POST", INIT_PATH, json_body=init_body)
+        else:
+            init_resp = self._request(
+                "POST",
+                INIT_PATH,
+                json_body=init_body,
+                retry_status=_retry_unless_doc_fields_unavailable,
+            )
         ingestion_count = 1
+        if init_resp.status_code not in (200, 201) and fields_value is not None:
+            code = classify_init_refusal(init_resp.status_code, _json_or_none(init_resp))
+            if code is not None:
+                # D5: fields never block indexing. Re-post once without them;
+                # only if that succeeds were the fields the cause.
+                retry_body = {k: v for k, v in init_body.items() if k != "fields"}
+                init_resp = self._request("POST", INIT_PATH, json_body=retry_body)
+                ingestion_count += 1
+                if init_resp.status_code in (200, 201):
+                    fields_outcome = refused_outcome(code, fields_digest)
         if init_resp.status_code not in (200, 201):
             return UploadResult(
                 relative_path=relative_path,
@@ -256,9 +438,15 @@ class SemantixUploader:
                 status="error",
                 ingestion_requests=ingestion_count,
                 error=f"init failed: {init_resp.status_code}",
+                fields_dropped=dropped,
             )
 
         init_data = init_resp.json() if init_resp.content else {}
+        if fields_on and fields_outcome is None:
+            echo = parse_init_echo(init_data) if fields_value is not None else None
+            fields_outcome = outcome_after_init(fields_value, echo, fields_digest)
+        if fields_outcome is not None and fields_outcome.fields_sent:
+            logger.info(fields_outcome.log_line())
         key = init_data.get("key") or init_data.get("transmission_key_id") or ""
         if not key:
             # A 200 with no key means the server never opened a transmission.
@@ -272,6 +460,7 @@ class SemantixUploader:
                 status="error",
                 ingestion_requests=ingestion_count,
                 error="init failed: missing transmission key",
+                fields_dropped=dropped,
             )
 
         try:
@@ -299,6 +488,7 @@ class SemantixUploader:
                         status="error",
                         ingestion_requests=ingestion_count,
                         error=f"part {idx} failed: {part_resp.status_code}",
+                        fields_dropped=dropped,
                     )
         except (OSError, UnicodeDecodeError, ConversionError) as exc:
             return UploadResult(
@@ -308,6 +498,7 @@ class SemantixUploader:
                 status="error",
                 ingestion_requests=ingestion_count,
                 error=str(exc),
+                fields_dropped=dropped,
             )
 
         logger.info(
@@ -323,6 +514,10 @@ class SemantixUploader:
             status="ok",
             ingestion_requests=ingestion_count,
             partial=partial,
+            fields=fields_outcome,
+            fields_dropped=dropped,
+            text_sha256=text_sha256,
+            extraction_stamp=stamp,
         )
 
     def delete_by_pointer(self, pointer: str) -> tuple[bool, Optional[str]]:
@@ -338,3 +533,37 @@ class SemantixUploader:
         if resp.status_code in (200, 404):
             return True, None
         return False, f"delete failed: {resp.status_code}"
+
+    def probe_doc_fields(self) -> Optional[bool]:
+        """Whether Knovas takes document fields now (spec F5).
+
+        One ``GET /secured/graph/doc-fields`` without a body, under the same
+        mTLS and ingest limiter as every other call and without a retry (the
+        executor asks again an hour later): ``404`` -> False (off, or a
+        Knovas without the feature). Only an answer from behind the
+        per-tenant fields gate -> True: a 2xx, or a 401/403 whose
+        ``error_code`` is in ``PROBE_PAST_GATE_CODES`` (the route wants more
+        than this call carries). Anything else -> None (unknown): a 5xx, a
+        429, no answer at all, and every refusal in front of the gate, which
+        a tenant whose fields are off gets too -- read as on, it would
+        requeue and re-send billed documents. Of the answer's body only a
+        refusal's ``error_code`` is read.
+        """
+        try:
+            resp = self._request("GET", DOC_FIELDS_PROBE_PATH, max_retries=1)
+        except Exception:  # noqa: BLE001 - a probe never fails a cycle; no answer is "unknown"
+            return None
+        status = resp.status_code
+        if status == 404:
+            return False
+        if 200 <= status < 300:
+            return True
+        if status in (401, 403):
+            try:
+                body = resp.json()
+            except Exception:  # noqa: BLE001 - a gateway page, or too deep to parse: unknown
+                return None
+            code = body.get("error_code") if isinstance(body, dict) else None
+            if isinstance(code, str) and code in PROBE_PAST_GATE_CODES:
+                return True
+        return None

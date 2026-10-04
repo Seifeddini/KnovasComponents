@@ -1,4 +1,6 @@
+import base64
 import io
+import time
 from pathlib import Path
 
 import pytest
@@ -174,7 +176,33 @@ def test_sentence_emit_max_bytes_default(monkeypatch):
     from sync.document_text import DEFAULT_SENTENCE_EMIT_MAX_BYTES, sentence_emit_max_bytes
 
     monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
-    assert sentence_emit_max_bytes() == DEFAULT_SENTENCE_EMIT_MAX_BYTES
+    assert DEFAULT_SENTENCE_EMIT_MAX_BYTES == 0, "no gate by default (spec E4)"
+    assert sentence_emit_max_bytes() == 0
+
+
+def test_sentences_are_emitted_for_large_inputs_by_default(monkeypatch):
+    """The 2 MiB gate on raw file size switched off the citations -- and every
+    part's page number -- of most multi-page scans. A PDF is split page by
+    page, in time linear in its pages; a positive value restores the gate."""
+    from sync import document_text
+
+    seen = {}
+
+    def extract_stub(raw, **kwargs):
+        seen.update(kwargs)
+        raise document_text.UnsupportedFormatError("stub")
+
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "false")
+    large = b"x" * (3 * 1024 * 1024)
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(large, ".pdf")
+    assert seen["emit_sentences"] is True
+    monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", "2097152")
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(large, ".pdf")
+    assert seen["emit_sentences"] is False, "a positive value is the old gate"
 
 
 def test_sentence_emit_max_bytes_env_override(monkeypatch):
@@ -204,6 +232,246 @@ def test_large_text_skips_sentences_but_keeps_text(tmp_path, monkeypatch):
 
 def test_small_text_still_emits_sentences(tmp_path, monkeypatch):
     monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", "1048576")
+    p = tmp_path / "note.txt"
+    p.write_text("First sentence. Second sentence.", encoding="utf-8")
+
+    doc = extract_document(p)
+
+    assert doc.sentences is not None
+    assert len(doc.sentences) == 2
+
+
+# --- one unpaged text gets sentences only up to UNPAGED_SENTENCE_MAX_CHARS ----
+# pysbd maps every sentence back by searching the text from its start, so one
+# unpaged text costs time in the square of its size (2 MiB of export rows
+# ~40 s, 8 MiB past the 300 s ceiling). A PDF is split page by page.
+
+
+def _spy_extract(monkeypatch):
+    """The real extract(), recording `emit_sentences` of every call (its
+    signature kept, so `extract_accepts` still sees `text_mode=`)."""
+    import functools
+
+    from sync import document_text
+
+    calls = []
+    real = document_text.extract
+
+    @functools.wraps(real)
+    def spy(raw, **kwargs):
+        calls.append(kwargs.get("emit_sentences"))
+        return real(raw, **kwargs)
+
+    monkeypatch.setattr(document_text, "extract", spy)
+    return calls
+
+
+def _export_rows(size: int) -> bytes:
+    """A weakly punctuated text export: one short "sentence" per row."""
+    rows, total, i = [], 0, 0
+    while total < size:
+        row = f"{i:07d};K{1000 + i % 9000};{i % 99999}.{i % 100:02d};Konto {100 + i % 900} Mandant {1 + i % 50}\n"
+        rows.append(row)
+        total += len(row)
+        i += 1
+    return "".join(rows).encode()
+
+
+def _docx_bytes(paragraphs, table_rows: int = 0) -> bytes:
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
+    for text in paragraphs:
+        document.add_paragraph(text)
+    if table_rows:
+        table = document.add_table(rows=0, cols=3)
+        for i in range(table_rows):
+            cells = table.add_row().cells
+            cells[0].text, cells[1].text, cells[2].text = f"Pos {i}", f"Konto {1000 + i}", f"{i}.50"
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+def test_a_short_text_is_split_in_one_pass(monkeypatch):
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    calls = _spy_extract(monkeypatch)
+    doc = document_text._extract_bytes(b"First sentence. Second sentence.", ".txt")
+    assert calls == [True], "the file size bounds a text file's text"
+    assert len(doc.sentences) == 2
+
+
+def test_an_unpaged_text_over_the_limit_is_uploaded_without_sentences(monkeypatch, caplog):
+    import logging
+
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    monkeypatch.setattr(document_text, "UNPAGED_SENTENCE_MAX_CHARS", 1000)
+    calls = _spy_extract(monkeypatch)
+    with caplog.at_level(logging.INFO, logger="sync.document_text"):
+        doc = document_text._extract_bytes(_export_rows(5000), ".txt")
+    assert calls == [False], "extracted once, without sentences"
+    assert doc.sentences is None
+    assert doc.text.startswith("0000000;K1000;")
+    assert any("Skipping sentence emission" in r.getMessage() for r in caplog.records)
+    assert not any("Konto" in r.getMessage() for r in caplog.records), "counts only"
+
+
+def test_a_large_mail_with_a_short_body_keeps_its_sentences(monkeypatch):
+    """An attachment makes the file large, not the text: measured, then split."""
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    monkeypatch.setattr(document_text, "UNPAGED_SENTENCE_MAX_CHARS", 2000)
+    calls = _spy_extract(monkeypatch)
+    raw = (
+        "From: a@example.invalid\r\nTo: b@example.invalid\r\nSubject: Beilage\r\n"
+        "MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=XX\r\n\r\n"
+        "--XX\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nErster Satz. Zweiter Satz.\r\n"
+        "--XX\r\nContent-Type: application/octet-stream\r\n"
+        "Content-Disposition: attachment; filename=beilage.bin\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n"
+        + base64.encodebytes(bytes(6000)).decode().replace("\n", "\r\n")
+        + "--XX--\r\n"
+    ).encode()
+    assert len(raw) > 2000
+    doc = document_text._extract_bytes(raw, ".eml")
+    assert calls == [False, True]
+    assert [s.text for s in doc.sentences] == ["Erster Satz.", "Zweiter Satz."]
+
+
+def test_a_docx_is_measured_before_it_is_split(monkeypatch):
+    """A DOCX is zipped XML and carries its tables in the text: its file
+    size says nothing about its text."""
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    calls = _spy_extract(monkeypatch)
+    doc = document_text._extract_bytes(_docx_bytes(["Erster Satz. Zweiter Satz."]), ".docx")
+    assert calls == [False, True]
+    assert [s.text for s in doc.sentences] == ["Erster Satz.", "Zweiter Satz."]
+
+
+def test_a_docx_table_over_the_limit_is_uploaded_without_sentences(monkeypatch):
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    monkeypatch.delenv("RC_DOCX_TEXT_MODE", raising=False)
+    monkeypatch.setattr(document_text, "UNPAGED_SENTENCE_MAX_CHARS", 20_000)
+    calls = _spy_extract(monkeypatch)
+    doc = document_text._extract_bytes(_docx_bytes(["Kontoauszug."], table_rows=2000), ".docx")
+    if not document_text.docx_tables_in_text(doc):
+        pytest.skip("the installed knovas-extract has no DOCX layout mode")
+    assert calls == [False], "extracted once: the rows are over the limit"
+    assert doc.sentences is None
+    assert "Pos 1999" in doc.text
+
+
+def _extract_over_the_sentence_cap(monkeypatch):
+    """The real extract(), raising as the pinned knovas-extract b5d4540 does
+    whenever sentences are asked for and one text holds more than
+    ``Limits.max_sentences`` (the 0.4.0a1 release truncates instead)."""
+    import functools
+
+    from knovas_extract.errors import ResourceExhaustedError
+
+    from sync import document_text
+
+    calls = []
+    real = document_text.extract
+
+    @functools.wraps(real)
+    def capped(raw, **kwargs):
+        calls.append(kwargs.get("emit_sentences"))
+        if kwargs.get("emit_sentences"):
+            raise ResourceExhaustedError("sentence count", 100_000, observed=100_001)
+        return real(raw, **kwargs)
+
+    monkeypatch.setattr(document_text, "extract", capped)
+    return calls
+
+
+def test_a_docx_over_the_sentence_cap_keeps_its_text(monkeypatch):
+    """Measured, then split: the library's sentence cap drops the citations
+    only. Before, the file was parked as unconvertible with its text in hand."""
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    calls = _extract_over_the_sentence_cap(monkeypatch)
+    doc = document_text._extract_bytes(_docx_bytes(["Erster Satz. Zweiter Satz."]), ".docx")
+    assert calls == [False, True]
+    assert doc.sentences is None
+    assert "Erster Satz." in doc.text
+
+
+def test_a_text_file_over_the_sentence_cap_keeps_its_text(monkeypatch):
+    """Split in the first pass (its size bounds its text): the cap drops the
+    citations, and the text is extracted again without them."""
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    calls = _extract_over_the_sentence_cap(monkeypatch)
+    doc = document_text._extract_bytes(b"Erster Satz. Zweiter Satz.", ".txt")
+    assert calls == [True, False]
+    assert doc.sentences is None
+    assert doc.text.startswith("Erster Satz.")
+
+
+def test_other_resource_limits_still_refuse_the_file(monkeypatch):
+    from knovas_extract.errors import ResourceExhaustedError
+
+    from sync import document_text
+    from sync.document_text import ConversionError
+
+    def too_big(raw, **kwargs):
+        raise ResourceExhaustedError("input size", 1, observed=2)
+
+    monkeypatch.setattr(document_text, "extract", too_big)
+    with pytest.raises(ConversionError, match="resource limit exceeded: input size"):
+        document_text._extract_bytes(b"Erster Satz.", ".txt")
+
+
+def test_a_pdf_is_split_per_page_whatever_its_text_size(monkeypatch):
+    fitz = pytest.importorskip("fitz")
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "false")
+    monkeypatch.setattr(document_text, "UNPAGED_SENTENCE_MAX_CHARS", 10)
+    calls = _spy_extract(monkeypatch)
+    pdf = fitz.open()
+    for i in range(3):
+        pdf.new_page().insert_text((72, 72), f"Seite {i + 1}. Text der Seite {i + 1}.")
+    raw = pdf.tobytes()
+    pdf.close()
+    doc = document_text._extract_bytes(raw, ".pdf")
+    assert calls == [True]
+    assert {s.page_number for s in doc.sentences} == {1, 2, 3}
+
+
+def test_a_4_mib_text_export_is_extracted_in_seconds(monkeypatch):
+    """Real library, real size: split whole, this text took pysbd minutes."""
+    from sync import document_text
+
+    monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    raw = _export_rows(4 * 1024 * 1024)
+    started = time.monotonic()
+    doc = document_text._extract_bytes(raw, ".txt")
+    assert time.monotonic() - started < 30
+    assert doc.sentences is None
+    assert len(doc.text) > document_text.UNPAGED_SENTENCE_MAX_CHARS
+
+
+@pytest.mark.parametrize("gate", [None, "0"], ids=["unset", "zero"])
+def test_sentence_gate_of_zero_is_no_gate(tmp_path, monkeypatch, gate):
+    """0, the default (spec E4), means no gate, never "no sentences": read as
+    a ceiling it dropped the sentence citations of every document."""
+    if gate is None:
+        monkeypatch.delenv("RC_SENTENCE_EMIT_MAX_BYTES", raising=False)
+    else:
+        monkeypatch.setenv("RC_SENTENCE_EMIT_MAX_BYTES", gate)
     p = tmp_path / "note.txt"
     p.write_text("First sentence. Second sentence.", encoding="utf-8")
 
@@ -496,8 +764,9 @@ def test_text_mode_and_ocr_options_are_sent_when_accepted(monkeypatch):
     assert opts.kwargs["dpi"] == 200
     assert opts.kwargs["workers"] == 2
     assert opts.kwargs["max_ocr_pages"] == 77
-    # min(240, 300 - 30) = 240, then never more than 300 - 2*60 - 10 = 170
-    assert opts.kwargs["time_budget_seconds"] == 170
+    # min(240, 300 - 30) = 240, then never more than 300 - 60 - 10 = 230
+    # (the worker count no longer enters the cap)
+    assert opts.kwargs["time_budget_seconds"] == 230
     assert hasattr(opts.kwargs["cache"], "get") and hasattr(opts.kwargs["cache"], "put")
 
 
@@ -527,8 +796,8 @@ def test_ocr_budgets_reach_the_library_limits(monkeypatch):
     assert limits.max_ocr_pages == 77
     assert limits.ocr_page_timeout_seconds == 45
     assert limits.max_ocr_workers == 2
-    # min(240, 300 - 30) = 240, then never more than 300 - 2*45 - 10 = 200
-    assert limits.ocr_time_budget_seconds == 200
+    # min(240, 300 - 30) = 240, under the cap 300 - 45 - 10 = 245
+    assert limits.ocr_time_budget_seconds == 240
     # the non-OCR limits keep the library defaults
     assert limits.max_pages == Limits().max_pages
 
@@ -576,17 +845,105 @@ def test_ocr_option_names_follow_the_library_signature(monkeypatch):
     assert (built.engine, built.max_pages, built.cache) == ("cli", 12, "c")
 
 
-def test_ocr_time_budget_derivation(monkeypatch):
+_BUDGET_ENV = ("RC_EXTRACT_TIMEOUT_SECONDS", "RC_EXTRACT_TIMEOUT_PER_PAGE_SECONDS",
+               "RC_EXTRACT_TIMEOUT_MAX_SECONDS", "RC_OCR_TIME_BUDGET_SECONDS")
+
+
+@pytest.mark.parametrize("pages, timeout, page_timeout, expected", [
+    # The audit's table (60 s page timeout, ceiling 300 s + 2 s/page): with
+    # five or more OCR workers the old cap took these to the 10 s floor.
+    (10, 300, 60, 230),
+    (50, 300, 60, 230),
+    (150, 300, 60, 230),
+    (250, 500, 60, 240),
+    (400, 800, 60, 240),
+    (900, 1800, 60, 240),
+    # short ceilings: one page timeout and the margin still fit
+    (None, 120, 60, 50),
+    (None, 90, 60, 20),
+    (None, 120, 30, 80),
+    (None, 60, 60, 10),   # never below the floor
+    (None, 0, 60, 240),   # no ceiling: the default budget
+])
+def test_ocr_time_budget_derivation(monkeypatch, pages, timeout, page_timeout, expected):
+    from sync.document_text import extract_timeout_seconds, ocr_time_budget_seconds
+
+    for name in _BUDGET_ENV:
+        monkeypatch.delenv(name, raising=False)
+    if pages is not None:
+        assert extract_timeout_seconds(pages) == timeout, "the ceiling the child derives for this PDF"
+    assert ocr_time_budget_seconds(timeout, page_timeout) == expected
+
+
+def test_ocr_time_budget_env_override_is_still_capped(monkeypatch):
     from sync.document_text import ocr_time_budget_seconds
 
-    monkeypatch.delenv("RC_OCR_TIME_BUDGET_SECONDS", raising=False)
-    assert ocr_time_budget_seconds(300, 1, 60) == 230, "min(240, 270) then <= 300-60-10"
-    assert ocr_time_budget_seconds(1800, 4, 60) == 240
-    assert ocr_time_budget_seconds(120, 4, 60) == 10, "never below the floor"
-    assert ocr_time_budget_seconds(0, 4, 60) == 240, "no ceiling: default budget"
     monkeypatch.setenv("RC_OCR_TIME_BUDGET_SECONDS", "900")
-    assert ocr_time_budget_seconds(1800, 2, 60) == 900
-    assert ocr_time_budget_seconds(300, 2, 60) == 170, "the env value is still capped by the kill"
+    assert ocr_time_budget_seconds(1800, 60) == 900
+    assert ocr_time_budget_seconds(300, 60) == 230, "the env value is still capped by the kill"
+    assert ocr_time_budget_seconds(0, 60) == 900, "no ceiling: the env value as is"
+
+
+@pytest.mark.parametrize("workers", [None, "1", "5", "8"])
+def test_the_budget_does_not_depend_on_the_worker_count(monkeypatch, workers):
+    """7+ cores no longer matter: pages in flight finish in parallel."""
+    from sync.document_text import ocr_options_kwargs
+
+    for name in _BUDGET_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("RC_OCR_PAGE_TIMEOUT_SECONDS", raising=False)
+    if workers is None:
+        monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    else:
+        monkeypatch.setenv("RC_OCR_WORKERS", workers)
+    assert ocr_options_kwargs(300)["time_budget_seconds"] == 230
+
+
+def test_ocr_workers_env(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import ocr_workers
+
+    monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    assert ocr_workers() is None, "unset: the library sizes the pool"
+    for raw, expected in (("3", 3), ("64", 8), ("0", 1), ("-2", 1)):
+        monkeypatch.setenv("RC_OCR_WORKERS", raw)
+        assert ocr_workers() == expected, raw
+    monkeypatch.setenv("RC_OCR_WORKERS", "many")
+    with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+        assert ocr_workers() is None
+    assert any("RC_OCR_WORKERS" in r.getMessage() for r in caplog.records)
+
+
+def test_unset_workers_leave_the_pool_and_its_ceiling_to_the_library(monkeypatch):
+    """OcrOptions(workers=None) -- the library's cgroup-aware default -- and
+    Limits.max_ocr_workers at the library's 8: None there would break the
+    library's min()."""
+    from knovas_extract.result import Limits
+
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=False, limits=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", _FakeOcrOptions)
+    monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert seen["ocr"].kwargs["workers"] is None
+    assert seen["limits"].max_ocr_workers == Limits().max_ocr_workers
+
+
+def test_the_library_takes_workers_none(monkeypatch):
+    from sync import document_text
+
+    if document_text.OcrOptions is None:
+        pytest.skip("needs knovas-extract >= 0.4")
+    monkeypatch.delenv("RC_OCR_WORKERS", raising=False)
+    options = document_text.build_ocr_options(document_text.ocr_options_kwargs(300))
+    limits = document_text.build_ocr_limits(document_text.ocr_options_kwargs(300))
+    assert options.workers is None
+    assert limits.max_ocr_workers == 8
 
 
 def test_pdf_text_mode_env(monkeypatch):
@@ -699,32 +1056,74 @@ def test_shadow_diff_numbers():
     assert all(isinstance(v, (int, float)) for v in fields.values())
 
 
-# --- partial notes read defensively from metadata.extra ----------------------
+# --- partial notes: one rule in both components (spec E1) --------------------
 
 
 def test_partial_note_for_reads_extra_defensively():
     from sync.document_text import ExtractedDocument, partial_note_for
 
-    complete = ExtractedDocument(text="x", sentences=None, extra={})
-    assert partial_note_for(complete, expect_ocr=True) is None
-    legacy = ExtractedDocument(text="x", sentences=None, extra=None)
-    assert partial_note_for(legacy, expect_ocr=True) is None
-
-    skipped = ExtractedDocument(
+    assert partial_note_for(ExtractedDocument(text="x", sentences=None, extra={}), expect_ocr=True) is None
+    assert partial_note_for(ExtractedDocument(text="x", sentences=None, extra=None), expect_ocr=True) is None
+    as_strings = ExtractedDocument(
         text="x", sentences=None,
-        extra={"pdf:ocr_pages_skipped": 12, "pdf:ocr_pages": 40, "pdf:ocr_backend": "tesserocr", "pdf:text_pages": 3},
+        extra={"pdf:ocr_pages_skipped": "7", "pdf:ocr_pages_failed": "0", "pdf:ocr_backend": " CLI "},
     )
-    assert partial_note_for(skipped, expect_ocr=True) == {
-        "ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr", "text_pages": 3,
+    assert partial_note_for(as_strings, expect_ocr=True) == {
+        "ocr_pages_skipped": 7, "ocr_pages_failed": 0, "ocr_backend": "cli",
     }
-    assert partial_note_for(skipped, expect_ocr=False)["ocr_pages_skipped"] == 12
-
-    no_backend = ExtractedDocument(text="x", sentences=None, extra={"pdf:ocr_backend": "none", "pdf:ocr_pages": 0})
-    assert partial_note_for(no_backend, expect_ocr=True) == {"reason": "ocr_backend_none", "ocr_pages": 0, "ocr_backend": "none"}
-    assert partial_note_for(no_backend, expect_ocr=False) is None, "OCR off: a missing backend is not a defect"
-
     zero = ExtractedDocument(text="x", sentences=None, extra={"pdf:ocr_pages_skipped": "0"})
     assert partial_note_for(zero, expect_ocr=True) is None
+
+
+@pytest.mark.parametrize("case, expect_ocr, note, degraded", [
+    ("born_digital", True, None, False),
+    ("mixed", True, None, False),
+    ("starved", True, {"ocr_pages_skipped": 12, "ocr_pages_failed": 0, "ocr_pages": 40,
+                       "text_pages": 0, "ocr_backend": "tesserocr"}, False),
+    ("failed", True, {"ocr_pages_skipped": 0, "ocr_pages_failed": 1, "ocr_pages": 9,
+                      "text_pages": 2, "ocr_backend": "cli"}, False),
+    ("no_engine", True, {"ocr_pages_skipped": 5, "ocr_pages_failed": 0, "ocr_pages": 0,
+                         "text_pages": 2, "ocr_backend": "none"}, True),
+    ("uncounted", True, {"ocr_pages": 0, "ocr_backend": "none"}, True),
+    ("uncounted", False, None, False),
+])
+def test_partial_rule_on_the_0_4_key_combinations(case, expect_ocr, note, degraded):
+    """Spec E1 on the metadata knovas-extract 0.4 really reports: a
+    born-digital PDF extracted with ``ocr=`` is complete, a failed page makes
+    a document partial, and only a missing engine is a degraded backend."""
+    from tests.helpers import OCR_EXTRA_04
+
+    from sync.document_text import ExtractedDocument, ocr_backend_missing, partial_note_for
+
+    doc = ExtractedDocument(text="x", sentences=None, extra=dict(OCR_EXTRA_04[case]))
+    got = partial_note_for(doc, expect_ocr=expect_ocr)
+    assert got == note
+    assert ocr_backend_missing(got) is degraded
+
+
+def test_a_born_digital_pdf_extracted_with_ocr_options_is_complete(tmp_path, monkeypatch):
+    """The audit's reproduction: with ``ocr=`` the library reports backend
+    "none" and zero skipped pages for a PDF that needed no OCR -- whether or
+    not Tesseract is installed. Before spec E1 every such PDF was partial."""
+    fitz = pytest.importorskip("fitz")
+    from sync import document_text
+
+    if document_text.OcrOptions is None or not document_text.extract_accepts("ocr"):
+        pytest.skip("needs knovas-extract >= 0.4 (ocr=)")
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "true")
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    pdf = fitz.open()
+    for i in range(2):
+        pdf.new_page().insert_text((72, 72), f"Seite {i + 1}. Digitaler Text.")
+    path = tmp_path / "digital.pdf"
+    path.write_bytes(pdf.tobytes())
+    pdf.close()
+
+    doc = document_text.extract_document(path)
+
+    assert doc.extra["pdf:ocr_pages_skipped"] == 0
+    assert doc.extra["pdf:ocr_backend"] == "none"
+    assert document_text.partial_note_for(doc, expect_ocr=True) is None
 
 
 # --- the extraction child: nice + RLIMIT_AS ---------------------------------
@@ -778,3 +1177,259 @@ def test_extract_under_default_rlimit_as_still_works(tmp_path, monkeypatch):
     from sync.document_text import extract_document_guarded
 
     assert "Unter dem Limit" in extract_document_guarded(p).text
+
+
+# --- resolution: the library's native-resolution rule unless set (spec E3) ---
+
+
+def test_ocr_dpi_env(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import ocr_dpi
+
+    monkeypatch.delenv("RC_OCR_DPI", raising=False)
+    assert ocr_dpi() is None, "unset: native resolution, never upsampled"
+    for raw, expected in (("200", 200), ("30", 30), ("1200", 1200), (" 150 ", 150), ("0150", 150)):
+        monkeypatch.setenv("RC_OCR_DPI", raw)
+        assert ocr_dpi() == expected, raw
+    # The same values scripts/lib/test_rc_extraction_settings.sh refuses.
+    for raw in ("29", "1201", "0", "-300", "300dpi", "3e2"):
+        monkeypatch.setenv("RC_OCR_DPI", raw)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+            assert ocr_dpi() is None, raw
+        assert [r.getMessage().split("=")[0] for r in caplog.records] == ["Invalid RC_OCR_DPI"], raw
+
+
+def test_no_dpi_reaches_the_library_unless_configured(monkeypatch):
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=False)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", _FakeOcrOptions)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    monkeypatch.delenv("RC_OCR_DPI", raising=False)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert "dpi" not in seen["ocr"].kwargs
+    monkeypatch.setenv("RC_OCR_DPI", "150")
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert seen["ocr"].kwargs["dpi"] == 150
+
+
+def test_the_library_default_dpi_applies_when_unset(monkeypatch):
+    """With the real OcrOptions: no dpi keeps its None default -- native
+    resolution capped at 300, never upsampled (a 150 dpi fax: CER 0.028
+    native against 0.145 upsampled to 300)."""
+    from sync import document_text
+
+    if document_text.OcrOptions is None:
+        pytest.skip("needs knovas-extract >= 0.4")
+    monkeypatch.delenv("RC_OCR_DPI", raising=False)
+    options = document_text.build_ocr_options(document_text.ocr_options_kwargs(300))
+    assert options.dpi is None
+
+
+# --- OCR settings validated (spec E5) ----------------------------------------
+
+
+def test_tesseract_language_is_validated(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import tesseract_language
+
+    monkeypatch.delenv("RC_TESSERACT_LANG", raising=False)
+    assert tesseract_language() == "deu+eng"
+    for good in ("deu", "deu+eng", "deu+fra+ita", "chi_sim+eng", "osd"):
+        monkeypatch.setenv("RC_TESSERACT_LANG", good)
+        assert tesseract_language() == good
+    # The same values scripts/lib/test_rc_extraction_settings.sh refuses.
+    for bad in ("deu eng", "deu,eng", "deu+", "+eng", "deu++eng", "../deu", "deu/eng", "dé"):
+        monkeypatch.setenv("RC_TESSERACT_LANG", bad)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+            assert tesseract_language() == "deu+eng", bad
+        assert len(caplog.records) == 1 and "RC_TESSERACT_LANG" in caplog.records[0].getMessage(), bad
+
+
+def test_ocr_page_timeout_and_page_cap_must_be_at_least_one(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import (
+        DEFAULT_OCR_MAX_PAGES,
+        DEFAULT_OCR_PAGE_TIMEOUT_SECONDS,
+        ocr_options_kwargs,
+    )
+
+    monkeypatch.setenv("RC_OCR_PAGE_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("RC_OCR_MAX_PAGES", "none")
+    with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+        opts = ocr_options_kwargs(300)
+    assert opts["page_timeout_seconds"] == DEFAULT_OCR_PAGE_TIMEOUT_SECONDS
+    assert opts["max_ocr_pages"] == DEFAULT_OCR_MAX_PAGES
+    names = " ".join(r.getMessage() for r in caplog.records)
+    assert "RC_OCR_PAGE_TIMEOUT_SECONDS" in names and "RC_OCR_MAX_PAGES" in names
+    monkeypatch.setenv("RC_OCR_PAGE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("RC_OCR_MAX_PAGES", "1")
+    opts = ocr_options_kwargs(300)
+    assert (opts["page_timeout_seconds"], opts["max_ocr_pages"]) == (1, 1)
+
+
+@pytest.mark.parametrize("message, setting", [
+    ("OcrOptions.language must be a Tesseract language string like 'deu+eng'", "RC_TESSERACT_LANG"),
+    ("OcrOptions.dpi must be between 30 and 1200", "RC_OCR_DPI"),
+    ("OcrOptions.engine must be one of auto|tesserocr|cli|mupdf", "RC_OCR_ENGINE"),
+    ("OcrOptions.workers must be >= 1", "RC_OCR_WORKERS"),
+    ("Limits.max_ocr_pages must be >= 1", "RC_OCR_MAX_PAGES"),
+    ("something the Connector does not know", "OCR options"),
+])
+def test_a_refused_ocr_setting_is_a_retryable_configuration_error(monkeypatch, message, setting):
+    """The library still refuses the options: never "corrupt .pdf" (that
+    parked every PDF for good), but a message naming the setting."""
+    from sync import document_text
+
+    class RefusingOcrOptions:
+        def __init__(self, **kwargs):
+            raise ValueError(message)
+
+    extract_stub, seen = _signature_stub(ocr_options=True, text_mode=True, limits=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", RefusingOcrOptions)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    with pytest.raises(document_text.ConversionError) as exc:
+        document_text._extract_bytes(b"%PDF-1.4 stub", ".pdf")
+    assert str(exc.value) == f"{document_text.CONFIG_INVALID_PREFIX}: {setting}"
+    assert is_unconvertible_error(str(exc.value)) is False
+    assert seen == {}, "extract() is never called with options the library refused"
+
+
+def test_the_child_reports_a_refused_setting_as_configuration_not_corrupt(tmp_path, monkeypatch):
+    import queue as queue_mod
+
+    from sync import document_text
+
+    class RefusingOcrOptions:
+        def __init__(self, **kwargs):
+            raise ValueError("OcrOptions.language must be a Tesseract language string like 'deu+eng'")
+
+    extract_stub, _seen = _signature_stub(ocr_options=True, text_mode=True, limits=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.setattr(document_text, "OcrOptions", RefusingOcrOptions)
+    # nice + RLIMIT_AS would hit the test process itself
+    monkeypatch.setattr(document_text, "_apply_child_limits", lambda: None)
+    monkeypatch.setenv("RC_OCR_CACHE_MAX_MB", "0")
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 stub")
+    out: queue_mod.Queue = queue_mod.Queue()
+    document_text._extract_child(str(pdf), out)
+    messages = []
+    while not out.empty():
+        messages.append(out.get_nowait())
+    assert messages[-1] == ("conversion", "extraction configuration invalid: RC_TESSERACT_LANG"), messages
+
+
+def test_an_engine_name_never_reaches_a_backend_slot(monkeypatch):
+    """``OcrOptions.backend`` takes an injected IOcrBackend object. The alias
+    engine -> backend would have passed the engine NAME there if a library
+    dropped ``engine`` (spec E7)."""
+    from sync import document_text
+
+    class OnlyBackend:
+        def __init__(self, backend=None, language="deu+eng", cache=None):
+            self.backend, self.language, self.cache = backend, language, cache
+
+    monkeypatch.setattr(document_text, "OcrOptions", OnlyBackend)
+    built = document_text.build_ocr_options({"engine": "cli", "language": "deu", "cache": "c"})
+    assert built.backend is None
+    assert (built.language, built.cache) == ("deu", "c")
+
+
+# --- DOCX layout mode (spec L3) ----------------------------------------------
+
+
+def test_docx_text_mode_env(monkeypatch, caplog):
+    import logging
+
+    from sync.document_text import docx_text_mode
+
+    monkeypatch.delenv("RC_DOCX_TEXT_MODE", raising=False)
+    assert docx_text_mode() == "layout", "tables in the text by default"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", " Plain ")
+    assert docx_text_mode() == "plain"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "shadow")
+    with caplog.at_level(logging.WARNING, logger="sync.document_text"):
+        assert docx_text_mode() == "layout", "shadow is a PDF mode: invalid here"
+    assert any("RC_DOCX_TEXT_MODE" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("env, ext, sent", [
+    (None, ".docx", "layout"),
+    ("layout", ".docx", "layout"),
+    ("plain", ".docx", None),
+    (None, ".eml", None),
+    (None, ".msg", None),
+    (None, ".txt", None),
+])
+def test_docx_layout_mode_is_requested_for_docx_only(monkeypatch, env, ext, sent):
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=False, text_mode=True)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    if env is None:
+        monkeypatch.delenv("RC_DOCX_TEXT_MODE", raising=False)
+    else:
+        monkeypatch.setenv("RC_DOCX_TEXT_MODE", env)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"PK stub", ext)
+    # the stub records its own default ("plain") when nothing was sent
+    assert seen["text_mode"] == (sent or "plain")
+
+
+def test_docx_layout_mode_is_withheld_from_a_library_without_text_mode(monkeypatch):
+    from sync import document_text
+
+    extract_stub, seen = _signature_stub(ocr_options=False, text_mode=False)
+    monkeypatch.setattr(document_text, "extract", extract_stub)
+    monkeypatch.delenv("RC_DOCX_TEXT_MODE", raising=False)
+    with pytest.raises(document_text.ConversionError):
+        document_text._extract_bytes(b"PK stub", ".docx")
+    assert "text_mode" not in seen
+
+
+def test_docx_tables_in_text_reads_the_library_metadata():
+    from sync.document_text import ExtractedDocument, docx_tables_in_text
+
+    layout = ExtractedDocument(text="x", sentences=None, extra={"docx:text_mode": "layout", "docx:layout_tables": 2})
+    assert docx_tables_in_text(layout) is True
+    assert docx_tables_in_text(ExtractedDocument(text="x", sentences=None, extra={})) is False
+    assert docx_tables_in_text(ExtractedDocument(text="x", sentences=None, extra=None)) is False
+
+
+def test_extracted_document_carries_the_library_warnings(tmp_path, monkeypatch):
+    """The parent counts them by class (sync.extract_metrics); the texts
+    travel with the document, through the extraction child's queue too."""
+    import pickle
+
+    monkeypatch.setenv("RC_PDF_OCR_ENABLED", "false")
+    fitz = pytest.importorskip("fitz")
+    pdf = fitz.open()
+    pdf.new_page()  # page 1 carries no text
+    pdf.new_page().insert_text((72, 72), "Seite zwei mit Text.")
+    p = tmp_path / "zwei.pdf"
+    p.write_bytes(pdf.tobytes())
+    pdf.close()
+
+    doc = extract_document(p)
+
+    assert isinstance(doc.warnings, tuple)
+    assert "first page produced no text (OCR may help for scanned PDFs)" in doc.warnings
+    # The child hands the document over a multiprocessing queue, which
+    # pickles it; this round trip only re-reads the object built above.
+    assert pickle.loads(pickle.dumps(doc)).warnings == doc.warnings
+
+
+def test_a_document_without_library_warnings_has_none(tmp_path):
+    p = tmp_path / "note.txt"
+    p.write_text("Ein Satz. Noch einer.", encoding="utf-8")
+    assert extract_document(p).warnings == ()

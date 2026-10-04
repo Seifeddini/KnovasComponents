@@ -1,6 +1,6 @@
-# Setup — clone to fully functional Remote Controller
+# Setup — clone to fully functional Knovas Connector
 
-Single ordered path from a fresh folder to a working Remote Controller (RC) in **production**. Use reference docs linked at each step.
+Single ordered path from a fresh folder to a working Knovas Connector (RC) in **production**. Use reference docs linked at each step.
 
 **For local-only development on your machine** (localhost `127.0.0.1:5001`, no HTTPS edge, no employee JWT), use [local-setup.md](local-setup.md) instead.
 
@@ -49,7 +49,7 @@ git clone https://github.com/Seifeddini/KnovasComponents.git
 cd KnovasComponents/RemoteController
 ```
 
-**Standalone Remote Controller repo:**
+**Standalone Knovas Connector repo:**
 
 ```bash
 git clone <your-remote-controller-repo-url>
@@ -127,7 +127,7 @@ docker run -d --name remote-controller \
 
 Place NGINX or Envoy in front for HTTPS — do not publish port 5001 to the public internet.
 
-**Gunicorn workers:** The image runs **one** worker (`-w 1`). Continuous sync uses in-process locks; multiple workers cause duplicate schedulers and conflicting state files. If you run Gunicorn manually, keep `-w 1`.
+**Gunicorn workers:** The image runs **one** worker process (`-w 1`) with four request threads (`-k gthread --threads 4`). Continuous sync uses in-process locks; multiple worker processes cause duplicate schedulers and conflicting state files. The threads let `GET /sync/status` answer while a long `POST /sync` runs, and the worker is no longer killed when such a request outlasts `--timeout` (`RC_GUNICORN_TIMEOUT`, default 120 s). If you run Gunicorn manually, keep `-w 1` and use the same `-k gthread --threads 4`.
 
 **Python from source (dev/staging):** See [local-commands.md](local-commands.md).
 

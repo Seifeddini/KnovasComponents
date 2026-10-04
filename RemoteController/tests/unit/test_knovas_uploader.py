@@ -297,20 +297,50 @@ def test_upload_result_partial_is_filled_from_metadata_extra(mock_config, tmp_pa
     assert result.partial == {"ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr"}
 
 
-def test_upload_result_partial_when_no_ocr_backend_but_ocr_expected(mock_config, tmp_path, monkeypatch):
+class _CountingCounter:
+    def __init__(self):
+        self.count = 0
+
+    def inc(self, amount=1):
+        self.count += amount
+
+
+@pytest.mark.parametrize("case, partial, degraded", [
+    ("born_digital", None, False),
+    ("starved", {"ocr_pages_skipped": 12, "ocr_pages_failed": 0, "ocr_pages": 40,
+                 "text_pages": 0, "ocr_backend": "tesserocr"}, False),
+    ("failed", {"ocr_pages_skipped": 0, "ocr_pages_failed": 1, "ocr_pages": 9,
+                "text_pages": 2, "ocr_backend": "cli"}, False),
+    ("no_engine", {"ocr_pages_skipped": 5, "ocr_pages_failed": 0, "ocr_pages": 0,
+                   "text_pages": 2, "ocr_backend": "none"}, True),
+    ("uncounted", {"ocr_pages": 0, "ocr_backend": "none"}, True),
+])
+def test_upload_partial_note_and_degraded_metric_follow_the_library_counts(
+    mock_config, tmp_path, monkeypatch, case, partial, degraded
+):
+    """Spec E1: rc_ocr_backend_degraded_total counts a missing engine only --
+    not a born-digital PDF (it counted every one), not a budget trip, not a
+    failed page."""
+    from tests.helpers import OCR_EXTRA_04
+
+    from sync import ocr_metrics
     from sync.document_text import ExtractedDocument
 
     monkeypatch.setenv("RC_PDF_OCR_ENABLED", "true")
+    counter = _CountingCounter()
+    monkeypatch.setattr(ocr_metrics, "OCR_BACKEND_DEGRADED", counter)
     pdf = tmp_path / "scan.pdf"
     pdf.write_bytes(b"%PDF-1.4 not a real pdf")
-    doc = ExtractedDocument(text="Deckblatt.", sentences=None, extra={"pdf:ocr_backend": "none"})
+    doc = ExtractedDocument(text="Deckblatt.", sentences=None, extra=dict(OCR_EXTRA_04[case]))
     uploader = SemantixUploader()
     with patch.object(uploader, "_request") as req, patch(
         "sync.knovas_uploader.extract_document_guarded", return_value=doc
     ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
         req.side_effect = [_ok_response(), _ok_response()]
         result = uploader.upload_file(pdf, "akten/scan.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
-    assert result.partial == {"reason": "ocr_backend_none", "ocr_backend": "none"}
+    assert result.status == "ok"
+    assert result.partial == partial
+    assert counter.count == (1 if degraded else 0)
 
 
 def test_uploader_passes_the_relative_path_as_cache_key(mock_config, tmp_path):
@@ -325,3 +355,89 @@ def test_uploader_passes_the_relative_path_as_cache_key(mock_config, tmp_path):
         req.side_effect = [_ok_response(), _ok_response()]
         uploader.upload_file(pdf, "akten/x.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
     assert guarded.call_args.kwargs["document_key"] == "akten/x.pdf"
+
+
+def test_parts_carry_page_numbers_without_sentences(mock_config, tmp_path):
+    """Spec E4: a PDF extracted without sentences still gets every part's
+    page number, from content.pages."""
+    from knovas_extract.result import Page
+
+    from sync.document_text import ExtractedDocument
+
+    text = "Seite eins.\n\nSeite zwei.\n\nSeite drei."
+    pages = [Page(index=i, text=t, line_start=1 + 2 * i, line_end=1 + 2 * i)
+             for i, t in enumerate(("Seite eins.", "Seite zwei.", "Seite drei."))]
+    doc = ExtractedDocument(text=text, sentences=None, pages=pages)
+    pdf = tmp_path / "drei.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=doc
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response() for _ in range(4)]
+        result = uploader.upload_file(
+            pdf, "akten/drei.pdf", {"ingestion": {"identifier_prefix": "corpus", "part_max_chars": 13}},
+        )
+    assert result.status == "ok" and result.parts == 3
+    bodies = [c.kwargs["json_body"] for c in req.call_args_list[1:]]
+    assert [b["page_number"] for b in bodies] == [1, 2, 3]
+    assert all("sentence_number" not in b for b in bodies)
+
+
+def _docx_with_table(extra):
+    from sync.document_text import ExtractedDocument
+
+    return ExtractedDocument(
+        text="Honorarnote\n\nPosition | Betrag\nBeratung | Betrag: 1'200.00",
+        sentences=None,
+        tables=[{"client_table_hint": "docx_t1", "headers": ["Position", "Betrag"],
+                 "rows": [["Beratung", "1'200.00"]]}],
+        extra=extra,
+    )
+
+
+@pytest.mark.parametrize("extra, payload", [
+    ({"docx:text_mode": "layout", "docx:layout_tables": 1}, False),
+    ({}, True),
+    (None, True),
+])
+def test_docx_tables_payload_only_when_the_rows_are_not_in_the_text(mock_config, tmp_path, extra, payload):
+    """Spec L3: in layout mode the library writes the table rows into the
+    text; a payload as well would be indexed twice if the server ever stopped
+    dropping it. A library without DOCX layout mode (no docx:text_mode) has
+    no rows in the text, and the payload stays."""
+    docx = tmp_path / "honorar.docx"
+    docx.write_bytes(b"PK stub")
+    uploader = SemantixUploader()
+    with patch.object(uploader, "_request") as req, patch(
+        "sync.knovas_uploader.extract_document_guarded", return_value=_docx_with_table(extra)
+    ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True):
+        req.side_effect = [_ok_response(), _ok_response()]
+        uploader.upload_file(docx, "akten/honorar.docx", {"ingestion": {"identifier_prefix": "corpus"}})
+    part_json = req.call_args_list[1].kwargs["json_body"]
+    assert "Beratung | Betrag: 1'200.00" in part_json["snippet"]
+    assert ("tables" in part_json) is payload
+
+
+def test_each_extraction_is_counted_once_in_the_parent(mock_config, tmp_path):
+    """The extraction child's registry dies with it: the uploader counts the
+    returned document (spec L5), even when the upload then fails."""
+    from sync.document_text import ExtractedDocument
+
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not a real pdf")
+    doc = ExtractedDocument(text="Deckblatt.", sentences=None, extra={"pdf:ocr_pages": 3},
+                            warnings=("pdf: OCR applied to 3 of 4 pages via tesserocr",))
+    failed_init = MagicMock()
+    failed_init.status_code = 500
+    failed_init.content = b""
+    for answers in ([_ok_response(), _ok_response()], [failed_init]):
+        uploader = SemantixUploader()
+        with patch.object(uploader, "_request") as req, patch(
+            "sync.knovas_uploader.extract_document_guarded", return_value=doc
+        ), patch("sync.knovas_uploader.write_context_sidecar", return_value=True), patch(
+            "sync.extract_metrics.record_extraction"
+        ) as record:
+            req.side_effect = answers
+            uploader.upload_file(pdf, "akten/scan.pdf", {"ingestion": {"identifier_prefix": "corpus"}})
+        record.assert_called_once_with(doc)

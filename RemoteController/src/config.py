@@ -54,6 +54,14 @@ class AppConfig:
     rc_local_bypass_trusted_networks: tuple
     rc_platform_broker_pubkey_path: str
     testing: bool
+    # Knovas document fields (spec 3.9). RC_DOC_FIELDS can only switch the
+    # feature off: whether the server takes the values is read from its echo.
+    rc_doc_fields: bool = True
+    rc_fields_reupload_per_cycle: int = 100
+    rc_fields_reupload_max_attempts: int = 3
+    # Re-extraction after an extractor upgrade (spec L6): documents
+    # re-extracted per cycle after POST /sync/reextract/requeue.
+    rc_reextract_per_cycle: int = 100
 
 
 _config: Optional[AppConfig] = None
@@ -95,6 +103,76 @@ def _parse_cidrs(key: str) -> tuple:
     return tuple(nets)
 
 
+#: RC_DOC_FIELDS spellings. Anything else is refused at boot; at runtime an
+#: unreadable value counts as off, the only direction the switch may take.
+_DOC_FIELDS_ON = ("on", "true", "1", "yes")
+_DOC_FIELDS_OFF = ("off", "false", "0", "no")
+FIELDS_REUPLOAD_PER_CYCLE_DEFAULT = 100
+FIELDS_REUPLOAD_PER_CYCLE_RANGE = (1, 10000)
+FIELDS_REUPLOAD_MAX_ATTEMPTS_DEFAULT = 3
+FIELDS_REUPLOAD_MAX_ATTEMPTS_RANGE = (1, 100)
+REEXTRACT_PER_CYCLE_DEFAULT = 100
+REEXTRACT_PER_CYCLE_RANGE = (1, 10000)
+
+
+def _doc_fields_switch() -> bool:
+    raw = (os.environ.get("RC_DOC_FIELDS") or "").strip().lower()
+    if not raw:
+        return True
+    return raw in _DOC_FIELDS_ON
+
+
+def _bounded_int(key: str, default: int, bounds: tuple[int, int]) -> int:
+    """An integer setting clamped into ``bounds``; unreadable -> default."""
+    raw = (os.environ.get(key) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return min(max(value, bounds[0]), bounds[1])
+
+
+def _doc_fields_config_problems() -> list[str]:
+    """Refuse a document-fields setting at boot rather than guess at it."""
+    problems: list[str] = []
+    raw = (os.environ.get("RC_DOC_FIELDS") or "").strip().lower()
+    if raw and raw not in _DOC_FIELDS_ON + _DOC_FIELDS_OFF:
+        problems.append("RC_DOC_FIELDS must be on or off")
+    for key, bounds in (
+        ("RC_FIELDS_REUPLOAD_PER_CYCLE", FIELDS_REUPLOAD_PER_CYCLE_RANGE),
+        ("RC_FIELDS_REUPLOAD_MAX_ATTEMPTS", FIELDS_REUPLOAD_MAX_ATTEMPTS_RANGE),
+    ):
+        raw = (os.environ.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            problems.append(f"{key} must be an integer")
+            continue
+        if not bounds[0] <= value <= bounds[1]:
+            problems.append(f"{key} must be between {bounds[0]} and {bounds[1]}")
+    return problems
+
+
+def _reextract_config_problems() -> list[str]:
+    """Refuse an unreadable re-extraction bound at boot, like the fields
+    bound (RC_FIELDS_REUPLOAD_PER_CYCLE)."""
+    raw = (os.environ.get("RC_REEXTRACT_PER_CYCLE") or "").strip()
+    if not raw:
+        return []
+    try:
+        value = int(raw)
+    except ValueError:
+        return ["RC_REEXTRACT_PER_CYCLE must be an integer"]
+    low, high = REEXTRACT_PER_CYCLE_RANGE
+    if not low <= value <= high:
+        return [f"RC_REEXTRACT_PER_CYCLE must be between {low} and {high}"]
+    return []
+
+
 def reset_config() -> None:
     global _config
     _config = None
@@ -129,6 +207,18 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         if m365_problems:
             print("Microsoft 365 document source misconfigured:", file=sys.stderr)
             for problem in m365_problems:
+                print(f"  - {problem}", file=sys.stderr)
+            sys.exit(1)
+        doc_fields_problems = _doc_fields_config_problems()
+        if doc_fields_problems:
+            print("Document fields misconfigured:", file=sys.stderr)
+            for problem in doc_fields_problems:
+                print(f"  - {problem}", file=sys.stderr)
+            sys.exit(1)
+        reextract_problems = _reextract_config_problems()
+        if reextract_problems:
+            print("Re-extraction misconfigured:", file=sys.stderr)
+            for problem in reextract_problems:
                 print(f"  - {problem}", file=sys.stderr)
             sys.exit(1)
 
@@ -180,6 +270,22 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         rc_local_bypass_trusted_networks=_parse_cidrs("RC_LOCAL_BYPASS_TRUSTED_CIDRS"),
         rc_platform_broker_pubkey_path=(os.environ.get("RC_PLATFORM_BROKER_PUBKEY_PATH") or "").strip(),
         testing=_env_bool("TESTING", False),
+        rc_doc_fields=_doc_fields_switch(),
+        rc_fields_reupload_per_cycle=_bounded_int(
+            "RC_FIELDS_REUPLOAD_PER_CYCLE",
+            FIELDS_REUPLOAD_PER_CYCLE_DEFAULT,
+            FIELDS_REUPLOAD_PER_CYCLE_RANGE,
+        ),
+        rc_fields_reupload_max_attempts=_bounded_int(
+            "RC_FIELDS_REUPLOAD_MAX_ATTEMPTS",
+            FIELDS_REUPLOAD_MAX_ATTEMPTS_DEFAULT,
+            FIELDS_REUPLOAD_MAX_ATTEMPTS_RANGE,
+        ),
+        rc_reextract_per_cycle=_bounded_int(
+            "RC_REEXTRACT_PER_CYCLE",
+            REEXTRACT_PER_CYCLE_DEFAULT,
+            REEXTRACT_PER_CYCLE_RANGE,
+        ),
     )
     return _config
 
@@ -237,3 +343,28 @@ def _missing_required_env() -> list[str]:
 
 def get_config() -> AppConfig:
     return load_config(validate=False)
+
+
+def doc_fields_enabled() -> bool:
+    """``RC_DOC_FIELDS`` (default on). Off: no ``fields`` key is ever sent,
+    no config digest is computed and the fields columns stay untouched."""
+    return bool(get_config().rc_doc_fields)
+
+
+def fields_reupload_per_cycle() -> int:
+    """``RC_FIELDS_REUPLOAD_PER_CYCLE`` (default 100, 1-10000): documents
+    re-sent per cycle because only their fields configuration changed."""
+    return int(get_config().rc_fields_reupload_per_cycle)
+
+
+def fields_reupload_max_attempts() -> int:
+    """``RC_FIELDS_REUPLOAD_MAX_ATTEMPTS`` (default 3): failed re-uploads
+    of one document before it leaves the queue as ``reupload_failed``."""
+    return int(get_config().rc_fields_reupload_max_attempts)
+
+
+def reextract_per_cycle() -> int:
+    """``RC_REEXTRACT_PER_CYCLE`` (default 100, 1-10000): documents
+    re-extracted per cycle after ``POST /sync/reextract/requeue``, on top of
+    the fields bound and within ``max_files_per_cycle`` (spec L6)."""
+    return int(get_config().rc_reextract_per_cycle)

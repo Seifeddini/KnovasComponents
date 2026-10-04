@@ -112,6 +112,10 @@
                             {% for group in row.access_groups %}
                                 <span class="access-chip">{{ group }}</span>
                             {% else %}<span class="sub">—</span>{% endfor %}
+                            {% if row.get('knovas_admin') %}
+                                <span class="knovas-admin-badge"
+                                      title="Hinweis: Mitglied der Administratorgruppe des Mandanten bei Knovas. Darf dort Dokumentfelder, Pakete und Ordnervorgaben ändern; Knovas entscheidet bei jeder Änderung selbst.">Administratorgruppe bei Knovas</span>
+                            {% endif %}
                         </td>
                         <td class="people-row-action">
                             <button type="button" class="secondary compact" data-person-select="{{ person.id }}">

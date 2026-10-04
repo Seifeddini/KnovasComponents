@@ -9,6 +9,35 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
 </head>
 <body class="admin-page">
+{# Document fields per folder (spec 4.8). ``doc_fields`` is absent in older
+   render calls; every use below goes through ``df``. #}
+{% set df = doc_fields if doc_fields is defined else none %}
+{# Re-extraction after an extractor upgrade (spec L6); absent in older
+   render calls and for a Knovas Connector without the counts. #}
+{% set rx = reextract if reextract is defined else none %}
+{% macro fields_cell(n, f, items) -%}
+<td class="folder-fields">
+    <details{% if f.fields_text|default('') or f.templates_text|default('') or f.metadata|default([]) %} open{% endif %}>
+        <summary>Felder</summary>
+        <label>Feste Werte
+            <small class="hint">Ein Feld pro Zeile: <code>schlüssel = Wert</code>; mehrere Werte mit „;“ trennen. Auswahlfelder nehmen den Code oder die Bezeichnung.</small>
+            <textarea name="folder-{{ n }}-fields" rows="3" spellcheck="false" autocomplete="off">{{ f.fields_text|default('') }}</textarea>
+        </label>
+        <label>Pfadvorlagen
+            <small class="hint">Eine pro Zeile, relativ zum Ordner, z. B. <code>{mandant}/{period}/**</code>. Die erste passende Vorlage gilt.</small>
+            <textarea name="folder-{{ n }}-templates" class="folder-templates" rows="2" spellcheck="false" autocomplete="off">{{ f.templates_text|default('') }}</textarea>
+        </label>
+        <button type="button" class="secondary compact template-test">Vorlagen testen</button>
+        <div class="template-test-result" aria-live="polite"></div>
+        <fieldset>
+            <legend>Aus Dateieigenschaften</legend>
+            {% for item in items %}
+            <label class="admin-check"><input type="checkbox" name="folder-{{ n }}-metadata" value="{{ item.key }}" {% if item.key in f.metadata|default([]) %}checked{% endif %}> <span>{{ item.label }}</span></label>
+            {% endfor %}
+        </fieldset>
+    </details>
+</td>
+{%- endmacro %}
 <div class="app-shell">
 {% include '_sidebar.html' %}
 <div class="app-content">
@@ -30,6 +59,38 @@
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+    {% if df and (df.warnings or df.notes) %}
+    <div class="msg" role="status">
+        <ul>
+            {% for w in df.warnings %}<li>{{ w }}</li>{% endfor %}
+            {% for n in df.notes %}<li>{{ n }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    {% if df and df.reupload and df.restore_version %}
+    <section class="panel">
+        <h2>Wiederherstellen bestätigen</h2>
+        <p>{{ df.reupload.text }}</p>
+        <p class="hint">{{ df.reupload.advice }}</p>
+        <form class="inline" method="post" action="{{ url_for('admin.restore', version=df.restore_version) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="confirm_reupload" value="1">
+            <button type="submit">Version {{ df.restore_version }} wiederherstellen und erneut senden</button>
+        </form>
+    </section>
+    {% endif %}
+
+    {% if rx and rx.confirm %}
+    <section class="panel reextract-confirm">
+        <h2>Neu extrahieren bestätigen</h2>
+        <p>{{ rx.confirm.text }}</p>
+        <form class="inline" method="post" action="{{ url_for('admin.reextract') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="confirm_reextract" value="{{ rx.confirm.count }}">
+            <button type="submit">{{ rx.confirm.count }} Dokumente neu extrahieren</button>
+        </form>
+    </section>
+    {% endif %}
 
     <section class="ingestion-status-bar">
         <span class="status-dot {% if status.scheduler_state in ('running', 'active') %}is-online{% endif %}" aria-hidden="true"></span>
@@ -50,6 +111,47 @@
         </div>
     </section>
 
+    {% if df and df.status %}
+    <section class="panel doc-fields-status">
+        <h2>Dokumentfelder</h2>
+        {% if df.status.lines %}
+        <ul>
+            {% for line in df.status.lines %}
+            <li>{% if line.level == 'warn' %}<strong>{{ line.text }}</strong>{% else %}{{ line.text }}{% endif %}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% if df.status.requeue %}
+        <div class="ingestion-status-actions">
+            {% for r in df.status.requeue %}
+            <form class="inline" method="post" action="{{ url_for('admin.requeue_doc_fields') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="outcome" value="{{ r.outcome }}">
+                <button type="submit" class="secondary compact">{{ r.label }}</button>
+            </form>
+            {% endfor %}
+        </div>
+        <p class="hint">Jedes erneut gesendete Dokument ist ein verrechneter Upload mit erneuter Texterkennung; der Knovas Connector sendet höchstens die eingestellte Anzahl pro Durchlauf.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    {% if rx %}
+    <section class="panel reextract-status">
+        <h2>Extraktion</h2>
+        <p>{{ rx.outdated }} Dokumente mit älterer Extraktion{% if rx.queued %} · {{ rx.queued }} davon zum Neu-Extrahieren vorgemerkt{% endif %}</p>
+        {% if rx.can_request %}
+        <form class="inline" method="post" action="{{ url_for('admin.reextract') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="secondary compact">Neu extrahieren</button>
+        </form>
+        <p class="hint">Vorher zeigt ein Dialog Anzahl, Kosten und Dauer. Gesendet wird nur, was sich geändert hat – jedes gesendete Dokument ist ein verrechneter Upload.</p>
+        {% elif rx.admin_only %}
+        <p class="hint">Neu extrahieren kann nur die Rolle admin auslösen.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+
     {% if preview %}
     <section class="panel">
         <h2>Vorschau</h2>
@@ -61,6 +163,26 @@
                     <tr><td class="ptr">{{ p.path }}</td>
                         <td>{% if p.error %}<span class="msg error">{{ p.error }}</span>{% else %}{{ p.files if p.files is not none else '—' }}{% endif %}</td>
                         <td>{{ p.folders if p.folders is not none else '—' }}{% if p.truncated %} <span class="hint">(Liste gekürzt)</span>{% endif %}</td></tr>
+                    {% if p.templates is defined and p.templates %}
+                    <tr class="template-preview-row"><td colspan="3">
+                        {% for e in p.templates.errors %}
+                        <p class="msg error">Pfadvorlage {{ e.index }}: {{ e.text }} – der Knovas Connector würde diesen Ordner überspringen.</p>
+                        {% endfor %}
+                        <p class="hint">Pfadvorlagen: {{ p.templates.matched }} von {{ p.templates.files }} Dateien im Ausschnitt passen{% if p.templates.truncated %} (die ersten {{ p.templates.rows|length }} gezeigt){% endif %}.</p>
+                        {% if p.templates.rows %}
+                        <table class="template-preview">
+                            <thead><tr><th>Datei</th><th>Vorlage</th><th>Felder</th></tr></thead>
+                            <tbody>
+                            {% for r in p.templates.rows %}
+                                <tr><td class="ptr">{{ r.path }}</td>
+                                    <td>{{ r.template if r.template else '—' }}</td>
+                                    <td>{% for c in r.captures %}{{ c.key }} = {{ c.value }}{% if not loop.last %}; {% endif %}{% else %}—{% endfor %}</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% endif %}
+                    </td></tr>
+                    {% endif %}
                 {% endfor %}
                 </tbody>
             </table>
@@ -79,6 +201,7 @@
                     <input type="text" name="identifier_prefix" value="{{ form.identifier_prefix }}" required>
                 </label>
                 <label>Beschreibung
+                    <small class="hint">wird jedem Dokument als Beschreibung mitgegeben</small>
                     <input type="text" name="description" value="{{ form.description }}">
                 </label>
             </div>
@@ -93,7 +216,7 @@
                     Alle Dokumente neu übertragen
                     <small>Normalerweise überträgt die Übernahme nur neue und geänderte
                     Dateien. Wurde der Bestand bei Knovas neu aufgesetzt, hält
-                    RemoteController sie weiterhin für übertragen und lädt nichts mehr
+                    der Knovas Connector sie weiterhin für übertragen und lädt nichts mehr
                     hoch — der Zyklus meldet dann „uploaded=0, errors=0“ und die Suche
                     findet nichts. Dies überträgt einmal den ganzen Bestand erneut.</small>
                 </span>
@@ -106,6 +229,42 @@
                     Zugriffsgruppen und Unterordner wählen Sie in der Tabelle.
                 </p>
             </div>
+            {% if df and df.inputs %}
+            <details class="doc-fields-help"{% if not df.available or not df.rc_supports %} open{% endif %}>
+                <summary>Dokumentfelder pro Ordner</summary>
+                <p class="hint">
+                    Feste Werte, Pfadvorlagen und Dateieigenschaften gehen mit jedem Upload des Ordners
+                    an Knovas und haben dort Vorrang vor Ordnervorgaben. Eine Änderung sendet alle
+                    Dokumente des Ordners erneut. {{ df.advice|default('') }}
+                </p>
+                {% if not df.available %}
+                <p class="msg error">Knovas stellt Dokumentfelder derzeit nicht bereit. Vorhandene Einstellungen bleiben erhalten; Änderungen werden erst nach einer Prüfung übertragen.</p>
+                {% endif %}
+                {% if df.rc_supports is none %}
+                <p class="msg warn">Der Knovas Connector ist nicht erreichbar; ob er Dokumentfelder unterstützt, lässt sich gerade nicht prüfen. Ordner mit Feldern werden erst gespeichert, wenn er antwortet.</p>
+                {% elif not df.rc_supports %}
+                <p class="msg error">Der Knovas Connector meldet keine Unterstützung für Dokumentfelder – bitte aktualisieren, bevor Ordner mit Feldern gespeichert werden.</p>
+                {% endif %}
+                {% if df.multi_source %}
+                <p class="hint">Mehrere Ordner: Dateien mit gleichem relativem Pfad teilen sich bei Knovas einen Eintrag; ihre Felder bestimmt der erste Ordner.</p>
+                {% endif %}
+                {% if df.registry %}
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Schlüssel</th><th>Bezeichnung</th><th>Typ</th><th>Auswahl</th></tr></thead>
+                        <tbody>
+                        {% for f in df.registry %}
+                            <tr><td><code>{{ f.key }}</code></td>
+                                <td>{{ f.label }}{% if f.sensitivity == 'special' %} <span class="access-chip">besonders schützenswert</span>{% endif %}</td>
+                                <td>{{ f.datatype }}{% if f.cardinality == 'many' %}, mehrere{% endif %}</td>
+                                <td>{% for e in f.enum %}<code>{{ e.code }}</code> {{ e.label }}{% if not loop.last %}; {% endif %}{% else %}—{% endfor %}</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </details>
+            {% endif %}
             <div class="folder-picker" tabindex="-1">
                 <div id="folder-tree" class="folder-tree"
                      data-endpoint="{{ url_for('admin.folders') }}"
@@ -118,8 +277,8 @@
                     </p>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>Pfad</th><th>Mit Unterordnern</th><th>Zugriffsgruppen</th><th></th></tr></thead>
-                            <tbody id="folder-rows">
+                            <thead><tr><th>Pfad</th><th>Mit Unterordnern</th><th>Zugriffsgruppen</th>{% if df and df.inputs %}<th>Dokumentfelder</th>{% endif %}<th></th></tr></thead>
+                            <tbody id="folder-rows"{% if df and df.inputs %} data-template-preview="{{ url_for('admin.template_preview_json') }}"{% endif %}>
                             {% for f in form.folders %}
                                 <tr>
                                     <td><input type="text" class="folder-path" name="folder-{{ loop.index0 }}-path" value="{{ f.path }}" readonly></td>
@@ -130,6 +289,7 @@
                                             {% if g.group_id in f.groups %}checked{% endif %}> <span>{{ g.name }}</span></label>
                                         {% endfor %}
                                     </td>
+                                    {% if df and df.inputs %}{{ fields_cell(loop.index0, f, df.metadata_items) }}{% endif %}
                                     <td><button type="button" class="danger compact folder-remove">Entfernen</button></td>
                                 </tr>
                             {% endfor %}
@@ -147,6 +307,7 @@
                         <label class="admin-check"><input type="checkbox" name="folder-__n__-groups" value="{{ g.group_id }}"> <span>{{ g.name }}</span></label>
                         {% endfor %}
                     </td>
+                    {% if df and df.inputs %}{{ fields_cell('__n__', {}, df.metadata_items) }}{% endif %}
                     <td><button type="button" class="danger compact folder-remove">Entfernen</button></td>
                 </tr>
             </template>
@@ -174,6 +335,16 @@
                 </fieldset>
             </div>
 
+            {% if df and df.reupload and not df.restore_version %}
+            <div class="msg error reupload-confirm" role="alert">
+                <p>{{ df.reupload.text }}</p>
+                <p class="hint">{{ df.reupload.advice }}</p>
+                <label class="checkbox-row">
+                    <input type="checkbox" name="confirm_reupload" value="1">
+                    <span>Ja, die Dokumente dieser Ordner erneut senden</span>
+                </label>
+            </div>
+            {% endif %}
             <div class="profile-form-actions">
                 <label>Dokumente ignorieren, die älter sind als (Tage)
                     <input type="text" name="max_document_age_days" value="{{ form.max_document_age_days }}" placeholder="leer = kein Limit">

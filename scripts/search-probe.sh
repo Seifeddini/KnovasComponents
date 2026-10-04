@@ -51,7 +51,7 @@ if cert and key:
 
 def ask(text, limit=10):
     """One /secured/query. Returns (pointers, error)."""
-    body = json.dumps({"Input": text, "limit": limit, "top_k": limit}).encode()
+    body = json.dumps({"Input": text, "limit": limit}).encode()
     request = urllib.request.Request(
         base + "/secured/query", data=body,
         headers={"Content-Type": "application/json"}, method="POST",
@@ -102,7 +102,7 @@ if store.is_dir():
         if terms and all(term in text for term in terms):
             local_with_terms += 1
 
-print(f"\nWhat RemoteController extracted locally")
+print(f"\nWhat Knovas Connector extracted locally")
 print(f"  {local_total} document(s) extracted   ({local_with_terms} contain every word)")
 print("  NOTE: extracted, not indexed — the sidecar is written before the upload,")
 print("        so it survives an upload that failed.")
@@ -120,19 +120,19 @@ print()
 missing = [t for t in terms if indexed.get(t) == 0 and per_term[t] > 0]
 never = [t for t in terms if per_term[t] == 0]
 if never and not local_total:
-    print("  FAIL  NOT EXTRACTED: no context store — RemoteController has read nothing.")
+    print("  FAIL  NOT EXTRACTED: no context store — Knovas Connector has read nothing.")
 elif never:
-    print(f"  FAIL  NOT EXTRACTED: {', '.join(never)} appears in nothing RemoteController")
+    print(f"  FAIL  NOT EXTRACTED: {', '.join(never)} appears in nothing Knovas Connector")
     print("        read. Check the sync's folders and filters; nothing downstream helps.")
 elif missing:
-    print(f"  FAIL  NOT INDEXED: {', '.join(missing)} — RemoteController extracted files")
+    print(f"  FAIL  NOT INDEXED: {', '.join(missing)} — Knovas Connector extracted files")
     print("        containing it, and a pure-BM25 query finds none of them. The text")
     print("        is not in Knovas. Two ways that happens:")
     print("          a) the uploads failed. Then the log says so:")
     print("               docker compose --env-file knovas.env logs remote-controller \\")
     print("                 | grep -iE 'init failed|transmit|error'")
     print("          b) they were uploaded once and the tenant was rebuilt since.")
-    print("             RemoteController still holds them as sent, so every cycle")
+    print("             Knovas Connector still holds them as sent, so every cycle")
     print("             reports 'uploaded=0 errors=0' and nothing is ever re-sent:")
     print("               curl -s localhost:${RC_HOST_PORT:-5001}/sync/status?live=1")
     print("             pending=0 with an empty index is exactly this case. Fix it in")

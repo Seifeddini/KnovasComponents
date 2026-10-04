@@ -39,10 +39,30 @@ jobs:
         with:
           python-version: "3.11"
 
+      # One knovas-extract for both images and both test jobs: the check fails
+      # when the two Dockerfiles' ARG defaults differ and hands the pin
+      # (KNOVAS_EXTRACT_VERSION, KNOVAS_EXTRACT_GIT_REF) to the next steps.
+      # Its own test runs first.
+      - name: knovas-extract pin
+        working-directory: .
+        run: |
+          bash scripts/ci/test_check_knovas_extract_pin.sh
+          bash scripts/ci/check_knovas_extract_pin.sh >> "$GITHUB_ENV"
+
       - name: Install dependencies
+        # The pinned knovas-extract first, with the Platform image's extras:
+        # the floor in requirements.txt (>=0.4.0a1) is then satisfied and left
+        # alone. The last line fails the job if anything replaced it.
         run: |
           python -m pip install --upgrade pip
+          extras="pdf,ocr,docx,msg,html,rtf,markdown,sentences"
+          if [ -n "$KNOVAS_EXTRACT_GIT_REF" ]; then
+            pip install "knovas-extract[${extras}] @ git+https://github.com/Seifeddini/knovas-extract-python.git@${KNOVAS_EXTRACT_GIT_REF}"
+          else
+            pip install "knovas-extract[${extras}]==${KNOVAS_EXTRACT_VERSION}"
+          fi
           pip install -r components/docbridge_integration/requirements.txt
+          python ../scripts/ci/assert_knovas_extract_pin.py
 
       - name: Pytest
         working-directory: KnovasPlatform/components/docbridge_integration
@@ -57,6 +77,12 @@ jobs:
         # (bench/report_to_knovas.py) against a fake Platform.
         run: python -m pytest experiments-sdk/python
 
+      # The mock Knovas API emulates every document-fields server state (off,
+      # values, filters, uncalibrated); the Platform and RC contract tests
+      # drive it, so its own suite runs here. Working directory: KnovasPlatform.
+      - name: Mock Knovas API
+        run: pytest mock_knovas_api/tests
+
       # The per-component stack under KnovasPlatform/ is gone; there is one
       # Compose project at the repo root, so these steps run from there.
       - name: Env expansion contract
@@ -66,6 +92,10 @@ jobs:
       - name: Multi-stack identity contract
         working-directory: .
         run: bash scripts/lib/test_stack_identity.sh
+
+      - name: Connector extraction settings contract
+        working-directory: .
+        run: bash scripts/lib/test_rc_extraction_settings.sh
 
       - name: Generate compose inputs
         working-directory: .
@@ -79,6 +109,23 @@ jobs:
         run: |
           docker compose --env-file scripts/lib/fixtures/knovas.env.fixture config --quiet
           docker compose --env-file scripts/lib/fixtures/knovas.env.fixture build docbridge-web
+
+      - name: The Platform image carries the pinned knovas-extract
+        working-directory: .
+        run: |
+          docker run --rm -i -e KNOVAS_EXTRACT_VERSION -e KNOVAS_EXTRACT_GIT_REF \
+            docbridge-web-clientbundle:latest python - < scripts/ci/assert_knovas_extract_pin.py
+
+      - name: No pymupdf-layout (PolyForm-NC) in the Platform image
+        # Same gate as the Connector image's: the Platform adds [markdown]
+        # (markdownify, selectolax) for the preview, never [pdf-markdown],
+        # whose pymupdf4llm pulls pymupdf-layout. A failure blocks the build.
+        working-directory: .
+        run: |
+          if docker run --rm docbridge-web-clientbundle:latest pip show pymupdf-layout >/dev/null 2>&1; then
+            echo "pymupdf-layout is installed in the image"; exit 1
+          fi
+          echo "pymupdf-layout absent"
 
       # OneDrive/SharePoint: no KNOVAS_DOCUMENTS_PATH, the app secret handed to
       # RemoteController alone and never to the internet-facing Platform.
@@ -237,6 +284,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The pin both images install (scripts/ci/check_knovas_extract_pin.sh
+      # fails when the two Dockerfiles disagree): the tests run against
+      # exactly the extractor the images ship.
+      - name: knovas-extract pin
+        working-directory: .
+        run: bash scripts/ci/check_knovas_extract_pin.sh >> "$GITHUB_ENV"
+
       - name: Install Tesseract (OCR tests run against the real engine)
         run: |
           sudo apt-get update
@@ -250,9 +304,21 @@ jobs:
         # scheitert, und ein Sammelfehler bricht den GANZEN Lauf ab: seit
         # Einfuehrung des Generators lief kein einziger RemoteController-Test
         # mehr durch.
+        #
+        # knovas-extract comes first: exactly the pin of the previous step,
+        # with the Connector image's extras. `pip install -e` then finds it
+        # satisfying the floor in pyproject.toml (>=0.4.0a1) and leaves it in
+        # place. The last line fails the job if anything replaced it.
         run: |
+          extras="pdf,ocr,docx,msg,html,rtf,sentences"
+          if [ -n "$KNOVAS_EXTRACT_GIT_REF" ]; then
+            pip install "knovas-extract[${extras}] @ git+https://github.com/Seifeddini/knovas-extract-python.git@${KNOVAS_EXTRACT_GIT_REF}"
+          else
+            pip install "knovas-extract[${extras}]==${KNOVAS_EXTRACT_VERSION}"
+          fi
           pip install -e ".[dev]"
           pip install -r scripts/demo_kanzlei/requirements.txt
+          python ../scripts/ci/assert_knovas_extract_pin.py
 
       - name: Run pytest
         env:
@@ -272,7 +338,13 @@ jobs:
           SEMANTIX_CLIENT_CERT_PATH: /certs/client.pem
           SEMANTIX_CLIENT_KEY_PATH: /certs/client.key
           SEMANTIX_CA_CERT_PATH: /certs/ca.pem
-        run: pytest
+          # Outside the checkout: the default (.rc-sync-state.json beside the
+          # tracked .rc-sync-state.db) lets a test rewrite a committed file.
+          RC_SYNC_STATE_PATH: ${{ runner.temp }}/rc-state/.rc-sync-state.json
+        run: |
+          mkdir -p "$(dirname "$RC_SYNC_STATE_PATH")"
+          pytest
+          git diff --exit-code -- .rc-sync-state.db
 
       - name: Validate contract schemas
         run: |
@@ -291,13 +363,20 @@ jobs:
               test -f "$TESSDATA_PREFIX/$lang.traineddata" || { echo "$lang.traineddata missing"; exit 1; }
             done
             tesseract --list-langs 2>&1 | tail -n +2 | sort | tr "\n" " "; echo'
+          # The [ocr] extra: OCR runs in-process through tesserocr, not the CLI.
+          docker run --rm remote-controller:ci python -c "from knovas_extract._ocr.backend import select_backend; name = select_backend('auto').name; print('OCR engine', name); assert name == 'tesserocr', name"
 
-      - name: No pymupdf-layout (PolyForm-NC) in the customer image
-        # Advisory until knovas-extract 0.4.0a1 is pinned (plan M0, [C-reg-9]):
-        # the current library's [pdf] extra still drags pymupdf4llm -> pymupdf-
-        # layout in. Once KNOVAS_EXTRACT_REF points at a release whose [pdf]
-        # extra is clean, drop `continue-on-error` and let this gate the build.
-        continue-on-error: true
+      - name: The Connector image carries the pinned knovas-extract
+        run: |
+          docker run --rm -i -e KNOVAS_EXTRACT_VERSION -e KNOVAS_EXTRACT_GIT_REF \
+            remote-controller:ci python - < ../scripts/ci/assert_knovas_extract_pin.py
+
+      - name: No pymupdf-layout (PolyForm-NC) in the Connector image
+        # Gates the build (plan M0, [C-reg-9]): both images install the pin of
+        # scripts/ci/check_knovas_extract_pin.sh, knovas-extract 0.4.0a1, whose
+        # [pdf] extra is pymupdf alone; pymupdf4llm, which pulls
+        # pymupdf-layout, is in the separate [pdf-markdown] extra that neither
+        # image installs. A bump or an extra that drags it back in fails here.
         run: |
           if docker run --rm remote-controller:ci pip show pymupdf-layout >/dev/null 2>&1; then
             echo "pymupdf-layout is installed in the image"; exit 1
@@ -323,4 +402,12 @@ jobs:
             remote-controller:ci
           sleep 3
           docker exec rc-ci python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:5001/health'); assert r.status==200, r.status"
+          # E6: PID 1 is gunicorn itself (shell-form CMD with exec), one
+          # gthread worker with four threads, the default 120 s timeout.
+          pid1="$(docker exec rc-ci sh -c 'tr "\0" " " < /proc/1/cmdline')"
+          echo "PID 1: $pid1"
+          case "$pid1" in
+            *gunicorn*"-w 1 -k gthread --threads 4 --timeout 120 "*) ;;
+            *) echo "the image does not run the gthread gunicorn as PID 1"; exit 1 ;;
+          esac
           docker stop rc-ci

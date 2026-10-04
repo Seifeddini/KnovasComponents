@@ -444,6 +444,10 @@ class FakeEl {
   set innerHTML(h) { this._html = String(h); }
   get innerHTML() { return this._html !== null ? this._html
     : this._text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  // createDocumentCard looks up its title and headline after the innerHTML
+  // (document fields); markup set through innerHTML is not parsed here.
+  querySelector() { return null; }
+  querySelectorAll() { return []; }
 }
 const document = {
   createElement: (t) => new FakeEl(t),

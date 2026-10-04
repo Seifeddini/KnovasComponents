@@ -37,8 +37,18 @@ python-dateutil==2.8.2
 # Retry logic
 tenacity==8.2.3
 
-# Document extraction (sentences, sections, tables for secured upload)
-knovas-extract[pdf,docx,msg,markdown,html,sentences]>=0.2
+# Document extraction (sentences, sections, tables for secured upload;
+# markdown for the preview, rtf for Outlook mails whose only body is RTF).
+# A floor only: the image and CI install the exact pin, with `ocr` on top
+# (Dockerfile ARG KNOVAS_EXTRACT_VERSION / KNOVAS_EXTRACT_GIT_REF).
+knovas-extract[pdf,docx,msg,html,rtf,markdown,sentences]>=0.4.0a1
+# selectolax 1.0 dropped `selectolax.parser`, which knovas-extract 0.4.0a1
+# imports for HTML and for the DOCX/EML/MSG preview (Markdown). The pinned
+# release caps it below 1 in its own extras; builds before it (b5d4540 and
+# older) did not, so the cap stays here too. The Dockerfile installs this line
+# before knovas-extract; scripts/ci/assert_knovas_extract_pin.py reads a
+# page of HTML in CI and in the built image.
+selectolax>=0.3.21,<1
 
 # PDF-Textextraktion für die Cortex-Filter (Passagen-Matching)
 pymupdf==1.28.0

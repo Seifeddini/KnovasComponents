@@ -4,7 +4,7 @@ Full guide: [host-nginx-internal.md](host-nginx-internal.md).
 
 ## Before deploy
 
-- [ ] Documents indexed in Knovas ([RemoteController](../../../RemoteController/))
+- [ ] Documents indexed in Knovas ([Knovas Connector](../../../RemoteController/))
 - [ ] mTLS files in the repo root `certs/` (`client-cert.pem`, `client-key.pem`, `ca-root.pem`)
 - [ ] Internal DNS: `<fqdn>` → server IP on vnet/LAN
 - [ ] Internal TLS cert issued and trusted on client PCs

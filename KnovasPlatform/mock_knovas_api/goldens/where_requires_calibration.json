@@ -1,0 +1,26 @@
+{
+  "name": "where_requires_calibration",
+  "description": "Query with where on a tenant without relevance calibration: 503, and it stays so until the platform is calibrated (not a temporary outage). find does not check the calibration.",
+  "server_state": "filters_uncalibrated",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/query",
+    "body": {
+      "Input": "Rechnung",
+      "where": {
+        "doc_type": "invoice"
+      }
+    }
+  },
+  "response": {
+    "status": 503,
+    "body": {
+      "status": "error",
+      "error_code": "where_requires_calibration",
+      "error": "Field filters need a relevance calibration for this tenant"
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

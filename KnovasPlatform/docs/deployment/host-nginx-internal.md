@@ -29,7 +29,7 @@ Clients do **not** connect to port 8081 on the network.
 | Internal CA | Server cert in nginx; CA trusted on client PCs |
 | Docker + Compose | On Debian/Ubuntu — see [platforms/debian.md](../platforms/debian.md) |
 | Knovas mTLS | Repo root `certs/` — [certs/README.md](../../certs/README.md) |
-| Indexed documents | Ingest with [RemoteController](../../../RemoteController/) first |
+| Indexed documents | Ingest with [Knovas Connector](../../../RemoteController/) first |
 | Outbound HTTPS | From container to Knovas API (often port 8443) |
 
 ## 1. Configure `knovas.env`
@@ -99,7 +99,9 @@ With a public name and Let's Encrypt, `sudo ./scripts/host-https.sh <fqdn> <emai
 (repo root) does this whole step. With internal PKI, by hand:
 
 Copy the template and edit hostname + certificate paths. Copy the login throttle's
-zone too; the site refers to it:
+zone too; the site refers to it, and to the access-log format defined in the same
+file (`knovas_privacy`: time, method, status, size, duration -- no request URI,
+because Platform URLs carry document pointers):
 
 ```bash
 sudo cp deploy/host-nginx/knovas-login-limit.conf /etc/nginx/conf.d/

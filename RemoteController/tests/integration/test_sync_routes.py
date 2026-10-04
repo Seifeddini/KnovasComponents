@@ -105,6 +105,65 @@ class TestSyncBody:
         assert start.call_count == 1
         assert start.call_args[0][0].sync_body == SYNC_BODY
 
+    @pytest.mark.parametrize("route", ["/sync/body", "/sync", "/sync/start"])
+    def test_a_template_that_does_not_compile_is_refused(self, rc_client, auth_headers,
+                                                         as_employee, tmp_path, monkeypatch,
+                                                         route):
+        """A stored body whose template RemoteController cannot compile
+        would skip its whole source every cycle -- no new file of it is
+        indexed. The routes refuse it, naming the JSON path and the code,
+        never the template."""
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        from sync.sync_scheduler import load_last_sync_body
+
+        good = {**SYNC_BODY["sources"][0], "field_templates": ["{mandant}/**"]}
+        bad = {**SYNC_BODY["sources"][0], "field_templates": ["{mandant}/**", "{Muster_AG}/**"]}
+        body = {**SYNC_BODY, "sources": [good, bad]}
+        with patch("routes.sync.run_one_time") as run_once, \
+             patch("routes.sync.start_continuous") as start, \
+             patch("routes.sync_control.start_continuous") as start_control:
+            resp = rc_client.post(route, json=body, headers=auth_headers)
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "$.sources[1].field_templates[1]: field_template_invalid (syntax)"
+        assert "Muster" not in resp.get_data(as_text=True)
+        assert run_once.call_count == start.call_count == start_control.call_count == 0
+        assert load_last_sync_body() is None
+
+    def test_templates_that_compile_are_stored(self, rc_client, auth_headers, as_employee,
+                                               tmp_path, monkeypatch):
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        body = {**SYNC_BODY, "sources": [{**SYNC_BODY["sources"][0],
+                                          "field_templates": ["*/{mandant}/{period}/**"]}]}
+        resp = rc_client.post("/sync/body", json=body, headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+
+    def test_start_with_a_stored_body_is_not_blocked_by_its_templates(
+        self, rc_client, auth_headers, as_employee, tmp_path, monkeypatch
+    ):
+        """A body stored before the check still starts: a bad template skips
+        only its own source per cycle, never every source."""
+        monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
+        from config import load_config, reset_config
+
+        reset_config()
+        load_config(validate=False, force_reload=True)
+        from sync.sync_scheduler import save_last_sync_body
+
+        body = {**SYNC_BODY, "sources": [{**SYNC_BODY["sources"][0], "field_templates": ["{A}"]}]}
+        save_last_sync_body(body)
+        with patch("routes.sync_control.start_continuous", return_value="running") as start:
+            resp = rc_client.post("/sync/start", json={}, headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+        assert start.call_count == 1
+
     def test_start_without_any_stored_body_is_still_a_400(self, rc_client, auth_headers,
                                                           as_employee, tmp_path, monkeypatch):
         monkeypatch.setenv("RC_SYNC_STATE_PATH", str(tmp_path / "state" / ".rc-sync-state.json"))
@@ -147,3 +206,26 @@ def test_sync_body_accepts_the_platform_principal_like_sync(rc_client, tmp_path,
     resp = rc_client.post("/sync/body", json=SYNC_BODY,
                           headers={"X-Platform-Principal": mint(private, pub, rol=["member"])})
     assert resp.status_code == 403
+
+
+def test_sync_status_reports_the_extractor(rc_client, auth_headers, monkeypatch):
+    """Versions and setting names only; the Platform's System tab compares
+    the version with its own (spec L5)."""
+    import knovas_extract
+
+    monkeypatch.setenv("RC_PDF_TEXT_MODE", "plain")
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "layout")
+    monkeypatch.setenv("RC_OCR_ENGINE", "cli")
+    monkeypatch.delenv("RC_PDF_OCR_ENABLED", raising=False)
+    with patch("auth.knovas_verify_client.get_verify_client") as mock_client:
+        mock_client.return_value.verify_operator.return_value = (True, "c", None)
+        resp = rc_client.get("/sync/status", headers=auth_headers)
+    assert resp.status_code == 200
+    block = resp.get_json()["extraction"]
+    assert {key: block[key] for key in ("knovas_extract_version", "pdf_text_mode",
+                                        "docx_text_mode", "ocr_engine")} == {
+        "knovas_extract_version": knovas_extract.__version__,
+        "pdf_text_mode": "plain",
+        "docx_text_mode": "layout",
+        "ocr_engine": "cli",
+    }

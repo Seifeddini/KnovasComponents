@@ -26,6 +26,7 @@ from identity.approvals import (
     SelfApprovalError,
     UnknownRequestError,
 )
+from identity.ingestion_compiler import ProfileError, field_config_counts
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +64,22 @@ def _summary(kind: str, payload: Mapping[str, Any]) -> str:
             sources = profile.get("sources") or []
             walled = sum(1 for s in sources if isinstance(s, Mapping) and s.get("access_groups"))
             types = ", ".join(str(t) for t in (profile.get("file_types") or [])) or "keine"
-            return (f"{len(sources)} Ordner ({walled} mit Zugriffsgruppen), "
+            text = (f"{len(sources)} Ordner ({walled} mit Zugriffsgruppen), "
                     f"{profile.get('schedule') or '?'}, {profile.get('throughput') or '?'}, "
                     f"{types}")
+            # Document fields as counts only: a value or a template names a
+            # client, and this line is shown to every approver.
+            counts = field_config_counts([s for s in sources if isinstance(s, Mapping)])
+            if counts["folders_with_fields"]:
+                templates = counts["field_templates"]
+                text += (f", {counts['folders_with_fields']} Ordner mit Feldern, "
+                         f"{templates} {'Pfadvorlage' if templates == 1 else 'Pfadvorlagen'}")
+            # The requester confirmed that a field change re-sends whole
+            # folders (billed uploads); the approver confirms the same cost.
+            resend = payload.get("reupload_folders")
+            if isinstance(resend, int) and not isinstance(resend, bool) and resend > 0:
+                text += f"; erneutes Senden aller Dokumente von {resend} Ordner(n)"
+            return text
     return KIND_LABELS.get(kind, kind)
 
 
@@ -177,6 +191,12 @@ def attach_approval_routes(
             ), None
         try:
             result = dict(execute(req.payload, me) or {})
+        except ProfileError as exc:
+            # The change no longer fits the current profile (stale): a retry
+            # would fail the same way, so the person reads why.
+            logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id,
+                           type(exc).__name__)
+            return None, f"Freigegeben, aber nicht ausgefuehrt: {exc}"
         except Exception as exc:  # noqa: BLE001 - surfaced, the request stays approved
             logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id, exc)
             return None, (

@@ -17,7 +17,7 @@ folder right away, and `./scripts/doctor.sh` checks it again at any time.
 
 | | |
 |---|---|
-| **Sync** | RemoteController asks Microsoft 365 what changed since its last cycle: one request when nothing did. It downloads a file only when the file is new or modified, into a private temporary folder. It indexes the file and deletes the temporary copy. |
+| **Sync** | Knovas Connector asks Microsoft 365 what changed since its last cycle: one request when nothing did. It downloads a file only when the file is new or modified, into a private temporary folder. It indexes the file and deletes the temporary copy. |
 | **On the server** | No documents. A file is held only in memory between download and indexing. What stays is the snippet text shown under each result, the sync state, and the library's item list: names, dates, sizes, IDs and web addresses. The item list covers **the whole library** the folder is in, because Microsoft's change feed only works on a whole library. It holds no content. The server's disk does not grow with the size of the documents. |
 | **Deleted, moved, renamed** | Deleting a file in OneDrive/SharePoint removes it from Knovas at the next cycle. Moving or renaming a file, or a whole folder, re-indexes it under its new path. |
 | **Search** | Unchanged. Results show their text and "Fundstellen" (the places where the search matched) as before. |
@@ -80,9 +80,9 @@ library for Knovas rather than at a sprawling archive.
 ## Where the secret goes
 
 The secret is in `knovas.env` only. Docker Compose passes it to the
-RemoteController container, which is reachable only from the server itself. It
+Knovas Connector container, which is reachable only from the server itself. It
 is never written into the generated `.env.generated` files, and the Platform,
-which faces the users, never receives it. The Platform asks RemoteController
+which faces the users, never receives it. The Platform asks Knovas Connector
 for preview links instead.
 
 **Rotating the secret:** create a new one in Entra, replace
@@ -122,7 +122,7 @@ they are indexed, and `doctor.sh` shows how many have snippet text so far.
 
 ## Compared with the earlier OneDrive mirror
 
-The `ONEDRIVE_*` mirror in RemoteController copied the whole drive onto the
+The `ONEDRIVE_*` mirror in Knovas Connector copied the whole drive onto the
 server, and a separate sync then indexed the copy. `KNOVAS_DOCUMENTS_URL`
 replaces it: no copy, a single setting, SharePoint as well as OneDrive, and
 correct handling of renamed folders. When both are configured, the mirror is not

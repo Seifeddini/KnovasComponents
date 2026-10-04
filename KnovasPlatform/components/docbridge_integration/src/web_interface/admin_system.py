@@ -16,10 +16,18 @@ einzelnen Wort abgefragt; danach ist der Mandant unveraendert.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Mapping
+
+from remote_controller_client import (
+    capabilities_from_status,
+    extractor_commit_from_status,
+    extractor_version_from_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +37,21 @@ logger = logging.getLogger(__name__)
 PROBE_QUERY = "Vertrag"
 
 OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
+
+#: The four states the System tab names for document fields (spec 4.7). It
+#: is the one place a reduced state is spelled out (H6); everywhere else the
+#: console simply shows what the capability supports.
+DOC_FIELDS_STATES = {
+    "off": "aus",
+    "values": "Werte (ohne Filter)",
+    "listing_only": "Werte + Liste (Feldfilter bei Knovas vor\u00fcbergehend nicht verf\u00fcgbar)",
+    "filters": "Werte + Filter",
+}
+
+#: RemoteController capabilities that concern document fields
+#: (``/sync/status`` -> ``capabilities``).
+RC_DOC_FIELD_CAPABILITIES = ("source_fields_v1", "field_templates_v1",
+                             "metadata_fields_v1", "fields_requeue_v1", "metadata_fields_v2")
 
 
 class Check(dict):
@@ -51,6 +74,153 @@ def _timed(fn: Callable[[], Any]) -> tuple[Any, int, Exception | None]:
 def _short(exc: Exception, limit: int = 180) -> str:
     text = f"{type(exc).__name__}: {exc}"
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _doc_fields_check(client) -> tuple[Check, bool]:
+    """Which document-fields capability Knovas offers, in four words.
+
+    Returns the check and whether the capability is at least ``values``.
+
+    The same capability the console and the search use (cached, see
+    doc_fields_capability), so this line says what the person sees. While
+    the capability is at least ``values`` the field count and the installed
+    packs are read too -- a registry read, which on a tenant whose registry
+    is still empty lets Knovas install ``core`` (its own first-use step, the
+    same any other first registry read triggers). Nothing is logged but
+    codes.
+    """
+    import doc_fields_capability as dfc
+
+    started = time.monotonic()
+    config = getattr(client, "config", None)
+    capability = dfc.capability_for(client)
+    if not capability.shows_values:
+        ms = int((time.monotonic() - started) * 1000)
+        if not dfc.ui_enabled(config):
+            return Check("doc_fields", "Dokumentfelder", SKIP, DOC_FIELDS_STATES["off"],
+                         ms=ms, hint="In der Konfiguration abgeschaltet (web.doc_fields.ui: off)."), False
+        if not dfc.is_secured(client):
+            return Check("doc_fields", "Dokumentfelder", SKIP, DOC_FIELDS_STATES["off"],
+                         ms=ms, hint="Nur mit der gesicherten Knovas-API (mTLS) verfuegbar."), False
+        if capability is dfc.Capability.unknown:
+            return Check(
+                "doc_fields", "Dokumentfelder", WARN, "nicht feststellbar", ms=ms,
+                hint="Knovas hat auf die Abfrage nicht eindeutig geantwortet; die Funktion "
+                     "bleibt ausgeblendet, bis eine Antwort kommt."), False
+        return Check(
+            "doc_fields", "Dokumentfelder", SKIP, DOC_FIELDS_STATES["off"], ms=ms,
+            hint="Knovas hat Dokumentfelder fuer diesen Mandanten ausgeschaltet, oder der "
+                 "Knovas-Server kennt sie noch nicht. Suche und Ingestion laufen wie bisher."), False
+    parts = [DOC_FIELDS_STATES.get(capability.value, capability.value)]
+    try:
+        fields = client.doc_fields() or []
+        active = sum(1 for f in fields if isinstance(f, dict) and f.get("status") != "deprecated")
+        parts.append(f"{active} Feld(er)")
+    except Exception as exc:  # noqa: BLE001 - the state line stands without it
+        parts.append("Felder nicht lesbar (" + str(getattr(exc, "error_code", "") or type(exc).__name__) + ")")
+    try:
+        packs = client.doc_field_packs() or []
+        installed = [f"{p.get('key')} v{p.get('installed_version')}" for p in packs
+                     if isinstance(p, dict) and p.get("installed") is True]
+        parts.append("Pakete: " + (", ".join(installed) if installed else "keine"))
+    except Exception as exc:  # noqa: BLE001
+        parts.append("Pakete nicht lesbar (" + str(getattr(exc, "error_code", "") or type(exc).__name__) + ")")
+    ms = int((time.monotonic() - started) * 1000)
+    if capability is dfc.Capability.listing_only:
+        return Check(
+            "doc_fields", "Dokumentfelder", WARN, "; ".join(parts), ms=ms,
+            hint="Feldfilter in der Suche sind bei Knovas vor\u00fcbergehend nicht "
+                 "verf\u00fcgbar \u2013 sp\u00e4ter erneut versuchen; die Plattform fragt in "
+                 "wenigen Minuten erneut. Werte, Liste und Feldfilter in der Verwaltung "
+                 "funktionieren."), True
+    return Check("doc_fields", "Dokumentfelder", OK, "; ".join(parts), ms=ms), True
+
+
+def _rc_doc_fields_note(status: Any, doc_fields_on: bool) -> tuple[str, str]:
+    """``(detail suffix, hint)`` from the capabilities in the status the
+    ping just returned -- not from a second request, whose failure would
+    turn an RC that is merely busy into one "too old". An answer without
+    capabilities is an RC that cannot carry field settings. That is called
+    out only while Knovas offers fields, so an older RC on a deployment
+    without them keeps the line it always had.
+    """
+    caps = capabilities_from_status(status) if isinstance(status, Mapping) else frozenset()
+    known = [c for c in RC_DOC_FIELD_CAPABILITIES if c in caps]
+    if known:
+        return "; Dokumentfelder: " + ", ".join(known), ""
+    if doc_fields_on:
+        return ("; Dokumentfelder: nicht unterstuetzt",
+                "Den Knovas Connector aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
+    return "", ""
+
+
+def platform_extractor_version() -> str | None:
+    """``knovas_extract.__version__`` of this Platform; None without the library."""
+    try:
+        import knovas_extract
+    except Exception:  # noqa: BLE001 - the check names the missing library
+        return None
+    version = getattr(knovas_extract, "__version__", None)
+    return version if isinstance(version, str) and version else None
+
+
+def platform_extractor_commit() -> str | None:
+    """The git commit this Platform's knovas-extract was installed from
+    (pip's ``direct_url.json``; the image installs a pinned commit until the
+    version is on PyPI); None for a release from PyPI or without the library."""
+    try:
+        from importlib.metadata import distribution
+
+        raw = distribution("knovas-extract").read_text("direct_url.json")
+        commit = (json.loads(raw or "{}").get("vcs_info") or {}).get("commit_id")
+    except Exception:  # noqa: BLE001 - not installed or unreadable: no commit
+        return None
+    return commit if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) else None
+
+
+def _build(version: str, commit: str | None) -> str:
+    return f"{version} (git {commit[:7]})" if commit else version
+
+
+def _extractor_check(platform: str | None, connector: str | None,
+                     reached: bool | None, *, platform_commit: str | None = None,
+                     connector_commit: str | None = None) -> Check:
+    """Both sides' knovas-extract side by side (spec L5).
+
+    ``reached`` is None without a Knovas Connector, False when its ping
+    failed, True when it answered -- ``connector`` is then what its
+    /sync/status reports, None from one too old to report it. A build is
+    the version and, for a git install, its commit: before a release two
+    pins share one version string. The admin upload here and the
+    Connector's sync extract into one index, so a difference is worth a
+    warning.
+    """
+    label = "Extraktor (knovas-extract)"
+    parts = [f"Plattform {_build(platform, platform_commit)}" if platform
+             else "Plattform: nicht installiert"]
+    if reached is True:
+        parts.append(f"Knovas Connector {_build(connector, connector_commit)}" if connector
+                     else "Knovas Connector: keine Angabe")
+    elif reached is False:
+        parts.append("Knovas Connector nicht erreichbar")
+    detail = ", ".join(parts)
+    if platform is None:
+        return Check("extractor", label, WARN, detail,
+                     hint="Ohne knovas-extract scheitern Upload und Vorschau in der Verwaltung.")
+    if reached is None:
+        return Check("extractor", label, OK, detail)
+    if reached is False:
+        return Check("extractor", label, SKIP, detail)
+    if connector is None:
+        return Check("extractor", label, WARN, detail,
+                     hint="Diese Version des Knovas Connector meldet ihren Extraktor nicht. "
+                          "Aktualisieren, damit beide Seiten denselben verwenden.")
+    if (connector, connector_commit) != (platform, platform_commit):
+        return Check("extractor", label, WARN, detail,
+                     hint="Die beiden Seiten extrahieren mit verschiedenen Versionen: dieselbe Datei "
+                          "kann ueber den Upload hier anders im Index landen als ueber den Knovas "
+                          "Connector. Beide Images mit demselben Stand neu bauen.")
+    return Check("extractor", label, OK, detail)
 
 
 def collect(client_factory: Callable[[], Any], *, gate=None,
@@ -192,6 +362,19 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
                      "oder es wurde noch nichts eingelesen.",
             ))
 
+    # -- Dokumentfelder ----------------------------------------------------
+    doc_fields_on = False
+    if not api_up:
+        checks.append(Check("doc_fields", "Dokumentfelder", SKIP,
+                            "Uebersprungen: API nicht erreichbar"))
+    else:
+        try:
+            check, doc_fields_on = _doc_fields_check(client)
+        except Exception as exc:  # noqa: BLE001 - one check never breaks the page
+            check = Check("doc_fields", "Dokumentfelder", WARN,
+                          "nicht feststellbar (" + type(exc).__name__ + ")")
+        checks.append(check)
+
     # ── Identitaet ─────────────────────────────────────────────────────────
     def _count_users():
         from identity import db
@@ -222,8 +405,11 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
     ))
 
     # ── RemoteController ───────────────────────────────────────────────────
+    rc_reached: bool | None = None
+    rc_extractor: str | None = None
+    rc_commit: str | None = None
     if rc_client_factory is None:
-        checks.append(Check("rc", "RemoteController", SKIP, "Nicht konfiguriert",
+        checks.append(Check("rc", "Knovas Connector", SKIP, "Nicht konfiguriert",
                             hint="Ohne ihn fehlt der Reiter Ingestion."))
     else:
         def _rc_ping():
@@ -233,13 +419,24 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
                 raise RuntimeError("Client kennt keine Health-Pruefung")
             return probe()
 
-        _, ms, exc = _timed(_rc_ping)
+        answer, ms, exc = _timed(_rc_ping)
+        rc_reached = exc is None
+        rc_extractor = extractor_version_from_status(answer) if exc is None else None
+        rc_commit = extractor_commit_from_status(answer) if exc is None else None
+        suffix, rc_hint = ("", "")
+        if exc is None:
+            suffix, rc_hint = _rc_doc_fields_note(answer, doc_fields_on)
         checks.append(Check(
-            "rc", "RemoteController",
-            OK if exc is None else WARN,
-            "antwortet" if exc is None else _short(exc), ms=ms,
-            hint="" if exc is None else "Betrifft nur den Reiter Ingestion.",
+            "rc", "Knovas Connector",
+            OK if exc is None and not rc_hint else WARN,
+            ("antwortet" + suffix) if exc is None else _short(exc), ms=ms,
+            hint=rc_hint if exc is None else "Betrifft nur den Reiter Ingestion.",
         ))
+
+    # -- Extraktor ---------------------------------------------------------
+    checks.append(_extractor_check(platform_extractor_version(), rc_extractor, rc_reached,
+                                   platform_commit=platform_extractor_commit(),
+                                   connector_commit=rc_commit))
 
     return checks
 

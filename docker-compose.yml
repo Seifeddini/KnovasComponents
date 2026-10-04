@@ -1,4 +1,4 @@
-# Unified Knovas stack: RemoteController (localhost) + KnovasPlatform (localhost → host nginx HTTPS).
+# Unified Knovas stack: Knovas Connector (localhost) + KnovasPlatform (localhost → host nginx HTTPS).
 # Usage: ./scripts/setup.sh && ./scripts/start.sh
 #
 # No container_name on any service: Compose prefixes containers, volumes and
@@ -47,7 +47,7 @@ services:
       # With KNOVAS_DOCUMENTS_URL (OneDrive/SharePoint) there is no local folder:
       # an empty one stands in, and /mnt/documents only names the Microsoft 365
       # folder for sync profiles and the folder picker. setup.sh creates it, with
-      # a marker RemoteController refuses to sync from. With NEITHER setting the
+      # a marker Knovas Connector refuses to sync from. With NEITHER setting the
       # spec stays empty and compose refuses to start, as it always did: an empty
       # folder read as a share would prune every document from Knovas.
       - ${KNOVAS_DOCUMENTS_PATH:-${KNOVAS_DOCUMENTS_URL:+./data/no-local-documents}}:/mnt/documents:ro
@@ -56,10 +56,10 @@ services:
       # The Platform's broker key directory. It holds the PRIVATE key too, and
       # :ro does not hide it -- what makes it unreadable here is that
       # docbridge-web runs as root (KnovasPlatform/.../Dockerfile has no USER)
-      # and writes broker_ed25519.pem as root:root 0600, while RemoteController
+      # and writes broker_ed25519.pem as root:root 0600, while Knovas Connector
       # runs as uid 10001. Adding a USER to the Platform image, or running
-      # RemoteController as root, would expose the key that can assert any of
-      # the firm's people to Knovas. RemoteController refuses to start if it
+      # Knovas Connector as root, would expose the key that can assert any of
+      # the firm's people to Knovas. Knovas Connector refuses to start if it
       # can read the file (auth/platform_principal.py).
       - docbridge_broker_key:/app/secrets/broker:ro
     environment:
@@ -121,6 +121,16 @@ services:
       # setup.sh writes 1 into knovas.env then, and doctor.sh warns about 2.
       PLATFORM_TRUSTED_PROXY_HOPS: ${PLATFORM_TRUSTED_PROXY_HOPS:-2}
       PLATFORM_BROKER_KEY_DIR: ${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker}
+      # The extraction settings the admin upload shares with the Knovas
+      # Connector (knovas.env): the same text modes, OCR engine, DPI and
+      # languages, so a file lands in the index alike through either side.
+      # Empty keeps each side's default. Time and size limits stay the
+      # Platform's own: its requests end at 180 s.
+      RC_PDF_TEXT_MODE: ${RC_PDF_TEXT_MODE:-}
+      RC_DOCX_TEXT_MODE: ${RC_DOCX_TEXT_MODE:-}
+      RC_OCR_ENGINE: ${RC_OCR_ENGINE:-}
+      RC_OCR_DPI: ${RC_OCR_DPI:-}
+      RC_TESSERACT_LANG: ${RC_TESSERACT_LANG:-}
     secrets:
       - platform_db_password
     depends_on:
@@ -165,6 +175,10 @@ services:
     # (RC_EXTRACT_TIMEOUT_SECONDS, default 120 s), or gunicorn kills the worker
     # before the request thread can kill the extraction child and report
     # "extraction timeout". Lower RC_EXTRACT_TIMEOUT_SECONDS before lowering this.
+    # --access-logformat keeps that line free of the request URI: time, method,
+    # status, size and duration, like the nginx in front (knovas_privacy). The
+    # default format's request line (%(r)s), path (%(U)s), query (%(q)s) and
+    # referer (%(f)s) carry document pointers and search text.
     command: >
       sh -c "mkdir -p $${PLATFORM_BROKER_KEY_DIR:-/app/secrets/broker} && gunicorn
       --workers=$${DOCBRIDGE_WEB_WORKERS:-2}
@@ -172,6 +186,7 @@ services:
       --timeout=$${DOCBRIDGE_WEB_TIMEOUT:-180}
       --bind=0.0.0.0:5000
       --access-logfile=-
+      --access-logformat='%(t)s %(m)s %(s)s %(b)s %(L)s'
       web_interface.wsgi:app"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/stats', timeout=5)"]
@@ -220,6 +235,11 @@ services:
     build:
       context: ./KnovasPlatform/mock_knovas_api
       dockerfile: Dockerfile
+    environment:
+      # Which Knovas document-fields state the mock plays: off (an old server,
+      # the default), values or filters. The compose demo runs the Platform in
+      # legacy mode, which never reaches doc fields; the tests use the modes.
+      MOCK_DOC_FIELDS: ${MOCK_DOC_FIELDS:-off}
     expose:
       - "5000"
     healthcheck:
@@ -258,7 +278,7 @@ services:
     build: ./KnovasPlatform/components/experiments_runner
     image: knovas-experiments-runner:0.1.0
     network_mode: none
-    # Its own uid, shared with no other image (RemoteController is 10001): the
+    # Its own uid, shared with no other image (the Knovas Connector is 10001): the
     # per-job process limit is counted per uid across the whole host. The same
     # number is in the Dockerfile and in the socket volume's options below.
     user: "10101:10101"

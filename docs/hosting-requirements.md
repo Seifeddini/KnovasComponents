@@ -1,6 +1,6 @@
 # Server Hoster Requirements
 
-What your IT team or hosting partner must provision before Knovas installs **RemoteController** (document sync) and **KnovasPlatform** (search UI) on a customer VM.
+What your IT team or hosting partner must provision before Knovas installs **Knovas Connector** (document sync) and **KnovasPlatform** (search UI) on a customer VM.
 
 Based on pilot deployment patterns and [deployment specifications](specifications.md).
 
@@ -24,13 +24,13 @@ Based on pilot deployment patterns and [deployment specifications](specification
 
 Both components run on the **same Ubuntu server** as Docker stacks:
 
-- **RemoteController** — syncs documents to Knovas. Operates on `127.0.0.1:5001` only (local control via SSH). No inbound network access to RC is required.
+- **Knovas Connector** — syncs documents to Knovas. Operates on `127.0.0.1:5001` only (local control via SSH). No inbound network access to RC is required.
 - **KnovasPlatform** — search web app for employees. Published on **HTTPS port 443** via host NGINX.
 
 ```mermaid
 flowchart LR
   subgraph vm [Ubuntu VM]
-    RC["RemoteController\nlocal only 127.0.0.1:5001"]
+    RC["Knovas Connector\nlocal only 127.0.0.1:5001"]
     KP["KnovasPlatform\nHTTPS via host nginx :443"]
     RC -->|"outbound mTLS"| Cloud["Knovas cloud API"]
     KP -->|"outbound mTLS"| Cloud
@@ -45,7 +45,7 @@ flowchart LR
 
 ## Minimum hardware
 
-Sizing covers **both** RemoteController and KnovasPlatform on one VM. Document files stay on the network share, or in OneDrive/SharePoint, and never on the OS disk.
+Sizing covers **both** Knovas Connector and KnovasPlatform on one VM. Document files stay on the network share, or in OneDrive/SharePoint, and never on the OS disk.
 
 | Employees (N) | vCPU | RAM | OS disk | Notes |
 |---------------|------|-----|---------|-------|
@@ -84,7 +84,7 @@ The OS disk holds Ubuntu, Docker images, RC sync state, and Platform logs/data o
 ### Not required
 
 - Public IP or public DNS for the Platform (internal DNS or hosts file on workstations is acceptable)
-- Inbound access to RemoteController API (`5001`) from the network
+- Inbound access to Knovas Connector API (`5001`) from the network
 - Inbound access to Platform port `8081` from other hosts (loopback + host NGINX only)
 
 ### Outbound (from the VM)

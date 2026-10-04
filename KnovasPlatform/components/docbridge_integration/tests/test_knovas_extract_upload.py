@@ -29,7 +29,7 @@ _ENV = (
     "RC_PDF_TEXT_MODE", "RC_OCR_ENGINE", "RC_OCR_DPI", "RC_OCR_WORKERS", "RC_OCR_MAX_PAGES",
     "RC_OCR_TIME_BUDGET_SECONDS", "RC_OCR_PAGE_TIMEOUT_SECONDS", "RC_TESSERACT_LANG",
     "RC_PAGE_BREAK_MARKERS", "RC_SEND_PDF_TABLES", "RC_EXTRACT_TIMEOUT_SECONDS",
-    "RC_EXTRACT_RLIMIT_AS_MB", "SEARCH_CONTEXT_STORE_PATH",
+    "RC_EXTRACT_RLIMIT_AS_MB", "SEARCH_CONTEXT_STORE_PATH", "RC_DOCX_TEXT_MODE",
 )
 
 
@@ -80,7 +80,115 @@ def test_emit_markdown_is_never_requested(monkeypatch):
         with pytest.raises(m.ExtractionError):
             m._extract_bytes(b"stub", ext)
         assert seen["emit_markdown"] is False, ext
-        assert seen["emit_sentences"] is True
+        # a DOCX's text is measured before it is split (see below)
+        assert seen["emit_sentences"] is (ext != ".docx"), ext
+
+
+# --- one unpaged text gets sentences only up to UNPAGED_SENTENCE_MAX_CHARS ----
+# The Knovas Connector's rule (spec E4, L7): pysbd maps every sentence back by
+# searching the text from its start, so one unpaged text costs time in the
+# square of its size -- a large-table DOCX in layout mode ran past the 120 s
+# ceiling. A PDF is split page by page.
+
+
+def _spy_extract(monkeypatch):
+    """The real extract(), recording ``emit_sentences`` of every call (its
+    signature kept, so ``extract_accepts`` still sees ``text_mode=``)."""
+    import functools
+
+    calls: list = []
+    real = m.extract
+
+    @functools.wraps(real)
+    def spy(raw, **kwargs):
+        calls.append(kwargs.get("emit_sentences"))
+        return real(raw, **kwargs)
+
+    monkeypatch.setattr(m, "extract", spy)
+    return calls
+
+
+def _export_rows(size: int) -> bytes:
+    """A weakly punctuated text export: one short "sentence" per row."""
+    rows, total, i = [], 0, 0
+    while total < size:
+        row = f"{i:07d};K{1000 + i % 9000};{i % 99999}.{i % 100:02d};Konto {100 + i % 900} Mandant {1 + i % 50}\n"
+        rows.append(row)
+        total += len(row)
+        i += 1
+    return "".join(rows).encode()
+
+
+def _docx_bytes(paragraphs, table_rows: int = 0) -> bytes:
+    docx = pytest.importorskip("docx")
+    import io
+
+    document = docx.Document()
+    for text in paragraphs:
+        document.add_paragraph(text)
+    if table_rows:
+        table = document.add_table(rows=0, cols=3)
+        for i in range(table_rows):
+            cells = table.add_row().cells
+            cells[0].text, cells[1].text, cells[2].text = f"Pos {i}", f"Konto {1000 + i}", f"{i}.50"
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+def test_a_short_text_is_split_in_one_pass(monkeypatch):
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(b"First sentence. Second sentence.", ".txt")
+    assert calls == [True]
+    assert len(content.sentences) == 2
+
+
+def test_an_unpaged_text_over_the_limit_is_uploaded_without_sentences(monkeypatch, caplog):
+    monkeypatch.setattr(m, "UNPAGED_SENTENCE_MAX_CHARS", 1000)
+    calls = _spy_extract(monkeypatch)
+    with caplog.at_level(logging.INFO, logger="knovas_extract_upload"):
+        content = m._extract_bytes(_export_rows(5000), ".txt")
+    assert calls == [False], "extracted once, without sentences"
+    assert content.sentences is None
+    assert content.text.startswith("0000000;K1000;")
+    assert any("Skipping sentence emission" in r.getMessage() for r in caplog.records)
+    assert not any("Konto" in r.getMessage() for r in caplog.records), "counts only"
+
+
+def test_a_docx_is_measured_before_it_is_split(monkeypatch):
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(_docx_bytes(["Erster Satz. Zweiter Satz."]), ".docx")
+    assert calls == [False, True]
+    assert [s.text for s in content.sentences] == ["Erster Satz.", "Zweiter Satz."]
+
+
+def test_a_docx_table_over_the_limit_is_uploaded_without_sentences(monkeypatch):
+    monkeypatch.setattr(m, "UNPAGED_SENTENCE_MAX_CHARS", 20_000)
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(_docx_bytes(["Kontoauszug."], table_rows=2000), ".docx")
+    if not m.docx_tables_in_text(content.extra):
+        pytest.skip("the installed knovas-extract has no DOCX layout mode")
+    assert calls == [False], "extracted once: the rows are over the limit"
+    assert content.sentences is None
+    assert "Pos 1999" in content.text
+
+
+def test_a_pdf_is_split_per_page_whatever_its_text_size(monkeypatch):
+    monkeypatch.setattr(m, "UNPAGED_SENTENCE_MAX_CHARS", 10)
+    calls = _spy_extract(monkeypatch)
+    content = m._extract_bytes(_three_page_pdf(), ".pdf", use_ocr=False)
+    assert calls == [True]
+    assert {s.page_number for s in content.sentences} == {1, 2, 3}
+
+
+def test_a_4_mib_text_export_is_extracted_in_seconds():
+    """Real library, real size: split whole, this text took pysbd minutes."""
+    raw = _export_rows(4 * 1024 * 1024)
+    started = time.monotonic()
+    content = m._extract_bytes(raw, ".txt")
+    assert time.monotonic() - started < 30
+    assert content.sentences is None
+    assert len(content.text) > m.UNPAGED_SENTENCE_MAX_CHARS
 
 
 # --- 0.4 keywords (text_mode=, ocr=, limits=) are introspected ---------------
@@ -171,7 +279,7 @@ def test_text_mode_and_ocr_options_are_sent_when_accepted(monkeypatch):
     assert opts.kwargs["dpi"] == 200
     assert opts.kwargs["workers"] == 1
     assert opts.kwargs["max_ocr_pages"] == 77
-    # Platform defaults: min(60, 120 - 30) = 60, under the cap 120 - 1*30 - 10 = 80
+    # Platform defaults: min(60, 120 - 30) = 60, under the cap 120 - 30 - 10 = 80
     assert opts.kwargs["time_budget_seconds"] == 60
     assert opts.kwargs["language"] == "deu+fra"
     assert hasattr(opts.kwargs["cache"], "get") and hasattr(opts.kwargs["cache"], "put")
@@ -190,13 +298,23 @@ def test_conservative_ocr_defaults(monkeypatch):
 
 
 def test_ocr_time_budget_derivation(monkeypatch):
-    assert m.ocr_time_budget_seconds(120, 1, 30) == 60
-    assert m.ocr_time_budget_seconds(120, 2, 30) == 50, "never past timeout - workers*page - 10"
-    assert m.ocr_time_budget_seconds(40, 1, 30) == 10, "never below the floor"
-    assert m.ocr_time_budget_seconds(0, 4, 30) == 60, "no ceiling: default budget"
+    assert m.ocr_time_budget_seconds(120, 30) == 60, "min(60, 90), under the cap 120 - 30 - 10"
+    assert m.ocr_time_budget_seconds(60, 30) == 20, "min(60, 30), capped at 60 - 30 - 10"
+    assert m.ocr_time_budget_seconds(40, 30) == 10, "never below the floor"
+    assert m.ocr_time_budget_seconds(0, 30) == 60, "no ceiling: default budget"
     monkeypatch.setenv("RC_OCR_TIME_BUDGET_SECONDS", "900")
-    assert m.ocr_time_budget_seconds(0, 1, 30) == 900
-    assert m.ocr_time_budget_seconds(120, 1, 30) == 80, "the env value is still capped by the kill"
+    assert m.ocr_time_budget_seconds(0, 30) == 900
+    assert m.ocr_time_budget_seconds(120, 30) == 80, "the env value is still capped by the kill"
+
+
+def test_more_ocr_workers_no_longer_collapse_the_budget(monkeypatch):
+    """The cap subtracted workers x page timeout: RC_OCR_WORKERS=4 took the
+    Platform's 60 s budget to the 10 s floor (120 - 4*30 - 10). The Platform
+    keeps one worker by default; only the formula changes (spec E2)."""
+    monkeypatch.setenv("RC_OCR_WORKERS", "4")
+    assert m.ocr_options_kwargs()["time_budget_seconds"] == 60
+    monkeypatch.delenv("RC_OCR_WORKERS")
+    assert m.ocr_options_kwargs()["workers"] == 1, "the conservative default stays"
 
 
 def test_ocr_budgets_route_to_limits_when_ocr_options_lacks_them(monkeypatch):
@@ -420,28 +538,50 @@ def test_pdf_tables_can_be_switched_on(monkeypatch):
 # --- partial notes read defensively from metadata.extra ----------------------
 
 
+# knovas-extract 0.4 OCR metadata as its PDF extractor reports it whenever
+# ``ocr=`` is passed -- every key present, backend "none" unless OCR ran. The
+# same table as RemoteController/tests/helpers.py OCR_EXTRA_04.
+_OCR_EXTRA_04 = {
+    "born_digital": {"pdf:ocr_pages": 0, "pdf:text_pages": 12, "pdf:ocr_pages_skipped": 0,
+                     "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "none"},
+    "mixed": {"pdf:ocr_pages": 3, "pdf:text_pages": 9, "pdf:ocr_pages_skipped": 0,
+              "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "tesserocr",
+              "pdf:ocr_backend_version": "5.3.0", "pdf:ocr_seconds": 4.2, "pdf:ocr_mean_conf": 91.5},
+    "starved": {"pdf:ocr_pages": 40, "pdf:text_pages": 0, "pdf:ocr_pages_skipped": 12,
+                "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "tesserocr"},
+    "failed": {"pdf:ocr_pages": 9, "pdf:text_pages": 2, "pdf:ocr_pages_skipped": 0,
+               "pdf:ocr_pages_failed": 1, "pdf:ocr_backend": "cli"},
+    "no_engine": {"pdf:ocr_pages": 0, "pdf:text_pages": 2, "pdf:ocr_pages_skipped": 5,
+                  "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "none"},
+    "uncounted": {"pdf:ocr_pages": 0, "pdf:ocr_backend": "none"},
+}
+
+
 def test_partial_note_for_reads_extra_defensively():
     assert m.partial_note_for({}, expect_ocr=True) is None
     assert m.partial_note_for(None, expect_ocr=True) is None
-
-    skipped = {"pdf:ocr_pages_skipped": 12, "pdf:ocr_pages": 40, "pdf:ocr_backend": "tesserocr", "pdf:text_pages": 3}
-    assert m.partial_note_for(skipped, expect_ocr=True) == {
-        "ocr_pages_skipped": 12, "ocr_pages": 40, "ocr_backend": "tesserocr", "text_pages": 3,
-    }
-    assert m.partial_note_for(skipped, expect_ocr=False)["ocr_pages_skipped"] == 12
-
-    # an older library that does not count: backend none is a defect when OCR was expected
-    no_backend = {"pdf:ocr_backend": "none", "pdf:ocr_pages": 0}
-    assert m.partial_note_for(no_backend, expect_ocr=True) == {"reason": "ocr_backend_none", "ocr_pages": 0, "ocr_backend": "none"}
-    assert m.partial_note_for(no_backend, expect_ocr=False) is None, "OCR off: a missing backend is not a defect"
-
-    # 0.4 counts: zero skipped pages and no backend = a born-digital PDF without Tesseract
-    digital = {"pdf:ocr_backend": "none", "pdf:ocr_pages": 0, "pdf:ocr_pages_skipped": 0, "pdf:text_pages": 3}
-    assert m.partial_note_for(digital, expect_ocr=True) is None
     assert m.partial_note_for({"pdf:ocr_pages_skipped": "0"}, expect_ocr=True) is None
     assert m.partial_note_for({"pdf:ocr_pages_skipped": "7", "pdf:ocr_backend": "cli"}, expect_ocr=True) == {
         "ocr_pages_skipped": 7, "ocr_backend": "cli",
     }
+
+
+@pytest.mark.parametrize("case, expect_ocr, note", [
+    ("born_digital", True, None),
+    ("mixed", True, None),
+    ("starved", True, {"ocr_pages_skipped": 12, "ocr_pages_failed": 0, "ocr_pages": 40,
+                       "text_pages": 0, "ocr_backend": "tesserocr"}),
+    ("failed", True, {"ocr_pages_skipped": 0, "ocr_pages_failed": 1, "ocr_pages": 9,
+                      "text_pages": 2, "ocr_backend": "cli"}),
+    ("no_engine", True, {"ocr_pages_skipped": 5, "ocr_pages_failed": 0, "ocr_pages": 0,
+                         "text_pages": 2, "ocr_backend": "none"}),
+    ("uncounted", True, {"ocr_pages": 0, "ocr_backend": "none"}),
+    ("uncounted", False, None),
+])
+def test_partial_rule_matches_the_connector(case, expect_ocr, note):
+    """Spec E1, the Connector's rule: failed OCR pages make an upload partial;
+    a born-digital PDF (backend "none", nothing skipped) never does."""
+    assert m.partial_note_for(dict(_OCR_EXTRA_04[case]), expect_ocr=expect_ocr) == note
 
 
 def test_partial_note_is_surfaced_in_result_log_and_sidecar(tmp_path, monkeypatch, caplog):
@@ -565,3 +705,96 @@ def test_child_limits_apply_nice_and_rlimit_as():
     assert soft == expected
     # the parent is untouched
     assert os.nice(0) == parent_nice
+
+
+def test_ocr_dpi_env(monkeypatch, caplog):
+    assert m.ocr_dpi() is None, "unset: native resolution, never upsampled"
+    monkeypatch.setenv("RC_OCR_DPI", "200")
+    assert m.ocr_dpi() == 200
+    monkeypatch.setenv("RC_OCR_DPI", "1201")
+    with caplog.at_level(logging.WARNING, logger="knovas_extract_upload"):
+        assert m.ocr_dpi() is None
+    assert any("RC_OCR_DPI" in r.getMessage() for r in caplog.records)
+
+
+def test_no_dpi_is_sent_unless_configured(monkeypatch):
+    assert "dpi" not in m.ocr_options_kwargs()
+    monkeypatch.setenv("RC_OCR_DPI", "150")
+    assert m.ocr_options_kwargs()["dpi"] == 150
+
+
+def test_tesseract_language_is_validated(monkeypatch, caplog):
+    """An invalid language made OcrOptions refuse every PDF upload, which then
+    carried only its path line. The Connector's rule (spec E5)."""
+    assert m.tesseract_language("deu+fra") == "deu+fra", "the config value"
+    monkeypatch.setenv("RC_TESSERACT_LANG", "deu+ita")
+    assert m.tesseract_language("deu+fra") == "deu+ita", "the env value wins"
+    monkeypatch.setenv("RC_TESSERACT_LANG", "deu ita")
+    with caplog.at_level(logging.WARNING, logger="knovas_extract_upload"):
+        assert m.tesseract_language("deu+fra") == "deu+fra", "an invalid env value is skipped"
+        assert m.tesseract_language("deu fra") == "deu+eng", "an invalid config value too"
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "RC_TESSERACT_LANG" in messages and "advanced.extraction.ocr_language" in messages
+
+
+def test_ocr_page_timeout_and_page_cap_must_be_positive(monkeypatch, caplog):
+    monkeypatch.setenv("RC_OCR_PAGE_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("RC_OCR_MAX_PAGES", "-5")
+    with caplog.at_level(logging.WARNING, logger="knovas_extract_upload"):
+        opts = m.ocr_options_kwargs()
+    assert opts["page_timeout_seconds"] == 30 and opts["max_ocr_pages"] == 50
+    names = " ".join(r.getMessage() for r in caplog.records)
+    assert "RC_OCR_PAGE_TIMEOUT_SECONDS" in names and "RC_OCR_MAX_PAGES" in names
+
+
+def test_an_engine_name_never_reaches_a_backend_slot(monkeypatch):
+    """Spec E7: ``backend`` takes an object; an engine name must never land
+    there, it is simply not sent to a class without ``engine``."""
+
+    class OnlyBackend:
+        def __init__(self, backend=None, language="deu+eng", cache=None):
+            self.backend, self.language, self.cache = backend, language, cache
+
+    monkeypatch.setattr(m, "OcrOptions", OnlyBackend)
+    options, leftovers = m.build_ocr_options({"engine": "cli", "language": "deu", "cache": None})
+    assert options.backend is None
+    assert leftovers == {"engine": "cli"}
+
+
+def test_docx_text_mode_env(monkeypatch):
+    assert m.docx_text_mode() == "layout"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "plain")
+    assert m.docx_text_mode() == "plain"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "rows")
+    assert m.docx_text_mode() == "layout", "an invalid value falls back to the default"
+
+
+def test_docx_layout_mode_is_requested_for_docx(monkeypatch):
+    extract_stub, seen = _signature_stub(ocr_options=False, text_mode=True)
+    monkeypatch.setattr(m, "extract", extract_stub)
+    with pytest.raises(m.ExtractionError):
+        m._extract_bytes(b"PK stub", ".docx")
+    assert seen["text_mode"] == "layout"
+    monkeypatch.setenv("RC_DOCX_TEXT_MODE", "plain")
+    with pytest.raises(m.ExtractionError):
+        m._extract_bytes(b"PK stub", ".docx")
+    assert seen["text_mode"] == "plain", "nothing sent: the stub's default"
+    monkeypatch.delenv("RC_DOCX_TEXT_MODE")
+    with pytest.raises(m.ExtractionError):
+        m._extract_bytes(b"stub", ".eml")
+    assert seen["text_mode"] == "plain", "DOCX only"
+
+
+def test_docx_tables_payload_only_when_the_rows_are_not_in_the_text(monkeypatch):
+    table = {"client_table_hint": "docx_t1", "headers": ["Position", "Betrag"], "rows": [["Beratung", "1'200.00"]]}
+    layout = ExtractedContent(
+        text="Position | Betrag\nBeratung | Betrag: 1'200.00", tables=[table],
+        extra={"docx:text_mode": "layout", "docx:layout_tables": 1},
+    )
+    monkeypatch.setattr(m, "extract_guarded", lambda *a, **k: layout)
+    out = m.extract_parts_from_base64(_b64(b"PK stub"), "docx", write_sidecar=False)
+    assert out.parts and all("tables" not in p for p in out.parts)
+    plain = ExtractedContent(text="Honorarnote.", tables=[table])
+    monkeypatch.setattr(m, "extract_guarded", lambda *a, **k: plain)
+    out = m.extract_parts_from_base64(_b64(b"PK stub"), "docx", write_sidecar=False)
+    assert out.parts[0]["tables"][0]["client_table_hint"] == "docx_t1"

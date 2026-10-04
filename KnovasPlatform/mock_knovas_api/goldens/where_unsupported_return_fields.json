@@ -1,0 +1,24 @@
+{
+  "name": "where_unsupported_return_fields",
+  "description": "return_fields alone is refused the same way as where while field filters are off.",
+  "server_state": "values",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/query",
+    "body": {
+      "Input": "Rechnung",
+      "return_fields": true
+    }
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "status": "error",
+      "error_code": "where_unsupported",
+      "error": "Field filters are not enabled for this tenant"
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

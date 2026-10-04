@@ -1,0 +1,57 @@
+{
+  "name": "init_echo",
+  "description": "Init fields echo (core pack only): labels and aliases mapped to their keys, an entity name kept unlinked (core party has no target node type), an unknown key listed, a system key dropped with invalid_value. No value is echoed.",
+  "server_state": "values",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/init_document_transmission",
+    "body": {
+      "identifier": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+      "part_count": 1,
+      "title": "Rechnung_17.pdf",
+      "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
+      "fields": {
+        "Dokumentart": "Rechnung",
+        "Datum": "15.03.2024",
+        "amount": "CHF 1'234.50",
+        "party": "Beispiel GmbH",
+        "mandat": "Muster AG",
+        "title": "Rechnung 17"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "status": "success",
+      "message": "Transmission initialized",
+      "fields": {
+        "staged": 4,
+        "mapped_keys": {
+          "Dokumentart": "doc_type",
+          "Datum": "document_date"
+        },
+        "unknown_keys": [
+          "mandat"
+        ],
+        "warnings": [
+          {
+            "key": "party",
+            "path": "fields.party",
+            "code": "unresolved_entity"
+          },
+          {
+            "key": "title",
+            "path": "fields.title",
+            "code": "invalid_value"
+          }
+        ]
+      }
+    }
+  },
+  "volatile": [
+    "transmission_key_id"
+  ],
+  "absent": []
+}

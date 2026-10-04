@@ -119,7 +119,7 @@ experiments, and must not reach anything else. The layers, outside in:
 **Container** (`docker-compose.yml`): `network_mode: none` (no interface but
 loopback -- the code can reach neither the Platform, nor Knovas, nor the
 internet, and nothing can reach it), non-root uid 10101 -- a uid of its own,
-shared with no other image of the stack (RemoteController is 10001), because
+shared with no other image of the stack (the Knovas Connector is 10001), because
 the kernel counts the per-job process limit per uid across the whole host --,
 read-only root filesystem, `cap_drop: [ALL]`, `no-new-privileges`,
 `pids_limit: 256`, memory and CPU limits, `/tmp` a 1 GB tmpfs, no secret, no

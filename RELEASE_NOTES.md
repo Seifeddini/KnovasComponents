@@ -1,5 +1,229 @@
 # Unreleased
 
+## Dokumentfelder: Hinweise mit Feld, Stichwoerter und Status, erneutes Senden
+
+- **Hinweise von Knovas nennen das Feld.** Der Reiter *Ingestion* zeigt die
+  Upload-Hinweise des letzten Durchlaufs je Code und Feldschluessel, z.B.
+  `invalid_value 3x (amount)`, und darunter einmal die Bedeutung jedes
+  Codes; nie einen Wert. Ein aelterer Knovas Connector liefert nur Codes.
+- **Nicht uebernommene Felder ohne Anlass erneut senden.** Hat Knovas Felder
+  nicht angenommen, fragt der Knovas Connector hoechstens einmal pro Stunde
+  nach (`GET /secured/graph/doc-fields`). Nimmt Knovas sie an, sendet er
+  diese Dokumente erneut, hoechstens 100 pro Durchlauf -- auch wenn sonst
+  nichts hochgeladen wird.
+- **Stichwoerter und Status aus Datei-Eigenschaften.** Zwei neue Opt-ins pro
+  Ordner: *Stichwoerter aus Datei-Eigenschaften (PDF/Word-Stichwoerter,
+  Outlook-Kategorien)* fuellt `keywords`, *Status aus Word-Dokumentstatus*
+  fuellt `status`; Knovas uebernimmt einen Status nur, wenn er zu einer
+  Status-Auswahl passt. Einschalten sendet die Dokumente des Ordners erneut
+  (verrechnet, mit Bestaetigung) und braucht einen Knovas Connector, der
+  `metadata_fields_v2` meldet.
+- **E-Mail-Datum als Dokumentdatum funktioniert.** Gesendet wird der Tag,
+  an dem die E-Mail in der Kanzlei eintrifft (`2024-03-15`, Schweizer Zeit;
+  `RC_TIMEZONE` aendert die Zone) -- auch fuer Outlook-`.msg`, deren
+  Sendezeit in UTC vorliegt. Bisher ging der Zeitstempel mit
+  Uhrzeit hinaus, den Knovas als `invalid_value` ablehnt -- keine E-Mail
+  erhielt ein Dokumentdatum. E-Mails in Ordnern mit dieser Option werden
+  einmal erneut gesendet (verrechnet, hoechstens 100 je Durchlauf), andere
+  Dokumente nicht.
+
+## Neu extrahieren nach einem Extraktor-Update
+
+Neuere Versionen von knovas-extract lesen manche Dokumente besser (Tabellen
+in Word-Dateien, Seitenzahlen grosser Scans, Texterkennung je Seite). Bereits
+indexierte Dokumente profitieren davon erst, wenn sie neu extrahiert werden.
+
+- *Verwaltung -> Ingestion* zeigt "N Dokumente mit aelterer Extraktion" und
+  bietet Administratoren *Neu extrahieren* an. Ein Dialog nennt vorher
+  Anzahl, Kosten und Dauer wie bei einer Feldaenderung; ohne diese
+  Bestaetigung wird nichts neu extrahiert. Die Anfrage steht mit Zahlen im
+  Protokoll (`ingestion.reextract_requeued`).
+- Der Knovas Connector liest die Dokumente neu, hoechstens
+  `RC_REEXTRACT_PER_CYCLE` (100) je Durchlauf, nach neuen, geaenderten und
+  wegen Feldern erneut zu sendenden Dateien -- teilweise extrahierte zuerst,
+  dann PDF, Word, E-Mails. Gesendet wird nur, was sich geaendert hat (Text,
+  Seitenzahlen, Felder, Titel, Beschreibung); jedes gesendete Dokument ist
+  ein verrechneter Upload. Beim ersten Mal nach diesem Update werden alle
+  gesendet, weil der Vergleichswert noch fehlt.
+- Ein Scan, den der Durchlauf mit seinem OCR-Budget (500 Seiten, 240 s)
+  unvollstaendiger lesen wuerde als den Text, den Knovas hat, wird nicht
+  gesendet: Knovas behaelt ihn, `extraction.kept` zaehlt ihn. Ist er dort
+  noch unvollstaendig, holt `scripts/backfill_partial_ocr.py` ihn mit seinem
+  groesseren Budget nach.
+- Der Stempel enthaelt auch, ob die Texterkennung eingeschaltet ist, und
+  ihre Sprachen: wer OCR einschaltet oder eine Sprache ergaenzt, kann die
+  betroffenen Dokumente neu extrahieren.
+- `GET /sync/status` des Connectors meldet `extraction.outdated`, `queued`,
+  `kept` und `per_cycle` -- nur Zahlen.
+- Auch ein neuer Stand von knovas-extract mit gleicher Versionsnummer (vor
+  dem Release ist jeder Stand `0.4.0a1`) zaehlt: der Stempel enthaelt den
+  Git-Commit der Bibliothek, und *Verwaltung -> System* vergleicht Version
+  und Commit beider Seiten.
+
+## Extraktor: knovas-extract 0.4.0a1, eine Version fuer beide Seiten
+
+- **Plattform und Knovas Connector installieren dieselbe, fest gepinnte
+  Version von knovas-extract** (`ARG KNOVAS_EXTRACT_VERSION` /
+  `KNOVAS_EXTRACT_GIT_REF` in beiden Dockerfiles). Bisher kam der Extraktor
+  aus dem beweglichen `main` des Bibliotheks-Repositorys, und ein Server mit
+  Docker-Cache behielt einen alten Stand. Der naechste `./scripts/start.sh`
+  baut beide Images neu.
+- **Outlook-Mails, deren Text nur als RTF vorliegt**, werden gelesen (bisher
+  leerer Text).
+- **Der Pin steht auf dem 0.4.0a1-Release der Bibliothek** (`2c95cbc`):
+  Word-Tabellen stehen im durchsuchbaren Text, HTML-E-Mails kommen ohne
+  `&uuml;` und ohne CSS an, Outlook-Kategorien fuellen die Stichwoerter, und
+  eine zu lange Satzliste wird gekuerzt statt die Datei abzulehnen. Bereits
+  indexierte Dokumente profitieren nach einem *Neu extrahieren* (nur
+  geaenderte werden gesendet).
+- *Verwaltung -> System* nennt die Extraktor-Version der Plattform und des
+  Knovas Connector und warnt, wenn sie sich unterscheiden oder der Knovas
+  Connector keine meldet (dann ist er aelter als die Plattform).
+- **selectolax bleibt unter Version 1.0.** selectolax 1.0.0 (3.10.2026) hat
+  das Modul entfernt, mit dem knovas-extract 0.4.0a1 HTML liest; ein neu
+  gebautes Image haette die Vorschau von Word-Dateien und E-Mails
+  gebrochen. Beide Seiten begrenzen die Version, und CI liest in beiden
+  Images eine HTML-Seite.
+
+## Dokumentfelder (Dokumentwerte)
+
+Typisierte Werte je Dokument -- Mandant, Zeitraum, Dokumentart, Gericht,
+Frist -- als Filter in der Suche, als Liste, auf den Trefferkarten und im
+Feldbereich der Vorschau.
+
+- **Bei Knovas fuer jeden Mandanten eingeschaltet.** Seit Knovas 1.5.0 sind
+  Dokumentfelder, auch das Filtern nach Feldern in Suche und Listen, fuer
+  jeden Mandanten eingeschaltet; nichts in `knovas.env` schaltet sie ein.
+  Knovas kann sie fuer einen Mandanten abschalten, und aeltere Server kennen
+  sie nicht: Plattform und Knovas Connector pruefen jede Antwort und bleiben,
+  solange die Funktion aus ist, wie bisher, ohne neue Oberflaeche und ohne
+  neue Schluessel in den Anfragen. *Verwaltung -> System -> Dokumentfelder*
+  nennt die Stufe: `aus`, `Werte (ohne Filter)`, `Werte + Liste (Feldfilter bei
+  Knovas voruebergehend nicht verfuegbar)` oder `Werte + Filter`.
+  `./scripts/doctor.sh` prueft dasselbe.
+- **BROKERED-Mandanten:** Entitaetswerte vom Knovas Connector (z.B. `client`)
+  brauchen zusaetzlich Aenderung S1; vorher lehnt Knovas solche Uploads mit
+  `assertion_rejected` ab, und der Knovas Connector indexiert das Dokument
+  ohne Felder.
+- **Was die Plattform zeigt**, je nach Stufe: den Feldbereich in der Vorschau
+  (Werte, Herkunft *Manuell / Upload / Ordnervorgabe*, Hinweise) und den
+  Reiter *Dokumentfelder* (Felder, Pakete `core` und `legal_ch`,
+  Einstellungen, Ordnervorgaben); dann Werte auf den Trefferkarten, *Liste
+  anzeigen* und den *Feldfilter* unter *Dokumente*; zuletzt die Filterleiste
+  der Suche. Bearbeiten duerfen die Rollen in `DOC_FIELDS_EDIT_ROLES`
+  (Standard `admin`); besonders schuetzenswerte Felder nur `admin`.
+  `DOC_FIELDS_UI=off` blendet alles aus.
+- **Filter gelten nur, wenn Knovas sie bestaetigt.** Ohne Bestaetigung zeigt
+  die Suche keine Treffer und bietet *Ohne Filter suchen* an -- nie still
+  ungefilterte Treffer. Listen sagen "Liste unvollstaendig", wenn sie es sind;
+  eine Liste nach Frist ist ausdruecklich keine Fristenkontrolle. Ein
+  bearbeiteter Titel wird angezeigt, nicht durchsucht.
+- **Was der Knovas Connector sendet:** je Ordner der Ingestion feste Werte
+  (`schluessel = Wert; Wert2`), Pfadvorlagen (`{mandant}/{period}/**`) und
+  gewaehlte Dateieigenschaften, als Upload-Werte bei jedem Upload. Felder
+  blockieren nie die Indexierung: lehnt Knovas sie ab, wird ohne Felder
+  indexiert, und eine Pfadvorlage, die der Knovas Connector nicht uebersetzen
+  kann, lehnt er schon beim Speichern ab. `RC_DOC_FIELDS=off` schaltet das
+  Senden ab.
+- **Was erneutes Senden kostet:** Aendern sich die Felder eines Ordners,
+  sendet der Knovas Connector alle seine Dokumente erneut -- jedes ein
+  verrechneter Upload mit erneuter Texterkennung --, hoechstens
+  `RC_FIELDS_REUPLOAD_PER_CYCLE` (100) je Durchlauf und erst nach neuen und
+  geaenderten Dateien. 20'000 Dokumente brauchen beim naechtlichen Zeitplan ca.
+  3 Naechte (ohne Texterkennungszeit gerechnet), beim Zeitplan *manuell* 200
+  Starts. Die Ingestion zeigt Anzahl und Dauer vor dem Speichern und verlangt
+  eine Bestaetigung. Werte, die nicht vom Ordner abhaengen, gehoeren in eine
+  Ordnervorgabe: sie gelten ohne erneutes Senden.
+- **Zugriffsprotokolle ohne Adressen.** Das mitgelieferte nginx und gunicorn
+  protokollieren nur Zeit, Methode, Status, Groesse und Dauer
+  (`knovas_privacy`), nicht mehr die aufgerufene Adresse: Plattform-Adressen
+  enthalten Dokumentpfade, und diese nennen Mandanten. Die Vorlage fuer das
+  Host-nginx tut dasselbe -- bestehende Installationen kopieren
+  `knovas-login-limit.conf` erneut nach `/etc/nginx/conf.d/` (dort steht jetzt
+  auch das Protokollformat) und erneuern die Seite aus der Vorlage
+  (`./scripts/host-https.sh` erledigt beides). Bekannte Grenze: Vorschau und
+  Oeffnen tragen den Dokumentpfad und die Suchwoerter weiterhin in der Adresse;
+  ein eigener Proxy davor muss ebenso ohne Adressen protokollieren, und das
+  nginx-Fehlerprotokoll nennt die Adresse, wenn eine Anfrage an die Plattform
+  scheitert.
+- Der neue Code fuer Dokumentfelder schreibt keine Feldwerte, Titel, Pfade
+  oder Suchtexte in Logzeilen, Audit-Eintraege oder neue Adressen. Bekannte
+  Grenze: aeltere Logzeilen von Plattform und Knovas Connector nennen
+  weiterhin Dokumentpfade und Verweise (Oeffnen, Herunterladen und Vorschau
+  eines Dokuments, fehlgeschlagene Vorschau, die alte Suche mit ihrem
+  Suchtext, fehlgeschlagene oder teilweise Uploads, entfernte Dokumente).
+  Ordnernamen sind die Quelle von Pfadvorlagen-Werten, also koennen diese
+  Zeilen auch Feldwerte enthalten: Container-Logs vertraulich behandeln wie die
+  Dokumente.
+- Umbenennen oder Verschieben einer Datei macht sie bei Knovas zu einem neuen
+  Dokument; manuelle Werte des alten werden nicht uebernommen. Ein Downgrade
+  der Plattform verwirft die Felder je Ordner; uebertraegt die alte Plattform
+  das Profil, loescht der Knovas Connector die Upload-Werte der betroffenen
+  Dokumente beim naechsten erneuten Senden.
+- Die Suche schickt `top_k`, `filters` und `encryption_matrix` nicht mehr an
+  Knovas, und `SEMANTIX_ENCRYPTION_MATRIX_PATH` wird nicht mehr gelesen: der
+  Server liest keinen dieser Schluessel (Knovas 1.5.0). `limit` bleibt.
+- **Felder anlegen wie in Knovas 1.5.0** (Reiter *Dokumentfelder*): je Typ
+  das Kennungsschema (UID, IBAN, QR-Referenz, Geschaeftsnummern, ECLI,
+  ICD-10-GM, Sprachcode), ob Namen mit Eintraegen verknuepft werden, Beginn
+  und Benennung des Geschaeftsjahres, die Datumsreihenfolge eines
+  Datumsfelds; Auswahlwerte je Zeile mit Code, Bezeichnungen DE/FR/IT/EN und
+  weiteren Namen. Der Reiter zeigt "n von 256 Feldern".
+- **Filterleiste mit Bedingungen:** je Feld "ist", "eine von", "beginnt
+  mit", "ab / bis" bzw. "von / bis" (mit "auch teilweise"), "liegt ganz in"
+  und "hat einen Wert"; "Verstanden als" nennt jede Bedingung. Eine Liste im
+  Filter hat hoechstens 50 Werte.
+- *Liste anzeigen* sortiert auch nach Dokumentpfad absteigend.
+- **Hinweise ueber den Treffern:** wenn Knovas die Feldwerte nicht lesen
+  konnte, nur ueber genaue Woerter gesucht hat, oder die Suche automatisch
+  auf einen in der Frage erkannten Namen eingegrenzt hat ("Suche automatisch
+  auf Muster AG eingegrenzt"; Namen, die die Person nicht sehen darf, werden
+  nur gezaehlt).
+- **Faellt das Feldverzeichnis bei Knovas aus, sucht die Plattform mit dem
+  zuletzt gelesenen weiter.** Antwortet Knovas auf
+  `GET /secured/graph/doc-fields` nicht (Zeitueberschreitung, keine
+  Verbindung, 5xx, 429), fragt die Plattform 30 s lang fuer niemanden
+  erneut und nimmt fuer jede Person ihr zuletzt gelesenes Verzeichnis; gibt
+  es keines, sucht sie wie bisher ohne Feldwerte. Gelesen wird das
+  Verzeichnis bei einer Suche in einem Versuch von hoechstens 10 s. Bisher
+  wartete jede Suche nach Ablauf des Zwischenspeichers (5 Minuten) erneut
+  alle Wiederholungen ab (bis zu dreimal 120 s), meist bis zum 504 von
+  nginx. Gleichzeitige Anfragen einer Person lesen das Verzeichnis nur
+  einmal. Die Seiten der Verwaltung lesen es weiterhin mit Wiederholungen.
+
+Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
+fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),
+Knovas Connector: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md) (0.3.0).
+
+Die API-Referenz `docs/KnovasAPI/Secure_API.md` ist zugunsten des Knovas
+Developer Kit stillgelegt (wie zuvor `KnovasPlatform/knovas-docs/`); die
+Dokumentfelder stehen nur dort.
+
+## nginx wartet so lange wie gunicorn
+
+Das mitgelieferte nginx (`docbridge-web-nginx`) und die Host-nginx-Vorlage
+warten jetzt 180 s auf die Plattform (`proxy_read_timeout`), so lange wie
+gunicorn. Mit 120 s gab nginx genau dann auf, wenn die Textextraktion eines
+Admin-Uploads an ihrer 120-s-Grenze abbrach, und statt der Meldung kam ein
+504. Bestehende Installationen erstellen nach dem Update das mitgelieferte
+nginx neu:
+`docker compose --env-file knovas.env up -d --force-recreate docbridge-web-nginx`.
+`./scripts/start.sh` allein tut das nicht, und nginx liest seine
+Konfiguration nur beim Start: ohne diesen Schritt wartet es weiter nur 120 s
+und schreibt weiter die aufgerufenen Adressen ins Zugriffsprotokoll (siehe
+*Zugriffsprotokolle ohne Adressen* unter Dokumentfelder). Ausserdem erneuern
+sie die Host-nginx-Seite aus der Vorlage
+(`./scripts/host-https.sh` erledigt das). Das Image der Plattform startet
+gunicorn wie compose (`DOCBRIDGE_WEB_TIMEOUT`, Zugriffsprotokoll ohne
+Adressen), auch wenn es ohne compose laeuft.
+
+## RemoteController heisst jetzt Knovas Connector
+
+Nur der Name, den man liest: Dokumentation, Oberflaeche und Ausgaben der
+Skripte. Ordner `RemoteController/`, Docker-Dienst `remote-controller`, die
+`RC_*`-Einstellungen und die Konfigurationsschluessel bleiben, wie sie sind --
+eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
+
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
 
 Statt `KNOVAS_DOCUMENTS_PATH` kann `knovas.env` die Adresse eines OneDrive- oder
@@ -7,7 +231,7 @@ SharePoint-Ordners nennen, so wie der Browser sie zeigt, dazu `M365_CLIENT_ID`
 und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
 `Sites.Read.All`. Eine Einstellung fuer beide.
 
-- **Keine Kopie auf dem Server.** RemoteController fragt Microsoft Graph nach
+- **Keine Kopie auf dem Server.** Knovas Connector fragt Microsoft Graph nach
   Aenderungen, laedt nur neue und geaenderte Dateien in ein temporaeres
   Verzeichnis, indexiert sie und loescht sie wieder.
 - **Oeffnen und Vorschau in Microsoft 365.** Treffer oeffnen in
@@ -15,7 +239,7 @@ und `M365_CLIENT_SECRET` einer Entra-App mit der Anwendungsberechtigung
   Seite der Fundstelle. Textauszuege und Fundstellen bleiben wie bisher.
 - **Uebernahme im Admin-Bereich** zeigt die Unterordner aus OneDrive/SharePoint;
   Zugriffsgruppen je Ordner funktionieren unveraendert.
-- Das Client-Secret gelangt nur in den RemoteController-Container, nie in die
+- Das Client-Secret gelangt nur in den Knovas-Connector-Container, nie in die
   generierten `.env.generated` und nie in die Plattform.
 - `start.sh` und `doctor.sh` pruefen Anmeldung, Adresse und Ordner.
 
@@ -36,7 +260,7 @@ Anleitung: [docs/microsoft-365.md](docs/microsoft-365.md).
 
 Schritt fuer Schritt: [docs/azure-server.md](docs/azure-server.md).
 
-Behoben dabei: Das Standardprofil von RemoteController uebernahm keine Dateien,
+Behoben dabei: Das Standardprofil von Knovas Connector uebernahm keine Dateien,
 die direkt im obersten Ordner liegen (`**/*.pdf` braucht vor Python 3.13 ein
 Unterverzeichnis).
 

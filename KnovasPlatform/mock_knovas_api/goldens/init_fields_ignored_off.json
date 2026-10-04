@@ -1,0 +1,33 @@
+{
+  "name": "init_fields_ignored_off",
+  "description": "Init with fields while Document Fields is off: accepted exactly as an older server accepts it, with no fields echo.",
+  "server_state": "off",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/init_document_transmission",
+    "body": {
+      "identifier": "rc-sync/Muster AG/GJ 2024/Rechnung_17.pdf",
+      "part_count": 1,
+      "title": "Rechnung_17.pdf",
+      "path": "Muster AG/GJ 2024/Rechnung_17.pdf",
+      "fields": {
+        "doc_type": "invoice",
+        "period": "GJ 2024"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "status": "success",
+      "message": "Transmission initialized"
+    }
+  },
+  "volatile": [
+    "transmission_key_id"
+  ],
+  "absent": [
+    "fields"
+  ]
+}

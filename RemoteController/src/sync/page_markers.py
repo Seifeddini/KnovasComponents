@@ -11,8 +11,8 @@ proved by ``data_plane/page_break_provenance.als``):
 
 * the part's ``page_number`` is the page of its first character; the join
   whitespace between two pages belongs to the preceding page (that is what
-  ``chunking._location_for_offset`` already computes from the sentence that
-  contains the part's first offset);
+  ``chunking._page_for_offset`` computes from the same ``line_start`` values
+  the markers below count from);
 * before the first character of every TEXT page whose start lies STRICTLY
   inside the part the RC writes ``page.index - previous_text_page.index``
   form feeds: one for the page itself plus one per EMPTY page in between

@@ -1,0 +1,21 @@
+{
+  "name": "probe_off",
+  "description": "Capability probe while Document Fields is off (or the server is older than the feature): the unknown-route 404.",
+  "server_state": "off",
+  "setup": [],
+  "request": {
+    "method": "POST",
+    "path": "/secured/graph/doc-values/find",
+    "body": {}
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "status": "error",
+      "error_code": "HTTP_404",
+      "error": "The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again."
+    }
+  },
+  "volatile": [],
+  "absent": []
+}

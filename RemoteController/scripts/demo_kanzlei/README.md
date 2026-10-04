@@ -54,7 +54,7 @@ gate. Work files (world, plan, prose cache, ground truth) go to `--work`
 
 ## Freshness
 
-The Remote Controller default incremental body drops files whose **mtime** is
+The Knovas Connector default incremental body drops files whose **mtime** is
 older than 30 days. `verify` warns at 25 days. Before a demo:
 
 ```bash

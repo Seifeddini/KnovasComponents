@@ -91,16 +91,16 @@ the bypass on nothing ever queues; the control is effective only in strict
 mode (*Strikt* on the Freigaben tab). Say that to a buyer rather than letting
 the word four-eyes imply more.
 
-## RemoteController
+## Knovas Connector
 
 `sources[].access_groups` in the sync request assigns groups to every
-document ingested from that source, and RemoteController passes them to
+document ingested from that source, and Knovas Connector passes them to
 `/secured/init_document_transmission` so the documents are born walled.
 Omit the key for unrestricted folders; an empty array is treated as omitted so
 that a backend folder rule can still apply.
 
 **Caveat — `sequential_subfolders`.** With that option enabled,
-RemoteController processes exactly one source per cycle and logs a warning if
+Knovas Connector processes exactly one source per cycle and logs a warning if
 more than one is configured. Per-source `access_groups` still apply, but only
 the first source is walked, so put the walled folder in its own sync
 configuration rather than relying on a second source entry.
@@ -111,19 +111,19 @@ The Ingestion tab (`admin` and `ingestion_manager`) edits one profile: folders
 with their access groups, file kinds, schedule, throughput, age cut-off. Folders
 are picked from a tree of the watch root (expand for children, *Hinzufügen* to
 put a path on the profile); paths are not typed. *Vorschau*
-asks RemoteController what each folder holds without saving anything.
-*Speichern und übertragen* compiles the profile into the two RemoteController
+asks Knovas Connector what each folder holds without saving anything.
+*Speichern und übertragen* compiles the profile into the two Knovas Connector
 documents, validates both against their schemas, saves a new version and pushes
 config-then-folders; if the folder list is refused, the previous config is put
 back. Every version stays; *Wiederherstellen* copies an old one forward.
 
 **What übertragen got you.** The notice names one of three outcomes, because
-reaching RemoteController and running are not the same thing. *Abgleich
+reaching Knovas Connector and running are not the same thing. *Abgleich
 gestartet* -- the scheduler was idle and has been started, and the new folder
 list is being indexed now. *Wird beim nächsten Durchlauf wirksam* -- a worker is
 already running; it re-reads the folder list and the schedule at the top of its
 next cycle, so the change lands then, not this second. *Der Abgleich wird von
-Hand gestartet* -- the profile is stored on RemoteController but nothing is
+Hand gestartet* -- the profile is stored on Knovas Connector but nothing is
 running: that is what the *Nur wenn ich starte* schedule means, and the
 administrator starts and stops the worker with the Start and Anhalten buttons on
 this tab. The same sentence appears with *Start fehlgeschlagen: ...* appended
@@ -133,7 +133,7 @@ with the folder list that was already accepted.
 
 Saving, restoring and stopping the sync are four-eyes guarded
 (`ingestion_profile_change`); see Freigaben. Starting and previewing are not.
-Approving an ingestion change is not enough to carry it out: RemoteController
+Approving an ingestion change is not enough to carry it out: Knovas Connector
 admits only `admin` and `ingestion_manager`, so a pure `approver` who confirms
 one is told that on the Freigaben row, and the request waits under *Freigegeben,
 noch nicht ausgeführt* until an admin or ingestion manager executes it. When the
@@ -141,13 +141,34 @@ approver holds one of those roles the change runs on their click. Either way the
 version records both people -- `created_by` the requester, `approved_by` the
 executor.
 
-RemoteController accepts the administrator's own Platform-signed principal in
+Knovas Connector accepts the administrator's own Platform-signed principal in
 `X-Platform-Principal` (`RC_PLATFORM_BROKER_PUBKEY_PATH`); nobody needs a Knovas
 employee token, a shell on the host, or `chmod`.
 
-RemoteController must also have `RC_SYNC_CONFIG_API_ENABLED=true`: *Speichern und
+Knovas Connector must also have `RC_SYNC_CONFIG_API_ENABLED=true`: *Speichern und
 übertragen* reads and writes `/sync/config`, and that API is off by default --
 without it the push fails at its first call. The root `docker-compose.yml` sets it.
+
+**Neu extrahieren.** After an extractor upgrade the tab shows *N Dokumente
+mit älterer Extraktion*: the Knovas Connector's `/sync/status` →
+`extraction.outdated`, the documents whose extraction stamp (knovas-extract
+version and git commit, PDF and DOCX text modes, the OCR engine in force --
+`off` while OCR is disabled -- and its languages, DPI, sentence gate) is not
+the current one. Only an `admin` gets the *Neu extrahieren* button
+(`POST /admin/ingestion/reextract`). The first click shows count, cost and
+duration — computed like a field change's, with the Connector's
+`RC_REEXTRACT_PER_CYCLE` — and nothing is queued until that confirmation,
+which carries the count it showed, is sent; a count that grew since is
+confirmed again. The Connector then re-extracts at most that many documents
+per cycle and uploads only those whose text, page numbers, fields, title or
+description changed — each such upload is billed; the first round after the
+release that introduced this uploads all of them, since no comparison hash
+exists yet -- except a scan the cycle's OCR budget would read less completely
+than the text Knovas holds: it is not sent (`extraction.kept`), and
+`scripts/backfill_partial_ocr.py` brings a still-partial one up with its larger
+budget. The request is audited as `ingestion.reextract_requeued` with
+counts only. An older Connector is named: *Knovas Connector zu alt – bitte
+aktualisieren*.
 
 ## Scale
 

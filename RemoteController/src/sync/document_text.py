@@ -8,12 +8,15 @@ accurate `page_number` / `sentence_number`.
 Image-only PDF pages are OCR'd when `RC_PDF_OCR_ENABLED` is true (default)
 and Tesseract is installed. Language packs are selected via
 `RC_TESSERACT_LANG` (default `deu+eng`). With a knovas-extract that takes
-`ocr=OcrOptions(...)` the OCR engine, dpi, workers, page cap, time budget
-and the RC's disk cache (`sync.ocr_cache`) are passed along; with one that
+`ocr=OcrOptions(...)` the OCR engine, the page cap, the time budget, the
+RC's disk cache (`sync.ocr_cache`) and -- only when set -- the worker count
+and the dpi are passed along (unset, the library decides both); with one that
 takes `text_mode=` the `RC_PDF_TEXT_MODE` switch selects `plain`, `layout`
 (markdown-lite rows for fiduciary tables) or `shadow` (upload plain, log one
 numbers-only `ShadowDiff` against layout — the two renderings share ONE OCR
-cache object, so each page is OCR'd once; plan decision D13). Every new
+cache object, so each page is OCR'd once; plan decision D13), and
+`RC_DOCX_TEXT_MODE` (`layout` | `plain`) asks for DOCX tables as rows in
+the text (spec L3). Every new
 keyword is sent only when `extract_accepts(name)` says the installed library
 takes it, so the same source runs against today's release.
 
@@ -21,12 +24,19 @@ Markdown is never requested (`emit_markdown=False`): it cost ~8 s per
 document and its expansion guard parked every mixed PDF and every DOCX with
 large tables as "resource limit exceeded: markdown expansion ratio".
 
-Sentence emission is skipped for inputs larger than
-`RC_SENTENCE_EMIT_MAX_BYTES` (default 2 MiB). `split_sentences` degrades
-badly on large, weakly-punctuated text — tariff tables and similar
-dumps — where it can occupy the single sync worker for many minutes per
-file and stall ingestion. Text extraction and upload are unaffected;
-only sentence-level citations and context previews are dropped.
+Sentences are emitted for every PDF (spec E4): knovas-extract splits a PDF
+page by page, in time linear in its pages. Every other input is split as
+ONE text, and pysbd maps each sentence back by searching that text from its
+start, so the time grows with the square of the text (2 MiB of export rows
+~40 s, 8 MiB past the 300 s ceiling; knovas-extract 0.3 fixed only its own
+line counting). Such input gets sentences while its extracted text is at
+most `UNPAGED_SENTENCE_MAX_CHARS` (2 MiB): a DOCX (tables in the text), an
+MSG or a file larger than that is extracted without sentences first and
+again with them when its text is short enough. `RC_SENTENCE_EMIT_MAX_BYTES`
+(default `0`: off) is the old gate on raw file size, which switched off the
+citations of most multi-page scans; a positive value applies it to every
+input. Without sentences only the citations and context previews are
+dropped, the text is still uploaded.
 
 Errors from `knovas-extract` are re-raised as `ConversionError` with
 message substrings that `is_unconvertible_error()` recognizes, so
@@ -44,9 +54,9 @@ import os
 import queue
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import knovas_extract
 from knovas_extract import (
@@ -62,6 +72,7 @@ from knovas_extract import result as knovas_extract_result
 from knovas_extract.result import Page, Section, Sentence
 
 from sync.extract_content import description_from_metadata, payload_from_extraction_result
+from sync.metadata_fields import source_metadata_from
 from sync.ocr_cache import MemoryOcrCache, ocr_cache_for_document
 
 logger_ocr_warned = False
@@ -101,9 +112,21 @@ logger = logging.getLogger(__name__)
 
 SYNCABLE_EXTENSIONS = frozenset({".md", ".txt", ".docx", ".pdf", ".eml", ".msg"})
 
-# Inputs above this size skip sentence emission. Override with
-# RC_SENTENCE_EMIT_MAX_BYTES; 0 disables sentence emission entirely.
-DEFAULT_SENTENCE_EMIT_MAX_BYTES = 2 * 1024 * 1024
+# RC_SENTENCE_EMIT_MAX_BYTES: 0 (default) is no gate on the raw size; a
+# positive value skips sentence emission above that many raw bytes.
+DEFAULT_SENTENCE_EMIT_MAX_BYTES = 0
+
+#: Input other than PDF gets sentences only while its extracted text is at
+#: most this many characters: pysbd's time grows with the square of one text
+#: (module docstring). 2 MiB, the old gate's size, keeps it near 40 s.
+UNPAGED_SENTENCE_MAX_CHARS = 2 * 1024 * 1024
+
+#: Formats whose text is never longer than the file -- decoded and stripped
+#: of markup, never decompressed -- so a file of at most
+#: `UNPAGED_SENTENCE_MAX_CHARS` bytes is split in one pass. A DOCX (zipped
+#: XML, table rows in the text) or an MSG (compressed RTF body) can hold far
+#: more text than bytes: its text is measured first.
+_TEXT_NOT_LONGER_THAN_FILE = frozenset({".txt", ".md", ".eml"})
 
 # Wall-clock ceiling for one document's extraction. Override with
 # RC_EXTRACT_TIMEOUT_SECONDS; 0 extracts in-process with no ceiling. When the
@@ -119,6 +142,13 @@ DEFAULT_EXTRACT_TIMEOUT_MAX_SECONDS = 1800
 #: file forever (skip:unconvertible); a kill is retryable.
 EXTRACT_TIMEOUT_ERROR_PREFIX = "extraction timeout"
 
+#: Prefix of the ConversionError raised when the library refuses the
+#: Connector's own OCR settings (``ValueError`` from ``OcrOptions`` /
+#: ``Limits``, spec E5). No document is at fault: ``is_unconvertible_error``
+#: never matches it and the executor never counts it toward the extraction
+#: retries. It used to surface as "corrupt .pdf" and park every PDF for good.
+CONFIG_INVALID_PREFIX = "extraction configuration invalid"
+
 # Address-space ceiling for the extraction child (RLIMIT_AS). Override with
 # RC_EXTRACT_RLIMIT_AS_MB; 0 disables. The child also runs at nice 10.
 DEFAULT_EXTRACT_RLIMIT_AS_MB = 2048
@@ -126,9 +156,15 @@ EXTRACT_CHILD_NICE = 10
 
 # PDF OCR via knovas-extract + system Tesseract (see RC_PDF_OCR_ENABLED).
 DEFAULT_TESSERACT_LANG = "deu+eng"
+#: RC_TESSERACT_LANG: language packs joined by "+" (spec E5; doctor.sh applies
+#: the same pattern). OcrOptions refuses spaces, slashes and NUL.
+_TESSERACT_LANG_RE = re.compile(r"[A-Za-z0-9_]+(?:\+[A-Za-z0-9_]+)*")
 DEFAULT_OCR_ENGINE = "auto"
 OCR_ENGINES = ("auto", "tesserocr", "cli", "mupdf")
-DEFAULT_OCR_DPI = 300
+# RC_OCR_DPI: unset sends no dpi (the library's native-resolution rule); a
+# set value must lie in the range OcrOptions accepts.
+OCR_DPI_MIN = 30
+OCR_DPI_MAX = 1200
 DEFAULT_OCR_MAX_PAGES = 500
 DEFAULT_OCR_TIME_BUDGET_SECONDS = 240
 DEFAULT_OCR_PAGE_TIMEOUT_SECONDS = 60
@@ -140,6 +176,8 @@ _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS = 30
 
 TEXT_MODES = ("plain", "shadow", "layout")
 DEFAULT_PDF_TEXT_MODE = "layout"
+DOCX_TEXT_MODES = ("layout", "plain")
+DEFAULT_DOCX_TEXT_MODE = "layout"
 
 PLAIN_TEXT_EXTENSIONS = frozenset({".md", ".txt"})
 
@@ -172,10 +210,12 @@ _EXT_TO_MIME = {
 }
 
 #: Error prefixes that are retryable whatever else the message says: the
-#: RC's own wall-clock kill, a killed child (OOM / RLIMIT_AS) and an OCR
-#: budget trip that leaked out of an older library as an error.
+#: RC's own wall-clock kill, OCR settings the library refused, a killed
+#: child (OOM / RLIMIT_AS) and an OCR budget trip that leaked out of an
+#: older library as an error.
 _NEVER_UNCONVERTIBLE_PREFIXES = (
     EXTRACT_TIMEOUT_ERROR_PREFIX,
+    CONFIG_INVALID_PREFIX,
     "extractor died",
     "ocr budget exceeded",
     "resource limit exceeded: ocr",
@@ -188,6 +228,32 @@ class ConversionError(Exception):
     def __init__(self, message: str, *, extension: str = "") -> None:
         super().__init__(message)
         self.extension = extension
+
+
+#: The library's option field -> the Connector setting it is built from.
+_SETTING_FOR_OPTION_FIELD = {
+    "engine": "RC_OCR_ENGINE",
+    "language": "RC_TESSERACT_LANG",
+    "dpi": "RC_OCR_DPI",
+    "workers": "RC_OCR_WORKERS",
+    "max_ocr_workers": "RC_OCR_WORKERS",
+    "max_ocr_pages": "RC_OCR_MAX_PAGES",
+    "ocr_time_budget_seconds": "RC_OCR_TIME_BUDGET_SECONDS",
+    "ocr_page_timeout_seconds": "RC_OCR_PAGE_TIMEOUT_SECONDS",
+}
+_OPTION_FIELD_RE = re.compile(r"\b(?:OcrOptions|Limits)\.([a-z_]+)")
+
+
+def config_invalid_error(exc: ValueError) -> ConversionError:
+    """The retryable error for OCR settings the library refused (spec E5).
+
+    Names the setting when the library's message names the field
+    (``OcrOptions.language must be …``), else "OCR options"; never the value
+    -- the message is logged and stored in the sync state.
+    """
+    match = _OPTION_FIELD_RE.search(str(exc))
+    setting = _SETTING_FOR_OPTION_FIELD.get(match.group(1), "OCR options") if match else "OCR options"
+    return ConversionError(f"{CONFIG_INVALID_PREFIX}: {setting}", extension=".pdf")
 
 
 @dataclass(frozen=True)
@@ -214,6 +280,16 @@ class ExtractedDocument:
     `pdf:ocr_pages_skipped`, `pdf:ocr_backend`, ...) plus the RC's own
     `rc:ocr_cache_hits` / `rc:ocr_cache_misses`; `page_count` the metadata
     page count. Counts and identifiers only, never text.
+
+    `source_metadata` holds the extractor's `author`, `language`, `created`
+    and `modified`, the .eml `eml:content_language` header and the file
+    properties `pdf:keywords`, `docx:keywords`, `msg:categories` and
+    `docx:content_status`, as strings; an `extra` value at the library's
+    4096-character cap is left out, as it may be cut
+    (`sync.metadata_fields.source_metadata_from`). Only the opted-in
+    metadata mapping reads it (`sync.metadata_fields.map_metadata`); it is
+    customer data and is never logged. Plain str values, so it pickles
+    across the extraction child's queue.
     """
 
     text: str
@@ -225,6 +301,11 @@ class ExtractedDocument:
     pages: Optional[list[Page]] = None
     extra: Optional[dict[str, Any]] = None
     page_count: Optional[int] = None
+    source_metadata: dict[str, str] = field(default_factory=dict)
+    #: The library's ``result.warnings``: counts and fixed messages, never
+    #: document text (its contract). The parent counts them by class
+    #: (``sync.extract_metrics``); they are never logged.
+    warnings: tuple[str, ...] = ()
 
 
 def is_syncable_extension(suffix: str) -> bool:
@@ -288,8 +369,33 @@ def _env_flag(name: str, default: bool) -> bool:
     return default
 
 
+def _non_negative_int(raw: str) -> Optional[int]:
+    """`raw` as an int when it is ASCII digits only, else None -- the rule
+    `scripts/doctor.sh` applies to the same settings (no sign, no `1_000`)."""
+    return int(raw) if raw.isascii() and raw.isdigit() else None
+
+
+def _env_int_at_least(name: str, default: int, minimum: int) -> int:
+    """A whole-number setting of at least ``minimum`` (spec E5). Anything else
+    -- not ASCII digits, or below the minimum -- logs one warning naming the
+    setting and uses the default; ``_env_int(minimum=)`` would clamp it
+    silently (a page timeout of 0 became 1 s and failed every page)."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    value = _non_negative_int(raw)
+    if value is None or value < minimum:
+        logger.warning(
+            "Invalid %s=%r (a whole number of at least %d); using default %d",
+            name, raw, minimum, default,
+        )
+        return default
+    return value
+
+
 def sentence_emit_max_bytes() -> int:
-    """Size ceiling for sentence emission (see module docstring)."""
+    """`RC_SENTENCE_EMIT_MAX_BYTES`: 0 (default) is no gate; a positive value
+    skips sentence emission above that many raw bytes (see module docstring)."""
     return _env_int("RC_SENTENCE_EMIT_MAX_BYTES", DEFAULT_SENTENCE_EMIT_MAX_BYTES)
 
 
@@ -328,12 +434,20 @@ def pdf_ocr_enabled() -> bool | str:
 
 
 def tesseract_language() -> str:
+    """`RC_TESSERACT_LANG` (default `deu+eng`): language packs joined by `+`.
+    Anything else (`deu eng`, `deu,eng`) logs one warning naming the setting
+    and uses the default -- `OcrOptions` would refuse it (spec E5)."""
     raw = (os.environ.get("RC_TESSERACT_LANG") or "").strip()
-    return raw or DEFAULT_TESSERACT_LANG
+    if not raw:
+        return DEFAULT_TESSERACT_LANG
+    if _TESSERACT_LANG_RE.fullmatch(raw):
+        return raw
+    logger.warning("Invalid RC_TESSERACT_LANG=%r; using %s", raw, DEFAULT_TESSERACT_LANG)
+    return DEFAULT_TESSERACT_LANG
 
 
 def pdf_text_mode() -> str:
-    """`RC_PDF_TEXT_MODE`: plain (default) | shadow | layout."""
+    """`RC_PDF_TEXT_MODE`: layout (default) | plain | shadow."""
     raw = (os.environ.get("RC_PDF_TEXT_MODE") or "").strip().lower()
     if not raw:
         return DEFAULT_PDF_TEXT_MODE
@@ -341,6 +455,31 @@ def pdf_text_mode() -> str:
         return raw
     logger.warning("Invalid RC_PDF_TEXT_MODE=%r; using %s", raw, DEFAULT_PDF_TEXT_MODE)
     return DEFAULT_PDF_TEXT_MODE
+
+
+def docx_text_mode() -> str:
+    """`RC_DOCX_TEXT_MODE`: layout (default) | plain (spec L3). Layout asks
+    knovas-extract to write Word tables into the text, in place, as
+    markdown-lite rows -- the server drops the `tables` payload, so before
+    this a DOCX table's content never reached the search index. Plain is
+    paragraphs only. Invalid values log one warning and use the default."""
+    raw = (os.environ.get("RC_DOCX_TEXT_MODE") or "").strip().lower()
+    if not raw:
+        return DEFAULT_DOCX_TEXT_MODE
+    if raw in DOCX_TEXT_MODES:
+        return raw
+    logger.warning("Invalid RC_DOCX_TEXT_MODE=%r; using %s", raw, DEFAULT_DOCX_TEXT_MODE)
+    return DEFAULT_DOCX_TEXT_MODE
+
+
+def docx_tables_in_text(doc: ExtractedDocument) -> bool:
+    """Whether knovas-extract wrote this DOCX's tables into its text: it
+    reports `docx:text_mode == "layout"` (DOCX layout mode). Then the upload
+    sends no `tables` payload -- the rows would be indexed twice if the
+    server ever stopped dropping it. A library without DOCX layout mode
+    reports nothing, its text has no rows, and the payload stays."""
+    value = (doc.extra or {}).get("docx:text_mode")
+    return isinstance(value, str) and value.strip().lower() == "layout"
 
 
 def ocr_engine() -> str:
@@ -353,28 +492,64 @@ def ocr_engine() -> str:
     return DEFAULT_OCR_ENGINE
 
 
-def _available_cores() -> int:
+def effective_ocr_engine() -> str:
+    """The OCR engine in force: ``RC_OCR_ENGINE``, or ``off`` while
+    ``RC_PDF_OCR_ENABLED`` is false. What ``GET /sync/status`` reports and
+    the extraction stamp covers."""
+    return ocr_engine() if pdf_ocr_enabled() else "off"
+
+
+def ocr_dpi() -> Optional[int]:
+    """`RC_OCR_DPI` (spec E3). Unset (default): None, no `dpi` is passed and
+    the library renders each page at its native resolution, at most 300 dpi,
+    never upsampled -- a 150 dpi fax is OCR'd at 150 dpi. Set: every page is
+    rendered at exactly that resolution (30-1200, the range `OcrOptions`
+    accepts), so a lower-resolution scan IS upsampled. Anything else logs
+    one warning and counts as unset."""
+    raw = (os.environ.get("RC_OCR_DPI") or "").strip()
+    if not raw:
+        return None
+    value = _non_negative_int(raw)
+    if value is None or not OCR_DPI_MIN <= value <= OCR_DPI_MAX:
+        logger.warning(
+            "Invalid RC_OCR_DPI=%r (%d-%d); rendering at the native resolution",
+            raw, OCR_DPI_MIN, OCR_DPI_MAX,
+        )
+        return None
+    return value
+
+
+def ocr_workers() -> Optional[int]:
+    """`RC_OCR_WORKERS`. Unset (default): None, and the library sizes the pool
+    itself -- `min(Limits.max_ocr_workers, CPUs - 1)`, the CPUs counted from
+    the affinity mask AND the container's cgroup v2 CPU quota (the
+    Connector's old default, cores - 2, saw neither the quota nor the
+    library's ceiling). Set: that many, 1 to 8, as before; a value that is
+    not a number logs one warning and counts as unset."""
+    raw = (os.environ.get("RC_OCR_WORKERS") or "").strip()
+    if not raw:
+        return None
     try:
-        return max(1, len(os.sched_getaffinity(0)))
-    except (AttributeError, OSError):
-        return max(1, os.cpu_count() or 1)
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid RC_OCR_WORKERS=%r; the library chooses the worker count", raw)
+        return None
+    return max(1, min(DEFAULT_OCR_MAX_WORKERS, value))
 
 
-def ocr_workers() -> int:
-    """`RC_OCR_WORKERS`, default `max(1, cores - 2)`, at most 8."""
-    default = max(1, _available_cores() - 2)
-    return max(1, min(DEFAULT_OCR_MAX_WORKERS, _env_int("RC_OCR_WORKERS", default, minimum=1)))
+def ocr_time_budget_seconds(timeout_seconds: int, page_timeout_seconds: int) -> int:
+    """The OCR time budget the child hands the library (spec E2).
 
-
-def ocr_time_budget_seconds(timeout_seconds: int, workers: int, page_timeout_seconds: int) -> int:
-    """The OCR time budget the child hands the library.
-
-    Default `min(240, timeout - 30)` (`RC_OCR_TIME_BUDGET_SECONDS` overrides),
-    and never more than `timeout - workers × page_timeout - 10`: the pool
-    stops SUBMITTING when the budget trips, but up to `workers` pages may
-    still be running for a page timeout each, and the partial result has to
-    reach the parent before the wall-clock kill (plan `[C-sec-0]`). With the
-    ceiling disabled (`timeout == 0`) the env value or 240 s applies as is.
+    Default `min(240, timeout - 30)` (`RC_OCR_TIME_BUDGET_SECONDS`
+    overrides), never more than `timeout - page_timeout - 10`, at least
+    10 s. The pool stops SUBMITTING pages when the budget trips; the pages
+    already running finish IN PARALLEL within one page timeout, and the
+    partial result then needs the margin to reach the parent before the
+    wall-clock kill (plan `[C-sec-0]`). The cap used to subtract
+    `workers × page_timeout`, as if those pages ran one after another: from
+    five workers on (7+ cores) the budget of every PDF up to ~150 pages fell
+    to the 10 s floor and long scans came back partial. With the ceiling
+    disabled (`timeout <= 0`) the env value or 240 s applies as is.
     """
     configured = _env_int("RC_OCR_TIME_BUDGET_SECONDS", -1, minimum=-1)
     if timeout_seconds <= 0:
@@ -382,39 +557,45 @@ def ocr_time_budget_seconds(timeout_seconds: int, workers: int, page_timeout_sec
     budget = configured if configured >= 0 else min(
         DEFAULT_OCR_TIME_BUDGET_SECONDS, timeout_seconds - _OCR_BUDGET_DEFAULT_HEADROOM_SECONDS
     )
-    hard_cap = timeout_seconds - workers * page_timeout_seconds - _OCR_BUDGET_RENDER_MARGIN_SECONDS
-    budget = min(budget, hard_cap)
-    return max(MIN_OCR_TIME_BUDGET_SECONDS, budget)
+    hard_cap = timeout_seconds - page_timeout_seconds - _OCR_BUDGET_RENDER_MARGIN_SECONDS
+    return max(MIN_OCR_TIME_BUDGET_SECONDS, min(budget, hard_cap))
 
 
 def ocr_options_kwargs(timeout_seconds: Optional[int] = None) -> dict[str, Any]:
     """Keyword arguments for the library's `OcrOptions`, from the environment.
 
-    `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_OCR_WORKERS`, `RC_OCR_MAX_PAGES`,
-    `RC_OCR_TIME_BUDGET_SECONDS` (derived from the extraction timeout when
-    unset), `RC_OCR_PAGE_TIMEOUT_SECONDS`, `RC_TESSERACT_LANG`. The cache is
-    added by the caller (`cache=`); its size is `RC_OCR_CACHE_MAX_MB` (see
+    `RC_OCR_ENGINE`, `RC_OCR_DPI`, `RC_OCR_WORKERS` (None while unset: the
+    library sizes the pool), `RC_OCR_MAX_PAGES`, `RC_OCR_TIME_BUDGET_SECONDS`
+    (derived from the extraction timeout when unset),
+    `RC_OCR_PAGE_TIMEOUT_SECONDS`, `RC_TESSERACT_LANG`. The cache is added by
+    the caller (`cache=`); its size is `RC_OCR_CACHE_MAX_MB` (see
     `sync.ocr_cache`).
     """
     timeout = extract_timeout_seconds() if timeout_seconds is None else int(timeout_seconds)
-    workers = ocr_workers()
-    page_timeout = _env_int("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, minimum=1)
-    return {
+    page_timeout = _env_int_at_least("RC_OCR_PAGE_TIMEOUT_SECONDS", DEFAULT_OCR_PAGE_TIMEOUT_SECONDS, 1)
+    options: dict[str, Any] = {
         "engine": ocr_engine(),
-        "dpi": _env_int("RC_OCR_DPI", DEFAULT_OCR_DPI, minimum=72),
-        "workers": workers,
-        "max_ocr_pages": _env_int("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES),
-        "time_budget_seconds": ocr_time_budget_seconds(timeout, workers, page_timeout),
+        "workers": ocr_workers(),
+        "max_ocr_pages": _env_int_at_least("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES, 1),
+        "time_budget_seconds": ocr_time_budget_seconds(timeout, page_timeout),
         "page_timeout_seconds": page_timeout,
         "language": tesseract_language(),
     }
+    dpi = ocr_dpi()
+    if dpi is not None:
+        # Only when set: an explicit dpi is used as is and upsamples a 150 dpi
+        # fax to 300 (CER 0.145 against 0.028 at its native resolution).
+        options["dpi"] = dpi
+    return options
 
 
 #: The library's field names are introspected; these are the spellings the
 #: plan uses (§3 budgets, §6 `OcrOptions(workers=1, max_ocr_pages=50, …)`)
 #: plus the obvious variants, so a renamed field lands instead of raising.
 _OCR_OPTION_ALIASES: dict[str, tuple[str, ...]] = {
-    "engine": ("engine", "backend"),
+    # Not "backend": that slot takes an injected IOcrBackend object, and an
+    # engine name there would be a type error at the first scanned page.
+    "engine": ("engine",),
     "dpi": ("dpi", "render_dpi", "max_dpi"),
     "workers": ("workers", "max_workers", "max_ocr_workers"),
     "max_ocr_pages": ("max_ocr_pages", "max_pages"),
@@ -453,6 +634,10 @@ def build_ocr_limits(options: dict[str, Any]) -> Any:
         return None
     accepted: dict[str, Any] = {}
     for ours, value in options.items():
+        if value is None:
+            # RC_OCR_WORKERS unset: Limits.max_ocr_workers keeps the library's
+            # ceiling (8); None there would break the library's min().
+            continue
         for name in _OCR_LIMIT_ALIASES.get(ours, ()):
             if name in params:
                 accepted[name] = value
@@ -553,37 +738,75 @@ def _int_or_none(value: Any) -> Optional[int]:
     return None
 
 
+#: The library's OCR counts a partial note carries (counts only, never text):
+#: note key -> metadata.extra key.
+_PARTIAL_NOTE_COUNTS = (
+    ("ocr_pages_skipped", "pdf:ocr_pages_skipped"),
+    ("ocr_pages_failed", "pdf:ocr_pages_failed"),
+    ("ocr_pages", "pdf:ocr_pages"),
+    ("text_pages", "pdf:text_pages"),
+)
+
+
 def partial_note_for(doc: ExtractedDocument, *, expect_ocr: bool) -> Optional[dict[str, Any]]:
     """The partial note for a returned document, or None when it is complete.
 
-    Read defensively: today's library sets none of the `pdf:ocr_*` keys.
-    Partial when the library counted skipped OCR pages (budget trip), or when
-    it reports `pdf:ocr_backend == "none"` although OCR was configured — the
-    image pages were left empty for want of an engine, so the document must
-    not be taken for complete (plan `[C-sec-8]`). Counts and identifiers only.
+    One rule in the Connector and the Platform (spec E1; the mirror is
+    ``knovas_extract_upload.partial_note_for``). A document is partial when
+
+    * the library counted skipped OCR pages (``pdf:ocr_pages_skipped > 0``):
+      the page cap, the time budget, the pixel cap -- or no OCR engine, for
+      which 0.4 counts every page that needed OCR as skipped;
+    * or failed OCR pages (``pdf:ocr_pages_failed > 0``): a failed page is an
+      empty page;
+    * or -- only for a library that does not count skipped pages -- OCR was
+      expected, ``pdf:ocr_backend == "none"`` and ``pdf:ocr_pages_skipped`` is
+      absent.
+
+    With ``ocr=`` passed, 0.4 reports every OCR key: a born-digital PDF says
+    backend ``"none"`` with zero skipped pages -- nothing needed OCR, so it is
+    complete wherever Tesseract is installed (the rule before counted it
+    partial, metered a degraded backend and backfilled it on every run).
+    The note carries the counts the library reported and the backend name.
     """
     extra = doc.extra or {}
-    skipped = _int_or_none(extra.get("pdf:ocr_pages_skipped"))
-    ocr_pages = _int_or_none(extra.get("pdf:ocr_pages"))
+    counts = {key: _int_or_none(extra.get(source)) for key, source in _PARTIAL_NOTE_COUNTS}
+    skipped, failed = counts["ocr_pages_skipped"], counts["ocr_pages_failed"]
     backend = extra.get("pdf:ocr_backend")
     backend_s = str(backend).strip().lower() if isinstance(backend, str) else ""
-    note: dict[str, Any] = {}
-    if skipped is not None and skipped > 0:
-        note["ocr_pages_skipped"] = skipped
-        if ocr_pages is not None:
-            note["ocr_pages"] = ocr_pages
-    elif expect_ocr and backend_s == "none":
-        note["reason"] = "ocr_backend_none"
-        if ocr_pages is not None:
-            note["ocr_pages"] = ocr_pages
-    else:
+    partial = (
+        (skipped is not None and skipped > 0)
+        or (failed is not None and failed > 0)
+        or (expect_ocr and backend_s == "none" and skipped is None)
+    )
+    if not partial:
         return None
+    note: dict[str, Any] = {key: value for key, value in counts.items() if value is not None}
     if backend_s:
         note["ocr_backend"] = backend_s
-    text_pages = _int_or_none(extra.get("pdf:text_pages"))
-    if text_pages is not None:
-        note["text_pages"] = text_pages
     return note
+
+
+def ocr_backend_missing(note: Optional[dict[str, Any]]) -> bool:
+    """Whether a partial note says pages went without OCR for want of an
+    engine: the library reports ``ocr_backend == "none"``. 0.4 names the
+    engine whenever OCR ran, so a partial note with ``none`` is either the
+    uncounted case of ``partial_note_for`` or pages the library skipped
+    because no backend was available. Feeds ``rc_ocr_backend_degraded_total``
+    only; a budget trip or a failed page is not a degraded backend."""
+    return bool(note) and note.get("ocr_backend") == "none"
+
+
+def ocr_pages_missing(note: Optional[Mapping[str, Any]]) -> Optional[int]:
+    """The OCR pages a text lacks by its partial note: skipped plus failed
+    (``partial_note_for``). No note is a complete text: 0. None for a note
+    without these counts -- ``extract_retries_exhausted``, or the rule
+    before spec E1 -- which gives nothing to compare."""
+    if note is None:
+        return 0
+    counts = [_int_or_none(note.get(key)) for key in ("ocr_pages_skipped", "ocr_pages_failed")]
+    known = [count for count in counts if count is not None]
+    return sum(known) if known else None
 
 
 # --- shadow mode (numbers only, never text) ----------------------------------
@@ -690,13 +913,21 @@ def _pdf_extract_kwargs(
     if use_ocr and OcrOptions is not None and extract_accepts("ocr"):
         cache = ocr_cache_for_document(document_key)
         ocr_kwargs = ocr_options_kwargs(timeout_seconds)
-        options = build_ocr_options({**ocr_kwargs, "cache": cache})
+        try:
+            options = build_ocr_options({**ocr_kwargs, "cache": cache})
+            limits = build_ocr_limits(ocr_kwargs) if extract_accepts("limits") else None
+        except ValueError as exc:
+            # The library refused the Connector's own settings: no document
+            # is at fault (spec E5). Reported as a configuration error, never
+            # as "corrupt .pdf", which parked every PDF for good.
+            close = getattr(cache, "close", None)
+            if callable(close):
+                close()
+            raise config_invalid_error(exc) from exc
         if options is not None:
             kwargs["ocr"] = options
-        if extract_accepts("limits"):
-            limits = build_ocr_limits(ocr_kwargs)
-            if limits is not None:
-                kwargs["limits"] = limits
+        if limits is not None:
+            kwargs["limits"] = limits
 
     mode = pdf_text_mode()
     if mode == "plain":
@@ -727,6 +958,48 @@ def _pdf_extract_kwargs(
     return kwargs, True, cache
 
 
+def _text_may_exceed_sentence_limit(raw: bytes, ext: str) -> bool:
+    """Whether an input's text may be longer than `UNPAGED_SENTENCE_MAX_CHARS`
+    before anything is extracted: never for a PDF (split per page), for
+    TXT, Markdown and EML only when the file is, always for DOCX and MSG."""
+    if ext == ".pdf":
+        return False
+    return ext not in _TEXT_NOT_LONGER_THAN_FILE or len(raw) > UNPAGED_SENTENCE_MAX_CHARS
+
+
+def _with_sentences_if_short(raw: bytes, ext: str, kwargs: dict[str, object], result: Any) -> Any:
+    """`result` was extracted without sentences to measure its text: extract
+    again with sentences when the text is at most `UNPAGED_SENTENCE_MAX_CHARS`
+    characters, else keep it (text uploaded, no citations; counts only in
+    the log)."""
+    text = str(result.content.text or "")
+    if len(text) > UNPAGED_SENTENCE_MAX_CHARS:
+        logger.info(
+            "Skipping sentence emission: %d characters of text exceed %d (ext=%s)",
+            len(text),
+            UNPAGED_SENTENCE_MAX_CHARS,
+            ext,
+        )
+        return result
+    if not text.strip():
+        return result  # "no extractable text" follows; nothing to split
+    try:
+        return extract(raw, **{**kwargs, "emit_sentences": True})
+    except ResourceExhaustedError as exc:
+        if not _is_sentence_cap(exc):
+            raise
+        logger.info("Skipping sentence emission: the library's sentence cap (ext=%s)", ext)
+        return result
+
+
+def _is_sentence_cap(exc: BaseException) -> bool:
+    """knovas-extract before its fail-soft sentence cap (b5d4540 and older)
+    raises ``ResourceExhaustedError("sentence count")`` when one text holds
+    more than ``Limits.max_sentences`` sentences; the 0.4.0a1 release
+    truncates instead. Either way the text is good: only the citations go."""
+    return "sentence" in str(getattr(exc, "what", "")).lower()
+
+
 def _extract_bytes(
     raw: bytes,
     ext: str,
@@ -739,7 +1012,7 @@ def _extract_bytes(
         raise ConversionError(f"unsupported extension: {ext}", extension=ext)
 
     max_sentence_bytes = sentence_emit_max_bytes()
-    emit_sentences = len(raw) <= max_sentence_bytes
+    emit_sentences = max_sentence_bytes <= 0 or len(raw) <= max_sentence_bytes
     if not emit_sentences:
         logger.info(
             "Skipping sentence emission: %d bytes exceeds %d (ext=%s)",
@@ -747,10 +1020,13 @@ def _extract_bytes(
             max_sentence_bytes,
             ext,
         )
+    # Input other than PDF is split as one text (module docstring): unless the
+    # file size bounds that text, extract without sentences first and measure.
+    measure_text_first = emit_sentences and _text_may_exceed_sentence_limit(raw, ext)
 
     extract_kwargs: dict[str, object] = {
         "mime": mime,
-        "emit_sentences": emit_sentences,
+        "emit_sentences": emit_sentences and not measure_text_first,
         # Never: ~8 s per document, and the expansion guard parked every mixed
         # PDF and every DOCX with large tables (plan M0).
         "emit_markdown": False,
@@ -762,10 +1038,25 @@ def _extract_bytes(
             timeout_seconds=timeout_seconds, document_key=document_key
         )
         extract_kwargs.update(pdf_kwargs)
+    elif ext == ".docx" and docx_text_mode() == "layout" and extract_accepts("text_mode"):
+        # Word tables in place, as markdown-lite rows, so their content is
+        # searchable (spec L3); a library without DOCX layout mode returns the
+        # plain text with one warning and the tables payload stays.
+        extract_kwargs["text_mode"] = "layout"
 
     started = time.monotonic()
     try:
-        result = extract(raw, **extract_kwargs)
+        try:
+            result = extract(raw, **extract_kwargs)
+        except ResourceExhaustedError as exc:
+            if not (extract_kwargs.get("emit_sentences") and _is_sentence_cap(exc)):
+                raise
+            # The text is fine; upload it without citations rather than park
+            # the file as unconvertible (the OCR cache serves a PDF's pages).
+            logger.info("Skipping sentence emission: the library's sentence cap (ext=%s)", ext)
+            result = extract(raw, **{**extract_kwargs, "emit_sentences": False})
+        if measure_text_first:
+            result = _with_sentences_if_short(raw, ext, extract_kwargs, result)
     except UnsupportedFormatError as exc:
         raise ConversionError(f"unsupported extension: {ext}", extension=ext) from exc
     except CorruptDocumentError as exc:
@@ -814,6 +1105,8 @@ def _extract_bytes(
         pages=payload.pages,
         extra=extra,
         page_count=_int_or_none(getattr(result.metadata, "page_count", None)),
+        source_metadata=source_metadata_from(result.metadata),
+        warnings=tuple(w for w in (getattr(result, "warnings", None) or ()) if isinstance(w, str)),
     )
 
 
@@ -853,10 +1146,13 @@ def extract_document(
 ) -> ExtractedDocument:
     """Extract text + sentence citations from a local file.
 
-    Returns an `ExtractedDocument`. Raises `ConversionError` on any recoverable
-    per-file failure (unsupported format, corrupt bytes, encrypted, resource
-    cap exceeded, empty output). Lets `DependencyMissingError` bubble — that
-    is a deploy misconfiguration, not a per-file issue.
+    Returns an `ExtractedDocument`. Raises `ConversionError` on any per-file
+    failure (unsupported format, corrupt bytes, encrypted, resource cap
+    exceeded, empty output) and also for a `DependencyMissingError`: a
+    missing extra is a deploy misconfiguration, and its message ("missing
+    optional dependency …") is not one `is_unconvertible_error` matches, so
+    the file stays retryable (counted toward `RC_EXTRACT_MAX_RETRIES`) and is
+    never parked as unconvertible.
 
     `document_key` names the document for the OCR cache (the sync-relative
     path; defaults to the file path). `timeout_seconds` is the wall-clock
