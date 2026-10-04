@@ -55,39 +55,39 @@ class DocFieldsUI {
             ? datatype : 'text';
     }
 
-    /** "a, b,, a" -> ["a", "b"]: getrimmt, ohne Leere und Wiederholungen. */
-    static splitList(text, separator) {
-        const out = [];
-        String(text == null ? '' : text).split(separator).forEach((part) => {
-            const item = part.trim();
-            if (item && !out.includes(item)) out.push(item);
-        });
-        return out;
-    }
-
     /**
-     * Die Namen eines Entitaetsfelds: getippter Text wird an ";" getrennt.
-     * Ein ganzer Name aus known (wiederhergestellt, aus dem Cortex
-     * uebergeben, als Vorschlag gewaehlt) bleibt ein Name, auch wenn er
-     * selbst ";" enthaelt.
+     * Die Teile eines Textes, an separator getrennt, getrimmt, ohne Leere.
+     * Ein ganzer Wert aus whole (gespeichert, wiederhergestellt, aus dem
+     * Cortex uebergeben, als Vorschlag gewaehlt), der im Text noch dasteht,
+     * bleibt ein Teil, auch wenn er separator selbst enthaelt -- so oft, wie
+     * er in whole vorkommt. Geteilt wird nur, was die Person getippt hat.
      */
-    static entityNames(text, known) {
-        const whole = (Array.isArray(known) ? known : [])
-            .map((name) => String(name).trim()).filter((name) => name.includes(';'));
-        const parts = String(text == null ? '' : text).split(';');
+    static splitKeeping(text, separator, whole) {
+        const keep = (Array.isArray(whole) ? whole : [])
+            .map((item) => String(item).trim()).filter((item) => item.includes(separator));
+        const parts = String(text == null ? '' : text).split(separator);
         const out = [];
         for (let i = 0; i < parts.length; i += 1) {
-            let name = parts[i].trim();
-            for (let j = parts.length; j > i + 1; j -= 1) {
-                const joined = parts.slice(i, j).join(';').trim();
-                if (whole.includes(joined)) {
-                    name = joined;
+            let item = parts[i].trim();
+            for (let j = parts.length; j > i + 1 && keep.length; j -= 1) {
+                const at = keep.indexOf(parts.slice(i, j).join(separator).trim());
+                if (at >= 0) {
+                    item = keep.splice(at, 1)[0];
                     i = j - 1;
                     break;
                 }
             }
-            if (name && !out.includes(name)) out.push(name);
+            if (item) out.push(item);
         }
+        return out;
+    }
+
+    /** "a, b,, a" -> ["a", "b"]: splitKeeping ohne Wiederholungen. */
+    static splitList(text, separator, whole) {
+        const out = [];
+        DocFieldsUI.splitKeeping(text, separator, whole).forEach((item) => {
+            if (!out.includes(item)) out.push(item);
+        });
         return out;
     }
 
@@ -95,7 +95,7 @@ class DocFieldsUI {
      * Der where-Wert eines Feldes aus dem, was die Leiste haelt -- rein, ohne
      * DOM (tests/test_frontend_static.py prueft ihn unter Node). state:
      * {op, text, names, choices, lo, hi, partly}, names die ganzen Namen
-     * eines Entitaetsfelds (entityNames); undefined heisst kein Filter.
+     * eines Entitaetsfelds (splitList); undefined heisst kein Filter.
      */
     static buildOperand(datatype, state) {
         const type = DocFieldsUI.railType(datatype);
@@ -116,7 +116,7 @@ class DocFieldsUI {
             return codes.length ? one(codes) : undefined;
         }
         if (type === 'entity_ref') {
-            const names = DocFieldsUI.entityNames(text, s.names).map((name) => ({ name }));
+            const names = DocFieldsUI.splitList(text, ';', s.names).map((name) => ({ name }));
             return names.length ? one(names) : undefined;
         }
         if (op === 'in') {
@@ -991,15 +991,22 @@ class DocFieldsUI {
         input.autocomplete = 'off';
         if (datatype === 'title') input.maxLength = 500;
         const value = field.edit_value;
-        input.value = Array.isArray(value) ? value.filter((v) => v != null).join('; ')
-            : (value == null ? '' : String(value));
+        const stored = (Array.isArray(value) ? value : [value]).filter((v) => v != null)
+            .map((v) => String(v));
+        input.value = Array.isArray(value) ? stored.join('; ') : (value == null ? '' : String(value));
+        const shown = input.value;   // so, wie das Eingabefeld es haelt
         if (many) input.placeholder = 'mehrere Werte mit ; trennen';
         return {
             node: input,
             read: () => {
                 const text = input.value.trim();
-                if (many) return text ? text.split(';').map((s) => s.trim()).filter(Boolean) : [];
-                return text || null;
+                if (!many) return text || null;
+                // Ungeaendert gehen die gespeicherten Werte zurueck, wie sie
+                // sind -- auch einer mit ";" (eine Outlook-Kategorie wie
+                // "Kunde; Muster AG"). Geaendert wird nur getrennt, was die
+                // Person getippt hat; gespeicherte Werte bleiben ganz.
+                if (input.value === shown) return stored.slice();
+                return DocFieldsUI.splitKeeping(text, ';', stored);
             },
         };
     }
