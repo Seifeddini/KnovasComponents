@@ -32,7 +32,7 @@ def _reset_enrichment():
 
 @pytest.fixture
 def links(tmp_path, monkeypatch):
-    """What RemoteController publishes on rc-state for a Microsoft 365 folder."""
+    """What Knovas Connector publishes on rc-state for a Microsoft 365 folder."""
     _reset_enrichment()
     path = tmp_path / "rc-state" / "m365" / "links.jsonl"
     path.parent.mkdir(parents=True)
@@ -105,8 +105,8 @@ api:
   base_url: "http://example.test"
 documents:
   source: "{source}"
-remote_controller:
-  base_url: "http://remote-controller:5001"
+knovas_connector:
+  base_url: "http://knovas-connector:5001"
 open:
   browser_client_path: true
   companion_enabled: false
@@ -137,7 +137,7 @@ def _preview_url(page=None):
     return url + (f"&page={page}" if page else "")
 
 
-def test_preview_comes_from_microsoft_via_remote_controller(links, tmp_path, monkeypatch):
+def test_preview_comes_from_microsoft_via_knovas_connector(links, tmp_path, monkeypatch):
     import web_interface.app as wa
 
     calls = []
@@ -152,15 +152,15 @@ def test_preview_comes_from_microsoft_via_remote_controller(links, tmp_path, mon
     resp = client.get(_preview_url(page=3))
     assert resp.status_code == 200, resp.get_json()
     assert resp.get_json() == {"success": True, "embed_url": "https://contoso.sharepoint.com/embed?x=1"}
-    # The identifier exactly as RemoteController published it, and the page.
-    assert calls == [("http://remote-controller:5001/m365/preview", {"doc_id": POINTER, "page": 3})]
+    # The identifier exactly as Knovas Connector published it, and the page.
+    assert calls == [("http://knovas-connector:5001/m365/preview", {"doc_id": POINTER, "page": 3})]
 
 
 def test_preview_refuses_unknown_documents_and_unsafe_urls(links, tmp_path, monkeypatch):
     import web_interface.app as wa
 
     def fake_post(url, json=None, timeout=None):
-        if json["doc_id"] != POINTER:  # RemoteController knows only what it published
+        if json["doc_id"] != POINTER:  # Knovas Connector knows only what it published
             return _Resp(404, {"error": "Unknown document"})
         return _Resp(200, {"getUrl": "javascript:alert(1)"})
 
@@ -247,8 +247,8 @@ def test_external_open_goes_to_sharepoint(links, tmp_path, monkeypatch):
     assert resp.status_code == 302 and resp.headers["Location"] == WEB_URL
 
 
-def test_remote_controller_client_signs_the_preview_call():
-    from remote_controller_client import PRINCIPAL_HEADER, RemoteControllerClient
+def test_knovas_connector_client_signs_the_preview_call():
+    from knovas_connector_client import PRINCIPAL_HEADER, KnovasConnectorClient
 
     class _Broker:
         def current_user(self):
@@ -264,7 +264,7 @@ def test_remote_controller_client_signs_the_preview_call():
             sent.update(method=method, url=url, json=json, headers=headers, timeout=timeout)
             return _Resp(200, {"status": "ok", "getUrl": "https://x/embed"})
 
-    rc = RemoteControllerClient("http://rc:5001", principal_broker=_Broker(), session=_Session())
+    rc = KnovasConnectorClient("http://rc:5001", principal_broker=_Broker(), session=_Session())
     assert rc.m365_preview(POINTER, 2)["getUrl"] == "https://x/embed"
     assert sent["method"] == "POST" and sent["url"] == "http://rc:5001/m365/preview"
     assert sent["json"] == {"doc_id": POINTER, "page": 2}

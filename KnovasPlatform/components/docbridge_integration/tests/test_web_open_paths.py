@@ -13,7 +13,7 @@ nobody chose.
 
 The two backends differ only in the last step. A fileshare corpus is opened from
 the share or downloaded; a OneDrive corpus is mirrored onto the same mount (the
-RemoteController mirror downloads it), so preview and download work identically
+Knovas Connector mirror downloads it), so preview and download work identically
 and it additionally carries a webUrl to open in Office.
 """
 

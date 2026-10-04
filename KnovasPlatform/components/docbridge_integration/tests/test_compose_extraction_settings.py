@@ -1,6 +1,6 @@
 """The admin upload extracts with the Knovas Connector's text settings.
 
-knovas.env reaches the Connector through RemoteController/.env.generated;
+knovas.env reaches the Connector through KnovasConnector/.env.generated;
 the Platform's container gets only its own .env.generated, where no RC_* key
 may appear. The settings that shape the extracted text -- text modes, OCR
 engine, DPI, languages -- therefore come to docbridge-web through compose's

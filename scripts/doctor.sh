@@ -138,19 +138,19 @@ flag_on "$(env_in_app CORTEX_ENABLED)" || CORTEX_ON=false
 M365=false
 [[ "$(env_in_app DOCUMENT_SOURCE)" == "m365" ]] && M365=true
 
-# The prefix RemoteController puts in front of every pointer it sends, asked of
-# RemoteController itself so the answer follows its rules and not a copy of them.
+# The prefix Knovas Connector puts in front of every pointer it sends, asked of
+# Knovas Connector itself so the answer follows its rules and not a copy of them.
 # There are two sources: a sync request somebody saved (the console), or -- with
 # none saved -- the automatic sync the unified stack starts, whose request is
 # built from KNOVAS_IDENTIFIER_PREFIX. The second is every firm without the admin
 # console, and reading only the saved request left those at "cannot compare"
 # for good.
 RC_UP=false
-running remote-controller && RC_UP=true
+running knovas-connector && RC_UP=true
 RC_PREFIX=""
 RC_PREFIX_FROM=""
 if [[ "$RC_UP" == true ]]; then
-  rc_line="$("${DC[@]}" exec -T -e PYTHONWARNINGS=ignore remote-controller python - 2>/dev/null <<'PY' | tail -1
+  rc_line="$("${DC[@]}" exec -T -e PYTHONWARNINGS=ignore knovas-connector python - 2>/dev/null <<'PY' | tail -1
 from config import get_config
 from sync.default_sync_body import build_default_sync_body
 from sync.sync_scheduler import load_last_sync_body
@@ -547,16 +547,16 @@ fi
 
 if [[ "$M365" == true ]]; then
 head_ "Documents in OneDrive / SharePoint"
-# RemoteController reads the folder through Microsoft Graph, indexes what is
+# Knovas Connector reads the folder through Microsoft Graph, indexes what is
 # new or changed and keeps nothing; the Platform opens and previews every hit
-# in Microsoft 365. So the questions are: can RemoteController sign in and read
+# in Microsoft 365. So the questions are: can Knovas Connector sign in and read
 # the folder, and has it published the links the Platform opens with.
 if [[ "$RC_UP" == true ]]; then
-  "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore remote-controller python -m m365.check 2>&1 \
+  "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore knovas-connector python -m m365.check 2>&1 \
     | sed -E 's/^ok    /     OK  /; s/^FAIL  /   FAIL  /; s/^WARN  /   WARN  /; s/^SKIP  /     --  /' \
     | sed 's/^/  /'
 else
-  bad "remote-controller is not running — the OneDrive/SharePoint folder cannot be checked."
+  bad "knovas-connector is not running — the OneDrive/SharePoint folder cannot be checked."
 fi
 "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore -e "DOCTOR_STORE=$STORE" \
   docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
@@ -654,16 +654,16 @@ if not files:
 else:
     print(f"     OK  the mount holds documents (counted {files}, stopped early)")
 
-# What the app strips, against what RemoteController actually sent. The saved
+# What the app strips, against what Knovas Connector actually sent. The saved
 # request body is the ground truth: the console's "Kennung" field is free text
 # with no default, so a profile saved with anything other than
 # AUTODOC_IDENTIFIER_PREFIX silently breaks every file lookup.
 app_prefixes = _autodoc_identifier_prefixes()
 print(f"AUTODOC_IDENTIFIER_PREFIX = {','.join(app_prefixes) or '<unset>'}")
 
-# Asked of RemoteController itself where it is running (see the top of
+# Asked of Knovas Connector itself where it is running (see the top of
 # doctor.sh), which also covers the automatic sync that never saves a request.
-# The file is the fallback for a RemoteController that is down: it still says
+# The file is the fallback for a Knovas Connector that is down: it still says
 # what the last ingestion was sent as.
 rc_prefix = (os.environ.get("DOCTOR_RC_PREFIX") or "").strip("/")
 rc_prefix_from = os.environ.get("DOCTOR_RC_PREFIX_FROM") or ""
@@ -940,11 +940,11 @@ while IFS= read -r problem; do
 done < <(knovas_rc_extraction_problems "$KNOVAS_ENV")
 
 # Whether anything new reaches the index, and whether the text under a result
-# exists at all: RemoteController writes the context sidecars as it reads each
+# exists at all: Knovas Connector writes the context sidecars as it reads each
 # file. Every section above passes while it stands still.
 if [[ "$RC_UP" != true ]]; then
-  bad "remote-controller is not running — nothing new is ingested and no snippet text is written."
-  echo "       ${DC[*]} logs --tail 50 remote-controller"
+  bad "knovas-connector is not running — nothing new is ingested and no snippet text is written."
+  echo "       ${DC[*]} logs --tail 50 knovas-connector"
 else
   if [[ -n "$RC_PREFIX" ]]; then
     echo "  ingests as '$RC_PREFIX/…' ($RC_PREFIX_FROM)"
@@ -952,11 +952,11 @@ else
   # Per-document upload failures do not change the state below: the cycle
   # finishes, counts them, and carries on. Its closing line is the one place
   # they add up -- and the one place a scan cut short by its cap is recorded.
-  LAST_CYCLE="$("${DC[@]}" logs --no-log-prefix --tail 5000 remote-controller 2>/dev/null \
+  LAST_CYCLE="$("${DC[@]}" logs --no-log-prefix --tail 5000 knovas-connector 2>/dev/null \
     | grep 'Sync cycle finished' | tail -1)"
   LAST_PAUSED="$(printf '%s' "$LAST_CYCLE" | sed -n 's/.*paused=\([a-z_]*\).*/\1/p')"
   "${DC[@]}" exec -T -e PYTHONWARNINGS=ignore -e "DOCTOR_LAST_PAUSED=$LAST_PAUSED" \
-    -e "DOCTOR_ROOT_DIR=$ROOT_DIR" remote-controller python - <<'PY' 2>&1 | sed 's/^/  /'
+    -e "DOCTOR_ROOT_DIR=$ROOT_DIR" knovas-connector python - <<'PY' 2>&1 | sed 's/^/  /'
 import json
 import os
 import urllib.error
@@ -1022,9 +1022,9 @@ if "scan_limit_reached" in (state, last_paused) and not sequential:
     print("         changed documents there never reach the index. Lift the cap — the whole share")
     print("         is then read each cycle, backing off to hourly while nothing changes:")
     print(f'           cd "{os.environ.get("DOCTOR_ROOT_DIR") or "."}"')
-    print("           docker compose --env-file knovas.env exec -T remote-controller python -c \\")
+    print("           docker compose --env-file knovas.env exec -T knovas-connector python -c \\")
     print(f'             "{fix}"')
-    print("           docker compose --env-file knovas.env restart remote-controller")
+    print("           docker compose --env-file knovas.env restart knovas-connector")
 elif state in ("running", "backlog_pending", "idle_between_cycles", "completed"):
     print(f"     OK  the sync is active ({state})")
 elif sequential and state in ("scan_limit_reached", "cycle_time_limit"):
@@ -1034,7 +1034,7 @@ elif state == "subfolders_complete":
     print("   WARN  the folder-by-folder pass over the share is finished, and nothing more is")
     print("         read: new and changed files are not ingested. For a sync that keeps going,")
     print("         set sequential_subfolders to false and max_scan_entries_per_cycle to 0 in")
-    print("         the sync config, then restart remote-controller.")
+    print("         the sync config, then restart knovas-connector.")
 elif state == "rate_limited":
     print("   WARN  Knovas is rate-limiting the uploads; the next cycle carries on")
 elif state == "stop_requested":
@@ -1049,7 +1049,7 @@ elif state in ("not_running", "disabled"):
 else:
     print(f"   FAIL  the sync is in state '{state}'")
 
-# The window is read on RemoteController's clock, which is UTC unless
+# The window is read on Knovas Connector's clock, which is UTC unless
 # RC_TIMEZONE says otherwise -- "20:00" is then 22:00 in Zurich in summer.
 if (start, end) != ("00:00", "23:59"):
     if get_config().rc_timezone:
@@ -1077,7 +1077,7 @@ PY
       ok "last cycle had no upload errors: $CYCLE"
     else
       warn "last cycle: $CYCLE"
-      echo "       Which files, and why: ${DC[*]} logs remote-controller | grep -iE 'error|fail' | tail -20"
+      echo "       Which files, and why: ${DC[*]} logs knovas-connector | grep -iE 'error|fail' | tail -20"
     fi
   fi
 fi
@@ -1267,7 +1267,7 @@ fi
 
 if [[ "$M365" != true ]]; then
 head_ "Snippet text across the share"
-# A store that is not empty can still hold text only for what RemoteController
+# A store that is not empty can still hold text only for what Knovas Connector
 # has read since this deployment began -- by default the files changed in the
 # last 30 days -- while every older document, found through an index built long
 # before, shows a title and nothing under it. Sampled across the folders of the
@@ -1305,7 +1305,7 @@ if seen:
 else:
     candidates = list(dict.fromkeys(p for p in (rc_prefix, *prefixes) if p)) or [""]
     basis = "from KNOVAS_IDENTIFIER_PREFIX"
-# RemoteController's SYNCABLE_EXTENSIONS: no other file ever gets a sidecar.
+# Knovas Connector's SYNCABLE_EXTENSIONS: no other file ever gets a sidecar.
 extensions = {".md", ".txt", ".docx", ".pdf", ".eml", ".msg"}
 
 sampled = covered = 0
@@ -1352,7 +1352,7 @@ elif not prefix:
 else:
     print(f'           cd "{os.environ.get("DOCTOR_ROOT_DIR") or "."}"')
     print("           docker compose --env-file knovas.env run -d --rm --name knovas-snippet-backfill \\")
-    print('             -v "$PWD/RemoteController/scripts:/app/scripts:ro" remote-controller \\')
+    print('             -v "$PWD/KnovasConnector/scripts:/app/scripts:ro" knovas-connector \\')
     print("             python /app/scripts/build_context_sidecars.py --jobs 2 \\")
     print(f"             --identifier-prefix {prefix} --store-dir {store}")
     print("         Follow it with: docker logs -f knovas-snippet-backfill")

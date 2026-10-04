@@ -2,22 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let the firm's administrator decide what is indexed, when, how fast and behind which wall from one form in the console — and have that decision reach RemoteController without anyone editing a file on the host.
+**Goal:** Let the firm's administrator decide what is indexed, when, how fast and behind which wall from one form in the console — and have that decision reach Knovas Connector without anyone editing a file on the host.
 
-**Architecture:** The profile compiler (KC-IN-4/6, `identity/ingestion_compiler.py`) already turns an `IngestionProfile` into the two schema-valid RemoteController documents. What is missing is everything around it: RemoteController must accept the firm administrator (today every route demands a Knovas-employee JWT), the Platform needs a repository over the existing `ingestion_profiles` table and a small RemoteController client that sends the user's principal assertion, and the console needs the tab. Saving is a guarded action (`ingestion_profile_change`) through `run_guarded` from the Approvals plan, so a change that widens or halts coverage can require a second person.
+**Architecture:** The profile compiler (KC-IN-4/6, `identity/ingestion_compiler.py`) already turns an `IngestionProfile` into the two schema-valid Knovas Connector documents. What is missing is everything around it: Knovas Connector must accept the firm administrator (today every route demands a Knovas-employee JWT), the Platform needs a repository over the existing `ingestion_profiles` table and a small Knovas Connector client that sends the user's principal assertion, and the console needs the tab. Saving is a guarded action (`ingestion_profile_change`) through `run_guarded` from the Approvals plan, so a change that widens or halts coverage can require a second person.
 
-**Tech Stack:** Python 3.11 (Platform) / 3.12 (RemoteController), Flask, psycopg 3, `cryptography` Ed25519 (both packages already depend on it), pytest.
+**Tech Stack:** Python 3.11 (Platform) / 3.12 (Knovas Connector), Flask, psycopg 3, `cryptography` Ed25519 (both packages already depend on it), pytest.
 
 **Spec:** `docs/superpowers/plans/2026-08-14-section-b-buildout.md` § "Ingestion administration" (KC-IN-1, IN-2, IN-3, IN-5, IN-7); Jira SS-391 acceptance criteria. **Depends on:** `docs/superpowers/plans/2026-09-02-admin-approvals-tab.md` (Tasks 2–4: `run_guarded`, `_require_roles`, the executors registry) — execute that plan first.
 
 ## Global Constraints
 
-- **Branch:** `feat/auth-assertion`. Platform tests run from `KnovasPlatform/components/docbridge_integration/` with `.venv/Scripts/python.exe -m pytest`; RemoteController tests from `RemoteController/` with `py -3 -m pytest` and the CI env block from `.github/workflows/ci.yml` (`RC_SKIP_CONFIG_VALIDATION=true TESTING=true ...`).
-- **One profile, one form, one write** (spec). The form edits an `IngestionProfile`; `compile_profile` is the only thing that produces RemoteController documents; nothing else writes them.
-- **The wire contract Platform → RemoteController is a request header `X-Platform-Principal`** carrying the same Ed25519 JWS the Platform sends Knovas in the body. RemoteController is our own component, so a header is fine here; it must **not** be confused with the Knovas body field.
-- **The kid is `"bk-" + sha256(public_pem)[:16]`**, computed identically in `KnovasPlatform/.../identity/broker_key.py::derive_key_id` and `RemoteController/src/auth/platform_principal.py::derive_key_id`. Two copies of three lines, documented as a contract; the two packages share no import.
-- **Assertion bounds are the Platform's:** `alg` pinned `EdDSA` in code, `typ` `knovas-principal+jws`, lifetime ≤ 300 s, skew 30 s, `jti` single-use. RemoteController verifies all of them.
-- **RemoteController stays unpublished** (KC-IN-5): reachable on `knovas-internal` only, `http://remote-controller:5001`. The console is the sole firm-facing surface.
+- **Branch:** `feat/auth-assertion`. Platform tests run from `KnovasPlatform/components/docbridge_integration/` with `.venv/Scripts/python.exe -m pytest`; Knovas Connector tests from `KnovasConnector/` with `py -3 -m pytest` and the CI env block from `.github/workflows/ci.yml` (`RC_SKIP_CONFIG_VALIDATION=true TESTING=true ...`).
+- **One profile, one form, one write** (spec). The form edits an `IngestionProfile`; `compile_profile` is the only thing that produces Knovas Connector documents; nothing else writes them.
+- **The wire contract Platform → Knovas Connector is a request header `X-Platform-Principal`** carrying the same Ed25519 JWS the Platform sends Knovas in the body. Knovas Connector is our own component, so a header is fine here; it must **not** be confused with the Knovas body field.
+- **The kid is `"bk-" + sha256(public_pem)[:16]`**, computed identically in `KnovasPlatform/.../identity/broker_key.py::derive_key_id` and `KnovasConnector/src/auth/platform_principal.py::derive_key_id`. Two copies of three lines, documented as a contract; the two packages share no import.
+- **Assertion bounds are the Platform's:** `alg` pinned `EdDSA` in code, `typ` `knovas-principal+jws`, lifetime ≤ 300 s, skew 30 s, `jti` single-use. Knovas Connector verifies all of them.
+- **Knovas Connector stays unpublished** (KC-IN-5): reachable on `knovas-internal` only, `http://knovas-connector:5001`. The console is the sole firm-facing surface.
 - **Every state-changing POST validates CSRF first, carries a role gate, writes an audit row** (REQ-A2). German UI copy; ASCII Python.
 - **Roles:** the tab is for `admin` and `ingestion_manager`. Saving, restoring and stopping are guarded (`ingestion_profile_change`); starting and previewing are not.
 - Do not push. Commit per task.
@@ -26,11 +26,11 @@
 
 ## File Structure
 
-**RemoteController — create**
+**Knovas Connector — create**
 - `src/auth/platform_principal.py` — verify a Platform-signed principal; `ReplayGuard`; `derive_key_id`.
 - `tests/test_platform_principal.py`
 
-**RemoteController — modify**
+**Knovas Connector — modify**
 - `src/auth/knovas_verify_client.py` — `require_operator_or_tenant_admin`.
 - `src/config.py` — `rc_platform_broker_pubkey_path`.
 - `src/routes/discover.py`, `sync.py`, `sync_config_route.py`, `sync_control.py` — swap the gate in `_RC_DECORATORS`.
@@ -38,27 +38,27 @@
 
 **Platform — create**
 - `src/identity/ingestion_profiles.py` — repository over `ingestion_profiles`; JSON ↔ `IngestionProfile`.
-- `src/remote_controller_client.py` — discover, status, start, stop, push (config then request, with rollback).
+- `src/knovas_connector_client.py` — discover, status, start, stop, push (config then request, with rollback).
 - `src/web_interface/admin_ingestion.py`, `templates/admin_ingestion.html`
-- `tests/test_identity_ingestion_profiles.py`, `tests/test_remote_controller_client.py`, `tests/test_web_admin_ingestion.py`
+- `tests/test_identity_ingestion_profiles.py`, `tests/test_knovas_connector_client.py`, `tests/test_web_admin_ingestion.py`
 
 **Platform — modify**
 - `src/web_interface/admin.py` — mount; register the `ingestion_profile_change` executor.
-- `src/web_interface/app.py` — build the RemoteController client with the same broker.
+- `src/web_interface/app.py` — build the Knovas Connector client with the same broker.
 - `templates/_admin_tabs.html`, `config/config.yaml`, `knovas.env.example`, `KnovasPlatform/docker-compose.yml`, `docker-compose.yml` (root), `KnovasPlatform/docs/features/document-administration.md`, `RELEASE_NOTES.md`
 
 Platform paths are relative to `KnovasPlatform/components/docbridge_integration/` unless prefixed.
 
 ---
 
-### Task 1: RemoteController accepts the firm administrator (KC-IN-1)
+### Task 1: Knovas Connector accepts the firm administrator (KC-IN-1)
 
 **Files:**
-- Create: `RemoteController/src/auth/platform_principal.py`
-- Modify: `RemoteController/src/auth/knovas_verify_client.py` (append the gate)
-- Modify: `RemoteController/src/config.py` (field + env)
-- Modify: `RemoteController/src/routes/discover.py:12-21`, `sync.py:18-27`, `sync_config_route.py:11-20`, `sync_control.py:19-30` — `_RC_DECORATORS`
-- Test: `RemoteController/tests/test_platform_principal.py`
+- Create: `KnovasConnector/src/auth/platform_principal.py`
+- Modify: `KnovasConnector/src/auth/knovas_verify_client.py` (append the gate)
+- Modify: `KnovasConnector/src/config.py` (field + env)
+- Modify: `KnovasConnector/src/routes/discover.py:12-21`, `sync.py:18-27`, `sync_config_route.py:11-20`, `sync_control.py:19-30` — `_RC_DECORATORS`
+- Test: `KnovasConnector/tests/test_platform_principal.py`
 
 **Interfaces:**
 - Consumes: the JWS the Platform's `AssertionSigner.mint` produces: header `{"alg": "EdDSA", "typ": "knovas-principal+jws", "kid": ...}`, payload `sub, tid, grp, rol, iat, exp, jti`, signature over `"<h64>.<p64>"` (ASCII).
@@ -78,9 +78,9 @@ Platform paths are relative to `KnovasPlatform/components/docbridge_integration/
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-"""A Platform-signed principal at RemoteController's door (KC-IN-1).
+"""A Platform-signed principal at Knovas Connector's door (KC-IN-1).
 
-The Platform already signs each user into its Knovas calls. RemoteController
+The Platform already signs each user into its Knovas calls. Knovas Connector
 verifies the same token so the firm's own administrator can configure their
 own ingestion — beside, not instead of, the Knovas-employee path.
 """
@@ -211,18 +211,18 @@ Fixture note: `rc_client` builds the app after `tmp_watch_root` reloads config; 
 
 - [ ] **Step 2: Run and watch them fail**
 
-Run (from `RemoteController/`): `RC_SKIP_CONFIG_VALIDATION=true TESTING=true RC_MTLS_DEV_BYPASS=true RC_INSTANCE_TOKEN=t RC_CLIENT_ID=22222222-2222-2222-2222-222222222222 KNOVAS_INTERNAL_API_URL=http://x:5000 py -3 -m pytest tests/test_platform_principal.py`
+Run (from `KnovasConnector/`): `RC_SKIP_CONFIG_VALIDATION=true TESTING=true RC_MTLS_DEV_BYPASS=true RC_INSTANCE_TOKEN=t RC_CLIENT_ID=22222222-2222-2222-2222-222222222222 KNOVAS_INTERNAL_API_URL=http://x:5000 py -3 -m pytest tests/test_platform_principal.py`
 Expected: FAIL — `ModuleNotFoundError: No module named 'auth.platform_principal'`
 
 - [ ] **Step 3: The verifier**
 
-Create `RemoteController/src/auth/platform_principal.py`:
+Create `KnovasConnector/src/auth/platform_principal.py`:
 
 ```python
-"""A Platform-signed principal at RemoteController's door (KC-IN-1).
+"""A Platform-signed principal at Knovas Connector's door (KC-IN-1).
 
 The firm's Platform signs each signed-in user into its Knovas calls with an
-Ed25519 key. RemoteController holds the public half and verifies the same
+Ed25519 key. Knovas Connector holds the public half and verifies the same
 token, so the firm's own administrator can configure their own ingestion.
 
 This mirrors the Platform's assertion rules exactly; the bounds are theirs.
@@ -273,7 +273,7 @@ def _unb64(text: str) -> bytes:
 
 
 class ReplayGuard:
-    """In-process single-use jti store. One RemoteController per firm, so a
+    """In-process single-use jti store. One Knovas Connector per firm, so a
     process-local set is the right size; entries expire with the token."""
 
     def __init__(self) -> None:
@@ -353,11 +353,11 @@ def verify_platform_principal(
 
 - [ ] **Step 4: Config**
 
-In `RemoteController/src/config.py`: add the dataclass field `rc_platform_broker_pubkey_path: str = ""` to `AppConfig`, and in `load_config` pass `rc_platform_broker_pubkey_path=(os.environ.get("RC_PLATFORM_BROKER_PUBKEY_PATH") or "").strip()`. Not in `_REQUIRED_VARS` — empty means the feature is off.
+In `KnovasConnector/src/config.py`: add the dataclass field `rc_platform_broker_pubkey_path: str = ""` to `AppConfig`, and in `load_config` pass `rc_platform_broker_pubkey_path=(os.environ.get("RC_PLATFORM_BROKER_PUBKEY_PATH") or "").strip()`. Not in `_REQUIRED_VARS` — empty means the feature is off.
 
 - [ ] **Step 5: The gate**
 
-Append to `RemoteController/src/auth/knovas_verify_client.py`:
+Append to `KnovasConnector/src/auth/knovas_verify_client.py`:
 
 ```python
 from auth.platform_principal import (  # noqa: E402  (placed with the other imports)
@@ -411,14 +411,14 @@ def require_operator_or_tenant_admin(func):
 
 In each of `discover.py`, `sync.py`, `sync_config_route.py`, `sync_control.py`, import `require_operator_or_tenant_admin` from `auth.knovas_verify_client` and replace `require_internal_access` with it in `_RC_DECORATORS`. Nothing else in those files changes.
 
-- [ ] **Step 7: Run the tests, then the whole RemoteController suite**
+- [ ] **Step 7: Run the tests, then the whole Knovas Connector suite**
 
 Run: the command from Step 2, then `... py -3 -m pytest` for the whole suite.
 Expected: the new file PASS (13); the suite unchanged.
 
 - [ ] **Step 8: Document, and commit**
 
-In `RemoteController/docs/configuration.md`, under the environment variables, add `RC_PLATFORM_BROKER_PUBKEY_PATH` — the Platform's `broker_ed25519.pub`, mounted read-only; with it set, the firm's administrator may use `/discover`, `/sync`, `/sync/config`, `/sync/start|stop|status` through the console; without it, only Knovas employees can.
+In `KnovasConnector/docs/configuration.md`, under the environment variables, add `RC_PLATFORM_BROKER_PUBKEY_PATH` — the Platform's `broker_ed25519.pub`, mounted read-only; with it set, the firm's administrator may use `/discover`, `/sync`, `/sync/config`, `/sync/start|stop|status` through the console; without it, only Knovas employees can.
 
 ```bash
 git add src/auth/platform_principal.py src/auth/knovas_verify_client.py src/config.py src/routes/ tests/test_platform_principal.py docs/configuration.md
@@ -666,19 +666,19 @@ git commit -m "feat(identity): versioned ingestion profiles — save, supersede,
 
 ---
 
-### Task 3: The RemoteController client (Platform side)
+### Task 3: The Knovas Connector client (Platform side)
 
 **Files:**
-- Create: `src/remote_controller_client.py`
-- Modify: `config/config.yaml` (a `remote_controller:` block), `src/web_interface/app.py` (construct it beside the Knovas client)
-- Test: `tests/test_remote_controller_client.py` (no network)
+- Create: `src/knovas_connector_client.py`
+- Modify: `config/config.yaml` (a `knovas_connector:` block), `src/web_interface/app.py` (construct it beside the Knovas client)
+- Test: `tests/test_knovas_connector_client.py` (no network)
 
 **Interfaces:**
-- Consumes: the broker from the auth work (`current_user()`, `assertion_for(user)`); `CompiledIngestion` from the compiler; RemoteController routes `GET /discover?root=&max_depth=`, `GET /sync/status`, `POST /sync/start`, `POST /sync/stop`, `GET|POST /sync/config`, `POST /sync`.
+- Consumes: the broker from the auth work (`current_user()`, `assertion_for(user)`); `CompiledIngestion` from the compiler; Knovas Connector routes `GET /discover?root=&max_depth=`, `GET /sync/status`, `POST /sync/start`, `POST /sync/stop`, `GET|POST /sync/config`, `POST /sync`.
 - Produces:
   ```python
-  class RemoteControllerError(RuntimeError): status: int | None
-  class RemoteControllerClient:
+  class KnovasConnectorError(RuntimeError): status: int | None
+  class KnovasConnectorClient:
       def __init__(self, base_url: str, *, principal_broker, session=None, timeout: float = 20.0)
       def discover(self, root: str | None = None, max_depth: int = 3) -> dict
       def status(self) -> dict
@@ -687,19 +687,19 @@ git commit -m "feat(identity): versioned ingestion profiles — save, supersede,
       def get_sync_config(self) -> dict
       def push(self, compiled: CompiledIngestion) -> dict   # config first, then request; restores the previous config if the request is refused
   ```
-  Config: `remote_controller.base_url` ← `${RC_BASE_URL:-http://remote-controller:5001}`.
+  Config: `knovas_connector.base_url` ← `${RC_BASE_URL:-http://knovas-connector:5001}`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-"""The console reaches RemoteController as the signed-in person, never anonymously."""
+"""The console reaches Knovas Connector as the signed-in person, never anonymously."""
 
 from __future__ import annotations
 
 import pytest
 
 from identity.ingestion_compiler import CompiledIngestion
-from remote_controller_client import RemoteControllerClient, RemoteControllerError
+from knovas_connector_client import KnovasConnectorClient, KnovasConnectorError
 
 
 class _Broker:
@@ -732,12 +732,12 @@ class _Session:
         return handler(kw) if callable(handler) else (handler or _Resp(200))
 
 
-BASE = "http://remote-controller:5001"
+BASE = "http://knovas-connector:5001"
 
 
 def test_every_call_carries_the_principal_header():
     session = _Session({("GET", "status"): _Resp(200, {"state": "idle"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     assert client.status() == {"state": "idle"}
     _, url, _, headers = session.calls[0]
     assert url == f"{BASE}/sync/status"
@@ -746,7 +746,7 @@ def test_every_call_carries_the_principal_header():
 
 def test_no_user_means_no_call():
     session = _Session({})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(user=None), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(user=None), session=session)
     with pytest.raises(PermissionError):
         client.status()
     assert session.calls == []
@@ -756,7 +756,7 @@ def test_push_sends_config_then_request():
     session = _Session({("POST", "config"): _Resp(200, {"ok": True}),
                         ("POST", "sync"): _Resp(200, {"accepted": 3}),
                         ("GET", "config"): _Resp(200, {"old": True})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     out = client.push(CompiledIngestion(sync_config={"mode": "scheduled"},
                                         sync_request={"mode": "incremental"}))
     assert out == {"accepted": 3}
@@ -768,8 +768,8 @@ def test_a_refused_request_restores_the_previous_config():
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): _Resp(200),
                         ("POST", "sync"): _Resp(400, {"error": "bad body"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
     assert excinfo.value.status == 400
     posted_configs = [body for m, u, body, _ in session.calls if m == "POST" and u.endswith("/sync/config")]
@@ -778,7 +778,7 @@ def test_a_refused_request_restores_the_previous_config():
 
 def test_discover_passes_root_and_depth():
     session = _Session({("GET", "discover"): _Resp(200, {"folders": []})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     client.discover(root="/mnt/autodoc", max_depth=2)
     _, url, _, _ = session.calls[0]
     assert "root=%2Fmnt%2Fautodoc" in url and "max_depth=2" in url
@@ -786,17 +786,17 @@ def test_discover_passes_root_and_depth():
 
 - [ ] **Step 2: Run and watch them fail**
 
-Run: `.venv/Scripts/python.exe -m pytest tests/test_remote_controller_client.py`
-Expected: FAIL — `ModuleNotFoundError: No module named 'remote_controller_client'`
+Run: `.venv/Scripts/python.exe -m pytest tests/test_knovas_connector_client.py`
+Expected: FAIL — `ModuleNotFoundError: No module named 'knovas_connector_client'`
 
 - [ ] **Step 3: Implement**
 
 ```python
-"""The console's client for the firm's own RemoteController.
+"""The console's client for the firm's own Knovas Connector.
 
 Every call goes out as the signed-in person: the same Ed25519 assertion the
 Platform sends Knovas, here in the X-Platform-Principal header, verified by
-RemoteController's require_operator_or_tenant_admin. No session, no call.
+Knovas Connector's require_operator_or_tenant_admin. No session, no call.
 """
 from __future__ import annotations
 
@@ -813,13 +813,13 @@ logger = logging.getLogger(__name__)
 PRINCIPAL_HEADER = "X-Platform-Principal"
 
 
-class RemoteControllerError(RuntimeError):
+class KnovasConnectorError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
 
 
-class RemoteControllerClient:
+class KnovasConnectorClient:
     def __init__(self, base_url: str, *, principal_broker, session=None,
                  timeout: float = 20.0) -> None:
         self._base = base_url.rstrip("/")
@@ -830,7 +830,7 @@ class RemoteControllerClient:
     def _headers(self) -> dict[str, str]:
         user = self._broker.current_user()
         if user is None:
-            raise PermissionError("Kein angemeldeter Benutzer; RemoteController wird nicht aufgerufen.")
+            raise PermissionError("Kein angemeldeter Benutzer; Knovas Connector wird nicht aufgerufen.")
         return {PRINCIPAL_HEADER: self._broker.assertion_for(user),
                 "Content-Type": "application/json"}
 
@@ -844,14 +844,14 @@ class RemoteControllerClient:
         except requests.RequestException as exc:
             # Task 3 review ruling: a transport failure is a client error too,
             # so push()'s rollback and the routes' except clauses see it.
-            raise RemoteControllerError(f"RemoteController nicht erreichbar: {exc}", status=None) from exc
+            raise KnovasConnectorError(f"Knovas Connector nicht erreichbar: {exc}", status=None) from exc
         try:
             payload = resp.json()
         except Exception:  # noqa: BLE001
             payload = {}
         if resp.status_code >= 400:
             message = str((payload or {}).get("error") or f"HTTP {resp.status_code}")
-            raise RemoteControllerError(message, status=resp.status_code)
+            raise KnovasConnectorError(message, status=resp.status_code)
         return payload
 
     def discover(self, root: str | None = None, max_depth: int = 3) -> dict:
@@ -870,13 +870,13 @@ class RemoteControllerClient:
         return self._call("GET", "/sync/config")
 
     def push(self, compiled: CompiledIngestion) -> dict:
-        """Config first, then the folder list. If RemoteController refuses the
+        """Config first, then the folder list. If Knovas Connector refuses the
         folder list, the previous config is put back so the two never diverge."""
         previous = self.get_sync_config()
         self._call("POST", "/sync/config", body=compiled.sync_config)
         try:
             return self._call("POST", "/sync", body=compiled.sync_request)
-        except RemoteControllerError:
+        except KnovasConnectorError:
             try:
                 self._call("POST", "/sync/config", body=previous)
             except Exception as rollback_exc:  # noqa: BLE001 - never mask the original error
@@ -889,18 +889,18 @@ class RemoteControllerClient:
 `config/config.yaml`, before the `identity:` block:
 
 ```yaml
-# The firm's own RemoteController, on knovas-internal only (never published).
-remote_controller:
-  base_url: "${RC_BASE_URL:-http://remote-controller:5001}"
+# The firm's own Knovas Connector, on knovas-internal only (never published).
+knovas_connector:
+  base_url: "${RC_BASE_URL:-http://knovas-connector:5001}"
 ```
 
 `app.py`, directly after `api_client.attach_principal_broker(...)` inside the `identity_gate is not None` block:
 
 ```python
-        from remote_controller_client import RemoteControllerClient
+        from knovas_connector_client import KnovasConnectorClient
 
-        rc_client = RemoteControllerClient(
-            str(config.get('remote_controller.base_url', 'http://remote-controller:5001')),
+        rc_client = KnovasConnectorClient(
+            str(config.get('knovas_connector.base_url', 'http://knovas-connector:5001')),
             principal_broker=_RequestScopedBroker(identity_gate, broker_signer,
                                                   str(api_client.customer_id)),
         )
@@ -910,12 +910,12 @@ and pass `rc_client_factory=lambda: rc_client` into `create_admin_blueprint(...)
 
 - [ ] **Step 5: Run, then commit**
 
-Run: `.venv/Scripts/python.exe -m pytest tests/test_remote_controller_client.py`
+Run: `.venv/Scripts/python.exe -m pytest tests/test_knovas_connector_client.py`
 Expected: PASS (5)
 
 ```bash
-git add src/remote_controller_client.py config/config.yaml src/web_interface/app.py tests/test_remote_controller_client.py
-git commit -m "feat(platform): RemoteController client that calls as the signed-in person; push is config-then-request with rollback"
+git add src/knovas_connector_client.py config/config.yaml src/web_interface/app.py tests/test_knovas_connector_client.py
+git commit -m "feat(platform): Knovas Connector client that calls as the signed-in person; push is config-then-request with rollback"
 ```
 
 ---
@@ -929,7 +929,7 @@ git commit -m "feat(platform): RemoteController client that calls as the signed-
 - Test: `tests/test_web_admin_ingestion.py`
 
 **Interfaces:**
-- Consumes: `run_guarded`, `_require_roles` (Approvals plan); `IngestionProfileRepository` (Task 2); `RemoteControllerClient` (Task 3); `compile_profile`, `ProfileError`, `redact_for_support`, `IngestionProfile`, `SourceFolder`; the presets tables in `identity/ingestion_presets.py`: `SCHEDULE_PRESETS`, `THROUGHPUT_PRESETS`, `FILE_TYPE_PRESETS` (verified).
+- Consumes: `run_guarded`, `_require_roles` (Approvals plan); `IngestionProfileRepository` (Task 2); `KnovasConnectorClient` (Task 3); `compile_profile`, `ProfileError`, `redact_for_support`, `IngestionProfile`, `SourceFolder`; the presets tables in `identity/ingestion_presets.py`: `SCHEDULE_PRESETS`, `THROUGHPUT_PRESETS`, `FILE_TYPE_PRESETS` (verified).
 - Produces: `attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client_factory, rc_client_factory, require_ingestion)` with routes `GET /admin/ingestion`, `POST /admin/ingestion/preview`, `POST /admin/ingestion/save`, `POST /admin/ingestion/restore/<int:version>`, `POST /admin/ingestion/start`, `POST /admin/ingestion/stop`; and `apply_profile(payload, actor, *, conn, rc_client) -> dict` — the executor for `ingestion_profile_change`.
 
 Form contract (POST `/admin/ingestion/save` and `/preview`): `identifier_prefix`, `description`, `schedule` ∈ presets, `throughput` ∈ presets, `file_types` (multi), `max_document_age_days` (blank = none), up to twelve folder rows named `folder-N-path`, `folder-N-recursive` (`1`), `folder-N-groups` (multi). Blank paths are skipped. `stop` is guarded because it halts coverage; `start` and `preview` are not.
@@ -975,7 +975,7 @@ class TestShape:
 
         src = inspect.getsource(admin_ingestion)
         assert "compile_profile(" in src
-        assert "sync_request.schema" not in src and "remote_controller_sync" not in src
+        assert "sync_request.schema" not in src and "knovas_connector_sync" not in src
 
 
 class TestFormParsing:
@@ -1058,7 +1058,7 @@ Create `src/web_interface/admin_ingestion.py`:
 
 One profile, one form, one write (section B plan, "Ingestion administration").
 The form edits an IngestionProfile; compile_profile is the only thing that
-produces RemoteController documents; RemoteControllerClient.push is the only
+produces Knovas Connector documents; KnovasConnectorClient.push is the only
 thing that sends them. Saving is a guarded action, because a profile change
 can widen or halt coverage (KC-B5-2).
 
@@ -1086,7 +1086,7 @@ from identity.ingestion_profiles import (
     profile_from_json,
     profile_to_json,
 )
-from remote_controller_client import RemoteControllerError
+from knovas_connector_client import KnovasConnectorError
 from web_interface.guarded import run_guarded
 
 logger = logging.getLogger(__name__)
@@ -1195,7 +1195,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         try:
             rc_status = rc_client_factory().status()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("RemoteController-Status nicht abrufbar: %s", exc)
+            logger.warning("Knovas-Connector-Status nicht abrufbar: %s", exc)
             rc_status = {"scheduler_state": "unbekannt"}
         groups = []
         try:
@@ -1255,7 +1255,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                     "truncated": bool(found.get("truncated")),
                     "error": None,
                 })
-            except (RemoteControllerError, PermissionError) as exc:
+            except (KnovasConnectorError, PermissionError) as exc:
                 summary.append({"path": source.path, "files": None, "folders": None,
                                 "truncated": False, "error": str(exc)})
         return _page(form_from_profile(profile), preview=summary,
@@ -1282,9 +1282,9 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                 execute=lambda: apply_profile(payload, me, conn=gate.connection(),
                                               rc_client=rc_client_factory()),
             )
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(form_from_profile(profile),
-                         error=f"RemoteController hat das Profil nicht uebernommen: {exc}", status=502)
+                         error=f"Knovas Connector hat das Profil nicht uebernommen: {exc}", status=502)
         if outcome.queued:
             return _page(form_from_profile(profile), notice=_queued_notice(outcome.request))
         return _page(notice=f"Profil gespeichert und uebertragen (Version {outcome.result['version']}).")
@@ -1308,7 +1308,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                 execute=lambda: apply_profile(payload, me, conn=gate.connection(),
                                               rc_client=rc_client_factory()),
             )
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=f"Wiederherstellen fehlgeschlagen: {exc}", status=502)
         if outcome.queued:
             return _page(notice=_queued_notice(outcome.request))
@@ -1323,10 +1323,10 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         me = gate.current_user()
         try:
             rc_client_factory().start()
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=f"Start fehlgeschlagen: {exc}", status=502)
         audit.record(gate.connection(), action="ingestion.started", actor=me,
-                     target_type="remote_controller", target_id="sync", detail={})
+                     target_type="knovas_connector", target_id="sync", detail={})
         return _page(notice="Abgleich gestartet.")
 
     @bp.route("/ingestion/stop", methods=["POST"])
@@ -1340,13 +1340,13 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         def _halt():
             rc_client_factory().stop()
             audit.record(gate.connection(), action="ingestion.stopped", actor=me,
-                         target_type="remote_controller", target_id="sync", detail={})
+                         target_type="knovas_connector", target_id="sync", detail={})
             return {"stopped": True}
 
         try:
-            outcome = run_guarded(_approvals(), me, kind=KIND, target_ref="remote_controller:stop",
+            outcome = run_guarded(_approvals(), me, kind=KIND, target_ref="knovas_connector:stop",
                                   payload={"action": "stop"}, execute=_halt)
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=f"Stopp fehlgeschlagen: {exc}", status=502)
         if outcome.queued:
             return _page(notice=_queued_notice(outcome.request))
@@ -1368,7 +1368,7 @@ The `stop` payload `{"action": "stop"}` has no `"profile"` key, so the approvals
 
 - [ ] **Step 4: Mount it**
 
-In `admin.py`: add `rc_client_factory` as a keyword parameter of `create_admin_blueprint` (default `None`; when `None`, do not mount the ingestion routes or register the executor — a deployment without RemoteController still gets the other tabs). Define `require_ingestion = _require_roles(frozenset({"admin", "ingestion_manager"}))`. Mount with the signature above and register the executor.
+In `admin.py`: add `rc_client_factory` as a keyword parameter of `create_admin_blueprint` (default `None`; when `None`, do not mount the ingestion routes or register the executor — a deployment without Knovas Connector still gets the other tabs). Define `require_ingestion = _require_roles(frozenset({"admin", "ingestion_manager"}))`. Mount with the signature above and register the executor.
 
 - [ ] **Step 5: The template**
 
@@ -1501,7 +1501,7 @@ Add the tab to `_admin_tabs.html` after Freigaben:
        {% if admin_tab == 'ingestion' %}aria-current="page"{% endif %}>Ingestion</a>
 ```
 
-The strip must not `url_for('admin.ingestion')` when the routes are not mounted (no RemoteController). Guard it: `{% if 'admin.ingestion' in (url_for.__globals__ if false else []) %}` is not a thing — instead pass `ingestion_enabled` through `page_context()` from `app.py` (`'ingestion_enabled': rc_client is not None`) and wrap the anchor in `{% if ingestion_enabled %}`. The render tests then pass `ingestion_enabled=True`.
+The strip must not `url_for('admin.ingestion')` when the routes are not mounted (no Knovas Connector). Guard it: `{% if 'admin.ingestion' in (url_for.__globals__ if false else []) %}` is not a thing — instead pass `ingestion_enabled` through `page_context()` from `app.py` (`'ingestion_enabled': rc_client is not None`) and wrap the anchor in `{% if ingestion_enabled %}`. The render tests then pass `ingestion_enabled=True`.
 
 - [ ] **Step 6: Run everything**
 
@@ -1535,11 +1535,11 @@ git commit -m "feat(admin): Ingestion tab — one profile, one form, one write; 
 ### Task 5: Plumbing and documentation
 
 **Files:**
-- Modify: `KnovasPlatform/docker-compose.yml`, `docker-compose.yml` (root), `knovas.env.example`, `RemoteController/docs/configuration.md`, `KnovasPlatform/docs/features/document-administration.md`, `RELEASE_NOTES.md`
+- Modify: `KnovasPlatform/docker-compose.yml`, `docker-compose.yml` (root), `knovas.env.example`, `KnovasConnector/docs/configuration.md`, `KnovasPlatform/docs/features/document-administration.md`, `RELEASE_NOTES.md`
 
-- [ ] **Step 1: Share the public key with RemoteController, read-only**
+- [ ] **Step 1: Share the public key with Knovas Connector, read-only**
 
-**Ruling R-I7 (2026-09-02):** only the root `docker-compose.yml` runs `remote-controller` (`KnovasPlatform/docker-compose.yml` has no such service). On that one service, append to its existing `volumes:` list and add a new `environment:` block:
+**Ruling R-I7 (2026-09-02):** only the root `docker-compose.yml` runs `knovas-connector` (`KnovasPlatform/docker-compose.yml` has no such service). On that one service, append to its existing `volumes:` list and add a new `environment:` block:
 
 ```yaml
     volumes:
@@ -1548,18 +1548,18 @@ git commit -m "feat(admin): Ingestion tab — one profile, one form, one write; 
       RC_PLATFORM_BROKER_PUBKEY_PATH: /app/secrets/broker/broker_ed25519.pub
 ```
 
-The service currently has `env_file:` and `volumes:` but no `environment:` block, so the block is new. The named volume `docbridge_broker_key` already exists from the auth work; RemoteController gets the whole directory read-only and reads only the `.pub`. State in a comment that the private key is in the same directory and that `:ro` plus RemoteController never opening it is the whole protection — a reviewer will ask.
+The service currently has `env_file:` and `volumes:` but no `environment:` block, so the block is new. The named volume `docbridge_broker_key` already exists from the auth work; Knovas Connector gets the whole directory read-only and reads only the `.pub`. State in a comment that the private key is in the same directory and that `:ro` plus Knovas Connector never opening it is the whole protection — a reviewer will ask.
 
 - [ ] **Step 2: Environment examples**
 
 In `knovas.env.example`, add beside `PLATFORM_BROKER_KEY_DIR`:
 
 ```
-# The console reaches the firm's RemoteController here (knovas-internal only).
-# RC_BASE_URL=http://remote-controller:5001
+# The console reaches the firm's Knovas Connector here (knovas-internal only).
+# RC_BASE_URL=http://knovas-connector:5001
 ```
 
-In `RemoteController/.env.example`, beside `RC_CLIENT_ID`:
+In `KnovasConnector/.env.example`, beside `RC_CLIENT_ID`:
 
 ```
 # The Platform's broker public key (mounted read-only from the docbridge_broker_key volume).
@@ -1577,8 +1577,8 @@ Feature doc, new section before `## Scale`:
 
 The Ingestion tab (`admin` and `ingestion_manager`) edits one profile: folders
 with their access groups, file kinds, schedule, throughput, age cut-off. *Vorschau*
-asks RemoteController what each folder holds without saving anything.
-*Speichern und übertragen* compiles the profile into the two RemoteController
+asks Knovas Connector what each folder holds without saving anything.
+*Speichern und übertragen* compiles the profile into the two Knovas Connector
 documents, validates both against their schemas, saves a new version and pushes
 config-then-folders; if the folder list is refused, the previous config is put
 back. Every version stays; *Wiederherstellen* copies an old one forward.
@@ -1586,7 +1586,7 @@ back. Every version stays; *Wiederherstellen* copies an old one forward.
 Saving, restoring and stopping the sync are four-eyes guarded
 (`ingestion_profile_change`); see Freigaben. Starting and previewing are not.
 
-RemoteController accepts the administrator's own Platform-signed principal in
+Knovas Connector accepts the administrator's own Platform-signed principal in
 `X-Platform-Principal` (`RC_PLATFORM_BROKER_PUBKEY_PATH`); nobody needs a Knovas
 employee token, a shell on the host, or `chmod`.
 ```
@@ -1597,38 +1597,38 @@ Release note under `### Freigaben`:
 ### Ingestion in der Verwaltung
 
 Was indexiert wird, wann und hinter welcher Wand, wird jetzt in der Verwaltung
-eingestellt — mit Vorschau, Versionen und Wiederherstellung. Der RemoteController
+eingestellt — mit Vorschau, Versionen und Wiederherstellung. Der Knovas Connector
 akzeptiert dafür die Anmeldung der Kanzlei selbst.
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docker-compose.yml knovas.env.example RemoteController/.env.example KnovasPlatform/docs/features/document-administration.md RELEASE_NOTES.md
-git commit -m "docs(admin): ingestion administration — key sharing with RemoteController, env, feature doc"
+git add docker-compose.yml knovas.env.example KnovasConnector/.env.example KnovasPlatform/docs/features/document-administration.md RELEASE_NOTES.md
+git commit -m "docs(admin): ingestion administration — key sharing with Knovas Connector, env, feature doc"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage.** KC-IN-1 → Task 1 (`require_operator_or_tenant_admin`, role `ingestion_manager` or `admin` in `rol`, beside the employee path, each route declares it). KC-IN-2 → Task 2 (versioned row, author, approver column carried, timestamp). KC-IN-3 → Task 4. KC-IN-5 → the client targets `remote-controller:5001` on `knovas-internal`; no port is published (Task 5 adds none). KC-IN-7 → preview via `/discover` (Task 4 `preview`), every save a new version, restore re-compiles and re-pushes (Task 4 `restore` → `apply_profile`). KC-IN-4/6 already landed. SS-391 AC 1 (no host edits) → Tasks 1, 3, 4; AC 2 (one write path) → `compile_profile` + `push` only, asserted by `test_the_compiler_is_the_only_writer`; AC 3 (per-source groups reach the upload) → `SourceFolder.access_groups` through the compiler, already covered by RemoteController's `test_sync_access_groups.py`; AC 4 → gate/CSRF/audit on every route; AC 5 German copy; AC 6 tests in CI. The spec's folder *browser* backed by `/discover` is reduced to a typed path plus a preview per folder — stated here rather than silently dropped; the browser is a UI iteration once the write path is real.
+**Spec coverage.** KC-IN-1 → Task 1 (`require_operator_or_tenant_admin`, role `ingestion_manager` or `admin` in `rol`, beside the employee path, each route declares it). KC-IN-2 → Task 2 (versioned row, author, approver column carried, timestamp). KC-IN-3 → Task 4. KC-IN-5 → the client targets `knovas-connector:5001` on `knovas-internal`; no port is published (Task 5 adds none). KC-IN-7 → preview via `/discover` (Task 4 `preview`), every save a new version, restore re-compiles and re-pushes (Task 4 `restore` → `apply_profile`). KC-IN-4/6 already landed. SS-391 AC 1 (no host edits) → Tasks 1, 3, 4; AC 2 (one write path) → `compile_profile` + `push` only, asserted by `test_the_compiler_is_the_only_writer`; AC 3 (per-source groups reach the upload) → `SourceFolder.access_groups` through the compiler, already covered by Knovas Connector's `test_sync_access_groups.py`; AC 4 → gate/CSRF/audit on every route; AC 5 German copy; AC 6 tests in CI. The spec's folder *browser* backed by `/discover` is reduced to a typed path plus a preview per folder — stated here rather than silently dropped; the browser is a UI iteration once the write path is real.
 
 **Placeholder scan.** None. The preset dict names were verified against `ingestion_presets.py`.
 
-**Type consistency.** `apply_profile(payload, actor, *, conn, rc_client)` — Task 4 definition, executor registration, `save`/`restore` calls. `RemoteControllerClient(base_url, *, principal_broker, session=None, timeout)` — Task 3 tests and `app.py`. `profile_to_json`/`profile_from_json` — Tasks 2 and 4. `IngestionProfileRepository.save_new_version(profile, *, name, by, approved_by)` — Tasks 2 and 4. `verify_platform_principal(token, *, public_pem, expected_tenant, replay, now)` — Task 1 tests and gate.
+**Type consistency.** `apply_profile(payload, actor, *, conn, rc_client)` — Task 4 definition, executor registration, `save`/`restore` calls. `KnovasConnectorClient(base_url, *, principal_broker, session=None, timeout)` — Task 3 tests and `app.py`. `profile_to_json`/`profile_from_json` — Tasks 2 and 4. `IngestionProfileRepository.save_new_version(profile, *, name, by, approved_by)` — Tasks 2 and 4. `verify_platform_principal(token, *, public_pem, expected_tenant, replay, now)` — Task 1 tests and gate.
 
 ### Final whole-branch review (2026-09-02) — rulings
 
 The whole-branch review over `2845a9a..6a6452b` returned *With fixes*: two Critical, six Important, ten Minor; four parked items promoted. One fix wave (`6a6a5d2..088d256`) answered them. Rulings, each binding over the task text above:
 
-- **FR-1 (C1).** `RC_SYNC_CONFIG_API_ENABLED` defaulted to false and nothing on the branch set it, so every push failed at `GET /sync/config`. Fix: `"true"` in the root compose `remote-controller` environment, documented in RemoteController's `configuration.md` and the feature doc; `push()` maps a 404 there to a sentence naming the variable. Plan defect: Task 5 never named the flag.
-- **FR-2 (C2).** `POST /sync` either left a running worker on its frozen context (`already_running`) or ran a whole sync synchronously inside the request. Neither carries the console's decision. Fix, additive on RemoteController: `_continuous_worker` reloads the sync config and the last body at the top of every cycle; new `POST /sync/body` stores a validated body without running. Platform `push()` = GET config, POST config, POST body (rollback on refusal), then by mode: `one_time` -> `stored`; `continuous` and running -> `next_cycle`; `continuous` and idle -> `/sync/start` -> `started` (a start failure is reported, not rolled back). `push()` never calls `POST /sync`. Task 3's "config then folder list" and Task 4's single notice are superseded. The employee path is untouched.
+- **FR-1 (C1).** `RC_SYNC_CONFIG_API_ENABLED` defaulted to false and nothing on the branch set it, so every push failed at `GET /sync/config`. Fix: `"true"` in the root compose `knovas-connector` environment, documented in Knovas Connector's `configuration.md` and the feature doc; `push()` maps a 404 there to a sentence naming the variable. Plan defect: Task 5 never named the flag.
+- **FR-2 (C2).** `POST /sync` either left a running worker on its frozen context (`already_running`) or ran a whole sync synchronously inside the request. Neither carries the console's decision. Fix, additive on Knovas Connector: `_continuous_worker` reloads the sync config and the last body at the top of every cycle; new `POST /sync/body` stores a validated body without running. Platform `push()` = GET config, POST config, POST body (rollback on refusal), then by mode: `one_time` -> `stored`; `continuous` and running -> `next_cycle`; `continuous` and idle -> `/sync/start` -> `started` (a start failure is reported, not rolled back). `push()` never calls `POST /sync`. Task 3's "config then folder list" and Task 4's single notice are superseded. The employee path is untouched.
 - **FR-3 (I1).** An approved change executed with the approver's principal and recorded the approver as author. Fix: `requested_by` travels in the payload; `created_by` = requester, `approved_by` = executor when they differ; the executor checks `admin|ingestion_manager` before inserting a row; the Freigaben row says who can execute. Task 4's executor lambda is superseded by `execute_ingestion_change`.
 - **FR-4 (I2, I3).** One `execute_stop` shared by route and registry (Task 4's inline stop lambda wrote no audit row); `_summary` renders ingestion payloads and "Abgleich anhalten".
-- **FR-5 (I4).** The private key sits in RemoteController's mount; the protection is the uid/mode split (Platform writes `root:root 0600`, RemoteController runs as 10001). Documented in the compose comment and `docs/certificates.md`; RemoteController refuses to start when it can read the sibling private key. A pub-only second volume is a follow-up. Ruling R-I7 gains this fact.
-- **FR-6 (I5).** Order-asserting shape tests, a recording fake RemoteController client, and a PostgreSQL-gated `TestLive` for every ingestion route.
+- **FR-5 (I4).** The private key sits in Knovas Connector's mount; the protection is the uid/mode split (Platform writes `root:root 0600`, Knovas Connector runs as 10001). Documented in the compose comment and `docs/certificates.md`; Knovas Connector refuses to start when it can read the sibling private key. A pub-only second volume is a follow-up. Ruling R-I7 gains this fact.
+- **FR-6 (I5).** Order-asserting shape tests, a recording fake Knovas Connector client, and a PostgreSQL-gated `TestLive` for every ingestion route.
 - **FR-7 (I6).** Five non-ASCII characters in `.py` files removed; `scripts/check_ascii_py.py` added for the next reviewer.
-- **FR-8 (parked -> fixed).** P-A5 executor contract on the `executors` docstring; P-I1 RemoteController refuses an empty `sub`; P-I4 key-file or PEM failure logs at ERROR and answers 503 while token failures stay 401; P-I5 info log after successful verification. Minors included: M3 rate-limit key on the principal subject, M4 per-call timeouts, M6 vacuous test replaced, M7 tab-strip comment.
-- **FR-9 (parked, not fixed).** M1 console without RemoteController is unreachable (`base_url` never empty); M2 `/api/health` reports `semantix_api: false` with identity on; M5 `IngestionProfileRepository.restore()` unused by the route; M8 approved requests never expire; M9 ACL routes answer 400 where ingestion answers 502; M10 PEM parsed per request; P-A1..P-A4, P-A6, P-I2, P-I3, P-I6..P-I8 as ruled in `final-review.md`.
+- **FR-8 (parked -> fixed).** P-A5 executor contract on the `executors` docstring; P-I1 Knovas Connector refuses an empty `sub`; P-I4 key-file or PEM failure logs at ERROR and answers 503 while token failures stay 401; P-I5 info log after successful verification. Minors included: M3 rate-limit key on the principal subject, M4 per-call timeouts, M6 vacuous test replaced, M7 tab-strip comment.
+- **FR-9 (parked, not fixed).** M1 console without Knovas Connector is unreachable (`base_url` never empty); M2 `/api/health` reports `semantix_api: false` with identity on; M5 `IngestionProfileRepository.restore()` unused by the route; M8 approved requests never expire; M9 ACL routes answer 400 where ingestion answers 502; M10 PEM parsed per request; P-A1..P-A4, P-A6, P-I2, P-I3, P-I6..P-I8 as ruled in `final-review.md`.
 - **FR-10 (re-review residuals).** `/sync/start` answered 400 to the `{}` the client posts, so `started` was unreachable: an empty object now means "no body given" and the stored body is used. A one_time config arriving mid-run now ends the worker after that cycle. The client's running-state set gained the four mid-cycle pause reasons. Commit `56097c8`, each with a test that fails without the fix.

@@ -1,0 +1,359 @@
+"""POST /remote_controller/verify_operator with short TTL cache."""
+from __future__ import annotations
+
+import hashlib
+import ipaddress
+import logging
+import threading
+import time
+from functools import wraps
+from typing import Optional
+from urllib.parse import urlparse
+
+import requests
+from cryptography.hazmat.primitives import serialization
+from flask import g, jsonify, request
+
+from auth.jwt_identity import employee_id_from_jwt_token
+from auth.platform_principal import (
+    ADMIN_ROLES,
+    HEADER as PLATFORM_PRINCIPAL_HEADER,
+    InvalidPrincipalError,
+    ReplayGuard,
+    verify_platform_principal,
+)
+from config import get_config
+
+logger = logging.getLogger(__name__)
+
+_cache: dict[tuple[str, str], tuple[float, str]] = {}
+_cache_lock = threading.Lock()
+
+
+def _token_fingerprint(jwt_token: str) -> str:
+    """SHA-256 of the exact token bytes: only a byte-identical, already
+    Knovas-verified token can reuse a cache entry."""
+    return hashlib.sha256(jwt_token.encode()).hexdigest()
+
+
+def _cache_get(key: tuple[str, str], ttl: float) -> Optional[str]:
+    now = time.monotonic()
+    with _cache_lock:
+        entry = _cache.get(key)
+        if not entry:
+            return None
+        expires, client_id = entry
+        if now >= expires:
+            del _cache[key]
+            return None
+        return client_id
+
+
+def _cache_set(key: tuple[str, str], client_id: str, ttl: float) -> None:
+    with _cache_lock:
+        _cache[key] = (time.monotonic() + ttl, client_id)
+
+
+class KnovasVerifyClient:
+    def __init__(self):
+        cfg = get_config()
+        self._base_url = cfg.knovas_internal_api_url
+        self._instance_token = cfg.rc_instance_token
+        self._timeout = cfg.knovas_verify_timeout_seconds
+        self._ttl = float(cfg.knovas_verify_cache_ttl_seconds)
+
+    def verify_operator(self, jwt_token: str, employee_id: str) -> tuple[bool, Optional[str], Optional[tuple]]:
+        if not self._instance_token:
+            return (
+                False,
+                None,
+                ({"error": "RC instance token is not configured", "status": "error"}, 500),
+            )
+
+        cache_key = (employee_id, _token_fingerprint(jwt_token))
+        cached = _cache_get(cache_key, self._ttl)
+        if cached:
+            return True, cached, None
+
+        url = f"{self._base_url}/remote_controller/verify_operator"
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "X-RC-Instance-Token": self._instance_token,
+            "Content-Type": "application/json",
+        }
+        # SECURITY CONTRACT (verify Knovas-side): `employee_id` here is derived
+        # from the UNVERIFIED token payload and is sent only as a hint. The Knovas
+        # `/remote_controller/verify_operator` endpoint MUST authorize off the
+        # cryptographically-verified token subject, NOT this body field — otherwise
+        # a valid low-privilege token could claim a higher-privileged employee_id
+        # (CWE-639). Do not let RC's cache/hint become the authorization source.
+        payload = {"employee_id": employee_id}
+
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=self._timeout)
+        except requests.RequestException:
+            return (
+                False,
+                None,
+                (
+                    {"error": "Remote operator verification unavailable", "status": "error"},
+                    503,
+                ),
+            )
+
+        if resp.status_code == 200:
+            data = resp.json() if resp.content else {}
+            if isinstance(data, dict) and data.get("authorized"):
+                client_id = str(data.get("client_id") or "")
+                if client_id:
+                    _cache_set(cache_key, client_id, self._ttl)
+                    return True, client_id, None
+            return (
+                False,
+                None,
+                ({"error": "Operator not authorized", "status": "error"}, 403),
+            )
+
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {"error": resp.text or "Verification failed", "status": "error"}
+
+        if resp.status_code == 429:
+            return False, None, (body, 429)
+        if resp.status_code in (401, 403):
+            return False, None, (body, resp.status_code)
+        return (
+            False,
+            None,
+            (body if isinstance(body, dict) else {"error": "Verification failed"}, resp.status_code),
+        )
+
+
+_verify_client: Optional[KnovasVerifyClient] = None
+
+
+def get_verify_client() -> KnovasVerifyClient:
+    global _verify_client
+    if _verify_client is None:
+        _verify_client = KnovasVerifyClient()
+    return _verify_client
+
+
+def internal_local_bypass_enabled() -> bool:
+    return get_config().rc_internal_local_bypass
+
+
+def _is_loopback_addr(addr: Optional[str]) -> bool:
+    """True only for 127.0.0.0/8 or ::1 — used to keep 'local bypass' local
+    even though gunicorn binds 0.0.0.0."""
+    if not addr:
+        return False
+    try:
+        return ipaddress.ip_address(addr.strip()).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_trusted_bypass_addr(addr: Optional[str]) -> bool:
+    """True for loopback (always) or any address inside a network listed in
+    RC_LOCAL_BYPASS_TRUSTED_CIDRS.
+
+    Rationale: under Docker's `127.0.0.1:PORT` publishing the container sees the
+    bridge gateway (e.g. 172.x) as the peer, never 127.0.0.1, so a pure loopback
+    check rejects every host-local call. The internal compose overlay adds the
+    bridge range there. Access stays confined to the host because the published
+    port is bound to 127.0.0.1 — the CIDR only widens the in-container peer check.
+    """
+    if _is_loopback_addr(addr):
+        return True
+    if not addr:
+        return False
+    try:
+        ip = ipaddress.ip_address(addr.strip())
+    except ValueError:
+        return False
+    return any(ip in net for net in get_config().rc_local_bypass_trusted_networks)
+
+
+_STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _origin_matches_host() -> bool:
+    """Cross-origin / DNS-rebind guard: an Origin/Referer, when present, must
+    resolve to the same host the request was addressed to."""
+    source = request.headers.get("Origin") or request.headers.get("Referer")
+    if not source:
+        return True
+    try:
+        source_host = urlparse(source).netloc
+    except ValueError:
+        return False
+    return bool(source_host) and source_host == request.host
+
+
+def require_same_origin(func):
+    """Reject cross-origin state-changing requests and require JSON bodies on
+    state-changing methods (CSRF / DNS-rebind defense for localhost routes)."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not _origin_matches_host():
+            return jsonify({"error": "Cross-origin request rejected", "status": "error"}), 403
+        if request.method in _STATE_CHANGING_METHODS and not request.is_json:
+            return jsonify({"error": "Request body must be JSON", "status": "error"}), 400
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def _apply_internal_local_context() -> None:
+    """Internal LAN: skip Knovas verify_operator (no RC_INSTANCE_TOKEN or JWT)."""
+    cfg = get_config()
+    g.rc_client_id = cfg.rc_client_id
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        jwt_token = auth[7:].strip()
+        if jwt_token:
+            employee_id = employee_id_from_jwt_token(jwt_token)
+            if employee_id:
+                g.rc_employee_id = employee_id
+
+
+def require_internal_access(func):
+    """Production: full Knovas verify. Internal bypass: no instance token or JWT required."""
+    verified = require_knovas_verify(func)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if internal_local_bypass_enabled():
+            if not _is_trusted_bypass_addr(request.remote_addr):
+                return (
+                    jsonify(
+                        {
+                            "error": "Local bypass is permitted only from trusted local addresses",
+                            "status": "error",
+                        }
+                    ),
+                    403,
+                )
+            _apply_internal_local_context()
+            return func(*args, **kwargs)
+        return verified(*args, **kwargs)
+
+    return wrapper
+
+
+# Backward-compatible alias
+require_discover_access = require_internal_access
+
+
+def require_knovas_verify(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return jsonify({"error": "Authorization Bearer token required", "status": "error"}), 401
+        jwt_token = auth[7:].strip()
+        if not jwt_token:
+            return jsonify({"error": "Authorization Bearer token required", "status": "error"}), 401
+
+        employee_id = employee_id_from_jwt_token(jwt_token)
+        if not employee_id:
+            return (
+                jsonify(
+                    {
+                        "error": "Bearer token must contain a valid operator UUID claim",
+                        "status": "error",
+                    }
+                ),
+                401,
+            )
+
+        ok, client_id, err = get_verify_client().verify_operator(jwt_token, employee_id)
+        if not ok:
+            body, status = err or ({"error": "Not authorized", "status": "error"}, 403)
+            return jsonify(body), status
+        g.rc_employee_id = employee_id
+        g.rc_client_id = client_id
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+_platform_replay = ReplayGuard()
+
+
+def _platform_public_pem(cfg) -> bytes:
+    """The mounted key, proven to parse.
+
+    Parsing here rather than only inside verify_platform_principal is
+    what lets the gate tell "this deployment is misconfigured" from
+    "this token is a forgery": the first is a 503 with a log line, the
+    second stays a uniform 401 (P-I4). Raises OSError or ValueError.
+    """
+    with open(cfg.rc_platform_broker_pubkey_path, "rb") as fh:
+        pem = fh.read()
+    serialization.load_pem_public_key(pem)
+    return pem
+
+
+def require_operator_or_tenant_admin(func):
+    """A Knovas employee (existing path) OR the firm's own administrator,
+    presenting the Platform-signed principal in X-Platform-Principal with
+    the admin or ingestion_manager role (KC-IN-1). Each route declares which
+    principals it accepts by using this decorator."""
+    return _require_operator_or_principal(func, roles=ADMIN_ROLES)
+
+
+def require_operator_or_tenant_user(func):
+    """Like ``require_operator_or_tenant_admin``, but any signed-in person of
+    the firm qualifies. Only for read-only routes that serve what the
+    Platform already shows that person (a document preview), never for
+    anything that changes what is synced."""
+    return _require_operator_or_principal(func, roles=None)
+
+
+def _require_operator_or_principal(func, *, roles):
+    operator_path = require_internal_access(func)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        token = (request.headers.get(PLATFORM_PRINCIPAL_HEADER) or "").strip()
+        if not token:
+            return operator_path(*args, **kwargs)
+        cfg = get_config()
+        if not cfg.rc_platform_broker_pubkey_path:
+            return jsonify({"error": "Platform principals are not configured", "status": "error"}), 403
+        try:
+            public_pem = _platform_public_pem(cfg)
+        except (OSError, ValueError):
+            # Knovas Connector is misconfigured, not the caller. Folding
+            # this into the uniform 401 gave an operator who mounted the
+            # wrong path "Not authorized" in the console and an empty RC
+            # log; the 403 "not configured" branch already reveals as much.
+            logger.error(
+                "platform broker public key %s could not be read or parsed",
+                cfg.rc_platform_broker_pubkey_path, exc_info=True,
+            )
+            return jsonify({"error": "platform principal verification unavailable",
+                            "status": "error"}), 503
+        try:
+            principal = verify_platform_principal(
+                token, public_pem=public_pem,
+                expected_tenant=cfg.rc_client_id, replay=_platform_replay,
+            )
+        except InvalidPrincipalError:
+            return jsonify({"error": "Not authorized", "status": "error"}), 401
+        if roles is not None and not (set(principal.roles) & roles):
+            return jsonify({"error": "Not authorized", "status": "error"}), 403
+        g.rc_client_id = cfg.rc_client_id
+        g.rc_principal = principal
+        # The RC end of the four-eyes chain: without this, nothing here
+        # records that a tenant principal rewrote the configuration or
+        # started the scheduler (P-I5).
+        logger.info("platform principal %s roles=%s %s %s", principal.subject,
+                    sorted(principal.roles), request.method, request.path)
+        return func(*args, **kwargs)
+
+    return wrapper

@@ -172,7 +172,7 @@ Hosting partner signs off before Knovas installs:
 |----------|-----|
 | [specifications.md](specifications.md) | Full technical deployment specs |
 | [certificates.md](certificates.md) | mTLS certificate layout |
-| [RemoteController/docs/local-setup.md](../RemoteController/docs/local-setup.md) | RC local-only install |
+| [KnovasConnector/docs/local-setup.md](../KnovasConnector/docs/local-setup.md) | RC local-only install |
 | [KnovasPlatform/docs/deployment/host-nginx-internal.md](../KnovasPlatform/docs/deployment/host-nginx-internal.md) | Platform HTTPS |
 
 **Support:** support@knovas.ch

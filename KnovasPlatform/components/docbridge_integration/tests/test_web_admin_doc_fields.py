@@ -1,7 +1,7 @@
 """The Dokumentfelder tab (spec 4.6): registry, packs, settings, folder rules.
 
 Pure helpers first (no app, no database), then the routes through the real
-app against ``FakeDocFieldsApi`` and a recording RemoteController. The
+app against ``FakeDocFieldsApi`` and a recording Knovas Connector. The
 route tests pin the controls, not the drawing: ``require_admin`` on every
 route, CSRF before any Knovas write, no forms while Knovas has the feature
 off, audit rows with keys and ids only.
@@ -599,7 +599,7 @@ class TestStatic:
 # ---------------------------------------------------------------------------
 
 class FakeRC:
-    """A RemoteController that records what the console asked of it."""
+    """A Knovas Connector that records what the console asked of it."""
 
     last = None
 
@@ -628,7 +628,7 @@ class FakeRC:
 
 
 class OldRC(FakeRC):
-    """A RemoteController from before document fields."""
+    """A Knovas Connector from before document fields."""
 
     requeue_doc_fields = None
 
@@ -643,7 +643,7 @@ class _Answer:
 
 
 class _OldServerSession:
-    """An older RemoteController behind the real client: its /sync/status
+    """An older Knovas Connector behind the real client: its /sync/status
     lists no capabilities, and it has no requeue route (404)."""
 
     def __init__(self):
@@ -665,11 +665,11 @@ class _DownSession(_OldServerSession):
 
 
 def _real_rc_on(monkeypatch, session_cls):
-    """The real RemoteControllerClient (a new Platform), talking to
-    ``session_cls`` (the RemoteController's side)."""
-    import remote_controller_client as rcc
+    """The real KnovasConnectorClient (a new Platform), talking to
+    ``session_cls`` (the Knovas Connector's side)."""
+    import knovas_connector_client as rcc
 
-    real = rcc.RemoteControllerClient
+    real = rcc.KnovasConnectorClient
     sessions = []
 
     class RealClient(real):
@@ -678,7 +678,7 @@ def _real_rc_on(monkeypatch, session_cls):
             super().__init__(base_url, principal_broker=principal_broker,
                              session=sessions[-1], timeout=timeout)
 
-    monkeypatch.setattr(rcc, "RemoteControllerClient", RealClient)
+    monkeypatch.setattr(rcc, "KnovasConnectorClient", RealClient)
     return sessions
 
 
@@ -746,10 +746,10 @@ def _profile(platform_db, owner, *, prefix="kanzlei", sources=("/data/corpus",),
 
 @pytest.fixture
 def rc(monkeypatch):
-    import remote_controller_client
+    import knovas_connector_client
 
     FakeRC.last = None
-    monkeypatch.setattr(remote_controller_client, "RemoteControllerClient", FakeRC)
+    monkeypatch.setattr(knovas_connector_client, "KnovasConnectorClient", FakeRC)
     return FakeRC
 
 
@@ -919,7 +919,7 @@ class TestFeatureOff:
         assert 'href="/admin/doc-fields"' not in client.get("/admin/people").data.decode("utf-8")
         assert "bei Knovas nicht freigeschaltet" in client.get("/admin/doc-fields").data.decode("utf-8")
 
-    def test_without_a_remote_controller_the_prefix_is_typed(self):
+    def test_without_a_knovas_connector_the_prefix_is_typed(self):
         import jinja2
 
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(TEMPLATES)),
@@ -994,11 +994,11 @@ class TestRegistryWrites:
         assert "Abgelehnte Uploads erneut senden" in html
         assert "Abgelehnte Uploads erneut senden" not in as_admin.get("/admin/doc-fields").data.decode("utf-8")
 
-    def test_no_requeue_offer_for_a_remote_controller_without_it(
+    def test_no_requeue_offer_for_a_knovas_connector_without_it(
             self, platform_db, tmp_path, monkeypatch, admin):
-        import remote_controller_client
+        import knovas_connector_client
 
-        monkeypatch.setattr(remote_controller_client, "RemoteControllerClient", OldRC)
+        monkeypatch.setattr(knovas_connector_client, "KnovasConnectorClient", OldRC)
         app = _identity_app(platform_db, tmp_path, monkeypatch,
                             client_cls=FakeDocFieldsApi.bind("values"))
         client = _signed_in(app, admin.email)
@@ -1009,10 +1009,10 @@ class TestRegistryWrites:
         assert response.status_code == 409
         assert "bitte den Knovas Connector aktualisieren" in response.data.decode("utf-8")
 
-    def test_an_older_remote_controller_server_is_not_offered_requeue(
+    def test_an_older_knovas_connector_server_is_not_offered_requeue(
             self, platform_db, tmp_path, monkeypatch, admin):
         """platform-admin-ingestion-4: the real client always has the method;
-        the offer follows what the RemoteController advertises."""
+        the offer follows what the Knovas Connector advertises."""
         sessions = _real_rc_on(monkeypatch, _OldServerSession)
         app = _identity_app(platform_db, tmp_path, monkeypatch,
                             client_cls=FakeDocFieldsApi.bind("values"))
@@ -1025,7 +1025,7 @@ class TestRegistryWrites:
         assert "bitte den Knovas Connector aktualisieren" in response.data.decode("utf-8")
         assert not [c for s in sessions for c in s.calls if c[0] == "POST"], "never asked"
 
-    def test_an_unreachable_remote_controller_is_not_called_too_old(
+    def test_an_unreachable_knovas_connector_is_not_called_too_old(
             self, platform_db, tmp_path, monkeypatch, admin):
         sessions = _real_rc_on(monkeypatch, _DownSession)
         app = _identity_app(platform_db, tmp_path, monkeypatch,
@@ -1460,7 +1460,7 @@ class TestFolderRules:
 
 @needs_db
 class TestRequeue:
-    def test_requeue_asks_the_remote_controller_for_refused_uploads(self, as_admin, platform_db):
+    def test_requeue_asks_the_knovas_connector_for_refused_uploads(self, as_admin, platform_db):
         from identity import audit
 
         response = _post(as_admin, "/admin/doc-fields/requeue")
@@ -1470,7 +1470,7 @@ class TestRequeue:
         # One audit shape for the same billed operation, whichever tab asked.
         row = audit.recent(platform_db, action="ingestion.doc_fields_requeued")[0]
         assert row["detail"] == {"outcome": "refused", "requeued": 3}
-        assert (row["target_type"], row["target_id"]) == ("remote_controller", "sync")
+        assert (row["target_type"], row["target_id"]) == ("knovas_connector", "sync")
         assert audit.recent(platform_db, action="doc_fields.requeue_requested") == []
 
 

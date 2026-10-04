@@ -1,6 +1,6 @@
 """Page-break markers on the wire (GI-INGEST-17), Platform mirror.
 
-Ported from ``RemoteController/tests/unit/test_page_markers.py``: the admin
+Ported from ``KnovasConnector/tests/unit/test_page_markers.py``: the admin
 upload builds the same wire format as the RC's sync pipeline, through its own
 copy of the chunker (``knovas_transmit``). Alloy: KnowledgeBase
 ``models/alloy/mechanisms/client_pipeline.als`` preds

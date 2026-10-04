@@ -13,7 +13,7 @@ Inputs:
   code at KnowledgeBase `master` 1a5e2650 as reference), and a trial merge with test runs.
 
 Written in English like the other cross-repository specs; UI strings stay German.
-"Connector" means the Knovas Connector, the component in `RemoteController/` (renamed in
+"Connector" means the Knovas Connector, the component in `KnovasConnector/` (renamed in
 user-facing text only; folder, service, `RC_*` settings and identifiers keep their names).
 
 ---
@@ -26,7 +26,7 @@ Four lines of work exist and none of them is complete on its own:
 |---|---|---|
 | Platform + Connector with OCR, layout text mode, experiments | `main` @ `0e63cac` | no Document-fields support |
 | Document fields in Connector, Platform and mock API | `origin/claude/document-fields-integration` @ `09063a5` (10 commits on `f9d872c`) | no PR; covers nearly every client rule of the 1.5.0 docs |
-| "RemoteController is now called Knovas Connector" | commit `08228ba` inside draft PR #22 (`cl/wonderful-ritchie-s07v1q`) | PR #22 conflicts with `main` and also carries the knowledge-directories feature |
+| "Knovas Connector is now called Knovas Connector" | commit `08228ba` inside draft PR #22 (`cl/wonderful-ritchie-s07v1q`) | PR #22 conflicts with `main` and also carries the knowledge-directories feature |
 | knovas-extract 0.4.0a1 (per-page OCR, layout text mode) | library `origin/main` @ `b5d4540` | untagged; PyPI's newest is 0.2.0; library CI red |
 
 What the audits found that this design acts on:
@@ -44,7 +44,7 @@ What the audits found that this design acts on:
 3. **Connector defects on `main` with 0.4.0a1** (all reproduced by the usage audit):
    - every born-digital PDF is recorded partial (`reason: ocr_backend_none`), counted as a degraded
      OCR backend, and re-extracted and re-uploaded by `scripts/backfill_partial_ocr.py` on every run
-     (`RemoteController/src/sync/document_text.py:565-590`; the Platform already fixed the rule at
+     (`KnovasConnector/src/sync/document_text.py:565-590`; the Platform already fixed the rule at
      `knovas_extract_upload.py:448-483`);
    - the OCR time budget collapses to its 10 s floor on hosts with ≥ 7 cores for PDFs up to
      ~150–250 pages, because the cap subtracts `workers × page_timeout` although in-flight pages run
@@ -201,7 +201,7 @@ branch's 10 reviewed commits intact), then cherry-pick `08228ba`.
 
 ### 5.2 Merge: conflicts, resolutions, and what the merge itself breaks
 The trial merge (scratch clone, branch `audit/main-docfields` @ `2ca658e`) touched 16 files on both
-sides; 11 merged cleanly, nothing under `RemoteController/` conflicted (`main` changed no Connector
+sides; 11 merged cleanly, nothing under `KnovasConnector/` conflicted (`main` changed no Connector
 code after `f9d872c`). Five files conflicted:
 
 | File | Resolution |
@@ -239,7 +239,7 @@ What the merge breaks or exposes (all fixed in the integration layer, with tests
 plan assumed no Platform upload exists).
 
 Cherry-picking `08228ba` afterwards conflicts in four files with one hunk each (`admin_system.py`,
-`RemoteController/CHANGELOG.md`, `RemoteController/pyproject.toml` — keep the branch's
+`KnovasConnector/CHANGELOG.md`, `KnovasConnector/pyproject.toml` — keep the branch's
 `version = "0.3.0"` with the renamed description — and `knovas.env.example`); the result equals the
 trial three-way tree on all 36 files the commit touches. The rename's RELEASE_NOTES entry lives in
 PR #22's `a619d10`, not in `08228ba`, so the rename sweep (§5.3) adds it.
@@ -251,16 +251,16 @@ name. Applied to what the fields branch adds:
   `web_interface/admin_doc_fields.py:186-187,190,1638`; `web_interface/admin_ingestion.py:351,407,1215`;
   `web_interface/admin_system.py:145`; `static/js/admin_ingestion.js:234`;
   `templates/admin_ingestion.html:119,138,213,215`) and the tests that pin them;
-- operator-facing log and metric help texts (`remote_controller_client.py:192`,
-  `admin_doc_fields.py:1170,1179`, `RemoteController/src/sync/doc_fields_metrics.py:96`);
+- operator-facing log and metric help texts (`knovas_connector_client.py:192`,
+  `admin_doc_fields.py:1170,1179`, `KnovasConnector/src/sync/doc_fields_metrics.py:96`);
 - docs, release notes and `knovas.env.example` comments the branch adds;
 - the mentions `main` added after PR #22's base (`docbridge_integration/README.md:15`,
   `KnovasPlatform/docs/features/experiments.md`, `experiments_runner/README.md:122`,
   `docs/search-ui-backlog.md:160`, `knovas.env.example:123`, the `docker-compose.yml` comment, the
-  usage text of `RemoteController/scripts/backfill_partial_ocr.py`), so every screen and document
+  usage text of `KnovasConnector/scripts/backfill_partial_ocr.py`), so every screen and document
   uses one name;
-- a RELEASE_NOTES entry "RemoteController heisst jetzt Knovas Connector" (wording from `a619d10`).
-Not renamed: `RC_*` names, `remote-controller` service, `RemoteController/` paths, code identifiers,
+- a RELEASE_NOTES entry "Knovas Connector heisst jetzt Knovas Connector" (wording from `a619d10`).
+Not renamed: `RC_*` names, `knovas-connector` service, `KnovasConnector/` paths, code identifiers,
 comments, released release-note sections, `docs/superpowers/` records.
 
 ### 5.4 Texts aligned with 1.5.0
@@ -269,8 +269,8 @@ account" (Knovas can still switch it off, and older servers lack it). Every text
 default" / "only once Knovas has enabled it" is rewritten to that statement plus "the Platform and the
 Connector check every answer and behave as before when it is off": `RELEASE_NOTES.md`,
 `KnovasPlatform/docs/features/document-fields.md`, `docs/client/document-fields.md`,
-`docs/client/README.md`, `RemoteController/docs/configuration.md`, `RemoteController/docs/operations.md`,
-`RemoteController/CHANGELOG.md`, `RemoteController/README.md`, `docs/specifications.md`,
+`docs/client/README.md`, `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/operations.md`,
+`KnovasConnector/CHANGELOG.md`, `KnovasConnector/README.md`, `docs/specifications.md`,
 `knovas.env.example`, and the System-tab hint in `web_interface/admin_system.py`. Caveats that a
 Knovas update ("S2", pointer in the request body) is still needed are removed; 1.5.0 documents it.
 
@@ -322,7 +322,7 @@ they write shared files.
 (`document_text.py:336`, `knovas_extract_upload.py:220`), that `DependencyMissingError` passes through
 (`document_text.py:858-859`), that 0.3 is "today" (`configuration.md:147`), that `[pdf]` pulls
 `pymupdf-layout` (`ci.yml:296-299`), and that EML/MSG HTML is converted through selectolax
-(`RemoteController/pyproject.toml:21-22`). The `_OCR_OPTION_ALIASES` entry `engine → backend` is
+(`KnovasConnector/pyproject.toml:21-22`). The `_OCR_OPTION_ALIASES` entry `engine → backend` is
 removed (`backend` takes an object; passing an engine name there would be a type error).
 
 ---
@@ -527,8 +527,8 @@ MSG whose only body is RTF extracts to empty text because the import error is sw
   uploads; adding it would help known-item search but means re-uploading every document.
 
 ## 13. Public documentation (for the maintainer of knovas.ch)
-The 1.5.0 page "Document fields → With the RemoteController" should, once this ships:
-- say "Knovas Connector" (with "formerly RemoteController" once);
+The 1.5.0 page "Document fields → With the Knovas Connector" should, once this ships:
+- say "Knovas Connector" (with "formerly Knovas Connector" once);
 - list the file properties as: e-mail date, e-mail type, author, language, **keywords** (PDF/Word
   keywords, Outlook categories), **status** (Word content status);
 - replace "Once Knovas enables the feature, it sends those documents again" by "When Knovas starts

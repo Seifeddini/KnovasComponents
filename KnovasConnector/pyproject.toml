@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knovas-connector"
+version = "0.3.0"
+description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0,<4",
+    "requests>=2.31,<3",
+    "cryptography>=42,<45",
+    "jsonschema>=4.21,<5",
+    "prometheus-client>=0.20,<1",
+    "gunicorn>=22.0,<24",
+    # The Platform's PyMuPDF (docbridge_integration/requirements.txt): one PDF
+    # parser under both images and both CI jobs (spec L7). The Dockerfile
+    # installs these dependencies before knovas-extract, whose
+    # pymupdf>=1.24 floor this satisfies.
+    "pymupdf==1.28.0",
+    # No [markdown]: sync never asks for emit_markdown (sync/document_text.py)
+    # — it cost ~8 s per document and parked mixed PDFs and large-table DOCX
+    # through the expansion guard — and the extra pulled the PolyForm-NC
+    # pymupdf-layout into the customer image. [html] (selectolax) stays so CI
+    # and the image install one extras set; EML/MSG HTML bodies do not use it,
+    # knovas-extract converts them with its own HTML-to-text helper. The Docker image adds [ocr]
+    # (tesserocr; Linux wheels only) — see the Dockerfile.
+    # [rtf]: striprtf, for Outlook mails whose only body is RTF. A floor
+    # only: the images and CI install the exact pin (Dockerfile ARG
+    # KNOVAS_EXTRACT_VERSION / KNOVAS_EXTRACT_GIT_REF).
+    "knovas-extract[pdf,docx,msg,html,rtf,sentences]>=0.4.0a1",
+    # selectolax 1.0 dropped `selectolax.parser`, which knovas-extract 0.4.0a1
+    # imports for HTML (and the Platform's Markdown preview). The pinned
+    # release caps it below 1 in its own extras; builds before it (b5d4540
+    # and older) did not, so the cap stays here too. Listed here, the image
+    # installs it before knovas-extract; scripts/ci/assert_knovas_extract_pin.py
+    # reads a page of HTML in CI and in the built image.
+    "selectolax>=0.3.21,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-cov>=5.0,<6",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "knovas_api: tests requiring real Knovas API connectivity (skipped by default)",
+]

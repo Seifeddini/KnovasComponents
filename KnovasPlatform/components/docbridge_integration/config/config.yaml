@@ -200,7 +200,7 @@ web:
     enrichment_max_bytes: 52428800
     # Max enrichment rows scanned when supplementing filename matches.
     supplement_max_enrichment_scan: 5000
-    # OneDrive / SharePoint webUrl JSONL from OneDrive mirror (see RemoteController)
+    # OneDrive / SharePoint webUrl JSONL from OneDrive mirror (see Knovas Connector)
     enrichment_path: "${SEARCH_ENRICHMENT_PATH:-/mnt/autodoc/.search_enrichment.jsonl}"
     # Per-document sentence index for first-page + match-context previews (see context_store.py)
     context_store_path: "${SEARCH_CONTEXT_STORE_PATH:-/mnt/autodoc/.search_context}"
@@ -269,13 +269,13 @@ performance:
   # Memory limits
   max_file_size: 104857600  # 100 MB
 
-# The firm's own RemoteController, on knovas-internal only (never published).
-remote_controller:
-  base_url: "${RC_BASE_URL:-http://remote-controller:5001}"
+# The firm's own Knovas Connector, on knovas-internal only (never published).
+knovas_connector:
+  base_url: "${RC_BASE_URL:-http://knovas-connector:5001}"
 
 # Where the documents live. "files": a folder on this server (the share
 # mounted at /mnt/autodoc). "m365": a OneDrive or SharePoint folder that
-# RemoteController reads through Microsoft Graph -- nothing is kept here, so
+# Knovas Connector reads through Microsoft Graph -- nothing is kept here, so
 # "Öffnen" goes to OneDrive/SharePoint and the preview is Microsoft's own
 # viewer. setup.sh sets it from KNOVAS_DOCUMENTS_URL in knovas.env.
 documents:

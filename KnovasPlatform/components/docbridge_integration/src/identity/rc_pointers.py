@@ -1,16 +1,16 @@
-"""Folder paths on the RemoteController host -> Knovas pointer prefixes.
+"""Folder paths on the Knovas Connector host -> Knovas pointer prefixes.
 
 Why this exists
 ---------------
 A document-field folder rule (``PUT /secured/graph/doc-field-rules``) is
 keyed by a *pointer prefix* and matched with a raw ``startswith``
 (KnowledgeBase doc_fields/rules.py:93). The administrator thinks in folders
-on the file server; Knovas only ever sees pointers. RemoteController builds
+on the file server; Knovas only ever sees pointers. Knovas Connector builds
 every pointer the same way::
 
     identifier_prefix + "/" + <path relative to the source folder, with "/">
 
-(RemoteController src/sync/sync_executor.py ``_pointer_for_relative``,
+(Knovas Connector src/sync/sync_executor.py ``_pointer_for_relative``,
 src/sync/knovas_uploader.py ``upload_file``). So the prefix of a sub-folder
 is that same expression over the folder's relative path, and it must end in
 ``/``: without it, ``kanzlei/Mandate/2024`` would also match
@@ -45,7 +45,7 @@ def _norm(path: object) -> str:
     what ``posixpath.normpath`` does with exactly two, and it is what tells
     ``//server/share`` from ``/server/share``.
 
-    Whitespace is kept: a folder name may end in a space, and RemoteController
+    Whitespace is kept: a folder name may end in a space, and Knovas Connector
     keeps it in the pointer (``relative_to(...).as_posix()``). Only an
     all-blank path is no path.
     """
@@ -66,7 +66,7 @@ def relative_folder(source_path: object, folder_path: object) -> Optional[str]:
 
     Windows paths (a drive letter or UNC) are compared without case, as the
     file system does; the relative part keeps the folder's own spelling,
-    because RemoteController takes it from the walk.
+    because Knovas Connector takes it from the walk.
     """
     source, folder = _norm(source_path), _norm(folder_path)
     if not source or not folder:
@@ -86,7 +86,7 @@ def relative_folder(source_path: object, folder_path: object) -> Optional[str]:
 
 def rc_pointer_prefix(identifier_prefix: object, source_path: object,
                       folder_path: object) -> str:
-    """The pointer prefix RemoteController gives documents under ``folder_path``.
+    """The pointer prefix Knovas Connector gives documents under ``folder_path``.
 
     ``identifier_prefix.strip() + "/" + <relative folder> + "/"``; the source
     root gives ``identifier_prefix + "/"``. Raises FolderOutsideSources when

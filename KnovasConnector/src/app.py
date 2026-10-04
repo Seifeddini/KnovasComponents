@@ -1,0 +1,110 @@
+"""Flask application factory for customer-hosted Knovas Connector."""
+from __future__ import annotations
+
+import logging
+import os
+
+from flask import Flask
+
+from auth.platform_principal import refuse_if_broker_private_key_is_readable
+from config import get_config, load_config
+from m365.source import m365_configured, remove_stale_temp_copies
+from onedrive_mirror import start_mirror_thread_if_configured
+from routes.discover import discover_bp
+from routes.health import health_bp
+from routes.m365 import m365_bp
+from routes.metrics import metrics_bp
+from routes.sync import sync_bp
+from routes.sync_config_route import sync_config_bp
+from routes.sync_control import sync_control_bp
+from sync import extract_metrics
+from sync.sync_scheduler import maybe_auto_start
+
+logger = logging.getLogger(__name__)
+
+
+def create_app(*, skip_validation: bool = False) -> Flask:
+    load_config(validate=not skip_validation)
+
+    # The Platform's broker key directory is mounted here for its public half;
+    # the private half is in the same directory. If this process can read it,
+    # stop -- that key asserts any of the firm's people to Knovas, and this is
+    # the service that opens untrusted documents.
+    refuse_if_broker_private_key_is_readable(get_config().rc_platform_broker_pubkey_path)
+
+    if os.environ.get("TESTING", "").strip().lower() not in ("1", "true", "yes", "on"):
+        logging.basicConfig(
+            level=logging.INFO,
+            format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+        )
+
+    app = Flask(__name__)
+    app.config["TESTING"] = False
+
+    app.register_blueprint(health_bp)
+    app.register_blueprint(metrics_bp)
+    app.register_blueprint(discover_bp)
+    app.register_blueprint(sync_bp)
+    app.register_blueprint(sync_control_bp)
+    app.register_blueprint(sync_config_bp)
+    app.register_blueprint(m365_bp)
+
+    # rc_build_info: which knovas-extract and which settings this process
+    # extracts with -- versions and setting names only, one series.
+    extract_metrics.set_build_info()
+
+    @app.before_request
+    def _log_request():
+        pass
+
+    with app.app_context():
+        try:
+            maybe_auto_start()
+        except Exception as exc:
+            logger.warning("Auto-start continuous sync skipped: %s", exc)
+
+        if m365_configured():
+            if remove_stale_temp_copies():
+                logger.info("Removed temp copies of Microsoft 365 files left by a killed worker")
+            # The native source reads the folder itself; a mirror copying the
+            # same files onto this server is exactly what it replaces.
+            if (os.environ.get("ONEDRIVE_DRIVE_ID") or "").strip():
+                logger.warning(
+                    "M365_FOLDER_URL is set, so the legacy ONEDRIVE_* mirror is not started"
+                )
+        else:
+            try:
+                start_mirror_thread_if_configured()
+            except Exception as exc:
+                logger.warning("OneDrive mirror not started: %s", exc)
+
+    return app
+
+
+def _wsgi_skip_validation() -> bool:
+    """Skip required-env validation only for tests (TESTING).
+
+    RC_SKIP_CONFIG_VALIDATION is a test-only convenience: on the production
+    WSGI path it is ignored (with a warning) so missing secrets still fail fast.
+    """
+    if os.environ.get("TESTING", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    if os.environ.get("RC_SKIP_CONFIG_VALIDATION", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        logger.warning(
+            "RC_SKIP_CONFIG_VALIDATION is set but TESTING is not; ignoring it and "
+            "enforcing config validation."
+        )
+    return False
+
+
+app = create_app(skip_validation=_wsgi_skip_validation())
+
+
+if __name__ == "__main__":
+    cfg = load_config()
+    app.run(host="0.0.0.0", port=cfg.rc_api_port, debug=False)

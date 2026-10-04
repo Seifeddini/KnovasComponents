@@ -33,11 +33,11 @@ class ExperimentsSettings:
     enabled: bool = False
     #: First segment of every Knovas pointer the module writes
     #: (``<prefix>/<domain>/<KEY>``). Must not collide with the prefix
-    #: RemoteController uses for files (AUTODOC_IDENTIFIER_PREFIX).
+    #: Knovas Connector uses for files (AUTODOC_IDENTIFIER_PREFIX).
     pointer_prefix: str = "experiments"
     index_enabled: bool = True
     #: Document inits per minute the module may use. The tenant allows about
-    #: six, shared with RemoteController; two leaves it the rest.
+    #: six, shared with Knovas Connector; two leaves it the rest.
     index_per_minute: int = 2
     #: Edits within this window are written to Knovas once.
     index_debounce_seconds: int = 60

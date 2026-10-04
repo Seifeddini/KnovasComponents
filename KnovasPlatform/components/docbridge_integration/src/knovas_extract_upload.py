@@ -1,7 +1,7 @@
 """Build secured transmit parts from raw document bytes via knovas-extract.
 
-Admin uploads (``/admin/documents``) mirror the RemoteController's sync
-pipeline (``RemoteController/src/sync/document_text.py`` and
+Admin uploads (``/admin/documents``) mirror the Knovas Connector's sync
+pipeline (``KnovasConnector/src/sync/document_text.py`` and
 ``knovas_uploader.py``) so a document uploaded here and the same document
 synced by the RC reach the server in the same wire format:
 
@@ -574,7 +574,7 @@ _PARTIAL_NOTE_COUNTS = (
 def partial_note_for(extra: Optional[dict[str, Any]], *, expect_ocr: bool) -> Optional[dict[str, Any]]:
     """The partial note for a returned document, or None when it is complete.
 
-    The Connector's rule (``RemoteController/src/sync/document_text.py``
+    The Connector's rule (``KnovasConnector/src/sync/document_text.py``
     ``partial_note_for``, spec E1): partial when the library counted skipped
     OCR pages (page cap, budget, pixel cap, or no OCR engine -- 0.4 counts
     every page that needed OCR as skipped then), or failed OCR pages (a

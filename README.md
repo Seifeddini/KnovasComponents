@@ -5,7 +5,7 @@ Customer-hosted components for the Knovas platform.
 | Folder | Purpose |
 |--------|---------|
 | [KnovasPlatform/](KnovasPlatform/) | Search web app (Docker) — query indexed documents |
-| [Knovas Connector](RemoteController/) — folder `RemoteController/` | Discover and sync local files into Knovas |
+| [Knovas Connector](KnovasConnector/) — folder `KnovasConnector/` | Discover and sync local files into Knovas |
 
 **Send to clients:** [docs/client/](docs/client/) — one page, Demo-Kanzlei from files to search.
 

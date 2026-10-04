@@ -9,7 +9,7 @@ files) that turns the existing licence-clean legal *library* into a plausible
 recovers from it.
 **Repositories:** `KnovasComponents` only. No `KnowledgeBase` change is
 required; the corpus is consumed through the existing ingest contract.
-**Builds on:** `RemoteController/scripts/demo_corpus/` (the library), which
+**Builds on:** `KnovasConnector/scripts/demo_corpus/` (the library), which
 stays unchanged and becomes one tier of this corpus.
 
 ---
@@ -18,7 +18,7 @@ stays unchanged and becomes one tier of this corpus.
 
 ## 1 · Problem
 
-`RemoteController/scripts/demo_corpus/fetch_demo_corpus.py` already builds ~8,800
+`KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py` already builds ~8,800
 licence-clean documents — Swiss case law, Fedlex statutes, SLDS gold Regeste,
 CUAD/MAUD/ContractNLI contracts — with a manifest, licence file, and an RC
 watch-root mount (`docker-compose.corpus.yml` → `/data/corpus`,
@@ -59,7 +59,7 @@ The `{GUID}_{AkteID}_{Typ}.{ext}` convention is real
 (`KnovasPlatform/components/docbridge_integration/src/file_utils.py:20`,
 parsed at `:40`). But `AutoDocFileHandler` is imported by exactly one consumer —
 the DocBridge web interface (`web_interface/app.py:33`), which serves the
-AutoDoc path (`/mnt/autodoc`). **The RemoteController watch-root sync never
+AutoDoc path (`/mnt/autodoc`). **The Knovas Connector watch-root sync never
 calls it.** A corpus mounted at `/data/corpus`, the way the existing demo corpus
 is, has its filenames used as filenames and nothing more.
 
@@ -100,7 +100,7 @@ This also gives us the *correct* mechanism for the broken-filename mess case
 
 ### 2.3 · Spreadsheets do not ingest
 
-`SYNCABLE_EXTENSIONS` (`RemoteController/src/sync/document_text.py:71`) is
+`SYNCABLE_EXTENSIONS` (`KnovasConnector/src/sync/document_text.py:71`) is
 `{.md, .txt, .docx, .pdf, .eml, .msg}`, matched by the include globs in
 `default_sync_body.py:9-16`. `.xlsx`/`.pptx` are **not** on it — that is
 Pflichtenheft F2, planned but not built.
@@ -306,7 +306,7 @@ would destroy the realism we are paying for.
 
 ## 8 · Generator, effort, cost
 
-New `RemoteController/scripts/demo_kanzlei/`, reusing `fetch_demo_corpus.py`'s
+New `KnovasConnector/scripts/demo_kanzlei/`, reusing `fetch_demo_corpus.py`'s
 `build` / `verify` / `upload` / `list` command shape (`fetch_demo_corpus.py:560`
 onward) so the ops story is unchanged:
 
@@ -351,7 +351,7 @@ UI, fix what looks wrong.
 | ------------------------------- | ---------------------------------------------------------------------------------- |
 | ~2,900 documents read same-y    | Per-author voice profiles, varied lengths, typos in emails, per-doc seeds          |
 | Legal plausibility              | Hero tier reviewed by a Swiss lawyer — **unresolved, see §10**                     |
-| Ingest time at 5,330 docs       | Measure in phase 2; `RemoteController/tests/unit/test_sync_large_corpus.py` exists |
+| Ingest time at 5,330 docs       | Measure in phase 2; `KnovasConnector/tests/unit/test_sync_large_corpus.py` exists |
 | Name collision with a real firm | Zefix screening gate before generation                                             |
 | Corpus stale at demo time       | §2.5 freshness warning in `verify`                                                 |
 

@@ -37,7 +37,7 @@ else
 fi
 
 echo "==> Installing tenant certs for Knovas Connector"
-bash "$ROOT_DIR/RemoteController/scripts/install_tenant_certs.sh"
+bash "$ROOT_DIR/KnovasConnector/scripts/install_tenant_certs.sh"
 
 echo "==> Platform cert symlinks"
 cd "$CERTS_DIR"
@@ -117,7 +117,7 @@ PROJECT="$(read_env_var COMPOSE_PROJECT_NAME "" "$KNOVAS_ENV")"
 if [[ -n "$DOCS_URL" ]]; then
   # Documents are read from Microsoft 365 and never stored here. The empty
   # folder only fills the mount docker-compose.yml declares for a share; made
-  # here so Docker does not create it as root. The marker makes RemoteController
+  # here so Docker does not create it as root. The marker makes Knovas Connector
   # refuse to treat it as a share if the Microsoft 365 settings ever fail to
   # reach it -- an empty share would otherwise prune every document.
   mkdir -p "$ROOT_DIR/data/no-local-documents"

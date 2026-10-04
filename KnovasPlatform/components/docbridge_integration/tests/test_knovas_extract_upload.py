@@ -540,7 +540,7 @@ def test_pdf_tables_can_be_switched_on(monkeypatch):
 
 # knovas-extract 0.4 OCR metadata as its PDF extractor reports it whenever
 # ``ocr=`` is passed -- every key present, backend "none" unless OCR ran. The
-# same table as RemoteController/tests/helpers.py OCR_EXTRA_04.
+# same table as KnovasConnector/tests/helpers.py OCR_EXTRA_04.
 _OCR_EXTRA_04 = {
     "born_digital": {"pdf:ocr_pages": 0, "pdf:text_pages": 12, "pdf:ocr_pages_skipped": 0,
                      "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "none"},

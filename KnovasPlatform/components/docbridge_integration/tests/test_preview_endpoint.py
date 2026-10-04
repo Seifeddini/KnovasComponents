@@ -85,7 +85,7 @@ def test_preview_content_returns_msg_metadata(logged_in_client, tmp_path):
 
 # --- EML und MD ------------------------------------------------------------
 #
-# RemoteController nimmt beide standardmaessig auf (_DEFAULT_INCLUDE_GLOBS), die
+# Knovas Connector nimmt beide standardmaessig auf (_DEFAULT_INCLUDE_GLOBS), die
 # Suche findet sie also -- und die Vorschau antwortete 415, weil sie nicht in
 # PREVIEW_KIND_BY_SUFFIX standen. Bei einer Kanzlei sind E-Mails der groesste
 # Teil des Bestands, das war damit der haeufigste Fehlerfall ueberhaupt.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The Knovas Connector's OCR settings in knovas.env, checked by the rules the
-# Connector applies (RemoteController/src/sync/document_text.py, spec E5). The
+# Connector applies (KnovasConnector/src/sync/document_text.py, spec E5). The
 # Connector replaces an invalid value by its default and logs one warning per
 # document -- in a log nobody reads while the sync seems to work. Before that
 # check existed, RC_TESSERACT_LANG="deu eng" skipped every PDF for good.

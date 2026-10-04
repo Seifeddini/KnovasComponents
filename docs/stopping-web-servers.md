@@ -49,7 +49,7 @@ docker compose --env-file knovas.env ps
 
 Knovas Connector is part of the root stack above, so `./scripts/stop.sh` already
 stops it. Only a **standalone** RC checkout (its own Compose project, for
-component development) needs this, from `KnovasComponents/RemoteController/`:
+component development) needs this, from `KnovasComponents/KnovasConnector/`:
 
 ```bash
 docker compose down
@@ -100,7 +100,7 @@ On Windows (Git Bash or WSL):
 cd KnovasComponents && bash ./scripts/stop.sh
 ```
 
-That is the whole stack. Add `cd RemoteController && docker compose down` only if
+That is the whole stack. Add `cd KnovasConnector && docker compose down` only if
 you also started a standalone RC project for component development.
 
 ---
@@ -108,5 +108,5 @@ you also started a standalone RC project for component development.
 ## Related
 
 - Start platform: [KnovasPlatform/docs/setup.md](../KnovasPlatform/docs/setup.md)
-- Start Knovas Connector: [RemoteController/docs/SETUP.md](../RemoteController/docs/SETUP.md)
+- Start Knovas Connector: [KnovasConnector/docs/SETUP.md](../KnovasConnector/docs/SETUP.md)
 - Demo mock API: [KnovasPlatform/docs/demo.md](../KnovasPlatform/docs/demo.md)

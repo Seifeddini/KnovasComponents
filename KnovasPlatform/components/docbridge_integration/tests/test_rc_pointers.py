@@ -1,6 +1,6 @@
-"""Folder on the RemoteController host -> pointer prefix for a folder rule.
+"""Folder on the Knovas Connector host -> pointer prefix for a folder rule.
 
-The vectors follow how RemoteController builds pointers
+The vectors follow how Knovas Connector builds pointers
 (``identifier_prefix + "/" + relative path``) and the server's raw
 ``startswith`` match, which is why every prefix ends in ``/``.
 """
@@ -116,7 +116,7 @@ def test_module_is_ascii_only():
 
 
 def test_a_folder_name_ending_in_a_space_keeps_it():
-    """platform-admin-ingestion-7: RemoteController keeps the space in every
+    """platform-admin-ingestion-7: Knovas Connector keeps the space in every
     pointer (``relative_to(...).as_posix()``), so the rule prefix must too --
     stripped, it would miss the folder and hit a sibling without the space."""
     prefix, _ = prefix_for_folder("kanzlei", ["/data/corpus"], "/data/corpus/Muster AG ")

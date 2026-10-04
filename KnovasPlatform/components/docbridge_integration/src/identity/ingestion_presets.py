@@ -1,6 +1,6 @@
 """The named choices the Ingestion tab offers, in one table.
 
-Every number RemoteController takes has a default somewhere — in
+Every number Knovas Connector takes has a default somewhere — in
 ``sync_config.seed_from_env``, in the scheduler, in a doc example. That is fine
 for a service and hopeless for a form: an administrator asked to pick
 ``max_ingestion_requests_per_minute`` is being asked a question they cannot
@@ -14,7 +14,7 @@ Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-IN-6)
 """
 from __future__ import annotations
 
-#: When RemoteController scans.
+#: When Knovas Connector scans.
 #:
 #: `manual` deliberately keeps ``enabled: True``. The scheduler's ``_run_once``
 #: returns immediately with status "disabled" when ``enabled`` is false
@@ -44,7 +44,7 @@ SCHEDULE_PRESETS: dict[str, dict] = {
     },
 }
 
-#: How hard RemoteController pushes. Descriptions are approximate on purpose:
+#: How hard Knovas Connector pushes. Descriptions are approximate on purpose:
 #: an administrator needs the order of magnitude and the felt consequence, and
 #: a precise figure here would be a promise the file server does not keep.
 THROUGHPUT_PRESETS: dict[str, dict] = {
@@ -75,8 +75,8 @@ THROUGHPUT_PRESETS: dict[str, dict] = {
 }
 
 #: What to index, in the words a lawyer uses, mapped to the glob patterns
-#: RemoteController's `filters.include_globs` takes. The extensions match the
-#: formats `knovas-extract` can actually convert (RemoteController/docs/
+#: Knovas Connector's `filters.include_globs` takes. The extensions match the
+#: formats `knovas-extract` can actually convert (KnovasConnector/docs/
 #: configuration.md, "Supported document formats") — offering a type we cannot
 #: extract would produce silent misses rather than an error.
 FILE_TYPE_PRESETS: dict[str, dict] = {

@@ -417,7 +417,7 @@ class TestPanelEditorKeepsStoredValues:
     """The value editor in the preview panel shows a many-valued field's
     values joined with "; " and splits what is saved at ";". A stored value
     may hold ";" itself -- Outlook categories such as "Kunde; Muster AG"
-    (RemoteController/contracts/vectors/metadata_fields.json). Saved as
+    (KnovasConnector/contracts/vectors/metadata_fields.json). Saved as
     shown, the stored values go back as they are; changed text is split,
     and a stored value still standing whole in it stays one value."""
 

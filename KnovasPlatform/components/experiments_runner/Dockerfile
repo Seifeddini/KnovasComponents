@@ -37,7 +37,7 @@ RUN JULIA_DEPOT_PATH=/opt/julia-depot julia --startup-file=no -e 'using Pkg; Pkg
 # uid 10101, used by no other image of the stack. It must stay unique on the
 # host: runner.py gives every job RLIMIT_NPROC 128, and the kernel checks it
 # against all processes and threads of that uid on the whole host, not of one
-# container. With a shared uid (RemoteController runs as 10001) another
+# container. With a shared uid (Knovas Connector runs as 10001) another
 # container's load would make jobs fail to fork or start threads.
 # docker-compose.yml (user, socket volume) and the CI check use the same
 # number. The socket directory is a volume shared with docbridge-web (compose

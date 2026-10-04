@@ -32,7 +32,7 @@ encrypted key. It is sensitive, and it is not a passphrase you chose.
 
 | | Knovas Connector | KnovasPlatform |
 |---|---|---|
-| **Directory on disk** | `KnovasComponents/certs/` (monorepo root — *not* `RemoteController/certs/`) | `KnovasComponents/KnovasPlatform/certs/` |
+| **Directory on disk** | `KnovasComponents/certs/` (monorepo root — *not* `KnovasConnector/certs/`) | `KnovasComponents/KnovasPlatform/certs/` |
 | **Mounted at** | `/certs` | `/app/certs` |
 | **Env vars** | `SEMANTIX_CLIENT_CERT_PATH`, `SEMANTIX_CLIENT_KEY_PATH`, `SEMANTIX_CA_CERT_PATH` | `SEMANTIX_CLIENT_CERT`, `SEMANTIX_CLIENT_KEY`, `SEMANTIX_CA_CERT` |
 | **Container user** | `rcuser`, uid **10001** | root |
@@ -54,7 +54,7 @@ Use the script; it handles ownership, the directory traversal bit, and the
 optional passphrase:
 
 ```bash
-cd KnovasComponents/RemoteController
+cd KnovasComponents/KnovasConnector
 ./scripts/install_tenant_certs.sh
 ```
 
@@ -90,7 +90,7 @@ That passphrase comes from Knovas — it is not one you chose at install time.
 each file. Run as the image's own user:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.internal.yml exec remote-controller \
+docker compose -f docker-compose.yml -f docker-compose.internal.yml exec knovas-connector \
   sh -c 'id; for f in /certs/*.pem; do
     if head -c 1 "$f" >/dev/null 2>&1; then echo "READ OK  $f"; else echo "DENIED   $f"; fi
   done'
@@ -99,7 +99,7 @@ docker compose -f docker-compose.yml -f docker-compose.internal.yml exec remote-
 Then confirm the handshake end to end:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.internal.yml exec remote-controller \
+docker compose -f docker-compose.yml -f docker-compose.internal.yml exec knovas-connector \
   python3 -c "import requests; from config import get_config; c=get_config(); \
 r=requests.get(c.semantix_secure_base_url+'/secured/health', \
 cert=(c.semantix_client_cert_path, c.semantix_client_key_path), \
@@ -181,7 +181,7 @@ start rather than sign an unbound token.
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `SSLError(PermissionError(13, 'Permission denied'))` | Container found the files but cannot read them — usually the key, or the directory lacks the traversal bit for uid 10001 | Run `install_tenant_certs.sh`, then `up -d` to recreate |
-| `invalid path` / `No such file or directory` on a cert | `.env` names do not match the files on disk, or certs are in `RemoteController/certs/` instead of the monorepo root | Compare `grep SEMANTIX .env` against `ls -la ../certs/` |
+| `invalid path` / `No such file or directory` on a cert | `.env` names do not match the files on disk, or certs are in `KnovasConnector/certs/` instead of the monorepo root | Compare `grep SEMANTIX .env` against `ls -la ../certs/` |
 | `certificate verify failed` | Wrong CA, or cert and key are not a matching pair | Confirm `ca-root.pem` is the Knovas root CA; re-request the bundle |
 | `401 Client certificate not authorized` | Certificate is valid but the tenant is not provisioned, or you are using an old bundle | Contact Knovas — this is server-side, not a local file problem |
 | Fixed permissions, error unchanged | You read a cached status from before the fix, or used `restart` instead of `up -d` | Check `last_run_at` in `/sync/status`; recreate the container |
@@ -191,6 +191,6 @@ The errors above are ordered by how deep they occur in the handshake. Reaching a
 
 ## Related
 
-- [Knovas Connector local setup](../RemoteController/docs/local-setup.md) · [production setup](../RemoteController/docs/SETUP.md)
+- [Knovas Connector local setup](../KnovasConnector/docs/local-setup.md) · [production setup](../KnovasConnector/docs/SETUP.md)
 - [KnovasPlatform setup](../KnovasPlatform/docs/setup.md)
 - [Client Integration Guide](KnovasAPI/Client_Integration_Guide.md) — raw API access without either component

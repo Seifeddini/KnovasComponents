@@ -276,14 +276,14 @@ administrator still cannot approve their own.
 
 ## Ingestion administration — and making sync config easy
 
-**Today:** RemoteController already exposes everything a console needs — `/discover`, `/sync`,
+**Today:** Knovas Connector already exposes everything a console needs — `/discover`, `/sync`,
 `/sync/start`, `/sync/stop`, `/sync/status`, `/sync/config`, `/metrics` — but every route is gated
 by `require_internal_access` (`src/routes/sync_control.py:19-24`), which verifies a **Knovas
 employee** JWT. The firm's own administrator cannot configure their own ingestion.
 
-`RemoteController/docs/configuration.md` presents the difficulty as a feature: **"Two configuration
+`KnovasConnector/docs/configuration.md` presents the difficulty as a feature: **"Two configuration
 layers."** *What* to sync is a `POST /sync` body (`sync_request.schema.json`); *when and how fast* is
-a separate file (`remote_controller_sync_config.schema.json`). To change one thing an administrator
+a separate file (`knovas_connector_sync_config.schema.json`). To change one thing an administrator
 must today hand-write two JSON documents against two schemas, know that `max_document_age_seconds`
 exists in **both** with a precedence rule, hold a Knovas employee JWT, set mode `0600` on four files,
 and know that `save_last_sync_body` silently persists the last body. Six kinds of knowledge for one
@@ -292,8 +292,8 @@ decision: "index this folder, nightly, and wall it to the litigation group."
 ### One profile. One form. One write.
 
 A single versioned `ingestion_profiles` row is the only artifact a human edits. The Platform
-*compiles* it into the two RemoteController documents and pushes them together. Nobody opens
-`remote_controller_sync.json` again.
+*compiles* it into the two Knovas Connector documents and pushes them together. Nobody opens
+`knovas_connector_sync.json` again.
 
 | In the form | What the administrator does | What the Platform compiles |
 |-------------|-----------------------------|----------------------------|
@@ -313,7 +313,7 @@ A single versioned `ingestion_profiles` row is the only artifact a human edits. 
 
 | ID | Change |
 |----|--------|
-| KC-IN-1 | `require_tenant_admin` on RemoteController, verifying a broker-signed assertion with `ingestion_manager` in `rol`. Sits **beside** the employee path; each route declares which principals it accepts. |
+| KC-IN-1 | `require_tenant_admin` on Knovas Connector, verifying a broker-signed assertion with `ingestion_manager` in `rol`. Sits **beside** the employee path; each route declares which principals it accepts. |
 | KC-IN-2 | `ingestion_profiles` as source of truth: versioned row holding the sync body and the sync config, with author, approver, timestamp. |
 | KC-IN-3 | Admin console **Ingestion** tab. |
 | KC-IN-4 | **Per-source default access group.** Extend `sync_request.schema.json` so each `sources[]` entry carries optional `access_groups`; `knovas_uploader.py:191` passes it to `/secured/init_document_transmission`, which already materialises the ACL. Without this, every new ingest reopens the wall it just closed. |
@@ -346,7 +346,7 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | AL-5 | **Extend** `data_plane/kg_object_acl_assignment.als` — not a new model — with `edge_visible_implies_both_endpoints_visible`, `every_topology_read_resolves_a_principal` and `node_visible_implies_its_type_visible` (the last needs a new `nType` relation on `KnowledgeNode` in `domain/graph.als`, which today carries only `nTenant`) | The object ACL is already modelled, with seven checks on assignment and dominance. Two properties GI-GRAPH-12 *states* are not modelled: the endpoint rule (the file contains no reference to `node_lo` or an endpoint, and no mutant exercises it) and that a read path resolves a principal at all — exactly the conjunct `GET /secured/graph` drops. | B3 |
 | AL-6 | **Create** `lifecycles/dual_control.als` — `four_eyes_requires_two_distinct`, `token_single_use`, `token_target_bound`, `expired_token_never_executes`, `approval_precedes_execution` (temporal) | A lifecycle because it is inherently temporal. `token_target_bound` stops an approval for one matter authorising another. | B5 |
 | AL-7 | **Modify** `lifecycles/tenant_purge.als`, `lifecycles/acl_mutation.als` | Purge and ACL mutation gain the dual-control precondition when the tenant flag is set. | B5 |
-| AL-8 | **Modify** `core/remote_controller_guard.als`, `entities/remote_controller_requests.als` | The paths are *alternatives*, not a widening: a tenant-admin assertion authorises only its own client's RC, and neither path relaxes GI-RC-01's conjunctive employee checks. | Ingestion |
+| AL-8 | **Modify** `core/knovas_connector_guard.als`, `entities/knovas_connector_requests.als` | The paths are *alternatives*, not a widening: a tenant-admin assertion authorises only its own client's RC, and neither path relaxes GI-RC-01's conjunctive employee checks. | Ingestion |
 | AL-9 | **Modify** `system.als` — `e2e_brokered_read_is_subject_bound`, `e2e_topology_never_oracles`, `e2e_destructive_needs_two_people` | Each composes mechanisms from ≥2 subsystems, as the composition root requires. Plus a liveness witness — a check that passes vacuously is worse than no check. | B2, B3, B5 |
 
 ### Mutants
@@ -433,10 +433,10 @@ This repository does not accept a stray `.als`. A new model must carry `@code_un
 | `KnovasPlatform/docs/administration/{users-and-roles,access-groups-and-walls,approvals,ingestion,identity-database}.md` | **Five new documents**, one per console tab, for a firm's IT contact. `identity-database.md` is the one nobody would think to write and matters most: if they never back it up they lose every account and grant. |
 | `KnovasPlatform/docs/integration/open-tokens-api.md` | Tokens become principal-bound. |
 | `KnovasPlatform/docs/deployment/*`, `docs/platforms/{windows,debian,ubuntu}.md` | New container, volume, secret file; data-directory permissions per platform. |
-| `RemoteController/docs/configuration.md` | The **"Two configuration layers"** section is demoted to a troubleshooting appendix; the document opens by pointing at the Platform's Ingestion tab. |
-| `RemoteController/docs/{SETUP,operations,onboarding-checklist,local-setup}.md`, `README.md` | Tenant-admin path; start/stop from the console; the checklist loses its hand-edit steps. |
+| `KnovasConnector/docs/configuration.md` | The **"Two configuration layers"** section is demoted to a troubleshooting appendix; the document opens by pointing at the Platform's Ingestion tab. |
+| `KnovasConnector/docs/{SETUP,operations,onboarding-checklist,local-setup}.md`, `README.md` | Tenant-admin path; start/stop from the console; the checklist loses its hand-edit steps. |
 | `docs/KnovasAPI/*`, `KnovasPlatform/knovas-docs/…/03_API/*` | The two drifted mirrors. Resynchronise from canonical in CI, or replace with a pointer. Do not hand-edit a third variant. |
-| `RELEASE_NOTES.md`, `RemoteController/CHANGELOG.md`, `docs/specifications.md` | A breaking upgrade — the shared login stops working. Needs an upgrade note with a migration path. |
+| `RELEASE_NOTES.md`, `KnovasConnector/CHANGELOG.md`, `docs/specifications.md` | A breaking upgrade — the shared login stops working. Needs an upgrade note with a migration path. |
 
 ---
 

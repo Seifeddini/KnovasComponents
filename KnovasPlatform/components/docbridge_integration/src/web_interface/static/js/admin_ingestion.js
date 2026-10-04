@@ -1,6 +1,6 @@
 /* Folder picker for the Ingestion profile: expand loads one level of
  * directories from /admin/ingestion/folders; Hinzufuegen writes the path
- * into the profile table. Paths come from RemoteController; nothing here
+ * into the profile table. Paths come from Knovas Connector; nothing here
  * is parsed as HTML.
  */
 (function () {
@@ -209,8 +209,8 @@
     }
 
     /* "Vorlagen testen": the folder's path templates against the files
-     * RemoteController lists there. The captures are computed on the server
-     * by the same code RemoteController's golden vectors pin, so this page
+     * Knovas Connector lists there. The captures are computed on the server
+     * by the same code Knovas Connector's golden vectors pin, so this page
      * never re-implements the grammar. The folder and its templates travel
      * in a POST body, never in a URL; everything shown is set as text. */
     var previewEndpoint = rows ? rows.getAttribute('data-template-preview') : null;

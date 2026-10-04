@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export RC_SSH_PASSWORD='M0n4t0m1c-8Ip4rt1t3-P1ty'
+PY=/tmp/sshvenv/bin/python
+H=/mnt/e/KnovasComponents/KnovasConnector/scripts/ssh_helper.py
+SRC=/mnt/e/KnovasComponents/KnovasConnector/src
+DST=/home/master/KnovasInternal/KnovasConnector/src
+files=(
+  sync/sync_config.py
+  sync/sync_scheduler.py
+  sync/sync_state.py
+  sync/knovas_uploader.py
+  sync/sync_executor.py
+  routes/sync.py
+  routes/sync_control.py
+)
+for f in "${files[@]}"; do
+  "$PY" "$H" upload "$SRC/$f" "$DST/$f"
+done
+"$PY" "$H" run 'cd /home/master/KnovasInternal/KnovasConnector && docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml build --no-cache knovas-connector && docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d && sleep 15 && curl -sS http://127.0.0.1:5001/health'

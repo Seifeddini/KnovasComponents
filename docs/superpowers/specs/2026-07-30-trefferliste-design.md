@@ -109,7 +109,7 @@ und Seitenangaben zurück, sonst nichts. Die Aktennummer entsteht ausschliesslic
 durch lokale Anreicherung:
 
 ```
-RemoteController schreibt   .search_enrichment.jsonl
+Knovas Connector schreibt   .search_enrichment.jsonl
         ↓  Pfad aus SEARCH_ENRICHMENT_PATH (Standard /mnt/autodoc/…)
 _load_search_enrichment()   liest sie, gecacht nach mtime
         ↓

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the backend contracts of Part A into the product a Swiss law firm demanded in sections D–H and J: a search a firm can live in (filters, paging, honest empties, versions, similar documents, jump-to-hit viewer), a party register with dedup and Zefix, an evidentiary conflicts check with lateral-hire import, a Fristen workflow (proposal → adopt → four-eyes confirm → Outlook feed), an inbox fed by the event spine, Cortex on the live graph (ego graph, "why?", trust chips, reports, import wizard, Vorgaben and filters live), Outlook and Word add-ins with two-click filing, an opt-in activity journal, RemoteController connectors and metadata (mailbox, PST, XLSX/PPTX, OCR evidence), and the written declarations (E1, G9, H6, J1, J4) with a capability legend.
+**Goal:** Turn the backend contracts of Part A into the product a Swiss law firm demanded in sections D–H and J: a search a firm can live in (filters, paging, honest empties, versions, similar documents, jump-to-hit viewer), a party register with dedup and Zefix, an evidentiary conflicts check with lateral-hire import, a Fristen workflow (proposal → adopt → four-eyes confirm → Outlook feed), an inbox fed by the event spine, Cortex on the live graph (ego graph, "why?", trust chips, reports, import wizard, Vorgaben and filters live), Outlook and Word add-ins with two-click filing, an opt-in activity journal, Knovas Connector connectors and metadata (mailbox, PST, XLSX/PPTX, OCR evidence), and the written declarations (E1, G9, H6, J1, J4) with a capability legend.
 
-**Architecture:** Platform screens are new Flask Blueprints in `KnovasPlatform/components/docbridge_integration/src/web_interface/`, built on the section-C blueprint (`graph_routes.py`, `graph_model.py`, `matter_view.py`, cassette tests) and the section-B identity gate (`src/identity/`, `platform-db`); the client (`knovas_client.py`) grows one method per new backend route; nothing is post-filtered that the API filters. RemoteController grows a metadata builder, RC-local Office extractors registered through knovas-extract's public hook, a Microsoft-Graph mailbox mirror shaped like the OneDrive mirror, a PST exploder, and an OCR benchmark. Office add-ins are a static taskpane app served by the Platform origin plus two manifests. Docs are treated as deliverables with the same "no placeholder" discipline.
+**Architecture:** Platform screens are new Flask Blueprints in `KnovasPlatform/components/docbridge_integration/src/web_interface/`, built on the section-C blueprint (`graph_routes.py`, `graph_model.py`, `matter_view.py`, cassette tests) and the section-B identity gate (`src/identity/`, `platform-db`); the client (`knovas_client.py`) grows one method per new backend route; nothing is post-filtered that the API filters. Knovas Connector grows a metadata builder, RC-local Office extractors registered through knovas-extract's public hook, a Microsoft-Graph mailbox mirror shaped like the OneDrive mirror, a PST exploder, and an OCR benchmark. Office add-ins are a static taskpane app served by the Platform origin plus two manifests. Docs are treated as deliverables with the same "no placeholder" discipline.
 
 **Tech Stack:** Python 3.11, Flask, requests, pytest; vanilla JS (no build step), Cytoscape.js, vendored pdf.js; PostgreSQL (`platform-db`, section B); openpyxl, python-pptx, py3langid, Pillow (RC); Office.js manifests; Microsoft Graph.
 
@@ -12,7 +12,7 @@
 
 **Companion plan (Part A — KnowledgeBase):** `KnowledgeBase/docs/superpowers/plans/2026-08-15-pflichtenheft-d-j-knowledgebase.md`. Every backend route this plan calls is defined there; the **Interfaces → Consumes** blocks name them exactly.
 
-**Repository:** `E:\Knovas\KnovasComponents`. Working directories: Platform tasks `KnovasPlatform/components/docbridge_integration`; RemoteController tasks `RemoteController`; add-in tasks `KnovasPlatform/components/knovas_office_addins`; docs tasks the repo root.
+**Repository:** `E:\Knovas\KnovasComponents`. Working directories: Platform tasks `KnovasPlatform/components/docbridge_integration`; Knovas Connector tasks `Knovas Connector`; add-in tasks `KnovasPlatform/components/knovas_office_addins`; docs tasks the repo root.
 
 ## Global Constraints
 
@@ -23,10 +23,10 @@
 - **Identity:** the actor sent as `actor_ref` is the section-B user id (`IdentityGate.current_user().id`) — never a typed name; screens that need a person (D2 actor, E3 confirm, J2, H2) are gated on `require_authenticated_user` (section-B KC-B1-2) and are sequenced after `feat/section-b-buildout` merges; their backend halves ship earlier.
 - **404 is never widened;** every mutating route enforces CSRF (`X-CSRF-Token`) except the documented Bearer/feed-token endpoints.
 - **Multi-worker safety:** nothing stateful lives in process memory; use `platform-db` (section B) or the SQLite pattern from `open_tokens.py`; the events poller elects a leader with a PostgreSQL advisory lock.
-- **RemoteController:** `gunicorn -w 1` stays; response schemas are `additionalProperties:false` — every new output field is added to `contracts/*.schema.json` in the same task; the extension allow-list has exactly one source of truth after KC-F-3.
+- **Knovas Connector:** `gunicorn -w 1` stays; response schemas are `additionalProperties:false` — every new output field is added to `contracts/*.schema.json` in the same task; the extension allow-list has exactly one source of truth after KC-F-3.
 - **UI copy German; code, comments, commits, docs English.** Vendored JS is pinned with a checksum and a licence note.
-- **Tests:** Platform `cd KnovasPlatform/components/docbridge_integration && python -m pytest`; RC `cd RemoteController && python -m pytest`; contract cassettes recorded once from the dev tenant (section-C convention) and refreshed when Part A changes a shape.
-- **Docs are deliverables:** every screen has a `KnovasPlatform/docs/features/*.md` page with a capability label; every connector is in `RemoteController/docs/connectors.md`; every declaration is in `docs/product-statements.md`; the Developer-Kit mirror under `docs/KnovasAPI/` is re-synced from `KnowledgeBase/docs/Knovas_Developer_Kit/api/` (drift check script).
+- **Tests:** Platform `cd KnovasPlatform/components/docbridge_integration && python -m pytest`; RC `cd KnovasConnector && python -m pytest`; contract cassettes recorded once from the dev tenant (section-C convention) and refreshed when Part A changes a shape.
+- **Docs are deliverables:** every screen has a `KnovasPlatform/docs/features/*.md` page with a capability label; every connector is in `KnovasConnector/docs/connectors.md`; every declaration is in `docs/product-statements.md`; the Developer-Kit mirror under `docs/KnovasAPI/` is re-synced from `KnowledgeBase/docs/Knovas_Developer_Kit/api/` (drift check script).
 - **Commits:** `feat(search):`, `feat(cortex):`, `feat(parties):`, `feat(conflicts):`, `feat(deadlines):`, `feat(inbox):`, `feat(addins):`, `feat(rc):`, `docs(...)`, `test(...)`; branch `feat/pflichtenheft-d-j` from `main` (rebase onto the section-C and section-B branches as they merge).
 
 ## Part Overview
@@ -38,7 +38,7 @@
 | **KC-C** | Fristen (proposals, four-eyes, ICS feed); events poller + Posteingang; job status | E3, E4, E5, E6 | Part A KB-C/KB-D; section B for feed tokens + actor | after C-plan B5 |
 | **KC-D** | Cortex live: graph default + badge, ego graph, why-panel, trust chip, Berichte, CSV import wizard, Vorgaben live, filters live | G1–G8 | C-plan (Parts A/B/C); Part A KB-F-8..10 | after C-plan |
 | **KC-E** | Office add-ins component + `/api/filing/*`; Arbeitstag-Journal | H2, E5-adjacent, J2, J3 | section B (login in taskpane, journal user); Part A metadata contract | after section B |
-| **KC-F** | RemoteController: metadata at ingest, matter path rule, single extension list, XLSX/PPTX, OCR (ita + signal + benchmark), mailbox mirror, PST + queue, index status + schema fields | F1, F2, F3, D5, F5, H1, H4 | Part A KB-A1 (metadata contract), KB-C (transmission status), KB-E (identifier search for the path rule) | KC-F-3/5/6 immediately; KC-F-4 after KC-F-1; KC-F-1/9 in phase 1; KC-F-2 after Part A KB-E-4 (phase 2); KC-F-7/8 in phase 3 |
+| **KC-F** | Knovas Connector: metadata at ingest, matter path rule, single extension list, XLSX/PPTX, OCR (ita + signal + benchmark), mailbox mirror, PST + queue, index status + schema fields | F1, F2, F3, D5, F5, H1, H4 | Part A KB-A1 (metadata contract), KB-C (transmission status), KB-E (identifier search for the path rule) | KC-F-3/5/6 immediately; KC-F-4 after KC-F-1; KC-F-1/9 in phase 1; KC-F-2 after Part A KB-E-4 (phase 2); KC-F-7/8 in phase 3 |
 | **KC-G** | Declarations + capability legend; docs index; Developer-Kit mirror + drift check; specifications/hosting; release notes/changelogs; design copy | E1, G9, H6, J1, J4, F4-doc, F6-doc | — | Yes — start immediately (phase 0) |
 
 Sequencing follows design §10: KC-G, KC-F-3, KC-F-5 and KC-F-6 in phase 0; KC-A, KC-F-1, KC-F-4 and KC-F-9 in phase 1 (**KC-F-4 after KC-F-1** — it consumes `ExtractionPayload.extra` and `sync.extract_content.METADATA_EXTRA_WHITELIST`, both created by KC-F-1); KC-B/C/D **and KC-F-2** in phase 2 (after the C-plan and section B; KC-F-2 additionally needs `GET /secured/graph/identifiers/search` from Part A Task KB-E-4, which is Part A phase 2); KC-E and the mailbox/PST half of KC-F (KC-F-7, KC-F-8) in phase 3.
@@ -8923,14 +8923,14 @@ screen degrades to the previous behaviour and says so.
 | Sort (Relevanz / Datum ↓ / Datum ↑) | LIVE | Date sort re-orders the gated set. |
 | "Weitere Treffer" (real paging) | LIVE | `offset` over one ranked, gated set — not a corpus offset. Ceiling = the reranked pool (`QUERY_COLBERT_STAGE2_TOP_DOCUMENTS`). |
 | Facet chips / "Wer kennt sich aus?" (author facet) | LIVE | Counted over the ranked, ACL-filtered pool: "Verteilung in den Treffern", not a corpus statistic. |
-| Hit metaline: type · date · author · language · version badge | LIVE | Fields exist only for documents ingested with `metadata` (RemoteController ≥ this release, `RC_SEND_DOCUMENT_METADATA=1`) or backfilled (`manage_weaviate.py backfill-metadata`). Older documents show format and date only. |
+| Hit metaline: type · date · author · language · version badge | LIVE | Fields exist only for documents ingested with `metadata` (Knovas Connector ≥ this release, `RC_SEND_DOCUMENT_METADATA=1`) or backfilled (`manage_weaviate.py backfill-metadata`). Older documents show format and date only. |
 | Honest empty state, `no_strong_matches`, "Beispieldaten" banner | LIVE | The banner appears whenever `SEARCH_USE_TEST_RESULTS` is on. |
 | API validation errors shown, never dropped | LIVE | A `400 validation_error` from the tenant renders as a message with the field. |
 | Version list ("Versionen" in the dialog) | LIVE (tier 1) | Lists predecessors with `changed_by`/`changed_by_kind`. Tier 2 — searching superseded text — is **not** offered. |
 | "Ähnliche Dokumente" | LIVE | `/api/documents/<uuid>/similar`; shares the query rate budget; `no_strong_matches` shown honestly. |
 | "Ähnliche Akten" (matter page) | LIVE with graph mode | Grouped from visible `kg_node_ids` (`similar_matters`). |
 | Metadata edit (type, status, date, language, author) | LIVE | `PATCH` without re-upload; a card re-renders after saving. |
-| Tables in the preview (DOCX/MSG/HTML tables, structured tables) | LIVE | GFM pipe tables render as tables; XLSX preview in the Platform is PLANNED (the Platform image has no XLSX extractor; RemoteController extracts XLSX for search). |
+| Tables in the preview (DOCX/MSG/HTML tables, structured tables) | LIVE | GFM pipe tables render as tables; XLSX preview in the Platform is PLANNED (the Platform image has no XLSX extractor; Knovas Connector extracts XLSX for search). |
 
 ## How a filter reaches the API
 
@@ -9177,7 +9177,7 @@ New in this release (needs the Knovas Secure API contract of August 2026):
 - API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)
 ```
 
-Create `KnovasPlatform/CHANGELOG.md` (same shape as `RemoteController/CHANGELOG.md`):
+Create `KnovasPlatform/CHANGELOG.md` (same shape as `KnovasConnector/CHANGELOG.md`):
 
 ```markdown
 ## Changelog
@@ -16546,7 +16546,7 @@ closing line `Check the Network tab on /api/open-tokens/mint …`:
 Append to the `## Unreleased` section of `KnovasPlatform/CHANGELOG.md` (created
 by Task KC-A-8; if the file does not exist on your branch, create it first with
 the two heading lines `# Changelog` and `## Unreleased`, the shape
-`RemoteController/CHANGELOG.md` uses):
+`KnovasConnector/CHANGELOG.md` uses):
 
 ```markdown
 - Parteien (D1): register at `/parteien` over the configured party node types (`web.graph.party_node_types`), kind-aware fuzzy search across the firm (`degraded` shown, never swallowed), party detail with facts, identifiers and matters, identifier editor with the eight kinds (`name`, `alias`, `legal_name`, `uid`, `matter_number`, `email`, `iban`, `other`), "Dubletten" queue and a merge sheet ("Quelle bleibt als Verweis erhalten"); merge is guarded by the `party_merge` approval policy, bypasses and executions are audited.
@@ -21359,7 +21359,7 @@ In `scripts/lib/expand_knovas_env.sh` (repository root), add the reader after th
 KNOVAS_EVENTS_POLL_ENABLED="$(read_knovas KNOVAS_EVENTS_POLL_ENABLED false)"
 ```
 
-and add these four lines to the `KP_ENV` heredoc, after its `SEARCH_CONTEXT_STORE_PATH=/var/rc-state/search_context` line (`:122` — **not** the identical line `:87`, which belongs to the RemoteController heredoc):
+and add these four lines to the `KP_ENV` heredoc, after its `SEARCH_CONTEXT_STORE_PATH=/var/rc-state/search_context` line (`:122` — **not** the identical line `:87`, which belongs to the Knovas Connector heredoc):
 
 ```bash
 EVENTS_POLL_ENABLED=${KNOVAS_EVENTS_POLL_ENABLED}
@@ -21401,7 +21401,7 @@ Verify the env expansion writes the keys (the smoke test in `scripts/lib/test_ex
 cd /e/Knovas/KnovasComponents \
   && bash scripts/lib/expand_knovas_env.sh scripts/lib/fixtures/knovas.env.fixture \
   && grep -E 'EVENTS_POLL_ENABLED|EVENTS_TENANT_KEY|TZ=' KnovasPlatform/.env.generated \
-  && rm -f RemoteController/.env.generated KnovasPlatform/.env.generated
+  && rm -f KnovasConnector/.env.generated KnovasPlatform/.env.generated
 ```
 Expected: three lines — `EVENTS_POLL_ENABLED=false`, `EVENTS_TENANT_KEY=default`, `TZ=Europe/Zurich`.
 
@@ -24926,7 +24926,7 @@ because "gelesen" and "erledigt" are different statements about a deadline.
 The Platform **pulls**. A single leader process — elected with a PostgreSQL advisory lock,
 so two gunicorn workers cannot both poll — calls `GET /secured/events?after=<cursor>` every
 `EVENTS_POLL_SECONDS` and appends the rows to a local `events` table with a per-tenant
-cursor. Nothing is pushed into the firm's network, and RemoteController does not have to be
+cursor. Nothing is pushed into the firm's network, and Knovas Connector does not have to be
 reachable from the internet. Details:
 [../integration/events.md](../integration/events.md).
 
@@ -37855,7 +37855,7 @@ this order, and logs which one it used:
    transport headers (`Received`, DKIM and other authentication results) and
    the exact original encoding. What is kept: From, To, Cc, Subject, Date,
    Message-ID, In-Reply-To, the body and every attachment. If a filed message
-   must be a forensic copy, use the RemoteController mailbox mirror instead —
+   must be a forensic copy, use the Knovas Connector mailbox mirror instead —
    it copies the message from the mailbox server byte for byte.
 
 A `.msg` file (a message saved out of Outlook) is filed the same way: the
@@ -37873,7 +37873,7 @@ What the add-in does with that permission, and what it does not:
 
 - It reads **the message the user has open** — never the mailbox, never other
   folders, never other users. There is no background job and no automatic
-  filing; the RemoteController mailbox connector is the component for that,
+  filing; the Knovas Connector mailbox connector is the component for that,
   and it runs against an explicit mailbox allow-list.
 - It never sends, moves, deletes or flags anything.
 - It never writes to the mailbox. `ReadWriteMailbox` is required for the EWS
@@ -37965,8 +37965,8 @@ that belongs to two matters is filed under both, and each matter shows it.
 - attachments whose type the Platform cannot turn into indexable text
   (`.zip`, `.p7m`, `.exe`, images, …). They are named in the response and in
   the toast with the reason `unsupported_type`; the message itself is filed.
-- the mailbox as a whole — that is the RemoteController mailbox connector
-  (`RemoteController/docs/connectors.md`), which mirrors whole folders on a
+- the mailbox as a whole — that is the Knovas Connector mailbox connector
+  (`KnovasConnector/docs/connectors.md`), which mirrors whole folders on a
   schedule. The add-in is the deliberate, per-message path.
 - calendar items, contacts and tasks.
 - an attachment without its message: attachments can be excluded
@@ -38095,7 +38095,7 @@ The taskpane "Knovas Suche" is the search UI in a narrow column:
   `Office.context.document.setSelectedDataAsync`.
 
 The Word add-in does not file documents into Knovas: Word documents live on the
-share and are indexed by RemoteController. It does not edit metadata and does
+share and are indexed by Knovas Connector. It does not edit metadata and does
 not touch track changes.
 
 ## Privacy, audit and data flow
@@ -38135,7 +38135,7 @@ More Platform symptoms: [troubleshooting.md](troubleshooting.md).
 - **Offline filing.** The Platform must be reachable; there is no queue on the
   client.
 - **Automatic filing rules.** Filing is always a human act in this component.
-  Bulk and continuous mailbox capture is the RemoteController mailbox
+  Bulk and continuous mailbox capture is the Knovas Connector mailbox
   connector.
 - **Calendar entries from the add-in.** Deadlines reach Outlook through the
   per-user iCalendar feed instead (`KnovasPlatform/docs/features/deadlines.md`)
@@ -41571,7 +41571,7 @@ git commit -m "docs(journal): activity journal — consent, what is recorded, re
 
 ---
 
-## PART KC-F — RemoteController — metadata, XLSX/PPTX, OCR evidence, mailbox mirror, PST + migration, index status (F1, F2, F3, D5, F5, H1, H4)
+## PART KC-F — Knovas Connector — metadata, XLSX/PPTX, OCR evidence, mailbox mirror, PST + migration, index status (F1, F2, F3, D5, F5, H1, H4)
 
 ### Task KC-F-1: Document metadata at ingest (ExtractedDocument/ExtractionPayload fields, language fallback, rule table, `metadata` on init)
 
@@ -42676,7 +42676,7 @@ def test_sync_request_schema_documents_every_extension():
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_syncable_extensions.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_syncable_extensions.py -q
 ```
 
 Expected: collection error — `ImportError: cannot import name 'EXT_TO_MIME' from 'sync.document_text'`.
@@ -42693,7 +42693,7 @@ Replace lines 49–90 (from `SYNCABLE_EXTENSIONS = frozenset(...)` through the c
 
 ```python
 ## --- the format table ------------------------------------------------------
-## THE source of truth for "what RemoteController syncs": one row per
+## THE source of truth for "what Knovas Connector syncs": one row per
 ## extension, mapping to the MIME handed to knovas-extract. Everything else
 ## derives from it — the syncable-extension check below, the default include
 ## globs, the OneDrive mirror allow-list (onedrive_mirror/mirror.py), the
@@ -42779,7 +42779,7 @@ and the guard in `extract_document` (was `:287`):
 - [ ] **Step 4: Run the extraction suite — the derivation must be behaviour-preserving**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_document_text.py tests/unit/test_syncable_extensions.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_document_text.py tests/unit/test_syncable_extensions.py -q
 ```
 
 Expected: every `test_document_text.py` test PASSES (the derived `DEFAULT_INCLUDE_GLOBS` equals the deleted literal element for element, so discovery and sync are unchanged); `test_syncable_extensions.py` still fails on `test_default_sync_body_uses_the_derived_globs`, `test_onedrive_mirror_default_is_the_same_allowlist` and `test_sync_request_schema_documents_every_extension`.
@@ -42823,7 +42823,7 @@ DEFAULT_ALLOWED_EXTENSIONS = frozenset(SYNCABLE_EXTENSIONS)
 Widening the default cannot change an existing expectation: every mirror test that asserts `skipped_extension` passes an explicit `allowed_extensions` (`tests/unit/test_onedrive_mirror.py:203`, `:273`; `tests/unit/test_onedrive_mirror_fixes.py:289`, `:405`). Prove it:
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_onedrive_mirror.py tests/unit/test_onedrive_mirror_fixes.py tests/unit/test_unified_config.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_onedrive_mirror.py tests/unit/test_onedrive_mirror_fixes.py tests/unit/test_unified_config.py -q
 ```
 
 Expected: PASS.
@@ -42861,17 +42861,17 @@ and extend `tests/unit/test_unified_config.py` — line 13 already asserts the r
 ```
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_syncable_extensions.py tests/unit/test_document_text.py tests/unit/test_unified_config.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_syncable_extensions.py tests/unit/test_document_text.py tests/unit/test_unified_config.py -q
 ```
 
 Expected: PASS — all eight tests of the new file included.
 
 - [ ] **Step 8: Docs, changelog, full suite, commit**
 
-In `docs/configuration.md`, replace the paragraph at line 68 (the one beginning "RemoteController converts the following extensions") with:
+In `docs/configuration.md`, replace the paragraph at line 68 (the one beginning "Knovas Connector converts the following extensions") with:
 
 ```markdown
-RemoteController converts the following extensions to text (with per-sentence citations) before chunking and upload. The list is one table in `src/sync/document_text.py` (`EXT_TO_MIME`); the discovery globs, the OneDrive mirror allow-list, the default sync body and the `/sync` request contract all derive from it, so this table and `contracts/sync_request.schema.json` can never disagree. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
+Knovas Connector converts the following extensions to text (with per-sentence citations) before chunking and upload. The list is one table in `src/sync/document_text.py` (`EXT_TO_MIME`); the discovery globs, the OneDrive mirror allow-list, the default sync body and the `/sync` request contract all derive from it, so this table and `contracts/sync_request.schema.json` can never disagree. Extraction is delegated to the [`knovas-extract`](https://github.com/knovas/knovas-extract-python) package (hardened backends, deterministic pysbd sentence tokenization, defused XML, ZIP-bomb caps):
 ```
 
 In `.env.example`, replace line 64 with:
@@ -42888,7 +42888,7 @@ Add to the `## Unreleased` list in `CHANGELOG.md`:
 ```
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest -q
 ```
 
 Expected: the whole suite PASSES.
@@ -42921,11 +42921,11 @@ git commit -am "refactor(rc): derive every extension allow-list from one format 
   - `sync.extract_content.METADATA_EXTRA_WHITELIST` — already contains `"rc:extractor"` — and `ExtractionPayload.extra` (defined in Task KC-F-1).
   - `sync.document_text.EXT_TO_MIME` / `include_globs_for_extensions` (defined in Task KC-F-3).
 - Produces:
-  - `sync.office_extractors.XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"`, `PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"`, `OFFICE_EXTRACTOR_NAME = "remote-controller-office"`.
+  - `sync.office_extractors.XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"`, `PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"`, `OFFICE_EXTRACTOR_NAME = "knovas-connector-office"`.
   - `sync.office_extractors.XlsxExtractor` (`name = "rc-xlsx"`) and `PptxExtractor` (`name = "rc-pptx"`), both satisfying `IExtractor`.
   - `sync.office_extractors.register_office_extractors() -> None` — idempotent `MIME_REGISTRY.setdefault` for both MIMEs; called once at `sync.document_text` import.
   - `sync.document_text.EXT_TO_MIME` gains `".xlsx": XLSX_MIME` and `".pptx": PPTX_MIME`, which propagates to `SYNCABLE_EXTENSIONS`, `DEFAULT_INCLUDE_GLOBS`, `onedrive_mirror.mirror.DEFAULT_ALLOWED_EXTENSIONS` and the default sync body with no further edits (Task KC-F-3).
-  - `sync.document_text.ExtractedDocument.extractor_name: Optional[str] = None` — `"remote-controller-office"` for XLSX/PPTX, `"knovas-extract-python"` otherwise.
+  - `sync.document_text.ExtractedDocument.extractor_name: Optional[str] = None` — `"knovas-connector-office"` for XLSX/PPTX, `"knovas-extract-python"` otherwise.
   - `sync.context_sidecar.build_sidecar_payload(pointer, path, text, sentences, *, extractor: Optional[str] = None)` and `write_context_sidecar(store_dir, pointer, path, text, sentences, *, extractor: Optional[str] = None)` — the sidecar JSON gains an `"extractor"` key when known.
   - Table shape reaching the Secure API (through `table_payload.map_extractor_tables`): `client_table_hint` `xlsx_s{sheet}_t{block}` / `pptx_s{slide}_t{n}`, `title` = sheet name (XLSX) / `null` (PPTX), `page` = slide number (PPTX only).
 
@@ -43053,7 +43053,7 @@ def test_corrupt_xlsx_is_classified_corrupt(tmp_path: Path):
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && pip install "openpyxl>=3.1,<4" "python-pptx>=1.0,<2" && python -m pytest tests/unit/test_office_extractors.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && pip install "openpyxl>=3.1,<4" "python-pptx>=1.0,<2" && python -m pytest tests/unit/test_office_extractors.py -q
 ```
 
 Expected: collection error — `ModuleNotFoundError: No module named 'sync.office_extractors'`. (The `pip install` makes the fixtures buildable now; the same two pins are recorded in `pyproject.toml` in Step 11, so a fresh checkout and the Docker image get them without this manual step.)
@@ -43068,7 +43068,7 @@ Create `src/sync/office_extractors.py` with the module docstring, the constants 
 `knovas-extract` has no spreadsheet or presentation extractor, and the spec's
 `knovas-extract-spec/docs/adding-a-format.md:5-9` decision gate ("at least two
 language implementations have a mature library for the format") cannot be
-satisfied today, so RemoteController registers its
+satisfied today, so Knovas Connector registers its
 own two extractors into the package's documented public hook,
 `knovas_extract.dispatch.MIME_REGISTRY`. Everything downstream is reused
 unchanged: dispatch's `Limits` and sentence post-conditions, and
@@ -43078,7 +43078,7 @@ unchanged: dispatch's `Limits` and sentence post-conditions, and
 Provenance is stamped honestly. `dispatch.extract()` overwrites
 `result.extractor` with `knovas-extract-python` for every extractor it calls,
 registry entries included (dispatch.py:351-358), so these two record
-themselves in `metadata.extra["rc:extractor"] = "remote-controller-office"`:
+themselves in `metadata.extra["rc:extractor"] = "knovas-connector-office"`:
 `extract_content.METADATA_EXTRA_WHITELIST` forwards that key to the Knovas API
 and `document_text` lifts it onto `ExtractedDocument.extractor_name` for the
 context sidecar. Upstreaming both extractors is the named follow-up; when it
@@ -43110,7 +43110,7 @@ logger = logging.getLogger(__name__)
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-OFFICE_EXTRACTOR_NAME = "remote-controller-office"
+OFFICE_EXTRACTOR_NAME = "knovas-connector-office"
 
 ## Mirrors sync/table_payload.py:8-10. Those caps trim silently at the payload
 ## boundary; trimming here keeps a warning attached to the document instead.
@@ -43205,10 +43205,10 @@ def _clean_scalar(value: Any, max_chars: int = 500) -> Optional[str]:
 Nothing imports this module yet, so nothing runs. Sanity-check that it at least parses:
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -c "import sys; sys.path.insert(0, 'src'); import sync.office_extractors as m; print(m.XLSX_MIME, m.OFFICE_EXTRACTOR_NAME)"
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -c "import sys; sys.path.insert(0, 'src'); import sync.office_extractors as m; print(m.XLSX_MIME, m.OFFICE_EXTRACTOR_NAME)"
 ```
 
-Expected: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet remote-controller-office`.
+Expected: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet knovas-connector-office`.
 
 - [ ] **Step 4: Write `XlsxExtractor` and the registration hook**
 
@@ -43458,7 +43458,7 @@ Give `ExtractedDocument` (`:101-128`) the provenance field, next to the fields T
     document_date: Optional[str] = None
     extra: Optional[dict[str, Any]] = None
     # Who actually parsed this document: "knovas-extract-python", or
-    # "remote-controller-office" for the RC-local XLSX/PPTX extractors.
+    # "knovas-connector-office" for the RC-local XLSX/PPTX extractors.
     extractor_name: Optional[str] = None
 ```
 
@@ -43506,7 +43506,7 @@ def _extractor_name(result: Any, payload: Any) -> Optional[str]:
 - [ ] **Step 6: Run the XLSX tests and the suites the new extension widens**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_office_extractors.py tests/unit/test_syncable_extensions.py tests/unit/test_document_text.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_office_extractors.py tests/unit/test_syncable_extensions.py tests/unit/test_document_text.py -q
 ```
 
 Expected: the five XLSX tests PASS; `test_syncable_extensions.py::test_sync_request_schema_documents_every_extension` FAILS with `AssertionError: .xlsx missing from the /sync request contract description` — the forcing function from Task KC-F-3 doing its job. Fix it now, in `contracts/sync_request.schema.json`:
@@ -43595,7 +43595,7 @@ def test_pptx_sentences_carry_slide_numbers(tmp_path: Path):
 ```
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_office_extractors.py -q -k pptx
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_office_extractors.py -q -k pptx
 ```
 
 Expected: collection error — `ImportError: cannot import name 'PPTX_MIME' from 'sync.office_extractors'`… no: `PPTX_MIME` is defined in Step 3, so collection succeeds and both PPTX tests FAIL on `KeyError: '.pptx'` at `EXT_TO_MIME[".pptx"]` (the row lands in Step 8).
@@ -43836,7 +43836,7 @@ and name `.pptx` in `contracts/sync_request.schema.json` so Task KC-F-3's contra
 ```
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_office_extractors.py tests/unit/test_syncable_extensions.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_office_extractors.py tests/unit/test_syncable_extensions.py -q
 ```
 
 Expected: 7 + 8 passed. Commit:
@@ -43852,22 +43852,22 @@ Append to `tests/unit/test_context_sidecar.py` (and add `import json` under the 
 ```python
 def test_sidecar_records_the_extractor(tmp_path: Path):
     payload = build_sidecar_payload(
-        "corpus/a.xlsx", "a.xlsx", "Zelle eins. Zelle zwei.", None, extractor="remote-controller-office"
+        "corpus/a.xlsx", "a.xlsx", "Zelle eins. Zelle zwei.", None, extractor="knovas-connector-office"
     )
-    assert payload["extractor"] == "remote-controller-office"
+    assert payload["extractor"] == "knovas-connector-office"
     # Unknown provenance stays out of the sidecar rather than guessing.
     assert "extractor" not in build_sidecar_payload("corpus/a.txt", "a.txt", "Text.", None)
 
     pointer = "corpus/a.xlsx"
     assert write_context_sidecar(
-        tmp_path, pointer, "a.xlsx", "Zelle eins.", None, extractor="remote-controller-office"
+        tmp_path, pointer, "a.xlsx", "Zelle eins.", None, extractor="knovas-connector-office"
     )
     written = json.loads(sidecar_path_for_pointer(tmp_path, pointer).read_text(encoding="utf-8"))
-    assert written["extractor"] == "remote-controller-office"
+    assert written["extractor"] == "knovas-connector-office"
 ```
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_context_sidecar.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_context_sidecar.py -q
 ```
 
 Expected: FAIL — `TypeError: build_sidecar_payload() got an unexpected keyword argument 'extractor'`.
@@ -43894,7 +43894,7 @@ def build_sidecar_payload(
         "first_page": build_first_page_payload(sentence_records),
     }
     if extractor:
-        # Honest provenance: "remote-controller-office" for the RC-local
+        # Honest provenance: "knovas-connector-office" for the RC-local
         # XLSX/PPTX extractors, "knovas-extract-python" otherwise. dispatch
         # stamps its own name over every extractor it calls, so the RC value
         # would otherwise be invisible to anyone reading the sidecar.
@@ -43939,7 +43939,7 @@ def write_context_sidecar(
 ```
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_context_sidecar.py tests/unit/test_knovas_uploader.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_context_sidecar.py tests/unit/test_knovas_uploader.py -q
 ```
 
 Expected: PASS (the keyword is optional, so `scripts/build_context_sidecars.py:30`'s positional call still type-checks and runs). Commit:
@@ -43966,24 +43966,24 @@ git commit -am "feat(rc): record the extractor that produced a document in the c
 `docs/configuration.md` — add two rows to the formats table (`:70-77`) and a paragraph after it:
 
 ```markdown
-| `.xlsx` | `openpyxl` (RemoteController-local extractor — one table per sheet + a flattened rendering) |
-| `.pptx` | `python-pptx` (RemoteController-local extractor — one page per slide, notes included) |
+| `.xlsx` | `openpyxl` (Knovas-Connector-local extractor — one table per sheet + a flattened rendering) |
+| `.pptx` | `python-pptx` (Knovas-Connector-local extractor — one page per slide, notes included) |
 ```
 
 ```markdown
-**XLSX and PPTX** are parsed by RemoteController itself (`src/sync/office_extractors.py`), registered into `knovas-extract`'s public extractor registry, because the extraction library has no spreadsheet or presentation format yet. Consequences worth knowing before a migration: hidden worksheets are skipped; formula cells contribute their **cached** value, so a workbook saved without a recalculation contributes empty cells; a worksheet is flattened as `# <Sheet>` followed by one `A | B | C` line per row and additionally shipped as a structured table (max 64 columns, 5 000 rows per table block, 4 blocks per sheet); each slide becomes one page, so a search hit can cite "Folie 3", and speaker notes are ingested as `Notizen: …`. Provenance is recorded as `remote-controller-office` in the document metadata (`extra.rc:extractor`) and in the search-context sidecar — these two formats are **not** covered by the certified `knovas-extract` corpus.
+**XLSX and PPTX** are parsed by Knovas Connector itself (`src/sync/office_extractors.py`), registered into `knovas-extract`'s public extractor registry, because the extraction library has no spreadsheet or presentation format yet. Consequences worth knowing before a migration: hidden worksheets are skipped; formula cells contribute their **cached** value, so a workbook saved without a recalculation contributes empty cells; a worksheet is flattened as `# <Sheet>` followed by one `A | B | C` line per row and additionally shipped as a structured table (max 64 columns, 5 000 rows per table block, 4 blocks per sheet); each slide becomes one page, so a search hit can cite "Folie 3", and speaker notes are ingested as `Notizen: …`. Provenance is recorded as `knovas-connector-office` in the document metadata (`extra.rc:extractor`) and in the search-context sidecar — these two formats are **not** covered by the certified `knovas-extract` corpus.
 ```
 
 `CHANGELOG.md` — add to `## Unreleased`:
 
 ```markdown
-- XLSX and PPTX are synced and indexed: RemoteController-local extractors (`openpyxl`, `python-pptx`) registered into knovas-extract's public MIME registry. Spreadsheets ship one structured table per sheet (hidden sheets skipped, ragged rows padded), presentations one page per slide with speaker notes. Provenance is recorded as `remote-controller-office`.
+- XLSX and PPTX are synced and indexed: Knovas-Connector-local extractors (`openpyxl`, `python-pptx`) registered into knovas-extract's public MIME registry. Spreadsheets ship one structured table per sheet (hidden sheets skipped, ragged rows padded), presentations one page per slide with speaker notes. Provenance is recorded as `knovas-connector-office`.
 ```
 
 Run the whole suite — the two new extensions widen `SYNCABLE_EXTENSIONS`, `DEFAULT_INCLUDE_GLOBS`, the default sync body and the OneDrive mirror allow-list, all of which Task KC-F-3's tests assert by derivation:
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest -q
 ```
 
 Expected: the whole suite PASSES, including `tests/unit/test_syncable_extensions.py::test_sync_request_schema_documents_every_extension` with eight extensions.
@@ -44000,15 +44000,15 @@ git commit -am "docs(rc): XLSX/PPTX formats, provenance and the sync request con
 
 **Requirements:** F1 (design §7.4), F5, H1 (verification substrate)
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py:8-10` (module docstring), `:59-60` (`DEFAULT_TESSERACT_LANG`), `:101-128` (`ExtractedDocument`), `:264-275` (`_extract_bytes` tail) — all four are anchors in the **pre-KC-F-1** file; by the time this task runs, KC-F-1 (eight metadata fields), KC-F-3 (the `EXT_TO_MIME` block replaces `:49-90`) and KC-F-4 (`extractor_name`, the `register_office_extractors()` call) have moved them down. Steps 3 shows both edited blocks in their final shape so there is nothing to reconcile by hand.
-- Create: `RemoteController/src/sync/rc_metrics.py`
-- Create: `RemoteController/src/sync/requeue_skipped.py`
-- Create: `RemoteController/scripts/requeue_skipped.py`
-- Modify: `RemoteController/src/sync/knovas_uploader.py:18` (import), `:143-171` (extraction block)
-- Modify: `RemoteController/src/routes/metrics.py:1-9`
-- Modify: `RemoteController/Dockerfile:29-35` (Italian pack) and `:40-41` (copy `scripts`)
-- Modify: `RemoteController/.env.example` (append at the very end of the file, after `RC_SYNC_DEFAULT_SCAN_INTERVAL_SECONDS=60` — line 93 in the pre-KC-F-1 file, further down once KC-F-1/KC-F-2/KC-F-7 have inserted their blocks higher up), `RemoteController/docs/configuration.md:89`, `RemoteController/docs/operations.md:12-14` and `:77-88`, `RemoteController/docs/local-setup.md:377`, `RemoteController/CHANGELOG.md:3-8`
-- Test: `RemoteController/tests/unit/test_document_text.py` (append), `RemoteController/tests/unit/test_rc_metrics.py` (new), `RemoteController/tests/unit/test_requeue_skipped.py` (new), `RemoteController/tests/unit/test_knovas_uploader.py` (append), `RemoteController/tests/health/test_rc_health.py` (append to `TestRcMetricsEndpoint`)
+- Modify: `KnovasConnector/src/sync/document_text.py:8-10` (module docstring), `:59-60` (`DEFAULT_TESSERACT_LANG`), `:101-128` (`ExtractedDocument`), `:264-275` (`_extract_bytes` tail) — all four are anchors in the **pre-KC-F-1** file; by the time this task runs, KC-F-1 (eight metadata fields), KC-F-3 (the `EXT_TO_MIME` block replaces `:49-90`) and KC-F-4 (`extractor_name`, the `register_office_extractors()` call) have moved them down. Steps 3 shows both edited blocks in their final shape so there is nothing to reconcile by hand.
+- Create: `KnovasConnector/src/sync/rc_metrics.py`
+- Create: `KnovasConnector/src/sync/requeue_skipped.py`
+- Create: `KnovasConnector/scripts/requeue_skipped.py`
+- Modify: `KnovasConnector/src/sync/knovas_uploader.py:18` (import), `:143-171` (extraction block)
+- Modify: `KnovasConnector/src/routes/metrics.py:1-9`
+- Modify: `KnovasConnector/Dockerfile:29-35` (Italian pack) and `:40-41` (copy `scripts`)
+- Modify: `KnovasConnector/.env.example` (append at the very end of the file, after `RC_SYNC_DEFAULT_SCAN_INTERVAL_SECONDS=60` — line 93 in the pre-KC-F-1 file, further down once KC-F-1/KC-F-2/KC-F-7 have inserted their blocks higher up), `KnovasConnector/docs/configuration.md:89`, `KnovasConnector/docs/operations.md:12-14` and `:77-88`, `KnovasConnector/docs/local-setup.md:377`, `KnovasConnector/CHANGELOG.md:3-8`
+- Test: `KnovasConnector/tests/unit/test_document_text.py` (append), `KnovasConnector/tests/unit/test_rc_metrics.py` (new), `KnovasConnector/tests/unit/test_requeue_skipped.py` (new), `KnovasConnector/tests/unit/test_knovas_uploader.py` (append), `KnovasConnector/tests/health/test_rc_health.py` (append to `TestRcMetricsEndpoint`)
 
 **Interfaces:**
 - Consumes: `knovas_extract.extract(raw, mime=…, use_ocr="auto"|True|False, ocr_language=…)` and `ExtractionResult.warnings: list[str]`. The **only** OCR signal knovas-extract emits is the warning string `f"pdf: no text layer detected; running Tesseract OCR ({ocr_language})"` appended in `E:/Knovas/KnovasExtract/knovas-extract-python/src/knovas_extract/extractors/pdf.py:506-509` — there is no `ocr` flag on `Metadata`, no `ocr:` key in `Metadata.extra`, and no per-page indicator. RC therefore derives `ocr_used` from the warning list. `sync.sync_state.SyncStateStore.record_skip` writes `transmission_key_id = f"skip:{reason}"` (`sync_state.py:130`) — those are the rows the re-queue tool clears. `sync.sync_state_db.json_state_path_to_db(path)` maps `RC_SYNC_STATE_PATH` to the SQLite file (`sync_state_db.py:25-29`).
@@ -44023,7 +44023,7 @@ git commit -am "docs(rc): XLSX/PPTX formats, provenance and the sync request con
 
 - [ ] **Step 1: Failing tests — OCR language default and the per-document OCR signal**
 
-Append to `RemoteController/tests/unit/test_document_text.py` (after the `test_guarded_disabled_runs_in_process` block that closes the file at line 301):
+Append to `KnovasConnector/tests/unit/test_document_text.py` (after the `test_guarded_disabled_runs_in_process` block that closes the file at line 301):
 
 ```python
 ## --- OCR language + per-document OCR evidence (F1) ---------------------------
@@ -44125,7 +44125,7 @@ def test_warnings_are_capped_but_the_ocr_flag_scans_all_of_them(monkeypatch):
 - [ ] **Step 2: Run the new tests and watch them fail**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_document_text.py -q -k "tesseract or ocr or warnings"
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_document_text.py -q -k "tesseract or ocr or warnings"
 ```
 
 → FAIL: `AssertionError: assert 'deu+eng' == 'deu+fra+ita+eng'` on `test_tesseract_language_default`, and `ImportError: cannot import name 'MAX_RECORDED_WARNINGS' from 'sync.document_text'` on the capping test.
@@ -44240,7 +44240,7 @@ git commit -am "feat(rc): per-document OCR flag and extractor warnings, default 
 
 - [ ] **Step 5: Failing tests — the Prometheus collectors**
 
-Create `RemoteController/tests/unit/test_rc_metrics.py`:
+Create `KnovasConnector/tests/unit/test_rc_metrics.py`:
 
 ```python
 from prometheus_client import REGISTRY
@@ -44327,7 +44327,7 @@ python -m pytest tests/unit/test_rc_metrics.py -q
 
 → FAIL: `ModuleNotFoundError: No module named 'sync.rc_metrics'`.
 
-Create `RemoteController/src/sync/rc_metrics.py`:
+Create `KnovasConnector/src/sync/rc_metrics.py`:
 
 ```python
 """Prometheus collectors for the sync worker's extraction stage (F1, F4).
@@ -44450,7 +44450,7 @@ git commit -am "feat(rc): bounded Prometheus counters for extraction outcomes an
 
 - [ ] **Step 8: Failing tests — the uploader feeds the counters and `/metrics` advertises them**
 
-Append to `RemoteController/tests/unit/test_knovas_uploader.py`:
+Append to `KnovasConnector/tests/unit/test_knovas_uploader.py`:
 
 ```python
 def _extracted_sample(ext: str, ocr: str) -> float:
@@ -44511,7 +44511,7 @@ def test_upload_counts_the_extraction_failure_and_never_calls_the_api(
     req.assert_not_called()
 ```
 
-Append to `RemoteController/tests/health/test_rc_health.py`, inside `class TestRcMetricsEndpoint` (after `test_metrics_content_type_prometheus`, line 108):
+Append to `KnovasConnector/tests/health/test_rc_health.py`, inside `class TestRcMetricsEndpoint` (after `test_metrics_content_type_prometheus`, line 108):
 
 ```python
     def test_metrics_advertises_rc_extraction_families(self, rc_client):
@@ -44613,7 +44613,7 @@ git commit -am "feat(rc): record extraction outcome and OCR usage on /metrics"
 
 - [ ] **Step 11: Failing tests — the re-queue tool for `skip:` rows**
 
-Create `RemoteController/tests/unit/test_requeue_skipped.py`:
+Create `KnovasConnector/tests/unit/test_requeue_skipped.py`:
 
 ```python
 from pathlib import Path
@@ -44684,7 +44684,7 @@ python -m pytest tests/unit/test_requeue_skipped.py -q
 
 → FAIL: `ModuleNotFoundError: No module named 'sync.requeue_skipped'`.
 
-Create `RemoteController/src/sync/requeue_skipped.py`:
+Create `KnovasConnector/src/sync/requeue_skipped.py`:
 
 ```python
 """Clear `skip:` rows so the sync worker re-tries them (F1, H1).
@@ -44789,7 +44789,7 @@ def requeue_skipped(
         conn.close()
 ```
 
-Create `RemoteController/scripts/requeue_skipped.py` (same `sys.path` idiom as `scripts/build_context_sidecars.py:11-17`):
+Create `KnovasConnector/scripts/requeue_skipped.py` (same `sys.path` idiom as `scripts/build_context_sidecars.py:11-17`):
 
 ```python
 #!/usr/bin/env python3
@@ -44956,11 +44956,11 @@ PDFs that failed with `no extractable text` before OCR — or before a language 
 
 ```bash
 ## See what would be re-queued (scanned PDFs only)
-docker compose exec remote-controller \
+docker compose exec knovas-connector \
   python /app/scripts/requeue_skipped.py --state-path /var/rc-state/.rc-sync-state.db --ext .pdf
 
 ## Do it
-docker compose exec remote-controller \
+docker compose exec knovas-connector \
   python /app/scripts/requeue_skipped.py --state-path /var/rc-state/.rc-sync-state.db --ext .pdf --apply
 ```
 
@@ -44984,14 +44984,14 @@ docker compose exec remote-controller \
 - [ ] **Step 15: Run the whole suite, verify the image, commit**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest -q
 ```
 
 → PASS (existing suite plus the 17 tests added here). Then verify the image change:
 
 ```bash
-docker compose build remote-controller && \
-docker compose run --rm --entrypoint tesseract remote-controller --list-langs
+docker compose build knovas-connector && \
+docker compose run --rm --entrypoint tesseract knovas-connector --list-langs
 ```
 
 → lists `deu`, `eng`, `fra`, `ita`. Commit:
@@ -45008,15 +45008,15 @@ git commit -am "docs(rc): OCR languages, extraction metrics and the requeue runb
 
 **Requirements:** F1 (design §7.4, §12 question 10 — "synthetic DE/FR/IT scan benchmark + on-prem runbook, no real court scans published")
 **Files:**
-- Create: `RemoteController/benchmarks/ocr/__init__.py`
-- Create: `RemoteController/benchmarks/ocr/metrics.py`
-- Create: `RemoteController/benchmarks/ocr/corpus_seed.py`
-- Create: `RemoteController/benchmarks/ocr/build_corpus.py`
-- Create: `RemoteController/benchmarks/ocr/run_ocr_benchmark.py`
-- Create: `RemoteController/benchmarks/ocr/README.md`
-- Modify: `RemoteController/pyproject.toml:26-30` (`bench` extra), `:36-43` (the whole `[tool.pytest.ini_options]` block — it already carries a `markers` list at `:41-43`, which the replacement below preserves)
-- Modify: `RemoteController/.gitignore` (append), `RemoteController/docs/README.md:19-28` (Reference table), `RemoteController/CHANGELOG.md:3-8`
-- Test: `RemoteController/tests/unit/test_ocr_metrics.py` (new), `RemoteController/tests/unit/test_ocr_corpus_seed.py` (new), `RemoteController/tests/unit/test_ocr_build_corpus.py` (new), `RemoteController/tests/unit/test_ocr_benchmark_runner.py` (new)
+- Create: `KnovasConnector/benchmarks/ocr/__init__.py`
+- Create: `KnovasConnector/benchmarks/ocr/metrics.py`
+- Create: `KnovasConnector/benchmarks/ocr/corpus_seed.py`
+- Create: `KnovasConnector/benchmarks/ocr/build_corpus.py`
+- Create: `KnovasConnector/benchmarks/ocr/run_ocr_benchmark.py`
+- Create: `KnovasConnector/benchmarks/ocr/README.md`
+- Modify: `KnovasConnector/pyproject.toml:26-30` (`bench` extra), `:36-43` (the whole `[tool.pytest.ini_options]` block — it already carries a `markers` list at `:41-43`, which the replacement below preserves)
+- Modify: `KnovasConnector/.gitignore` (append), `KnovasConnector/docs/README.md:19-28` (Reference table), `KnovasConnector/CHANGELOG.md:3-8`
+- Test: `KnovasConnector/tests/unit/test_ocr_metrics.py` (new), `KnovasConnector/tests/unit/test_ocr_corpus_seed.py` (new), `KnovasConnector/tests/unit/test_ocr_build_corpus.py` (new), `KnovasConnector/tests/unit/test_ocr_benchmark_runner.py` (new)
 
 **Interfaces:**
 - Consumes: `knovas_extract.extract(input, *, mime, use_ocr, ocr_language)` (`dispatch.py:245-255`) and `knovas_extract.__version__` / `SPEC_VERSION`. `RC_TESSERACT_LANG` default `deu+fra+ita+eng` and the image packs `tesseract-ocr-{deu,eng,fra,ita}` (defined in Task KC-F-5) are what the benchmark evidences.
@@ -45027,7 +45027,7 @@ git commit -am "docs(rc): OCR languages, extraction metrics and the requeue runb
   - `ocr.run_ocr_benchmark`: CLI `python benchmarks/ocr/run_ocr_benchmark.py [--corpus DIR] [--results DIR] [--ocr-language auto|<pack string>] [--languages …] [--dpi …] [--variants …] [--limit N] [--own-scans DIR --language de] [--fail-over-cer 0.10]`; writes `<results>/<UTC-timestamp>/metrics.json` and `<results>/<UTC-timestamp>/report.md`; functions `ocr_language_for(language, requested) -> str`, `load_manifest_runs(...) -> list[dict]`, `discover_own_scans(root, language) -> list[dict]`, `execute(runs, *, ocr_language) -> list[dict]`, `summarize(runs) -> list[dict]`, `render_report(payload) -> str`.
   - `pyproject.toml` extra `bench = ["pillow>=10.1,<12"]`; pytest `pythonpath = ["src", "benchmarks"]`.
 
-**Note (what the dpi axis actually measures — verified against the installed PyMuPDF 1.27.2.3, `RemoteController/.venv/lib/python3.12/site-packages/pymupdf/utils.py`; an earlier draft of this task claimed the opposite and was wrong):** knovas-extract calls `page.get_textpage_ocr(language=language)` (`extractors/pdf.py:393`) with **no `dpi` and no `full=True`**, so PyMuPDF takes its *partial* branch (`utils.py:454`). That branch does **not** OCR embedded image objects at their native pixel size — it redacts the legible digital-text spans and then rasterises the **whole page** with `pix = temp_page.get_pixmap(dpi=dpi)` (`utils.py:430`) using the signature default `dpi: int = 72` (`utils.py:317`), and hands that raster to Tesseract. There is no `pymupdf.Pixmap(block["image"])` path in this version (`grep -n 'Pixmap(block' utils.py` → no match).
+**Note (what the dpi axis actually measures — verified against the installed PyMuPDF 1.27.2.3, `KnovasConnector/.venv/lib/python3.12/site-packages/pymupdf/utils.py`; an earlier draft of this task claimed the opposite and was wrong):** knovas-extract calls `page.get_textpage_ocr(language=language)` (`extractors/pdf.py:393`) with **no `dpi` and no `full=True`**, so PyMuPDF takes its *partial* branch (`utils.py:454`). That branch does **not** OCR embedded image objects at their native pixel size — it redacts the legible digital-text spans and then rasterises the **whole page** with `pix = temp_page.get_pixmap(dpi=dpi)` (`utils.py:430`) using the signature default `dpi: int = 72` (`utils.py:317`), and hands that raster to Tesseract. There is no `pymupdf.Pixmap(block["image"])` path in this version (`grep -n 'Pixmap(block' utils.py` → no match).
 
 Consequences that must be written into `benchmarks/ocr/README.md` verbatim, or the report over-claims:
 
@@ -45038,7 +45038,7 @@ Consequences that must be written into `benchmarks/ocr/README.md` verbatim, or t
 Re-verify claim (2) once while writing the README, and record the output in the commit message:
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController
+cd E:/Knovas/KnovasComponents/KnovasConnector
 grep -n "def get_textpage_ocr" -A 8 .venv/lib/python3.12/site-packages/pymupdf/utils.py | head -12
 grep -n "pix = temp_page.get_pixmap(dpi=dpi)" .venv/lib/python3.12/site-packages/pymupdf/utils.py
 ```
@@ -45047,7 +45047,7 @@ Expected: the signature shows `dpi: int = 72` and the partial branch shows the w
 
 - [ ] **Step 1: Failing tests — CER/WER**
 
-Create `RemoteController/tests/unit/test_ocr_metrics.py`:
+Create `KnovasConnector/tests/unit/test_ocr_metrics.py`:
 
 ```python
 import pytest
@@ -45107,7 +45107,7 @@ def test_mean_and_nearest_rank_percentile():
 - [ ] **Step 2: Run, then create the package and the metrics module**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_ocr_metrics.py -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_ocr_metrics.py -q
 ```
 
 → FAIL: `ModuleNotFoundError: No module named 'ocr'` (pytest's `pythonpath` is `["src"]` today).
@@ -45125,10 +45125,10 @@ markers = [
 ]
 ```
 
-Create `RemoteController/benchmarks/ocr/__init__.py`:
+Create `KnovasConnector/benchmarks/ocr/__init__.py`:
 
 ```python
-"""OCR accuracy benchmark for the RemoteController extraction path (F1).
+"""OCR accuracy benchmark for the Knovas Connector extraction path (F1).
 
 `build_corpus` renders a synthetic DE/FR/IT ground-truth corpus to
 scanned-looking PDFs; `run_ocr_benchmark` pushes them through the same
@@ -45138,13 +45138,13 @@ the on-premise variant that runs against a firm's own scans.
 """
 ```
 
-Create `RemoteController/benchmarks/ocr/metrics.py`:
+Create `KnovasConnector/benchmarks/ocr/metrics.py`:
 
 ```python
 """Character and word error rates — standard library only.
 
 Deliberately dependency-free: the runner has to work inside the shipped
-RemoteController image (knovas-extract + Tesseract, no numpy, no jiwer) so a
+Knovas Connector image (knovas-extract + Tesseract, no numpy, no jiwer) so a
 firm can reproduce the numbers on its own scans without installing anything.
 
 Scoring normalisation is small on purpose: NFC, soft hyphens removed, every
@@ -45244,7 +45244,7 @@ git commit -am "feat(rc): dependency-free CER/WER metrics for the OCR benchmark"
 
 - [ ] **Step 4: Failing tests — the ground-truth corpus**
 
-Create `RemoteController/tests/unit/test_ocr_corpus_seed.py`:
+Create `KnovasConnector/tests/unit/test_ocr_corpus_seed.py`:
 
 ```python
 import pytest
@@ -45308,7 +45308,7 @@ python -m pytest tests/unit/test_ocr_corpus_seed.py -q
 
 → FAIL: `ModuleNotFoundError: No module named 'ocr.corpus_seed'`.
 
-Create `RemoteController/benchmarks/ocr/corpus_seed.py`. Five paragraphs per language are written by hand (below, verbatim); the remaining 25 are composed deterministically from five sentence templates and nine fragment tables per language — no RNG, so the corpus is byte-identical on every machine and the published numbers are reproducible.
+Create `KnovasConnector/benchmarks/ocr/corpus_seed.py`. Five paragraphs per language are written by hand (below, verbatim); the remaining 25 are composed deterministically from five sentence templates and nine fragment tables per language — no RNG, so the corpus is byte-identical on every machine and the published numbers are reproducible.
 
 ```python
 """Ground-truth text for the OCR benchmark — synthetic Swiss legal prose (F1).
@@ -45569,7 +45569,7 @@ git commit -am "feat(rc): deterministic DE/FR/IT ground-truth corpus for the OCR
 
 - [ ] **Step 7: Failing tests — the renderer**
 
-Create `RemoteController/tests/unit/test_ocr_build_corpus.py`:
+Create `KnovasConnector/tests/unit/test_ocr_build_corpus.py`:
 
 ```python
 import json
@@ -45663,7 +45663,7 @@ bench = [
 ]
 ```
 
-Create `RemoteController/benchmarks/ocr/build_corpus.py`:
+Create `KnovasConnector/benchmarks/ocr/build_corpus.py`:
 
 ```python
 #!/usr/bin/env python3
@@ -45922,7 +45922,7 @@ python benchmarks/ocr/build_corpus.py
 du -sh benchmarks/ocr/corpus
 ```
 
-→ `Wrote 90 document(s), 360 rendition(s)`, roughly 90–130 MB. Append to `RemoteController/.gitignore` (the corpus and the results are regenerated, never committed):
+→ `Wrote 90 document(s), 360 rendition(s)`, roughly 90–130 MB. Append to `KnovasConnector/.gitignore` (the corpus and the results are regenerated, never committed):
 
 ```gitignore
 benchmarks/ocr/corpus/
@@ -45937,7 +45937,7 @@ git commit -am "feat(rc): render the OCR benchmark corpus (200/300 dpi, clean an
 
 - [ ] **Step 10: Failing tests — the benchmark runner**
 
-Create `RemoteController/tests/unit/test_ocr_benchmark_runner.py`:
+Create `KnovasConnector/tests/unit/test_ocr_benchmark_runner.py`:
 
 ```python
 import os
@@ -46057,7 +46057,7 @@ python -m pytest tests/unit/test_ocr_benchmark_runner.py -q
 
 → FAIL: `ModuleNotFoundError: No module named 'ocr.run_ocr_benchmark'`.
 
-Create `RemoteController/benchmarks/ocr/run_ocr_benchmark.py`:
+Create `KnovasConnector/benchmarks/ocr/run_ocr_benchmark.py`:
 
 ```python
 #!/usr/bin/env python3
@@ -46067,7 +46067,7 @@ Calls exactly what `sync/document_text.py` calls —
 `knovas_extract.extract(..., use_ocr=True, ocr_language=...)` — so the numbers
 describe the shipped pipeline, not a laboratory one. Needs Tesseract and the
 matching language packs; it needs NO Pillow, so it runs unchanged inside the
-RemoteController image against a firm's own scans (see README.md).
+Knovas Connector image against a firm's own scans (see README.md).
 """
 from __future__ import annotations
 
@@ -46247,7 +46247,7 @@ def summarize(runs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 def render_report(payload: dict[str, Any]) -> str:
     engine = payload.get("engine", {})
     lines = [
-        "# OCR accuracy — RemoteController extraction path",
+        "# OCR accuracy — Knovas Connector extraction path",
         "",
         f"Generated: {payload.get('generated_at')}",
         f"Corpus: `{payload.get('corpus', {}).get('root')}` "
@@ -46389,7 +46389,7 @@ python -m pytest tests/unit/test_ocr_benchmark_runner.py -q
 ```bash
 docker compose run --rm \
   -v "$PWD/benchmarks:/benchmarks" \
-  --entrypoint python remote-controller \
+  --entrypoint python knovas-connector \
   /benchmarks/ocr/run_ocr_benchmark.py --corpus /benchmarks/ocr/corpus --results /benchmarks/ocr/results
 ```
 
@@ -46401,12 +46401,12 @@ git commit -am "feat(rc): CER/WER benchmark runner over the shipped OCR path"
 
 - [ ] **Step 13: The runbook and the doc index**
 
-Create `RemoteController/benchmarks/ocr/README.md`:
+Create `KnovasConnector/benchmarks/ocr/README.md`:
 
 ````markdown
 ## OCR accuracy benchmark (F1)
 
-Measures the OCR path RemoteController actually ships: `knovas_extract.extract(..., use_ocr=True, ocr_language=…)` → Tesseract, scored as character and word error rate against known ground truth, per language, scan resolution and scan quality.
+Measures the OCR path Knovas Connector actually ships: `knovas_extract.extract(..., use_ocr=True, ocr_language=…)` → Tesseract, scored as character and word error rate against known ground truth, per language, scan resolution and scan quality.
 
 ## What this is and is not
 
@@ -46419,11 +46419,11 @@ knovas-extract calls `page.get_textpage_ocr(language=…)` with no `dpi` argumen
 
 So:
 
-- **Tesseract does not see 200 or 300 dpi through RemoteController today — it sees a 72-dpi re-rasterisation.** The 200-vs-300 dpi comparison below therefore answers "how much legibility survives that downsampling?", not "how well does Tesseract do at 300 dpi?". A cleaner, higher-resolution source still produces a cleaner 72-dpi raster, so the axis is real; it is just narrower than it looks.
+- **Tesseract does not see 200 or 300 dpi through Knovas Connector today — it sees a 72-dpi re-rasterisation.** The 200-vs-300 dpi comparison below therefore answers "how much legibility survives that downsampling?", not "how well does Tesseract do at 300 dpi?". A cleaner, higher-resolution source still produces a cleaner 72-dpi raster, so the axis is real; it is just narrower than it looks.
 - **The numbers are exactly representative of production**, because the harness drives the same `knovas_extract.extract(..., use_ocr=True)` call the sync worker drives. That is the property the F1 evidence needs.
 - **The highest-leverage OCR improvement is not in this repository.** Passing `dpi=` (or `full=True`) into `get_textpage_ocr` inside `knovas-extract`'s PDF extractor would put a 200/300-dpi raster in front of Tesseract. `knovas-extract` is a separate repository and out of scope for this work; the cited line numbers (`utils.py:317`, `:430`, `pdf.py:393`) are recorded here so the follow-up does not have to be re-derived.
 
-Verified against PyMuPDF 1.27.2.3, the version pinned in the RemoteController image. Re-check after a PyMuPDF bump:
+Verified against PyMuPDF 1.27.2.3, the version pinned in the Knovas Connector image. Re-check after a PyMuPDF bump:
 
 ```bash
 grep -n "def get_textpage_ocr" -A 8 .venv/lib/python3.12/site-packages/pymupdf/utils.py | head -12
@@ -46435,12 +46435,12 @@ grep -n "pix = temp_page.get_pixmap(dpi=dpi)" .venv/lib/python3.12/site-packages
 | Step | Needs |
 |------|-------|
 | `build_corpus.py` | Python 3.11+, `pip install -e ".[dev,bench]"` (Pillow). Never runs in production. |
-| `run_ocr_benchmark.py` | `knovas-extract[pdf]` + system Tesseract with the language packs. No Pillow. The RemoteController image already has all of it. |
+| `run_ocr_benchmark.py` | `knovas-extract[pdf]` + system Tesseract with the language packs. No Pillow. The Knovas Connector image already has all of it. |
 
 ## 1 — Build the corpus (workstation)
 
 ```bash
-cd RemoteController
+cd KnovasConnector
 pip install -e ".[dev,bench]"
 python benchmarks/ocr/build_corpus.py
 ```
@@ -46465,7 +46465,7 @@ Inside the container (no Pillow needed):
 ```bash
 docker compose run --rm \
   -v "$PWD/benchmarks:/benchmarks" \
-  --entrypoint python remote-controller \
+  --entrypoint python knovas-connector \
   /benchmarks/ocr/run_ocr_benchmark.py --corpus /benchmarks/ocr/corpus --results /benchmarks/ocr/results
 ```
 
@@ -46490,7 +46490,7 @@ For a firm that wants the number for *its* documents, on its own hardware, witho
 docker compose run --rm \
   -v /srv/knovas/ocr-eval:/scans:ro \
   -v /srv/knovas/ocr-results:/results \
-  --entrypoint python remote-controller \
+  --entrypoint python knovas-connector \
   /app/benchmarks/ocr/run_ocr_benchmark.py \
     --own-scans /scans --language de --ocr-language auto --results /results
 ```
@@ -46524,14 +46524,14 @@ Add to `CHANGELOG.md` `## Unreleased`:
 - [ ] **Step 14: Full suite, a real benchmark run, commit**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest -q
+cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest -q
 ```
 
 → PASS (the suite plus the 27 tests added in this task). Produce one committed-to-nothing evidence run and read it:
 
 ```bash
 python benchmarks/ocr/build_corpus.py --docs-per-language 30
-docker compose run --rm -v "$PWD/benchmarks:/benchmarks" --entrypoint python remote-controller \
+docker compose run --rm -v "$PWD/benchmarks:/benchmarks" --entrypoint python knovas-connector \
   /benchmarks/ocr/run_ocr_benchmark.py --corpus /benchmarks/ocr/corpus \
   --results /benchmarks/ocr/results --ocr-language deu+fra+ita+eng
 cat benchmarks/ocr/results/*/report.md | head -20
@@ -46551,14 +46551,14 @@ git commit -am "docs(rc): OCR benchmark runbook and Nachweis-auf-eigenen-Scans p
 
 **Requirements:** F2 (design §7.2)
 **Files:**
-- Modify: `RemoteController/src/onedrive_mirror/graph.py:262-320` (extract `download_url_to` out of `download_to`), `:322-371` (extract `_delta_from_url` out of `delta_pages`)
-- Create: `RemoteController/src/mailbox_mirror/__init__.py`
-- Create: `RemoteController/src/mailbox_mirror/graph_mail.py`
-- Create: `RemoteController/src/mailbox_mirror/mirror.py`
-- Create: `RemoteController/src/mailbox_mirror/runner.py`
-- Modify: `RemoteController/src/app.py:10` (import block), `:45-55` (`with app.app_context()` startup block)
-- Modify: `RemoteController/.env.example` (new block immediately **after the "Document metadata" block Task KC-F-1/KC-F-2 inserted below `# ONEDRIVE_MIRROR_USE_DELTA=true`**, i.e. after `# RC_MATTER_LOOKUP_TTL_SECONDS=3600` and before the `# Sync scheduler` section — line 79 in the pre-KC-F-1 file has moved by then), `RemoteController/docs/configuration.md` (new section before `## Supported document formats`, which is line 66 in the pre-KC-F-1 file and sits after the "Document metadata" section KC-F-1 added), `RemoteController/CHANGELOG.md` (`## Unreleased`)
-- Test: `RemoteController/tests/unit/test_mailbox_graph_mail.py` (new), `RemoteController/tests/unit/test_mailbox_mirror.py` (new)
+- Modify: `KnovasConnector/src/onedrive_mirror/graph.py:262-320` (extract `download_url_to` out of `download_to`), `:322-371` (extract `_delta_from_url` out of `delta_pages`)
+- Create: `KnovasConnector/src/mailbox_mirror/__init__.py`
+- Create: `KnovasConnector/src/mailbox_mirror/graph_mail.py`
+- Create: `KnovasConnector/src/mailbox_mirror/mirror.py`
+- Create: `KnovasConnector/src/mailbox_mirror/runner.py`
+- Modify: `KnovasConnector/src/app.py:10` (import block), `:45-55` (`with app.app_context()` startup block)
+- Modify: `KnovasConnector/.env.example` (new block immediately **after the "Document metadata" block Task KC-F-1/KC-F-2 inserted below `# ONEDRIVE_MIRROR_USE_DELTA=true`**, i.e. after `# RC_MATTER_LOOKUP_TTL_SECONDS=3600` and before the `# Sync scheduler` section — line 79 in the pre-KC-F-1 file has moved by then), `KnovasConnector/docs/configuration.md` (new section before `## Supported document formats`, which is line 66 in the pre-KC-F-1 file and sits after the "Document metadata" section KC-F-1 added), `KnovasConnector/CHANGELOG.md` (`## Unreleased`)
+- Test: `KnovasConnector/tests/unit/test_mailbox_graph_mail.py` (new), `KnovasConnector/tests/unit/test_mailbox_mirror.py` (new)
 
 **Interfaces:**
 - Consumes: `onedrive_mirror.graph.GraphClient` (`graph.py:67`) — client-credentials token cache, `ALLOWED_GRAPH_HOSTS` (`graph.py:40`), `_request` retry/Retry-After handling, `_paginate` loop guard; `onedrive_mirror.graph.GraphRequestError`, `GraphAuthError`, `DeltaTokenInvalid`; `sync.document_text.SYNCABLE_EXTENSIONS` (`document_text.py:49`); `sync.document_metadata.FOLDER_META_FILENAME` = `".knovas-meta.json"` and the folder-sidecar keys `source_kind` / `path_prefix` (defined in Task KC-F-1); `config.get_config().rc_watch_roots`.
@@ -46724,7 +46724,7 @@ def test_download_message_mime_streams_the_value_endpoint(tmp_path: Path):
 
 - [ ] **Step 2: Run and make the two OneDrive primitives reusable**
 
-Run `cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_mailbox_graph_mail.py -q` → FAIL with `ModuleNotFoundError: No module named 'mailbox_mirror'`.
+Run `cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_mailbox_graph_mail.py -q` → FAIL with `ModuleNotFoundError: No module named 'mailbox_mirror'`.
 
 In `src/onedrive_mirror/graph.py` replace `download_to` (lines 262-320) with a URL-generic method plus a thin wrapper:
 
@@ -47052,7 +47052,7 @@ Create the package marker `src/mailbox_mirror/__init__.py` with a single docstri
 Run `python -m pytest tests/unit/test_mailbox_graph_mail.py -q` → PASS (5 tests). Commit:
 
 ```bash
-git add RemoteController/src/onedrive_mirror/graph.py RemoteController/src/mailbox_mirror RemoteController/tests/unit/test_mailbox_graph_mail.py
+git add KnovasConnector/src/onedrive_mirror/graph.py KnovasConnector/src/mailbox_mirror KnovasConnector/tests/unit/test_mailbox_graph_mail.py
 git commit -m "feat(rc): Graph mail client (mailFolders, message delta, MIME download)"
 ```
 
@@ -47390,7 +47390,7 @@ def write_message_attachments(
 Run `python -m pytest tests/unit/test_mailbox_mirror.py -q` → PASS (4 tests). Commit:
 
 ```bash
-git add RemoteController/src/mailbox_mirror/mirror.py RemoteController/tests/unit/test_mailbox_mirror.py
+git add KnovasConnector/src/mailbox_mirror/mirror.py KnovasConnector/tests/unit/test_mailbox_mirror.py
 git commit -m "feat(rc): mailbox stable key, safe names and MIME attachment materialisation"
 ```
 
@@ -48057,7 +48057,7 @@ class MailboxMirror:
 Run `python -m pytest tests/unit/test_mailbox_mirror.py -q` → PASS (12 tests). Commit:
 
 ```bash
-git add RemoteController/src/mailbox_mirror/mirror.py RemoteController/tests/unit/test_mailbox_mirror.py
+git add KnovasConnector/src/mailbox_mirror/mirror.py KnovasConnector/tests/unit/test_mailbox_mirror.py
 git commit -m "feat(rc): mailbox mirror pass with per-folder delta, prune guards and provenance sidecars"
 ```
 
@@ -48318,7 +48318,7 @@ and a third guarded block inside `with app.app_context():`, after the OneDrive b
 Run `python -m pytest tests/unit/test_mailbox_mirror.py tests/unit/test_mailbox_graph_mail.py tests/health -q` → PASS (19 mailbox tests plus the 21 existing health tests; `tests/health/test_rc_health.py` boots `create_app` through the `rc_client` fixture, so it proves the new startup block cannot break boot). Commit:
 
 ```bash
-git add RemoteController/src/mailbox_mirror RemoteController/src/app.py RemoteController/tests/unit/test_mailbox_mirror.py
+git add KnovasConnector/src/mailbox_mirror KnovasConnector/src/app.py KnovasConnector/tests/unit/test_mailbox_mirror.py
 git commit -m "feat(rc): mailbox mirror background thread wired into create_app"
 ```
 
@@ -48394,7 +48394,7 @@ Add to `CHANGELOG.md` under `## Unreleased`:
 Run the whole suite `python -m pytest -q` → PASS. Commit:
 
 ```bash
-git add RemoteController/.env.example RemoteController/docs/configuration.md RemoteController/CHANGELOG.md
+git add KnovasConnector/.env.example KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md
 git commit -m "docs(rc): mailbox connector configuration and env keys"
 ```
 
@@ -48406,14 +48406,14 @@ git commit -m "docs(rc): mailbox connector configuration and env keys"
 
 **Requirements:** F2, H1 (design §7.5)
 **Files:**
-- Create: `RemoteController/src/sync/pst_explode.py`
-- Create: `RemoteController/src/sync/pst_queue.py`
-- Create: `RemoteController/scripts/explode_pst.py`
-- Modify: `RemoteController/src/app.py:10-17` (import block), `:45-55` (`with app.app_context()` startup block)
-- Modify: `RemoteController/Dockerfile:29-35` (runtime apt list), `:45` (`mkdir`/`chown` for the staging volume)
-- Modify: `RemoteController/docker-compose.yml:12-17` (volumes), `:43-45` (named volumes)
-- Modify: `RemoteController/.env.example` (new block after the mailbox block from Task KC-F-7), `RemoteController/docs/SETUP.md:79-104` (Step 3 — Prepare volumes), `RemoteController/docs/configuration.md` (new section after "Mailbox connector"), `RemoteController/CHANGELOG.md` (`## Unreleased`)
-- Test: `RemoteController/tests/unit/test_pst_explode.py` (new), `RemoteController/tests/unit/test_pst_queue.py` (new), `RemoteController/tests/unit/test_explode_pst_cli.py` (new)
+- Create: `KnovasConnector/src/sync/pst_explode.py`
+- Create: `KnovasConnector/src/sync/pst_queue.py`
+- Create: `KnovasConnector/scripts/explode_pst.py`
+- Modify: `KnovasConnector/src/app.py:10-17` (import block), `:45-55` (`with app.app_context()` startup block)
+- Modify: `KnovasConnector/Dockerfile:29-35` (runtime apt list), `:45` (`mkdir`/`chown` for the staging volume)
+- Modify: `KnovasConnector/docker-compose.yml:12-17` (volumes), `:43-45` (named volumes)
+- Modify: `KnovasConnector/.env.example` (new block after the mailbox block from Task KC-F-7), `KnovasConnector/docs/SETUP.md:79-104` (Step 3 — Prepare volumes), `KnovasConnector/docs/configuration.md` (new section after "Mailbox connector"), `KnovasConnector/CHANGELOG.md` (`## Unreleased`)
+- Test: `KnovasConnector/tests/unit/test_pst_explode.py` (new), `KnovasConnector/tests/unit/test_pst_queue.py` (new), `KnovasConnector/tests/unit/test_explode_pst_cli.py` (new)
 
 **Interfaces:**
 - Consumes: `mailbox_mirror.mirror.safe_segment`, `stable_key`, `write_folder_meta`, `write_message_attachments` (defined in Task KC-F-7); `sync.document_metadata.FOLDER_META_FILENAME` and the sidecar keys `source_kind` / `path_prefix` (defined in Task KC-F-1); `sync.sync_state_db.SyncStateDatabase`, `json_state_path_to_db` (`sync_state_db.py:25,58`) and the additive-column migration idiom of `sync.subfolder_queue.SubfolderQueue.__init__` (`subfolder_queue.py:62-71`); `config.get_config()`; the external GPL binary `readpst` (libpst), invoked as a separate process.
@@ -48424,7 +48424,7 @@ git commit -m "docs(rc): mailbox connector configuration and env keys"
   - On-disk staging layout: `<RC_PST_STAGING>/<pst stem>-<8 hex>/<mailbox folder>/<sha1(Message-ID)>.eml` with `mtime` from the `Date:` header, `.knovas-meta.json` `{"source_kind": "pst", "path_prefix": "pst://<pst name>/<folder>"}` per folder and `.knovas-pst-done.json` at the staging-dir root.
   - Env: `RC_PST_INBOX`, `RC_PST_STAGING` (both required to start the thread), `RC_PST_INTERVAL_SECONDS=60`, `RC_PST_JOBS=2`, `RC_PST_TIMEOUT_SECONDS=21600`, `RC_READPST_BIN=readpst`, `RC_PST_ATTACHMENTS=0`.
 
-**Note (readpst output shape):** libpst's `-e` writes one RFC-822 file per message *with an extension*, and depending on the build it may also drop the message's attachments into the same directory as loose files. The exploder therefore treats **only** `*.eml` as messages (renaming them to the stable key) and leaves every other produced file untouched — RC's ordinary sync picks up the syncable ones as their own documents. `RC_PST_ATTACHMENTS=1` additionally materialises MIME-embedded attachments into `<key>.att/` for builds that keep them inside the message; default off so a PST import can never write the same attachment twice. Verify which shape your image produces once with `docker compose run --rm remote-controller readpst -h` and one sample PST.
+**Note (readpst output shape):** libpst's `-e` writes one RFC-822 file per message *with an extension*, and depending on the build it may also drop the message's attachments into the same directory as loose files. The exploder therefore treats **only** `*.eml` as messages (renaming them to the stable key) and leaves every other produced file untouched — RC's ordinary sync picks up the syncable ones as their own documents. `RC_PST_ATTACHMENTS=1` additionally materialises MIME-embedded attachments into `<key>.att/` for builds that keep them inside the message; default off so a PST import can never write the same attachment twice. Verify which shape your image produces once with `docker compose run --rm knovas-connector readpst -h` and one sample PST.
 
 **Note (licence):** `readpst` is GPL. It is installed as a Debian package and executed as a **separate process**; nothing in RC links against libpst, so RC's MIT licence is unaffected. This is stated in `docs/configuration.md` in Step 8.
 
@@ -48624,7 +48624,7 @@ def test_explode_raises_for_a_missing_pst(tmp_path: Path):
 
 - [ ] **Step 2: Run and create the exploder**
 
-Run `cd E:/Knovas/KnovasComponents/RemoteController && python -m pytest tests/unit/test_pst_explode.py -q` → FAIL with `ModuleNotFoundError: No module named 'sync.pst_explode'`.
+Run `cd E:/Knovas/KnovasComponents/KnovasConnector && python -m pytest tests/unit/test_pst_explode.py -q` → FAIL with `ModuleNotFoundError: No module named 'sync.pst_explode'`.
 
 Create `src/sync/pst_explode.py`:
 
@@ -48922,7 +48922,7 @@ def explode(
 Run `python -m pytest tests/unit/test_pst_explode.py -q` → PASS (9 tests; the timeout case takes ~1 s). Commit:
 
 ```bash
-git add RemoteController/src/sync/pst_explode.py RemoteController/tests/unit/test_pst_explode.py
+git add KnovasConnector/src/sync/pst_explode.py KnovasConnector/tests/unit/test_pst_explode.py
 git commit -m "feat(rc): PST exploder (readpst -e, Message-ID keying, folder provenance, idempotent)"
 ```
 
@@ -49489,7 +49489,7 @@ def _loop(
 Run `python -m pytest tests/unit/test_pst_queue.py -q` → PASS (7 tests). Commit:
 
 ```bash
-git add RemoteController/src/sync/pst_queue.py RemoteController/tests/unit/test_pst_queue.py
+git add KnovasConnector/src/sync/pst_queue.py KnovasConnector/tests/unit/test_pst_queue.py
 git commit -m "feat(rc): resumable PST queue (one archive per cycle, crash recovery)"
 ```
 
@@ -49514,7 +49514,7 @@ and a fourth guarded block inside `with app.app_context():` (after the mailbox b
 Run `python -m pytest tests/health tests/unit/test_boot_validation.py tests/unit/test_pst_queue.py -q` → PASS (the health fixture builds the app through `create_app`, proving a missing PST configuration still boots). Commit:
 
 ```bash
-git add RemoteController/src/app.py
+git add KnovasConnector/src/app.py
 git commit -m "feat(rc): start the PST importer thread from create_app when configured"
 ```
 
@@ -49705,7 +49705,7 @@ if __name__ == "__main__":
 Run `python -m pytest tests/unit/test_explode_pst_cli.py -q` → PASS (3 tests). Commit:
 
 ```bash
-git add RemoteController/scripts/explode_pst.py RemoteController/tests/unit/test_explode_pst_cli.py
+git add KnovasConnector/scripts/explode_pst.py KnovasConnector/tests/unit/test_explode_pst_cli.py
 git commit -m "feat(rc): scripts/explode_pst.py for foreground PST migrations"
 ```
 
@@ -49743,7 +49743,7 @@ RUN mkdir -p /app/config /var/rc-state /pst-staging \
       - ./data:/data:ro
       - rc-config:/app/config
       - rc-state:/var/rc-state
-      - ./config/remote_controller_sync.json:/app/config/remote_controller_sync.json:ro
+      - ./config/knovas_connector_sync.json:/app/config/knovas_connector_sync.json:ro
       # PST migration (H1): drop .pst archives into ./pst-inbox; readpst writes
       # the exploded .eml tree into the rc-pst-staging volume. RC_WATCH_ROOTS
       # must include /pst-staging or the messages are never uploaded.
@@ -49777,7 +49777,7 @@ volumes:
 `docs/SETUP.md` — Step 3 "Prepare volumes": extend the `mkdir` (line 90-92) and add a bullet after "Mount document roots under `/data`":
 
 ```bash
-## From RemoteController/
+## From KnovasConnector/
 mkdir -p ../certs data config certs/edge pst-inbox
 ```
 
@@ -49831,11 +49831,11 @@ uploaded.
 ```
 
 Run the whole suite `python -m pytest -q` → PASS. Build the image once to prove the package name resolves:
-`docker compose build remote-controller` → succeeds, and
-`docker compose run --rm remote-controller readpst -h` prints libpst's usage (this is also the check that tells you whether your build writes loose attachment files beside the `.eml` — see the readpst note at the top of this task). Commit:
+`docker compose build knovas-connector` → succeeds, and
+`docker compose run --rm knovas-connector readpst -h` prints libpst's usage (this is also the check that tells you whether your build writes loose attachment files beside the `.eml` — see the readpst note at the top of this task). Commit:
 
 ```bash
-git add RemoteController/Dockerfile RemoteController/docker-compose.yml RemoteController/.env.example RemoteController/docs/SETUP.md RemoteController/docs/configuration.md RemoteController/CHANGELOG.md
+git add KnovasConnector/Dockerfile KnovasConnector/docker-compose.yml KnovasConnector/.env.example KnovasConnector/docs/SETUP.md KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md
 git commit -m "docs(rc): PST volumes, pst-utils in the image and the import runbook"
 ```
 
@@ -49992,7 +49992,7 @@ def test_count_index_status_and_clear_aliases(tmp_path):
 - [ ] **Step 2: Run — expect FAIL**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController
+cd E:/Knovas/KnovasComponents/KnovasConnector
 python -m pytest tests/unit/test_sync_state_index.py -q
 ```
 
@@ -51404,7 +51404,7 @@ git commit -am "docs(rc): document index-status verification and content dedup e
 
 ### Task KC-F-10: Operator documentation — `connectors.md`, `migration.md`, and the format/env/volume statements that must not drift
 
-**Requirements:** F1, F2, F3, D5, F5, H1, H4 (design §7.1–§7.5 and §8 "Updated: … `RemoteController/docs/configuration.md` (formats, OCR languages, metadata keys)", "New: `RemoteController/docs/connectors.md`, `RemoteController/docs/migration.md`"), G9 (a customer doc states what is supported and what is not, in the same words as the code)
+**Requirements:** F1, F2, F3, D5, F5, H1, H4 (design §7.1–§7.5 and §8 "Updated: … `KnovasConnector/docs/configuration.md` (formats, OCR languages, metadata keys)", "New: `KnovasConnector/docs/connectors.md`, `KnovasConnector/docs/migration.md`"), G9 (a customer doc states what is supported and what is not, in the same words as the code)
 
 **Sequencing:** last task of this part. It documents what KC-F-1 … KC-F-9 build, and its first test asserts that every extension in `sync.document_text.SYNCABLE_EXTENSIONS` is named in the customer-facing docs — which only passes once KC-F-3 and KC-F-4 have landed `.xlsx` / `.pptx`.
 
@@ -51418,8 +51418,8 @@ git commit -am "docs(rc): document index-status verification and content dedup e
 - Test: `tests/unit/test_docs_consistency.py` (new)
 
 **Interfaces:**
-- Consumes (documents only; every name is delivered by another task of this part): `sync.document_text.SYNCABLE_EXTENSIONS` and the derived globs (Task KC-F-3); `XlsxExtractor` / `PptxExtractor`, provenance `remote-controller-office` (Task KC-F-4); `RC_TESSERACT_LANG` default `deu+fra+ita+eng`, `knovas_rc_documents_extracted_total{ext,ocr}`, `knovas_rc_extract_errors_total{reason}`, `scripts/requeue_skipped.py` (Task KC-F-5); `benchmarks/ocr/README.md` (Task KC-F-6); `MAILBOX_TENANT_ID`, `MAILBOX_CLIENT_ID`, `MAILBOX_CLIENT_SECRET`, `MAILBOX_USERS`, `MAILBOX_FOLDERS_INCLUDE`, `MAILBOX_FOLDERS_EXCLUDE`, `MAILBOX_MIRROR_PATH`, `MAILBOX_INTERVAL_SECONDS`, `MAILBOX_INCLUDE_ATTACHMENTS`, `MAILBOX_IDENTIFIER_PREFIX` (Task KC-F-7); `scripts/explode_pst.py`, `RC_PST_INBOX`, `RC_PST_STAGING`, `RC_PST_INTERVAL_SECONDS`, `RC_PST_JOBS`, `RC_PST_TIMEOUT_SECONDS`, `RC_READPST_BIN` (Task KC-F-8); `RC_SEND_DOCUMENT_METADATA`, `RC_LANGUAGE_DETECT`, `RC_SOURCE_KIND`, `RC_DOCUMENT_TYPE_VOCAB`, `.knovas-meta.json` (Task KC-F-1); `RC_MATTER_PATH_RULE`, `RC_MATTER_LOOKUP_TTL_SECONDS` (Task KC-F-2); `RC_CONTENT_DEDUP_ENABLED`, `RC_INDEX_STATUS_POLL_PER_CYCLE`, `document_sync.indexed|index_pending|index_failed`, `rate_limit`, `subfolder_progress` (Task KC-F-9).
-- Produces: `RemoteController/docs/connectors.md` (the single home for every non-local source and for the metadata rules) and `RemoteController/docs/migration.md` (the H1 fixed-price runbook), both linked from `RemoteController/docs/README.md`, `RemoteController/README.md` and `docs/specifications.md` §7; a `tests/unit/test_docs_consistency.py` guard that fails CI when the extension list, the two new documents, or any relative documentation link drifts.
+- Consumes (documents only; every name is delivered by another task of this part): `sync.document_text.SYNCABLE_EXTENSIONS` and the derived globs (Task KC-F-3); `XlsxExtractor` / `PptxExtractor`, provenance `knovas-connector-office` (Task KC-F-4); `RC_TESSERACT_LANG` default `deu+fra+ita+eng`, `knovas_rc_documents_extracted_total{ext,ocr}`, `knovas_rc_extract_errors_total{reason}`, `scripts/requeue_skipped.py` (Task KC-F-5); `benchmarks/ocr/README.md` (Task KC-F-6); `MAILBOX_TENANT_ID`, `MAILBOX_CLIENT_ID`, `MAILBOX_CLIENT_SECRET`, `MAILBOX_USERS`, `MAILBOX_FOLDERS_INCLUDE`, `MAILBOX_FOLDERS_EXCLUDE`, `MAILBOX_MIRROR_PATH`, `MAILBOX_INTERVAL_SECONDS`, `MAILBOX_INCLUDE_ATTACHMENTS`, `MAILBOX_IDENTIFIER_PREFIX` (Task KC-F-7); `scripts/explode_pst.py`, `RC_PST_INBOX`, `RC_PST_STAGING`, `RC_PST_INTERVAL_SECONDS`, `RC_PST_JOBS`, `RC_PST_TIMEOUT_SECONDS`, `RC_READPST_BIN` (Task KC-F-8); `RC_SEND_DOCUMENT_METADATA`, `RC_LANGUAGE_DETECT`, `RC_SOURCE_KIND`, `RC_DOCUMENT_TYPE_VOCAB`, `.knovas-meta.json` (Task KC-F-1); `RC_MATTER_PATH_RULE`, `RC_MATTER_LOOKUP_TTL_SECONDS` (Task KC-F-2); `RC_CONTENT_DEDUP_ENABLED`, `RC_INDEX_STATUS_POLL_PER_CYCLE`, `document_sync.indexed|index_pending|index_failed`, `rate_limit`, `subfolder_progress` (Task KC-F-9).
+- Produces: `KnovasConnector/docs/connectors.md` (the single home for every non-local source and for the metadata rules) and `KnovasConnector/docs/migration.md` (the H1 fixed-price runbook), both linked from `KnovasConnector/docs/README.md`, `KnovasConnector/README.md` and `docs/specifications.md` §7; a `tests/unit/test_docs_consistency.py` guard that fails CI when the extension list, the two new documents, or any relative documentation link drifts.
 
 - [ ] **Step 1: Failing test — the docs may not drift from the code**
 
@@ -51430,7 +51430,7 @@ The findings name this as the repository's number-one documentation risk: the su
 
 The supported-extension list lives in one constant (SYNCABLE_EXTENSIONS) and in
 several documents; this module fails the build when they disagree, and when a
-relative link in the RemoteController documentation points at nothing.
+relative link in the Knovas Connector documentation points at nothing.
 """
 import re
 from pathlib import Path
@@ -51507,7 +51507,7 @@ def test_relative_documentation_links_resolve():
 - [ ] **Step 2: Run — expect FAIL**
 
 ```bash
-cd E:/Knovas/KnovasComponents/RemoteController
+cd E:/Knovas/KnovasComponents/KnovasConnector
 python -m pytest tests/unit/test_docs_consistency.py -q
 ```
 
@@ -51515,12 +51515,12 @@ Expected: `AssertionError: docs/connectors.md is missing` (and, once KC-F-3/KC-F
 
 - [ ] **Step 3: Write `docs/connectors.md`**
 
-Create `RemoteController/docs/connectors.md`:
+Create `KnovasConnector/docs/connectors.md`:
 
 ````markdown
 ## Connectors
 
-RemoteController reads one thing: files under `RC_WATCH_ROOTS`. Every other
+Knovas Connector reads one thing: files under `RC_WATCH_ROOTS`. Every other
 source works by **mirroring to disk first** — the connector materialises
 documents inside a watch root, and the ordinary sync path ingests them
 unchanged. That keeps one code path for extraction, chunking, rate limiting and
@@ -51549,7 +51549,7 @@ stored.
 | Mailboxes | `Mail.Read` | `MAILBOX_USERS` (explicit allow-list of mailbox addresses), `MAILBOX_FOLDERS_INCLUDE`, `MAILBOX_FOLDERS_EXCLUDE` |
 
 `Mail.Read` as an application permission grants access to **every** mailbox in
-the tenant. RemoteController never enumerates mailboxes: it only reads the
+the tenant. Knovas Connector never enumerates mailboxes: it only reads the
 addresses listed in `MAILBOX_USERS`. Restrict the application further with an
 [Exchange application access policy](https://learn.microsoft.com/graph/auth-limit-mailbox-access)
 if the customer wants the tenant-side guarantee as well.
@@ -51638,11 +51638,11 @@ knowledge graph to be enabled for the tenant and the matters to carry a
 | `.docx` | `python-docx` + `mammoth` | Author and language from the core properties |
 | `.pdf` | `pymupdf`, Tesseract for scans | Page numbers per chunk |
 | `.eml`, `.msg` | Standard library `email` / `extract-msg` | Subject becomes the title |
-| `.xlsx` | `openpyxl` (RemoteController-local) | One table per sheet, hidden sheets skipped |
-| `.pptx` | `python-pptx` (RemoteController-local) | One page per slide, speaker notes included |
+| `.xlsx` | `openpyxl` (Knovas-Connector-local) | One table per sheet, hidden sheets skipped |
+| `.pptx` | `python-pptx` (Knovas-Connector-local) | One page per slide, speaker notes included |
 
-`.xlsx` and `.pptx` are extracted by RemoteController itself and are stamped
-with the provenance `remote-controller-office` rather than the certified
+`.xlsx` and `.pptx` are extracted by Knovas Connector itself and are stamped
+with the provenance `knovas-connector-office` rather than the certified
 extractor's name — the honest label, and the marker that has to disappear when
 the extractors move upstream.
 
@@ -51671,7 +51671,7 @@ so the content never disappears from the index. See
 
 - [ ] **Step 4: Write `docs/migration.md`**
 
-Create `RemoteController/docs/migration.md`:
+Create `KnovasConnector/docs/migration.md`:
 
 ````markdown
 ## Migration runbook (whole estate)
@@ -51680,13 +51680,13 @@ For a fixed-price "take over everything we have" project: file share, OneDrive,
 mailboxes and PST archives. Read [connectors.md](connectors.md) first — this
 document is the order, the numbers and the proof.
 
-The rule that shapes everything below: **what RemoteController submitted and
+The rule that shapes everything below: **what Knovas Connector submitted and
 what Knovas indexed are two different numbers, and the migration is signed off
 on the second one.**
 
 ## 1. Inventory (before anything is switched on)
 
-Count first, quote second. On the RemoteController host:
+Count first, quote second. On the Knovas Connector host:
 
 ```bash
 ## Files by extension and total size under one root
@@ -51704,8 +51704,8 @@ The inventory is the contract. Everything outside it is a change request.
 
 ## 2. Throughput and the API ceiling
 
-RemoteController limits itself; the tenant limits it too. Set the client-side
-ceiling explicitly in `config/remote_controller_sync.json`:
+Knovas Connector limits itself; the tenant limits it too. Set the client-side
+ceiling explicitly in `config/knovas_connector_sync.json`:
 
 ```json
 {
@@ -51724,7 +51724,7 @@ ceiling explicitly in `config/remote_controller_sync.json`:
 ```
 
 That is the shipped WinJur profile
-([config/remote_controller_sync.winjur.example.json](../config/remote_controller_sync.winjur.example.json)):
+([config/knovas_connector_sync.winjur.example.json](../config/knovas_connector_sync.winjur.example.json)):
 deliberately slow, one archive folder at a time. The arithmetic an estimate
 rests on:
 
@@ -51776,7 +51776,7 @@ state that already knows their hashes.
 4. Budget roughly **2× the PST size** of free disk for the exploded tree.
 
 `readpst` comes from `pst-utils` and is GPL-licensed; it runs as a separate
-process and is never linked into RemoteController.
+process and is never linked into Knovas Connector.
 
 ## 4. Mailboxes
 
@@ -51831,7 +51831,7 @@ curl -sS "$RC_BASE/sync/status?live=1" | python3 -m json.tool
 }
 ```
 
-- `synced` — RemoteController handed the document over.
+- `synced` — Knovas Connector handed the document over.
 - `indexed` — the Knovas API confirms the document is searchable.
 - `index_failed` — the API rejected or dead-lettered it. These are the rows to
   read out and hand back, one by one:
@@ -51872,11 +51872,11 @@ K nicht konvertierbar (Liste beiliegend), Stand <date>."*
    curl -sS -X POST "$RC_BASE/sync/stop" -H "Content-Type: application/json" -d '{}'
    ```
 
-2. To withdraw what was ingested, let RemoteController do it with the mechanism
+2. To withdraw what was ingested, let Knovas Connector do it with the mechanism
    it already has: keep `"delete_on_remove": true` in the sync body, take the
    source folder out of `sources`, and run one cycle — every tracked document of
    that source is deleted from Knovas by pointer. For a whole tenant, ask Knovas
-   operations; RemoteController can only delete what it tracks.
+   operations; Knovas Connector can only delete what it tracks.
 3. Only then clear the local state, so a later re-run starts from zero:
 
    ```bash
@@ -51958,7 +51958,7 @@ git commit -m "docs(rc): connectors and whole-estate migration runbook, guarded 
 
 - [ ] **Step 7: Volumes in `docs/SETUP.md` and the index-status section in `docs/operations.md`**
 
-The connector spools are the first **writable** mounts RemoteController needs —
+The connector spools are the first **writable** mounts Knovas Connector needs —
 today `docker-compose.yml` mounts `./data` read-only. The compose file itself is
 edited by Task KC-F-8; this step gives the operator the complete picture.
 
@@ -51987,7 +51987,7 @@ In `docs/operations.md`, add after the "Continuous sync" bullet list (line 33):
 ````markdown
 ### Index status
 
-`synced` means RemoteController handed a document over; `indexed` means the
+`synced` means Knovas Connector handed a document over; `indexed` means the
 Knovas API confirms it is searchable. `GET /sync/status?live=1` reports both:
 
 ```bash
@@ -51995,7 +51995,7 @@ curl -sS "$RC_BASE/sync/status?live=1" | python3 -m json.tool
 ```
 
 `document_sync` carries `indexed`, `index_pending` and `index_failed` beside
-`synced`. RemoteController polls at most `RC_INDEX_STATUS_POLL_PER_CYCLE`
+`synced`. Knovas Connector polls at most `RC_INDEX_STATUS_POLL_PER_CYCLE`
 (default 50) transmissions per cycle, oldest first, and never asks again about a
 document that reached a final state. Against a tenant without the status
 endpoint every row settles on `unknown` after a single 404 and polling stops.
@@ -52047,15 +52047,15 @@ Append two options after "Option B — OneDrive / SharePoint (optional)" (after 
 
 | Item | Requirement |
 |------|-------------|
-| Delivery | Archives copied into the RemoteController inbox directory; no Outlook on the VM |
+| Delivery | Archives copied into the Knovas Connector inbox directory; no Outlook on the VM |
 | VM storage | Writable inbox and staging paths; budget ~2× the total archive size for the exploded messages |
-| Tooling | `pst-utils` (`readpst`, GPL) is installed in the RemoteController image and runs as a separate process |
+| Tooling | `pst-utils` (`readpst`, GPL) is installed in the Knovas Connector image and runs as a separate process |
 | Throughput | One archive per cycle; a 50 GB archive is planned as a multi-day job |
 | Ownership | Customer confirms which archives are in scope and who is allowed to read them |
 
-Both options are configured in the RemoteController environment and are off
+Both options are configured in the Knovas Connector environment and are off
 until their variables are set. Details:
-[RemoteController/docs/connectors.md](../RemoteController/docs/connectors.md).
+[KnovasConnector/docs/connectors.md](../KnovasConnector/docs/connectors.md).
 ```
 
 Add two rows to the handover checklist (after line 163):
@@ -52068,7 +52068,7 @@ Add two rows to the handover checklist (after line 163):
 Add one row to **Further reading** (after line 173):
 
 ```markdown
-| [RemoteController/docs/migration.md](../RemoteController/docs/migration.md) | Whole-estate migration runbook |
+| [KnovasConnector/docs/migration.md](../KnovasConnector/docs/migration.md) | Whole-estate migration runbook |
 ```
 
 Commit:
@@ -52090,7 +52090,7 @@ Binary formats are converted to Markdown for indexing; spreadsheets additionally
 
 Not supported: legacy `.doc`, standalone scanned images (TIFF/JPG), password-protected files.
 
-Sources: the local share (always), OneDrive/SharePoint, Exchange Online mailboxes and PST archives — see `RemoteController/docs/connectors.md`.
+Sources: the local share (always), OneDrive/SharePoint, Exchange Online mailboxes and PST archives — see `KnovasConnector/docs/connectors.md`.
 ```
 
 In §1.6, insert after the "**Optional OneDrive mirror**" block (line 199):
@@ -52128,14 +52128,14 @@ In §1.7, add three rows to the storage table (after line 218) and extend the no
 ```
 
 ```markdown
-State is stored in SQLite (`.rc-sync-state.db`, v1 format) and additionally records a content hash and the API-side index status per document. Scheduler configuration schema: `RemoteController/contracts/remote_controller_sync_config.schema.json`.
+State is stored in SQLite (`.rc-sync-state.db`, v1 format) and additionally records a content hash and the API-side index status per document. Scheduler configuration schema: `KnovasConnector/contracts/knovas_connector_sync_config.schema.json`.
 ```
 
-In §7, add two rows to the RemoteController table (after line 606):
+In §7, add two rows to the Knovas Connector table (after line 606):
 
 ```markdown
-| `RemoteController/docs/connectors.md`           | Sources, formats, metadata rules         |
-| `RemoteController/docs/migration.md`            | Whole-estate migration runbook           |
+| `KnovasConnector/docs/connectors.md`           | Sources, formats, metadata rules         |
+| `KnovasConnector/docs/migration.md`            | Whole-estate migration runbook           |
 ```
 
 Commit:
@@ -52146,7 +52146,7 @@ git commit -am "docs: specifications cover XLSX/PPTX, connector env groups and w
 
 - [ ] **Step 10: Changelog and the full suite**
 
-Add to `RemoteController/CHANGELOG.md` under `## Unreleased`:
+Add to `KnovasConnector/CHANGELOG.md` under `## Unreleased`:
 
 ```markdown
 - New documentation: `docs/connectors.md` (OneDrive, Exchange Online mailboxes, PST archives, formats, document-metadata rules, matter filing) and `docs/migration.md` (inventory, throughput against the tenant ingest budget, PST and mailbox order, duplicate expectations, index-status verification, rollback, fixed-price rule of thumb). Both are linked from the docs index and from `docs/specifications.md`.
@@ -52187,7 +52187,7 @@ Run:
 
 ```bash
 grep -n "Claims discipline" /e/Knovas/KnowledgeBase/docs/ModernDocs/strategy/2026-08-02-value-proposition-v1-v15.md
-grep -rn "HYPOTHESIS\|\[ROADMAP\]" docs/ README.md RELEASE_NOTES.md KnovasPlatform/docs RemoteController/docs --exclude-dir=superpowers || echo "no legend in KnovasComponents"
+grep -rn "HYPOTHESIS\|\[ROADMAP\]" docs/ README.md RELEASE_NOTES.md KnovasPlatform/docs KnovasConnector/docs --exclude-dir=superpowers || echo "no legend in KnovasComponents"
 test -f docs/product-statements.md && echo EXISTS || echo "missing: docs/product-statements.md"
 ```
 
@@ -52422,7 +52422,7 @@ that label and **LIVE in your tenant**.
 | G7 | Draw on the map (type-level Vorgaben) | DEMO | GATED | `target_node_type_id` of the matters plan deployed |
 | G8 | Tireless junior (filters on live endpoints) | BUILT | BUILT | graph mode on |
 | G9 | Company-brain honesty | HYPOTHESIS | LIVE | — (§1, §7) |
-| H1 | Fixed-price migration incl. PST | PARTIAL | BUILT | — (runbook `RemoteController/docs/migration.md`) |
+| H1 | Fixed-price migration incl. PST | PARTIAL | BUILT | — (runbook `KnovasConnector/docs/migration.md`) |
 | H2 | Outlook and Word add-ins | MISSING | BUILT | Platform on HTTPS with a certificate Office trusts; Centralized Deployment or sideload; login inside the taskpane after the identity release |
 | H4 | Tables survive ingestion | LIVE | LIVE | — |
 | H5 | Exit as easy as entry | PARTIAL | BUILT | — (`GET /secured/export/graph`, `GET /secured/export/documents`) |
@@ -52496,14 +52496,14 @@ git commit -m "docs(product): add product statements — capability legend, E1/F
 **Files:**
 - Create: `docs/README.md`
 - Modify: `KnovasPlatform/docs/README.md` — **append** a `## Screens and features` section after the existing "Paths" table (`:7-22`, the table ends at line 22 = end of file). **Shared file:** Task KC-A-8 of the Platform part appends a section with the same `## Screens and features` heading; whichever task runs first creates it, the second one only adds its missing rows (see Step 4).
-- Modify: `RemoteController/docs/README.md:19-28` (add `connectors.md` and `migration.md` rows)
+- Modify: `KnovasConnector/docs/README.md:19-28` (add `connectors.md` and `migration.md` rows)
 - Modify: `KnovasPlatform/components/README.md:3-6` (add the Office add-ins row)
 - Modify: `docs/Frontend Product Requirements Document – Multi-format Search UI.md:1` (superseded header)
 **Interfaces:**
-- Consumes: `docs/product-statements.md` (KC-G-1); the mirror folder `docs/KnovasAPI/` including `Knowledge_Graph_API.md`, `Events_API.md`, `Export_and_Exit.md` (KC-G-3); documents written by other parts of this plan, referenced by their exact paths: `KnovasPlatform/docs/features/search-filters-and-versions.md`, `…/features/viewer.md`, `…/features/matters-and-parties.md`, `…/features/conflicts-check.md`, `…/features/deadlines.md`, `…/features/reports-and-inbox.md`, `…/features/activity-journal.md`, `…/features/import-and-bootstrap.md`, `KnovasPlatform/docs/integration/office-add-ins.md`, `KnovasPlatform/docs/integration/graph-api.md`, `KnovasPlatform/docs/integration/events.md`, `RemoteController/docs/connectors.md`, `RemoteController/docs/migration.md`, `KnovasPlatform/components/knovas_office_addins/README.md` (defined in the Platform, add-in and RemoteController parts of this plan).
+- Consumes: `docs/product-statements.md` (KC-G-1); the mirror folder `docs/KnovasAPI/` including `Knowledge_Graph_API.md`, `Events_API.md`, `Export_and_Exit.md` (KC-G-3); documents written by other parts of this plan, referenced by their exact paths: `KnovasPlatform/docs/features/search-filters-and-versions.md`, `…/features/viewer.md`, `…/features/matters-and-parties.md`, `…/features/conflicts-check.md`, `…/features/deadlines.md`, `…/features/reports-and-inbox.md`, `…/features/activity-journal.md`, `…/features/import-and-bootstrap.md`, `KnovasPlatform/docs/integration/office-add-ins.md`, `KnovasPlatform/docs/integration/graph-api.md`, `KnovasPlatform/docs/integration/events.md`, `KnovasConnector/docs/connectors.md`, `KnovasConnector/docs/migration.md`, `KnovasPlatform/components/knovas_office_addins/README.md` (defined in the Platform, add-in and Knovas Connector parts of this plan).
 - Produces: `docs/README.md` — the index that lists every reader-facing document with its audience; the row shape `| [path](path) | one-line purpose |` reused by KC-G-4 §7.
 
-> **Note (repository fact, checked 2026-08-15):** `KnovasPlatform/docs/README.md` has exactly one table ("Paths", lines 7-22) and no `## Screens and features` section; `KnovasPlatform/components/README.md` has one table at lines 3-6; `RemoteController/docs/README.md` has three tables, the "Reference" one at lines 19-28 with the `configuration.md` row at line 22. Task KC-A-8 (Platform search part) and Task KC-B-7 (parties/conflicts part) also write into `KnovasPlatform/docs/README.md` — Step 4 below is written so the three tasks converge on **one** section instead of three.
+> **Note (repository fact, checked 2026-08-15):** `KnovasPlatform/docs/README.md` has exactly one table ("Paths", lines 7-22) and no `## Screens and features` section; `KnovasPlatform/components/README.md` has one table at lines 3-6; `KnovasConnector/docs/README.md` has three tables, the "Reference" one at lines 19-28 with the `configuration.md` row at line 22. Task KC-A-8 (Platform search part) and Task KC-B-7 (parties/conflicts part) also write into `KnovasPlatform/docs/README.md` — Step 4 below is written so the three tasks converge on **one** section instead of three.
 
 - [ ] **Step 1: Record the current state (failing check)**
 
@@ -52511,7 +52511,7 @@ Run:
 
 ```bash
 test -f docs/README.md && echo EXISTS || echo "missing: docs/README.md"
-grep -n "features/\|office-add-ins\|connectors.md\|migration.md" KnovasPlatform/docs/README.md RemoteController/docs/README.md docs/specifications.md || echo "no rows for the new docs anywhere"
+grep -n "features/\|office-add-ins\|connectors.md\|migration.md" KnovasPlatform/docs/README.md KnovasConnector/docs/README.md docs/specifications.md || echo "no rows for the new docs anywhere"
 head -3 "docs/Frontend Product Requirements Document – Multi-format Search UI.md"
 ```
 
@@ -52528,7 +52528,7 @@ Start with the row that describes you. Every document a reader is meant to find
 is listed here once; a document that is not listed here does not exist as far as
 a reader is concerned. Two kinds of file are deliberately not listed: the
 per-directory `README.md` files that only point back here
-(`KnovasPlatform/README.md`, `RemoteController/README.md`,
+(`KnovasPlatform/README.md`, `KnovasConnector/README.md`,
 `KnovasPlatform/components/README.md`, `KnovasPlatform/certs/README.md`), and
 the retired API-kit copy under
 `KnovasPlatform/knovas-docs/Knovas_Developer_Implementation_Kit/`, which is a
@@ -52547,17 +52547,17 @@ are defined in
 | [../KnovasPlatform/docs/setup.md](../KnovasPlatform/docs/setup.md) | Platform quickstart |
 | [../KnovasPlatform/docs/platforms/ubuntu.md](../KnovasPlatform/docs/platforms/ubuntu.md) · [debian.md](../KnovasPlatform/docs/platforms/debian.md) · [windows.md](../KnovasPlatform/docs/platforms/windows.md) | Host-specific notes |
 | [../KnovasPlatform/docs/integration/troubleshooting.md](../KnovasPlatform/docs/integration/troubleshooting.md) | Symptom → fix table for the Platform |
-| [../RemoteController/docs/local-setup.md](../RemoteController/docs/local-setup.md) | RemoteController local-only install (start here) |
-| [../RemoteController/docs/SETUP.md](../RemoteController/docs/SETUP.md) | RemoteController production install (HTTPS edge, employee JWT) |
-| [../RemoteController/docs/configuration.md](../RemoteController/docs/configuration.md) | `.env`, scheduler JSON, supported formats, OCR languages, metadata keys |
-| [../RemoteController/docs/connectors.md](../RemoteController/docs/connectors.md) | Connectors: file share, OneDrive/SharePoint mirror, mailbox mirror (Microsoft Graph), PST import, XLSX/PPTX |
-| [../RemoteController/docs/migration.md](../RemoteController/docs/migration.md) | Fixed-price migration runbook: inventory, PST step, throughput, dedup, verification, rollback |
-| [../RemoteController/docs/operations.md](../RemoteController/docs/operations.md) | Health, metrics, stopping sync, upgrades |
-| [../RemoteController/docs/local-commands.md](../RemoteController/docs/local-commands.md) | RemoteController API cheat sheet and pytest, after `local-setup.md` |
-| [../RemoteController/docs/onboarding-checklist.md](../RemoteController/docs/onboarding-checklist.md) | RemoteController go-live checklist |
-| [../RemoteController/docs/hosting/server_01_home-corpus-setup.md](../RemoteController/docs/hosting/server_01_home-corpus-setup.md) | Worked example: the `server_01_home` corpus ingest |
+| [../KnovasConnector/docs/local-setup.md](../KnovasConnector/docs/local-setup.md) | Knovas Connector local-only install (start here) |
+| [../KnovasConnector/docs/SETUP.md](../KnovasConnector/docs/SETUP.md) | Knovas Connector production install (HTTPS edge, employee JWT) |
+| [../KnovasConnector/docs/configuration.md](../KnovasConnector/docs/configuration.md) | `.env`, scheduler JSON, supported formats, OCR languages, metadata keys |
+| [../KnovasConnector/docs/connectors.md](../KnovasConnector/docs/connectors.md) | Connectors: file share, OneDrive/SharePoint mirror, mailbox mirror (Microsoft Graph), PST import, XLSX/PPTX |
+| [../KnovasConnector/docs/migration.md](../KnovasConnector/docs/migration.md) | Fixed-price migration runbook: inventory, PST step, throughput, dedup, verification, rollback |
+| [../KnovasConnector/docs/operations.md](../KnovasConnector/docs/operations.md) | Health, metrics, stopping sync, upgrades |
+| [../KnovasConnector/docs/local-commands.md](../KnovasConnector/docs/local-commands.md) | Knovas Connector API cheat sheet and pytest, after `local-setup.md` |
+| [../KnovasConnector/docs/onboarding-checklist.md](../KnovasConnector/docs/onboarding-checklist.md) | Knovas Connector go-live checklist |
+| [../KnovasConnector/docs/hosting/server_01_home-corpus-setup.md](../KnovasConnector/docs/hosting/server_01_home-corpus-setup.md) | Worked example: the `server_01_home` corpus ingest |
 | [../KnovasPlatform/docs/demo.md](../KnovasPlatform/docs/demo.md) | Evaluate the Platform without a Knovas tenant (mock mode) |
-| [../RemoteController/scripts/demo_corpus/README.md](../RemoteController/scripts/demo_corpus/README.md) | Demo corpus downloader — documents only, separate from an RC deployment |
+| [../KnovasConnector/scripts/demo_corpus/README.md](../KnovasConnector/scripts/demo_corpus/README.md) | Demo corpus downloader — documents only, separate from an RC deployment |
 
 ## Hosting partner — provisioning the VM and the network
 
@@ -52566,8 +52566,8 @@ are defined in
 | [hosting-requirements.md](hosting-requirements.md) | VM sizing, ports, egress (Knovas API, Microsoft Graph, Zefix), document sources incl. mailbox and PST, per-seat query throughput, handover checklist |
 | [../KnovasPlatform/docs/deployment/host-nginx-internal.md](../KnovasPlatform/docs/deployment/host-nginx-internal.md) | Production HTTPS topology (host NGINX, internal DNS, corporate CA) |
 | [../KnovasPlatform/docs/deployment/checklist-host-nginx.md](../KnovasPlatform/docs/deployment/checklist-host-nginx.md) | Platform go-live checklist |
-| [../RemoteController/docs/network-and-firewall.md](../RemoteController/docs/network-and-firewall.md) | RemoteController ingress/egress matrix |
-| [../RemoteController/docs/nginx-edge.example.conf](../RemoteController/docs/nginx-edge.example.conf) | Reference NGINX edge configuration |
+| [../KnovasConnector/docs/network-and-firewall.md](../KnovasConnector/docs/network-and-firewall.md) | Knovas Connector ingress/egress matrix |
+| [../KnovasConnector/docs/nginx-edge.example.conf](../KnovasConnector/docs/nginx-edge.example.conf) | Reference NGINX edge configuration |
 
 ## Buyer and project lead — what the product does, and does not do
 
@@ -52610,7 +52610,7 @@ are defined in
 | [search-ui-backlog.md](search-ui-backlog.md) | The Platform's honest search backlog (German), with the API-first ordering |
 | [Frontend Product Requirements Document – Multi-format Search UI.md](Frontend%20Product%20Requirements%20Document%20%E2%80%93%20Multi-format%20Search%20UI.md) | Historical PRD — superseded, kept for the requirement wording only |
 | [../scripts/check_devkit_mirror.py](../scripts/check_devkit_mirror.py) | Drift check between `KnovasAPI/` and the canonical Developer Kit (runs in CI) |
-| [../RELEASE_NOTES.md](../RELEASE_NOTES.md) · [../KnovasPlatform/CHANGELOG.md](../KnovasPlatform/CHANGELOG.md) · [../RemoteController/CHANGELOG.md](../RemoteController/CHANGELOG.md) | What shipped, per release and per component |
+| [../RELEASE_NOTES.md](../RELEASE_NOTES.md) · [../KnovasPlatform/CHANGELOG.md](../KnovasPlatform/CHANGELOG.md) · [../KnovasConnector/CHANGELOG.md](../KnovasConnector/CHANGELOG.md) | What shipped, per release and per component |
 ```
 
 - [ ] **Step 3: Check the links (expected: only the not-yet-written documents are missing)**
@@ -52637,8 +52637,8 @@ missing: ../KnovasPlatform/docs/features/viewer.md
 missing: ../KnovasPlatform/docs/integration/events.md
 missing: ../KnovasPlatform/docs/integration/graph-api.md
 missing: ../KnovasPlatform/docs/integration/office-add-ins.md
-missing: ../RemoteController/docs/connectors.md
-missing: ../RemoteController/docs/migration.md
+missing: ../KnovasConnector/docs/connectors.md
+missing: ../KnovasConnector/docs/migration.md
 missing: KnovasAPI/Events_API.md
 missing: KnovasAPI/Export_and_Exit.md
 ```
@@ -52673,9 +52673,9 @@ Every document below states one status label per screen (legend:
 | Events — Poller, Posteingang, Webhooks für Integratoren | [integration/events.md](integration/events.md) |
 ```
 
-- [ ] **Step 5: Add the connector and migration rows to `RemoteController/docs/README.md`**
+- [ ] **Step 5: Add the connector and migration rows to `KnovasConnector/docs/README.md`**
 
-In the **Reference** table (`RemoteController/docs/README.md:19-28`), insert after the `configuration.md` row:
+In the **Reference** table (`KnovasConnector/docs/README.md:19-28`), insert after the `configuration.md` row:
 
 ```markdown
 | [connectors.md](connectors.md) | **Connectors** — file share, OneDrive/SharePoint mirror, mailbox mirror (Microsoft Graph), PST import, XLSX/PPTX |
@@ -52714,7 +52714,7 @@ Insert at the very top of `docs/Frontend Product Requirements Document – Multi
 - [ ] **Step 8: Commit**
 
 ```bash
-git add docs/README.md KnovasPlatform/docs/README.md RemoteController/docs/README.md \
+git add docs/README.md KnovasPlatform/docs/README.md KnovasConnector/docs/README.md \
         KnovasPlatform/components/README.md \
         "docs/Frontend Product Requirements Document – Multi-format Search UI.md"
 git commit -m "docs(index): documentation index by audience; feature/connector rows in component indexes; PRD marked superseded"
@@ -53086,7 +53086,7 @@ Expected: `docs/KnovasAPI in sync with ../KnowledgeBase/docs/Knovas_Developer_Ki
 
 - [ ] **Step 10: Add the CI job**
 
-Append to `.github/workflows/ci.yml` (after the `remote-controller` job, same indentation as the other jobs):
+Append to `.github/workflows/ci.yml` (after the `knovas-connector` job, same indentation as the other jobs):
 
 ```yaml
   devkit-mirror:
@@ -53141,7 +53141,7 @@ Validate the YAML parses:
 python -c "import yaml,sys; d=yaml.safe_load(open('.github/workflows/ci.yml')); print(sorted(d['jobs']))"
 ```
 
-Expected: `['devkit-mirror', 'knovas-platform', 'remote-controller']` (install `pyyaml` with `pip install pyyaml` if missing).
+Expected: `['devkit-mirror', 'knovas-platform', 'knovas-connector']` (install `pyyaml` with `pip install pyyaml` if missing).
 
 - [ ] **Step 11: Commit**
 
@@ -53165,7 +53165,7 @@ After the KB parts change the kit (Secure_API metadata/filters/versions/similar/
 **Files:**
 - Modify: `docs/specifications.md:4-9` (header table), `:103-106` (§1.2 dependency bullet list; the heading is line 99), `:108-112` (§1.3), `:196-198` (§1.6 OneDrive block → connectors), `:324` (§2.3 endpoints line), `:342-368` (§2.5, ends with `OPEN_BROWSER_CLIENT_PATH`), `:417-438` (§2.8), `:505-513` and `:517-524` and `:530-539` (§4 checklists), `:599-607` and `:613-623` (§7 index tables). The file is 625 lines long today.
 **Interfaces:**
-- Consumes: env names from the Interface Registry — RC: `RC_SEND_DOCUMENT_METADATA=1`, `RC_MATTER_PATH_RULE`, `RC_LANGUAGE_DETECT=1`, `RC_TESSERACT_LANG=deu+fra+ita+eng`, `MAILBOX_TENANT_ID`, `MAILBOX_CLIENT_ID`, `MAILBOX_CLIENT_SECRET`, `MAILBOX_USERS`, `MAILBOX_FOLDERS_INCLUDE`, `MAILBOX_FOLDERS_EXCLUDE`, `MAILBOX_MIRROR_PATH`, `MAILBOX_INTERVAL_SECONDS`, `MAILBOX_INCLUDE_ATTACHMENTS`, `MAILBOX_IDENTIFIER_PREFIX`, `RC_PST_INBOX`, `RC_PST_STAGING`, `scripts/explode_pst.py` (defined in the RemoteController part); Platform: `ONTOLOGY_SOURCE`, `ONTOLOGY_FIXTURE_PATH`, `ONTOLOGY_FILTER_STATE_PATH` (shipped, `KnovasPlatform/.env.example:80-101`), `ZEFIX_USERNAME`, `ZEFIX_PASSWORD` (design §6.7), `JOURNAL_RETENTION_DAYS=90` (design §6.12), the poller keys of `src/events_poller.py` (defined in the Platform events part — see Step 6 for the reconciliation rule); endpoints from the Registry: `/secured/graph/*`, `GET /secured/events`, `POST|GET /secured/webhooks`, `GET /secured/export/graph`, `GET /secured/export/documents`, `POST /secured/documents/<uuid>/similar`, `GET /secured/document/<uuid>/versions`, `PATCH /secured/documents/<uuid>/metadata`, `GET /secured/transmissions/<key>/status`, `GET /secured/graph/jobs/<id>`; add-in component `KnovasPlatform/components/knovas_office_addins/` with `manifest.outlook.xml`, `manifest.word.xml`, served at `/addins/*`.
+- Consumes: env names from the Interface Registry — RC: `RC_SEND_DOCUMENT_METADATA=1`, `RC_MATTER_PATH_RULE`, `RC_LANGUAGE_DETECT=1`, `RC_TESSERACT_LANG=deu+fra+ita+eng`, `MAILBOX_TENANT_ID`, `MAILBOX_CLIENT_ID`, `MAILBOX_CLIENT_SECRET`, `MAILBOX_USERS`, `MAILBOX_FOLDERS_INCLUDE`, `MAILBOX_FOLDERS_EXCLUDE`, `MAILBOX_MIRROR_PATH`, `MAILBOX_INTERVAL_SECONDS`, `MAILBOX_INCLUDE_ATTACHMENTS`, `MAILBOX_IDENTIFIER_PREFIX`, `RC_PST_INBOX`, `RC_PST_STAGING`, `scripts/explode_pst.py` (defined in the Knovas Connector part); Platform: `ONTOLOGY_SOURCE`, `ONTOLOGY_FIXTURE_PATH`, `ONTOLOGY_FILTER_STATE_PATH` (shipped, `KnovasPlatform/.env.example:80-101`), `ZEFIX_USERNAME`, `ZEFIX_PASSWORD` (design §6.7), `JOURNAL_RETENTION_DAYS=90` (design §6.12), the poller keys of `src/events_poller.py` (defined in the Platform events part — see Step 6 for the reconciliation rule); endpoints from the Registry: `/secured/graph/*`, `GET /secured/events`, `POST|GET /secured/webhooks`, `GET /secured/export/graph`, `GET /secured/export/documents`, `POST /secured/documents/<uuid>/similar`, `GET /secured/document/<uuid>/versions`, `PATCH /secured/documents/<uuid>/metadata`, `GET /secured/transmissions/<key>/status`, `GET /secured/graph/jobs/<id>`; add-in component `KnovasPlatform/components/knovas_office_addins/` with `manifest.outlook.xml`, `manifest.word.xml`, served at `/addins/*`.
 - Produces: the customer-facing deployment facts every other doc defers to (formats list, connector env blocks, endpoint list, go-live rows).
 
 - [ ] **Step 1: Record the state (failing check)**
@@ -53189,7 +53189,7 @@ Replace the header table with:
 | **Document version** | 1.1                                                                               |
 | **Last updated**     | August 2026                                                                       |
 | **Audience**         | Customer IT / operations teams deploying and operating Knovas-hosted components   |
-| **Scope**            | RemoteController, KnovasPlatform and the Office add-ins as delivered in the Knovas Components package. What the product does and does not do: [product-statements.md](product-statements.md) |
+| **Scope**            | Knovas Connector, KnovasPlatform and the Office add-ins as delivered in the Knovas Components package. What the product does and does not do: [product-statements.md](product-statements.md) |
 ```
 
 - [ ] **Step 3: §1.2 runtime dependencies (lines 99-106) and §1.3 formats (lines 108-112)**
@@ -53217,7 +53217,7 @@ Replace §1.3 with:
 `.xlsx`, `.pptx`. `.pst` archives are not watched directly: `scripts/explode_pst.py`
 unpacks them into `RC_PST_STAGING` (folder hierarchy preserved, `Message-ID`
 recorded for dedup) and the resulting `.eml` files and attachments are ingested
-like any other document (see `RemoteController/docs/connectors.md`).
+like any other document (see `KnovasConnector/docs/connectors.md`).
 
 Binary formats are converted to Markdown for indexing; tables in `.docx`,
 `.pdf` and `.xlsx` are transmitted as structured tables. The original path is
@@ -53267,10 +53267,10 @@ with
 - `RC_LANGUAGE_DETECT` (default `1`) — detect the document language when the extractor reports none
 - `RC_TESSERACT_LANG` (default `deu+fra+ita+eng`), `RC_PDF_OCR_ENABLED` (default `true`)
 
-Defaults and behaviour of every connector key: `RemoteController/docs/connectors.md`; metadata keys: `RemoteController/docs/configuration.md`.
+Defaults and behaviour of every connector key: `KnovasConnector/docs/connectors.md`; metadata keys: `KnovasConnector/docs/configuration.md`.
 ```
 
-> **Note (repository fact, checked 2026-08-15):** `RC_TESSERACT_LANG` today defaults to **`deu+eng`** (`RemoteController/src/sync/document_text.py:60`, `DEFAULT_TESSERACT_LANG`, and `RemoteController/docs/configuration.md:89`). `deu+fra+ita+eng` is the new default the RemoteController OCR task of this plan sets together with the `tesseract-ocr-ita` package. Publish this spec change in the same release as that task, or the spec promises Italian OCR the image cannot do. `RC_SEND_DOCUMENT_METADATA`, `RC_MATTER_PATH_RULE` and `RC_LANGUAGE_DETECT` do not exist yet either — they are created by the RemoteController metadata task. `ONEDRIVE_MIRROR_PATH`, `ONEDRIVE_ALLOWED_EXTENSIONS` and `ONEDRIVE_MIRROR_INTERVAL_SECONDS` **do** ship today (`RemoteController/.env.example:64-66`) and are merely undocumented in the spec.
+> **Note (repository fact, checked 2026-08-15):** `RC_TESSERACT_LANG` today defaults to **`deu+eng`** (`KnovasConnector/src/sync/document_text.py:60`, `DEFAULT_TESSERACT_LANG`, and `KnovasConnector/docs/configuration.md:89`). `deu+fra+ita+eng` is the new default the Knovas Connector OCR task of this plan sets together with the `tesseract-ocr-ita` package. Publish this spec change in the same release as that task, or the spec promises Italian OCR the image cannot do. `RC_SEND_DOCUMENT_METADATA`, `RC_MATTER_PATH_RULE` and `RC_LANGUAGE_DETECT` do not exist yet either — they are created by the Knovas Connector metadata task. `ONEDRIVE_MIRROR_PATH`, `ONEDRIVE_ALLOWED_EXTENSIONS` and `ONEDRIVE_MIRROR_INTERVAL_SECONDS` **do** ship today (`KnovasConnector/.env.example:64-66`) and are merely undocumented in the spec.
 
 - [ ] **Step 5: §2.3 — the endpoints line (line 324)**
 
@@ -53370,13 +53370,13 @@ Guide: `KnovasPlatform/docs/integration/office-add-ins.md`.
 
 - [ ] **Step 8: §4 go-live checklist rows**
 
-In **RemoteController → Remote-operator mode** (rows at lines 505-513) and **Local-only control mode** (rows at lines 517-524), append the same four rows to each list:
+In **Knovas Connector → Remote-operator mode** (rows at lines 505-513) and **Local-only control mode** (rows at lines 517-524), append the same four rows to each list:
 
 ```markdown
 - [ ] `RC_TESSERACT_LANG` includes every language of the estate (default `deu+fra+ita+eng`)
 - [ ] `RC_SEND_DOCUMENT_METADATA=1` confirmed against the tenant API (a test document shows author/date/type in the Platform's hit metaline)
 - [ ] (If mailbox mirror) Entra app with `Mail.Read` application permission and admin consent; `MAILBOX_USERS` allow-list agreed in writing; first delta cycle completed without cursor advance on failures
-- [ ] (If PST migration) `RC_PST_INBOX` and `RC_PST_STAGING` on writable volumes; migration run per `RemoteController/docs/migration.md`; "N Dokumente eingereicht, N indexiert" verified via `GET /secured/transmissions/<key>/status`
+- [ ] (If PST migration) `RC_PST_INBOX` and `RC_PST_STAGING` on writable volumes; migration run per `KnovasConnector/docs/migration.md`; "N Dokumente eingereicht, N indexiert" verified via `GET /secured/transmissions/<key>/status`
 ```
 
 In **KnovasPlatform (production intranet)** (rows at lines 530-539; append after the last row, before the blank line and the `Full guide:` sentence at line 541):
@@ -53392,11 +53392,11 @@ In **KnovasPlatform (production intranet)** (rows at lines 530-539; append after
 
 - [ ] **Step 9: §7 index tables**
 
-In the **RemoteController** table (rows at lines 601-607) add after the `configuration.md` row (line 603):
+In the **Knovas Connector** table (rows at lines 601-607) add after the `configuration.md` row (line 603):
 
 ```markdown
-| `RemoteController/docs/connectors.md`           | Connectors: share, OneDrive/SharePoint, mailbox (Graph), PST, XLSX/PPTX |
-| `RemoteController/docs/migration.md`            | Fixed-price migration runbook       |
+| `KnovasConnector/docs/connectors.md`           | Connectors: share, OneDrive/SharePoint, mailbox (Graph), PST, XLSX/PPTX |
+| `KnovasConnector/docs/migration.md`            | Fixed-price migration runbook       |
 ```
 
 In the **KnovasPlatform** table (rows at lines 615-623) add after the `open-tokens-api.md` row (line 622):
@@ -53478,7 +53478,7 @@ Append to the table:
 Append to the table:
 
 ```markdown
-| PST / mailbox migration window | — | +2 GB RAM | + 1.5 × total PST size on `RC_PST_STAGING` during the migration | Temporary; staging is deleted after verification. Ingest rate is raised for the window per `RemoteController/docs/migration.md` |
+| PST / mailbox migration window | — | +2 GB RAM | + 1.5 × total PST size on `RC_PST_STAGING` during the migration | Temporary; staging is deleted after verification. Ingest rate is raised for the window per `KnovasConnector/docs/migration.md` |
 ```
 
 - [ ] **Step 4: Outbound table (lines 92-95) — replace with**
@@ -53516,9 +53516,9 @@ Insert:
 |------|-------------|
 | Delivery | `.pst` files copied to `RC_PST_INBOX` on the VM (secure channel; the files contain e-mail) |
 | Staging | Writable `RC_PST_STAGING` sized 1.5 × the total PST size (see sizing table) |
-| Tooling | `readpst` (libpst, GPL) inside the RemoteController image, invoked as a separate process; folder hierarchy preserved |
+| Tooling | `readpst` (libpst, GPL) inside the Knovas Connector image, invoked as a separate process; folder hierarchy preserved |
 | Dedup | Message-ID recorded; a message already mirrored from the live mailbox is not indexed twice |
-| Verification | "N Dokumente eingereicht, N indexiert" from `GET /secured/transmissions/<key>/status`, documented in `RemoteController/docs/migration.md` |
+| Verification | "N Dokumente eingereicht, N indexiert" from `GET /secured/transmissions/<key>/status`, documented in `KnovasConnector/docs/migration.md` |
 ```
 
 - [ ] **Step 6: New section "Query throughput per seat" (before "Admin access for Knovas setup", line 141)**
@@ -53557,8 +53557,8 @@ onboarding; confirm it on the handover checklist. Platform-side capacity
 
 ```markdown
 | [product-statements.md](product-statements.md) | Status labels, throughput statement, what is out of scope |
-| [RemoteController/docs/connectors.md](../RemoteController/docs/connectors.md) | Mailbox, PST, OneDrive connectors |
-| [RemoteController/docs/migration.md](../RemoteController/docs/migration.md) | Migration runbook |
+| [KnovasConnector/docs/connectors.md](../KnovasConnector/docs/connectors.md) | Mailbox, PST, OneDrive connectors |
+| [KnovasConnector/docs/migration.md](../KnovasConnector/docs/migration.md) | Migration runbook |
 ```
 
 - [ ] **Step 9: Verify**
@@ -53660,7 +53660,7 @@ Quelle, Datum von/bis, Pointer-Präfix — konjunktiv, nie erweiternd), `limit`,
 `offset`, `sort` (`relevance | date_desc | date_asc`) und `facets` entgegen; die
 Antwort trägt `total_ranked`, `has_more`, `facets` (Verteilung **in den
 Treffern**, nicht im Korpus — steht so in der UI) und je Treffer Titel, Autor,
-Typ, Datum, Sprache, Status, Quelle. Die Metadaten kommen vom RemoteController
+Typ, Datum, Sprache, Status, Quelle. Die Metadaten kommen vom Knovas Connector
 beim Einreichen (`metadata`); für den bestehenden Korpus braucht es einmal den
 Backfill (`backfill-metadata`), sonst sind Facetten für alte Dokumente leer —
 das steht im Go-live-Check der Spezifikation. Erst danach die Filterleiste
@@ -53747,20 +53747,20 @@ git commit -m "docs(backlog): Stand 2026-08-15 — F3/F6/F7/F8 resolutions cross
 
 ---
 
-### Task KC-G-7: Release notes v1.1.0 draft, `KnovasPlatform/CHANGELOG.md`, RemoteController `Unreleased` entries
+### Task KC-G-7: Release notes v1.1.0 draft, `KnovasPlatform/CHANGELOG.md`, Knovas Connector `Unreleased` entries
 
 **Requirements:** all shipped D–H, J items (per-component release record); H2 (third component with its own deploy link and prerequisites)
 **Files:**
 - Modify: `RELEASE_NOTES.md` (whole file — the convention replaces the file per release; the previous content stays in the GitHub Release `v1.0.0`)
 - Create: `KnovasPlatform/CHANGELOG.md`
-- Modify: `RemoteController/CHANGELOG.md:3-8` (`## Unreleased` bullets)
+- Modify: `KnovasConnector/CHANGELOG.md:3-8` (`## Unreleased` bullets)
 **Interfaces:**
 - Consumes: every deliverable named in the Interface Registry (routes, modules, env keys, metrics, schema fields) — copied verbatim into the bullets; the docs written in KC-G-1…KC-G-6.
-- Produces: `RELEASE_NOTES.md` v1.1.0 (draft until tagged) with sections `## KnovasPlatform`, `## RemoteController`, `## Office add-ins`, `## Prerequisites (from Knovas)`, `## Prerequisites (from the customer)`; `KnovasPlatform/CHANGELOG.md` in the RemoteController's Keep-a-Changelog shape (`## Unreleased`, then `## <semver> — <YYYY-MM-DD>`).
+- Produces: `RELEASE_NOTES.md` v1.1.0 (draft until tagged) with sections `## KnovasPlatform`, `## Knovas Connector`, `## Office add-ins`, `## Prerequisites (from Knovas)`, `## Prerequisites (from the customer)`; `KnovasPlatform/CHANGELOG.md` in the Knovas Connector's Keep-a-Changelog shape (`## Unreleased`, then `## <semver> — <YYYY-MM-DD>`).
 
 - [ ] **Step 1: Record the state**
 
-Run: `head -1 RELEASE_NOTES.md; test -f KnovasPlatform/CHANGELOG.md && echo EXISTS || echo "missing: KnovasPlatform/CHANGELOG.md"; sed -n '3,8p' RemoteController/CHANGELOG.md`
+Run: `head -1 RELEASE_NOTES.md; test -f KnovasPlatform/CHANGELOG.md && echo EXISTS || echo "missing: KnovasPlatform/CHANGELOG.md"; sed -n '3,8p' KnovasConnector/CHANGELOG.md`
 Expected: `# v1.0.0`; `missing: KnovasPlatform/CHANGELOG.md`; the four current Unreleased bullets.
 
 - [ ] **Step 2: Rewrite `RELEASE_NOTES.md` as the v1.1.0 draft**
@@ -53797,7 +53797,7 @@ and a tenant with the knowledge graph enabled.
 - Changelog: [KnovasPlatform/CHANGELOG.md](KnovasPlatform/CHANGELOG.md)
 - API reference: [docs/KnovasAPI/README.md](docs/KnovasAPI/README.md)
 
-## RemoteController
+## Knovas Connector
 
 Discover and sync local files, mirrored OneDrive/SharePoint libraries, mirrored
 mailboxes and exploded PST archives to Knovas (employee JWT; tenant mTLS for
@@ -53808,9 +53808,9 @@ ingestion).
 - Mailbox mirror via Microsoft Graph (`MAILBOX_*`), PST exploder and queue (`RC_PST_INBOX`, `RC_PST_STAGING`)
 - OCR: Italian language pack; default `RC_TESSERACT_LANG=deu+fra+ita+eng`; extraction metrics; synthetic DE/FR/IT OCR benchmark and on-prem runbook
 - Index-status verification for migrations (`content_sha256`, `index_status`, `indexed_at` in the state DB)
-- Deploy: [RemoteController/docs/SETUP.md](RemoteController/docs/SETUP.md)
-- Connectors: [RemoteController/docs/connectors.md](RemoteController/docs/connectors.md) · Migration: [RemoteController/docs/migration.md](RemoteController/docs/migration.md)
-- Changelog: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md)
+- Deploy: [KnovasConnector/docs/SETUP.md](KnovasConnector/docs/SETUP.md)
+- Connectors: [KnovasConnector/docs/connectors.md](KnovasConnector/docs/connectors.md) · Migration: [KnovasConnector/docs/migration.md](KnovasConnector/docs/migration.md)
+- Changelog: [KnovasConnector/CHANGELOG.md](KnovasConnector/CHANGELOG.md)
 
 ## Office add-ins
 
@@ -53825,9 +53825,9 @@ insert a citation.
 ## Prerequisites (from Knovas)
 
 - Tenant mTLS certificates — each component expects different filenames in a different directory; see [docs/certificates.md](docs/certificates.md). The add-ins and the connectors need no additional certificate (see the note there)
-- Documents indexed in Knovas (via RemoteController or your ingestion pipeline); metadata backfill run once for documents indexed before this release
+- Documents indexed in Knovas (via Knovas Connector or your ingestion pipeline); metadata backfill run once for documents indexed before this release
 - Tenant knowledge graph enabled; seat count set (drives the query budget — [docs/product-statements.md §3](docs/product-statements.md))
-- For RemoteController: instance token, registered public URL (remote-operator mode)
+- For Knovas Connector: instance token, registered public URL (remote-operator mode)
 
 ## Prerequisites (from the customer)
 
@@ -53863,11 +53863,11 @@ insert a citation.
 - First customer deploy bundle: search UI, document open, Cortex/Wissensnetz on fixture data. History before this file lives in the repository log and in the GitHub Release `v1.0.0`.
 ```
 
-- [ ] **Step 4: RemoteController `## Unreleased` — append entries (after line 8)**
+- [ ] **Step 4: Knovas Connector `## Unreleased` — append entries (after line 8)**
 
 ```markdown
 - Document metadata at ingest: `ExtractionPayload`/`ExtractedDocument` carry `author`, `language`, `created`, `modified`, `document_type`, `document_status`, `document_date`, `extra`; `src/sync/document_metadata.py::build_document_metadata` assembles the `metadata` object for `init_document_transmission` (`RC_SEND_DOCUMENT_METADATA`, default on); language fallback via `py3langid` (`RC_LANGUAGE_DETECT`); optional matter assignment from the relative path (`RC_MATTER_PATH_RULE`).
-- Formats: `.xlsx` and `.pptx` via `src/sync/office_extractors.py` (`XlsxExtractor`, `PptxExtractor`) registered into `knovas_extract.dispatch.MIME_REGISTRY`; one `SYNCABLE_EXTENSIONS` source of truth for every allow-list; provenance stamped `remote-controller-office`.
+- Formats: `.xlsx` and `.pptx` via `src/sync/office_extractors.py` (`XlsxExtractor`, `PptxExtractor`) registered into `knovas_extract.dispatch.MIME_REGISTRY`; one `SYNCABLE_EXTENSIONS` source of truth for every allow-list; provenance stamped `knovas-connector-office`.
 - Mailbox mirror via Microsoft Graph (`src/mailbox_mirror/`, `MAILBOX_*`): per-folder delta queries with full-walk fallback, messages as `.eml` with attachments beside them, no cursor advance while downloads fail, no prune on incomplete enumeration.
 - PST: `scripts/explode_pst.py` (libpst `readpst` as a separate process) and `src/sync/pst_queue.py` (one archive per cycle, resumable); volumes `RC_PST_INBOX`, `RC_PST_STAGING`.
 - OCR: `tesseract-ocr-ita` in the image; default `RC_TESSERACT_LANG=deu+fra+ita+eng`; per-document `ocr_used` and warnings; metrics `knovas_rc_documents_extracted_total{ext,ocr}`, `knovas_rc_extract_errors_total{reason}`; `benchmarks/ocr/` synthetic DE/FR/IT benchmark and on-prem runbook; documented re-queue for `skip:unconvertible`.
@@ -53884,16 +53884,16 @@ Run:
 head -1 RELEASE_NOTES.md
 grep -c "^## " RELEASE_NOTES.md
 grep -n "^## " KnovasPlatform/CHANGELOG.md
-sed -n '3,16p' RemoteController/CHANGELOG.md | grep -c "^- "
+sed -n '3,16p' KnovasConnector/CHANGELOG.md | grep -c "^- "
 ```
 
-Expected: `# v1.1.0 (draft …)`; `5` sections; `## Unreleased` and `## 1.0.0 — 2026-07-30`; `11` bullets under RemoteController Unreleased (4 existing + 7 new).
+Expected: `# v1.1.0 (draft …)`; `5` sections; `## Unreleased` and `## 1.0.0 — 2026-07-30`; `11` bullets under Knovas Connector Unreleased (4 existing + 7 new).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add RELEASE_NOTES.md KnovasPlatform/CHANGELOG.md RemoteController/CHANGELOG.md
-git commit -m "docs(release): v1.1.0 draft release notes with Office add-ins section; create KnovasPlatform CHANGELOG; RemoteController Unreleased entries"
+git add RELEASE_NOTES.md KnovasPlatform/CHANGELOG.md KnovasConnector/CHANGELOG.md
+git commit -m "docs(release): v1.1.0 draft release notes with Office add-ins section; create KnovasPlatform CHANGELOG; Knovas Connector Unreleased entries"
 ```
 
 When the last phase merges: replace `(draft — …)` in the H1 with nothing, move `## Unreleased` bullets under `## 1.1.0 — <date>` in both changelogs, and tag `git tag -a v1.1.0 -m "Knovas Components v1.1.0" && git push origin v1.1.0`.
@@ -53944,7 +53944,7 @@ with the agentic-worker banner and a `**Spec:**` link; steps use `- [ ]`.
 | `2026-08-08-cortex-verbindungen-zeichnen.md` | `../specs/2026-08-08-cortex-verbindungen-zeichnen-design.md` | shipped |
 | `2026-08-14-matters-and-typed-nodes.md` | `../specs/2026-08-14-matters-and-typed-nodes-design.md` | Part A in KnowledgeBase, Parts B/C here. **Both files live on the `design/matters-and-typed-nodes` branch and are not on this branch yet** — the rows are listed so the dependency is visible, not because the files are here |
 | `2026-08-14-section-b-buildout.md` | — (branch design, see the plan header) | Identity: local users, sessions, broker-signed principal assertions. On this branch and on `feat/section-b-buildout` |
-| `2026-08-15-pflichtenheft-d-j-components.md` | `../specs/2026-08-15-pflichtenheft-d-j-design.md` | **KnovasComponents half** of the D–J plan (Platform, RemoteController, add-ins, docs). The **KnowledgeBase half** is `KnowledgeBase/docs/superpowers/plans/2026-08-15-pflichtenheft-d-j-knowledgebase.md`. The design file is identical in both repositories — edit here, copy there. |
+| `2026-08-15-pflichtenheft-d-j-components.md` | `../specs/2026-08-15-pflichtenheft-d-j-design.md` | **KnovasComponents half** of the D–J plan (Platform, Knovas Connector, add-ins, docs). The **KnowledgeBase half** is `KnowledgeBase/docs/superpowers/plans/2026-08-15-pflichtenheft-d-j-knowledgebase.md`. The design file is identical in both repositories — edit here, copy there. |
 
 Two rows above point at files that are not on every branch. `2026-08-14-matters-and-typed-nodes.md`
 and its design are on `design/matters-and-typed-nodes`; `2026-08-14-section-b-buildout.md` is on this
@@ -54020,7 +54020,7 @@ Expected: no output from either. Do **not** check the whole `docs/superpowers` t
 **Files:**
 - Modify: `docs/certificates.md:1` (title), `:6-9` (the "do not symlink" sentence), new section after "Per-component placement" (after line 43)
 **Interfaces:**
-- Consumes: `scripts/setup.sh:30-38` (the unified installer's Platform symlinks inside one `certs/` directory); the add-in architecture (taskpane on the Platform origin, `POST /api/filing/email` on the Platform — design §6.11); the mailbox mirror inside RemoteController (design §7.2); the ICS feed served by the Platform (design §6.8); Zefix called by the Platform (design §6.7).
+- Consumes: `scripts/setup.sh:30-38` (the unified installer's Platform symlinks inside one `certs/` directory); the add-in architecture (taskpane on the Platform origin, `POST /api/filing/email` on the Platform — design §6.11); the mailbox mirror inside Knovas Connector (design §7.2); the ICS feed served by the Platform (design §6.8); Zefix called by the Platform (design §6.7).
 - Produces: the paragraph the release notes prerequisites (KC-G-7) and `office-add-ins.md` (add-in part) point at: `docs/certificates.md#who-needs-the-bundle`.
 
 - [ ] **Step 1: Record the state**
@@ -54044,7 +54044,7 @@ directory**. That is the single most common setup failure, so this page is the
 source of truth. Copy the bundle to each component that needs it and do not
 assume one component's paths work in another. (The unified installer
 `scripts/setup.sh` keeps a single `certs/` directory and links the Platform
-spellings `client.crt`, `client.key`, `ca.crt` to the RemoteController files
+spellings `client.crt`, `client.key`, `ca.crt` to the Knovas Connector files
 inside that one directory — that is fine; hand-made links *between* the two
 component directories are not.)
 ```
@@ -54060,7 +54060,7 @@ Only the two components that talk to the Knovas API directly:
 
 | Component | Holds the tenant bundle? | Why |
 |---|---|---|
-| RemoteController | **Yes** | Uploads documents over mTLS. The **mailbox mirror** and the **PST importer** run *inside* RemoteController and reuse its certificate — they need nothing of their own; their credentials are Microsoft Entra (Graph), not Knovas |
+| Knovas Connector | **Yes** | Uploads documents over mTLS. The **mailbox mirror** and the **PST importer** run *inside* Knovas Connector and reuse its certificate — they need nothing of their own; their credentials are Microsoft Entra (Graph), not Knovas |
 | KnovasPlatform | **Yes** | Search, graph, events, export over mTLS. The **ICS deadline feed**, the **Zefix enrichment** and the **add-in filing endpoint** are Platform routes and reuse its certificate |
 | Office add-ins (Outlook, Word) | **No** | The taskpane is a web page served by the Platform at `https://<fqdn>/addins/*` and calls Platform routes (`/api/search`, `/api/filing/email`, …) with the Platform session cookie. It never contacts the Knovas API and never sees the bundle. What it needs is the Platform's **TLS server certificate** to be trusted by Office on the client PC — a different certificate, issued by your CA, see `hosting-requirements.md` |
 | Employee browsers | **No** | Same as the add-ins: Platform TLS only |
@@ -54094,11 +54094,11 @@ After all parts, on a Platform pointed at the dev tenant with `ONTOLOGY_SOURCE=g
 ```bash
 cd KnovasPlatform/components/docbridge_integration && python -m pytest
 python -m pytest tests/test_graph_contract_live.py --knovas-api        # cassette refresh against dev
-cd ../../../RemoteController && python -m pytest
+cd ../../../KnovasConnector && python -m pytest
 python -m benchmarks.ocr.run_ocr_benchmark --dpi 200,300 --languages de,fr,it
 ```
 
-Then walk the product path once by hand: search with the filter rail → open a hit in the viewer at its page with the snippet highlighted → open the document's versions and similar documents → open *Parteien*, search "Mueller", merge a duplicate → run a *Konfliktprüfung*, print the protocol → open *Fristen*, adopt an extracted deadline as user A, try to confirm as A (disabled), confirm as B, subscribe the ICS feed in Outlook → open *Posteingang* and see the day's events → open a matter's *Akten-Kompass* → open *Berichte* → run the CSV import wizard in dry-run → file an email to a matter from Outlook → read *Mein Tag* → export the journal CSV → in RemoteController, drop a PST into the inbox and watch `/sync/status` report indexed counts.
+Then walk the product path once by hand: search with the filter rail → open a hit in the viewer at its page with the snippet highlighted → open the document's versions and similar documents → open *Parteien*, search "Mueller", merge a duplicate → run a *Konfliktprüfung*, print the protocol → open *Fristen*, adopt an extracted deadline as user A, try to confirm as A (disabled), confirm as B, subscribe the ICS feed in Outlook → open *Posteingang* and see the day's events → open a matter's *Akten-Kompass* → open *Berichte* → run the CSV import wizard in dry-run → file an email to a matter from Outlook → read *Mein Tag* → export the journal CSV → in Knovas Connector, drop a PST into the inbox and watch `/sync/status` report indexed counts.
 
 ## Requirement traceability
 

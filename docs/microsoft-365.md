@@ -102,7 +102,7 @@ anyway.
 ## When it does not work
 
 ```bash
-docker compose --env-file knovas.env exec remote-controller python -m m365.check
+docker compose --env-file knovas.env exec knovas-connector python -m m365.check
 ```
 
 It signs in, resolves the address to a library and folder, reads the folder and

@@ -154,7 +154,7 @@ def _rel_path_for_autodoc(pointer: str) -> str:
     """
     Map Knovas pointer to a path under the autodoc mount.
 
-    RemoteController sync uses identifier_prefix (e.g. ``corpus/rel/path.txt``).
+    Knovas Connector sync uses identifier_prefix (e.g. ``corpus/rel/path.txt``).
     Set AUTODOC_IDENTIFIER_PREFIX=corpus when the mount root is the corpus folder itself.
     Multiple prefixes (corpus,winjur) support mixed tenants during RC prefix migrations.
     """
@@ -1007,10 +1007,10 @@ def create_app(config_path: Optional[str] = None):
         principal_broker = _RequestScopedBroker(identity_gate, broker_signer, str(api_client.customer_id))
         api_client.attach_principal_broker(principal_broker)
 
-        from remote_controller_client import RemoteControllerClient
+        from knovas_connector_client import KnovasConnectorClient
 
-        rc_client = RemoteControllerClient(
-            str(config.get('remote_controller.base_url', 'http://remote-controller:5001')),
+        rc_client = KnovasConnectorClient(
+            str(config.get('knovas_connector.base_url', 'http://knovas-connector:5001')),
             principal_broker=principal_broker,
         )
 
@@ -2608,25 +2608,25 @@ def create_app(config_path: Optional[str] = None):
         return redirect(url, code=302)
 
     def _rc_m365_preview(doc_id: str, page: Optional[int]) -> Dict[str, Any]:
-        """Ask RemoteController -- which holds the Microsoft 365 credentials,
+        """Ask Knovas Connector -- which holds the Microsoft 365 credentials,
         this internet-facing app does not -- for Microsoft's viewer URL.
 
         Signed as the person looking when per-user identity is on; with the
-        shared login there is nobody to sign as, and RemoteController accepts
+        shared login there is nobody to sign as, and Knovas Connector accepts
         the call from the stack's own network, as it does the console's.
         """
         if rc_client is not None:
             return rc_client.m365_preview(doc_id, page)
-        base = str(config.get('remote_controller.base_url', 'http://remote-controller:5001')).rstrip('/')
+        base = str(config.get('knovas_connector.base_url', 'http://knovas-connector:5001')).rstrip('/')
         body: Dict[str, Any] = {'doc_id': doc_id}
         if page:
             body['page'] = page
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
         resp = requests.post(f'{base}/m365/preview', json=body, timeout=8)
         data = resp.json() if resp.content else {}
         if resp.status_code >= 400:
-            raise RemoteControllerError(
+            raise KnovasConnectorError(
                 str((data or {}).get('error') or f'HTTP {resp.status_code}'), status=resp.status_code,
             )
         return data
@@ -2647,7 +2647,7 @@ def create_app(config_path: Optional[str] = None):
             page = None
         try:
             # Exactly the identifier the gate above granted -- no lookup that
-            # could land on another file of the same name. RemoteController
+            # could land on another file of the same name. Knovas Connector
             # answers only for identifiers it published itself.
             data = _rc_m365_preview(str(doc_id), page)
         except Exception as exc:  # noqa: BLE001 - every failure means "show the indexed text"
@@ -3747,7 +3747,7 @@ def _lookup_enrichment_meta(
 
     ``exact_only`` drops the file-name and path-suffix fallbacks. They exist to
     bridge a mirror whose identifiers were spelt differently from the index;
-    with Microsoft 365 as the source RemoteController publishes the index's own
+    with Microsoft 365 as the source Knovas Connector publishes the index's own
     identifiers, and a fallback can only ever find a DIFFERENT document -- one
     with the same file name elsewhere, possibly behind a wall this person may
     not pass, opened with an app-only viewer that ignores SharePoint's rights.
@@ -4037,7 +4037,7 @@ def _enhance_search_results(
         if external:
             # Opened in OneDrive/SharePoint, so there is no file here to stat --
             # but the snippets and the "Fundstellen" come from the indexed text,
-            # which RemoteController wrote for this document like any other.
+            # which Knovas Connector wrote for this document like any other.
             pass
         elif file_path:
             rel = _rel_path_for_autodoc(str(file_path))

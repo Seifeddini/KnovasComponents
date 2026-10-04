@@ -149,7 +149,7 @@ fi
 
 # Keys the expander interprets itself. Everything else in knovas.env is an
 # override passed straight through to the component it names: RC_* reaches
-# RemoteController, the rest reaches the Platform. Without this, knovas.env
+# Knovas Connector, the rest reaches the Platform. Without this, knovas.env
 # could express five values and a deployment that needed a sixth -- a plain-HTTP
 # session cookie, a Cortex fixture path, a tuned worker count -- had nowhere to
 # put it, because .env.generated is rewritten on every setup.sh.
@@ -179,11 +179,17 @@ passthrough_overrides() {
     else
       [[ "$key" == RC_* ]] && continue
     fi
+    # The Connector's Docker service had another name before the rename; a
+    # knovas.env written then may still name its old host.
+    if [[ "$value" == *//remote-controller:* ]]; then
+      value="${value//\/\/remote-controller:/\/\/knovas-connector:}"
+      echo "Note: $key in $KNOVAS_ENV names the old host remote-controller; using knovas-connector." >&2
+    fi
     printf '%s=%s\n' "$key" "$value"
   done < "$KNOVAS_ENV"
 }
 
-RC_ENV="$ROOT_DIR/RemoteController/.env.generated"
+RC_ENV="$ROOT_DIR/KnovasConnector/.env.generated"
 KP_ENV="$ROOT_DIR/KnovasPlatform/.env.generated"
 
 # Built in a temporary file beside the destination and renamed into place, never
@@ -222,8 +228,8 @@ passthrough_overrides rc >> "$RC_TMP"
 
 # The Microsoft 365 credentials are NOT written into these files: they are
 # world-readable (644, see below). docker-compose.yml hands them to
-# RemoteController alone, straight from knovas.env. What the Platform needs is
-# only the mode, and where RemoteController publishes the web links.
+# Knovas Connector alone, straight from knovas.env. What the Platform needs is
+# only the mode, and where Knovas Connector publishes the web links.
 M365_LINES=""
 if [[ "$DOCUMENT_SOURCE" == "m365" ]]; then
   M365_LINES="DOCUMENT_SOURCE=m365

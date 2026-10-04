@@ -4,7 +4,7 @@
  * - Auswahlwerte: "Weitere Zeile" adds an empty choice row.
  * - Folder rules: each value input follows its field's type (a select for a
  *   single choice or yes/no, text otherwise).
- * - Folder picker: one level of folders per expand from the RemoteController
+ * - Folder picker: one level of folders per expand from the Knovas Connector
  *   (/admin/ingestion/folders, the same route the Ingestion tab uses).
  *
  * Every decision that matters is made on the server; without this script

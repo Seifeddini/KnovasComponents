@@ -56,7 +56,7 @@ class TestGroupsComeFromTheDatabase:
         assert claims.subject == str(anna.id)
         assert "@" not in claims.subject
 
-    def test_platform_roles_ride_along_for_the_remote_controller(self, broker, verifier, anna):
+    def test_platform_roles_ride_along_for_the_knovas_connector(self, broker, verifier, anna):
         claims = verifier.verify(broker.assertion_for(anna), tenant="tenant-a")
         assert "member" in claims.roles
 

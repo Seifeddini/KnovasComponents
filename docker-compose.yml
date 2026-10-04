@@ -37,11 +37,11 @@ services:
     networks:
       - knovas-internal
 
-  remote-controller:
-    build: ./RemoteController
-    image: remote-controller:0.1.1
+  knovas-connector:
+    build: ./KnovasConnector
+    image: knovas-connector:0.1.1
     env_file:
-      - ./RemoteController/.env.generated
+      - ./KnovasConnector/.env.generated
     volumes:
       - ./certs:/certs:ro
       # With KNOVAS_DOCUMENTS_URL (OneDrive/SharePoint) there is no local folder:
@@ -152,7 +152,7 @@ services:
       - rc-state:/var/rc-state:ro
       # The profile compiler validates against these schemas. The image also
       # ships a copy beside the compiler; this mount lets the checkout win.
-      - ./RemoteController/contracts:/app/RemoteController/contracts:ro
+      - ./KnovasConnector/contracts:/app/KnovasConnector/contracts:ro
       # Writable, not ro: the Cortex graph is customer-maintained. Types,
       # entities and links are created by the user and the store writes them
       # back into the fixture. On a ro mount that fails, is only logged, and

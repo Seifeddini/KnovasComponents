@@ -13,7 +13,7 @@ re-ingest, and the operational switch that makes RBAC enforcing at all.
 *matter* (B3), the approvals queue (B5), and the ingestion profile console
 (KC-IN-*). This design consumes those, it does not rebuild them.
 **Repositories:** `KnowledgeBase` (Knovas backend) and `KnovasComponents`
-(customer-hosted Platform, RemoteController). A copy of this file lives in both —
+(customer-hosted Platform, Knovas Connector). A copy of this file lives in both —
 `KnowledgeBase/docs/superpowers/specs/` and
 `KnovasComponents/docs/superpowers/specs/`.
 
@@ -74,10 +74,10 @@ narrow-before-widen ordering (`document_acl_service.py:133`), Weaviate storage
    but nothing consumes them.
 
 5. **The folder-inheritance contract is declared and unimplemented.**
-   `RemoteController/contracts/sync_request.schema.json:18` defines
+   `KnovasConnector/contracts/sync_request.schema.json:18` defines
    `sources[].access_groups` with a careful rationale ("documents from a walled
    folder are born walled rather than repaired afterwards"). `grep -rn
-   access_groups RemoteController/src/` returns nothing. Every re-sync of a
+   access_groups KnovasConnector/src/` returns nothing. Every re-sync of a
    walled folder re-ingests its documents unrestricted.
 
 6. **Nothing can switch a tenant to enforcing.** `clients.rbac_enforcement`
@@ -105,7 +105,7 @@ So, on 2026-08-29, the engine was real and the architecture around it was not.
    `20260829_folder_acl_rules.sql`), `FolderRuleService` (longest-matching
    prefix, exactly one governor per document), `GET/POST /secured/folder_rules`
    and `PATCH/DELETE /secured/folder_rules/<rule_id>`.
-5. RemoteController honours `sources[].access_groups` end to end
+5. Knovas Connector honours `sources[].access_groups` end to end
    (KnovasComponents commit `384a37d`; §6.1).
 6. `PUT /admin/clients/<client_id>/rbac-enforcement` exists in
    `internal_api.py` and refuses `enforcing` with 409 until a tenant-wide
@@ -333,7 +333,7 @@ administrator cannot classify a folder into a group they do not dominate.
 In `secure_api.py:990`, when the init body carries no explicit `access_groups`,
 resolve the longest-matching folder rule for the document's pointer and stamp
 both `acl_folder_id` and the materialised closure. An explicit `access_groups` in
-the body still wins — RemoteController's per-source value (§6.1) is explicit.
+the body still wins — Knovas Connector's per-source value (§6.1) is explicit.
 
 ### 5.4 Deduplication (D5) — most restrictive wins, with one refusal
 
@@ -444,7 +444,7 @@ dry-run default and `--apply --confirm-tenant` guard are unchanged.
 
 ## 6 · KnovasComponents slice
 
-### 6.1 RemoteController — implement `sources[].access_groups`
+### 6.1 Knovas Connector — implement `sources[].access_groups`
 
 The contract exists (`contracts/sync_request.schema.json:18`); the code does not.
 
@@ -571,7 +571,7 @@ Stated defaults at design time, and what the code does now (2026-09-02).
 | Backfill HTTP surface / console progress | **not built** | — |
 | Enforcement switch with backfill precondition | built, operator-only | KnowledgeBase PR #147 |
 | `AclBackfillCommand` on the cursor | built | KnowledgeBase PR #147 |
-| RemoteController `sources[].access_groups` | built | KnovasComponents `384a37d`, PR #9 |
+| Knovas Connector `sources[].access_groups` | built | KnovasComponents `384a37d`, PR #9 |
 | Client RBAC methods | built (no `backfill_job`) | KnovasComponents `971329b`, PR #9 |
 | Dokumente tab | built (no multi-select; conflicts filter disabled) | KnovasComponents PR #9 |
 | Zugriffsgruppen tab | built (no governed-count, no backfill progress, no conflicts panel) | KnovasComponents PR #9 |

@@ -22,7 +22,7 @@ cryptography==42.0.0
 
 # Per-user identity (Pflichtenheft B1/B2/B5): password verifiers, TOTP,
 # the local account database, and schema validation for compiled
-# RemoteController documents.
+# Knovas Connector documents.
 argon2-cffi==25.1.0
 pyotp==2.10.0
 psycopg[binary]==3.3.4

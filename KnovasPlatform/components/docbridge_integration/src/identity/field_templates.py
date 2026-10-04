@@ -1,13 +1,13 @@
-"""Source-relative path templates, as RemoteController applies them (spec 3.4).
+"""Source-relative path templates, as Knovas Connector applies them (spec 3.4).
 
-The Platform's copy of ``RemoteController/src/sync/field_templates.py``. The
+The Platform's copy of ``KnovasConnector/src/sync/field_templates.py``. The
 Ingestion tab compiles templates when a profile is saved and previews their
-captures over the paths RemoteController reports, so it has to read a
-template exactly as RemoteController will: a preview that disagrees with the
+captures over the paths Knovas Connector reports, so it has to read a
+template exactly as Knovas Connector will: a preview that disagrees with the
 sync would show a person values their documents never get. Both
 implementations are checked against the same golden vectors, byte-copied to
 ``rc_contracts/vectors/field_templates.json`` beside this package (a test
-keeps the copy identical to the RemoteController checkout).
+keeps the copy identical to the Knovas Connector checkout).
 
 The grammar::
 
@@ -60,7 +60,7 @@ _LITERAL_FORBIDDEN = frozenset("/{}*\\")
 TEMPLATE_ERROR_CODES = frozenset({"syntax", "duplicate_key", "system_key", "too_long"})
 
 #: The golden vectors shipped with the Platform (a byte copy of
-#: ``RemoteController/contracts/vectors/field_templates.json``).
+#: ``KnovasConnector/contracts/vectors/field_templates.json``).
 VECTORS_PATH = Path(__file__).resolve().parent / "rc_contracts" / "vectors" / "field_templates.json"
 
 

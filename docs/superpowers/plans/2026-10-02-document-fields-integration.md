@@ -1,4 +1,4 @@
-# Document Fields integration spec for RemoteController and KnovasPlatform
+# Document Fields integration spec for Knovas Connector and KnovasPlatform
 
 - **Date:** 2026-10-02. **Status:** implemented on branch `claude/document-fields-integration` (WP-C, RC1, P1, RC2, P2, P3, P4, I). This is the spec the work packages were built against; **§10 lists every deviation found during implementation** and wins where the two differ. Appendix A lists the review dispositions.
 - **Server:** KnowledgeBase Document Fields P1a+P1b. All flags are off in every overlay (`knovas-software/app/config/defaults.toml:161-205`).
@@ -12,7 +12,7 @@
 | `KB:` | `KnowledgeBase/knovas-software/app/src` |
 | `KBD:` | `KnowledgeBase/docs` |
 | `KC:` | `KnovasComponents` (this repository) |
-| `RC:` | `KC:/RemoteController` |
+| `RC:` | `KC:/KnovasConnector` |
 | `PL:` | `KC:/KnovasPlatform/components/docbridge_integration` |
 | `MOCK:` | `KC:/KnovasPlatform/mock_knovas_api` |
 
@@ -21,7 +21,7 @@
 ## 0. Design decisions (every section below depends on these)
 
 **D1. Each component learns what the server supports; nobody configures it on.**
-- The Platform sends a probe. The RemoteController (RC) reads the echo the server returns on init.
+- The Platform sends a probe. The Knovas Connector (RC) reads the echo the server returns on init.
 - `DOC_FIELDS_UI=off` and `RC_DOC_FIELDS=off` can only turn the feature off. They can never turn a gated feature on.
 
 **D2. A filter is either honest or absent.**
@@ -278,18 +278,18 @@ Example names are placeholders only ("Muster AG", "Beispiel GmbH").
 
 | Combination | Behaviour |
 |---|---|
-| New Platform + old RC | `rc.capabilities()` is empty, so saving or pushing a profile that uses fields is refused ("RemoteController aktualisieren"). Profiles without fields push byte-identical bodies, because the new keys are left out. |
+| New Platform + old RC | `rc.capabilities()` is empty, so saving or pushing a profile that uses fields is refused ("Knovas Connector aktualisieren"). Profiles without fields push byte-identical bodies, because the new keys are left out. |
 | Old Platform + new RC | The new keys are never sent, so the RC behaves exactly as today. |
 | New RC + server off or old | `fields` is sent only when configured. It is ignored, the status says `not_accepted`, and documents are indexed as today. |
 | New Platform + server off | No new UI and no new keys. `/api/search` only adds keys: `document_fields: {"capability":"off","filter_state":"none"}` and a `honesty` block, whose values are null on old servers. |
 | New Platform + values server | Detail panel and admin tab (registry, packs, settings, rules). No filters, listing or typed values on cards. |
 | New Platform in legacy (unsecured) mode, including today's docker-compose `mock` demo (`KC:KnovasPlatform/docs/demo.md:24-25`) | Capability `off`, no new UI, and no new keys on the legacy GET. |
 | Platform downgrade | New profile data lives only inside `sources[]` entries, which an older `profile_from_json` parses field by field and so drops silently (`PL:src/identity/ingestion_profiles.py:31-38`). **No new top-level profile keys**, because an older Platform would crash on them through `IngestionProfile(**fields)`. If an older Platform re-pushes the profile, the RC clears its upload-layer values with `{}` on the next re-upload of each affected document, bounded per cycle. This is documented in WP-I. |
-| RC downgrade | An old RC answers 400 to a sync body with new keys, and the Platform rolls back the config push (`PL:src/remote_controller_client.py:137-170`). The new state-DB columns are additive and an old RC ignores them. |
+| RC downgrade | An old RC answers 400 to a sync body with new keys, and the Platform rolls back the config push (`PL:src/knovas_connector_client.py:137-170`). The new state-DB columns are additive and an old RC ignores them. |
 
 ---
 
-## 3. RemoteController changes
+## 3. Knovas Connector changes
 
 ### 3.1 Contract (WP-C)
 
@@ -562,7 +562,7 @@ if doc_fields_enabled() and (payload.values or clear):              # RC_DOC_FIE
   - `tx_entry["fields"] = {"outcome","staged","warning_codes"}`, only when fields were sent (`sync_executor.py:943-977`).
   - `SyncRunResult` (`:89-104`) gains a top-level `doc_fields` summary with the same shape as the `last_cycle` and `warnings` blocks.
 - **Schema error messages.**
-  - `RC:src/util/schema.py:22-25` returns `e.message`, which embeds the offending instance. `/sync` and `/sync/body` return `errors[0]` (`RC:src/routes/sync.py:60-62, 100-103`), and the Platform shows it as a `RemoteControllerError` (`PL:src/remote_controller_client.py:88-90`).
+  - `RC:src/util/schema.py:22-25` returns `e.message`, which embeds the offending instance. `/sync` and `/sync/body` return `errors[0]` (`RC:src/routes/sync.py:60-62, 100-103`), and the Platform shows it as a `KnovasConnectorError` (`PL:src/knovas_connector_client.py:88-90`).
   - For errors whose path lies under `sources[*].fields`, `field_templates` or `metadata_fields`, the RC returns `<json_path>: <validator keyword>` only.
 - **Metrics** in `RC:src/sync/doc_fields_metrics.py`:
   - `rc_doc_fields_uploads_total{outcome}`;
@@ -903,7 +903,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
   - `Werte (ohne Filter)`;
   - `Werte + Liste (Filter in der Suche: Kalibrierung bei Knovas fehlt)`;
   - `Werte + Filter`.
-- The RC check looks up `health` or `get_health` by name (`:229-234`). It starts working once WP-P4 adds `RemoteControllerClient.health`.
+- The RC check looks up `health` or `get_health` by name (`:229-234`). It starts working once WP-P4 adds `KnovasConnectorClient.health`.
 - Reports `rc.capabilities()` (with `getattr`; interface from WP-P4).
 
 **People tab** (`admin.py:78-97`, `templates/admin_people.html`): an "Administratorgruppe bei Knovas" badge, as a hint only.
@@ -936,7 +936,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
 
 **Gating:**
 - The inputs show only when the capability is not off.
-- Save and push (including the guarded executor `execute_ingestion_change`) require that `rc.capabilities()` contains `source_fields_v1`, plus `field_templates_v1` or `metadata_fields_v1` when those keys are used. Otherwise the error is "RemoteController zu alt – bitte aktualisieren".
+- Save and push (including the guarded executor `execute_ingestion_change`) require that `rc.capabilities()` contains `source_fields_v1`, plus `field_templates_v1` or `metadata_fields_v1` when those keys are used. Otherwise the error is "Knovas Connector zu alt – bitte aktualisieren".
 
 **Re-upload confirmation.** When a save changes any source's static values, templates or metadata items, the form shows the cost and requires a confirmation checkbox:
 - The text: "Alle Dokumente der Quelle(n) <Pfad> werden erneut gesendet – je ein verrechneter Upload mit erneuter Texterkennung. Höchstens <document_sync.total> Dokumente; bei <per_cycle> pro Durchlauf und Zeitplan <Preset> ca. <ETA>."
@@ -959,7 +959,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
   - for `refused`;
   - for `reupload_failed`.
 
-**`PL:src/remote_controller_client.py`:**
+**`PL:src/knovas_connector_client.py`:**
 - `health()` is a one-line alias of `status()` (`:105-106`), because `admin_system` looks up `health` by name.
 - `capabilities() -> frozenset[str]`: read from `status()["capabilities"]`; empty on an error or an old RC.
 - `requeue_doc_fields(outcome) -> int`.
@@ -1136,7 +1136,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
 - The RC suite is green in CI with the pinned extractor.
 - The mock in `off` mode answers `/secured/query` and init exactly as before.
 
-#### WP-RC1: RemoteController field-payload library (pure functions, no I/O)
+#### WP-RC1: Knovas Connector field-payload library (pure functions, no I/O)
 
 **Goal:** everything in §3.3–3.6 that can be tested without the network.
 
@@ -1235,7 +1235,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
 
 ### Wave 2 (four in parallel)
 
-#### WP-RC2: RemoteController sync integration
+#### WP-RC2: Knovas Connector sync integration
 
 **Goal:** §3.2 and §3.6–3.10.
 
@@ -1403,7 +1403,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
 - `PL:src/web_interface/templates/admin_ingestion.html`
 - `PL:src/web_interface/static/js/admin_ingestion.js`
 - `PL:src/web_interface/admin_approvals.py`
-- `PL:src/remote_controller_client.py`
+- `PL:src/knovas_connector_client.py`
 - `PL:tests/test_ingestion_compiler.py`
 - `PL:tests/test_identity_ingestion_profiles.py`
 - `PL:tests/test_web_admin_ingestion.py`
@@ -1417,7 +1417,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
 - `SourceFolder` imports, stays hashable, and the round trip is lossless; an old row still loads.
 - Registry validation errors.
 - The folder-rule conflict check is skipped with a note on 403.
-- Push refused when the RC lacks the capability (`FakeRemoteControllerClient` from `test_web_admin_ingestion.py:17-80` gains `status()` capabilities).
+- Push refused when the RC lacks the capability (`FakeKnovasConnectorClient` from `test_web_admin_ingestion.py:17-80` gains `status()` capabilities).
 - A field-config change requires the re-upload confirmation; the ETA is shown.
 - Preview matches the vectors.
 - Support JSON and approvals summary contain no values or templates.
@@ -1560,7 +1560,7 @@ The `document_grants.py` docstring and the comment at `app.py:1835-1837` change 
 Each work package recorded where the code departs from the sections above.
 Where this section and the spec differ, this section describes what shipped.
 
-### RemoteController payload library (WP-RC1)
+### Knovas Connector payload library (WP-RC1)
 
 - **Template grammar details:** a backslash inside a literal is a `syntax`
   error; `too_long` applies above 512 characters per template, 255 per
@@ -1584,7 +1584,7 @@ Where this section and the spec differ, this section describes what shipped.
   properties: `language` and `document_author` never yield anything for them
   (§3.5 lists md). The Platform's labels say pdf/docx.
 
-### RemoteController sync (WP-RC2)
+### Knovas Connector sync (WP-RC2)
 
 - `POST /sync/doc-fields/requeue` on a row whose values were staged stores the
   digest sentinel `REQUEUE_DIGEST` (`"requeue"`) instead of NULL, because NULL
@@ -1639,7 +1639,7 @@ Where this section and the spec differ, this section describes what shipped.
 ### Platform ingestion (WP-P4)
 
 - **ETA.** §3.7's "about 200 nights for 20,000 documents" assumed one cycle a
-  night. RemoteController runs cycle after cycle while its window is open, so
+  night. Knovas Connector runs cycle after cycle while its window is open, so
   the Ingestion tab computes `ceil(documents / bound)` cycles × (preset scan
   interval + the time the throughput preset needs for one bound), counted in
   nights of the window: 20,000 documents, 100 per cycle, *nightly* (19:00–06:00,
@@ -1648,9 +1648,9 @@ Where this section and the spec differ, this section describes what shipped.
   lower bound ("ca."). The docs use this computation.
 - The bound shown is `min(RC per_cycle, the throughput preset's files per
   cycle)`.
-- An unreachable RemoteController used to be reported with the same text as
-  an old one ("zu alt"). WP-I added `RemoteControllerClient.reachable_capabilities()`
-  (None when it cannot be asked), and a save or push now says "RemoteController
+- An unreachable Knovas Connector used to be reported with the same text as
+  an old one ("zu alt"). WP-I added `KnovasConnectorClient.reachable_capabilities()`
+  (None when it cannot be asked), and a save or push now says "Knovas Connector
   nicht erreichbar" in that case.
 
 ### Integration (WP-I)
@@ -1716,7 +1716,7 @@ All items below were checked against the code at the cited lines before being ap
 | 13 | "Fristenliste" overclaims (major) | `listing.py:39-44`; §8 | §1 Lawyer step 4, H9 |
 | 14 | `return_fields` on every search makes plain search fail (major) | `query_pipeline.py:213-229, 255-273`; `planner.py:309-321, 378-397` | D2, H3, §4.3 single retry without `return_fields` |
 | 15 | 401 misclassified in BROKERED tenants (minor) | `secure_api.py:1686-1712` (before fields at `:1813`) | D5, §3.6, WP-RC2 test |
-| 16 | Interface claims wrong: `_enhance_search_results` signature; pointer spelling; `health`; `previous_fields_sent` (minor) | `app.py:3470-3475`; `app.py:1326-1395`; `document_grants.py:59-66`; `remote_controller_client.py:105-106`; `admin_system.py:229-234` | §4.4 `enhance` closure and `knovas_pointer_for`, §4.8 `health` alias, §3.2 signature |
+| 16 | Interface claims wrong: `_enhance_search_results` signature; pointer spelling; `health`; `previous_fields_sent` (minor) | `app.py:3470-3475`; `app.py:1326-1395`; `document_grants.py:59-66`; `knovas_connector_client.py:105-106`; `admin_system.py:229-234` | §4.4 `enhance` closure and `knovas_pointer_for`, §4.8 `health` alias, §3.2 signature |
 | 17 | Inconsistent examples: rule prefix, "Pfadvorlage", upload path (minor) | `knovas_uploader.py:181`; `sync_executor.py:572-577`; `commit.py:739` | §1, `layer_label` |
 | 18 | Wrong citations (minor) | `rules.py:93` vs `:228-232`; `ingestion_compiler.py:222-281, 302-320`; `doc_fields_api.py:498`; `sync_executor.py:281-325`; title check `secure_api.py:1632-1634` | §3.2, §3.6, §4.6, §4.8, §5 |
 | 19 | CI working directory and the dataclass mutable default (minor) | `ci.yml:32-34`; `ingestion_compiler.py:78-91` | WP-C CI, §4.8 |
@@ -1725,7 +1725,7 @@ All items below were checked against the code at the cited lines before being ap
 | 22 | Probe logs ERROR; 429/403 missing; doctor.sh 401 inference; admin drawer GET with pointer (minor ×2) | `knovas_client.py:1474-1483`; `doc_fields_api.py:584-590` | D7, §2.2, WP-I doctor.sh, §4.7 |
 | 23 | Missing S2 shows as a generic error; rules GET needs clearance; folder picker needs an RC; rule audit target; dead upload pass-through; downgrade clearing (minor) | `doc_fields_api.py:498, 802-814`; `admin.py:309-327`; `rules.py:250-256`; `knovas_client.py:1634` | §4.4 error map, §4.6, §4.8, §8, §2.5, WP-I |
 | 24 | Metadata mapping over-built or unreliable (minor) | `core.yaml:141-147`; knovas_extract `eml.py:188, 229-235`; `pdf.py:501`; `docx.py:349` | §1 Fiduciary step 2, §3.1 enum, §3.5 |
-| 25 | RC schema errors echo values (minor) | `RC:src/util/schema.py:22-25`; `routes/sync.py:60-62`; `remote_controller_client.py:88-90` | §3.8, WP-RC2 |
+| 25 | RC schema errors echo values (minor) | `RC:src/util/schema.py:22-25`; `routes/sync.py:60-62`; `knovas_connector_client.py:88-90` | §3.8, WP-RC2 |
 | 26 | Recovery gaps: requeue for refused only; deprecate unwarned (minor) | `planner.py:365-376` | §3.7 requeue outcomes, §4.6, §4.8 |
 | 27 | UI overstates title edit, `privileged` and `resolved_nodes` (minor) | `doc_fields_api.py:516-526`; `planner.py:238-240` | H9, §4.2 `resolved_chips`, §4.5 hints |
 | 28 | Mock re-implements `where` semantics and will drift (minor) | `MOCK:app.py` (238 lines) | WP-C exact-equality mock, §5 S4 goldens, WP-I copy |

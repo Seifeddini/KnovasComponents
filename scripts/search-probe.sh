@@ -4,9 +4,9 @@
 # Three causes, three different responses, and they are not guessable from the
 # result list:
 #
-#   not extracted — RemoteController never read the file. Nothing downstream
+#   not extracted — Knovas Connector never read the file. Nothing downstream
 #                   can help; fix the sync's folders or filters.
-#   not indexed   — RemoteController read it and Knovas does not have it. The
+#   not indexed   — Knovas Connector read it and Knovas does not have it. The
 #                   upload failed, silently, per document. Re-sync.
 #   ranking       — Knovas has the words and still did not return the document.
 #                   A retrieval problem, worth escalating with this output.
@@ -17,7 +17,7 @@
 # keyword probe of the index. If that returns nothing while the local context
 # sidecars hold the word, the text never reached Knovas.
 #
-# The sidecars are what RemoteController extracted, NOT what Knovas stored:
+# The sidecars are what Knovas Connector extracted, NOT what Knovas stored:
 # write_context_sidecar runs before init_document_transmission, so a sidecar
 # exists even when every upload for it failed. Counting them as "indexed" is
 # how this script once reported a ranking problem that was an upload problem.
@@ -77,7 +77,7 @@ print(f"  {len(pointers)} hit(s)")
 for pointer in pointers[:5]:
     print(f"    {pointer}")
 
-# What RemoteController extracted locally. Says nothing about what Knovas holds.
+# What Knovas Connector extracted locally. Says nothing about what Knovas holds.
 store = pathlib.Path(os.environ.get("SEARCH_CONTEXT_STORE_PATH")
                      or "/var/rc-state/search_context")
 local_total = 0
@@ -129,7 +129,7 @@ elif missing:
     print("        containing it, and a pure-BM25 query finds none of them. The text")
     print("        is not in Knovas. Two ways that happens:")
     print("          a) the uploads failed. Then the log says so:")
-    print("               docker compose --env-file knovas.env logs remote-controller \\")
+    print("               docker compose --env-file knovas.env logs knovas-connector \\")
     print("                 | grep -iE 'init failed|transmit|error'")
     print("          b) they were uploaded once and the tenant was rebuilt since.")
     print("             Knovas Connector still holds them as sent, so every cycle")

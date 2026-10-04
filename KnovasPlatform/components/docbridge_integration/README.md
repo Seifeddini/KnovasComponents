@@ -13,10 +13,10 @@ pytest   # from this directory
 Documents uploaded through the admin console are extracted with
 [`knovas-extract`](https://github.com/Seifeddini/knovas-extract-python) by
 `src/knovas_extract_upload.py`, which mirrors the Knovas Connector's sync
-pipeline (`RemoteController/src/sync/document_text.py`, `knovas_uploader.py`):
+pipeline (`KnovasConnector/src/sync/document_text.py`, `knovas_uploader.py`):
 a document uploaded here and the same document synced by the RC reach the
 server in the same wire format. The environment variable names are the RC's
-(see `RemoteController/docs/configuration.md`); the defaults are the
+(see `KnovasConnector/docs/configuration.md`); the defaults are the
 conservative ones of an interactive request on a host shared with the search
 UI. Markdown is never requested (`emit_markdown=False`) — it cost ~8 s per
 document and parked mixed PDFs and large-table DOCX as "markdown expansion
