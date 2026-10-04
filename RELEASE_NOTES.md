@@ -177,13 +177,14 @@ Feldbereich der Vorschau.
 - **Faellt das Feldverzeichnis bei Knovas aus, sucht die Plattform mit dem
   zuletzt gelesenen weiter.** Antwortet Knovas auf
   `GET /secured/graph/doc-fields` nicht (Zeitueberschreitung, keine
-  Verbindung, 5xx, 429), fragt die Plattform fuer diese Person 30 s lang
-  nicht erneut und nimmt das zuletzt gelesene Verzeichnis; gibt es keines,
-  sucht sie wie bisher ohne Feldwerte. Bisher wartete jede Suche nach Ablauf
-  des Zwischenspeichers (5 Minuten) erneut alle Wiederholungen ab, meist bis
-  zum 504 von nginx. Gleichzeitige Anfragen einer Person lesen das
-  Verzeichnis nur einmal. Bekannte Grenze: die eine Anfrage, die das
-  Verzeichnis neu liest, wartet weiterhin so lange wie bisher.
+  Verbindung, 5xx, 429), fragt die Plattform 30 s lang fuer niemanden
+  erneut und nimmt fuer jede Person ihr zuletzt gelesenes Verzeichnis; gibt
+  es keines, sucht sie wie bisher ohne Feldwerte. Gelesen wird das
+  Verzeichnis bei einer Suche in einem Versuch von hoechstens 10 s. Bisher
+  wartete jede Suche nach Ablauf des Zwischenspeichers (5 Minuten) erneut
+  alle Wiederholungen ab (bis zu dreimal 120 s), meist bis zum 504 von
+  nginx. Gleichzeitige Anfragen einer Person lesen das Verzeichnis nur
+  einmal. Die Seiten der Verwaltung lesen es weiterhin mit Wiederholungen.
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),

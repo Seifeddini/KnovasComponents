@@ -112,6 +112,10 @@ NODE_NAME_TIMEOUT = 2.0
 #: Remembered (person, node) answers; past this, expired ones are dropped,
 #: then all of them.
 NODE_NAMES_KEPT_MAX = 10000
+#: The registry read on a request thread: one attempt within this many
+#: seconds (KnovasAPIClient.doc_fields_quick) instead of the client's retry
+#: cycle of three 120 s reads; the last registry covers a miss.
+REGISTRY_READ_TIMEOUT = 10.0
 KNOWN_ROLES = frozenset({"admin", "approver", "ingestion_manager", "member"})
 _OFF_WORDS = frozenset({"off", "false", "0", "no", "disabled"})
 _WARNED_ROLES: set = set()
@@ -424,8 +428,12 @@ _NODE_NAMES: Dict[Tuple[str, str], Tuple[float, Optional[str]]] = {}
 #: person -> until when their node reads are skipped after one failed.
 _NODE_NAMES_DOWN: Dict[str, float] = {}
 #: person -> (until when, status, error_code) after Knovas did not answer
-#: their registry read: it is not read again before then.
+#: their registry read: it is not read again before then. Under ``_ROUTE``
+#: the same for everyone: a registry route that does not answer one person
+#: does not answer the next, and each request thread a read holds is one
+#: of gunicorn's few.
 _REGISTRY_DOWN: Dict[str, Tuple[float, int, Optional[str]]] = {}
+_ROUTE = "\x00registry-route"
 #: person -> the event their one registry read in flight sets when done.
 _REGISTRY_READS: Dict[str, threading.Event] = {}
 
@@ -459,17 +467,28 @@ def _still_unanswered(status: int, code: Optional[str]) -> Exception:
     return DocFieldsError(status, code, "no answer from Knovas a moment ago")
 
 
+def _read_registry(client: Any) -> Any:
+    """The registry from Knovas: through the real client one attempt within
+    ``REGISTRY_READ_TIMEOUT`` (``doc_fields_quick``), else -- test doubles
+    -- ``doc_fields()``."""
+    from knovas_client import KnovasAPIClient
+
+    if isinstance(client, KnovasAPIClient):
+        return client.doc_fields_quick(REGISTRY_READ_TIMEOUT)
+    return client.doc_fields()
+
+
 def _registry_entry(client: Any, user_key: Any) -> _RegistryEntry:
     """This person's registry entry, read from Knovas once it has expired.
 
     One read per person at a time: while it is out, the others get the
-    expired entry, or wait for that read when there is none. A read Knovas
-    does not answer (``_unanswered``) costs the client's whole retry cycle,
-    so it is remembered for ``unknown_ttl``: until then this person's
-    registry is not read again, and the expired entry is served -- on the
-    failing call too -- or, without one, the error is raised. Any other
-    failure propagates and is not cached. ``client.doc_fields`` must not
-    call back in here.
+    expired entry, or wait for that read when there is none. A read is one
+    attempt within ``REGISTRY_READ_TIMEOUT``; one Knovas does not answer
+    (``_unanswered``) is remembered for ``unknown_ttl``, for this person and
+    for everyone: until then the registry is not read again, and the
+    expired entry is served -- on the failing call too -- or, without one,
+    the error is raised. Any other failure propagates and is not cached.
+    ``client.doc_fields`` must not call back in here.
     """
     who = _user(user_key)
     while True:
@@ -479,6 +498,8 @@ def _registry_entry(client: Any, user_key: Any) -> _RegistryEntry:
             if entry is not None and now < entry.expires_at:
                 return entry
             down = _REGISTRY_DOWN.get(who)
+            if down is None or now >= down[0]:
+                down = _REGISTRY_DOWN.get(_ROUTE)
             if down is not None and now >= down[0]:
                 down = None
             reading = _REGISTRY_READS.get(who)
@@ -493,14 +514,16 @@ def _registry_entry(client: Any, user_key: Any) -> _RegistryEntry:
     try:
         cfg = settings(getattr(client, "config", None))
         try:
-            raw = client.doc_fields()
+            raw = _read_registry(client)
         except Exception as exc:
             failed = _unanswered(exc)
             if failed is None:
                 raise  # an answer, or nothing was sent: not remembered
             with _CACHE_LOCK:
+                until = (_now() + cfg.unknown_ttl,) + failed
+                _REGISTRY_DOWN[_ROUTE] = until  # the route, whatever was invalidated
                 if _REGISTRY_READS.get(who) is mine:  # not invalidated meanwhile
-                    _REGISTRY_DOWN[who] = (_now() + cfg.unknown_ttl,) + failed
+                    _REGISTRY_DOWN[who] = until
                 entry = _REGISTRY.get(who)
             logger.warning("Document fields registry: no answer from Knovas (%s %s %s); %s, "
                            "not read again for %d s", type(exc).__name__, failed[0],
@@ -516,6 +539,7 @@ def _registry_entry(client: Any, user_key: Any) -> _RegistryEntry:
             targets=registry_targets(raw),
         )
         with _CACHE_LOCK:
+            _REGISTRY_DOWN.pop(_ROUTE, None)  # Knovas answers again
             if _REGISTRY_READS.get(who) is mine:  # not invalidated meanwhile
                 _REGISTRY[who] = entry
                 _REGISTRY_DOWN.pop(who, None)
@@ -686,6 +710,7 @@ def invalidate(user_key: Any = None) -> None:
         who = _user(user_key)
         _REGISTRY.pop(who, None)
         _REGISTRY_DOWN.pop(who, None)
+        _REGISTRY_DOWN.pop(_ROUTE, None)  # a write or an answer: Knovas answers
         _REGISTRY_READS.pop(who, None)
         _NODE_NAMES_DOWN.pop(who, None)
         for cache in (_NAMES, _NODE_NAMES):

@@ -901,3 +901,35 @@ class TestFakeDocFieldsApi:
                 api.patch_doc_values("a.pdf", 0, set={"title": "x"})
             assert caught.value.status == status
         assert api.doc_values("missing.pdf") is None
+
+
+class TestRegistryQuickRead:
+    """doc_fields_quick: the registry in one attempt within the given
+    timeout, for request threads -- never the client's retry cycle."""
+
+    def test_one_get_with_the_timeout(self):
+        client = secured(Resp(200, {"status": "success", "fields": [{"key": "doc_type"}]}))
+        assert [f["key"] for f in client.doc_fields_quick(7.5)] == ["doc_type"]
+        (call,) = _calls(client)
+        assert call["method"] == "GET" and call["url"].endswith("/secured/graph/doc-fields")
+        assert call["timeout"] == 7.5
+
+    def test_a_timeout_is_not_retried(self):
+        client = secured(requests.exceptions.ReadTimeout("slow"))
+        with pytest.raises(DocFieldsError) as err:
+            client.doc_fields_quick(7.5)
+        assert (err.value.status, err.value.error_code) == (503, "transport_error")
+        assert len(_calls(client)) == 1, "one attempt, no tenacity"
+
+    def test_a_5xx_is_not_retried(self):
+        client = secured(Resp(503, {"status": "error", "error_code": "doc_fields_unavailable"}))
+        with pytest.raises(DocFieldsError):
+            client.doc_fields_quick(7.5)
+        assert len(_calls(client)) == 1
+
+    def test_doc_fields_keeps_its_retries(self):
+        client = secured(requests.exceptions.ReadTimeout("slow"))
+        with pytest.raises(DocFieldsError):
+            client.doc_fields()
+        assert len(_calls(client)) == 3
+

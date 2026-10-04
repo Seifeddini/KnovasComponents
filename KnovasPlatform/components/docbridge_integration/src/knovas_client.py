@@ -1713,10 +1713,12 @@ class KnovasAPIClient:
         endpoint: str,
         data: Optional[Dict] = None,
         params: Optional[Dict] = None,
+        timeout: Optional[float] = None,
     ) -> requests.Response:
         """
         Single HTTP request without tenacity retries (used for analytics feedback;
-        avoids duplicate submissions on transient failures).
+        avoids duplicate submissions on transient failures). ``timeout``
+        replaces ``http_read_timeout`` for this one request.
         """
         self._rate_limit()
         self._ensure_certificate_freshness()
@@ -1728,7 +1730,7 @@ class KnovasAPIClient:
             json=data,
             params=params,
             headers=self._get_headers(),
-            timeout=self.http_read_timeout,
+            timeout=self.http_read_timeout if timeout is None else timeout,
             allow_redirects=False,
         )
         response.raise_for_status()
@@ -2516,6 +2518,7 @@ class KnovasAPIClient:
         *,
         data: Optional[Dict[str, Any]] = None,
         write: bool = False,
+        timeout: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         """One /secured/graph doc-fields call; the body without its envelope.
 
@@ -2525,11 +2528,16 @@ class KnovasAPIClient:
         feature off -- is DocFieldsUnavailable. Every other status of 400 or
         more is a DocFieldsError carrying the code and the whitelisted
         details; no answer at all is DocFieldsError ``transport_error``.
+        With ``timeout`` a read is one attempt within that many seconds, as
+        a write always is: no tenacity retries.
         """
         endpoint = f"/secured/graph{path}"
-        send = self._request_no_retry if write else self._make_request
         try:
-            response = send(method=method, endpoint=endpoint, data=data)
+            if write or timeout is not None:
+                response = self._request_no_retry(
+                    method=method, endpoint=endpoint, data=data, timeout=timeout)
+            else:
+                response = self._make_request(method=method, endpoint=endpoint, data=data)
         except requests.exceptions.HTTPError as exc:
             response = exc.response
             if response is None:
@@ -2571,12 +2579,13 @@ class KnovasAPIClient:
         return _doc_fields_body(payload)
 
     def _doc_fields_listing(self, method: str, path: str, *,
-                            data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                            data: Optional[Dict[str, Any]] = None,
+                            timeout: Optional[float] = None) -> Dict[str, Any]:
         """A read whose route always exists while the feature is on. A
         NOT_FOUND there is not "not yours", so it is not folded into an
         empty answer -- the same 404-as-empty that has reported failure as
         success in this client before."""
-        payload = self._doc_fields_call(method, path, data=data)
+        payload = self._doc_fields_call(method, path, data=data, timeout=timeout)
         if payload is None:
             raise DocFieldsUnavailable(status=404, error_code='NOT_FOUND')
         return payload
@@ -2611,6 +2620,15 @@ class KnovasAPIClient:
         """
         return _graph_payload_list(
             self._doc_fields_listing('GET', '/doc-fields'), 'fields', strict=True)
+
+    def doc_fields_quick(self, timeout: float) -> List[Dict[str, Any]]:
+        """``doc_fields()`` in one attempt within ``timeout`` seconds, for
+        request threads: doc_fields_capability serves the last registry when
+        Knovas does not answer, so a hung route must not hold a search for
+        the client's whole retry cycle (three reads of http_read_timeout)."""
+        return _graph_payload_list(
+            self._doc_fields_listing('GET', '/doc-fields', timeout=timeout),
+            'fields', strict=True)
 
     def create_doc_field(self, defn: Dict[str, Any]) -> Dict[str, Any]:
         """POST /secured/graph/doc-fields - a new field; returns the field."""

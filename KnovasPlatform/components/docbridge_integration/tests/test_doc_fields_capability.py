@@ -425,7 +425,46 @@ class TestRegistryOutage:
                 read(client, "alice")
             assert (again.value.status, again.value.error_code) == (503, "transport_error")
         assert _reads(client) == 1, "no Knovas call while the failure is remembered"
-        assert cap.registry_for(client, "bob") and _reads(client) == 2, "per person"
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "bob")
+        assert _reads(client) == 1, "nor for anyone else: the route did not answer"
+        now[0] = 30.5
+        assert cap.registry_for(client, "bob") and _reads(client) == 2
+
+    def test_the_route_is_remembered_for_everyone(self, now, client):
+        """A registry route that does not answer one person does not answer
+        the next: nobody's request thread waits on it again for unknown_ttl.
+        Whoever has a registry keeps theirs; whoever has none degrades."""
+        carol = cap.registry_for(client, "carol")
+        now[0] = 11.0  # carol's entry expired
+        client.fail_call("doc_fields", _unanswered())
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "alice")
+        reads = _reads(client)
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "bob")
+        assert cap.registry_for(client, "carol") == carol
+        assert _reads(client) == reads, "no Knovas call for bob or carol"
+
+    def test_an_answered_read_clears_the_route(self, now, client):
+        client.fail_call("doc_fields", _unanswered())
+        with pytest.raises(DocFieldsError):
+            cap.registry_for(client, "alice")
+        now[0] = 31.0  # the one failure is used up: Knovas answers again
+        cap.registry_for(client, "alice")
+        assert cap._ROUTE not in cap._REGISTRY_DOWN
+        assert cap.registry_for(client, "bob")
+
+    def test_the_real_client_reads_once_within_the_timeout(self, monkeypatch):
+        from knovas_client import KnovasAPIClient
+
+        real = KnovasAPIClient.__new__(KnovasAPIClient)
+        seen = []
+        monkeypatch.setattr(real, "doc_fields_quick", lambda timeout: seen.append(timeout) or [],
+                            raising=False)
+        monkeypatch.setattr(real, "doc_fields", lambda: pytest.fail("the retrying read"), raising=False)
+        assert cap._read_registry(real) == []
+        assert seen == [cap.REGISTRY_READ_TIMEOUT]
 
     def test_after_unknown_ttl_a_new_read_happens(self, now, client):
         client.fail_call("doc_fields", _unanswered())
