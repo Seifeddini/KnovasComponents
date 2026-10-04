@@ -1,9 +1,9 @@
-# Fiduciary search diagnosis — RemoteController and Platform findings (2026-10-01)
+# Fiduciary search diagnosis — Knovas Connector and Platform findings (2026-10-01)
 
 A Swiss fiduciary (Treuhand) client gets bad search: most hits show no Trefferkontext, extracted
 tables arrive as strings of numbers, and their queries — "Jahresabschluss von Müller AG",
 "Steuererklärung von Hans Meier", "Shareholderagreement von XY GmbH" — miss. Law-firm tenants are
-fine. This document holds the findings that live in **this** repository (RemoteController and
+fine. This document holds the findings that live in **this** repository (Knovas Connector and
 KnovasPlatform), the sandbox reproduction, and the OCR benchmark summary. The server-side findings
 and the overall ranking are in `KnowledgeBase/docs/superpowers/audits/2026-10-01-fiduciary-search-audit.md`;
 the extractor defects in `knovas-extract-python/docs/ocr-and-tables-findings.md`.
@@ -26,10 +26,10 @@ Line numbers refer to the `cl/eloquent-hawking-gyn8fo` checkout of 2026-10-01 (H
 
 ---
 
-## 2. RemoteController findings
+## 2. Knovas Connector findings
 
 ### R1 — Markdown is requested, never read, and parks mixed PDFs forever
-`RemoteController/src/sync/document_text.py:256` passes `emit_markdown=True`; nothing in `src/`
+`KnovasConnector/src/sync/document_text.py:256` passes `emit_markdown=True`; nothing in `src/`
 reads `content.markdown` (`extract_content.py:39-53` maps text/sentences/sections/pages/title/tables;
 `bytes_to_markdown`/`file_to_markdown` at `:412-419` return `.text`). Cost measured: a 20-page digital
 PDF takes **8.27 s** with Markdown vs **0.45 s** without. Worse: on a PDF that has *some* text layer
@@ -174,7 +174,7 @@ costs a full re-extraction and re-embed, and the inbox pointer is pruned/detache
 move detection by (size, raw sha256) → re-point without re-extraction.
 
 ### R15 — Docker image and OCR environment
-`RemoteController/Dockerfile` installs `knovas-extract` from `git+…@main` (floating, not
+`KnovasConnector/Dockerfile` installs `knovas-extract` from `git+…@main` (floating, not
 reproducible) with the `[pdf]` extra, which pulls `pymupdf4llm` → `pymupdf-layout`
 (**PolyForm Noncommercial** or Artifex commercial) into the customer image; ships Tesseract with the
 Debian *fast* language packs (deu/eng/fra); does **not** set `OMP_THREAD_LIMIT=1`, which the
@@ -225,7 +225,7 @@ for document-intent queries prefer the first page when the snippet covers no que
 Title = filename stem (`knovas_client.py:285-300`; `app.js:1259-1268`); the card shows format, date,
 title and snippet, no folder (`app.js:1361-1430`). `akten_id`/`doc_type` come only from
 `.search_enrichment.jsonl` (`app.py:3477-3486`), which the OneDrive mirror writes with
-`doc_id/web_url/title/modified_at` only (`RemoteController/src/onedrive_mirror/mirror.py:400-407`)
+`doc_id/web_url/title/modified_at` only (`KnovasConnector/src/onedrive_mirror/mirror.py:400-407`)
 and the AutoDoc filename parser (`file_utils.py:40-79`); a filesystem RC deployment has no
 enrichment file, so no grouping and no notice (`docs/search-ui-backlog.md` §3a).
 **Fix:** render a breadcrumb from `row.path` (already the pointer today — works before any server
@@ -346,7 +346,7 @@ readability check); LibreOffice for `.doc/.xls` (heavy per conversion); spreadsh
 
 ## 7. Measuring it at the client
 
-Day 0 with existing tools in the `remote-controller` container: `find` counts by extension
+Day 0 with existing tools in the `knovas-connector` container: `find` counts by extension
 (case-insensitive) and size (> 10 MiB, > 2 MiB); `SELECT transmission_key_id, count(*) FROM documents
 GROUP BY 1` in the state DB; grep the logs for `markdown expansion ratio`, `extraction timeout`,
 `Skipping sentence emission`; `load_last_sync_body()` for the active window, sources and prefix.

@@ -98,7 +98,7 @@ Customer-hosted Flask service that walks watched directories, converts documents
 
 ### 1.2 Runtime dependencies
 
-Key Python packages (pinned ranges in `RemoteController/pyproject.toml`):
+Key Python packages (pinned ranges in `KnovasConnector/pyproject.toml`):
 
 - `flask`, `gunicorn`, `requests`, `cryptography`, `jsonschema`, `prometheus-client`
 - `knovas-extract` — document extraction (PDF with OCR, DOCX, EML, MSG, text), one pinned version for both images; its extras and their licences: [3. Joint deployment requirements](#3-joint-deployment-requirements)
@@ -125,7 +125,7 @@ Knovas Connector has two inbound models. Outbound access to the Knovas tenant AP
 
 **Local-only control mode:** Use the `docker-compose.internal.yml` overlay. RC listens on `127.0.0.1:5001` only. No inbound connections from other hosts are required or accepted. An operator on the same machine (or connected via SSH) calls `/discover`, `/sync`, and `/sync/status` directly — no `RC_INSTANCE_TOKEN` or employee JWT. Outbound mTLS to the Knovas ingestion API is still used when syncing documents.
 
-See `RemoteController/docs/network-and-firewall.md` for the full ingress/egress matrix.
+See `KnovasConnector/docs/network-and-firewall.md` for the full ingress/egress matrix.
 
 ### 1.5 Credentials & certificates
 
@@ -139,7 +139,7 @@ See `RemoteController/docs/network-and-firewall.md` for the full ingress/egress 
 | `SEMANTIX_CA_CERT_PATH`     | CA root for verifying the Knovas API     |
 
 
-Certificates are mounted read-only into the container (default host path: `certs/` adjacent to the Knovas Connector directory, `RemoteController/`). File permissions must be **0600**, owner `rcuser` (uid 10001). Use `RemoteController/scripts/install_tenant_certs.sh` to install and verify permissions.
+Certificates are mounted read-only into the container (default host path: `certs/` adjacent to the Knovas Connector directory, `KnovasConnector/`). File permissions must be **0600**, owner `rcuser` (uid 10001). Use `KnovasConnector/scripts/install_tenant_certs.sh` to install and verify permissions.
 
 > **Note:** Environment variables prefixed with `SEMANTIX_` are the configured names for the Knovas secured API.
 
@@ -158,7 +158,7 @@ Local-only control is suitable for single-server deployments where an administra
 
 ### 1.6 Environment variables
 
-Copy `RemoteController/.env.example` to `.env`. Required unless noted:
+Copy `KnovasConnector/.env.example` to `.env`. Required unless noted:
 
 **Required (all modes)**
 
@@ -186,7 +186,7 @@ Copy `RemoteController/.env.example` to `.env`. Required unless noted:
 
 **Scheduler**
 
-- `RC_SYNC_CONFIG_PATH` (default `config/remote_controller_sync.json`)
+- `RC_SYNC_CONFIG_PATH` (default `config/knovas_connector_sync.json`)
 - `RC_SYNC_DEFAULT_WINDOW_START`, `RC_SYNC_DEFAULT_WINDOW_END`
 - `RC_SYNC_DEFAULT_MAX_INGESTION_REQUESTS_PER_MINUTE`
 - `RC_SYNC_DEFAULT_SCAN_INTERVAL_SECONDS`
@@ -196,12 +196,12 @@ Copy `RemoteController/.env.example` to `.env`. Required unless noted:
 - `RC_DOC_FIELDS` (default `on`) — `off` never sends field values; it cannot switch the feature on at Knovas
 - `RC_FIELDS_REUPLOAD_PER_CYCLE` (default `100`, 1–10000) — documents re-sent per cycle after a source's field settings changed; each is a full, billed upload with OCR
 - `RC_FIELDS_REUPLOAD_MAX_ATTEMPTS` (default `3`, 1–100) — failed re-uploads before a document leaves the queue
-- Details: `RemoteController/docs/configuration.md` (*Per-source document fields*)
+- Details: `KnovasConnector/docs/configuration.md` (*Per-source document fields*)
 
 **Re-extraction after an extractor upgrade**
 
 - `RC_REEXTRACT_PER_CYCLE` (default `100`, 1–10000) — documents re-extracted per cycle after the Platform's *Neu extrahieren* (`POST /sync/reextract/requeue`); only a document whose upload would change is sent again, each such upload is billed
-- Details: `RemoteController/docs/operations.md` (*Re-extraction after an extractor upgrade*)
+- Details: `KnovasConnector/docs/operations.md` (*Re-extraction after an extractor upgrade*)
 
 **Optional OneDrive mirror**
 
@@ -215,7 +215,7 @@ Copy `RemoteController/.env.example` to `.env`. Required unless noted:
 
 - `RC_SKIP_CONFIG_VALIDATION`
 
-Full reference: `RemoteController/docs/configuration.md`.
+Full reference: `KnovasConnector/docs/configuration.md`.
 
 ### 1.7 Storage
 
@@ -228,7 +228,7 @@ Full reference: `RemoteController/docs/configuration.md`.
 | Named volume `rc-state`  | `/var/rc-state` | read-write | Sync state database                          |
 
 
-State is stored in SQLite (`.rc-sync-state.db`, v1 format). Scheduler configuration schema: `RemoteController/contracts/remote_controller_sync_config.schema.json`.
+State is stored in SQLite (`.rc-sync-state.db`, v1 format). Scheduler configuration schema: `KnovasConnector/contracts/knovas_connector_sync_config.schema.json`.
 
 ### 1.8 Hardware
 
@@ -245,7 +245,7 @@ State is stored in SQLite (`.rc-sync-state.db`, v1 format). Scheduler configurat
 **Operational notes**
 
 - A single Gunicorn worker is required — the scheduler holds locks in-process.
-- For very large corpora (hundreds of GB), tune `sequential_subfolders`, `max_files_per_cycle`, and `max_scan_entries_per_cycle` in the scheduler config, especially on SMB/CIFS mounts. See `RemoteController/docs/operations.md`.
+- For very large corpora (hundreds of GB), tune `sequential_subfolders`, `max_files_per_cycle`, and `max_scan_entries_per_cycle` in the scheduler config, especially on SMB/CIFS mounts. See `KnovasConnector/docs/operations.md`.
 
 ### 1.9 Health & observability
 
@@ -257,11 +257,11 @@ State is stored in SQLite (`.rc-sync-state.db`, v1 format). Scheduler configurat
 | `GET /sync/status` | JWT (or local bypass) | Sync status; supports `?live=1` and `?live=1&deep_scan=1`; `extraction` names the knovas-extract version and the text modes                                                 |
 
 
-Logs: structured JSON (no secrets, file basenames only) via `docker compose logs -f remote-controller`.
+Logs: structured JSON (no secrets, file basenames only) via `docker compose logs -f knovas-connector`.
 
 ### 1.10 Deployment topologies
 
-Defined by Docker Compose overlays in the Knovas Connector directory (`RemoteController/`):
+Defined by Docker Compose overlays in the Knovas Connector directory (`KnovasConnector/`):
 
 
 | Topology | Compose files | Control model | Description |
@@ -278,7 +278,7 @@ docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --buil
 
 Then operate RC from the host, e.g. `curl http://127.0.0.1:5001/health`, `GET /discover`, `POST /sync`.
 
-Remote-operator setup guide: `RemoteController/docs/SETUP.md`. Local-only guide: `RemoteController/docs/local-setup.md`.
+Remote-operator setup guide: `KnovasConnector/docs/SETUP.md`. Local-only guide: `KnovasConnector/docs/local-setup.md`.
 
 ---
 
@@ -312,7 +312,7 @@ One Compose project at the repo root covers every component.
 | `platform-db`         | Identity store (PostgreSQL)   | Internal only — `knovas-internal`             |
 | `docbridge-web`       | Flask application + Gunicorn  | Internal only (`5000`)                        |
 | `docbridge-web-nginx` | In-compose reverse proxy      | `127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}`       |
-| `remote-controller`   | Discovery and sync API        | `127.0.0.1:5001`                              |
+| `knovas-connector`   | Discovery and sync API        | `127.0.0.1:5001`                              |
 | `knovas-mock`         | Offline demo API              | Internal only — **profile `mock` only**       |
 
 
@@ -511,7 +511,7 @@ At idle, the stack typically uses ≤1 GB RAM.
 These apply regardless of which component you deploy.
 
 - **Tenant provisioning.** Both components require mTLS material issued by Knovas. Knovas Connector always needs `RC_CLIENT_ID`. `RC_INSTANCE_TOKEN` is required only in remote-operator mode. KnovasPlatform additionally needs locally chosen `WEB_SECRET_KEY` and `COMPANY_LOGIN_*` credentials.
-- **Knovas API reachability.** Outbound HTTPS from each host to your tenant API URL is required for document ingestion and search. In remote-operator mode, Knovas Connector also needs the verify URL (`KNOVAS_INTERNAL_API_URL`). In local-only control mode, the verify URL is not used for operator routes. Confirm firewall rules using `RemoteController/docs/network-and-firewall.md`.
+- **Knovas API reachability.** Outbound HTTPS from each host to your tenant API URL is required for document ingestion and search. In remote-operator mode, Knovas Connector also needs the verify URL (`KNOVAS_INTERNAL_API_URL`). In local-only control mode, the verify URL is not used for operator routes. Confirm firewall rules using `KnovasConnector/docs/network-and-firewall.md`.
 - **Docker + Compose v2** on each host. Knovas Connector may require merging compose overlays on the command line (`-f docker-compose.yml -f docker-compose.internal.yml`, etc.).
 - **Time synchronization (NTP).** mTLS handshakes and JWT validation require accurate system clocks.
 - **Certificate layout.** If components run on separate hosts, install an identical copy of the tenant certificate bundle on each host.
@@ -521,7 +521,7 @@ These apply regardless of which component you deploy.
   - **Knovas Connector (local-only control mode)** does not accept inbound connections from the network. The API is available on `127.0.0.1:5001` only; operators control RC from the host. Outbound mTLS to the Knovas ingestion API is still required when syncing.
   - **KnovasPlatform** is intranet-only. In production (mode B) or localhost-only (mode C), no application port is exposed beyond loopback or internal HTTPS on port 443.
 - **Logs and metrics.** Both components produce structured logs via `docker compose logs`. Knovas Connector additionally exposes Prometheus metrics at `/metrics`.
-- **Document extraction and third-party licences.** Both images install the same pinned `knovas-extract` (`ARG KNOVAS_EXTRACT_VERSION` / `ARG KNOVAS_EXTRACT_GIT_REF` in `RemoteController/Dockerfile` and `KnovasPlatform/components/docbridge_integration/Dockerfile`). Its extras bring these packages into the images (licences as listed in the library's `NOTICE`):
+- **Document extraction and third-party licences.** Both images install the same pinned `knovas-extract` (`ARG KNOVAS_EXTRACT_VERSION` / `ARG KNOVAS_EXTRACT_GIT_REF` in `KnovasConnector/Dockerfile` and `KnovasPlatform/components/docbridge_integration/Dockerfile`). Its extras bring these packages into the images (licences as listed in the library's `NOTICE`):
 
   | Extra | Packages | Licence |
   | --- | --- | --- |
@@ -548,7 +548,7 @@ Choose the checklist that matches your control model.
 **Remote-operator mode**
 
 - [ ] Tenant certificates installed with correct permissions (`install_tenant_certs.sh`)
-- [ ] `.env` and `config/remote_controller_sync.json` completed
+- [ ] `.env` and `config/knovas_connector_sync.json` completed
 - [ ] Document share mounted read-only; `RC_WATCH_ROOTS` points to container paths
 - [ ] NGINX edge TLS configured; port 5001 not publicly exposed
 - [ ] `curl https://<rc-base>/health` returns **200** from outside the container
@@ -560,7 +560,7 @@ Choose the checklist that matches your control model.
 **Local-only control mode**
 
 - [ ] Tenant certificates installed with correct permissions (`install_tenant_certs.sh`)
-- [ ] `.env` and `config/remote_controller_sync.json` completed (`RC_INSTANCE_TOKEN` not required)
+- [ ] `.env` and `config/knovas_connector_sync.json` completed (`RC_INSTANCE_TOKEN` not required)
 - [ ] Document share mounted read-only; `RC_WATCH_ROOTS` points to container paths
 - [ ] Stack started with `docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build`
 - [ ] `curl http://127.0.0.1:5001/health` returns **200** from the host
@@ -568,7 +568,7 @@ Choose the checklist that matches your control model.
 - [ ] `GET /discover` and `POST /sync` succeed from localhost (no JWT)
 - [ ] Outbound mTLS to Knovas ingestion API works; ingestion confirmed via `GET /sync/status`
 
-Full guides: `RemoteController/docs/onboarding-checklist.md` (remote-operator), `RemoteController/docs/local-setup.md` (local-only).
+Full guides: `KnovasConnector/docs/onboarding-checklist.md` (remote-operator), `KnovasConnector/docs/local-setup.md` (local-only).
 
 ### KnovasPlatform (production intranet)
 
@@ -592,7 +592,7 @@ Full guide: `KnovasPlatform/docs/deployment/checklist-host-nginx.md`.
 
 | Task                 | Knovas Connector                                 | KnovasPlatform                                                           |
 | -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
-| View logs            | `docker compose logs -f remote-controller`       | `docker compose logs -f docbridge-web`                                   |
+| View logs            | `docker compose logs -f knovas-connector`       | `docker compose logs -f docbridge-web`                                   |
 | Health check         | `GET /health`                                    | `GET /health` (via NGINX)                                                |
 | Certificate renewal  | Manual reinstall or `install_tenant_certs.sh`    | Automatic (checks hourly; renews <30 days)                               |
 | Application upgrade  | Rebuild image, `docker compose up -d --build`    | Rebuild image, `docker compose up -d --build`                            |
@@ -611,13 +611,13 @@ Full guide: `KnovasPlatform/docs/deployment/checklist-host-nginx.md`.
 
 | Symptom                        | Likely cause / fix                                                                                         |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `/health` returns 503 degraded | Invalid `.env`, unreadable watch roots, or scheduler error — check `docker compose logs remote-controller` |
+| `/health` returns 503 degraded | Invalid `.env`, unreadable watch roots, or scheduler error — check `docker compose logs knovas-connector` |
 | Sync fails with auth error     | Expired or missing operator JWT; verify `RC_INSTANCE_TOKEN` and Knovas verify URL                          |
 | mTLS handshake failure         | Certificate path, permissions, or clock skew — verify certs and NTP                                        |
-| Slow ingestion on large shares | Tune scheduler limits in `remote_controller_sync.json`                                                     |
+| Slow ingestion on large shares | Tune scheduler limits in `knovas_connector_sync.json`                                                     |
 
 
-Guide: `RemoteController/docs/operations.md`.
+Guide: `KnovasConnector/docs/operations.md`.
 
 ### KnovasPlatform
 
@@ -643,13 +643,13 @@ Guide: `KnovasPlatform/docs/integration/troubleshooting.md`.
 
 | Document                                        | Purpose                                 |
 | ----------------------------------------------- | --------------------------------------- |
-| `RemoteController/docs/SETUP.md`                | Remote-operator (HTTPS edge) setup      |
-| `RemoteController/docs/local-setup.md`          | Local-only control setup                |
-| `RemoteController/docs/configuration.md`        | Environment and scheduler configuration |
-| `RemoteController/docs/network-and-firewall.md` | Ingress/egress matrix                   |
-| `RemoteController/docs/operations.md`           | Health, metrics, sync status            |
-| `RemoteController/docs/onboarding-checklist.md` | Go-live checklist                       |
-| `RemoteController/docs/nginx-edge.example.conf` | Reference NGINX edge configuration      |
+| `KnovasConnector/docs/SETUP.md`                | Remote-operator (HTTPS edge) setup      |
+| `KnovasConnector/docs/local-setup.md`          | Local-only control setup                |
+| `KnovasConnector/docs/configuration.md`        | Environment and scheduler configuration |
+| `KnovasConnector/docs/network-and-firewall.md` | Ingress/egress matrix                   |
+| `KnovasConnector/docs/operations.md`           | Health, metrics, sync status            |
+| `KnovasConnector/docs/onboarding-checklist.md` | Go-live checklist                       |
+| `KnovasConnector/docs/nginx-edge.example.conf` | Reference NGINX edge configuration      |
 
 
 ### KnovasPlatform

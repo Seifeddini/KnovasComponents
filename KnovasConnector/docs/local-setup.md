@@ -61,10 +61,10 @@ You do **not** need `RC_INSTANCE_TOKEN` or an employee JWT for this local setup 
 
 ```bash
 git clone https://github.com/Seifeddini/KnovasComponents.git
-cd KnovasComponents/RemoteController
+cd KnovasComponents/KnovasConnector
 ```
 
-**Windows (PowerShell):** use the same paths; run commands from `RemoteController`.
+**Windows (PowerShell):** use the same paths; run commands from `Knovas Connector`.
 
 ---
 
@@ -75,7 +75,7 @@ RC reads files from paths **inside the container**. The repo includes a sample f
 On your machine the folder is:
 
 ```text
-RemoteController/data/docs/
+KnovasConnector/data/docs/
 ```
 
 A sample file `hello.txt` is already there. You can also add `.md`, `.docx`, `.pdf`, `.eml`, or `.msg` files; RC converts them to Markdown for ingest while keeping the original path as the Knovas document identifier (so open/download in KnovasPlatform still targets the original file on the mount).
@@ -84,16 +84,16 @@ In `.env` you will set `RC_WATCH_ROOTS=/data/docs` — that is the **container**
 
 | Host path (your disk) | Container path (in `.env`) |
 |-----------------------|----------------------------|
-| `RemoteController/data/docs/` | `/data/docs` |
+| `KnovasConnector/data/docs/` | `/data/docs` |
 
 ---
 
 ## Step 3 — Tenant certificates
 
-Create the certs folder at the **monorepo root** (one level above `RemoteController`):
+Create the certs folder at the **monorepo root** (one level above `Knovas Connector`):
 
 ```bash
-# From RemoteController/
+# From KnovasConnector/
 mkdir -p ../certs
 ```
 
@@ -165,7 +165,7 @@ Do **not** set `RC_SKIP_CONFIG_VALIDATION` for normal local runs (that is for py
 
 ## Step 5 — Start (localhost only)
 
-From `RemoteController/`:
+From `KnovasConnector/`:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
@@ -179,7 +179,7 @@ Why both files?
 Watch logs:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.internal.yml logs -f remote-controller
+docker compose -f docker-compose.yml -f docker-compose.internal.yml logs -f knovas-connector
 ```
 
 Press `Ctrl+C` to leave logs (containers keep running).
@@ -256,7 +256,7 @@ curl -sS -X POST "$RC_BASE/sync" \
   -d @examples/sync-request.json
 ```
 
-PowerShell (run from `RemoteController/`):
+PowerShell (run from `KnovasConnector/`):
 
 ```powershell
 curl.exe -sS -X POST "$env:RC_BASE/sync" `
@@ -366,7 +366,7 @@ For HTTPS edge, employee JWT, firewall, and Knovas registration, follow [SETUP.m
 | `Connection refused` on `:5001` | Use both compose files (`docker-compose.internal.yml`). Is Docker running? |
 | `401` on discover/sync | Local bypass off — restart with internal compose overlay |
 | Health `degraded`, watch roots | `RC_WATCH_ROOTS` must match a mounted path; ensure `data/docs` exists |
-| Container exits on start | `docker compose ... logs remote-controller` — missing required `.env` values |
+| Container exits on start | `docker compose ... logs knovas-connector` — missing required `.env` values |
 | Sync errors / 5xx | Tenant certs in `../certs`, URLs in `.env`, outbound HTTPS to Knovas |
 | Sync does nothing | Outside sync window — set `RC_SYNC_DEFAULT_WINDOW_START/END` to `00:00` / `23:59` |
 | No files in sync | `sources[].path` in JSON must be under `RC_WATCH_ROOTS`; check `include_globs` |

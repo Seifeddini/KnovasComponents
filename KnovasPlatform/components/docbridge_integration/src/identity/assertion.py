@@ -234,7 +234,7 @@ class AssertionSigner:
 class AssertionVerifier:
     """Checks tokens against the registered public keys.
 
-    Used by the RemoteController for the tenant-admin path, and mirrored in
+    Used by the Knovas Connector for the tenant-admin path, and mirrored in
     KnowledgeBase for the Secure API. Kept here too so the Platform can verify
     its own output in tests — a signer nobody can check is a signer nobody
     should trust.

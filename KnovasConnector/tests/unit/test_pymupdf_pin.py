@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-RC_PYPROJECT = REPO / "RemoteController" / "pyproject.toml"
+RC_PYPROJECT = REPO / "KnovasConnector" / "pyproject.toml"
 PLATFORM_REQUIREMENTS = REPO / "KnovasPlatform" / "components" / "docbridge_integration" / "requirements.txt"
 
 

@@ -86,9 +86,9 @@ class TestBothSides:
         assert "Aktualisieren" in check["hint"]
 
     def test_an_unreachable_connector_skips_the_comparison(self, platform_version):
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
-        check = _extractor(_Connector(error=RemoteControllerError("down")))
+        check = _extractor(_Connector(error=KnovasConnectorError("down")))
         assert check["state"] == "skip"
         assert check["detail"] == "Plattform 0.4.0a1, Knovas Connector nicht erreichbar"
 
@@ -154,12 +154,12 @@ class TestCommitFromStatus:
         {"extraction": {"knovas_extract_commit": "<b>" + PIN[3:]}},
     ])
     def test_anything_but_a_full_commit_is_none(self, status):
-        from remote_controller_client import extractor_commit_from_status
+        from knovas_connector_client import extractor_commit_from_status
 
         assert extractor_commit_from_status(status) is None
 
     def test_a_commit_is_returned_as_given(self):
-        from remote_controller_client import extractor_commit_from_status
+        from knovas_connector_client import extractor_commit_from_status
 
         assert extractor_commit_from_status(_status("0.4.0a1", PIN)) == PIN
 
@@ -173,11 +173,11 @@ class TestVersionFromStatus:
         {"extraction": {"knovas_extract_version": "9" * 41}},
     ])
     def test_anything_but_a_plain_version_is_none(self, status):
-        from remote_controller_client import extractor_version_from_status
+        from knovas_connector_client import extractor_version_from_status
 
         assert extractor_version_from_status(status) is None
 
     def test_a_version_is_returned_as_given(self):
-        from remote_controller_client import extractor_version_from_status
+        from knovas_connector_client import extractor_version_from_status
 
         assert extractor_version_from_status(_status("0.4.0a1")) == "0.4.0a1"

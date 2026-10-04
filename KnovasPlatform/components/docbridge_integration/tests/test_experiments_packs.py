@@ -346,7 +346,7 @@ EVALUATION = {
     "feature": [("builtin.bayes_proportion", "primary", {}, {})],
 }
 
-COMPONENTS = ["Suche", "Ingestion", "Vorschau", "Cortex", "RemoteController", "Plattform",
+COMPONENTS = ["Suche", "Ingestion", "Vorschau", "Cortex", "Knovas Connector", "Plattform",
               "Sonstiges"]
 CHANNELS = ["LinkedIn", "Google Ads", "E-Mail", "Website", "Webinar", "Messe", "Sonstiges"]
 SEGMENTS = ["Kanzlei klein", "Kanzlei mittel", "Kanzlei gross", "Rechtsabteilung", "Sonstiges"]

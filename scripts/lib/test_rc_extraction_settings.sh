@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # doctor.sh's check of the Connector OCR settings (spec E5): the rules of
-# RemoteController/src/sync/document_text.py (tesseract_language, ocr_dpi,
+# KnovasConnector/src/sync/document_text.py (tesseract_language, ocr_dpi,
 # _env_int_at_least). The value tables here and in the Connector's
 # tests/unit/test_document_text.py are the same.
 set -euo pipefail

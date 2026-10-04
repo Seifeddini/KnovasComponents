@@ -944,7 +944,7 @@ def indexed_pages(entry: Optional[Dict[str, Any]]) -> Dict[int, str]:
     """The indexed text of a document, page by page, as ingestion read it.
 
     For documents with no file on this server -- a OneDrive/SharePoint folder
-    that RemoteController reads through Microsoft Graph -- this is the only
+    that Knovas Connector reads through Microsoft Graph -- this is the only
     text there is. A document whose sentences carry no page numbers is one
     page.
     """

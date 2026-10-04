@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Deploy RemoteController with the monorepo corpus mount (Docker, certs, .env).
+# Deploy Knovas Connector with the monorepo corpus mount (Docker, certs, .env).
 # Does NOT download corpus files — run fetch_demo_corpus.py build first if needed.
-# Run from: /home/master/KnovasInternal/RemoteController
+# Run from: /home/master/KnovasInternal/KnovasConnector
 set -euo pipefail
 
 RC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -83,11 +83,11 @@ echo "==> Step 7: Build and start (internal mode, localhost:5001 only)"
 docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build
 
 echo "==> Step 8: Fix Docker volume ownership (rcuser must write config + state)"
-docker exec -u root remotecontroller-remote-controller-1 \
+docker exec -u root knovasconnector-knovas-connector-1 \
   chown -R rcuser:rcuser /app/config /var/rc-state
 
 echo "==> Step 9: Restart and wait for health"
-docker restart remotecontroller-remote-controller-1
+docker restart knovasconnector-knovas-connector-1
 for i in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:5001/health >/tmp/rc-health.json 2>/dev/null; then
     if grep -q '"status":"ok"' /tmp/rc-health.json; then
@@ -98,6 +98,6 @@ for i in $(seq 1 30); do
   fi
   sleep 2
 done
-echo "Health check did not reach status ok within 60s — check: docker compose logs remote-controller"
+echo "Health check did not reach status ok within 60s — check: docker compose logs knovas-connector"
 cat /tmp/rc-health.json 2>/dev/null || true
 exit 1

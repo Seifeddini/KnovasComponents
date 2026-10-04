@@ -9,10 +9,10 @@ API reference and pytest for Knovas Connector. **First-time local setup:** follo
 Use the internal overlay so port `5001` is reachable on your machine and local auth bypass is enabled. Full steps: [local-setup.md](local-setup.md).
 
 ```bash
-cd RemoteController   # or KnovasComponents/RemoteController
+cd KnovasConnector   # or KnovasComponents/KnovasConnector
 cp .env.example .env  # if not done yet
 docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
-docker compose -f docker-compose.yml -f docker-compose.internal.yml logs -f remote-controller
+docker compose -f docker-compose.yml -f docker-compose.internal.yml logs -f knovas-connector
 ```
 
 Health (no auth):
@@ -40,7 +40,7 @@ RC listens on the Docker network only; employees reach RC via HTTPS on port 443 
 ### Python from source (dev/staging)
 
 ```bash
-cd RemoteController
+cd KnovasConnector
 cp .env.example .env
 # knovas-extract: the pin both images use. While it is a git revision (until
 # 0.4.0a1 is on PyPI), install it first: the >=0.4.0a1 floor of
@@ -180,7 +180,7 @@ curl -sS "$RC_BASE/sync/status?live=1" \
 
 Use **`POST /sync/stop`** to stop the **background continuous sync worker**. This does **not** stop the RC container or API — `/health` and `/discover` keep working.
 
-The worker finishes the **current file** (per `pause_policy` in `remote_controller_sync.json`), then exits. Status becomes `"scheduler_state": "not_running"`.
+The worker finishes the **current file** (per `pause_policy` in `knovas_connector_sync.json`), then exits. Status becomes `"scheduler_state": "not_running"`.
 
 **Internal LAN** (`RC_INTERNAL_LOCAL_BYPASS=true` — no JWT):
 
@@ -215,7 +215,7 @@ curl -sS -X POST "$RC_BASE/sync/stop" \
 |------|---------|
 | Stop background sync only | `POST /sync/stop` |
 | Pause uploads until you start again | `POST /sync/stop` (sync state on disk is preserved) |
-| Disable scheduler on boot | Set `"enabled": false` in `config/remote_controller_sync.json` and restart RC |
+| Disable scheduler on boot | Set `"enabled": false` in `config/knovas_connector_sync.json` and restart RC |
 | Stop the RC service entirely | `docker compose ... down` (see [Run the service](#run-the-service) above) |
 
 **Before upgrades or `docker compose down`:** call `POST /sync/stop` and wait until `worker_alive` is `false`, so the current upload can finish cleanly.
@@ -232,7 +232,7 @@ curl -sS "$RC_BASE/metrics"
 
 ## Tests
 
-From the `RemoteController` directory:
+From the `Knovas Connector` directory:
 
 ```bash
 eval "$(bash ../scripts/ci/check_knovas_extract_pin.sh)"   # the knovas-extract pin, see above
@@ -258,7 +258,7 @@ Unit tests set `RC_SKIP_CONFIG_VALIDATION` automatically via [tests/conftest.py]
 | 401 on discover/sync | Missing or malformed Bearer JWT, or no operator UUID claim |
 | 403 | Operator not allowlisted or JWT rejected by Knovas verify |
 | 503 on discover/sync | RC cannot reach `KNOVAS_INTERNAL_API_URL` |
-| Sync paused | Outside configured sync window in `config/remote_controller_sync.json` |
+| Sync paused | Outside configured sync window in `config/knovas_connector_sync.json` |
 | No files uploaded | `sources[].path` not under `RC_WATCH_ROOTS` or filters exclude files |
 | `excluded_max_age` in status | File `mtime` older than effective `max_document_age_seconds` (scheduler default or sync-body filter) |
 

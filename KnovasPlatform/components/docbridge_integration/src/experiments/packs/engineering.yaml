@@ -90,7 +90,7 @@ types:
         - key: component
           label: Komponente
           type: enum
-          options: [Suche, Ingestion, Vorschau, Cortex, RemoteController, Plattform, Sonstiges]
+          options: [Suche, Ingestion, Vorschau, Cortex, Knovas Connector, Plattform, Sonstiges]
           required: false
           help: Welcher Teil des Produkts sich ändert.
         - key: query_set
@@ -152,7 +152,7 @@ types:
         - key: component
           label: Komponente
           type: enum
-          options: [Suche, Ingestion, Vorschau, Cortex, RemoteController, Plattform, Sonstiges]
+          options: [Suche, Ingestion, Vorschau, Cortex, Knovas Connector, Plattform, Sonstiges]
           required: false
           help: Welcher Teil des Produkts sich ändert.
         - key: environment

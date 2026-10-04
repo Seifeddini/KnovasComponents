@@ -55,7 +55,7 @@ def _body(prefix):
 
 def test_the_running_worker_picks_up_a_body_and_config_saved_while_it_runs(tmp_path, monkeypatch):
     """C2: the Platform writes a new folder list and schedule into a
-    RemoteController whose continuous worker is already running. Before this,
+    Knovas Connector whose continuous worker is already running. Before this,
     the worker looped on the context it was started with for ever, so the
     console reported "uebertragen" while RC kept indexing the old folders
     behind the old walls."""

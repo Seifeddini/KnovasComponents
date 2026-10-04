@@ -21,7 +21,7 @@ In a BROKERED tenant, entity values sent by the Knovas Connector (for example
 its fields (`refused:assertion_rejected`).
 
 Design and decisions: [`docs/superpowers/plans/2026-10-02-document-fields-integration.md`](../../../docs/superpowers/plans/2026-10-02-document-fields-integration.md).
-Knovas Connector side: [`RemoteController/docs/configuration.md`](../../../RemoteController/docs/configuration.md#per-source-document-fields-dokumentfelder).
+Knovas Connector side: [`KnovasConnector/docs/configuration.md`](../../../KnovasConnector/docs/configuration.md#per-source-document-fields-dokumentfelder).
 Customer one-pager: [`docs/client/document-fields.md`](../../../docs/client/document-fields.md).
 
 ## What the tenant gets, by state
@@ -295,5 +295,5 @@ automated tests.
   outcome `ok`, or `denied` with Knovas's code in `detail.code` —
   `version_conflict`, `change_not_authorized`, `anchor_quarantined`), and every
   re-send request, from the Ingestion tab or the *Dokumentfelder* tab, as
-  `ingestion.doc_fields_requeued` (target `remote_controller` / `sync`, detail
+  `ingestion.doc_fields_requeued` (target `knovas_connector` / `sync`, detail
   `{outcome, requeued}`: each requeued document is a billed upload).

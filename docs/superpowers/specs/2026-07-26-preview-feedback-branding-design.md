@@ -20,7 +20,7 @@ Drei Arbeitspakete, in dieser Reihenfolge:
 
 `GET /api/document/<doc_id>/preview` (`app.py:1102`) liefert ausschließlich PDF inline und
 antwortet für jedes andere Format mit `415`. Es gibt keinen Konvertierungspfad im
-Serving-Code; Konvertierung passiert nur im RemoteController beim Ingest.
+Serving-Code; Konvertierung passiert nur im Knovas Connector beim Ingest.
 
 ### 1.2 Ansatz
 

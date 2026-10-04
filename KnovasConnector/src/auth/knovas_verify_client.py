@@ -328,7 +328,7 @@ def _require_operator_or_principal(func, *, roles):
         try:
             public_pem = _platform_public_pem(cfg)
         except (OSError, ValueError):
-            # RemoteController is misconfigured, not the caller. Folding
+            # Knovas Connector is misconfigured, not the caller. Folding
             # this into the uniform 401 gave an operator who mounted the
             # wrong path "Not authorized" in the console and an empty RC
             # log; the 403 "not configured" branch already reveals as much.

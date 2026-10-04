@@ -1,6 +1,6 @@
-"""A Platform-signed principal at RemoteController's door (KC-IN-1).
+"""A Platform-signed principal at Knovas Connector's door (KC-IN-1).
 
-The Platform already signs each user into its Knovas calls. RemoteController
+The Platform already signs each user into its Knovas calls. Knovas Connector
 verifies the same token so the firm's own administrator can configure their
 own ingestion - beside, not instead of, the Knovas-employee path.
 """
@@ -92,7 +92,7 @@ class TestVerify:
 
     @pytest.mark.parametrize("sub", [None, "", 7, [], {}])
     def test_a_token_that_names_no_subject_is_refused(self, keypair, sub):
-        """P-I1: `sub` is the only thing RemoteController records about who
+        """P-I1: `sub` is the only thing Knovas Connector records about who
         acted. str(None) is "None" and str(7) is "7" -- both would have been
         accepted as a subject and logged as one."""
         private, pub = keypair
@@ -185,7 +185,7 @@ class TestTheGate:
     def test_an_unreadable_pubkey_is_a_503_not_a_silent_401(self, rc_client, configured,
                                                             tmp_path, monkeypatch, caplog):
         """P-I4: an operator who mounted the wrong path got "Not authorized"
-        in the console and an empty RemoteController log -- indistinguishable
+        in the console and an empty Knovas Connector log -- indistinguishable
         from a forgery. That is a misconfiguration, and it is RC's."""
         import logging
 
@@ -224,7 +224,7 @@ class TestTheGate:
         assert r.get_json()["error"] == "Not authorized"
 
     def test_every_admitted_principal_leaves_a_log_line(self, rc_client, configured, caplog):
-        """P-I5: RemoteController recorded nothing when a tenant principal
+        """P-I5: Knovas Connector recorded nothing when a tenant principal
         rewrote its configuration. This is RC's end of the four-eyes chain."""
         import logging
 
@@ -257,9 +257,9 @@ class TestTheGate:
 
 class TestTheMountedPrivateKey:
     """I4: the Platform's whole broker key directory is mounted into
-    RemoteController, private half included. What keeps that key safe is not
+    Knovas Connector, private half included. What keeps that key safe is not
     the :ro flag -- it is that docbridge-web runs as root and writes the file
-    0600 while RemoteController runs as uid 10001. Nothing enforced that, so
+    0600 while Knovas Connector runs as uid 10001. Nothing enforced that, so
     a USER line added to the Platform image one day would silently make the
     key readable to a service that parses untrusted documents."""
 

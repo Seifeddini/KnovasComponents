@@ -1393,7 +1393,7 @@ kind has no executor — vanished from the page with no retry path. Implemented 
 
 - [ ] **Step 1: Add the Freigaben section to the feature doc**
 
-Insert before `## RemoteController`:
+Insert before `## Knovas Connector`:
 
 ```markdown
 ## Freigaben (four-eyes)

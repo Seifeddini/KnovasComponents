@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y \
 # one Tesseract thread per worker (the pool parallelises per page, OMP would
 # oversubscribe the 4 cores shared with the search UI) and the Debian
 # tessdata folder the RC image uses as well; no PyMuPDF hint to install the
-# PolyForm-NC pymupdf-layout. Mirrors RemoteController/Dockerfile.
+# PolyForm-NC pymupdf-layout. Mirrors KnovasConnector/Dockerfile.
 ENV OMP_THREAD_LIMIT=1 \
     TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
     PYMUPDF_SUGGEST_LAYOUT_ANALYZER=0
@@ -48,7 +48,7 @@ RUN grep -v '^knovas-extract' requirements.txt > /tmp/requirements-other.txt \
     && pip install --no-cache-dir -r /tmp/requirements-other.txt
 
 # knovas-extract: one pin for both customer images. Keep both defaults equal
-# to those in RemoteController/Dockerfile (scripts/ci/check_knovas_extract_pin.sh
+# to those in KnovasConnector/Dockerfile (scripts/ci/check_knovas_extract_pin.sh
 # fails CI otherwise); the CI test job installs exactly this pin.
 # KNOVAS_EXTRACT_GIT_REF empty: PyPI knovas-extract==KNOVAS_EXTRACT_VERSION.
 # Set: that revision from git -- development, and as the default only a full

@@ -26,10 +26,10 @@ sudo apt install python3.12-venv python3-full   # einmalig
 python3 -m venv .venv-demo-corpus
 source .venv-demo-corpus/bin/activate
 
-pip install -r RemoteController/scripts/demo_corpus/requirements.txt
+pip install -r KnovasConnector/scripts/demo_corpus/requirements.txt
 
-python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/
-python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py verify --out corpus/
+python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/
+python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py verify --out corpus/
 ```
 
 `corpus/` ist in `.gitignore` — ~8.800 Dateien gehören nicht in dieses Repo.
@@ -37,7 +37,7 @@ python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py verify --out co
 Danach optional RC hochfahren (separater Schritt — Zertifikate, Docker):
 
 ```bash
-cd RemoteController && bash scripts/setup_server_corpus.sh
+cd KnovasConnector && bash scripts/setup_server_corpus.sh
 ```
 
 ## Korpus von anderer Maschine übertragen
@@ -45,9 +45,9 @@ cd RemoteController && bash scripts/setup_server_corpus.sh
 Nur wenn `build` bereits auf Laptop/CI lief und `manifest.jsonl` existiert:
 
 ```bash
-python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py upload --out corpus/ \
+python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py upload --out corpus/ \
   --host <rc-host> --user master --remote-path /home/master/KnovasInternal/corpus   # Probelauf
-python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py upload --out corpus/ \
+python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py upload --out corpus/ \
   --host <rc-host> --user master --remote-path /home/master/KnovasInternal/corpus --execute
 ```
 

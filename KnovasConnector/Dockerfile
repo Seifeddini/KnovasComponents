@@ -23,8 +23,8 @@ PY
 # development, and as the default only a full 40-character commit sha, until
 # the version is on PyPI. pyproject.toml carries only the floor (>=0.4.0a1).
 # The ARGs come after the other dependencies, so a bump rebuilds only this.
-#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> remote-controller
-#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF= remote-controller   # PyPI
+#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> knovas-connector
+#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF= knovas-connector   # PyPI
 ARG KNOVAS_EXTRACT_VERSION=0.4.0a1
 ARG KNOVAS_EXTRACT_GIT_REF=2c95cbc0a8e1cae072f0e0b6f63200d84a29a672
 # Extras: [pdf,ocr,docx,msg,html,rtf,sentences]. No [markdown]: the RC never

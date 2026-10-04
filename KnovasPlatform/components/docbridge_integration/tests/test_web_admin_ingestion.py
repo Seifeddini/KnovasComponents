@@ -14,14 +14,14 @@ from conftest import platform_db_reachable
 TEMPLATES = pathlib.Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"
 
 
-class FakeRemoteControllerClient:
-    """A recording RemoteController, as DummyKnovasClient is a recording
+class FakeKnovasConnectorClient:
+    """A recording Knovas Connector, as DummyKnovasClient is a recording
     Knovas. The tab writes another service's configuration as the signed-in
     person, so the route tests have to drive that seam, not mock past it."""
 
     last_instance = None
     #: Document fields (spec 3.8). None leaves the key out of status(), the
-    #: way an older RemoteController answers. Tests set these with
+    #: way an older Knovas Connector answers. Tests set these with
     #: monkeypatch on the class, so every test starts from the old shape.
     capabilities_advertised = None
     doc_fields_block = None
@@ -43,7 +43,7 @@ class FakeRemoteControllerClient:
         self.discover_args: list[dict] = []
         self.discover_error = None
         self.requeued: list[str] = []
-        FakeRemoteControllerClient.last_instance = self
+        FakeKnovasConnectorClient.last_instance = self
 
     def count(self, name: str) -> int:
         return self.calls.count(name)
@@ -52,8 +52,8 @@ class FakeRemoteControllerClient:
         self.calls.append("discover")
         self.discover_args.append({"root": root, "max_depth": max_depth})
         if self.discover_error:
-            from remote_controller_client import RemoteControllerError
-            raise RemoteControllerError(self.discover_error)
+            from knovas_connector_client import KnovasConnectorError
+            raise KnovasConnectorError(self.discover_error)
         scan_root = root or "/data/corpus"
         by_root = {
             "/data/corpus": [
@@ -174,7 +174,7 @@ class TestShape:
 
         src = inspect.getsource(admin_ingestion)
         assert "compile_profile(" in src
-        assert "sync_request.schema" not in src and "remote_controller_sync" not in src
+        assert "sync_request.schema" not in src and "knovas_connector_sync" not in src
 
     def test_the_folder_tree_is_a_get_under_the_same_gate(self):
         from web_interface import admin_ingestion
@@ -246,7 +246,7 @@ class TestFormParsing:
 
 class TestFoldersFromDiscover:
     """The tree picker lists immediate child folders, never files, and never
-    a typed path. RemoteController /discover returns both; the console
+    a typed path. Knovas Connector /discover returns both; the console
     keeps only directories and joins them onto the scanned root."""
 
     def test_keeps_directories_and_drops_files(self):
@@ -319,7 +319,7 @@ class TestApplyProfile:
     def test_a_failed_push_leaves_one_unpushed_version_and_a_retry_reuses_it(self, monkeypatch):
         from identity.ingestion_compiler import IngestionProfile, SourceFolder
         from identity.ingestion_profiles import profile_to_json
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
         from web_interface import admin_ingestion
 
         class _FakeVersion:
@@ -358,7 +358,7 @@ class TestApplyProfile:
             def push(self, compiled):
                 self.calls += 1
                 if self.calls == 1:
-                    raise RemoteControllerError("RemoteController nicht erreichbar")
+                    raise KnovasConnectorError("Knovas Connector nicht erreichbar")
                 return {"applied": "started"}
 
         fake_repo = _FakeRepo()
@@ -369,7 +369,7 @@ class TestApplyProfile:
         payload = {"profile": profile_to_json(profile)}
         rc = _FailThenSucceedClient()
 
-        with pytest.raises(RemoteControllerError):
+        with pytest.raises(KnovasConnectorError):
             admin_ingestion.apply_profile(payload, actor=object(), conn=None, rc_client=rc)
 
         assert fake_repo.save_calls == 1
@@ -412,14 +412,14 @@ class TestApplyProfile:
 
         class _Client:
             def push(self, compiled):
-                return {"applied": "stored", "start_error": "RemoteController nicht erreichbar"}
+                return {"applied": "stored", "start_error": "Knovas Connector nicht erreichbar"}
 
         profile = IngestionProfile(identifier_prefix="kanzlei",
                                    sources=[SourceFolder(path="/mnt/autodoc/mandate")])
         out = admin_ingestion.apply_profile({"profile": profile_to_json(profile)},
                                             actor=object(), conn=None, rc_client=_Client())
         assert out["applied"] == "stored"
-        assert out["start_error"] == "RemoteController nicht erreichbar"
+        assert out["start_error"] == "Knovas Connector nicht erreichbar"
         assert recorded[-1]["detail"]["applied"] == "stored"
 
 
@@ -650,7 +650,7 @@ class TestExecuteIngestionChange:
         import uuid
 
         import pytest as _pytest
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
         from web_interface import admin_ingestion
 
         repo = self._Repo()
@@ -660,11 +660,11 @@ class TestExecuteIngestionChange:
 
         pruefer = self._Actor(uuid.uuid4(), {"approver"})
         payload = {"profile": self._profile_payload(), "requested_by": str(uuid.uuid4())}
-        with _pytest.raises(RemoteControllerError) as excinfo:
+        with _pytest.raises(KnovasConnectorError) as excinfo:
             admin_ingestion.execute_ingestion_change(payload, pruefer, conn=None, rc_client=client)
         assert "admin oder ingestion_manager" in str(excinfo.value)
         assert repo.saved == [], "no version row for an execution that cannot happen"
-        assert client.calls == [], "and nothing reaches RemoteController"
+        assert client.calls == [], "and nothing reaches Knovas Connector"
 
     def test_an_ingestion_manager_may_execute(self, monkeypatch):
         import uuid
@@ -714,20 +714,20 @@ class TestExecuteIngestionChange:
                     reason="No PostgreSQL at the identity test DSN")
 class TestLive:
     """I5: nothing drove /admin/ingestion* through the app. C1 and C2 are
-    exactly the kind of thing a route test with a fake RemoteController
+    exactly the kind of thing a route test with a fake Knovas Connector
     surfaces, and the Freigaben tab got one while this tab did not."""
 
     @pytest.fixture
     def rc(self, monkeypatch):
         """Substituted before create_app: app.py does `from
-        remote_controller_client import RemoteControllerClient` inside the
+        knovas_connector_client import KnovasConnectorClient` inside the
         factory, so patching the module attribute is what reaches it."""
-        import remote_controller_client
+        import knovas_connector_client
 
-        FakeRemoteControllerClient.last_instance = None
-        monkeypatch.setattr(remote_controller_client, "RemoteControllerClient",
-                            FakeRemoteControllerClient)
-        return FakeRemoteControllerClient
+        FakeKnovasConnectorClient.last_instance = None
+        monkeypatch.setattr(knovas_connector_client, "KnovasConnectorClient",
+                            FakeKnovasConnectorClient)
+        return FakeKnovasConnectorClient
 
     @pytest.fixture
     def client(self, rc, identity_app):
@@ -823,7 +823,7 @@ class TestLive:
         assert str(row[1]) == str(people["chef@kanzlei.ch"].id), "the approver confirmed it"
         assert row[2] is not None, "and it is marked pushed"
 
-    def test_save_restore_start_and_stop_each_reach_remote_controller_once(
+    def test_save_restore_start_and_stop_each_reach_knovas_connector_once(
         self, client, people, rc, platform_db
     ):
         from _console import post_form, sign_in
@@ -850,7 +850,7 @@ class TestLive:
             "SELECT action FROM audit_log").fetchall()]
         assert actions.count("ingestion.stopped") == 1
 
-    def test_preview_asks_remote_controller_per_folder_and_saves_nothing(
+    def test_preview_asks_knovas_connector_per_folder_and_saves_nothing(
         self, client, people, rc, platform_db
     ):
         from _console import post_form, sign_in
@@ -900,11 +900,11 @@ class TestLive:
         assert client.get("/admin/ingestion/folders").status_code == 403
         assert rc.last_instance.count("discover") == 0
 
-    def test_folders_names_a_remote_controller_failure(self, client, people, rc):
+    def test_folders_names_a_knovas_connector_failure(self, client, people, rc):
         from _console import sign_in
 
         sign_in(client, "chef@kanzlei.ch")
-        rc.last_instance.discover_error = "RemoteController nicht erreichbar"
+        rc.last_instance.discover_error = "Knovas Connector nicht erreichbar"
         r = client.get("/admin/ingestion/folders")
         assert r.status_code == 502
         body = r.get_json()
@@ -914,7 +914,7 @@ class TestLive:
 
 # --- Erneute Übernahme -------------------------------------------------------
 #
-# RemoteController überspringt, was sein Zustandsspeicher als übertragen führt.
+# Knovas Connector überspringt, was sein Zustandsspeicher als übertragen führt.
 # Das ist richtig, solange beide Seiten dasselbe glauben. Wurde der Bestand bei
 # Knovas neu aufgesetzt, stehen die Dateien dort weiter als "synced", der Zyklus
 # meldet "uploaded=0 scanned=207 errors=0" und lädt nie wieder etwas hoch --
@@ -986,7 +986,7 @@ ALL_CAPS = ("source_fields_v1", "field_templates_v1", "metadata_fields_v1", "fie
 
 
 class _RC:
-    """A minimal RemoteController for the pure helpers."""
+    """A minimal Knovas Connector for the pure helpers."""
 
     def __init__(self, caps=ALL_CAPS):
         self.caps = frozenset(caps)
@@ -1159,7 +1159,7 @@ class TestStatusBar:
         status.update(extra)
         return status
 
-    def test_an_older_remote_controller_shows_nothing(self):
+    def test_an_older_knovas_connector_shows_nothing(self):
         from doc_fields_capability import Capability
         from web_interface.admin_ingestion import doc_fields_status
 
@@ -1205,7 +1205,7 @@ class TestStatusBar:
         # not_accepted only once Knovas offers fields again
         assert offers(Capability.off) == ["refused", "reupload_failed"]
         assert offers(Capability.unknown) == ["refused", "reupload_failed"]
-        # and nothing from a RemoteController that cannot requeue
+        # and nothing from a Knovas Connector that cannot requeue
         assert offers(Capability.values, caps=("source_fields_v1",)) == []
 
     def test_a_quiet_block(self):
@@ -1299,7 +1299,7 @@ class TestCheckProfileFields:
         (("source_fields_v1",), {"metadata_fields": ("language",)}),
         (("field_templates_v1",), {"field_templates": ("{mandant}/**",)}),
     ])
-    def test_a_remote_controller_without_the_capability_refuses_the_save(self, caps, source_kw):
+    def test_a_knovas_connector_without_the_capability_refuses_the_save(self, caps, source_kw):
         from identity.ingestion_compiler import RC_TOO_OLD, ProfileError
 
         with pytest.raises(ProfileError) as excinfo:
@@ -1307,9 +1307,9 @@ class TestCheckProfileFields:
         assert str(excinfo.value) == RC_TOO_OLD
         assert "Der Knovas Connector ist zu alt \u2013 bitte aktualisieren" in RC_TOO_OLD
 
-    def test_an_unreachable_remote_controller_is_not_called_too_old(self):
+    def test_an_unreachable_knovas_connector_is_not_called_too_old(self):
         from identity.ingestion_compiler import RC_UNREACHABLE, ProfileError
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
         from web_interface.admin_ingestion import _require_rc_support
 
         class _Down(_RC):
@@ -1321,7 +1321,7 @@ class TestCheckProfileFields:
             self._check(_profile(_folder(fields={"doc_type": "invoice"})), rc=_Down())
         assert str(excinfo.value) == RC_UNREACHABLE
         assert "nicht erreichbar" in RC_UNREACHABLE and "zu alt" not in RC_UNREACHABLE
-        with pytest.raises(RemoteControllerError) as pushed:
+        with pytest.raises(KnovasConnectorError) as pushed:
             _require_rc_support(_Down(), {"sources": [{"path": "/a", "fields": {"doc_type": "x"}}]})
         assert "nicht erreichbar" in str(pushed.value)
         # A body without fields asks nobody, reachable or not.
@@ -1416,7 +1416,7 @@ class TestCheckProfileFields:
         assert check.profile.sources[0].metadata_fields == ("keywords", "document_status")
 
 
-class TestTheExecutorRefusesAnOldRemoteController:
+class TestTheExecutorRefusesAnOldKnovasConnector:
     """An approved change can run long after it was asked for; the executor
     checks again, before any version row (spec 4.8, 2.5)."""
 
@@ -1451,13 +1451,13 @@ class TestTheExecutorRefusesAnOldRemoteController:
         return {"profile": profile_to_json(_profile(_folder(
             fields={"mandant": SENTINEL}, field_templates=(f"{SENTINEL}/{{period}}/**",))))}
 
-    def test_old_remote_controller(self, monkeypatch):
-        from remote_controller_client import RemoteControllerError
+    def test_old_knovas_connector(self, monkeypatch):
+        from knovas_connector_client import KnovasConnectorError
         from web_interface import admin_ingestion
 
         repo, client = self._Repo(), self._Client(caps=("source_fields_v1",))
         monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: repo)
-        with pytest.raises(RemoteControllerError) as excinfo:
+        with pytest.raises(KnovasConnectorError) as excinfo:
             admin_ingestion.execute_ingestion_change(
                 self._payload(), TestExecuteIngestionChange._Actor("a", {"admin"}),
                 conn=None, rc_client=client)
@@ -1486,7 +1486,7 @@ class TestTheExecutorRefusesAnOldRemoteController:
 
         class _NoCaps(self._Client):
             def capabilities(self):
-                raise AssertionError("an old RemoteController is never asked")
+                raise AssertionError("an old Knovas Connector is never asked")
 
         repo, client = self._Repo(), _NoCaps(caps=())
         monkeypatch.setattr(admin_ingestion, "IngestionProfileRepository", lambda conn: repo)
@@ -1527,7 +1527,7 @@ class TestApprovalsSummaryCountsFields:
         assert text == "1 Ordner (0 mit Zugriffsgruppen), nightly, normal, documents"
 
 
-class TestRemoteControllerClientDocFields:
+class TestKnovasConnectorClientDocFields:
     """``health``, ``capabilities`` and ``requeue_doc_fields`` (spec 4.8)."""
 
     class _Broker:
@@ -1558,10 +1558,10 @@ class TestRemoteControllerClientDocFields:
             return self.answer
 
     def _client(self, answer, user="u-1"):
-        from remote_controller_client import RemoteControllerClient
+        from knovas_connector_client import KnovasConnectorClient
 
         session = self._Session(answer)
-        return RemoteControllerClient("http://rc:5001", principal_broker=self._Broker(user),
+        return KnovasConnectorClient("http://rc:5001", principal_broker=self._Broker(user),
                                       session=session), session
 
     def test_health_is_status(self):
@@ -1597,15 +1597,15 @@ class TestRemoteControllerClientDocFields:
         with pytest.raises(ValueError):
             client.requeue_doc_fields("everything")
 
-    def test_requeue_on_an_old_remote_controller_is_an_error(self):
-        from remote_controller_client import RemoteControllerError
+    def test_requeue_on_an_old_knovas_connector_is_an_error(self):
+        from knovas_connector_client import KnovasConnectorError
 
         client, _ = self._client(self._Resp(404, {"error": "Not Found"}))
-        with pytest.raises(RemoteControllerError):
+        with pytest.raises(KnovasConnectorError):
             client.requeue_doc_fields("all")
 
     def test_required_capabilities(self):
-        from remote_controller_client import required_capabilities
+        from knovas_connector_client import required_capabilities
 
         assert required_capabilities({"sources": [{"path": "/a"}]}) == frozenset()
         assert required_capabilities({"sources": [
@@ -1617,7 +1617,7 @@ class TestRemoteControllerClientDocFields:
             "source_fields_v1", "field_templates_v1"}
 
     def test_the_file_property_items_need_v2(self):
-        from remote_controller_client import CAP_METADATA_FIELDS_V2, required_capabilities
+        from knovas_connector_client import CAP_METADATA_FIELDS_V2, required_capabilities
 
         assert CAP_METADATA_FIELDS_V2 == "metadata_fields_v2"
         assert required_capabilities({"sources": [{"path": "/a", "metadata_fields": ["language"]}]}) == {
@@ -1682,13 +1682,13 @@ class TestTemplateFields:
         assert 'data-template-preview="/admin/template_preview_json"' in html
         assert "Vorlagen testen" in html
 
-    def test_notes_when_knovas_or_remote_controller_cannot_take_them(self):
+    def test_notes_when_knovas_or_knovas_connector_cannot_take_them(self):
         html = _render(doc_fields=_df(available=False, rc_supports=False, multi_source=True))
         assert "Knovas stellt Dokumentfelder derzeit nicht bereit" in html
         assert "Der Knovas Connector meldet keine Unterst\u00fctzung" in html
         assert "der erste Ordner" in html
 
-    def test_an_unreachable_remote_controller_is_not_called_too_old(self):
+    def test_an_unreachable_knovas_connector_is_not_called_too_old(self):
         html = _render(doc_fields=_df(rc_supports=None))
         assert "Der Knovas Connector ist nicht erreichbar" in html
         assert "Der Knovas Connector meldet keine Unterst\u00fctzung" not in html
@@ -1757,7 +1757,7 @@ class TestFrontendStaysTextOnly:
                     reason="No PostgreSQL at the identity test DSN")
 class TestLiveDocumentFields:
     """The tab against FakeDocFieldsApi in ``values`` mode (secured) and the
-    recording RemoteController, through the real app and login."""
+    recording Knovas Connector, through the real app and login."""
 
     FORM = dict(SAVE_FORM, **{
         "folder-0-fields": "doc_type = Rechnung",
@@ -1767,19 +1767,19 @@ class TestLiveDocumentFields:
 
     @pytest.fixture
     def rc(self, monkeypatch):
-        import remote_controller_client
+        import knovas_connector_client
 
-        FakeRemoteControllerClient.last_instance = None
-        monkeypatch.setattr(remote_controller_client, "RemoteControllerClient",
-                            FakeRemoteControllerClient)
-        monkeypatch.setattr(FakeRemoteControllerClient, "capabilities_advertised", list(ALL_CAPS))
-        monkeypatch.setattr(FakeRemoteControllerClient, "extra_entries", {
+        FakeKnovasConnectorClient.last_instance = None
+        monkeypatch.setattr(knovas_connector_client, "KnovasConnectorClient",
+                            FakeKnovasConnectorClient)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "capabilities_advertised", list(ALL_CAPS))
+        monkeypatch.setattr(FakeKnovasConnectorClient, "extra_entries", {
             "/mnt/autodoc/mandate": [
                 {"type": "file", "path": "Muster AG/GJ 2024/Rechnung_17.pdf"},
                 {"type": "file", "path": "Beispiel GmbH/GJ 2023/Belege/Brief.pdf"},
                 {"type": "file", "path": "Notiz.pdf"},
             ]})
-        return FakeRemoteControllerClient
+        return FakeKnovasConnectorClient
 
     @pytest.fixture
     def knovas_mode(self):
@@ -1829,8 +1829,8 @@ class TestLiveDocumentFields:
                                "max_file_megabytes", "exclude_globs", "delete_on_remove",
                                "description"}
 
-    def test_an_old_remote_controller_gets_nothing(self, client, rc, platform_db, monkeypatch):
-        monkeypatch.setattr(FakeRemoteControllerClient, "capabilities_advertised", None)
+    def test_an_old_knovas_connector_gets_nothing(self, client, rc, platform_db, monkeypatch):
+        monkeypatch.setattr(FakeKnovasConnectorClient, "capabilities_advertised", None)
         r = self._save(client, **self.FORM)
         assert r.status_code == 400
         assert "Der Knovas Connector ist zu alt" in r.data.decode("utf-8")
@@ -1842,7 +1842,7 @@ class TestLiveDocumentFields:
         """platform-admin-ingestion-5: an RC that cannot be asked right now
         is never told to update."""
         from identity.ingestion_profiles import IngestionProfileRepository
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
         IngestionProfileRepository(platform_db).save_new_version(
             _profile(_folder("/mnt/autodoc/mandate", fields={"doc_type": "invoice"}),
@@ -1850,17 +1850,17 @@ class TestLiveDocumentFields:
             by=identity_repo.get_by_email("chef@kanzlei.ch"))
 
         def timeout(self):
-            raise RemoteControllerError("RemoteController nicht erreichbar: timeout", status=None)
+            raise KnovasConnectorError("Knovas Connector nicht erreichbar: timeout", status=None)
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "status", timeout)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "status", timeout)
         html = client.get("/admin/ingestion").data.decode("utf-8")
         assert "Der Knovas Connector ist nicht erreichbar" in html
         assert "Der Knovas Connector meldet keine Unterst\u00fctzung" not in html
 
-    def test_an_old_remote_controller_still_takes_a_profile_without_fields(
+    def test_an_old_knovas_connector_still_takes_a_profile_without_fields(
         self, client, rc, monkeypatch
     ):
-        monkeypatch.setattr(FakeRemoteControllerClient, "capabilities_advertised", None)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "capabilities_advertised", None)
         assert self._save(client, **SAVE_FORM).status_code == 200
         (compiled,) = rc.last_instance.pushed
         assert set(compiled.sync_request["sources"][0]) == {"path", "recursive"}
@@ -1874,8 +1874,8 @@ class TestLiveDocumentFields:
     def test_a_field_change_needs_the_confirmation_and_states_the_cost(
         self, client, rc, monkeypatch, platform_db
     ):
-        monkeypatch.setattr(FakeRemoteControllerClient, "document_sync", {"total": 20000})
-        monkeypatch.setattr(FakeRemoteControllerClient, "doc_fields_block",
+        monkeypatch.setattr(FakeKnovasConnectorClient, "document_sync", {"total": 20000})
+        monkeypatch.setattr(FakeKnovasConnectorClient, "doc_fields_block",
                             {"enabled": True, "server": "accepted", "per_cycle": 100})
         assert self._save(client, **self.FORM).status_code == 200
         changed = dict(self.FORM, **{"folder-0-fields": "doc_type = Vertrag"})
@@ -1953,10 +1953,10 @@ class TestLiveDocumentFields:
     def test_the_status_bar_and_requeue(self, client, rc, platform_db, monkeypatch):
         from _console import post_form
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "doc_fields_block", {
+        monkeypatch.setattr(FakeKnovasConnectorClient, "doc_fields_block", {
             "enabled": True, "server": "accepted", "per_cycle": 100,
             "documents": {"refused": 3, "pending_reupload": 5}})
-        monkeypatch.setattr(FakeRemoteControllerClient, "requeue_answer", 3)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "requeue_answer", 3)
         html = client.get("/admin/ingestion").data.decode("utf-8")
         assert "Felder bei 3 Uploads abgelehnt" in html
         assert 'name="outcome" value="refused"' in html
@@ -2260,14 +2260,14 @@ class TestLiveReextract:
 
     @pytest.fixture
     def rc(self, monkeypatch):
-        import remote_controller_client
+        import knovas_connector_client
 
-        FakeRemoteControllerClient.last_instance = None
-        monkeypatch.setattr(remote_controller_client, "RemoteControllerClient",
-                            FakeRemoteControllerClient)
-        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block", dict(self.BLOCK))
-        monkeypatch.setattr(FakeRemoteControllerClient, "reextract_answer", {"requeued": 20000})
-        return FakeRemoteControllerClient
+        FakeKnovasConnectorClient.last_instance = None
+        monkeypatch.setattr(knovas_connector_client, "KnovasConnectorClient",
+                            FakeKnovasConnectorClient)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "extraction_block", dict(self.BLOCK))
+        monkeypatch.setattr(FakeKnovasConnectorClient, "reextract_answer", {"requeued": 20000})
+        return FakeKnovasConnectorClient
 
     @pytest.fixture
     def client(self, rc, identity_app):
@@ -2372,7 +2372,7 @@ class TestLiveReextract:
     def test_nothing_outdated_queues_nothing(self, client, people, rc, monkeypatch):
         from _console import sign_in
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block",
+        monkeypatch.setattr(FakeKnovasConnectorClient, "extraction_block",
                             dict(self.BLOCK, outdated=0))
         sign_in(client, "chef@kanzlei.ch")
         r = self._post(client, confirm_reextract="0")
@@ -2382,10 +2382,10 @@ class TestLiveReextract:
 
     def test_an_old_connector_is_told_to_update(self, client, people, rc, monkeypatch):
         from _console import sign_in
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "reextract_error",
-                            RemoteControllerError("HTTP 404", status=404))
+        monkeypatch.setattr(FakeKnovasConnectorClient, "reextract_error",
+                            KnovasConnectorError("HTTP 404", status=404))
         sign_in(client, "chef@kanzlei.ch")
         r = self._post(client, confirm_reextract="20000")
         assert r.status_code == 502
@@ -2396,7 +2396,7 @@ class TestLiveReextract:
     ):
         from _console import sign_in
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block", None)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "extraction_block", None)
         sign_in(client, "chef@kanzlei.ch")
         assert "\u00e4lterer Extraktion" not in client.get("/admin/ingestion").data.decode("utf-8")
         r = self._post(client, confirm_reextract="20000")
@@ -2406,12 +2406,12 @@ class TestLiveReextract:
 
     def test_an_unreachable_connector_is_not_called_too_old(self, client, people, rc, monkeypatch):
         from _console import sign_in
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
         def down(self):
-            raise RemoteControllerError("Knovas Connector nicht erreichbar: timeout", status=None)
+            raise KnovasConnectorError("Knovas Connector nicht erreichbar: timeout", status=None)
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "status", down)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "status", down)
         sign_in(client, "chef@kanzlei.ch")
         r = self._post(client, confirm_reextract="20000")
         html = r.data.decode("utf-8")

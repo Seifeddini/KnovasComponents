@@ -1,7 +1,7 @@
 """Test helpers: drive the mock Knovas API through `requests`, in-process.
 
 Load this file by path, never as a package: `app` is a module name the
-RemoteController (src/app.py) already uses.
+Knovas Connector (src/app.py) already uses.
 
     spec = importlib.util.spec_from_file_location("knovas_mock_testing", path)
     testing = importlib.util.module_from_spec(spec)

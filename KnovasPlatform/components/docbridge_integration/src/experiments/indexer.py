@@ -12,7 +12,7 @@ instead). The Platform additionally strips experiment hits from the search of
 everyone without a viewing role (search.SearchIntegration).
 
 Uploads use a second, unsigned KnovasAPIClient (no principal broker), like
-RemoteController: the worker thread has no signed-in user to assert.
+Knovas Connector: the worker thread has no signed-in user to assert.
 
 Plan: docs/superpowers/plans/2026-09-28-experiments-module.md (section 11)
 """

@@ -1,4 +1,4 @@
-"""The RemoteController's document-fields uploads against the mock Knovas API.
+"""The Knovas Connector's document-fields uploads against the mock Knovas API.
 
 The mock (``KnovasPlatform/mock_knovas_api``) plays every server state:
 ``off`` (an old server, or the feature off for the tenant), ``values``,
@@ -43,7 +43,7 @@ SOURCE_FIELDS = {"fields": {"doc_type": "Rechnung", "doctype": "invoice"},
 
 
 def _today_body(rel: str, *, title: str, access_groups=None) -> bytes:
-    """The init body exactly as the RemoteController sent it before document
+    """The init body exactly as the Knovas Connector sent it before document
     fields existed, as `requests` encodes `json=`."""
     body: dict[str, Any] = {"identifier": f"rc-sync/{rel}", "part_count": 1, "title": title,
                             "path": rel}
@@ -207,7 +207,7 @@ def test_a_forced_refusal_indexes_the_document_without_fields(rig, refusal, expe
 
 class TestBrokered:
     def test_entity_values_without_assertion_stay_unlinked(self, rig):
-        """Server S1: the RemoteController sends no assertion, so Knovas keeps
+        """Server S1: the Knovas Connector sends no assertion, so Knovas keeps
         its entity names unlinked instead of refusing the upload."""
         rig.mock(doc_fields="values", brokered=True)
         rig.write(REL)

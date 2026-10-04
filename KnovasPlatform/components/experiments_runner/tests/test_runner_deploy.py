@@ -23,7 +23,7 @@ DOCTOR = REPO / "scripts" / "doctor.sh"
 SETUP = REPO / "scripts" / "setup.sh"
 STACK_IDENTITY = REPO / "scripts" / "lib" / "stack_identity.sh"
 READ_ENV = REPO / "KnovasPlatform" / "scripts" / "lib" / "read_env.sh"
-RC_DOCKERFILE = REPO / "RemoteController" / "Dockerfile"
+RC_DOCKERFILE = REPO / "KnovasConnector" / "Dockerfile"
 
 pytestmark = pytest.mark.skipif(not COMPOSE.exists(), reason="not inside the repository")
 
@@ -36,7 +36,7 @@ def _runner_service(compose: str) -> str:
 
 def test_the_runner_uid_is_its_own_and_the_same_everywhere():
     # review-deploy-2: RLIMIT_NPROC counts every process of a uid on the host,
-    # so the runner must not share RemoteController's uid.
+    # so the runner must not share Knovas Connector's uid.
     compose = COMPOSE.read_text(encoding="utf-8")
     service = _runner_service(compose)
     user = re.search(r'user:\s*"(\d+):(\d+)"', service)

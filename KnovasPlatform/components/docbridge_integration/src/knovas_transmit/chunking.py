@@ -1,6 +1,6 @@
 """Build transmission parts from knovas-extract content.
 
-Mirror of ``RemoteController/src/sync/chunking.py``: page-break markers
+Mirror of ``KnovasConnector/src/sync/chunking.py``: page-break markers
 (GI-INGEST-17), section headings and part budgets behave exactly as in the
 RC's sync pipeline, so an admin upload and a synced file produce the same
 wire format.

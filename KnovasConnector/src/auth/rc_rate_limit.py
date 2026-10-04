@@ -1,4 +1,4 @@
-"""GI-RC-02 rate limit decorators for Remote Controller API."""
+"""GI-RC-02 rate limit decorators for Knovas Connector API."""
 from __future__ import annotations
 
 from functools import wraps

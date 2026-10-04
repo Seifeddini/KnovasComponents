@@ -1,6 +1,6 @@
 """Section/page boundary helpers for knovas-extract aligned chunking.
 
-Mirror of ``RemoteController/src/sync/section_pages.py``: the Platform's
+Mirror of ``KnovasConnector/src/sync/section_pages.py``: the Platform's
 admin upload builds the same wire format as the RC's sync pipeline.
 """
 from __future__ import annotations

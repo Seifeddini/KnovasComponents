@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RC_FILE="${1:-$ROOT_DIR/RemoteController/Dockerfile}"
+RC_FILE="${1:-$ROOT_DIR/KnovasConnector/Dockerfile}"
 PF_FILE="${2:-$ROOT_DIR/KnovasPlatform/components/docbridge_integration/Dockerfile}"
 VERSION_RE='^[0-9]+(\.[0-9]+)*((a|b|rc)[0-9]+)?(\.post[0-9]+)?(\.dev[0-9]+)?$'
 SHA_RE='^[0-9a-f]{40}$'

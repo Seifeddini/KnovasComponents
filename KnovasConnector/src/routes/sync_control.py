@@ -74,7 +74,7 @@ def sync_stop():
 @_apply_decorators
 def sync_status():
     status = get_scheduler_status()
-    # What this RemoteController understands in a sync body (the Platform
+    # What this Knovas Connector understands in a sync body (the Platform
     # refuses to push profile keys an older RC would answer 400 to), and the
     # Knovas document-fields state: keys, codes and counts, never values.
     status["capabilities"] = list(RC_CAPABILITIES)

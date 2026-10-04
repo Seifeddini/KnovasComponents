@@ -109,7 +109,7 @@ class TestSyncBody:
     def test_a_template_that_does_not_compile_is_refused(self, rc_client, auth_headers,
                                                          as_employee, tmp_path, monkeypatch,
                                                          route):
-        """A stored body whose template RemoteController cannot compile
+        """A stored body whose template Knovas Connector cannot compile
         would skip its whole source every cycle -- no new file of it is
         indexed. The routes refuse it, naming the JSON path and the code,
         never the template."""

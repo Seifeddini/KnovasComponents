@@ -2,7 +2,7 @@
 
 Datum: 2026-09-11
 Betrifft: `KnovasPlatform/components/docbridge_integration/src/web_interface` (Platform);
-optional `RemoteController/src/sync` und `docker-compose.yml`
+optional `KnovasConnector/src/sync` und `docker-compose.yml`
 Vorgänger: `docs/superpowers/specs/2026-07-30-trefferliste-design.md`,
 `docs/superpowers/specs/2026-07-26-preview-feedback-branding-design.md`,
 `docs/search-ui-backlog.md`
@@ -33,7 +33,7 @@ Tests je Format; Dokumentation; ein Demo-Drehbuch.
 
 **Aufwand Basispaket: 31 Personentage (PT) netto, 36 PT mit Reserve.**
 Sieben Wochen mit einer Entwicklerin, vier Wochen mit zwei.
-**Optionen:** Vorwärmen im RemoteController (2 PT), Render-Dienst für
+**Optionen:** Vorwärmen im Knovas Connector (2 PT), Render-Dienst für
 layouttreue Office-Seiten (6–8 PT), durchsuchbare Textebene für Scans (3 PT).
 
 ---
@@ -75,7 +75,7 @@ Fehlerfall der Demo.
   `max-age` abgelaufen sind.
 - Der Dialog zeigt die Fundstellen nicht. Die Suchantwort trägt je Treffer
   `top_chunks[]` mit `page_number`/`sentence_number`, und der Kontext-Sidecar
-  (`.search_context`, vom RemoteController geschrieben) hat den Text jedes
+  (`.search_context`, vom Knovas Connector geschrieben) hat den Text jedes
   Satzes samt Seite. Beides liegt vor; es wird nur der erste Treffer zu einem
   `context_snippet` verarbeitet.
 - Die Datei-Endpunkte (`/preview`, `/thumbnail`, `/preview-content`,
@@ -91,7 +91,7 @@ Vorhanden und getestet:
 
 - **Kontext-Sidecar je Dokument** (`context_store.py`): alle Sätze mit Index
   `i`, Text `t` und Seite `p` (bei PDF), dazu der Text der ersten Seite.
-  Geschrieben vom RemoteController beim Indexieren, gelesen von der Platform
+  Geschrieben vom Knovas Connector beim Indexieren, gelesen von der Platform
   über das gemeinsame Volume `rc-state` (`/var/rc-state/search_context`).
 - **Trefferorte von Knovas**: `page_number`, `sentence_number` und
   `top_chunks[]` mit `cosine_similarity` je Fundstelle.
@@ -352,9 +352,9 @@ Bewusst nicht im `docbridge-web`-Image: die Gründe vom 2026-07-26
 (Imagegrösse, Angriffsfläche) gelten dort weiter; ein isolierter Dienst hebt
 sie auf.
 
-### 3.6 Option E1 · Vorwärmen im RemoteController
+### 3.6 Option E1 · Vorwärmen im Knovas Connector
 
-Der RemoteController liest beim Indexieren ohnehin jede Datei und schreibt
+Der Knovas Connector liest beim Indexieren ohnehin jede Datei und schreibt
 den Kontext-Sidecar nach `/var/rc-state/search_context`. Mit dieser Option
 schreibt er daneben `search_preview/<sha256>-w520.png` — die Platform findet
 das Bild auf dem gemeinsamen Volume (`rc-state`, bereits `:ro` eingebunden)
@@ -367,7 +367,7 @@ eine Zeile in `pyproject.toml`).
 
 Gescannte PDFs haben keine Textebene; die OCR läuft beim Indexieren und ihr
 Text geht nur an Knovas und in den Sidecar. Mit dieser Option legt der
-RemoteController je Scan eine Kopie mit unsichtbarer Textebene
+Knovas Connector je Scan eine Kopie mit unsichtbarer Textebene
 (`search_ocr/<sha256>.pdf`) ab; der Viewer nutzt sie für die Markierung,
 «Öffnen» öffnet weiterhin das Original. Kostet Plattenplatz in der Grösse
 des Scan-Bestands.
@@ -421,7 +421,7 @@ PT = Personentag (8 h). Netto ohne Reserve; Reserve 15 % in Abschnitt 10.
 
 | WP | Inhalt | PT |
 | --- | --- | --- |
-| E1 | Vorwärmen im RemoteController (3.6) | 2,0 |
+| E1 | Vorwärmen im Knovas Connector (3.6) | 2,0 |
 | E2 | Render-Dienst LibreOffice (3.5): Image, API, Limits, Platform-Anbindung für Vorschaubild und paginierte DOCX-Ansicht, Setup-Doku | 6–8 |
 | E3 | Textebene für Scans (3.7) | 3,0 |
 
@@ -495,7 +495,7 @@ Messbar, auf dem Demo-Korpus und auf einem Kundensystem mit Share-Anbindung:
 | Knovas-API ohne `offset`/Filter | «Mehr laden» bleibt eine zweite Suche | unverändert, nicht Teil dieses Plans (Pflichtenheft F3) |
 
 Annahmen: Browser sind aktuelle Evergreen-Versionen (natives `<dialog>` ist
-schon heute Voraussetzung); der RemoteController schreibt Sidecars (Standard
+schon heute Voraussetzung); der Knovas Connector schreibt Sidecars (Standard
 im vereinten Stack); das Kundensystem hat auf dem Volume
 `docbridge_integration_data` 2 GB frei für den Cache.
 
@@ -541,7 +541,7 @@ Auf dem Demo-Kanzlei-Korpus, fünf Minuten:
 | Position | Umfang | PT netto | mit 15 % Reserve | Preis |
 | --- | --- | --- | --- | --- |
 | **Basispaket** | A + B + C + D (Abschnitt 4) | 31,0 | 36 | PT × Tagessatz |
-| Option E1 | Vorwärmen im RemoteController | 2,0 | 2,5 | |
+| Option E1 | Vorwärmen im Knovas Connector | 2,0 | 2,5 | |
 | Option E2 | Render-Dienst (layouttreue Office-Seiten, paginierte DOCX-Ansicht) | 6–8 | 7–9 | |
 | Option E3 | Textebene für Scans | 3,0 | 3,5 | |
 | Betrieb | pdf.js-Aktualisierung vierteljährlich, Cache-Kennzahlen prüfen | 0,5 / Quartal | | Wartungsvertrag |
@@ -575,9 +575,9 @@ je einen Compose-Service (E2) oder eine RC-Einstellung (E1, E3) mit.
 - `RELEASE_NOTES.md`, `docs/search-ui-backlog.md`, `KnovasPlatform/docs/README.md`
 
 **Optionen**
-- E1: `RemoteController/src/sync/preview_sidecar.py`, `RC_PREVIEW_PREWARM`
+- E1: `KnovasConnector/src/sync/preview_sidecar.py`, `RC_PREVIEW_PREWARM`
 - E2: `KnovasPlatform/components/knovas_render/` (Dockerfile, `app.py`), `docker-compose.yml` Profil `render`, `RENDER_SERVICE_URL`
-- E3: `RemoteController/src/sync/ocr_layer.py`, `RC_OCR_TEXT_LAYER`
+- E3: `KnovasConnector/src/sync/ocr_layer.py`, `RC_OCR_TEXT_LAYER`
 
 ## Anhang B · Offene Entscheidungen
 

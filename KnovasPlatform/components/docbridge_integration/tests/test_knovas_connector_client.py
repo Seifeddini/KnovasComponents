@@ -1,4 +1,4 @@
-"""The console reaches RemoteController as the signed-in person, never anonymously."""
+"""The console reaches Knovas Connector as the signed-in person, never anonymously."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 import requests
 
 from identity.ingestion_compiler import CompiledIngestion
-from remote_controller_client import RemoteControllerClient, RemoteControllerError
+from knovas_connector_client import KnovasConnectorClient, KnovasConnectorError
 
 
 class _Broker:
@@ -40,12 +40,12 @@ class _Session:
         return handler(kw) if callable(handler) else (handler or _Resp(200))
 
 
-BASE = "http://remote-controller:5001"
+BASE = "http://knovas-connector:5001"
 
 
 def test_every_call_carries_the_principal_header():
     session = _Session({("GET", "status"): _Resp(200, {"state": "idle"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     assert client.status() == {"state": "idle"}
     _, url, _, headers = session.calls[0]
     assert url == f"{BASE}/sync/status"
@@ -54,7 +54,7 @@ def test_every_call_carries_the_principal_header():
 
 def test_no_user_means_no_call():
     session = _Session({})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(user=None), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(user=None), session=session)
     with pytest.raises(PermissionError):
         client.status()
     assert session.calls == []
@@ -74,7 +74,7 @@ def test_push_stores_the_body_and_starts_an_idle_continuous_scheduler():
                         ("POST", "body"): _Resp(200, {"status": "stored"}),
                         ("GET", "status"): IDLE_STATUS,
                         ("POST", "start"): _Resp(200, {"scheduler_status": "running"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     out = client.push(CompiledIngestion(sync_config={"mode": "continuous"},
                                         sync_request={"mode": "incremental"}))
     assert out == {"applied": "started"}
@@ -91,7 +91,7 @@ def test_push_leaves_a_running_scheduler_alone_and_says_next_cycle():
                         ("POST", "body"): _Resp(200, {"status": "stored"}),
                         ("GET", "status"): RUNNING_STATUS,
                         ("POST", "start"): _Resp(200)})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     out = client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
     assert out == {"applied": "next_cycle"}
     assert ("POST", "start") not in _steps(session)
@@ -103,7 +103,7 @@ def test_a_one_time_profile_is_only_stored_never_run():
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): _Resp(200),
                         ("POST", "body"): _Resp(200, {"status": "stored"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     out = client.push(CompiledIngestion(sync_config={"mode": "one_time"}, sync_request={}))
     assert out == {"applied": "stored"}
     assert _steps(session) == [("GET", "config"), ("POST", "config"), ("POST", "body")]
@@ -113,8 +113,8 @@ def test_a_refused_body_restores_the_previous_config():
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): _Resp(200),
                         ("POST", "body"): _Resp(400, {"error": "bad body"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
     assert excinfo.value.status == 400
     posted_configs = [body for m, u, body, _ in session.calls if m == "POST" and u.endswith("/sync/config")]
@@ -122,14 +122,14 @@ def test_a_refused_body_restores_the_previous_config():
 
 
 def test_a_failed_start_is_reported_without_rolling_the_profile_back():
-    """The profile IS on RemoteController; only starting it failed. Undoing
+    """The profile IS on Knovas Connector; only starting it failed. Undoing
     the config here would leave the folder list and the schedule disagreeing."""
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): _Resp(200),
                         ("POST", "body"): _Resp(200, {"status": "stored"}),
                         ("GET", "status"): IDLE_STATUS,
                         ("POST", "start"): _Resp(400, {"error": "No sync body available"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     out = client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
     assert out["applied"] == "stored"
     assert "No sync body available" in out["start_error"]
@@ -139,12 +139,12 @@ def test_a_failed_start_is_reported_without_rolling_the_profile_back():
 
 def test_status_and_discover_do_not_wait_the_full_push_timeout():
     """M4: _page() calls status() on every render and preview() makes one
-    discover call per folder; a RemoteController that blackholes must not
+    discover call per folder; a Knovas Connector that blackholes must not
     turn the tab into a gunicorn timeout."""
     session = _Session({("GET", "status"): _Resp(200, {}),
                         ("GET", "discover"): _Resp(200, {}),
                         ("POST", "stop"): _Resp(200, {})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     client.status()
     client.discover(root="/mnt")
     client.stop()
@@ -153,7 +153,7 @@ def test_status_and_discover_do_not_wait_the_full_push_timeout():
 
 def test_discover_passes_root_and_depth():
     session = _Session({("GET", "discover"): _Resp(200, {"folders": []})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     client.discover(root="/mnt/autodoc", max_depth=2)
     _, url, _, _ = session.calls[0]
     assert "root=%2Fmnt%2Fautodoc" in url and "max_depth=2" in url
@@ -165,8 +165,8 @@ def test_a_transport_failure_on_the_body_still_rolls_back_and_is_a_client_error(
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): _Resp(200),
                         ("POST", "body"): body_raises})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
     assert excinfo.value.status is None
     posted_configs = [body for m, u, body, _ in session.calls if m == "POST" and u.endswith("/sync/config")]
@@ -183,8 +183,8 @@ def test_a_failing_rollback_does_not_mask_the_original_error():
     session = _Session({("GET", "config"): _Resp(200, {"old": True}),
                         ("POST", "config"): config_post_raises,
                         ("POST", "body"): _Resp(400, {"error": "bad body"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.push(CompiledIngestion(sync_config={"new": True}, sync_request={}))
     assert excinfo.value.status == 400
 
@@ -194,8 +194,8 @@ def test_a_disabled_sync_config_api_names_the_variable():
     is false. "Sync config API is disabled" points the administrator at
     nothing; the message must name the variable that turns it on."""
     session = _Session({("GET", "config"): _Resp(404, {"error": "Sync config API is disabled"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
     assert excinfo.value.status == 404
     assert "RC_SYNC_CONFIG_API_ENABLED=false" in str(excinfo.value)
@@ -211,7 +211,7 @@ def test_every_mid_cycle_pause_reason_counts_as_running():
                             ("POST", "body"): _Resp(200, {"status": "stored"}),
                             ("GET", "status"): _Resp(200, {"scheduler_state": state}),
                             ("POST", "start"): _Resp(200)})
-        client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+        client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
         out = client.push(CompiledIngestion(sync_config={"mode": "continuous"}, sync_request={}))
         assert out == {"applied": "next_cycle"}, state
         assert ("POST", "start") not in _steps(session), state
@@ -219,7 +219,7 @@ def test_every_mid_cycle_pause_reason_counts_as_running():
 
 def test_requeue_reextract_posts_an_empty_body_as_the_signed_in_person():
     session = _Session({("POST", "requeue"): _Resp(200, {"requeued": 12})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     assert client.requeue_reextract() == {"requeued": 12}
     method, url, body, headers = session.calls[0]
     assert (method, url, body) == ("POST", f"{BASE}/sync/reextract/requeue", {})
@@ -229,14 +229,14 @@ def test_requeue_reextract_posts_an_empty_body_as_the_signed_in_person():
 @pytest.mark.parametrize("answer", [{"requeued": "viele"}, {"requeued": -3}, {}, ["x"], None])
 def test_requeue_reextract_reads_an_odd_answer_as_nothing_queued(answer):
     session = _Session({("POST", "requeue"): _Resp(200, answer)})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     assert client.requeue_reextract() == {"requeued": 0}
 
 
 def test_requeue_reextract_on_an_old_connector_is_a_404_error():
     session = _Session({("POST", "requeue"): _Resp(404, {"error": "Not Found"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.requeue_reextract()
     assert excinfo.value.status == 404
 
@@ -246,7 +246,7 @@ def test_requeue_reextract_on_an_unreachable_connector_has_no_status():
         raise requests.exceptions.ConnectionError("refused")
 
     session = _Session({("POST", "requeue"): down})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.requeue_reextract()
     assert excinfo.value.status is None

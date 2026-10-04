@@ -14,7 +14,7 @@ Env vars (re-used from the OneDrive mirror config):
   OUT                                                              optional, default /mirror/.search_enrichment.jsonl
 
 Typical invocation inside the RC container:
-  docker compose exec remote-controller python3 \\
+  docker compose exec knovas-connector python3 \\
     /app/scripts/build_onedrive_enrichment.py
 """
 from __future__ import annotations

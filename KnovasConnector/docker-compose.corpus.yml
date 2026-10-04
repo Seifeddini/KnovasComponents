@@ -3,6 +3,6 @@
 # Requires KnovasComponents/corpus/ on the host. Set RC_WATCH_ROOTS=/data/corpus in .env.
 
 services:
-  remote-controller:
+  knovas-connector:
     volumes:
       - ../corpus:/data/corpus:ro

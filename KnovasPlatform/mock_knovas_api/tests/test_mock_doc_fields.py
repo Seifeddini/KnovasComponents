@@ -1,6 +1,6 @@
 """The mock Knovas API plays every document-fields server state (spec 7, WP-C).
 
-The RemoteController and the Platform test their doc-fields code against this
+The Knovas Connector and the Platform test their doc-fields code against this
 mock, so the mock must answer as the server does in each state: `off` (an
 old server), `values`, `filters`, and `filters` without calibration. `off`
 must answer /secured/query and init exactly as the mock did before document
@@ -1036,7 +1036,7 @@ class TestBrokered:
         assert mock.call("GET", path, {"principal_assertion": "jws"})[0] == 200
 
     def test_entity_fields_without_an_assertion_stay_unlinked(self):
-        """S1: a BROKERED upload without an assertion (RemoteController) is
+        """S1: a BROKERED upload without an assertion (Knovas Connector) is
         accepted; no node is read, names stay unlinked, node ids are dropped
         and `register` counts as `ignore`."""
         mock = Mock(doc_fields="values", brokered=True)

@@ -1,4 +1,4 @@
-"""Der Korpusgenerator ist ein Werkzeug, kein Teil des RemoteControllers.
+"""Der Korpusgenerator ist ein Werkzeug, kein Teil des Knovas Connectors.
 
 Seine Abhaengigkeiten stehen in ``scripts/demo_kanzlei/requirements.txt`` und
 nicht in denen des Pakets. Fehlt eines davon, scheiterte bisher schon das

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Prepare ~/KnovasInternal/certs for RemoteController Docker (uid 10001 / rcuser).
-# Run from: KnovasInternal/RemoteController
+# Prepare ~/KnovasInternal/certs for Knovas Connector Docker (uid 10001 / rcuser).
+# Run from: KnovasInternal/KnovasConnector
 set -euo pipefail
 
 RC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

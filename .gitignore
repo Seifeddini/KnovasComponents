@@ -70,7 +70,7 @@ venv/
 KnovasPlatform/docbridge_test_data/ontology/ontology_filter_state.json
 KnovasPlatform/docbridge_test_data/ontology/ontology_fixture.local.json
 
-# Demo corpus (built by RemoteController/scripts/demo_corpus)
+# Demo corpus (built by KnovasConnector/scripts/demo_corpus)
 corpus/
 
 # Demo Kanzlei ground-truth key (never ingested; lives outside the watch root)

@@ -45,7 +45,7 @@ the server; results open and preview in OneDrive/SharePoint. See
 ## 3. Generate the files (once)
 
 ```bash
-cd RemoteController
+cd KnovasConnector
 python3 -m venv ../.venv
 source ../.venv/bin/activate
 pip install -U pip

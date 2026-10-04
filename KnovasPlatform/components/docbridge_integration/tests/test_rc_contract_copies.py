@@ -1,7 +1,7 @@
-"""The contract files the Platform ships are byte copies of RemoteController's.
+"""The contract files the Platform ships are byte copies of Knovas Connector's.
 
 The Platform image contains ``docbridge_integration/src`` only, so it carries
-its own copies of what RemoteController defines: the sync-request schema
+its own copies of what Knovas Connector defines: the sync-request schema
 (checked in test_ingestion_compiler.py) and the path-template golden
 vectors the Platform's template implementation is held to. A copy that
 drifted would let the two implementations disagree while both pass their
@@ -17,7 +17,7 @@ import pytest
 
 from identity import field_templates
 
-CHECKOUT_VECTORS = (Path(__file__).resolve().parents[4] / "RemoteController" / "contracts"
+CHECKOUT_VECTORS = (Path(__file__).resolve().parents[4] / "KnovasConnector" / "contracts"
                     / "vectors" / "field_templates.json")
 
 
@@ -27,9 +27,9 @@ def test_the_platform_ships_the_vectors():
     assert isinstance(cases, list) and len(cases) >= 25
 
 
-def test_the_vectors_are_a_byte_copy_of_remote_controllers():
+def test_the_vectors_are_a_byte_copy_of_knovas_connectors():
     if not CHECKOUT_VECTORS.is_file():
-        pytest.skip("RemoteController is not in this checkout")
+        pytest.skip("Knovas Connector is not in this checkout")
     assert field_templates.VECTORS_PATH.read_bytes() == CHECKOUT_VECTORS.read_bytes()
 
 

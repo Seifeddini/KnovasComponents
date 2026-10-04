@@ -46,14 +46,14 @@ Network prerequisites: [network-and-firewall.md](network-and-firewall.md).
 
 ```bash
 git clone https://github.com/Seifeddini/KnovasComponents.git
-cd KnovasComponents/RemoteController
+cd KnovasComponents/KnovasConnector
 ```
 
 **Standalone Knovas Connector repo:**
 
 ```bash
-git clone <your-remote-controller-repo-url>
-cd RemoteController
+git clone <your-knovas-connector-repo-url>
+cd KnovasConnector
 ```
 
 ```bash
@@ -83,15 +83,15 @@ most common setup failure:
 
 | Directory | Holds | Mounted at |
 |-----------|-------|------------|
-| `KnovasComponents/certs/` (**monorepo root**, one level above `RemoteController/`) | Tenant mTLS bundle for talking to Knovas | `/certs` |
-| `RemoteController/certs/edge/` | Public TLS + employee CA for the NGINX edge | `/etc/nginx/certs` |
+| `KnovasComponents/certs/` (**monorepo root**, one level above `KnovasConnector/`) | Tenant mTLS bundle for talking to Knovas | `/certs` |
+| `KnovasConnector/certs/edge/` | Public TLS + employee CA for the NGINX edge | `/etc/nginx/certs` |
 
 ```bash
-# From RemoteController/
+# From KnovasConnector/
 mkdir -p ../certs data config certs/edge
 ```
 
-- Tenant certs go in `../certs` — **not** `RemoteController/certs/`. Putting them
+- Tenant certs go in `../certs` — **not** `KnovasConnector/certs/`. Putting them
   in the latter is silently ignored by Compose and surfaces later as
   `401 Client certificate not authorized`.
 - Install them with `./scripts/install_tenant_certs.sh`, which sets ownership to
@@ -99,7 +99,7 @@ mkdir -p ../certs data config certs/edge
 - Mount document roots under `/data` (paths must match `RC_WATCH_ROOTS`).
 - For Compose + NGINX: place public TLS and employee CA under `certs/edge/` (see [nginx-edge.example.conf](nginx-edge.example.conf)).
 
-Scheduler config `config/remote_controller_sync.json` is created on first start if missing.
+Scheduler config `config/knovas_connector_sync.json` is created on first start if missing.
 
 ---
 
@@ -116,13 +116,13 @@ Uses [docker-compose.yml](../docker-compose.yml) with RC + NGINX edge.
 **Docker only (RC container):**
 
 ```bash
-docker build -t remote-controller:0.1.1 .
-docker run -d --name remote-controller \
+docker build -t knovas-connector:0.1.1 .
+docker run -d --name knovas-connector \
   --env-file .env \
   -v "$(cd .. && pwd)/certs:/certs:ro" \
   -v "$(pwd)/data:/data:ro" \
   -v rc-config:/app/config \
-  remote-controller:0.1.1
+  knovas-connector:0.1.1
 ```
 
 Place NGINX or Envoy in front for HTTPS — do not publish port 5001 to the public internet.

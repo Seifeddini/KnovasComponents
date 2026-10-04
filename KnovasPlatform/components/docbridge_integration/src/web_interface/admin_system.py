@@ -23,7 +23,7 @@ import re
 import time
 from typing import Any, Callable, Dict, List, Mapping
 
-from remote_controller_client import (
+from knovas_connector_client import (
     capabilities_from_status,
     extractor_commit_from_status,
     extractor_version_from_status,
@@ -48,7 +48,7 @@ DOC_FIELDS_STATES = {
     "filters": "Werte + Filter",
 }
 
-#: RemoteController capabilities that concern document fields
+#: Knovas Connector capabilities that concern document fields
 #: (``/sync/status`` -> ``capabilities``).
 RC_DOC_FIELD_CAPABILITIES = ("source_fields_v1", "field_templates_v1",
                              "metadata_fields_v1", "fields_requeue_v1", "metadata_fields_v2")
@@ -404,7 +404,7 @@ def collect(client_factory: Callable[[], Any], *, gate=None,
              if has_key else "Er entsteht beim ersten Aufruf, der ihn braucht.",
     ))
 
-    # ── RemoteController ───────────────────────────────────────────────────
+    # ── Knovas Connector ───────────────────────────────────────────────────
     rc_reached: bool | None = None
     rc_extractor: str | None = None
     rc_commit: str | None = None

@@ -1,8 +1,8 @@
-"""The console's client for the firm's own RemoteController.
+"""The console's client for the firm's own Knovas Connector.
 
 Every call goes out as the signed-in person: the same Ed25519 assertion the
 Platform sends Knovas, here in the X-Platform-Principal header, verified by
-RemoteController's require_operator_or_tenant_admin. No session, no call.
+Knovas Connector's require_operator_or_tenant_admin. No session, no call.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 PRINCIPAL_HEADER = "X-Platform-Principal"
 
-#: What a RemoteController that knows document fields advertises in
+#: What a Knovas Connector that knows document fields advertises in
 #: ``/sync/status["capabilities"]`` (spec 3.8). An older one has no such
 #: list, and answers 400 to a sync body carrying the new source keys -- so
 #: the console asks before it sends them (spec 2.5).
@@ -40,7 +40,7 @@ REQUEUE_OUTCOMES = frozenset({"not_accepted", "refused", "reupload_failed", "all
 
 def capabilities_from_status(status: Any) -> frozenset[str]:
     """The capability names a ``/sync/status`` answer lists; empty when it
-    lists none (an older RemoteController) or is not a status at all."""
+    lists none (an older Knovas Connector) or is not a status at all."""
     if not isinstance(status, Mapping):
         return frozenset()
     raw = status.get("capabilities")
@@ -90,7 +90,7 @@ def extractor_commit_from_status(status: Any) -> Optional[str]:
 
 
 def advertised_capabilities(rc_client: Any) -> Optional[frozenset[str]]:
-    """What a RemoteController client advertises; None when it cannot be
+    """What a Knovas Connector client advertises; None when it cannot be
     asked, so an unreachable one is never reported as too old. A client
     without ``reachable_capabilities`` (an older test double) answers
     through ``capabilities``."""
@@ -103,7 +103,7 @@ def advertised_capabilities(rc_client: Any) -> Optional[frozenset[str]]:
 
 def requeue_supported(rc_client: Any) -> Optional[bool]:
     """Whether ``rc_client`` can re-send uploads by field outcome: True when
-    the RemoteController advertises ``fields_requeue_v1``, False for an
+    the Knovas Connector advertises ``fields_requeue_v1``, False for an
     older one (or none configured), None when it cannot be asked now."""
     if rc_client is None or not callable(getattr(rc_client, "requeue_doc_fields", None)):
         return False
@@ -114,9 +114,9 @@ def requeue_supported(rc_client: Any) -> Optional[bool]:
 
 
 def required_capabilities(sync_request: Mapping[str, Any]) -> frozenset[str]:
-    """What a RemoteController must advertise to accept ``sync_request``.
+    """What a Knovas Connector must advertise to accept ``sync_request``.
 
-    Empty for a body without document fields, which every RemoteController
+    Empty for a body without document fields, which every Knovas Connector
     accepts. ``fields`` needs ``source_fields_v1``; templates and metadata
     items need theirs on top of it, and the items ``keywords`` and
     ``document_status`` also ``metadata_fields_v2``.
@@ -136,7 +136,7 @@ def required_capabilities(sync_request: Mapping[str, Any]) -> frozenset[str]:
                 needed.add(CAP_METADATA_FIELDS_V2)
     return frozenset(needed)
 
-#: The scheduler states RemoteController reports while a continuous worker
+#: The scheduler states Knovas Connector reports while a continuous worker
 #: exists. Read off ``RC/src/sync/sync_scheduler.py::_set_status``: every
 #: status ``_run_once`` sets is set *by the worker*, so seeing one means a
 #: worker is looping and will re-read the body at its next cycle. Everything
@@ -160,7 +160,7 @@ SCHEDULER_RUNNING_STATES = frozenset({
 
 #: A status render happens on every page load and a preview makes one
 #: discover call per folder, so neither may sit on the long push timeout: a
-#: RemoteController that blackholes instead of refusing would turn the tab
+#: Knovas Connector that blackholes instead of refusing would turn the tab
 #: into a gunicorn timeout (M4).
 STATUS_TIMEOUT_SECONDS = 5.0
 DISCOVER_TIMEOUT_SECONDS = 10.0
@@ -169,13 +169,13 @@ DISCOVER_TIMEOUT_SECONDS = 10.0
 PREVIEW_TIMEOUT_SECONDS = 8.0
 
 
-class RemoteControllerError(RuntimeError):
+class KnovasConnectorError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
 
 
-class RemoteControllerClient:
+class KnovasConnectorClient:
     def __init__(self, base_url: str, *, principal_broker, session=None,
                  timeout: float = 20.0) -> None:
         self._base = base_url.rstrip("/")
@@ -199,14 +199,14 @@ class RemoteControllerClient:
             resp = self._session.request(method, url, json=body, headers=self._headers(),
                                          timeout=self._timeout if timeout is None else timeout)
         except requests.RequestException as exc:
-            raise RemoteControllerError(f"Der Knovas Connector ist nicht erreichbar: {exc}", status=None) from exc
+            raise KnovasConnectorError(f"Der Knovas Connector ist nicht erreichbar: {exc}", status=None) from exc
         try:
             payload = resp.json()
         except Exception:  # noqa: BLE001
             payload = {}
         if resp.status_code >= 400:
             message = str((payload or {}).get("error") or f"HTTP {resp.status_code}")
-            raise RemoteControllerError(message, status=resp.status_code)
+            raise KnovasConnectorError(message, status=resp.status_code)
         return payload
 
     def discover(self, root: str | None = None, max_depth: int = 3) -> dict:
@@ -228,25 +228,25 @@ class RemoteControllerClient:
         return self.status()
 
     def capabilities(self) -> frozenset[str]:
-        """What this RemoteController advertises; empty for an older one, and
+        """What this Knovas Connector advertises; empty for an older one, and
         empty when it cannot be asked (nobody signed in, unreachable), since
         then nothing it does not list can be relied on either."""
         return self.reachable_capabilities() or frozenset()
 
     def reachable_capabilities(self) -> Optional[frozenset[str]]:
-        """``capabilities()``, but None when the RemoteController cannot be
+        """``capabilities()``, but None when the Knovas Connector cannot be
         asked (nobody signed in, unreachable, an error answer) -- so a caller
         can tell "not reachable" from "too old" (empty)."""
         try:
             return capabilities_from_status(self.status())
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             logger.info("Knovas-Connector-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
             return None
 
     def requeue_doc_fields(self, outcome: str) -> int:
         """Queue documents with this field outcome for re-upload; the count.
 
-        ``outcome`` is one of REQUEUE_OUTCOMES. RemoteController re-sends them
+        ``outcome`` is one of REQUEUE_OUTCOMES. Knovas Connector re-sends them
         within its per-cycle bound, each one a billed upload.
         """
         if outcome not in REQUEUE_OUTCOMES:
@@ -263,7 +263,7 @@ class RemoteControllerClient:
 
         The Knovas Connector re-extracts them within its per-cycle bound and
         uploads only those whose text changed -- each such upload is billed.
-        An older Connector answers 404: RemoteControllerError with
+        An older Connector answers 404: KnovasConnectorError with
         ``status == 404``.
         """
         payload = self._call("POST", "/sync/reextract/requeue", body={})
@@ -285,16 +285,16 @@ class RemoteControllerClient:
     def _previous_sync_config(self) -> dict:
         """The config a rollback would restore, or a sentence naming the switch.
 
-        RemoteController's sync-config API is off unless
+        Knovas Connector's sync-config API is off unless
         RC_SYNC_CONFIG_API_ENABLED is true, and a disabled API answers 404
         with "Sync config API is disabled" -- true, and useless to the
         administrator who reads it in the console. Name the variable instead.
         """
         try:
             return self.get_sync_config()
-        except RemoteControllerError as exc:
+        except KnovasConnectorError as exc:
             if exc.status == 404:
-                raise RemoteControllerError(
+                raise KnovasConnectorError(
                     "Der Knovas Connector hat die Sync-Konfigurations-API abgeschaltet "
                     "(RC_SYNC_CONFIG_API_ENABLED=false); ohne sie kann das Profil "
                     "nicht uebertragen werden.",
@@ -318,16 +318,16 @@ class RemoteControllerClient:
         performs a whole scan-and-upload inside the request. ``/sync/body``
         stores, and starting is a separate decision.
 
-        If RemoteController refuses the folder list, the previous config is
+        If Knovas Connector refuses the folder list, the previous config is
         put back so the two never diverge. A failed *start* is not rolled
-        back: the profile is on RemoteController, and undoing the config
+        back: the profile is on Knovas Connector, and undoing the config
         would create exactly the divergence the rollback exists to prevent.
         """
         previous = self._previous_sync_config()
         self._call("POST", "/sync/config", body=compiled.sync_config)
         try:
             self._call("POST", "/sync/body", body=compiled.sync_request)
-        except RemoteControllerError:
+        except KnovasConnectorError:
             try:
                 self._call("POST", "/sync/config", body=previous)
             except Exception as rollback_exc:  # noqa: BLE001
@@ -341,7 +341,7 @@ class RemoteControllerClient:
             if state in SCHEDULER_RUNNING_STATES:
                 return {"applied": "next_cycle"}
             self.start()
-        except RemoteControllerError as exc:
+        except KnovasConnectorError as exc:
             # Reading the state or starting the worker failed. Say so; do not
             # pretend the profile did not arrive, and do not roll it back.
             return {"applied": "stored", "start_error": str(exc)}

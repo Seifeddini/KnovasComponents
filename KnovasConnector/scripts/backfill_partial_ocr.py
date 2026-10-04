@@ -31,7 +31,7 @@ uploads it with a fresh note. Nothing is uploaded with `--dry-run`.
 Run it inside the Knovas Connector container (same env, same volumes),
 outside the sync window:
 
-    docker compose --env-file knovas.env run --rm remote-controller \\
+    docker compose --env-file knovas.env run --rm knovas-connector \\
       python /app/scripts/backfill_partial_ocr.py --dry-run
 """
 from __future__ import annotations

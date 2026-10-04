@@ -1,4 +1,4 @@
-"""Flask application factory for customer-hosted Remote Controller."""
+"""Flask application factory for customer-hosted Knovas Connector."""
 from __future__ import annotations
 
 import logging

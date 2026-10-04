@@ -7,6 +7,6 @@
 # Set RC_WATCH_ROOTS=/data/winjur in .env
 
 services:
-  remote-controller:
+  knovas-connector:
     volumes:
       - /mnt/smb/10.126.88.31/WinJur/Autodoc:/data/winjur:ro

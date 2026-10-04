@@ -18,7 +18,7 @@ No `.xlsx`. Emails are **not** `.eml`.
 
 ## Build (staged, with a gate after each stage)
 
-From `RemoteController/`:
+From `KnovasConnector/`:
 
 ```bash
 pip install -r scripts/demo_kanzlei/requirements.txt

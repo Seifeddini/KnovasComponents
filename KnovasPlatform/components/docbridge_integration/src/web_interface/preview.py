@@ -17,7 +17,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-# Jede Endung, die RemoteController standardmaessig aufnimmt
+# Jede Endung, die Knovas Connector standardmaessig aufnimmt
 # (sync/default_sync_body.py::_DEFAULT_INCLUDE_GLOBS), hat hier einen Eintrag.
 # Fehlt einer, antwortet ``preview-content`` 415 und der Dialog zeigt
 # "Vorschau nicht verfuegbar (HTTP 415)" -- fuer ein Format, das die Suche

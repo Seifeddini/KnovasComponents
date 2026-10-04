@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Backfill per-document context sidecars without re-uploading to Knovas.
 
-Walks the share, extracts every document RemoteController would ingest, and
+Walks the share, extracts every document Knovas Connector would ingest, and
 writes the sidecar the Platform reads the text under a search result from.
 Nothing is sent to Knovas.
 
@@ -161,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Provide --root or set RC_WATCH_ROOTS")
         return 2
 
-    # The unified stack gives RemoteController KNOVAS_IDENTIFIER_PREFIX; with it as
+    # The unified stack gives Knovas Connector KNOVAS_IDENTIFIER_PREFIX; with it as
     # the default, a run inside that container files the text under the prefix
     # the documents were ingested with. The old default alone, "corpus", filed
     # it where the Platform never looks.

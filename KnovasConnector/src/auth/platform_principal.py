@@ -1,7 +1,7 @@
-"""A Platform-signed principal at RemoteController's door (KC-IN-1).
+"""A Platform-signed principal at Knovas Connector's door (KC-IN-1).
 
 The firm's Platform signs each signed-in user into its Knovas calls with an
-Ed25519 key. RemoteController holds the public half and verifies the same
+Ed25519 key. Knovas Connector holds the public half and verifies the same
 token, so the firm's own administrator can configure their own ingestion.
 
 This mirrors the Platform's assertion rules exactly; the bounds are theirs.
@@ -34,7 +34,7 @@ ADMIN_ROLES = frozenset({"admin", "ingestion_manager"})
 
 #: The Platform writes all three broker files into one directory and the root
 #: compose mounts that whole directory here, so the private half is inside
-#: RemoteController's filesystem. The name is the Platform's
+#: Knovas Connector's filesystem. The name is the Platform's
 #: (KnovasPlatform/.../identity/broker_key.py::_KEY_NAME).
 BROKER_PRIVATE_KEY_NAME = "broker_ed25519.pem"
 
@@ -43,10 +43,10 @@ def refuse_if_broker_private_key_is_readable(pubkey_path: str) -> None:
     """Refuse to start if the Platform's signing key is readable here.
 
     :ro is not the protection. The protection is that docbridge-web runs as
-    root and writes the key 0600 while RemoteController runs as uid 10001,
+    root and writes the key 0600 while Knovas Connector runs as uid 10001,
     which is a fact about two Dockerfiles and nothing enforces it. Whoever
     reads this key can assert any of the firm's people to Knovas, and
-    RemoteController is the service that parses untrusted documents -- so if
+    Knovas Connector is the service that parses untrusted documents -- so if
     the file is ever readable here, stopping is better than serving.
 
     A missing sibling is the normal case for a pub-only mount and is fine.
@@ -85,7 +85,7 @@ def _unb64(text: str) -> bytes:
 
 
 class ReplayGuard:
-    """In-process single-use jti store. One RemoteController per firm, so a
+    """In-process single-use jti store. One Knovas Connector per firm, so a
     process-local set is the right size; entries expire with the token."""
 
     def __init__(self) -> None:
@@ -152,7 +152,7 @@ def verify_platform_principal(
         raise InvalidPrincipalError("refused")
     if not expected_tenant or payload.get("tid") != expected_tenant:
         raise InvalidPrincipalError("refused")
-    # `sub` is the only thing RemoteController records about who acted, so an
+    # `sub` is the only thing Knovas Connector records about who acted, so an
     # absent, empty or non-string one is worthless in the log line the gate
     # writes. Mirrors the Platform's own check (identity/assertion.py).
     subject = payload.get("sub")

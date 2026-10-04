@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "remote-controller"
+name = "knovas-connector"
 version = "0.3.0"
 description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"
 readme = "README.md"

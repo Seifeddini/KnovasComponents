@@ -45,7 +45,7 @@ or the Platform never finds the text:
 
 ```bash
 docker compose --env-file knovas.env run -d --rm --name knovas-snippet-backfill \
-  -v "$PWD/RemoteController/scripts:/app/scripts:ro" remote-controller \
+  -v "$PWD/KnovasConnector/scripts:/app/scripts:ro" knovas-connector \
   python /app/scripts/build_context_sidecars.py --jobs 2 \
   --identifier-prefix <prefix> --store-dir /var/rc-state/search_context
 docker logs -f knovas-snippet-backfill
@@ -64,9 +64,9 @@ always built from the unmarked text; page-break markers exist only on the wire.
 
 ## Scheduler config file
 
-Path: `RC_SYNC_CONFIG_PATH` (default `config/remote_controller_sync.json`).
+Path: `RC_SYNC_CONFIG_PATH` (default `config/knovas_connector_sync.json`).
 
-Schema: [contracts/remote_controller_sync_config.schema.json](../contracts/remote_controller_sync_config.schema.json).
+Schema: [contracts/knovas_connector_sync_config.schema.json](../contracts/knovas_connector_sync_config.schema.json).
 
 Example:
 
@@ -96,14 +96,14 @@ Set mode `0600` for:
 - Tenant cert/key files
 - `.rc-sync-state.json` (path from `RC_SYNC_STATE_PATH`, e.g. `/var/rc-state/.rc-sync-state.json`)
 - `.rc-sync-last-request.json` (same directory as the sync state file)
-- `config/remote_controller_sync.json`
+- `config/knovas_connector_sync.json`
 
 ## Two configuration layers
 
 | Layer | Source | Controls |
 |-------|--------|----------|
 | What to sync | `POST /sync` JSON body | sources, filters (`max_file_bytes`, `max_document_age_seconds`), ingestion |
-| When / how fast | `remote_controller_sync.json` | window, rate_limit, continuous mode, optional `max_document_age_seconds` default |
+| When / how fast | `knovas_connector_sync.json` | window, rate_limit, continuous mode, optional `max_document_age_seconds` default |
 
 **Max document age:** Files whose `mtime` is older than the effective limit are not uploaded. They appear in `document_sync` with status `excluded_max_age` (unless already synced at the same fingerprint). Effective limit = `filters.max_document_age_seconds` in the sync body if set, else `max_document_age_seconds` in the scheduler config, else no limit.
 
@@ -307,7 +307,7 @@ Align deployment with KnovasPlatform:
 
 Scanned PDF pages without a text layer are OCR'd when `RC_PDF_OCR_ENABLED` is true (default) and Tesseract is installed in the container. Set `RC_TESSERACT_LANG` (default `deu+eng`) for language packs. Markdown is never requested from the extractor (it cost ~8 s per document and parked mixed PDFs and large-table DOCX as "markdown expansion ratio" — see [operations.md](operations.md#documents-parked-by-the-markdown-expansion-guard)).
 
-**Docker build:** the Dockerfile installs one pinned `knovas-extract`, the same as the Platform image: `ARG KNOVAS_EXTRACT_VERSION` (`0.4.0a1`) and `ARG KNOVAS_EXTRACT_GIT_REF`. With an empty ref the build installs `knovas-extract==<version>` from PyPI; with a ref, that revision from git — until 0.4.0a1 is on PyPI the default is a full commit sha of the library. The build log names the installed version and commit, and a PyPI install that is not exactly the version fails the build. CI fails when the two Dockerfiles' defaults differ (`scripts/ci/check_knovas_extract_pin.sh`), installs exactly this pin in both test jobs and checks it there and in both built images (`scripts/ci/assert_knovas_extract_pin.py`). A source install needs the pin first ([local-commands.md](local-commands.md#python-from-source-devstaging)). Extras: `pdf,ocr,docx,msg,html,rtf,sentences` (`rtf` reads Outlook mails whose only body is RTF). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> remote-controller`, or `--build-arg KNOVAS_EXTRACT_GIT_REF=` for PyPI. A new pin changes the Dockerfile, so the next `docker compose up -d --build` installs it (Docker's layer cache cannot keep an older build). The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
+**Docker build:** the Dockerfile installs one pinned `knovas-extract`, the same as the Platform image: `ARG KNOVAS_EXTRACT_VERSION` (`0.4.0a1`) and `ARG KNOVAS_EXTRACT_GIT_REF`. With an empty ref the build installs `knovas-extract==<version>` from PyPI; with a ref, that revision from git — until 0.4.0a1 is on PyPI the default is a full commit sha of the library. The build log names the installed version and commit, and a PyPI install that is not exactly the version fails the build. CI fails when the two Dockerfiles' defaults differ (`scripts/ci/check_knovas_extract_pin.sh`), installs exactly this pin in both test jobs and checks it there and in both built images (`scripts/ci/assert_knovas_extract_pin.py`). A source install needs the pin first ([local-commands.md](local-commands.md#python-from-source-devstaging)). Extras: `pdf,ocr,docx,msg,html,rtf,sentences` (`rtf` reads Outlook mails whose only body is RTF). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> knovas-connector`, or `--build-arg KNOVAS_EXTRACT_GIT_REF=` for PyPI. A new pin changes the Dockerfile, so the next `docker compose up -d --build` installs it (Docker's layer cache cannot keep an older build). The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
 
 ### Extraction, OCR and page markers
 

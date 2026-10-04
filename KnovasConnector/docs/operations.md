@@ -41,7 +41,7 @@ Extraction adds four series, counted in the API process from what each extractio
 Docker logs:
 
 ```bash
-docker compose logs -f remote-controller
+docker compose logs -f knovas-connector
 ```
 
 ## Continuous sync
@@ -78,7 +78,7 @@ Confirm stop: `"scheduler_state": "not_running"` and `"worker_alive": false`.
 
 The worker completes the **current file upload** before exiting (`pause_policy`: `finish_current_unit_then_pause`). Already-synced paths remain in SQLite; stopping does not roll back uploads.
 
-To prevent sync from auto-starting after a container restart, set `"enabled": false` in `remote_controller_sync.json` or leave `RC_SYNC_AUTO_START_CONTINUOUS=false` (default).
+To prevent sync from auto-starting after a container restart, set `"enabled": false` in `knovas_connector_sync.json` or leave `RC_SYNC_AUTO_START_CONTINUOUS=false` (default).
 
 **Do not confuse** `POST /sync/stop` with `docker compose down` — the latter kills the container and may interrupt an in-flight upload. Stop the worker first, then restart or upgrade the image.
 
@@ -146,7 +146,7 @@ The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`,
 
 ## Large corpora (100s of GB)
 
-- Set **`sequential_subfolders`: true** in `remote_controller_sync.json` when the sync source root contains many top-level folders (e.g. WinJur bucket dirs). RC processes **one subfolder per cycle**, then advances automatically when that folder has no pending uploads.
+- Set **`sequential_subfolders`: true** in `knovas_connector_sync.json` when the sync source root contains many top-level folders (e.g. WinJur bucket dirs). RC processes **one subfolder per cycle**, then advances automatically when that folder has no pending uploads.
 - Set `max_files_per_cycle` (e.g. 200–500) to cap uploads per cycle.
 - Set `max_scan_entries_per_cycle` (e.g. 10000) to cap **directory visits** per cycle on slow SMB mounts (important when most files are unsupported types such as legacy `.doc`).
   **Only together with `sequential_subfolders`**, which keeps its place between cycles. Without it every cycle starts again at the top of the share, so on a share with more folders than the cap the same folders are read every time and the rest never — new documents there are not ingested, and nothing counts as an error. The scheduler state reads `scan_limit_reached`. For continuous sync of such a share set the cap to `0` (the whole share each cycle, backing off to `scan_interval_idle_max_seconds` while nothing changes); `./scripts/doctor.sh` prints the command.
@@ -155,7 +155,7 @@ The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`,
 - Use `scan_interval_idle_max_seconds` so steady-state rescans back off when nothing is pending.
 - `POST /sync` responses cap `transmissions` (default 100 entries); counts in `document_sync` remain full.
 - **Do not** use `GET /sync/status?deep_scan=1` on huge trees — it is capped by `max_scan_entries_per_cycle` but still runs in the HTTP worker. Prefer logs and `GET /sync/status?live=1`.
-- Example scheduler config for WinJur: [config/remote_controller_sync.winjur.example.json](../config/remote_controller_sync.winjur.example.json).
+- Example scheduler config for WinJur: [config/knovas_connector_sync.winjur.example.json](../config/knovas_connector_sync.winjur.example.json).
 - Uploads stream file parts (bounded RAM per file). Initial ingest wall-clock still depends on Knovas ingestion rate limits.
 
 ## Scanned PDFs (OCR)
@@ -205,12 +205,12 @@ A partial file is not re-uploaded by the incremental cycle (its fingerprint is s
 
 ```bash
 # what is recorded, nothing uploaded
-docker compose --env-file knovas.env run --rm remote-controller \
+docker compose --env-file knovas.env run --rm knovas-connector \
   python /app/scripts/backfill_partial_ocr.py --dry-run
 # the pass: a budget trip is re-extracted with a 5000-page / 1800 s budget,
 # failed OCR pages with a 120 s page timeout, exhausted retries with OCR
 # disabled; a clean upload clears the note, an unchanged result is not re-sent
-docker compose --env-file knovas.env run --rm remote-controller \
+docker compose --env-file knovas.env run --rm knovas-connector \
   python /app/scripts/backfill_partial_ocr.py
 ```
 

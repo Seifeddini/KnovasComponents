@@ -64,7 +64,7 @@ User requirements:
 | Storage | platform-db PostgreSQL (migration 0003). Measurements as sufficient statistics (sum, count, sum of squares, denominator) with a covering index for index-only aggregation; imports tracked in `exp_batches`. Scales to 10^8 rows; declarative partitioning is the documented next step. No TimescaleDB/ClickHouse. |
 | Search | One Knovas document per experiment (pointer `experiments/<domain>/<KEY>`), re-uploaded after changes (debounced, rate-limited). Hits are recognised by pointer prefix and rendered from the Platform database. Knovas-side visibility: uploads carry `EXPERIMENTS_ACCESS_GROUPS`; with no group configured the indexer refuses to upload (fail closed) unless `EXPERIMENTS_INDEX_UNRESTRICTED=true` (documented for a folder rule on the prefix). |
 | Background work | Postgres job queue `exp_jobs` (`FOR UPDATE SKIP LOCKED`, leases, fencing, priorities, retries with backoff, coalescing, dead-letter with `on_dead` hooks). Two daemon threads per gunicorn process (one for index/unindex/pipeline, one for evaluate). A shared rate slot keeps Knovas uploads under `EXPERIMENTS_INDEX_PER_MINUTE` across workers. |
-| Indexing identity | A second KnovasAPIClient without principal broker (like RemoteController), built by `experiments.indexer.make_index_client(config)`. |
+| Indexing identity | A second KnovasAPIClient without principal broker (like Knovas Connector), built by `experiments.indexer.make_index_client(config)`. |
 | Python and Julia | Built-in statistics in-process (pure Python). User evaluators run only in `experiments-runner`: own image (Python venv with numpy/scipy/pandas/statsmodels, Julia 1.11 with JSON3/Distributions/HypothesisTests/StatsBase/DataFrames), **no network at all** (`network_mode: none`), reached over a unix socket on a shared volume, non-root, read-only root FS, no capabilities, no-new-privileges, CPU/memory/pid limits, per-job subprocess with rlimits, wall-clock kill and cleanup of stray processes, no secrets mounted. Optional compose profile `experiments`. |
 | Machine access (CI) | Personal access tokens (`exp_api_tokens`, SHA-256, expiry required) on `/api/experiments/v1/*` with `Authorization: Bearer`. Python SDK (stdlib only), Julia client. CI can log runs with per-query rows, trigger the pipeline and read verdicts. |
 | Configurability | Domains, experiment types (versioned documents: fields, states, gated transitions, variant rules, default metrics, evaluation pipeline with scope), metrics (kind, unit, direction, min/max, levels), evaluators — all data, editable in the UI, exportable/importable as YAML packs (config-as-code). |
@@ -334,7 +334,7 @@ everywhere. Every evaluation list starts with `{evaluator: builtin.describe, met
   (duration, lower, "min", one per pipeline run), `error_rate` "Fehlerrate" (proportion, lower,
   "%", value = errors, count = requests). Types:
   `offline_eval` "Offline-Evaluation" (fields component enum [Suche, Ingestion, Vorschau,
-  Cortex, RemoteController, Plattform, Sonstiges], query_set text, baseline_ref text,
+  Cortex, Knovas Connector, Plattform, Sonstiges], query_set text, baseline_ref text,
   candidate_ref text; variants min 2 defaults `baseline` "Ausgangsstand" (control),
   `candidate` "Kandidat"; metrics primary ndcg_at_10, secondary recall_at_20, mrr, guardrail
   latency_p95_ms max 250; evaluation describe/all and `builtin.paired_t` on ndcg_at_10,
@@ -1404,7 +1404,7 @@ snippet escaped, no file badge. Keep class method names unique (test_frontend_st
   "StatsBase","DataFrames"]); Pkg.precompile()'` (default optimisation level; the harness runs
   with default flags too), then `chmod -R a+rX /opt/julia-depot`; `groupadd --gid 10101 runner`,
   `useradd --uid 10101 --gid 10101 runner` (a uid no other image of the stack uses:
-  RemoteController is 10001, and RLIMIT_NPROC counts per uid across the host);
+  Knovas Connector is 10001, and RLIMIT_NPROC counts per uid across the host);
   `mkdir -p /run/experiments-runner && chown 10101:10101 /run/experiments-runner`; `USER 10101`;
   `CMD ["/opt/venv/bin/python3", "-I", "/app/runner.py"]`. No `ENV JULIA_DEPOT_PATH` with a
   shared writable entry.

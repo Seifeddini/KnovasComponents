@@ -352,7 +352,7 @@ def create_admin_blueprint(
         ),
     }
 
-    # A deployment without RemoteController still gets the other tabs; the
+    # A deployment without Knovas Connector still gets the other tabs; the
     # Ingestion routes and their executor only exist when rc_client_factory
     # is given.
     if rc_client_factory is not None:

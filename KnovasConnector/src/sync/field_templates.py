@@ -191,7 +191,7 @@ def sync_body_template_errors(body: object) -> list[str]:
     ``$.sources[i].field_templates[j]: field_template_invalid (<code>)``.
 
     The routes that store a body refuse it with this message, so a template
-    RemoteController cannot compile never reaches a cycle (which would skip
+    Knovas Connector cannot compile never reaches a cycle (which would skip
     the whole source and index none of its new files). The JSON path and the
     code only: the template may name a client.
     """

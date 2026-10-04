@@ -19,8 +19,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[3]
 CI = REPO / ".github" / "workflows" / "ci.yml"
-RC_DOCKERFILE = REPO / "RemoteController" / "Dockerfile"
-PYPROJECT = REPO / "RemoteController" / "pyproject.toml"
+RC_DOCKERFILE = REPO / "KnovasConnector" / "Dockerfile"
+PYPROJECT = REPO / "KnovasConnector" / "pyproject.toml"
 PLATFORM = REPO / "KnovasPlatform" / "components" / "docbridge_integration"
 LICENSE_STEPS = (
     "- name: No pymupdf-layout (PolyForm-NC) in the Connector image",

@@ -25,7 +25,7 @@
 
 ## Files
 
-Create under `RemoteController/scripts/demo_kanzlei/`:
+Create under `KnovasConnector/scripts/demo_kanzlei/`:
 
 - `world.toml` — knobs
 - `models.py` — dataclasses
@@ -47,9 +47,9 @@ Create under `RemoteController/scripts/demo_kanzlei/`:
 Modify:
 
 - `.gitignore` — add `ground_truth/`
-- `RemoteController/scripts/demo_corpus/README.md` — 30-day freshness note
+- `KnovasConnector/scripts/demo_corpus/README.md` — 30-day freshness note
 
-Test: `RemoteController/tests/unit/demo_kanzlei/`
+Test: `KnovasConnector/tests/unit/demo_kanzlei/`
 
 ---
 

@@ -2,7 +2,7 @@
 
 One profile, one form, one write (section B plan, "Ingestion administration").
 The form edits an IngestionProfile; compile_profile is the only thing that
-produces RemoteController documents; RemoteControllerClient.push is the only
+produces Knovas Connector documents; KnovasConnectorClient.push is the only
 thing that sends them. Saving is a guarded action, because a profile change
 can widen or halt coverage (KC-B5-2).
 
@@ -10,9 +10,9 @@ Document fields (spec 4.8)
 --------------------------
 Each folder can give the documents it uploads Knovas field values: static
 values, path-template captures and opted-in extractor metadata. They go to
-RemoteController's upload layer, so the tab guards three things:
+Knovas Connector's upload layer, so the tab guards three things:
 
-    - an older RemoteController refuses the new keys, so a profile using them
+    - an older Knovas Connector refuses the new keys, so a profile using them
       is neither saved nor pushed unless it advertises ``source_fields_v1``
       (plus ``field_templates_v1`` / ``metadata_fields_v1`` when used, and
       ``metadata_fields_v2`` for the keywords and status file properties);
@@ -86,11 +86,11 @@ from identity.ingestion_profiles import (
     profile_from_json,
     profile_to_json,
 )
-from remote_controller_client import (
+from knovas_connector_client import (
     CAP_FIELDS_REQUEUE,
     CAP_SOURCE_FIELDS,
     REQUEUE_OUTCOMES,
-    RemoteControllerError,
+    KnovasConnectorError,
     advertised_capabilities,
     capabilities_from_status,
     required_capabilities,
@@ -103,12 +103,12 @@ MAX_FOLDER_ROWS = 12
 KIND = "ingestion_profile_change"
 FOLDER_DISCOVER_DEPTH = 1
 
-#: Who can actually carry an approved profile change out. RemoteController's
+#: Who can actually carry an approved profile change out. Knovas Connector's
 #: gate admits `admin` and `ingestion_manager` only (RC/src/auth/
 #: platform_principal.py::ADMIN_ROLES), while APPROVER_ROLES is
 #: {approver, admin} -- so a pure approver can confirm the request and then
 #: cannot execute it. Say that before a version row is written, not after
-#: RemoteController answers 403.
+#: Knovas Connector answers 403.
 EXECUTOR_ROLES = frozenset({"admin", "ingestion_manager"})
 
 # German labels for the presets; the preset ids stay the compiler's.
@@ -125,9 +125,9 @@ LABELS = {
 
 
 # What "uebertragen" actually got the firm, in the words the tab uses. A push
-# reaches RemoteController in three different states and only one of them is
+# reaches Knovas Connector in three different states and only one of them is
 # "the new folder list is being indexed right now"; saying so is the whole
-# point of RemoteControllerClient.push returning an outcome (C2).
+# point of KnovasConnectorClient.push returning an outcome (C2).
 APPLIED_CLAUSES = {
     "started": "Abgleich gestartet.",
     "next_cycle": "wird beim naechsten Durchlauf wirksam.",
@@ -192,7 +192,7 @@ METADATA_LABELS = {
     "document_status": "Status aus Word-Dokumentstatus",
 }
 
-#: RemoteController's default re-upload bound (RC_FIELDS_REUPLOAD_PER_CYCLE),
+#: Knovas Connector's default re-upload bound (RC_FIELDS_REUPLOAD_PER_CYCLE),
 #: used when an older status does not report ``per_cycle``.
 DEFAULT_REUPLOAD_PER_CYCLE = 100
 #: Files per folder the template preview lists.
@@ -220,7 +220,7 @@ def parse_static_fields(text: Any, folder: int) -> tuple[tuple[str, Any], ...]:
     """``schluessel = Wert`` per line; several values separated by ``;``.
 
     Values stay strings: the server's normaliser decides what "GJ 2024"
-    means, as it does for RemoteController's captures. Errors name the line,
+    means, as it does for Knovas Connector's captures. Errors name the line,
     never its content.
     """
     pairs: dict[str, Any] = {}
@@ -305,7 +305,7 @@ def _duration_text(seconds: int) -> str:
 
 
 def reupload_bound(per_cycle: Any, throughput: str) -> int:
-    """Documents re-sent per cycle: RemoteController's bound, capped by the
+    """Documents re-sent per cycle: Knovas Connector's bound, capped by the
     throughput preset's files per cycle (the re-upload list only fills room
     that new and changed files leave)."""
     speed = presets.THROUGHPUT_PRESETS.get(throughput) or presets.THROUGHPUT_PRESETS["normal"]
@@ -318,7 +318,7 @@ def reupload_eta(count: int, per_cycle: int, schedule: str, throughput: str) -> 
     per_cycle)`` cycles times the schedule's cadence (spec 4.8).
 
     The cadence is the preset's scan interval plus the time the throughput
-    preset needs to upload one bound of documents; RemoteController runs
+    preset needs to upload one bound of documents; Knovas Connector runs
     cycle after cycle while its window is open, so a nightly schedule is
     expressed in nights of that window. ``manual`` runs one cycle per press
     of Start. Text recognition time is not included, which makes this the
@@ -352,7 +352,7 @@ def reupload_text(paths: Sequence[str], total: Any, per_cycle: Any,
     """The cost sentence a field change must be confirmed against (spec 4.8).
 
     ``total`` is ``document_sync.total`` (all sources: an upper bound), or
-    None before RemoteController has reported one.
+    None before Knovas Connector has reported one.
     """
     bound = reupload_bound(per_cycle, throughput)
     head = (f"Alle Dokumente der Quelle(n) {', '.join(paths)} werden erneut gesendet "
@@ -421,14 +421,14 @@ def _warning_entries(value: Any) -> list[tuple[str, str, int]]:
 
 def doc_fields_status(rc_status: Any, *, capability: Capability,
                       schedule: str = "nightly", throughput: str = "normal") -> dict | None:
-    """The RemoteController ``doc_fields`` block as status-bar lines.
+    """The Knovas Connector ``doc_fields`` block as status-bar lines.
 
-    None for a RemoteController without the block (older, or unreachable).
+    None for a Knovas Connector without the block (older, or unreachable).
     Keys, codes and counts only (H7: "nicht \u00fcbernommen" when no echo came
     back, never "gespeichert"). ``requeue`` lists the "Erneut senden"
     offers: ``not_accepted`` once Knovas offers fields again, ``refused``
     and ``reupload_failed`` whenever there are any -- and only when this
-    RemoteController can requeue at all.
+    Knovas Connector can requeue at all.
     """
     if not isinstance(rc_status, Mapping):
         return None
@@ -610,11 +610,11 @@ def _reextract_error(exc: Exception) -> str:
 
 def template_preview(templates: Sequence[str], entries: Sequence[Any], *,
                      recursive: bool = True, limit: int = PREVIEW_FILES_PER_SOURCE) -> dict:
-    """Template captures over the files RemoteController reported.
+    """Template captures over the files Knovas Connector reported.
 
     ``entries`` is a ``/discover`` answer's list, paths relative to the
-    folder -- the same ``rel`` RemoteController matches (spec 3.4). A
-    template that does not compile makes RemoteController skip the whole
+    folder -- the same ``rel`` Knovas Connector matches (spec 3.4). A
+    template that does not compile makes Knovas Connector skip the whole
     folder, so the preview then captures nothing. Shown to the
     administrator only; nothing here is logged.
     """
@@ -655,7 +655,7 @@ class FieldCheck:
     """What saving ``profile`` means for document fields.
 
     ``profile`` has enum labels replaced by codes; ``changed`` names the
-    sources RemoteController will re-send; ``warnings`` and ``notes`` are
+    sources Knovas Connector will re-send; ``warnings`` and ``notes`` are
     shown with the save; ``error`` is set instead of raising when the
     caller asked for a non-blocking check (the preview).
     """
@@ -721,7 +721,7 @@ def check_profile_fields(profile: IngestionProfile, current: IngestionProfile | 
                          strict: bool = True) -> FieldCheck:
     """Everything a save checks about document fields (spec 4.8).
 
-    For a profile that uses fields: RemoteController must advertise them;
+    For a profile that uses fields: Knovas Connector must advertise them;
     keys are validated against the registry when Knovas offers it -- and a
     *changed* field configuration is refused when it cannot be checked; a
     key also set by a folder rule is warned about. For every profile: which
@@ -798,13 +798,13 @@ def _refuse_unconfirmed_reupload(payload: Mapping[str, Any], current: Any,
 
 
 def _advertised(rc_client: Any) -> frozenset[str] | None:
-    """What RemoteController advertises; None when it cannot be asked, so
+    """What Knovas Connector advertises; None when it cannot be asked, so
     an unreachable one is not reported as too old."""
     return advertised_capabilities(rc_client)
 
 
 def _require_rc_support(rc_client: Any, sync_request: Mapping[str, Any]) -> None:
-    """Refuse before anything is saved or sent when RemoteController would
+    """Refuse before anything is saved or sent when Knovas Connector would
     refuse the body's document-field keys (spec 2.5). A body without them
     needs nothing and asks nothing."""
     needed = required_capabilities(sync_request)
@@ -812,9 +812,9 @@ def _require_rc_support(rc_client: Any, sync_request: Mapping[str, Any]) -> None
         return
     available = _advertised(rc_client)
     if available is None:
-        raise RemoteControllerError(RC_UNREACHABLE, status=None)
+        raise KnovasConnectorError(RC_UNREACHABLE, status=None)
     if needed - available:
-        raise RemoteControllerError(RC_TOO_OLD, status=None)
+        raise KnovasConnectorError(RC_TOO_OLD, status=None)
 
 
 def profile_from_form(form: Mapping[str, str], lists: Mapping[str, list[str]]) -> IngestionProfile:
@@ -858,7 +858,7 @@ def profile_from_form(form: Mapping[str, str], lists: Mapping[str, list[str]]) -
         max_document_age_days=int(age) if age else None,
         description=str(form.get("description", "") or "").strip(),
         # Ohne diesen Schalter gab es keinen Weg, eine Übernahme zu wiederholen.
-        # RemoteController überspringt im Normalbetrieb alles, was sein
+        # Knovas Connector überspringt im Normalbetrieb alles, was sein
         # Zustandsspeicher als übertragen führt -- richtig, solange beide Seiten
         # dasselbe glauben. Wurde der Bestand bei Knovas neu aufgesetzt, stehen
         # die Dateien dort weiter als "synced", der Zyklus meldet
@@ -982,8 +982,8 @@ def apply_profile(payload: Mapping[str, Any], actor, *, conn, rc_client,
     ``mark_pushed`` again, rather than saving a new one.
 
     A body with document-field keys is refused before the version row when
-    RemoteController does not advertise them (spec 2.5): an approved change
-    may run long after it was asked for, against an RemoteController that
+    Knovas Connector does not advertise them (spec 2.5): an approved change
+    may run long after it was asked for, against a Knovas Connector that
     was downgraded in between.
     """
     profile = profile_from_json(payload["profile"])
@@ -1024,7 +1024,7 @@ def execute_stop(actor, *, conn, rc_client) -> dict:
     """
     rc_client.stop()
     audit.record(conn, action="ingestion.stopped", actor=actor,
-                 target_type="remote_controller", target_id="sync", detail={})
+                 target_type="knovas_connector", target_id="sync", detail={})
     return {"stopped": True}
 
 
@@ -1039,8 +1039,8 @@ def execute_ingestion_change(payload: Mapping[str, Any], actor, *, conn, rc_clie
     if not (set(getattr(actor, "roles", ()) or ()) & EXECUTOR_ROLES):
         # Refuse here, before save_new_version: a pure approver would
         # otherwise leave a current-but-unpushed row behind and learn about
-        # the role gap from RemoteController's 403.
-        raise RemoteControllerError(
+        # the role gap from Knovas Connector's 403.
+        raise KnovasConnectorError(
             "Die Ausfuehrung braucht die Rolle admin oder ingestion_manager; ein "
             "reiner Pruefer kann das Profil nicht an den Knovas Connector uebertragen.",
             status=None,
@@ -1097,7 +1097,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             "available": capability.shows_values,
             "registry": [f for f in registry or () if f.get("status") != "deprecated"],
             "metadata_items": [{"key": k, "label": METADATA_LABELS[k]} for k in METADATA_ITEMS],
-            # None: RemoteController could not be asked -- never reported as
+            # None: Knovas Connector could not be asked -- never reported as
             # too old (it may well support fields).
             "rc_supports": (CAP_SOURCE_FIELDS in capabilities_from_status(rc_status)
                             if rc_reachable else None),
@@ -1188,7 +1188,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         root = str(request.args.get("root") or "").strip() or None
         try:
             payload = child_folders(rc_client_factory(), root)
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return jsonify({"root": root or "", "folders": [], "error": str(exc)}), 502
         return jsonify(payload)
 
@@ -1224,7 +1224,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                                                    recursive=source.recursive)
                                   if source.field_templates else None),
                 })
-            except (RemoteControllerError, PermissionError) as exc:
+            except (KnovasConnectorError, PermissionError) as exc:
                 summary.append({"path": source.path, "files": None, "folders": None,
                                 "truncated": False, "error": str(exc), "templates": None})
         return _page(form_from_profile(check.profile), preview=summary,
@@ -1265,7 +1265,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                 execute=lambda: execute_ingestion_change(payload, me, conn=gate.connection(),
                                                          rc_client=rc_client_factory()),
             )
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(form_from_profile(profile),
                          error=f"Der Knovas Connector hat das Profil nicht uebernommen: {exc}", status=502)
         if outcome.queued:
@@ -1301,7 +1301,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
                 execute=lambda: execute_ingestion_change(payload, me, conn=gate.connection(),
                                                          rc_client=rc_client_factory()),
             )
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=f"Wiederherstellen fehlgeschlagen: {exc}", status=502)
         if outcome.queued:
             return _page(notice=_queued_notice(outcome.request))
@@ -1318,10 +1318,10 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         me = gate.current_user()
         try:
             rc_client_factory().start()
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=f"Start fehlgeschlagen: {exc}", status=502)
         audit.record(gate.connection(), action="ingestion.started", actor=me,
-                     target_type="remote_controller", target_id="sync", detail={})
+                     target_type="knovas_connector", target_id="sync", detail={})
         return _page(notice="Abgleich gestartet.")
 
     @bp.route("/ingestion/stop", methods=["POST"])
@@ -1333,12 +1333,12 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         me = gate.current_user()
         try:
             outcome = run_guarded(
-                _approvals(), me, kind=KIND, target_ref="remote_controller:stop",
+                _approvals(), me, kind=KIND, target_ref="knovas_connector:stop",
                 payload={"action": "stop"},
                 execute=lambda: execute_stop(me, conn=gate.connection(),
                                              rc_client=rc_client_factory()),
             )
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=f"Stopp fehlgeschlagen: {exc}", status=502)
         if outcome.queued:
             return _page(notice=_queued_notice(outcome.request))
@@ -1347,7 +1347,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
     @bp.route("/ingestion/doc-fields/requeue", methods=["POST"])
     @require_ingestion
     def requeue_doc_fields():
-        """The "Erneut senden" buttons: RemoteController queues the documents
+        """The "Erneut senden" buttons: Knovas Connector queues the documents
         with that field outcome for re-upload, within its per-cycle bound.
         Each is a billed upload, so the request is audited (outcome and count
         only)."""
@@ -1360,11 +1360,11 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         me = gate.current_user()
         try:
             count = rc_client_factory().requeue_doc_fields(outcome)
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=f"Erneut senden fehlgeschlagen: {exc}", status=502)
         audit.record(gate.connection(), actor=me, **requeue_audit(outcome, count))
         if not count:
-            # Nothing the RemoteController's scan still reaches matched: say
+            # Nothing the Knovas Connector's scan still reaches matched: say
             # so instead of promising a re-send (spec 3.7).
             return _page(notice="Keine Dokumente zum erneuten Senden vorgemerkt.")
         return _page(notice=(f"{count} Dokumente zum erneuten Senden vorgemerkt; "
@@ -1385,7 +1385,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         rc = rc_client_factory()
         try:
             block = extraction_block(rc.status())
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=_reextract_error(exc), status=502)
         if block is None:
             return _page(error=REEXTRACT_TOO_OLD, status=400)
@@ -1399,11 +1399,11 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             return _page(error=REEXTRACT_CHANGED, status=400, reextract_confirm=True)
         try:
             answer = rc.requeue_reextract()
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=_reextract_error(exc), status=502)
         count = _count((answer or {}).get("requeued"))
         audit.record(gate.connection(), action=REEXTRACT_AUDIT_ACTION, actor=gate.current_user(),
-                     target_type="remote_controller", target_id="sync",
+                     target_type="knovas_connector", target_id="sync",
                      detail={"outdated": outdated, "requeued": count})
         if not count:
             return _page(notice="Keine Dokumente zum Neu-Extrahieren vorgemerkt.")
@@ -1418,7 +1418,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
 
         A POST with the folder and its templates in the body -- never in the
         URL, which access logs keep -- answered with the captures over the
-        files RemoteController lists there, computed by the same code that
+        files Knovas Connector lists there, computed by the same code that
         checks the golden vectors. Nothing of it is logged.
         """
         csrf_ok = csrf_valid(str(request.headers.get("X-CSRF-Token", "") or ""))
@@ -1435,7 +1435,7 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             return jsonify({"error": "Ordner und h\u00f6chstens 8 Pfadvorlagen angeben."}), 400
         try:
             found = rc_client_factory().discover(root=path.strip(), max_depth=PREVIEW_SCAN_DEPTH)
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return jsonify({"error": str(exc)}), 502
         result = template_preview([t.strip() for t in templates if t.strip()],
                                   found.get("entries") or [],

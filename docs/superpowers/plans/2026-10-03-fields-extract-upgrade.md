@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bring the Knovas Platform and the Knovas Connector (`RemoteController/`) up to the Knovas 1.5.0 Document-fields documentation and to a released, pinned knovas-extract 0.4.0a1, using the library's output fully and fixing the extraction defects found on `main`.
+**Goal:** Bring the Knovas Platform and the Knovas Connector (`KnovasConnector/`) up to the Knovas 1.5.0 Document-fields documentation and to a released, pinned knovas-extract 0.4.0a1, using the library's output fully and fixing the extraction defects found on `main`.
 
 **Architecture:** Two repositories. Part A changes the library (`knovas-extract-python`): CI fixes, DOCX tables in the text, HTML-only e-mails, fail-soft sentence cap, release hygiene, then a signed PyPI release after the user's OK. Part B works in the KnovasComponents worktree branch `worktree-fields-extract-upgrade`: merge the document-fields branch and the rename onto `main` (INT), fix extraction (EXT), pin the library and add operations data (PIN), complete the field features in the Platform (FLD) and the Connector (RCF), add re-extraction after an extractor upgrade (REX), and verify end to end (VER). Connector and Platform mirror code change together in the same task.
 
@@ -13,10 +13,10 @@
 ## Global Constraints
 
 - knovas-extract in the images: `knovas-extract[…]==0.4.0a1` from PyPI once released; until then the git ref = the full 40-character merge commit of the library PR (`b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1` stands in until Task A6 records the real one).
-- Floors in `RemoteController/pyproject.toml` and `docbridge_integration/requirements.txt`: `knovas-extract[…]>=0.4.0a1` (open upper bound).
+- Floors in `KnovasConnector/pyproject.toml` and `docbridge_integration/requirements.txt`: `knovas-extract[…]>=0.4.0a1` (open upper bound).
 - Extras: Connector `pdf,ocr,docx,msg,html,rtf,sentences`; Platform `pdf,ocr,docx,msg,html,rtf,markdown,sentences`.
 - `pip show pymupdf-layout` must fail in both images (PolyForm-Noncommercial licence).
-- User-facing name "Knovas Connector"; unchanged machine names: folder `RemoteController/`, service `remote-controller`, `RC_*` settings, `remote_controller.*` keys, code identifiers, comments, `docs/superpowers/` records, released release-note sections.
+- User-facing name "Knovas Connector"; unchanged machine names: folder `KnovasConnector/`, service `knovas-connector`, `RC_*` settings, `knovas_connector.*` keys, code identifiers, comments, `docs/superpowers/` records, released release-note sections.
 - UI strings German, in the existing tone; docs keep their language.
 - Privacy: no field value, document text, snippet, path or e-mail address in logs, metric labels, errors or audit entries — counts, codes, field keys and versions only.
 - Document fields (1.5.0): on for every account, Knovas can switch it off; check `fields.staged` after uploads and `where.applied` after searches/lists; never show results as filtered without `"where": {"applied": true}`.
@@ -45,13 +45,13 @@ LIB=$SP/lib-fix   # library clone, branch release/0.4.0a1
 ```
 
 `$SP/setup-venvs.sh` (Task SETUP) builds:
-- `$SP/venvs/rc` — Connector: the library editable from `$LIB` with `[pdf,ocr,docx,msg,html,rtf,sentences]` plus the Connector's dependencies and `[dev]` extras (not the Connector package itself: an editable install would leave an untracked `remote_controller.egg-info` in the worktree; the tests import from `src` through `pythonpath`).
+- `$SP/venvs/rc` — Connector: the library editable from `$LIB` with `[pdf,ocr,docx,msg,html,rtf,sentences]` plus the Connector's dependencies and `[dev]` extras (not the Connector package itself: an editable install would leave an untracked `knovas_connector.egg-info` in the worktree; the tests import from `src` through `pythonpath`).
 - `$SP/venvs/pf` — Platform: `requirements.txt` without the knovas-extract line, `pyodbc>=5.2` on Python 3.13, pytest, the mock API's requirements, and the library editable with `[…,markdown,…]`.
 - Docker container `kc-plan-pg` (PostgreSQL 15, 127.0.0.1:55433, platform/testpw, `knovas_platform_test`) — conftest's default `PLATFORM_DB_TEST_DSN`.
 
 Command shorthands used in the tasks:
 ```bash
-rc-pytest() { (cd "$WT/RemoteController" && RC_SKIP_CONFIG_VALIDATION=true TESTING=true RC_RATE_LIMIT_ENABLED=true RC_MTLS_DEV_BYPASS=true RC_MTLS_DEV_EMPLOYEE_ID=11111111-1111-1111-1111-111111111111 KNOVAS_INTERNAL_API_URL=http://internal-api:5000 RC_INSTANCE_TOKEN=test-token RC_CLIENT_ID=22222222-2222-2222-2222-222222222222 RC_WATCH_ROOTS=/tmp SEMANTIX_SECURE_BASE_URL=https://knovas:8443 SEMANTIX_CLIENT_CERT_PATH=/certs/client.pem SEMANTIX_CLIENT_KEY_PATH=/certs/client.key SEMANTIX_CA_CERT_PATH=/certs/ca.pem PYTHONUTF8=1 PYTHONIOENCODING=utf-8 "$SP/venvs/rc/Scripts/python" -m pytest -p no:cacheprovider "$@"); }
+rc-pytest() { (cd "$WT/KnovasConnector" && RC_SKIP_CONFIG_VALIDATION=true TESTING=true RC_RATE_LIMIT_ENABLED=true RC_MTLS_DEV_BYPASS=true RC_MTLS_DEV_EMPLOYEE_ID=11111111-1111-1111-1111-111111111111 KNOVAS_INTERNAL_API_URL=http://internal-api:5000 RC_INSTANCE_TOKEN=test-token RC_CLIENT_ID=22222222-2222-2222-2222-222222222222 RC_WATCH_ROOTS=/tmp SEMANTIX_SECURE_BASE_URL=https://knovas:8443 SEMANTIX_CLIENT_CERT_PATH=/certs/client.pem SEMANTIX_CLIENT_KEY_PATH=/certs/client.key SEMANTIX_CA_CERT_PATH=/certs/ca.pem PYTHONUTF8=1 PYTHONIOENCODING=utf-8 "$SP/venvs/rc/Scripts/python" -m pytest -p no:cacheprovider "$@"); }
 pf-pytest() { (cd "$WT/KnovasPlatform/components/docbridge_integration" && PYTHONUTF8=1 PLATFORM_DB_REQUIRED=true PYTHONIOENCODING=utf-8 "$SP/venvs/pf/Scripts/python" -m pytest -p no:cacheprovider --ignore=tests/test_experiments_runner_client.py "$@"); }
 mock-pytest() { (cd "$WT/KnovasPlatform/mock_knovas_api" && PYTHONUTF8=1 PYTHONIOENCODING=utf-8 "$SP/venvs/pf/Scripts/python" -m pytest -p no:cacheprovider "$@"); }
 lib-pytest() { (cd "$LIB" && PYTHONIOENCODING=utf-8 "$SP/lib-ci/venv-full/Scripts/python" -m pytest -p no:cacheprovider "$@"); }
@@ -1492,7 +1492,7 @@ git merge --no-ff origin/claude/document-fields-integration
 git diff --name-only --diff-filter=U
 ```
 
-Expected: the merge stops with conflicts, and the list is exactly the five files of the table (nothing under `RemoteController/`; 11 of the 16 files touched on both sides merge cleanly).
+Expected: the merge stops with conflicts, and the list is exactly the five files of the table (nothing under `KnovasConnector/`; 11 of the 16 files touched on both sides merge cleanly).
 
 - [ ] **Step 3: Take the five resolved files from `$MERGED`**
 
@@ -1509,7 +1509,7 @@ git grep -n -E '^(<<<<<<<|>>>>>>>) ' -- . ':!docs/superpowers'   # expect: no ou
 
 - [ ] **Step 4: Verify that the whole merged tree equals `$MERGED`**
 
-Every tracked file except the branch's own `docs/superpowers/` files must equal `$MERGED` byte for byte after CRLF normalisation (the work tree uses `core.autocrlf=true`, `$MERGED` has LF), and `$MERGED` may hold nothing more than ignored test artefacts (`RemoteController/config/remote_controller_sync.json`, caches).
+Every tracked file except the branch's own `docs/superpowers/` files must equal `$MERGED` byte for byte after CRLF normalisation (the work tree uses `core.autocrlf=true`, `$MERGED` has LF), and `$MERGED` may hold nothing more than ignored test artefacts (`KnovasConnector/config/knovas_connector_sync.json`, caches).
 
 ```bash
 cd "$WT"
@@ -2517,20 +2517,20 @@ EOF
 
 ---
 
-### Task INT-4: Cherry-pick `08228ba` ("RemoteController is now called Knovas Connector")
+### Task INT-4: Cherry-pick `08228ba` ("Knovas Connector is now called Knovas Connector")
 
 **Files:**
-- Modify (cherry-pick): the 36 files of `08228ba` — `KnovasPlatform/README.md`, `…/web_interface/admin_ingestion.py`, `…/web_interface/admin_system.py`, `…/static/js/admin_ingestion.js`, `…/templates/admin_ingestion.html`, `KnovasPlatform/docs/deployment/checklist-host-nginx.md`, `KnovasPlatform/docs/deployment/host-nginx-internal.md`, `KnovasPlatform/docs/features/document-administration.md`, `KnovasPlatform/docs/setup.md`, `README.md`, `RemoteController/CHANGELOG.md`, `RemoteController/README.md`, `RemoteController/data/docs/hello.txt`, `RemoteController/docs/README.md`, `RemoteController/docs/SETUP.md`, `RemoteController/docs/configuration.md`, `RemoteController/docs/hosting/server_01_home-corpus-setup.md`, `RemoteController/docs/local-commands.md`, `RemoteController/docs/local-setup.md`, `RemoteController/docs/network-and-firewall.md`, `RemoteController/pyproject.toml`, `RemoteController/scripts/demo_corpus/README.md`, `RemoteController/scripts/demo_kanzlei/README.md`, `docker-compose.yml`, `docs/KnovasAPI/Client_Integration_Guide.md`, `docs/KnovasAPI/README.md`, `docs/certificates.md`, `docs/hosting-requirements.md`, `docs/microsoft-365.md`, `docs/search-ui-backlog.md`, `docs/specifications.md`, `docs/stopping-web-servers.md`, `knovas.env.example`, `scripts/doctor.sh`, `scripts/search-probe.sh`, `scripts/setup.sh`
-- Conflicts (one hunk each), resolved from `$RENAME`: `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py`, `RemoteController/CHANGELOG.md`, `RemoteController/pyproject.toml`, `knovas.env.example`
+- Modify (cherry-pick): the 36 files of `08228ba` — `KnovasPlatform/README.md`, `…/web_interface/admin_ingestion.py`, `…/web_interface/admin_system.py`, `…/static/js/admin_ingestion.js`, `…/templates/admin_ingestion.html`, `KnovasPlatform/docs/deployment/checklist-host-nginx.md`, `KnovasPlatform/docs/deployment/host-nginx-internal.md`, `KnovasPlatform/docs/features/document-administration.md`, `KnovasPlatform/docs/setup.md`, `README.md`, `KnovasConnector/CHANGELOG.md`, `KnovasConnector/README.md`, `KnovasConnector/data/docs/hello.txt`, `KnovasConnector/docs/README.md`, `KnovasConnector/docs/SETUP.md`, `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/hosting/server_01_home-corpus-setup.md`, `KnovasConnector/docs/local-commands.md`, `KnovasConnector/docs/local-setup.md`, `KnovasConnector/docs/network-and-firewall.md`, `KnovasConnector/pyproject.toml`, `KnovasConnector/scripts/demo_corpus/README.md`, `KnovasConnector/scripts/demo_kanzlei/README.md`, `docker-compose.yml`, `docs/KnovasAPI/Client_Integration_Guide.md`, `docs/KnovasAPI/README.md`, `docs/certificates.md`, `docs/hosting-requirements.md`, `docs/microsoft-365.md`, `docs/search-ui-backlog.md`, `docs/specifications.md`, `docs/stopping-web-servers.md`, `knovas.env.example`, `scripts/doctor.sh`, `scripts/search-probe.sh`, `scripts/setup.sh`
+- Conflicts (one hunk each), resolved from `$RENAME`: `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py`, `KnovasConnector/CHANGELOG.md`, `KnovasConnector/pyproject.toml`, `knovas.env.example`
 
 **Interfaces:**
 - Consumes: the tree after INT-3d (none of INT-2/INT-3 touches the 36 files, so the result equals `$RENAME` on all of them).
-- Produces: the System tab's `rc` check labelled `"Knovas Connector"`; `RemoteController/pyproject.toml` `version = "0.3.0"`, `description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"`; the CHANGELOG's rename bullet under `## Unreleased`. INT-5/INT-6 anchor on this text.
+- Produces: the System tab's `rc` check labelled `"Knovas Connector"`; `KnovasConnector/pyproject.toml` `version = "0.3.0"`, `description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"`; the CHANGELOG's rename bullet under `## Unreleased`. INT-5/INT-6 anchor on this text.
 
 The four resolutions (all four files are copied from `$RENAME`; check them against this):
-- `admin_system.py`: the fields branch's RC check (`suffix, rc_hint = _rc_doc_fields_note(answer, doc_fields_on)`, `OK if exc is None and not rc_hint else WARN`, `("antwortet" + suffix)`, `hint=rc_hint if exc is None else "Betrifft nur den Reiter Ingestion."`) with `08228ba`'s label in both checks: `Check("rc", "Knovas Connector", SKIP, "Nicht konfiguriert", …)` and `"rc", "Knovas Connector",`. The section comment `# ── RemoteController ───…` stays (comment).
-- `RemoteController/CHANGELOG.md`: under `## Unreleased` first `08228ba`'s bullet `- Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.`, a blank line, then the fields branch's `### 0.3.0 — Knovas document fields (Dokumentfelder)` section (and `### 0.2.0 …` below it) unchanged.
-- `RemoteController/pyproject.toml`: `version = "0.3.0"` (the fields branch) followed by `description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"` (`08228ba`).
+- `admin_system.py`: the fields branch's RC check (`suffix, rc_hint = _rc_doc_fields_note(answer, doc_fields_on)`, `OK if exc is None and not rc_hint else WARN`, `("antwortet" + suffix)`, `hint=rc_hint if exc is None else "Betrifft nur den Reiter Ingestion."`) with `08228ba`'s label in both checks: `Check("rc", "Knovas Connector", SKIP, "Nicht konfiguriert", …)` and `"rc", "Knovas Connector",`. The section comment `# ── Knovas Connector ───…` stays (comment).
+- `KnovasConnector/CHANGELOG.md`: under `## Unreleased` first `08228ba`'s bullet `- Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `KnovasConnector/`, the Docker service `knovas-connector`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.`, a blank line, then the fields branch's `### 0.3.0 — Knovas document fields (Dokumentfelder)` section (and `### 0.2.0 …` below it) unchanged.
+- `KnovasConnector/pyproject.toml`: `version = "0.3.0"` (the fields branch) followed by `description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"` (`08228ba`).
 - `knovas.env.example`: `main`'s `PLATFORM_TRUSTED_PROXY_HOPS` comment block and `# PLATFORM_TRUSTED_PROXY_HOPS=2`, `#`, then `08228ba`'s `# Knovas Connector on the host. Inside Docker it stays 5001; only the published` (the rest of that block unchanged). Its three other hunks apply cleanly (`# The console reaches the firm's Knovas Connector here …`, `# it names: RC_* reaches Knovas Connector, …`, `#   # Ingestion writes these; the default is the volume Knovas Connector fills.`).
 
 - [ ] **Step 1: Cherry-pick and confirm the four conflicts**
@@ -2548,15 +2548,15 @@ Expected: the cherry-pick stops; the list is exactly the four files above.
 ```bash
 cd "$WT"
 for f in KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py \
-         RemoteController/CHANGELOG.md RemoteController/pyproject.toml knovas.env.example; do
+         KnovasConnector/CHANGELOG.md KnovasConnector/pyproject.toml knovas.env.example; do
   cp "$RENAME/$f" "$WT/$f" && git add -- "$f"
 done
 git diff --name-only --diff-filter=U                     # expect: no output
 git grep -n -E '^(<<<<<<<|>>>>>>>) ' -- . ':!docs/superpowers'   # expect: no output
-git diff --cached -- RemoteController/pyproject.toml | grep -E '^[-+](version|description)'
+git diff --cached -- KnovasConnector/pyproject.toml | grep -E '^[-+](version|description)'
 ```
 
-Expected for the last command: only `-description = "Customer-hosted Knovas Remote Controller — discover and sync local files to Semantix"` and `+description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"`; `version` is unchanged at `0.3.0`.
+Expected for the last command: only `-description = "Customer-hosted Knovas Connector — discover and sync local files to Semantix"` and `+description = "Knovas Connector (customer-hosted) — discover and sync local files to Knovas"`; `version` is unchanged at `0.3.0`.
 
 - [ ] **Step 3: Finish the cherry-pick (08228ba's own message plus the `-x` line)**
 
@@ -2586,7 +2586,7 @@ bad = [p for p in paths if norm(p) != norm(f"{ref}/{p}")]
 print(len(paths), "files touched; differ from wt-rename:", bad)
 sys.exit(0 if len(paths) == 36 and not bad else 1)
 EOF
-py -3.13 -c "import ast, tomllib; ast.parse(open('KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py', encoding='utf-8').read()); tomllib.load(open('RemoteController/pyproject.toml', 'rb')); print('ok')"
+py -3.13 -c "import ast, tomllib; ast.parse(open('KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py', encoding='utf-8').read()); tomllib.load(open('KnovasConnector/pyproject.toml', 'rb')); print('ok')"
 bash -n scripts/setup.sh && bash -n scripts/doctor.sh && bash -n scripts/search-probe.sh
 node --check KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_ingestion.js
 pf-pytest tests/test_web_admin_system_doc_fields.py tests/test_web_admin_ingestion.py
@@ -2603,9 +2603,9 @@ Expected: `36 files touched; differ from wt-rename: []`, `ok`, silent syntax che
 Policy of `08228ba`, applied to everything it could not see: German texts say "der/den/dem Knovas Connector" (genitive "des Knovas Connectors"), compounds "Knovas-Connector-…"; the abbreviation "RC" stays; English prose says "the Knovas Connector". The four lines that PR #22 renames outside `08228ba` (found by diffing `main` against `main` + PR #22) get PR #22's exact text, so merging PR #22 later sees identical changes there.
 
 **Files:**
-- Modify (Platform UI): `KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_ingestion.html`, `…/static/js/admin_ingestion.js`, `…/web_interface/admin_ingestion.py`, `…/src/identity/ingestion_compiler.py`, `…/web_interface/admin_system.py`, `…/web_interface/admin_doc_fields.py`, `…/src/remote_controller_client.py`
-- Modify (Connector): `RemoteController/src/sync/doc_fields_metrics.py`, `RemoteController/scripts/backfill_partial_ocr.py`
-- Modify (docs): `KnovasPlatform/docs/features/document-fields.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `RemoteController/docs/configuration.md`, `RemoteController/docs/operations.md`, `RELEASE_NOTES.md`, `docs/client/README.md`, `docs/client/document-fields.md`, `knovas.env.example`, `KnovasPlatform/docs/features/experiments.md`, `KnovasPlatform/components/experiments_runner/README.md`, `docs/search-ui-backlog.md`, `docker-compose.yml`, `KnovasPlatform/docs/README.md`
+- Modify (Platform UI): `KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_ingestion.html`, `…/static/js/admin_ingestion.js`, `…/web_interface/admin_ingestion.py`, `…/src/identity/ingestion_compiler.py`, `…/web_interface/admin_system.py`, `…/web_interface/admin_doc_fields.py`, `…/src/knovas_connector_client.py`
+- Modify (Connector): `KnovasConnector/src/sync/doc_fields_metrics.py`, `KnovasConnector/scripts/backfill_partial_ocr.py`
+- Modify (docs): `KnovasPlatform/docs/features/document-fields.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/operations.md`, `RELEASE_NOTES.md`, `docs/client/README.md`, `docs/client/document-fields.md`, `knovas.env.example`, `KnovasPlatform/docs/features/experiments.md`, `KnovasPlatform/components/experiments_runner/README.md`, `docs/search-ui-backlog.md`, `docker-compose.yml`, `KnovasPlatform/docs/README.md`
 - Test: `KnovasPlatform/components/docbridge_integration/tests/test_web_admin_ingestion.py`, `tests/test_web_admin_doc_fields.py`, `tests/test_web_admin_system_doc_fields.py`
 
 **Interfaces:**
@@ -2620,43 +2620,43 @@ All anchors are ASCII; on lines that continue with a backslash-u escape, only th
 
 ```diff
 # TestStatusBar::test_a_quiet_block (line 1188)
--            "Dokumentfelder sind im RemoteController ausgeschaltet (RC_DOC_FIELDS=off); "
+-            "Dokumentfelder sind im Knovas Connector ausgeschaltet (RC_DOC_FIELDS=off); "
 +            "Dokumentfelder sind im Knovas Connector ausgeschaltet (RC_DOC_FIELDS=off); "
-# TestCheckProfileFields::test_a_remote_controller_without_the_capability_refuses_the_save (line 1254): prefix only
--        assert "RemoteController zu alt 
+# TestCheckProfileFields::test_a_knovas_connector_without_the_capability_refuses_the_save (line 1254): prefix only
+-        assert "Knovas Connector zu alt 
 +        assert "Der Knovas Connector ist zu alt 
 # TestCheckProfileFields::test_the_preview_gets_the_problem_instead_of_an_exception (line 1351)
--        assert "RemoteController zu alt" in check.error
+-        assert "Knovas Connector zu alt" in check.error
 +        assert "Der Knovas Connector ist zu alt" in check.error
-# TestLiveDocumentFields::test_an_old_remote_controller_gets_nothing (line 1745)
--        assert "RemoteController zu alt" in r.data.decode("utf-8")
+# TestLiveDocumentFields::test_an_old_knovas_connector_gets_nothing (line 1745)
+-        assert "Knovas Connector zu alt" in r.data.decode("utf-8")
 +        assert "Der Knovas Connector ist zu alt" in r.data.decode("utf-8")
 # lines 1612, 1618, 1767 (all three; prefix only, "in html" / "not in html" unchanged)
--assert "RemoteController meldet keine Unterst
+-assert "Knovas Connector meldet keine Unterst
 +assert "Der Knovas Connector meldet keine Unterst
 # lines 1617 and 1766 (both)
--        assert "RemoteController ist nicht erreichbar" in html
+-        assert "Knovas Connector ist nicht erreichbar" in html
 +        assert "Der Knovas Connector ist nicht erreichbar" in html
 ```
 
-(The 1254 anchor is `assert "RemoteController zu alt` followed by one space: it matches only that line.)
+(The 1254 anchor is `assert "Knovas Connector zu alt` followed by one space: it matches only that line.)
 
 `tests/test_web_admin_doc_fields.py`:
 
 ```diff
-# TestRegistryWrites::test_no_requeue_offer_for_a_remote_controller_without_it (727) and
-# TestRegistryWrites::test_an_older_remote_controller_server_is_not_offered_requeue (742)
--        assert "RemoteController aktualisieren" in response.data.decode("utf-8")
+# TestRegistryWrites::test_no_requeue_offer_for_a_knovas_connector_without_it (727) and
+# TestRegistryWrites::test_an_older_knovas_connector_server_is_not_offered_requeue (742)
+-        assert "Knovas Connector aktualisieren" in response.data.decode("utf-8")
 +        assert "bitte den Knovas Connector aktualisieren" in response.data.decode("utf-8")
-# TestRegistryWrites::test_an_unreachable_remote_controller_is_not_called_too_old (757)
--        assert "nicht erreichbar" in body and "RemoteController aktualisieren" not in body
+# TestRegistryWrites::test_an_unreachable_knovas_connector_is_not_called_too_old (757)
+-        assert "nicht erreichbar" in body and "Knovas Connector aktualisieren" not in body
 +        assert "nicht erreichbar" in body and "Knovas Connector aktualisieren" not in body
 ```
 
-`tests/test_web_admin_system_doc_fields.py`, `TestRemoteController::test_an_old_remote_controller_is_called_out_while_fields_are_on` (line 144):
+`tests/test_web_admin_system_doc_fields.py`, `TestKnovasConnector::test_an_old_knovas_connector_is_called_out_while_fields_are_on` (line 144):
 
 ```diff
--        assert "RemoteController aktualisieren" in check["hint"]
+-        assert "Knovas Connector aktualisieren" in check["hint"]
 +        assert check["hint"] == ("Den Knovas Connector aktualisieren, damit die Ingestion "
 +                                 "Feldwerte mitsenden kann.")
 ```
@@ -2667,7 +2667,7 @@ All anchors are ASCII; on lines that continue with a backslash-u escape, only th
 pf-pytest tests/test_web_admin_ingestion.py tests/test_web_admin_doc_fields.py tests/test_web_admin_system_doc_fields.py
 ```
 
-Expected: 13 FAIL — `test_web_admin_ingestion.py::TestStatusBar::test_a_quiet_block`, `TestCheckProfileFields::test_a_remote_controller_without_the_capability_refuses_the_save` (4 params), `TestCheckProfileFields::test_the_preview_gets_the_problem_instead_of_an_exception`, `TestTemplateFields::test_notes_when_knovas_or_remote_controller_cannot_take_them`, `TestTemplateFields::test_an_unreachable_remote_controller_is_not_called_too_old`, `TestLiveDocumentFields::test_an_old_remote_controller_gets_nothing`, `TestLiveDocumentFields::test_a_status_that_fails_is_unreachable_not_too_old`; `test_web_admin_doc_fields.py::TestRegistryWrites::test_no_requeue_offer_for_a_remote_controller_without_it`, `…::test_an_older_remote_controller_server_is_not_offered_requeue`; `test_web_admin_system_doc_fields.py::TestRemoteController::test_an_old_remote_controller_is_called_out_while_fields_are_on` — each because the page or constant still says "RemoteController".
+Expected: 13 FAIL — `test_web_admin_ingestion.py::TestStatusBar::test_a_quiet_block`, `TestCheckProfileFields::test_a_knovas_connector_without_the_capability_refuses_the_save` (4 params), `TestCheckProfileFields::test_the_preview_gets_the_problem_instead_of_an_exception`, `TestTemplateFields::test_notes_when_knovas_or_knovas_connector_cannot_take_them`, `TestTemplateFields::test_an_unreachable_knovas_connector_is_not_called_too_old`, `TestLiveDocumentFields::test_an_old_knovas_connector_gets_nothing`, `TestLiveDocumentFields::test_a_status_that_fails_is_unreachable_not_too_old`; `test_web_admin_doc_fields.py::TestRegistryWrites::test_no_requeue_offer_for_a_knovas_connector_without_it`, `…::test_an_older_knovas_connector_server_is_not_offered_requeue`; `test_web_admin_system_doc_fields.py::TestKnovasConnector::test_an_old_knovas_connector_is_called_out_while_fields_are_on` — each because the page or constant still says "Knovas Connector".
 
 - [ ] **Step 3: Rename the strings**
 
@@ -2675,16 +2675,16 @@ Expected: 13 FAIL — `test_web_admin_ingestion.py::TestStatusBar::test_a_quiet_
 
 ```diff
 # line 119
--        <p class="hint">Jedes erneut gesendete Dokument ist ein verrechneter Upload mit erneuter Texterkennung; RemoteController sendet höchstens die eingestellte Anzahl pro Durchlauf.</p>
+-        <p class="hint">Jedes erneut gesendete Dokument ist ein verrechneter Upload mit erneuter Texterkennung; Knovas Connector sendet höchstens die eingestellte Anzahl pro Durchlauf.</p>
 +        <p class="hint">Jedes erneut gesendete Dokument ist ein verrechneter Upload mit erneuter Texterkennung; der Knovas Connector sendet höchstens die eingestellte Anzahl pro Durchlauf.</p>
 # line 138
--                        <p class="msg error">Pfadvorlage {{ e.index }}: {{ e.text }} – RemoteController würde diesen Ordner überspringen.</p>
+-                        <p class="msg error">Pfadvorlage {{ e.index }}: {{ e.text }} – Knovas Connector würde diesen Ordner überspringen.</p>
 +                        <p class="msg error">Pfadvorlage {{ e.index }}: {{ e.text }} – der Knovas Connector würde diesen Ordner überspringen.</p>
 # line 213
--                <p class="msg warn">RemoteController ist nicht erreichbar; ob er Dokumentfelder unterstützt, lässt sich gerade nicht prüfen. Ordner mit Feldern werden erst gespeichert, wenn er antwortet.</p>
+-                <p class="msg warn">Knovas Connector ist nicht erreichbar; ob er Dokumentfelder unterstützt, lässt sich gerade nicht prüfen. Ordner mit Feldern werden erst gespeichert, wenn er antwortet.</p>
 +                <p class="msg warn">Der Knovas Connector ist nicht erreichbar; ob er Dokumentfelder unterstützt, lässt sich gerade nicht prüfen. Ordner mit Feldern werden erst gespeichert, wenn er antwortet.</p>
 # line 215
--                <p class="msg error">RemoteController meldet keine Unterstützung für Dokumentfelder – bitte aktualisieren, bevor Ordner mit Feldern gespeichert werden.</p>
+-                <p class="msg error">Knovas Connector meldet keine Unterstützung für Dokumentfelder – bitte aktualisieren, bevor Ordner mit Feldern gespeichert werden.</p>
 +                <p class="msg error">Der Knovas Connector meldet keine Unterstützung für Dokumentfelder – bitte aktualisieren, bevor Ordner mit Feldern gespeichert werden.</p>
 ```
 
@@ -2692,7 +2692,7 @@ Expected: 13 FAIL — `test_web_admin_ingestion.py::TestStatusBar::test_a_quiet_
 
 ```diff
 # line 234
--                ' – RemoteController würde diesen Ordner überspringen.', 'msg error'));
+-                ' – Knovas Connector würde diesen Ordner überspringen.', 'msg error'));
 +                ' – der Knovas Connector würde diesen Ordner überspringen.', 'msg error'));
 ```
 
@@ -2700,13 +2700,13 @@ Expected: 13 FAIL — `test_web_admin_ingestion.py::TestStatusBar::test_a_quiet_
 
 ```diff
 # line 351 (reupload_text)
--    return (f"{head} Wie viele Dokumente es sind, meldet RemoteController erst nach einem "
+-    return (f"{head} Wie viele Dokumente es sind, meldet Knovas Connector erst nach einem "
 +    return (f"{head} Wie viele Dokumente es sind, meldet der Knovas Connector erst nach einem "
 # line 407 (doc_fields_status)
--        say("Dokumentfelder sind im RemoteController ausgeschaltet (RC_DOC_FIELDS=off); "
+-        say("Dokumentfelder sind im Knovas Connector ausgeschaltet (RC_DOC_FIELDS=off); "
 +        say("Dokumentfelder sind im Knovas Connector ausgeschaltet (RC_DOC_FIELDS=off); "
-# line 1215 (requeue_doc_fields): anchor `"RemoteController sendet sie in den n`
--                             "RemoteController sendet sie in den n
+# line 1215 (requeue_doc_fields): anchor `"Knovas Connector sendet sie in den n`
+-                             "Knovas Connector sendet sie in den n
 +                             "der Knovas Connector sendet sie in den n
 ```
 
@@ -2716,10 +2716,10 @@ Renders as: "… vorgemerkt; der Knovas Connector sendet sie in den nächsten Du
 
 ```diff
 # line 477
--RC_TOO_OLD = ("RemoteController zu alt 
+-RC_TOO_OLD = ("Knovas Connector zu alt 
 +RC_TOO_OLD = ("Der Knovas Connector ist zu alt 
 # line 480
--RC_UNREACHABLE = ("RemoteController nicht erreichbar 
+-RC_UNREACHABLE = ("Knovas Connector nicht erreichbar 
 +RC_UNREACHABLE = ("Der Knovas Connector ist nicht erreichbar 
 ```
 
@@ -2729,24 +2729,24 @@ Render as: "Der Knovas Connector ist zu alt – bitte aktualisieren: er meldet k
 
 ```diff
 # line 145
--                "RemoteController aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
+-                "Knovas Connector aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
 +                "Den Knovas Connector aktualisieren, damit die Ingestion Feldwerte mitsenden kann.")
 ```
 
 `src/web_interface/admin_doc_fields.py`:
 
 ```diff
-# line 186 (REQUEUE_UNSUPPORTED): anchor `    "Der RemoteController kennt das erneute Senden noch nicht ` (one trailing space)
--    "Der RemoteController kennt das erneute Senden noch nicht 
+# line 186 (REQUEUE_UNSUPPORTED): anchor `    "Der Knovas Connector kennt das erneute Senden noch nicht ` (one trailing space)
+-    "Der Knovas Connector kennt das erneute Senden noch nicht 
 +    "Der Knovas Connector kennt das erneute Senden noch nicht 
 # line 187
--    "RemoteController aktualisieren."
+-    "Knovas Connector aktualisieren."
 +    "den Knovas Connector aktualisieren."
 # line 190 (REQUEUE_UNREACHABLE)
--    "Der RemoteController ist nicht erreichbar; es wurde nichts erneut gesendet. "
+-    "Der Knovas Connector ist nicht erreichbar; es wurde nichts erneut gesendet. "
 +    "Der Knovas Connector ist nicht erreichbar; es wurde nichts erneut gesendet. "
 # line 1638 (doc_fields_requeue)
--            return _page(error="Der RemoteController hat das erneute Senden nicht angenommen.",
+-            return _page(error="Der Knovas Connector hat das erneute Senden nicht angenommen.",
 +            return _page(error="Der Knovas Connector hat das erneute Senden nicht angenommen.",
 ```
 
@@ -2755,41 +2755,41 @@ REQUEUE_UNSUPPORTED renders as: "Der Knovas Connector kennt das erneute Senden n
 **Operator log lines and metric help (spec §5.3).**
 
 ```diff
-# KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py line 192
--            logger.info("RemoteController-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
+# KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py line 192
+-            logger.info("Knovas-Connector-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
 +            logger.info("Knovas-Connector-Faehigkeiten nicht abrufbar: %s", type(exc).__name__)
 # KnovasPlatform/components/docbridge_integration/src/web_interface/admin_doc_fields.py lines 1170, 1179
--            logger.warning("RemoteController client unavailable: %s", type(exc).__name__)
+-            logger.warning("Knovas Connector client unavailable: %s", type(exc).__name__)
 +            logger.warning("Knovas Connector client unavailable: %s", type(exc).__name__)
--            logger.warning("RemoteController capabilities unavailable: %s", type(exc).__name__)
+-            logger.warning("Knovas Connector capabilities unavailable: %s", type(exc).__name__)
 +            logger.warning("Knovas Connector capabilities unavailable: %s", type(exc).__name__)
-# RemoteController/src/sync/doc_fields_metrics.py line 96 (rc_doc_fields_client_dropped_total help)
--    "Field values the RemoteController left out of an init before sending, by reason",
+# KnovasConnector/src/sync/doc_fields_metrics.py line 96 (rc_doc_fields_client_dropped_total help)
+-    "Field values the Knovas Connector left out of an init before sending, by reason",
 +    "Field values the Knovas Connector left out of an init before sending, by reason",
 ```
 
 **Console messages that predate PR #22 and that `08228ba` missed** (the Ingestion tab shows them through `{exc}`; PR #22 does not touch these lines, so a later merge does not conflict):
 
 ```diff
-# KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py line 138
--            raise PermissionError("Kein angemeldeter Benutzer; RemoteController wird nicht aufgerufen.")
+# KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py line 138
+-            raise PermissionError("Kein angemeldeter Benutzer; Knovas Connector wird nicht aufgerufen.")
 +            raise PermissionError("Kein angemeldeter Benutzer; der Knovas Connector wird nicht aufgerufen.")
 # line 151
--            raise RemoteControllerError(f"RemoteController nicht erreichbar: {exc}", status=None) from exc
-+            raise RemoteControllerError(f"Der Knovas Connector ist nicht erreichbar: {exc}", status=None) from exc
+-            raise KnovasConnectorError(f"Knovas Connector nicht erreichbar: {exc}", status=None) from exc
++            raise KnovasConnectorError(f"Der Knovas Connector ist nicht erreichbar: {exc}", status=None) from exc
 # line 231
--                    "RemoteController hat die Sync-Konfigurations-API abgeschaltet "
+-                    "Knovas Connector hat die Sync-Konfigurations-API abgeschaltet "
 +                    "Der Knovas Connector hat die Sync-Konfigurations-API abgeschaltet "
 # KnovasPlatform/components/docbridge_integration/src/identity/ingestion_compiler.py line 381
--            "RemoteController refuses. This is a bug in the compiler, not in "
+-            "Knovas Connector refuses. This is a bug in the compiler, not in "
 +            "the Knovas Connector refuses. This is a bug in the compiler, not in "
 ```
 
 **Usage text** (`--help` prints the module docstring, `argparse.ArgumentParser(description=__doc__)`):
 
 ```diff
-# RemoteController/scripts/backfill_partial_ocr.py line 20
--Run it inside the RemoteController container (same env, same volumes),
+# KnovasConnector/scripts/backfill_partial_ocr.py line 20
+-Run it inside the Knovas Connector container (same env, same volumes),
 +Run it inside the Knovas Connector container (same env, same volumes),
 ```
 
@@ -2797,85 +2797,85 @@ REQUEUE_UNSUPPORTED renders as: "Der Knovas Connector kennt das erneute Senden n
 
 ```diff
 # line 6
--shows only what Knovas confirms, and RemoteController can send values with
+-shows only what Knovas confirms, and Knovas Connector can send values with
 +shows only what Knovas confirms, and the Knovas Connector can send values with
 # line 23
--noetig`). In a BROKERED tenant, entity values sent by RemoteController (for
+-noetig`). In a BROKERED tenant, entity values sent by Knovas Connector (for
 +noetig`). In a BROKERED tenant, entity values sent by the Knovas Connector (for
 # line 25
--upload with `401 assertion_rejected` and RemoteController indexes the document
+-upload with `401 assertion_rejected` and Knovas Connector indexes the document
 +upload with `401 assertion_rejected` and the Knovas Connector indexes the document
 # line 29 (label only; the path stays)
--RemoteController side: [`RemoteController/docs/configuration.md`](../../../RemoteController/docs/configuration.md#per-source-document-fields-dokumentfelder).
-+Knovas Connector side: [`RemoteController/docs/configuration.md`](../../../RemoteController/docs/configuration.md#per-source-document-fields-dokumentfelder).
+-Knovas Connector side: [`KnovasConnector/docs/configuration.md`](../../../KnovasConnector/docs/configuration.md#per-source-document-fields-dokumentfelder).
++Knovas Connector side: [`KnovasConnector/docs/configuration.md`](../../../KnovasConnector/docs/configuration.md#per-source-document-fields-dokumentfelder).
 # line 74
--- **No echo, no "gespeichert".** RemoteController and the Ingestion tab say
+-- **No echo, no "gespeichert".** Knovas Connector and the Ingestion tab say
 +- **No echo, no "gespeichert".** The Knovas Connector and the Ingestion tab say
 # line 148
--Minuten)"). The folder is picked from the RemoteController tree (or typed as
+-Minuten)"). The folder is picked from the Knovas Connector tree (or typed as
 +Minuten)"). The folder is picked from the Knovas Connector's tree (or typed as
 # lines 190-191 (quotes the UI text of RC_TOO_OLD)
--RemoteController does not report the needed capability ("RemoteController zu
+-Knovas Connector does not report the needed capability ("Knovas Connector zu
 -alt – bitte aktualisieren").
 +the Knovas Connector does not report the needed capability ("Der Knovas
 +Connector ist zu alt – bitte aktualisieren").
 # line 202
--The status panel shows what RemoteController reports: whether Knovas takes
+-The status panel shows what Knovas Connector reports: whether Knovas takes
 +The status panel shows what the Knovas Connector reports: whether Knovas takes
 # line 211
--RemoteController clears those documents' upload values at Knovas on their next
+-Knovas Connector clears those documents' upload values at Knovas on their next
 +the Knovas Connector clears those documents' upload values at Knovas on their next
 # line 237
--legacy search (its query text), and RemoteController's upload-failure,
+-legacy search (its query text), and Knovas Connector's upload-failure,
 +legacy search (its query text), and the Knovas Connector's upload-failure,
 # line 240
--and RemoteController's container logs as confidential, like the documents.
+-and Knovas Connector's container logs as confidential, like the documents.
 +and the Knovas Connector's container logs as confidential, like the documents.
 ```
 
 `KnovasPlatform/components/docbridge_integration/README.md` (line 70 from the fields branch, line 15 from `main`; lines 16 and 19 are paths and stay):
 
 ```diff
--`src/knovas_extract_upload.py`, which mirrors the RemoteController's sync
+-`src/knovas_extract_upload.py`, which mirrors the Knovas Connector's sync
 +`src/knovas_extract_upload.py`, which mirrors the Knovas Connector's sync
--tenant, RemoteController's entity values also need S1.
+-tenant, Knovas Connector's entity values also need S1.
 +tenant, the Knovas Connector's entity values also need S1.
 ```
 
-`RemoteController/docs/configuration.md` (not line 282: `remote-controller` there is the service):
+`KnovasConnector/docs/configuration.md` (not line 282: `knovas-connector` there is the service):
 
 ```diff
 # line 122
--tenant. Nothing here switches that on: the RemoteController sends fields when a
+-tenant. Nothing here switches that on: the Knovas Connector sends fields when a
 +tenant. Nothing here switches that on: the Knovas Connector sends fields when a
 # line 188
--`assertion_rejected`), the RemoteController re-posts the init **once without
+-`assertion_rejected`), the Knovas Connector re-posts the init **once without
 +`assertion_rejected`), the Knovas Connector re-posts the init **once without
 # line 203
--the RemoteController).
+-the Knovas Connector).
 +the Knovas Connector).
 # line 207
--The RemoteController stores a digest of each document's governing field
+-The Knovas Connector stores a digest of each document's governing field
 +The Knovas Connector stores a digest of each document's governing field
 # line 221
--digest equals an empty configuration, so upgrading the RemoteController does
+-digest equals an empty configuration, so upgrading the Knovas Connector does
 +digest equals an empty configuration, so upgrading the Knovas Connector does
 # line 252
--profile, the RemoteController sees an empty configuration for those sources
+-profile, the Knovas Connector sees an empty configuration for those sources
 +profile, the Knovas Connector sees an empty configuration for those sources
 ```
 
-`RemoteController/docs/operations.md`:
+`KnovasConnector/docs/operations.md`:
 
 ```diff
 # line 70
--Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Document fields work only once Knovas has enabled them for the tenant; until then the RemoteController sends them where configured, the server ignores them, and nothing else changes.
+-Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Document fields work only once Knovas has enabled them for the tenant; until then the Knovas Connector sends them where configured, the server ignores them, and nothing else changes.
 +Configuration and costs: [configuration.md](configuration.md#per-source-document-fields-dokumentfelder). Document fields work only once Knovas has enabled them for the tenant; until then the Knovas Connector sends them where configured, the server ignores them, and nothing else changes.
 # line 93
--- `capabilities` tells the Platform which sync-body keys this RemoteController understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("RemoteController zu alt").
+-- `capabilities` tells the Platform which sync-body keys this Knovas Connector understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("Knovas Connector zu alt").
 +- `capabilities` tells the Platform which sync-body keys this Knovas Connector understands; an older one reports none, and the Platform then refuses to push a profile that uses fields ("Der Knovas Connector ist zu alt").
 # line 125
--The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`, `fields_outcome`, `fields_warning_codes`, `fields_attempts`), added on first start; an older RemoteController ignores them. `fields_digest` is a hash of the configuration, never the values. Resetting the sync state (above) also forgets which documents had fields: the next full upload sends them again.
+-The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`, `fields_outcome`, `fields_warning_codes`, `fields_attempts`), added on first start; an older Knovas Connector ignores them. `fields_digest` is a hash of the configuration, never the values. Resetting the sync state (above) also forgets which documents had fields: the next full upload sends them again.
 +The SQLite `documents` table gains five columns (`fields_digest`, `fields_sent`, `fields_outcome`, `fields_warning_codes`, `fields_attempts`), added on first start; an older Knovas Connector ignores them. `fields_digest` is a hash of the configuration, never the values. Resetting the sync state (above) also forgets which documents had fields: the next full upload sends them again.
 ```
 
@@ -2883,49 +2883,49 @@ REQUEUE_UNSUPPORTED renders as: "Der Knovas Connector kennt das erneute Senden n
 
 ```diff
 # line 26
--  brauchen Entitaetswerte von RemoteController (z.B. `client`) zusaetzlich
+-  brauchen Entitaetswerte von Knovas Connector (z.B. `client`) zusaetzlich
 +  brauchen Entitaetswerte vom Knovas Connector (z.B. `client`) zusaetzlich
 # line 28
--  ab, und RemoteController indexiert das Dokument ohne Felder.
+-  ab, und Knovas Connector indexiert das Dokument ohne Felder.
 +  ab, und der Knovas Connector indexiert das Dokument ohne Felder.
 # line 42
--- **Was RemoteController sendet:** je Ordner der Ingestion feste Werte
+-- **Was Knovas Connector sendet:** je Ordner der Ingestion feste Werte
 +- **Was der Knovas Connector sendet:** je Ordner der Ingestion feste Werte
 # line 46
--  indexiert, und eine Pfadvorlage, die RemoteController nicht uebersetzen
+-  indexiert, und eine Pfadvorlage, die Knovas Connector nicht uebersetzen
 +  indexiert, und eine Pfadvorlage, die der Knovas Connector nicht uebersetzen
 # line 50
--  sendet RemoteController alle seine Dokumente erneut -- jedes ein
+-  sendet Knovas Connector alle seine Dokumente erneut -- jedes ein
 +  sendet der Knovas Connector alle seine Dokumente erneut -- jedes ein
 # line 72
--  Grenze: aeltere Logzeilen von Plattform und RemoteController nennen
+-  Grenze: aeltere Logzeilen von Plattform und Knovas Connector nennen
 +  Grenze: aeltere Logzeilen von Plattform und Knovas Connector nennen
 # line 82
--  das Profil, loescht RemoteController die Upload-Werte der betroffenen
+-  das Profil, loescht Knovas Connector die Upload-Werte der betroffenen
 +  das Profil, loescht der Knovas Connector die Upload-Werte der betroffenen
 # line 87
--RemoteController: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md) (0.3.0).
-+Knovas Connector: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md) (0.3.0).
+-Knovas Connector: [KnovasConnector/CHANGELOG.md](KnovasConnector/CHANGELOG.md) (0.3.0).
++Knovas Connector: [KnovasConnector/CHANGELOG.md](KnovasConnector/CHANGELOG.md) (0.3.0).
 ```
 
 `RELEASE_NOTES.md`, the three unreleased lines (lines 100, 108, 129 in `$MERGED`) that PR #22 renames outside `08228ba` (its exact text, no article, so the later merge sees identical changes):
 
 ```diff
--- **Keine Kopie auf dem Server.** RemoteController fragt Microsoft Graph nach
+-- **Keine Kopie auf dem Server.** Knovas Connector fragt Microsoft Graph nach
 +- **Keine Kopie auf dem Server.** Knovas Connector fragt Microsoft Graph nach
--- Das Client-Secret gelangt nur in den RemoteController-Container, nie in die
+-- Das Client-Secret gelangt nur in den Knovas-Connector-Container, nie in die
 +- Das Client-Secret gelangt nur in den Knovas-Connector-Container, nie in die
--Behoben dabei: Das Standardprofil von RemoteController uebernahm keine Dateien,
+-Behoben dabei: Das Standardprofil von Knovas Connector uebernahm keine Dateien,
 +Behoben dabei: Das Standardprofil von Knovas Connector uebernahm keine Dateien,
 ```
 
 `RELEASE_NOTES.md`, the rename entry (wording of `a619d10`) — insert before the heading line ``## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)``, i.e. after INT-3c's section:
 
 ```markdown
-## RemoteController heisst jetzt Knovas Connector
+## Knovas Connector heisst jetzt Knovas Connector
 
 Nur der Name, den man liest: Dokumentation, Oberflaeche und Ausgaben der
-Skripte. Ordner `RemoteController/`, Docker-Dienst `remote-controller`, die
+Skripte. Ordner `KnovasConnector/`, Docker-Dienst `knovas-connector`, die
 `RC_*`-Einstellungen und die Konfigurationsschluessel bleiben, wie sie sind --
 eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
 
@@ -2937,26 +2937,26 @@ eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
 
 ```diff
 # docs/client/README.md line 115
--| `RC_DOC_FIELDS=off` | RemoteController stops sending field values with uploads. |
+-| `RC_DOC_FIELDS=off` | Knovas Connector stops sending field values with uploads. |
 +| `RC_DOC_FIELDS=off` | The Knovas Connector stops sending field values with uploads. |
 # docs/client/document-fields.md line 23
--2. **Your folders**, sent by RemoteController with each upload (*Upload*): a
+-2. **Your folders**, sent by Knovas Connector with each upload (*Upload*): a
 +2. **Your folders**, sent by the Knovas Connector with each upload (*Upload*): a
 # docs/client/document-fields.md line 82
--be field values: keep the Platform's and RemoteController's logs as
+-be field values: keep the Platform's and Knovas Connector's logs as
 +be field values: keep the Platform's and the Knovas Connector's logs as
 ```
 
 `knovas.env.example` (comments 103, 114, 116 from the fields branch; 144 from `main`):
 
 ```diff
--#   # per-folder values RemoteController sends with each upload. They appear
+-#   # per-folder values Knovas Connector sends with each upload. They appear
 +#   # per-folder values the Knovas Connector sends with each upload. They appear
--#   # RemoteController sends no field values with uploads (default on).
+-#   # Knovas Connector sends no field values with uploads (default on).
 +#   # The Knovas Connector sends no field values with uploads (default on).
--#   # After a folder's field settings change, RemoteController re-sends its
+-#   # After a folder's field settings change, Knovas Connector re-sends its
 +#   # After a folder's field settings change, the Knovas Connector re-sends its
--# only a few and RemoteController needs most of them.
+-# only a few and Knovas Connector needs most of them.
 +# only a few and the Knovas Connector needs most of them.
 ```
 
@@ -2964,19 +2964,19 @@ eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
 
 ```diff
 # KnovasPlatform/docs/features/experiments.md line 178
--| `EXPERIMENTS_INDEX_PER_MINUTE` | `2` | Uploads pro Minute (1–60), über alle Prozesse zusammen. Der Mandant erlaubt nur wenige Dokument-Uploads pro Minute und teilt sie mit RemoteController. |
+-| `EXPERIMENTS_INDEX_PER_MINUTE` | `2` | Uploads pro Minute (1–60), über alle Prozesse zusammen. Der Mandant erlaubt nur wenige Dokument-Uploads pro Minute und teilt sie mit Knovas Connector. |
 +| `EXPERIMENTS_INDEX_PER_MINUTE` | `2` | Uploads pro Minute (1–60), über alle Prozesse zusammen. Der Mandant erlaubt nur wenige Dokument-Uploads pro Minute und teilt sie mit dem Knovas Connector. |
 # KnovasPlatform/docs/features/experiments.md line 1510
--  gehört sonst keinem Dienst des Stacks (RemoteController läuft als 10001).
+-  gehört sonst keinem Dienst des Stacks (Knovas Connector läuft als 10001).
 +  gehört sonst keinem Dienst des Stacks (der Knovas Connector läuft als 10001).
 # KnovasPlatform/components/experiments_runner/README.md line 122
--shared with no other image of the stack (RemoteController is 10001), because
+-shared with no other image of the stack (Knovas Connector is 10001), because
 +shared with no other image of the stack (the Knovas Connector is 10001), because
 # docs/search-ui-backlog.md line 160
--- **Trefferkontext kommt ausschliesslich aus den Sidecars** des RemoteControllers;
+-- **Trefferkontext kommt ausschliesslich aus den Sidecars** des Knovas Connectors;
 +- **Trefferkontext kommt ausschliesslich aus den Sidecars** des Knovas Connectors;
 # docker-compose.yml line 271 (experiments-runner comment)
--    # Its own uid, shared with no other image (RemoteController is 10001): the
+-    # Its own uid, shared with no other image (Knovas Connector is 10001): the
 +    # Its own uid, shared with no other image (the Knovas Connector is 10001): the
 ```
 
@@ -2985,28 +2985,28 @@ eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
 `KnovasPlatform/docs/README.md` line 26 (renamed by PR #22 outside `08228ba`; its exact text):
 
 ```diff
--| Index documents before search | [RemoteController](../../RemoteController/README.md) |
-+| Index documents before search | [Knovas Connector](../../RemoteController/README.md) |
+-| Index documents before search | [Knovas Connector](../../KnovasConnector/README.md) |
++| Index documents before search | [Knovas Connector](../../KnovasConnector/README.md) |
 ```
 
-Not renamed, on purpose: `RC_*` names; the `remote-controller` service and container names; `RemoteController/` paths and the directory name (`cd RemoteController`); identifiers (`RemoteControllerClient`, `RemoteControllerError`, `remote_controller_client.py`, `rc_*` metric names); comments and docstrings in code (e.g. `admin_system.py`'s `# ── RemoteController ───` section comment, `config/config.yaml` comments); tests' own identifiers and fake error messages; `docs/superpowers/`; released sections (`RELEASE_NOTES.md` from `# v1.0.0`, `RemoteController/CHANGELOG.md` from `## 0.1.1`); `RemoteController/docker-compose.yml:1` and `RemoteController/docs/nginx-edge.example.conf:1` (comments in the Connector's own examples, which `08228ba` left); and the option value `RemoteController` in `src/experiments/packs/engineering.yaml` (lines 93, 155) and `tests/test_experiments_packs.py:349` — a stored choice value of recorded experiments; renaming it needs a data migration (follow-up if wanted).
+Not renamed, on purpose: `RC_*` names; the `knovas-connector` service and container names; `KnovasConnector/` paths and the directory name (`cd KnovasConnector`); identifiers (`KnovasConnectorClient`, `KnovasConnectorError`, `knovas_connector_client.py`, `rc_*` metric names); comments and docstrings in code (e.g. `admin_system.py`'s `# ── Knovas Connector ───` section comment, `config/config.yaml` comments); tests' own identifiers and fake error messages; `docs/superpowers/`; released sections (`RELEASE_NOTES.md` from `# v1.0.0`, `KnovasConnector/CHANGELOG.md` from `## 0.1.1`); `KnovasConnector/docker-compose.yml:1` and `KnovasConnector/docs/nginx-edge.example.conf:1` (comments in the Connector's own examples, which `08228ba` left); and the option value `Knovas Connector` in `src/experiments/packs/engineering.yaml` (lines 93, 155) and `tests/test_experiments_packs.py:349` — a stored choice value of recorded experiments; renaming it needs a data migration (follow-up if wanted).
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-pf-pytest tests/test_web_admin_ingestion.py tests/test_web_admin_doc_fields.py tests/test_web_admin_system_doc_fields.py tests/test_remote_controller_client.py tests/test_ingestion_compiler.py
+pf-pytest tests/test_web_admin_ingestion.py tests/test_web_admin_doc_fields.py tests/test_web_admin_system_doc_fields.py tests/test_knovas_connector_client.py tests/test_ingestion_compiler.py
 rc-pytest tests/test_doc_fields_no_values_in_logs.py tests/unit/test_backfill_partial_ocr.py tests/unit/test_sync_executor_doc_fields.py
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Check that no user-facing "RemoteController" is left**
+- [ ] **Step 5: Check that no user-facing "Knovas Connector" is left**
 
 Save the check (reusable by later tasks) and run it from `$WT`:
 
 ```bash
 cat > "$SP/rc_leftovers.py" <<'EOF'
-"""User-facing "RemoteController" left in the tree (the rename policy of 08228ba).
+"""User-facing "Knovas Connector" left in the tree (the rename policy of 08228ba).
 
 Prints path:line: text for every hit and exits 1 when there is one. Paths,
 identifiers, service and container names, comments in code, docstrings,
@@ -3021,8 +3021,8 @@ import tokenize
 
 WORD = re.compile(r"Remote ?Controller", re.I)
 ALLOWED_LINES = {
-    "*Formerly RemoteController.* Only the name people read changed: the folder",
-    "## RemoteController heisst jetzt Knovas Connector",
+    "*Formerly Knovas Connector.* Only the name people read changed: the folder",
+    "## Knovas Connector heisst jetzt Knovas Connector",
 }
 
 
@@ -3030,9 +3030,9 @@ def visible(text):
     """The text without paths, identifiers and service names."""
     text = re.sub(r"`[^`]*`", "", text)
     text = re.sub(r"\]\([^)]*\)", "]", text)
-    text = re.sub(r"\S*RemoteController/\S*|\S*/RemoteController\b\S*", "", text)
-    text = re.sub(r"\./RemoteController\b|\bcd (\S+/)?RemoteController\b", "", text)
-    text = re.sub(r"RemoteController(Error|Client)\b|remote[-_]controller|remotecontroller-", "", text)
+    text = re.sub(r"\S*KnovasConnector/\S*|\S*/KnovasConnector\b\S*", "", text)
+    text = re.sub(r"\./KnovasConnector\b|\bcd (\S+/)?KnovasConnector\b", "", text)
+    text = re.sub(r"Knovas Connector(Error|Client)\b|knovas[-_]connector|knovasconnector-", "", text)
     return text
 
 
@@ -3042,7 +3042,7 @@ def in_scope(path):
     if path.endswith(".md") or path in ("knovas.env.example", "docker-compose.yml"):
         return True
     if path.startswith(("KnovasPlatform/components/docbridge_integration/src/",
-                        "RemoteController/src/", "RemoteController/scripts/")):
+                        "KnovasConnector/src/", "KnovasConnector/scripts/")):
         return path.endswith((".py", ".html", ".js"))
     return path.startswith("scripts/") and path.endswith(".sh") and "/lib/" not in path
 
@@ -3054,7 +3054,7 @@ def python_strings(source):
         if tok.type == tokenize.STRING or tok.type == getattr(tokenize, "FSTRING_MIDDLE", -1):
             docstring = prev is None or prev.type in (tokenize.NEWLINE, tokenize.INDENT,
                                                        tokenize.DEDENT, tokenize.NL)
-            if not docstring and tok.string.strip("\"'") != "RemoteController":
+            if not docstring and tok.string.strip("\"'") != "Knovas Connector":
                 out.append((tok.start[0], tok.string))
         if tok.type not in (tokenize.COMMENT, tokenize.NL):
             prev = tok
@@ -3072,7 +3072,7 @@ def text_lines(path, source):
     elif path == "RELEASE_NOTES.md":
         stop = next((i for i, line in enumerate(lines) if re.match(r"# v\d", line)), len(lines))
         lines = lines[:stop]
-    elif path == "RemoteController/CHANGELOG.md":
+    elif path == "KnovasConnector/CHANGELOG.md":
         stop = next((i for i, line in enumerate(lines) if re.match(r"## \d", line)), len(lines))
         lines = lines[:stop]
     return list(enumerate(lines, 1))
@@ -3093,13 +3093,13 @@ for path in [p for p in files.decode("utf-8").split("\0") if p]:
     for number, text in pairs:
         if text.strip() not in ALLOWED_LINES and WORD.search(visible(text)):
             hits.append(f"{path}:{number}: {text.strip()[:120]}")
-print("\n".join(hits) or "no user-facing RemoteController left")
+print("\n".join(hits) or "no user-facing Knovas Connector left")
 sys.exit(1 if hits else 0)
 EOF
 cd "$WT" && PYTHONIOENCODING=utf-8 py -3.13 "$SP/rc_leftovers.py"
 ```
 
-Expected: `no user-facing RemoteController left`, exit 0. (Run on the tree before this task it lists exactly the lines of Step 3, which is how the list was made.)
+Expected: `no user-facing Knovas Connector left`, exit 0. (Run on the tree before this task it lists exactly the lines of Step 3, which is how the list was made.)
 
 - [ ] **Step 6: Commit**
 
@@ -3113,8 +3113,8 @@ git add KnovasPlatform/components/docbridge_integration/src \
         KnovasPlatform/components/experiments_runner/README.md \
         KnovasPlatform/docs/README.md KnovasPlatform/docs/features/document-fields.md \
         KnovasPlatform/docs/features/experiments.md \
-        RemoteController/src/sync/doc_fields_metrics.py RemoteController/scripts/backfill_partial_ocr.py \
-        RemoteController/docs/configuration.md RemoteController/docs/operations.md \
+        KnovasConnector/src/sync/doc_fields_metrics.py KnovasConnector/scripts/backfill_partial_ocr.py \
+        KnovasConnector/docs/configuration.md KnovasConnector/docs/operations.md \
         RELEASE_NOTES.md docs/client/README.md docs/client/document-fields.md \
         docs/search-ui-backlog.md docker-compose.yml knovas.env.example
 git diff --name-only; git ls-files --others --exclude-standard   # expect: no output (all staged)
@@ -3145,7 +3145,7 @@ Knovas 1.5.0: "Document fields, including filtering by fields in search and in l
 
 **Files:**
 - Modify: `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py` (`_doc_fields_check`, hint of the off state), `scripts/doctor.sh` (Dokumentfelder probe)
-- Modify (docs): `RELEASE_NOTES.md`, `KnovasPlatform/docs/features/document-fields.md`, `docs/client/document-fields.md`, `docs/client/README.md`, `RemoteController/docs/configuration.md`, `RemoteController/docs/operations.md`, `RemoteController/CHANGELOG.md`, `RemoteController/README.md`, `docs/specifications.md`, `knovas.env.example`, `KnovasPlatform/components/docbridge_integration/README.md`, `docs/KnovasAPI/README.md`, `docs/KnovasAPI/Secure_API.md`, `RemoteController/.env.example`
+- Modify (docs): `RELEASE_NOTES.md`, `KnovasPlatform/docs/features/document-fields.md`, `docs/client/document-fields.md`, `docs/client/README.md`, `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/operations.md`, `KnovasConnector/CHANGELOG.md`, `KnovasConnector/README.md`, `docs/specifications.md`, `knovas.env.example`, `KnovasPlatform/components/docbridge_integration/README.md`, `docs/KnovasAPI/README.md`, `docs/KnovasAPI/Secure_API.md`, `KnovasConnector/.env.example`
 - Test: `KnovasPlatform/components/docbridge_integration/tests/test_web_admin_system_doc_fields.py` (`TestFourStates::test_off`), `KnovasPlatform/mock_knovas_api/tests/test_doctor_doc_fields_probe.py` (`test_feature_off_probes_nothing_more`)
 
 **Interfaces:**
@@ -3366,7 +3366,7 @@ with
 Knovas has them on for every account since 1.5.0, and the Platform shows them as far as Knovas serves them; this switch can only turn them off.
 ```
 
-`RemoteController/docs/configuration.md`, lines 120-126:
+`KnovasConnector/docs/configuration.md`, lines 120-126:
 
 ```markdown
 Knovas can keep typed **document fields** per document (Mandant, Zeitraum,
@@ -3391,7 +3391,7 @@ are ignored, the document is indexed exactly as before, and `/sync/status`
 says `"server": "not_accepted"` ([operations.md](operations.md#document-fields)).
 ```
 
-`RemoteController/docs/operations.md` line 70 — replace the sentence
+`KnovasConnector/docs/operations.md` line 70 — replace the sentence
 
 ```markdown
 Document fields work only once Knovas has enabled them for the tenant; until then the Knovas Connector sends them where configured, the server ignores them, and nothing else changes.
@@ -3403,7 +3403,7 @@ with
 Since Knovas 1.5.0, document fields are on for every account; where Knovas has them off (or the server is older), the Knovas Connector still sends them where configured, the server ignores them, and nothing else changes.
 ```
 
-`RemoteController/CHANGELOG.md` line 9 (line 7 in `$MERGED`), under `### 0.3.0`:
+`KnovasConnector/CHANGELOG.md` line 9 (line 7 in `$MERGED`), under `### 0.3.0`:
 
 ```markdown
 Takes effect only for a tenant where Knovas has enabled Document Fields. Against any other server the bodies, the outcomes and the indexing are as in 0.2.0.
@@ -3415,7 +3415,7 @@ Takes effect only for a tenant where Knovas has enabled Document Fields. Against
 Knovas 1.5.0 has Document fields on for every account. Where Knovas has them switched off, or against an older server, the bodies, the outcomes and the indexing are as in 0.2.0.
 ```
 
-`RemoteController/README.md` line 12 (line 7 in `$MERGED`) — replace the sentence
+`KnovasConnector/README.md` line 12 (line 7 in `$MERGED`) — replace the sentence
 
 ```markdown
 They take effect only once Knovas has enabled Document Fields for the tenant; until then the server ignores them and `/sync/status` reports `not_accepted`.
@@ -3508,7 +3508,7 @@ has them off, or on an older server, the new request keys are ignored and the
 answers carry none of the new keys.
 ```
 
-`RemoteController/.env.example`, lines 101-102:
+`KnovasConnector/.env.example`, lines 101-102:
 
 ```bash
 # configured with fields send them on upload; Knovas takes them only once it
@@ -3527,11 +3527,11 @@ answers carry none of the new keys.
 ```bash
 pf-pytest tests/test_web_admin_system_doc_fields.py
 cd "$WT/KnovasPlatform/mock_knovas_api" && $SP/venvs/pf/Scripts/python -m pytest tests -q
-cd "$WT" && git grep -n -i -E "only once Knovas|has enabled (them|Document Fields)|enabled \*Document Fields\*|standardmaessig aus|Freischaltung|tenant not enabled|Ask Knovas to enable it|Knovas-Update n|Anfragek|S2\)" -- '*.md' knovas.env.example RemoteController/.env.example ':!docs/superpowers'
+cd "$WT" && git grep -n -i -E "only once Knovas|has enabled (them|Document Fields)|enabled \*Document Fields\*|standardmaessig aus|Freischaltung|tenant not enabled|Ask Knovas to enable it|Knovas-Update n|Anfragek|S2\)" -- '*.md' knovas.env.example KnovasConnector/.env.example ':!docs/superpowers'
 cd "$WT" && PYTHONIOENCODING=utf-8 py -3.13 "$SP/rc_leftovers.py"
 ```
 
-Expected: System tab 13 passed, mock 209 passed; the `git grep` prints nothing; `no user-facing RemoteController left`.
+Expected: System tab 13 passed, mock 209 passed; the `git grep` prints nothing; `no user-facing Knovas Connector left`.
 
 - [ ] **Step 6: Commit**
 
@@ -3541,10 +3541,10 @@ git add KnovasPlatform/components/docbridge_integration/src/web_interface/admin_
         KnovasPlatform/components/docbridge_integration/tests/test_web_admin_system_doc_fields.py \
         KnovasPlatform/mock_knovas_api/tests/test_doctor_doc_fields_probe.py \
         RELEASE_NOTES.md KnovasPlatform/docs/features/document-fields.md docs/client/document-fields.md \
-        docs/client/README.md RemoteController/docs/configuration.md RemoteController/docs/operations.md \
-        RemoteController/CHANGELOG.md RemoteController/README.md docs/specifications.md knovas.env.example \
+        docs/client/README.md KnovasConnector/docs/configuration.md KnovasConnector/docs/operations.md \
+        KnovasConnector/CHANGELOG.md KnovasConnector/README.md docs/specifications.md knovas.env.example \
         KnovasPlatform/components/docbridge_integration/README.md docs/KnovasAPI/README.md \
-        docs/KnovasAPI/Secure_API.md RemoteController/.env.example
+        docs/KnovasAPI/Secure_API.md KnovasConnector/.env.example
 git commit -F - <<'EOF'
 rc+platform: Document fields are on for every account (Knovas 1.5.0)
 
@@ -3581,8 +3581,8 @@ This part covers spec §6 E1–E7 and §8 L2, L3 and L7: the Connector's extract
 - `rc-pytest` and `pf-pytest` as defined in the plan header.
 - Shell test: `cd $WT && bash scripts/lib/test_rc_extraction_settings.sh`.
 - Commits run from `$WT`.
-- The uploader class in `RemoteController/src/sync/knovas_uploader.py` is `SemantixUploader`. The contract's `KnovasUploader` means this class.
-- EXT-1 creates the subsection `### Extraction (knovas-extract 0.4.0a1)` directly below `## Unreleased` in `RemoteController/CHANGELOG.md`. Every later EXT task appends one bullet to it.
+- The uploader class in `KnovasConnector/src/sync/knovas_uploader.py` is `SemantixUploader`. The contract's `KnovasUploader` means this class.
+- EXT-1 creates the subsection `### Extraction (knovas-extract 0.4.0a1)` directly below `## Unreleased` in `KnovasConnector/CHANGELOG.md`. Every later EXT task appends one bullet to it.
 
 **Decisions taken in this part (flagged for review):**
 1. The partial note loses `reason: ocr_backend_none`. It now carries counts and the backend name only (spec E1). The degraded-backend counter counts a note whose `ocr_backend` is `"none"`. That covers both the uncounted case and pages the library skipped for want of an engine, because 0.4 names the engine whenever OCR ran.
@@ -3621,12 +3621,12 @@ This part covers spec §6 E1–E7 and §8 L2, L3 and L7: the Connector's extract
 ### Task EXT-1: One partial rule for knovas-extract 0.4 OCR metadata (Connector + Platform)
 
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py` (`partial_note_for`; new `_PARTIAL_NOTE_COUNTS`, `ocr_backend_missing`)
-- Modify: `RemoteController/src/sync/knovas_uploader.py` (import, `UploadResult.partial` comment, degraded-metric condition in `SemantixUploader.upload_file`)
-- Modify: `RemoteController/src/sync/sync_executor.py` (`record_upload_outcome` docstring)
+- Modify: `KnovasConnector/src/sync/document_text.py` (`partial_note_for`; new `_PARTIAL_NOTE_COUNTS`, `ocr_backend_missing`)
+- Modify: `KnovasConnector/src/sync/knovas_uploader.py` (import, `UploadResult.partial` comment, degraded-metric condition in `SemantixUploader.upload_file`)
+- Modify: `KnovasConnector/src/sync/sync_executor.py` (`record_upload_outcome` docstring)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py` (module docstring bullet, `partial_note_for`, `_PARTIAL_NOTE_COUNTS`)
-- Modify: `RemoteController/docs/operations.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/helpers.py`, `RemoteController/tests/unit/test_document_text.py`, `RemoteController/tests/unit/test_knovas_uploader.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
+- Modify: `KnovasConnector/docs/operations.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/helpers.py`, `KnovasConnector/tests/unit/test_document_text.py`, `KnovasConnector/tests/unit/test_knovas_uploader.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
 
 **Interfaces:**
 - Consumes: —
@@ -3638,7 +3638,7 @@ This part covers spec §6 E1–E7 and §8 L2, L3 and L7: the Connector's extract
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `RemoteController/tests/helpers.py`:
+Append to `KnovasConnector/tests/helpers.py`:
 
 ```python
 #: knovas-extract 0.4 OCR metadata as its PDF extractor reports it whenever
@@ -3667,7 +3667,7 @@ OCR_EXTRA_04 = {
 }
 ```
 
-In `RemoteController/tests/unit/test_document_text.py`, replace the whole block from `# --- partial notes read defensively from metadata.extra ----------------------` through the end of `test_partial_note_for_reads_extra_defensively` with:
+In `KnovasConnector/tests/unit/test_document_text.py`, replace the whole block from `# --- partial notes read defensively from metadata.extra ----------------------` through the end of `test_partial_note_for_reads_extra_defensively` with:
 
 ```python
 # --- partial notes: one rule in both components (spec E1) --------------------
@@ -3740,7 +3740,7 @@ def test_a_born_digital_pdf_extracted_with_ocr_options_is_complete(tmp_path, mon
     assert document_text.partial_note_for(doc, expect_ocr=True) is None
 ```
 
-In `RemoteController/tests/unit/test_knovas_uploader.py`, replace the whole function `test_upload_result_partial_when_no_ocr_backend_but_ocr_expected` (it asserts `{"reason": "ocr_backend_none", "ocr_backend": "none"}`) with:
+In `KnovasConnector/tests/unit/test_knovas_uploader.py`, replace the whole function `test_upload_result_partial_when_no_ocr_backend_but_ocr_expected` (it asserts `{"reason": "ocr_backend_none", "ocr_backend": "none"}`) with:
 
 ```python
 class _CountingCounter:
@@ -3794,7 +3794,7 @@ In `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_up
 ```python
 # knovas-extract 0.4 OCR metadata as its PDF extractor reports it whenever
 # ``ocr=`` is passed -- every key present, backend "none" unless OCR ran. The
-# same table as RemoteController/tests/helpers.py OCR_EXTRA_04.
+# same table as KnovasConnector/tests/helpers.py OCR_EXTRA_04.
 _OCR_EXTRA_04 = {
     "born_digital": {"pdf:ocr_pages": 0, "pdf:text_pages": 12, "pdf:ocr_pages_skipped": 0,
                      "pdf:ocr_pages_failed": 0, "pdf:ocr_backend": "none"},
@@ -3857,7 +3857,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/document_text.py`, replace the whole function:
+In `KnovasConnector/src/sync/document_text.py`, replace the whole function:
 
 ```python
 def partial_note_for(doc: ExtractedDocument, *, expect_ocr: bool) -> Optional[dict[str, Any]]:
@@ -3955,7 +3955,7 @@ def ocr_backend_missing(note: Optional[dict[str, Any]]) -> bool:
     return bool(note) and note.get("ocr_backend") == "none"
 ```
 
-In `RemoteController/src/sync/knovas_uploader.py`, replace:
+In `KnovasConnector/src/sync/knovas_uploader.py`, replace:
 
 ```python
 from sync.document_text import (
@@ -4015,7 +4015,7 @@ with:
                 ocr_metrics.OCR_BACKEND_DEGRADED.inc()
 ```
 
-In `RemoteController/src/sync/sync_executor.py` (docstring of `record_upload_outcome`), replace:
+In `KnovasConnector/src/sync/sync_executor.py` (docstring of `record_upload_outcome`), replace:
 
 ```
     * ``"partial"`` — the library returned, OCR pages were skipped (or no OCR
@@ -4065,7 +4065,7 @@ _PARTIAL_NOTE_COUNTS = (
 def partial_note_for(extra: Optional[dict[str, Any]], *, expect_ocr: bool) -> Optional[dict[str, Any]]:
     """The partial note for a returned document, or None when it is complete.
 
-    The Connector's rule (``RemoteController/src/sync/document_text.py``
+    The Connector's rule (``KnovasConnector/src/sync/document_text.py``
     ``partial_note_for``, spec E1): partial when the library counted skipped
     OCR pages (page cap, budget, pixel cap, or no OCR engine -- 0.4 counts
     every page that needed OCR as skipped then), or failed OCR pages (a
@@ -4093,7 +4093,7 @@ def partial_note_for(extra: Optional[dict[str, Any]], *, expect_ocr: bool) -> Op
     return note
 ```
 
-In `RemoteController/docs/operations.md` (section "Partial documents and the backfill"), replace:
+In `KnovasConnector/docs/operations.md` (section "Partial documents and the backfill"), replace:
 
 ```
 - the extraction child was killed on the wall-clock ceiling or died (`extractor died (exit -9)`) `RC_EXTRACT_MAX_RETRIES` times in a row — note `extract_retries_exhausted`;
@@ -4136,7 +4136,7 @@ document's sidecar, from where the search result carries it as
 `context_partial`.
 ```
 
-In `RemoteController/CHANGELOG.md`, insert directly below the line `## Unreleased`:
+In `KnovasConnector/CHANGELOG.md`, insert directly below the line `## Unreleased`:
 
 ```markdown
 
@@ -4159,10 +4159,10 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/document_text.py RemoteController/src/sync/knovas_uploader.py \
-  RemoteController/src/sync/sync_executor.py RemoteController/tests/helpers.py \
-  RemoteController/tests/unit/test_document_text.py RemoteController/tests/unit/test_knovas_uploader.py \
-  RemoteController/docs/operations.md RemoteController/CHANGELOG.md \
+git add KnovasConnector/src/sync/document_text.py KnovasConnector/src/sync/knovas_uploader.py \
+  KnovasConnector/src/sync/sync_executor.py KnovasConnector/tests/helpers.py \
+  KnovasConnector/tests/unit/test_document_text.py KnovasConnector/tests/unit/test_knovas_uploader.py \
+  KnovasConnector/docs/operations.md KnovasConnector/CHANGELOG.md \
   KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/README.md
@@ -4187,9 +4187,9 @@ EOF
 ### Task EXT-2: Backfill clears the old rule's notes for born-digital PDFs without uploading
 
 **Files:**
-- Modify: `RemoteController/scripts/backfill_partial_ocr.py` (docstring, `LEGACY_COMPLETE_REASON`, `_complete_at_knovas`, `main`)
-- Modify: `RemoteController/docs/operations.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_backfill_partial_ocr.py`
+- Modify: `KnovasConnector/scripts/backfill_partial_ocr.py` (docstring, `LEGACY_COMPLETE_REASON`, `_complete_at_knovas`, `main`)
+- Modify: `KnovasConnector/docs/operations.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_backfill_partial_ocr.py`
 
 **Interfaces:**
 - Consumes: EXT-1. New notes never carry `reason: ocr_backend_none`, so that value marks a note the old rule wrote.
@@ -4197,7 +4197,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `RemoteController/tests/unit/test_backfill_partial_ocr.py`:
+Append to `KnovasConnector/tests/unit/test_backfill_partial_ocr.py`:
 
 ```python
 def test_old_backend_none_notes_are_cleared_without_an_upload(tmp_path, monkeypatch, backfill):
@@ -4249,7 +4249,7 @@ Expected: FAIL: `assert ['Mandant/digital.pdf', 'Mandant/scan.pdf'] == ['Mandant
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/scripts/backfill_partial_ocr.py`, replace in the module docstring:
+In `KnovasConnector/scripts/backfill_partial_ocr.py`, replace in the module docstring:
 
 ```
 * an exhausted retry counter is re-extracted with OCR DISABLED, so at
@@ -4350,7 +4350,7 @@ with:
         )
 ```
 
-In `RemoteController/docs/operations.md`, directly after the paragraph EXT-1 added ("A born-digital PDF is never partial: …"), add:
+In `KnovasConnector/docs/operations.md`, directly after the paragraph EXT-1 added ("A born-digital PDF is never partial: …"), add:
 
 ```
 Notes `{"reason": "ocr_backend_none"}` were written by the rule before this release for exactly such born-digital PDFs; the backfill clears them without an upload (`cleared=` in its summary line).
@@ -4372,8 +4372,8 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/scripts/backfill_partial_ocr.py RemoteController/tests/unit/test_backfill_partial_ocr.py \
-  RemoteController/docs/operations.md RemoteController/CHANGELOG.md
+git add KnovasConnector/scripts/backfill_partial_ocr.py KnovasConnector/tests/unit/test_backfill_partial_ocr.py \
+  KnovasConnector/docs/operations.md KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 rc: backfill clears the old rule's notes for born-digital PDFs without uploading
 
@@ -4392,10 +4392,10 @@ EOF
 ### Task EXT-3: OCR budget no longer collapses; unset `RC_OCR_WORKERS` leaves the pool to the library
 
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py` (remove `_available_cores`; `ocr_workers`, `ocr_time_budget_seconds`, `ocr_options_kwargs`, `build_ocr_limits`)
+- Modify: `KnovasConnector/src/sync/document_text.py` (remove `_available_cores`; `ocr_workers`, `ocr_time_budget_seconds`, `ocr_options_kwargs`, `build_ocr_limits`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py` (`ocr_time_budget_seconds`, `ocr_options_kwargs`)
-- Modify: `RemoteController/docs/configuration.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_document_text.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_document_text.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
 
 **Interfaces:**
 - Consumes: —
@@ -4407,7 +4407,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-In `RemoteController/tests/unit/test_document_text.py`:
+In `KnovasConnector/tests/unit/test_document_text.py`:
 
 (a) In `test_text_mode_and_ocr_options_are_sent_when_accepted`, replace:
 
@@ -4595,7 +4595,7 @@ Expected: FAIL. `TypeError` in `test_ocr_time_budget_derivation`; `10 == 60` in 
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/document_text.py`, replace:
+In `KnovasConnector/src/sync/document_text.py`, replace:
 
 ```python
 def _available_cores() -> int:
@@ -4782,7 +4782,7 @@ with:
     }
 ```
 
-In `RemoteController/docs/configuration.md`, replace these two rows:
+In `KnovasConnector/docs/configuration.md`, replace these two rows:
 
 ```
 | `RC_OCR_WORKERS` | `max(1, cores − 2)` | OCR pages in parallel, at most 8. |
@@ -4834,8 +4834,8 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/document_text.py RemoteController/tests/unit/test_document_text.py \
-  RemoteController/docs/configuration.md RemoteController/CHANGELOG.md \
+git add KnovasConnector/src/sync/document_text.py KnovasConnector/tests/unit/test_document_text.py \
+  KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md \
   KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/README.md
@@ -4859,10 +4859,10 @@ EOF
 ### Task EXT-4: No forced dpi; `RC_OCR_DPI` only when set, 30–1200 (Connector + Platform)
 
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py` (module docstring, constants, new `_non_negative_int`, `ocr_dpi`, `ocr_options_kwargs`)
+- Modify: `KnovasConnector/src/sync/document_text.py` (module docstring, constants, new `_non_negative_int`, `ocr_dpi`, `ocr_options_kwargs`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py` (constants, `_non_negative_int`, `ocr_dpi`, `ocr_options_kwargs`)
-- Modify: `RemoteController/docs/configuration.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_document_text.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_document_text.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
 
 **Interfaces:**
 - Consumes: EXT-3 `ocr_options_kwargs` (the code it quotes below).
@@ -4873,7 +4873,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `RemoteController/tests/unit/test_document_text.py`:
+Append to `KnovasConnector/tests/unit/test_document_text.py`:
 
 ```python
 # --- resolution: the library's native-resolution rule unless set (spec E3) ---
@@ -4962,7 +4962,7 @@ Expected: FAIL: `AttributeError: module 'knovas_extract_upload' has no attribute
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/document_text.py`, replace in the module docstring:
+In `KnovasConnector/src/sync/document_text.py`, replace in the module docstring:
 
 ```
 `RC_TESSERACT_LANG` (default `deu+eng`). With a knovas-extract that takes
@@ -5153,7 +5153,7 @@ with:
     return options
 ```
 
-In `RemoteController/docs/configuration.md`, replace:
+In `KnovasConnector/docs/configuration.md`, replace:
 
 ```
 | `RC_OCR_DPI` | `300` | Render dpi ceiling; the library never upsamples a lower-resolution scan. |
@@ -5197,8 +5197,8 @@ Expected: PASS. Note: `test_text_mode_and_ocr_options_are_sent_when_accepted` in
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/document_text.py RemoteController/tests/unit/test_document_text.py \
-  RemoteController/docs/configuration.md RemoteController/CHANGELOG.md \
+git add KnovasConnector/src/sync/document_text.py KnovasConnector/tests/unit/test_document_text.py \
+  KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md \
   KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/README.md
@@ -5221,9 +5221,9 @@ EOF
 ### Task EXT-5: Sentences for every input (`RC_SENTENCE_EMIT_MAX_BYTES` default 0)
 
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py` (module docstring, `DEFAULT_SENTENCE_EMIT_MAX_BYTES`, `sentence_emit_max_bytes`, `_extract_bytes`)
-- Modify: `RemoteController/docs/configuration.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_document_text.py`
+- Modify: `KnovasConnector/src/sync/document_text.py` (module docstring, `DEFAULT_SENTENCE_EMIT_MAX_BYTES`, `sentence_emit_max_bytes`, `_extract_bytes`)
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_document_text.py`
 
 **Interfaces:**
 - Consumes: —
@@ -5231,7 +5231,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-In `RemoteController/tests/unit/test_document_text.py`, replace the whole function `test_sentence_emit_max_bytes_default` with:
+In `KnovasConnector/tests/unit/test_document_text.py`, replace the whole function `test_sentence_emit_max_bytes_default` with:
 
 ```python
 def test_sentence_emit_max_bytes_default(monkeypatch):
@@ -5274,7 +5274,7 @@ Expected: FAIL: `2097152 == 0`, and `emit_sentences` is False for 3 MiB.
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/document_text.py`, replace in the module docstring:
+In `KnovasConnector/src/sync/document_text.py`, replace in the module docstring:
 
 ```
 Sentence emission is skipped for inputs larger than
@@ -5344,7 +5344,7 @@ with:
     emit_sentences = max_sentence_bytes <= 0 or len(raw) <= max_sentence_bytes
 ```
 
-In `RemoteController/docs/configuration.md`, replace:
+In `KnovasConnector/docs/configuration.md`, replace:
 
 ```
 | `RC_SENTENCE_EMIT_MAX_BYTES` | `2097152` | Inputs above this skip sentence emission (citations and context previews), the text is still uploaded. |
@@ -5372,8 +5372,8 @@ Expected: PASS. `test_large_text_skips_sentences_but_keeps_text` still passes, b
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/document_text.py RemoteController/tests/unit/test_document_text.py \
-  RemoteController/docs/configuration.md RemoteController/CHANGELOG.md
+git add KnovasConnector/src/sync/document_text.py KnovasConnector/tests/unit/test_document_text.py \
+  KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 rc: sentences for every input, RC_SENTENCE_EMIT_MAX_BYTES defaults to 0
 
@@ -5393,10 +5393,10 @@ EOF
 ### Task EXT-6: Page numbers from `content.pages` when there are no sentences (Connector + Platform chunker)
 
 **Files:**
-- Modify: `RemoteController/src/sync/chunking.py` (import, `_page_number_starts`, `_page_for_offset`, `iter_text_chunks_with_location`)
+- Modify: `KnovasConnector/src/sync/chunking.py` (import, `_page_number_starts`, `_page_for_offset`, `iter_text_chunks_with_location`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_transmit/chunking.py` (same)
-- Modify: `RemoteController/docs/configuration.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_page_markers.py`, `RemoteController/tests/unit/test_knovas_uploader.py`, `KnovasPlatform/components/docbridge_integration/tests/test_page_markers.py`
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_page_markers.py`, `KnovasConnector/tests/unit/test_knovas_uploader.py`, `KnovasPlatform/components/docbridge_integration/tests/test_page_markers.py`
 
 **Interfaces:**
 - Consumes: `page_markers.line_start_offsets(text: str) -> list[int]` (exists in both components).
@@ -5404,7 +5404,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-In `RemoteController/tests/unit/test_page_markers.py`, add `import pytest` below `from __future__ import annotations`, and append:
+In `KnovasConnector/tests/unit/test_page_markers.py`, add `import pytest` below `from __future__ import annotations`, and append:
 
 ```python
 class TestDeclaredPageWithoutSentences:
@@ -5449,7 +5449,7 @@ class TestDeclaredPageWithoutSentences:
         assert [p for _t, p, _s, _o in iter_text_chunks_with_location("Ohne Seiten.", 5)] == [None, None, None]
 ```
 
-Append to `RemoteController/tests/unit/test_knovas_uploader.py`:
+Append to `KnovasConnector/tests/unit/test_knovas_uploader.py`:
 
 ```python
 def test_parts_carry_page_numbers_without_sentences(mock_config, tmp_path):
@@ -5527,7 +5527,7 @@ Expected: FAIL for the same reason.
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/chunking.py`, replace:
+In `KnovasConnector/src/sync/chunking.py`, replace:
 
 ```python
 from sync.page_markers import (
@@ -5666,7 +5666,7 @@ with:
     None.
 ```
 
-In `RemoteController/docs/configuration.md`, replace:
+In `KnovasConnector/docs/configuration.md`, replace:
 
 ```
 Each chunk carries a `page_number` (PDFs only) and a `sentence_number` derived from `content.sentences` — every sentence has an exact `char_start` offset into `content.text`, guaranteed by a dispatcher post-condition.
@@ -5698,8 +5698,8 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/chunking.py RemoteController/tests/unit/test_page_markers.py \
-  RemoteController/tests/unit/test_knovas_uploader.py RemoteController/docs/configuration.md RemoteController/CHANGELOG.md \
+git add KnovasConnector/src/sync/chunking.py KnovasConnector/tests/unit/test_page_markers.py \
+  KnovasConnector/tests/unit/test_knovas_uploader.py KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md \
   KnovasPlatform/components/docbridge_integration/src/knovas_transmit/chunking.py \
   KnovasPlatform/components/docbridge_integration/tests/test_page_markers.py
 git commit -F - <<'EOF'
@@ -5721,11 +5721,11 @@ EOF
 ### Task EXT-7: OCR settings validated; a setting the library refuses is a retryable configuration error
 
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py`. New `CONFIG_INVALID_PREFIX`, `_TESSERACT_LANG_RE`, `_SETTING_FOR_OPTION_FIELD`, `_OPTION_FIELD_RE`, `config_invalid_error`, `_env_int_at_least`. Changed: `_NEVER_UNCONVERTIBLE_PREFIXES`, `tesseract_language`, `ocr_options_kwargs`, `_pdf_extract_kwargs`.
-- Modify: `RemoteController/src/sync/sync_executor.py` (import, `_is_configuration_error`, `record_upload_outcome`)
+- Modify: `KnovasConnector/src/sync/document_text.py`. New `CONFIG_INVALID_PREFIX`, `_TESSERACT_LANG_RE`, `_SETTING_FOR_OPTION_FIELD`, `_OPTION_FIELD_RE`, `config_invalid_error`, `_env_int_at_least`. Changed: `_NEVER_UNCONVERTIBLE_PREFIXES`, `tesseract_language`, `ocr_options_kwargs`, `_pdf_extract_kwargs`.
+- Modify: `KnovasConnector/src/sync/sync_executor.py` (import, `_is_configuration_error`, `record_upload_outcome`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py` (`_TESSERACT_LANG_RE`, `_env_int_at_least`, `tesseract_language`, `ocr_options_kwargs`)
-- Modify: `RemoteController/docs/configuration.md`, `RemoteController/docs/operations.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_document_text.py`, `RemoteController/tests/unit/test_sync_executor_partial.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/operations.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_document_text.py`, `KnovasConnector/tests/unit/test_sync_executor_partial.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
 
 **Interfaces:**
 - Consumes: EXT-4 `_non_negative_int`, `ocr_options_kwargs` as EXT-4 left it.
@@ -5738,7 +5738,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `RemoteController/tests/unit/test_document_text.py`:
+Append to `KnovasConnector/tests/unit/test_document_text.py`:
 
 ```python
 # --- OCR settings validated (spec E5) ----------------------------------------
@@ -5839,7 +5839,7 @@ def test_the_child_reports_a_refused_setting_as_configuration_not_corrupt(tmp_pa
     assert messages[-1] == ("conversion", "extraction configuration invalid: RC_TESSERACT_LANG"), messages
 ```
 
-In `RemoteController/tests/unit/test_sync_executor_partial.py`, add this method to `class TestRcRecordingMechanism`:
+In `KnovasConnector/tests/unit/test_sync_executor_partial.py`, add this method to `class TestRcRecordingMechanism`:
 
 ```python
     def test_a_refused_ocr_setting_never_uses_up_the_retries(self, state):
@@ -5922,7 +5922,7 @@ Expected: FAIL: `deu ita` is accepted, and `0` / `-5` are clamped.
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/document_text.py`, replace:
+In `KnovasConnector/src/sync/document_text.py`, replace:
 
 ```python
 EXTRACT_TIMEOUT_ERROR_PREFIX = "extraction timeout"
@@ -6120,7 +6120,7 @@ with:
             kwargs["limits"] = limits
 ```
 
-In `RemoteController/src/sync/sync_executor.py`, replace:
+In `KnovasConnector/src/sync/sync_executor.py`, replace:
 
 ```python
 from sync.document_text import (
@@ -6258,7 +6258,7 @@ with:
         "max_ocr_pages": _env_int_at_least("RC_OCR_MAX_PAGES", DEFAULT_OCR_MAX_PAGES, 1),
 ```
 
-In `RemoteController/docs/configuration.md`, replace these three rows:
+In `KnovasConnector/docs/configuration.md`, replace these three rows:
 
 ```
 | `RC_TESSERACT_LANG` | `deu+eng` | Tesseract language packs (at most two; `deu+fra`, `deu+ita` per tenant). |
@@ -6286,7 +6286,7 @@ with:
 | `RC_OCR_PAGE_TIMEOUT_SECONDS` | `60` | Ceiling for one page's OCR. At least 1; anything else logs a warning and uses 60. |
 ```
 
-In `RemoteController/docs/operations.md`, directly after the paragraph under `## Scanned PDFs (OCR)` that begins `Image pages of PDFs are ingested via Tesseract`, insert:
+In `KnovasConnector/docs/operations.md`, directly after the paragraph under `## Scanned PDFs (OCR)` that begins `Image pages of PDFs are ingested via Tesseract`, insert:
 
 ```
 **OCR settings the library refuses.** The Connector checks `RC_TESSERACT_LANG` (language packs joined by `+`), `RC_OCR_DPI` (30–1200), `RC_OCR_PAGE_TIMEOUT_SECONDS` and `RC_OCR_MAX_PAGES` (at least 1) itself and replaces an invalid value by its default, with one warning naming the setting. Should the library still refuse the OCR options, every PDF fails with `extraction configuration invalid: <setting>`: retried every cycle, never counted toward `RC_EXTRACT_MAX_RETRIES`, never parked or recorded partial. Correct the setting in `knovas.env`, then `./scripts/setup.sh && ./scripts/start.sh`.
@@ -6334,9 +6334,9 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/document_text.py RemoteController/src/sync/sync_executor.py \
-  RemoteController/tests/unit/test_document_text.py RemoteController/tests/unit/test_sync_executor_partial.py \
-  RemoteController/docs/configuration.md RemoteController/docs/operations.md RemoteController/CHANGELOG.md \
+git add KnovasConnector/src/sync/document_text.py KnovasConnector/src/sync/sync_executor.py \
+  KnovasConnector/tests/unit/test_document_text.py KnovasConnector/tests/unit/test_sync_executor_partial.py \
+  KnovasConnector/docs/configuration.md KnovasConnector/docs/operations.md KnovasConnector/CHANGELOG.md \
   KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/README.md
@@ -6366,7 +6366,7 @@ EOF
 - Create: `scripts/lib/test_rc_extraction_settings.sh`
 - Modify: `scripts/doctor.sh` (source the lib; warnings at the top of the Connector section)
 - Modify: `.github/workflows/ci.yml` (one step next to the other shell contracts)
-- Modify: `RemoteController/docs/operations.md`, `RemoteController/CHANGELOG.md`
+- Modify: `KnovasConnector/docs/operations.md`, `KnovasConnector/CHANGELOG.md`
 
 **Interfaces:**
 - Consumes: EXT-4 and EXT-7 rules (the same value tables). `read_env_var` from `KnovasPlatform/scripts/lib/read_env.sh`.
@@ -6379,7 +6379,7 @@ Create `scripts/lib/test_rc_extraction_settings.sh`:
 ```bash
 #!/usr/bin/env bash
 # doctor.sh's check of the Connector OCR settings (spec E5): the rules of
-# RemoteController/src/sync/document_text.py (tesseract_language, ocr_dpi,
+# KnovasConnector/src/sync/document_text.py (tesseract_language, ocr_dpi,
 # _env_int_at_least). The value tables here and in the Connector's
 # tests/unit/test_document_text.py are the same.
 set -euo pipefail
@@ -6446,7 +6446,7 @@ Create `scripts/lib/rc_extraction_settings.sh`:
 ```bash
 #!/usr/bin/env bash
 # The Knovas Connector's OCR settings in knovas.env, checked by the rules the
-# Connector applies (RemoteController/src/sync/document_text.py, spec E5). The
+# Connector applies (KnovasConnector/src/sync/document_text.py, spec E5). The
 # Connector replaces an invalid value by its default and logs one warning per
 # document -- in a log nobody reads while the sync seems to work. Before that
 # check existed, RC_TESSERACT_LANG="deu eng" skipped every PDF for good.
@@ -6545,7 +6545,7 @@ with:
         run: bash scripts/lib/test_rc_extraction_settings.sh
 ```
 
-In `RemoteController/docs/operations.md`, append to the paragraph `**OCR settings the library refuses.** …` (from EXT-7):
+In `KnovasConnector/docs/operations.md`, append to the paragraph `**OCR settings the library refuses.** …` (from EXT-7):
 
 ```
 `./scripts/doctor.sh` checks the same rules from `knovas.env` and names each invalid setting in its section about the Connector.
@@ -6568,7 +6568,7 @@ Expected: `OK: Connector extraction settings contract`. `bash -n` reports no syn
 ```bash
 cd $WT
 git add scripts/lib/rc_extraction_settings.sh scripts/lib/test_rc_extraction_settings.sh scripts/doctor.sh \
-  .github/workflows/ci.yml RemoteController/docs/operations.md RemoteController/CHANGELOG.md
+  .github/workflows/ci.yml KnovasConnector/docs/operations.md KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 ci: doctor.sh checks the Connector's OCR settings by the Connector's rules
 
@@ -6588,20 +6588,20 @@ EOF
 ### Task EXT-9: Serialise the Connector routes that write configuration or scheduler state
 
 **Files:**
-- Modify: `RemoteController/src/sync/sync_config.py` (`import threading`, `_CONFIG_FILE_LOCK`, `load_sync_config`, `save_sync_config`)
-- Modify: `RemoteController/src/sync/sync_scheduler.py` (`_body_file_lock`, `_control_lock`, `save_last_sync_body`, `run_one_time`, `start_continuous`, `stop_continuous`)
-- Create: `RemoteController/tests/integration/test_sync_route_concurrency.py`
-- Test: `RemoteController/tests/unit/test_sync_scheduler.py`
+- Modify: `KnovasConnector/src/sync/sync_config.py` (`import threading`, `_CONFIG_FILE_LOCK`, `load_sync_config`, `save_sync_config`)
+- Modify: `KnovasConnector/src/sync/sync_scheduler.py` (`_body_file_lock`, `_control_lock`, `save_last_sync_body`, `run_one_time`, `start_continuous`, `stop_continuous`)
+- Create: `KnovasConnector/tests/integration/test_sync_route_concurrency.py`
+- Test: `KnovasConnector/tests/unit/test_sync_scheduler.py`
 
 **Interfaces:**
 - Consumes: —
 - Produces: `sync.sync_config._CONFIG_FILE_LOCK` (`threading.RLock`), `sync.sync_scheduler._body_file_lock` and `sync.sync_scheduler._control_lock` (`threading.Lock`). Every function signature is unchanged.
 
-Review result (routes in `RemoteController/src/routes/`):
+Review result (routes in `KnovasConnector/src/routes/`):
 
 | Route | Writes | Problem under concurrent requests | Fix |
 |---|---|---|---|
-| `GET/POST /sync/config` | `remote_controller_sync.json` | GET seeds a missing file by check-then-write and can overwrite a concurrent POST; on Windows two `os.replace` onto one file can fail | `_CONFIG_FILE_LOCK` |
+| `GET/POST /sync/config` | `knovas_connector_sync.json` | GET seeds a missing file by check-then-write and can overwrite a concurrent POST; on Windows two `os.replace` onto one file can fail | `_CONFIG_FILE_LOCK` |
 | `POST /sync`, `/sync/body`, `/sync/start` | `.rc-sync-last-request.json` | atomic per write, but two renames can race | `_body_file_lock` |
 | `POST /sync/start`, `/sync/stop` | `_worker_thread`, `_stop_event`, status | a start right after the old worker released `_scheduler_lock` is reported `not_running` by the finishing stop | `_control_lock` |
 | `POST /sync` (one-time run) | `_stop_event` | starting while a stop finishes | `_control_lock` around acquire + clear only (a stop can still interrupt the run) |
@@ -6612,7 +6612,7 @@ The re-extraction route of REX writes SQLite only, like `/sync/doc-fields/requeu
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `RemoteController/tests/integration/test_sync_route_concurrency.py`:
+Create `KnovasConnector/tests/integration/test_sync_route_concurrency.py`:
 
 ```python
 """Concurrent writes through the Connector's routes (spec E6).
@@ -6757,7 +6757,7 @@ def test_two_concurrent_body_writes_leave_one_complete_body(app_and_config_path,
     assert load_last_sync_body() in bodies
 ```
 
-Append to `RemoteController/tests/unit/test_sync_scheduler.py`:
+Append to `KnovasConnector/tests/unit/test_sync_scheduler.py`:
 
 ```python
 def test_a_start_that_follows_a_stop_is_not_reported_stopped(monkeypatch):
@@ -6826,7 +6826,7 @@ Expected:
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/sync_config.py`, replace:
+In `KnovasConnector/src/sync/sync_config.py`, replace:
 
 ```python
 import hashlib
@@ -6850,13 +6850,13 @@ import threading
 Replace:
 
 ```python
-SCHEMA_FILE = "remote_controller_sync_config.schema.json"
+SCHEMA_FILE = "knovas_connector_sync_config.schema.json"
 ```
 
 with:
 
 ```python
-SCHEMA_FILE = "remote_controller_sync_config.schema.json"
+SCHEMA_FILE = "knovas_connector_sync_config.schema.json"
 
 #: Serialises writes of the sync config file (spec E6). gunicorn's gthread
 #: worker runs requests concurrently: a GET /sync/config that seeds a missing
@@ -6935,7 +6935,7 @@ with:
             raise
 ```
 
-In `RemoteController/src/sync/sync_scheduler.py`, replace:
+In `KnovasConnector/src/sync/sync_scheduler.py`, replace:
 
 ```python
 _wake_event = threading.Event()
@@ -7064,8 +7064,8 @@ Expected: PASS. The seeding test takes about 2 s, because the GET holds the lock
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/sync_config.py RemoteController/src/sync/sync_scheduler.py \
-  RemoteController/tests/integration/test_sync_route_concurrency.py RemoteController/tests/unit/test_sync_scheduler.py
+git add KnovasConnector/src/sync/sync_config.py KnovasConnector/src/sync/sync_scheduler.py \
+  KnovasConnector/tests/integration/test_sync_route_concurrency.py KnovasConnector/tests/unit/test_sync_scheduler.py
 git commit -F - <<'EOF'
 rc: serialise the routes that write configuration or scheduler state
 
@@ -7086,10 +7086,10 @@ EOF
 ### Task EXT-10: The Connector image runs gunicorn gthread with `RC_GUNICORN_TIMEOUT`
 
 **Files:**
-- Modify: `RemoteController/Dockerfile` (CMD and its comment)
+- Modify: `KnovasConnector/Dockerfile` (CMD and its comment)
 - Modify: `.github/workflows/ci.yml` (boot step checks PID 1)
-- Modify: `RemoteController/docs/configuration.md`, `RemoteController/docs/SETUP.md`, `RemoteController/docs/local-commands.md`, `RemoteController/docs/operations.md`, `RemoteController/CHANGELOG.md`
-- Create: `RemoteController/tests/unit/test_image_gunicorn.py`
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/SETUP.md`, `KnovasConnector/docs/local-commands.md`, `KnovasConnector/docs/operations.md`, `KnovasConnector/CHANGELOG.md`
+- Create: `KnovasConnector/tests/unit/test_image_gunicorn.py`
 
 **Interfaces:**
 - Consumes: EXT-9 (routes are safe under concurrent requests).
@@ -7097,7 +7097,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Create `RemoteController/tests/unit/test_image_gunicorn.py`:
+Create `KnovasConnector/tests/unit/test_image_gunicorn.py`:
 
 ```python
 """The Connector image runs gunicorn's threaded worker (spec E6).
@@ -7140,7 +7140,7 @@ Expected: FAIL. The CMD is the exec-form `CMD ["gunicorn", …]`.
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/Dockerfile`, replace:
+In `KnovasConnector/Dockerfile`, replace:
 
 ```dockerfile
 # Single worker: continuous sync scheduler uses in-process locks (see docs/SETUP.md).
@@ -7181,7 +7181,7 @@ with:
           docker stop rc-ci
 ```
 
-In `RemoteController/docs/configuration.md`, insert directly above the heading `### Search context sidecars`:
+In `KnovasConnector/docs/configuration.md`, insert directly above the heading `### Search context sidecars`:
 
 ```markdown
 ### RC_GUNICORN_TIMEOUT
@@ -7195,7 +7195,7 @@ this timeout, and `GET /sync/status` answers meanwhile. It bounds how long a
 hung worker process goes unnoticed, not how long a request may take.
 ```
 
-In `RemoteController/docs/SETUP.md`, replace:
+In `KnovasConnector/docs/SETUP.md`, replace:
 
 ```
 **Gunicorn workers:** The image runs **one** worker (`-w 1`). Continuous sync uses in-process locks; multiple workers cause duplicate schedulers and conflicting state files. If you run Gunicorn manually, keep `-w 1`.
@@ -7207,7 +7207,7 @@ with:
 **Gunicorn workers:** The image runs **one** worker process (`-w 1`) with four request threads (`-k gthread --threads 4`). Continuous sync uses in-process locks; multiple worker processes cause duplicate schedulers and conflicting state files. The threads let `GET /sync/status` answer while a long `POST /sync` runs, and the worker is no longer killed when such a request outlasts `--timeout` (`RC_GUNICORN_TIMEOUT`, default 120 s). If you run Gunicorn manually, keep `-w 1` and use the same `-k gthread --threads 4`.
 ```
 
-In `RemoteController/docs/local-commands.md`, replace:
+In `KnovasConnector/docs/local-commands.md`, replace:
 
 ```bash
 gunicorn -b 127.0.0.1:5001 -w 1 app:app
@@ -7231,7 +7231,7 @@ with:
 Use **one** Gunicorn worker process for continuous sync (`-w 1`), with `-k gthread --threads 4` as in the image.
 ```
 
-In `RemoteController/docs/operations.md`, replace:
+In `KnovasConnector/docs/operations.md`, replace:
 
 ```
 Use a **single** Gunicorn worker (`-w 1`) when running from source; multiple workers conflict on scheduler state.
@@ -7256,8 +7256,8 @@ Run: `rc-pytest tests/unit/test_image_gunicorn.py tests/unit/test_image_license_
 Expected: PASS.
 
 Optional local image check, Linux/Docker only:
-- `docker build -t remote-controller:ext10 $WT/RemoteController`
-- `docker run --rm --entrypoint sh remote-controller:ext10 -c 'grep "^CMD" -n /dev/null || true'`
+- `docker build -t knovas-connector:ext10 $WT/KnovasConnector`
+- `docker run --rm --entrypoint sh knovas-connector:ext10 -c 'grep "^CMD" -n /dev/null || true'`
 
 The image boot itself is checked by the CI step above. The extraction child is still forked from the thread that runs the sync, as before; logging re-initialises its locks after fork.
 
@@ -7265,9 +7265,9 @@ The image boot itself is checked by the CI step above. The extraction child is s
 
 ```bash
 cd $WT
-git add RemoteController/Dockerfile RemoteController/tests/unit/test_image_gunicorn.py .github/workflows/ci.yml \
-  RemoteController/docs/configuration.md RemoteController/docs/SETUP.md RemoteController/docs/local-commands.md \
-  RemoteController/docs/operations.md RemoteController/CHANGELOG.md
+git add KnovasConnector/Dockerfile KnovasConnector/tests/unit/test_image_gunicorn.py .github/workflows/ci.yml \
+  KnovasConnector/docs/configuration.md KnovasConnector/docs/SETUP.md KnovasConnector/docs/local-commands.md \
+  KnovasConnector/docs/operations.md KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 rc: gunicorn gthread worker, RC_GUNICORN_TIMEOUT
 
@@ -7288,11 +7288,11 @@ EOF
 ### Task EXT-11: Small corrections — docstrings, stale docs, no `engine → backend` alias
 
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py` (`pdf_text_mode` docstring, `extract_document` docstring, `_OCR_OPTION_ALIASES`)
+- Modify: `KnovasConnector/src/sync/document_text.py` (`pdf_text_mode` docstring, `extract_document` docstring, `_OCR_OPTION_ALIASES`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py` (`pdf_text_mode` docstring, `_OCR_OPTION_ALIASES`)
-- Modify: `RemoteController/pyproject.toml` (comment on `[html]`), `RemoteController/docs/configuration.md`, `RemoteController/docs/operations.md`, `KnovasPlatform/components/docbridge_integration/README.md`
+- Modify: `KnovasConnector/pyproject.toml` (comment on `[html]`), `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/operations.md`, `KnovasPlatform/components/docbridge_integration/README.md`
 - Verify only: `.github/workflows/ci.yml` (the `[pdf]` comment)
-- Test: `RemoteController/tests/unit/test_document_text.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
+- Test: `KnovasConnector/tests/unit/test_document_text.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
 
 **Interfaces:**
 - Consumes: —
@@ -7300,7 +7300,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `RemoteController/tests/unit/test_document_text.py`:
+Append to `KnovasConnector/tests/unit/test_document_text.py`:
 
 ```python
 def test_an_engine_name_never_reaches_a_backend_slot(monkeypatch):
@@ -7348,7 +7348,7 @@ Expected: FAIL: `'cli' is None`.
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/document_text.py`, replace:
+In `KnovasConnector/src/sync/document_text.py`, replace:
 
 ```python
     "engine": ("engine", "backend"),
@@ -7420,7 +7420,7 @@ with:
     """``RC_PDF_TEXT_MODE``: layout (default) | plain | shadow."""
 ```
 
-In `RemoteController/pyproject.toml`, in the comment above the `knovas-extract` dependency, replace the lines:
+In `KnovasConnector/pyproject.toml`, in the comment above the `knovas-extract` dependency, replace the lines:
 
 ```
     # pymupdf-layout into the customer image. [html] stays: EML/MSG HTML
@@ -7437,7 +7437,7 @@ with:
 
 If PIN-* has already rewritten this comment block, apply the same correction to its sentence about `[html]`.
 
-In `RemoteController/docs/configuration.md`, replace:
+In `KnovasConnector/docs/configuration.md`, replace:
 
 ```
 Keywords the installed `knovas-extract` does not take are withheld, so the same image runs against 0.3 (today) and 0.4 (`text_mode=`, `ocr=`).
@@ -7463,7 +7463,7 @@ with:
 against an older release; the image and CI install 0.4.0a1.
 ```
 
-In `RemoteController/docs/operations.md`, replace the substring `when \`knovas-extract>=0.3\` and \`tesseract-ocr\` are present` with `when knovas-extract 0.4 (per-page OCR) and \`tesseract-ocr\` are present`. Skip this if PIN-* already changed the version mention.
+In `KnovasConnector/docs/operations.md`, replace the substring `when \`knovas-extract>=0.3\` and \`tesseract-ocr\` are present` with `when knovas-extract 0.4 (per-page OCR) and \`tesseract-ocr\` are present`. Skip this if PIN-* already changed the version mention.
 
 Verify `.github/workflows/ci.yml`: `grep -n "drags\|\[pdf\] still" $WT/.github/workflows/ci.yml` shows only the corrected comment ("whose [pdf] extra is pymupdf alone … drags pymupdf-layout back in fails here"). The document-fields branch already fixed it, so no change is needed. If a later task re-introduced "[pdf] still drags", correct it the same way.
 
@@ -7481,8 +7481,8 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/document_text.py RemoteController/tests/unit/test_document_text.py \
-  RemoteController/pyproject.toml RemoteController/docs/configuration.md RemoteController/docs/operations.md \
+git add KnovasConnector/src/sync/document_text.py KnovasConnector/tests/unit/test_document_text.py \
+  KnovasConnector/pyproject.toml KnovasConnector/docs/configuration.md KnovasConnector/docs/operations.md \
   KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/README.md
@@ -7504,9 +7504,9 @@ EOF
 ### Task EXT-12: Description from `docx:subject`, `pdf:subject`, `pdf:xmp_description`
 
 **Files:**
-- Modify: `RemoteController/src/sync/extract_content.py` (`description_from_metadata`)
-- Modify: `RemoteController/CHANGELOG.md`
-- Create: `RemoteController/tests/unit/test_extract_content.py`
+- Modify: `KnovasConnector/src/sync/extract_content.py` (`description_from_metadata`)
+- Modify: `KnovasConnector/CHANGELOG.md`
+- Create: `KnovasConnector/tests/unit/test_extract_content.py`
 
 **Interfaces:**
 - Consumes: —
@@ -7514,7 +7514,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `RemoteController/tests/unit/test_extract_content.py`:
+Create `KnovasConnector/tests/unit/test_extract_content.py`:
 
 ```python
 """Description from file properties (spec L2): the library's keys, in order."""
@@ -7555,7 +7555,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/extract_content.py`, replace:
+In `KnovasConnector/src/sync/extract_content.py`, replace:
 
 ```python
 def description_from_metadata(metadata: Any) -> Optional[str]:
@@ -7599,8 +7599,8 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/extract_content.py RemoteController/tests/unit/test_extract_content.py \
-  RemoteController/CHANGELOG.md
+git add KnovasConnector/src/sync/extract_content.py KnovasConnector/tests/unit/test_extract_content.py \
+  KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 rc: description from docx:subject, pdf:subject, pdf:xmp_description
 
@@ -7618,11 +7618,11 @@ EOF
 ### Task EXT-13: DOCX layout mode — `RC_DOCX_TEXT_MODE`, no duplicate `tables` payload (Connector + Platform)
 
 **Files:**
-- Modify: `RemoteController/src/sync/document_text.py` (module docstring, `DOCX_TEXT_MODES`, `DEFAULT_DOCX_TEXT_MODE`, `docx_text_mode`, `docx_tables_in_text`, `_extract_bytes`)
-- Modify: `RemoteController/src/sync/knovas_uploader.py` (import, tables decision in `upload_file`)
+- Modify: `KnovasConnector/src/sync/document_text.py` (module docstring, `DOCX_TEXT_MODES`, `DEFAULT_DOCX_TEXT_MODE`, `docx_text_mode`, `docx_tables_in_text`, `_extract_bytes`)
+- Modify: `KnovasConnector/src/sync/knovas_uploader.py` (import, tables decision in `upload_file`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py` (`docx_text_mode`, `docx_tables_in_text`, `_send_tables_payload`, `_extract_bytes`, `extract_parts_from_base64`)
-- Modify: `RemoteController/docs/configuration.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_document_text.py`, `RemoteController/tests/unit/test_knovas_uploader.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasPlatform/components/docbridge_integration/README.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_document_text.py`, `KnovasConnector/tests/unit/test_knovas_uploader.py`, `KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py`
 
 **Interfaces:**
 - Consumes: the Part A library at verification time (DOCX layout mode; `docx:text_mode`, `docx:layout_tables`). The tests fake `extract`.
@@ -7634,7 +7634,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `RemoteController/tests/unit/test_document_text.py`:
+Append to `KnovasConnector/tests/unit/test_document_text.py`:
 
 ```python
 # --- DOCX layout mode (spec L3) ----------------------------------------------
@@ -7698,7 +7698,7 @@ def test_docx_tables_in_text_reads_the_library_metadata():
     assert docx_tables_in_text(ExtractedDocument(text="x", sentences=None, extra=None)) is False
 ```
 
-Append to `RemoteController/tests/unit/test_knovas_uploader.py`:
+Append to `KnovasConnector/tests/unit/test_knovas_uploader.py`:
 
 ```python
 def _docx_with_table(extra):
@@ -7807,7 +7807,7 @@ Expected: FAIL: `AttributeError: … 'docx_text_mode'`, and the DOCX payload is 
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/src/sync/document_text.py`, replace in the module docstring:
+In `KnovasConnector/src/sync/document_text.py`, replace in the module docstring:
 
 ```
 cache object, so each page is OCR'd once; plan decision D13). Every new
@@ -7890,7 +7890,7 @@ with:
         extract_kwargs["text_mode"] = "layout"
 ```
 
-In `RemoteController/src/sync/knovas_uploader.py`, replace:
+In `KnovasConnector/src/sync/knovas_uploader.py`, replace:
 
 ```python
     _env_flag,
@@ -8013,7 +8013,7 @@ with:
     if content.tables and _send_tables_payload(dotted, content.extra):
 ```
 
-In `RemoteController/docs/configuration.md`, insert directly below the `RC_PDF_TEXT_MODE` row:
+In `KnovasConnector/docs/configuration.md`, insert directly below the `RC_PDF_TEXT_MODE` row:
 
 ```
 | `RC_DOCX_TEXT_MODE` | `layout` | `layout` — Word tables are written into the text in place, as markdown-lite rows (one line per row, as for PDFs in layout mode), so their content is searchable; such a DOCX is sent without a `tables` payload (the rows would be indexed twice). Needs a knovas-extract with DOCX layout mode (it reports `docx:text_mode`); an older one returns the plain text and the payload stays. `plain` — paragraphs only, tables as payload. Invalid values log a warning and use `layout`. |
@@ -8049,9 +8049,9 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/document_text.py RemoteController/src/sync/knovas_uploader.py \
-  RemoteController/tests/unit/test_document_text.py RemoteController/tests/unit/test_knovas_uploader.py \
-  RemoteController/docs/configuration.md RemoteController/CHANGELOG.md \
+git add KnovasConnector/src/sync/document_text.py KnovasConnector/src/sync/knovas_uploader.py \
+  KnovasConnector/tests/unit/test_document_text.py KnovasConnector/tests/unit/test_knovas_uploader.py \
+  KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md \
   KnovasPlatform/components/docbridge_integration/src/knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/tests/test_knovas_extract_upload.py \
   KnovasPlatform/components/docbridge_integration/README.md
@@ -8074,13 +8074,13 @@ EOF
 ### Task EXT-14: One PyMuPDF version in both components (`pymupdf==1.28.0`)
 
 **Files:**
-- Modify: `RemoteController/pyproject.toml` (dependencies)
-- Modify: `RemoteController/CHANGELOG.md`
-- Create: `RemoteController/tests/unit/test_pymupdf_pin.py`
+- Modify: `KnovasConnector/pyproject.toml` (dependencies)
+- Modify: `KnovasConnector/CHANGELOG.md`
+- Create: `KnovasConnector/tests/unit/test_pymupdf_pin.py`
 
 **Interfaces:**
 - Consumes: `KnovasPlatform/components/docbridge_integration/requirements.txt` already pins `pymupdf==1.28.0`.
-- Produces: `RemoteController/pyproject.toml` dependency `pymupdf==1.28.0`.
+- Produces: `KnovasConnector/pyproject.toml` dependency `pymupdf==1.28.0`.
 
 Version choice: **1.28.0**, the Platform's pin. No Connector code or test needs anything newer than the library's floor (1.24.0):
 - `src/sync/document_text.py` uses `fitz.open(stream=…, filetype="pdf")`, `is_encrypted`, `authenticate`, `page_count`;
@@ -8092,7 +8092,7 @@ Step 4 runs the whole Connector suite on 1.28.0. If a failure comes from the ver
 
 - [ ] **Step 1: Write the failing test**
 
-Create `RemoteController/tests/unit/test_pymupdf_pin.py`:
+Create `KnovasConnector/tests/unit/test_pymupdf_pin.py`:
 
 ```python
 """One PyMuPDF under both components' extraction (spec L7).
@@ -8110,7 +8110,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-RC_PYPROJECT = REPO / "RemoteController" / "pyproject.toml"
+RC_PYPROJECT = REPO / "KnovasConnector" / "pyproject.toml"
 PLATFORM_REQUIREMENTS = REPO / "KnovasPlatform" / "components" / "docbridge_integration" / "requirements.txt"
 
 
@@ -8132,7 +8132,7 @@ Expected: FAIL: `assert 0 == 1` (the Connector has no `pymupdf==` dependency).
 
 - [ ] **Step 3: Write the implementation**
 
-In `RemoteController/pyproject.toml`, replace:
+In `KnovasConnector/pyproject.toml`, replace:
 
 ```toml
     "gunicorn>=22.0,<24",
@@ -8152,7 +8152,7 @@ with:
 Re-install the Connector into its venv so the pin takes effect locally:
 
 ```bash
-$SP/venvs/rc/Scripts/python -m pip install -e "$WT/RemoteController[dev]"
+$SP/venvs/rc/Scripts/python -m pip install -e "$WT/KnovasConnector[dev]"
 $SP/venvs/rc/Scripts/python -c "import pymupdf; print(pymupdf.VersionBind)"   # expect 1.28.0
 ```
 
@@ -8168,7 +8168,7 @@ Run: `rc-pytest tests/unit/test_pymupdf_pin.py`
 
 Expected: PASS.
 
-Run the whole Connector suite on the pinned version (`cd $WT/RemoteController && … -m pytest -q` with the rc-pytest env).
+Run the whole Connector suite on the pinned version (`cd $WT/KnovasConnector && … -m pytest -q` with the rc-pytest env).
 
 Expected: PASS, apart from the known Windows-only failures listed in the plan header.
 
@@ -8176,7 +8176,7 @@ Expected: PASS, apart from the known Windows-only failures listed in the plan he
 
 ```bash
 cd $WT
-git add RemoteController/pyproject.toml RemoteController/tests/unit/test_pymupdf_pin.py RemoteController/CHANGELOG.md
+git add KnovasConnector/pyproject.toml KnovasConnector/tests/unit/test_pymupdf_pin.py KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 rc: pin PyMuPDF 1.28.0, the Platform's version
 
@@ -8410,11 +8410,11 @@ Expected: green, apart from the known Windows-only failures in the plan header. 
 
 This part makes both images and both CI test jobs run one knovas-extract (spec §9), installs the `[rtf]` extra (L4) and adds the Connector's extraction metrics, the `extraction` block of `GET /sync/status` and the System-tab comparison (L5). It covers success criterion 2 (no `pymupdf-layout` in either image; the installed version equals the pin in both images and both CI jobs) and keeps criterion 4 (versions, setting names, classes and counts only in every new log line and metric label).
 
-**Order.** PIN runs after EXT. PIN-4 reads `sync.document_text.docx_text_mode()` (EXT). EXT and INT have already changed other lines of files touched here: the `CMD` lines of both Dockerfiles (E6, §5.2 item 5), the `[html]` sentence in the comment of `RemoteController/pyproject.toml` (E7), and user-facing texts (rename sweep). No anchor below overlaps them. Where a step anchors next to text an earlier task may have moved, it says which token to change.
+**Order.** PIN runs after EXT. PIN-4 reads `sync.document_text.docx_text_mode()` (EXT). EXT and INT have already changed other lines of files touched here: the `CMD` lines of both Dockerfiles (E6, §5.2 item 5), the `[html]` sentence in the comment of `KnovasConnector/pyproject.toml` (E7), and user-facing texts (rename sweep). No anchor below overlaps them. Where a step anchors next to text an earlier task may have moved, it says which token to change.
 
 **Pin value.** PIN-1 writes `ARG KNOVAS_EXTRACT_GIT_REF=b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1` in both Dockerfiles. Use the full 40-char SHA of the library PR's merge commit from Task A6; until then use `b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1`. Task A6 replaces it: the section "After Task A6" at the end of this part re-runs PIN-1/PIN-2's checks with the merge commit, and again with an empty ref once 0.4.0a1 is on PyPI. No doc or test names the sha, so each switch is a two-line commit. Until A6, CI tests against b5d4540, which lacks the library PR (spec §4.2–§4.4). Tests that need it (EXT's DOCX layout mode, the fail-soft sentence cap) pass locally against the editable `$LIB`, and in CI only after A6. Nothing is pushed before that (D4).
 
-**PIN-3 (L4 `[rtf]`) has no task of its own.** The extra is added to both images and both floors in PIN-1, and the licence note (striprtf, BSD-3-Clause) is in PIN-1's docs step. A Connector test of an RTF-only MSG body would need a binary fixture: msgforge, the only MSG writer the repository uses (`RemoteController/scripts/demo_kanzlei/render.py`), always writes a plain-text body next to the RTF one (`msgforge/_builder.py`, the `0x1000` property). The path being tested is also library code (`extractors/msg.py`, the `rtfBody` branch). The Connector's side of L4 is "the extra is installed", which PIN-1's test (Dockerfile extras and floors) and PIN-2's CI (the test jobs install the images' extras) pin.
+**PIN-3 (L4 `[rtf]`) has no task of its own.** The extra is added to both images and both floors in PIN-1, and the licence note (striprtf, BSD-3-Clause) is in PIN-1's docs step. A Connector test of an RTF-only MSG body would need a binary fixture: msgforge, the only MSG writer the repository uses (`KnovasConnector/scripts/demo_kanzlei/render.py`), always writes a plain-text body next to the RTF one (`msgforge/_builder.py`, the `0x1000` property). The path being tested is also library code (`extractors/msg.py`, the `rtfBody` branch). The Connector's side of L4 is "the extra is installed", which PIN-1's test (Dockerfile extras and floors) and PIN-2's CI (the test jobs install the images' extras) pin.
 
 **The `outdated` key** of the `extraction` block (contract: `"outdated": int`) is added later by the REX tasks, in `routes/sync_control.py::sync_status`, to the dict that PIN-4 puts there.
 
@@ -8425,12 +8425,12 @@ This part makes both images and both CI test jobs run one knovas-extract (spec �
 ### Task PIN-1: One knovas-extract pin in both Dockerfiles, the `[rtf]` extra, the floors
 
 **Files:**
-- Modify: `RemoteController/Dockerfile` (builder stage: build args, install step, new version-check step)
+- Modify: `KnovasConnector/Dockerfile` (builder stage: build args, install step, new version-check step)
 - Modify: `KnovasPlatform/components/docbridge_integration/Dockerfile` (dependency install split in two, build args, install step, version-check step)
-- Modify: `RemoteController/pyproject.toml` (the `knovas-extract` dependency and its comment)
+- Modify: `KnovasConnector/pyproject.toml` (the `knovas-extract` dependency and its comment)
 - Modify: `KnovasPlatform/components/docbridge_integration/requirements.txt` (the `knovas-extract` line)
-- Modify: `RemoteController/docs/configuration.md` ("Docker build" paragraph, format table), `docs/specifications.md` (§1.2, §3), `RemoteController/CHANGELOG.md`, `RELEASE_NOTES.md`
-- Test: `RemoteController/tests/unit/test_image_license_gate.py` (rewritten)
+- Modify: `KnovasConnector/docs/configuration.md` ("Docker build" paragraph, format table), `docs/specifications.md` (§1.2, §3), `KnovasConnector/CHANGELOG.md`, `RELEASE_NOTES.md`
+- Test: `KnovasConnector/tests/unit/test_image_license_gate.py` (rewritten)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -8438,7 +8438,7 @@ This part makes both images and both CI test jobs run one knovas-extract (spec �
 
 - [ ] **Step 1: Write the failing test**
 
-Replace the whole content of `RemoteController/tests/unit/test_image_license_gate.py` with:
+Replace the whole content of `KnovasConnector/tests/unit/test_image_license_gate.py` with:
 
 ```python
 """Both customer images: one knovas-extract pin, the extras of the spec, and
@@ -8462,8 +8462,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[3]
 CI = REPO / ".github" / "workflows" / "ci.yml"
-RC_DOCKERFILE = REPO / "RemoteController" / "Dockerfile"
-PYPROJECT = REPO / "RemoteController" / "pyproject.toml"
+RC_DOCKERFILE = REPO / "KnovasConnector" / "Dockerfile"
+PYPROJECT = REPO / "KnovasConnector" / "pyproject.toml"
 PLATFORM = REPO / "KnovasPlatform" / "components" / "docbridge_integration"
 STEP = "- name: No pymupdf-layout (PolyForm-NC) in the customer image"
 LIBRARY_GIT = "git+https://github.com/Seifeddini/knovas-extract-python.git"
@@ -8551,7 +8551,7 @@ Expected: 5 FAIL. `test_the_connector_pins_a_release_and_at_most_a_full_sha` and
 
 - [ ] **Step 3: Write minimal implementation**
 
-3a. `RemoteController/Dockerfile`, builder stage. The build args move below the other dependencies, so a pin bump rebuilds only the knovas-extract layers. Replace:
+3a. `KnovasConnector/Dockerfile`, builder stage. The build args move below the other dependencies, so a pin bump rebuilds only the knovas-extract layers. Replace:
 
 ```dockerfile
 # knovas-extract is installed from git until the release the RC needs is on
@@ -8561,7 +8561,7 @@ Expected: 5 FAIL. `test_the_connector_pins_a_release_and_at_most_a_full_sha` and
 # KNOVAS_EXTRACT_SHA), so the image and the tests run one extractor. Override
 # per build with --build-arg KNOVAS_EXTRACT_REF=<tag or sha>. An empty
 # KNOVAS_EXTRACT_FROM_GIT installs from PyPI instead:
-#   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= remote-controller
+#   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= knovas-connector
 ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git
 ARG KNOVAS_EXTRACT_REF=11ec1c38053cbbc914207c9e2f24636cde709617
 # Extras: [pdf,ocr,docx,msg,html,sentences]. No [markdown]: the RC never asks
@@ -8609,8 +8609,8 @@ PY
 # development, and as the default only a full 40-character commit sha, until
 # the version is on PyPI. pyproject.toml carries only the floor (>=0.4.0a1).
 # The ARGs come after the other dependencies, so a bump rebuilds only this.
-#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> remote-controller
-#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF= remote-controller   # PyPI
+#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> knovas-connector
+#   docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF= knovas-connector   # PyPI
 ARG KNOVAS_EXTRACT_VERSION=0.4.0a1
 ARG KNOVAS_EXTRACT_GIT_REF=b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1
 # Extras: [pdf,ocr,docx,msg,html,rtf,sentences]. No [markdown]: the RC never
@@ -8654,7 +8654,7 @@ PY
 ```dockerfile
 # knovas-extract >=0.3 (PDF-OCR) ist noch nicht auf PyPI veroeffentlicht --
 # dort endet die Reihe bei 0.2.0. Es kommt deshalb per Default aus git,
-# analog zu dem, was RemoteController/Dockerfile in 88d0c3c bereits tut.
+# analog zu dem, was KnovasConnector/Dockerfile in 88d0c3c bereits tut.
 # Sobald 0.3.0 auf PyPI liegt, mit leerem Build-Arg bauen:
 #   docker compose build --build-arg KNOVAS_EXTRACT_FROM_GIT= docbridge-web
 ARG KNOVAS_EXTRACT_FROM_GIT=github.com/Seifeddini/knovas-extract-python.git@main
@@ -8683,7 +8683,7 @@ RUN grep -v '^knovas-extract' requirements.txt > /tmp/requirements-other.txt \
     && pip install --no-cache-dir -r /tmp/requirements-other.txt
 
 # knovas-extract: one pin for both customer images. Keep both defaults equal
-# to those in RemoteController/Dockerfile (scripts/ci/check_knovas_extract_pin.sh
+# to those in KnovasConnector/Dockerfile (scripts/ci/check_knovas_extract_pin.sh
 # fails CI otherwise); the CI test job installs exactly this pin.
 # KNOVAS_EXTRACT_GIT_REF empty: PyPI knovas-extract==KNOVAS_EXTRACT_VERSION.
 # Set: that revision from git -- development, and as the default only a full
@@ -8725,7 +8725,7 @@ if not ref and got != want:
 PY
 ```
 
-3c. `RemoteController/pyproject.toml`. Replace the dependency line
+3c. `KnovasConnector/pyproject.toml`. Replace the dependency line
 
 ```toml
     "knovas-extract[pdf,docx,msg,html,sentences]>=0.2",
@@ -8767,35 +8767,35 @@ Run: `rc-pytest tests/unit/test_image_license_gate.py`
 Expected: PASS (6 passed).
 
 Run: `cd $WT && grep -rnE 'KNOVAS_EXTRACT_(REF|FROM_GIT|SHA|EXTRAS)\b' . --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=__pycache__ --exclude-dir=graphify-out`
-Expected: only `.github/workflows/ci.yml` (rewired in PIN-2), `RemoteController/CHANGELOG.md` (the released 0.2.0 line, and after Step 5 the new bullet that names the replaced args) and `OLD_BUILD_ARGS` in the test. `docs/superpowers/` records stay as written.
+Expected: only `.github/workflows/ci.yml` (rewired in PIN-2), `KnovasConnector/CHANGELOG.md` (the released 0.2.0 line, and after Step 5 the new bullet that names the replaced args) and `OLD_BUILD_ARGS` in the test. `docs/superpowers/` records stay as written.
 
 Image check (needs Docker and network, a few minutes per image). It is verified again in CI (PIN-2) and by VER:
 
 ```bash
 cd $WT
-docker build --progress=plain -t remote-controller:pin RemoteController 2>&1 | grep -E "knovas-extract 0\.4|ERROR"
+docker build --progress=plain -t knovas-connector:pin Knovas Connector 2>&1 | grep -E "knovas-extract 0\.4|ERROR"
 docker build --progress=plain -t docbridge-web:pin KnovasPlatform/components/docbridge_integration 2>&1 | grep -E "knovas-extract 0\.4|ERROR"
-for image in remote-controller:pin docbridge-web:pin; do
+for image in knovas-connector:pin docbridge-web:pin; do
   docker run --rm "$image" pip show striprtf | head -2
   docker run --rm "$image" pip show pymupdf-layout >/dev/null 2>&1 && echo "pymupdf-layout in $image" || echo "pymupdf-layout absent in $image"
 done
-docker image rm remote-controller:pin docbridge-web:pin
+docker image rm knovas-connector:pin docbridge-web:pin
 ```
 
 Expected: `knovas-extract 0.4.0a1 (git b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1)` in both build logs, `Name: striprtf` for both images, `pymupdf-layout absent in …` twice.
 
 - [ ] **Step 5: Docs (licence note for L4, the pin)**
 
-5a. `RemoteController/docs/configuration.md`. Replace the paragraph
+5a. `KnovasConnector/docs/configuration.md`. Replace the paragraph
 
 ```markdown
-**Docker build:** the Dockerfile installs `knovas-extract` from git. `KNOVAS_EXTRACT_REF` selects the revision and defaults to a pinned sha (`11ec1c38053cbbc914207c9e2f24636cde709617`, knovas-extract 0.4.0a1) — the same sha CI installs for the tests (`KNOVAS_EXTRACT_SHA` in `.github/workflows/ci.yml`; the CI job fails when the two differ). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_REF=<tag or sha> remote-controller`. `--build-arg KNOVAS_EXTRACT_FROM_GIT=` installs from PyPI instead. The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
+**Docker build:** the Dockerfile installs `knovas-extract` from git. `KNOVAS_EXTRACT_REF` selects the revision and defaults to a pinned sha (`11ec1c38053cbbc914207c9e2f24636cde709617`, knovas-extract 0.4.0a1) — the same sha CI installs for the tests (`KNOVAS_EXTRACT_SHA` in `.github/workflows/ci.yml`; the CI job fails when the two differ). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_REF=<tag or sha> knovas-connector`. `--build-arg KNOVAS_EXTRACT_FROM_GIT=` installs from PyPI instead. The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
 ```
 
 with:
 
 ```markdown
-**Docker build:** the Dockerfile installs one pinned `knovas-extract`, the same as the Platform image: `ARG KNOVAS_EXTRACT_VERSION` (`0.4.0a1`) and `ARG KNOVAS_EXTRACT_GIT_REF`. With an empty ref the build installs `knovas-extract==<version>` from PyPI; with a ref, that revision from git — until 0.4.0a1 is on PyPI the default is a full commit sha of the library. The build log names the installed version and commit, and a PyPI install that is not exactly the version fails the build. Extras: `pdf,ocr,docx,msg,html,rtf,sentences` (`rtf` reads Outlook mails whose only body is RTF). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> remote-controller`, or `--build-arg KNOVAS_EXTRACT_GIT_REF=` for PyPI. A new pin changes the Dockerfile, so the next `docker compose up -d --build` installs it (Docker's layer cache cannot keep an older build). The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
+**Docker build:** the Dockerfile installs one pinned `knovas-extract`, the same as the Platform image: `ARG KNOVAS_EXTRACT_VERSION` (`0.4.0a1`) and `ARG KNOVAS_EXTRACT_GIT_REF`. With an empty ref the build installs `knovas-extract==<version>` from PyPI; with a ref, that revision from git — until 0.4.0a1 is on PyPI the default is a full commit sha of the library. The build log names the installed version and commit, and a PyPI install that is not exactly the version fails the build. Extras: `pdf,ocr,docx,msg,html,rtf,sentences` (`rtf` reads Outlook mails whose only body is RTF). Override per build: `docker compose build --build-arg KNOVAS_EXTRACT_GIT_REF=<sha> knovas-connector`, or `--build-arg KNOVAS_EXTRACT_GIT_REF=` for PyPI. A new pin changes the Dockerfile, so the next `docker compose up -d --build` installs it (Docker's layer cache cannot keep an older build). The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1` and ships the `deu`, `eng`, `fra` and `ita` models; extraction performs no network I/O.
 ```
 
 In the format table of the same file, replace the row `| `.msg` | `extract-msg` (subject → transmission title) |` with `| `.msg` | `extract-msg` (subject → transmission title); a body that exists only as RTF through `striprtf` (`[rtf]` extra) |`. In the sentence above the table, replace the dead link target `(https://github.com/knovas/knovas-extract-python)` with `(https://github.com/Seifeddini/knovas-extract-python)`.
@@ -8819,7 +8819,7 @@ with:
 In §3, directly after the bullet that starts with `- **Logs and metrics.** Both components produce structured logs via `docker compose logs`.`, insert:
 
 ```markdown
-- **Document extraction and third-party licences.** Both images install the same pinned `knovas-extract` (`ARG KNOVAS_EXTRACT_VERSION` / `ARG KNOVAS_EXTRACT_GIT_REF` in `RemoteController/Dockerfile` and `KnovasPlatform/components/docbridge_integration/Dockerfile`). Its extras bring these packages into the images (licences as listed in the library's `NOTICE`):
+- **Document extraction and third-party licences.** Both images install the same pinned `knovas-extract` (`ARG KNOVAS_EXTRACT_VERSION` / `ARG KNOVAS_EXTRACT_GIT_REF` in `KnovasConnector/Dockerfile` and `KnovasPlatform/components/docbridge_integration/Dockerfile`). Its extras bring these packages into the images (licences as listed in the library's `NOTICE`):
 
   | Extra | Packages | Licence |
   | --- | --- | --- |
@@ -8836,7 +8836,7 @@ In §3, directly after the bullet that starts with `- **Logs and metrics.** Both
   `pymupdf-layout` (PolyForm Noncommercial) must not be in either image; CI checks it.
 ```
 
-5c. `RemoteController/CHANGELOG.md`, section `### 0.3.0`. Replace the bullet
+5c. `KnovasConnector/CHANGELOG.md`, section `### 0.3.0`. Replace the bullet
 
 ```markdown
 - Dockerfile `KNOVAS_EXTRACT_REF` defaults to the pinned sha CI tests (`11ec1c38…`, knovas-extract 0.4.0a1). Its `[pdf]` extra is clean, so the CI check that `pymupdf-layout` is absent from the image now blocks the build.
@@ -8870,10 +8870,10 @@ If an EXT task already opened an extraction section under `# Unreleased`, put th
 
 ```bash
 cd $WT
-git add RemoteController/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile \
-  RemoteController/pyproject.toml KnovasPlatform/components/docbridge_integration/requirements.txt \
-  RemoteController/tests/unit/test_image_license_gate.py RemoteController/docs/configuration.md \
-  docs/specifications.md RemoteController/CHANGELOG.md RELEASE_NOTES.md
+git add KnovasConnector/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile \
+  KnovasConnector/pyproject.toml KnovasPlatform/components/docbridge_integration/requirements.txt \
+  KnovasConnector/tests/unit/test_image_license_gate.py KnovasConnector/docs/configuration.md \
+  docs/specifications.md KnovasConnector/CHANGELOG.md RELEASE_NOTES.md
 git commit -F - <<'EOF'
 rc+platform: one knovas-extract pin for both images, with [rtf]
 
@@ -8902,10 +8902,10 @@ EOF
 
 **Files:**
 - Create: `scripts/ci/check_knovas_extract_pin.sh`, `scripts/ci/test_check_knovas_extract_pin.sh`, `scripts/ci/assert_knovas_extract_pin.py`
-- Modify: `.github/workflows/ci.yml` (`knovas-platform` job: pin step, install step, two image steps; `remote-controller` job: job `env`, pin step, install step, image steps)
-- Modify: `RemoteController/tests/unit/test_image_license_gate.py`
-- Modify: `RemoteController/docs/local-commands.md`, `RemoteController/docs/configuration.md`, `RemoteController/CHANGELOG.md`
-- Test: `scripts/ci/test_check_knovas_extract_pin.sh`, `RemoteController/tests/unit/test_knovas_extract_pin_scripts.py`, `RemoteController/tests/unit/test_image_license_gate.py`
+- Modify: `.github/workflows/ci.yml` (`knovas-platform` job: pin step, install step, two image steps; `knovas-connector` job: job `env`, pin step, install step, image steps)
+- Modify: `KnovasConnector/tests/unit/test_image_license_gate.py`
+- Modify: `KnovasConnector/docs/local-commands.md`, `KnovasConnector/docs/configuration.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `scripts/ci/test_check_knovas_extract_pin.sh`, `KnovasConnector/tests/unit/test_knovas_extract_pin_scripts.py`, `KnovasConnector/tests/unit/test_image_license_gate.py`
 
 **Interfaces:**
 - Consumes: PIN-1's ARG lines (one `ARG KNOVAS_EXTRACT_VERSION=` and one `ARG KNOVAS_EXTRACT_GIT_REF=` per Dockerfile).
@@ -9040,7 +9040,7 @@ Create `scripts/ci/check_knovas_extract_pin.sh`:
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RC_FILE="${1:-$ROOT_DIR/RemoteController/Dockerfile}"
+RC_FILE="${1:-$ROOT_DIR/KnovasConnector/Dockerfile}"
 PF_FILE="${2:-$ROOT_DIR/KnovasPlatform/components/docbridge_integration/Dockerfile}"
 VERSION_RE='^[0-9]+(\.[0-9]+)*((a|b|rc)[0-9]+)?(\.post[0-9]+)?(\.dev[0-9]+)?$'
 SHA_RE='^[0-9a-f]{40}$'
@@ -9110,7 +9110,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Create `RemoteController/tests/unit/test_knovas_extract_pin_scripts.py`:
+Create `KnovasConnector/tests/unit/test_knovas_extract_pin_scripts.py`:
 
 ```python
 """scripts/ci/assert_knovas_extract_pin.py: CI holds both test jobs and both
@@ -9250,7 +9250,7 @@ Expected: PASS (4 passed). Locally the editable `$LIB` install has no git revisi
 
 ```bash
 cd $WT
-git add scripts/ci/assert_knovas_extract_pin.py RemoteController/tests/unit/test_knovas_extract_pin_scripts.py
+git add scripts/ci/assert_knovas_extract_pin.py KnovasConnector/tests/unit/test_knovas_extract_pin_scripts.py
 git commit -F - <<'EOF'
 ci: assert that the installed knovas-extract is the pin
 
@@ -9268,7 +9268,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-In `RemoteController/tests/unit/test_image_license_gate.py` replace
+In `KnovasConnector/tests/unit/test_image_license_gate.py` replace
 
 ```python
 STEP = "- name: No pymupdf-layout (PolyForm-NC) in the customer image"
@@ -9414,15 +9414,15 @@ insert:
 
 (`docbridge-web-clientbundle:latest` is the `image:` of the `docbridge-web` service in `docker-compose.yml`.)
 
-(3) `remote-controller` job header. Replace:
+(3) `knovas-connector` job header. Replace:
 
 ```yaml
     defaults:
       run:
-        working-directory: RemoteController
+        working-directory: KnovasConnector
     env:
       # The knovas-extract revision the tests run against. It must be the
-      # RemoteController/Dockerfile default (ARG KNOVAS_EXTRACT_REF), so the
+      # KnovasConnector/Dockerfile default (ARG KNOVAS_EXTRACT_REF), so the
       # image ships the extractor CI tested; the install step fails when the
       # two differ. PyPI's knovas-extract 0.2 lacks the 0.4 `Limits` the OCR
       # budgets are sent through, which is what turned main red.
@@ -9440,7 +9440,7 @@ with:
 ```yaml
     defaults:
       run:
-        working-directory: RemoteController
+        working-directory: KnovasConnector
     steps:
       - uses: actions/checkout@v4
 
@@ -9456,7 +9456,7 @@ with:
         run: bash scripts/ci/check_knovas_extract_pin.sh >> "$GITHUB_ENV"
 ```
 
-(4) `remote-controller` job, step `Install dependencies`. Keep the German comment block above it. Replace:
+(4) `knovas-connector` job, step `Install dependencies`. Keep the German comment block above it. Replace:
 
 ```yaml
         # knovas-extract comes first, from the pinned sha with the extras of
@@ -9493,7 +9493,7 @@ with:
 
 (The test job now installs `[ocr]` like the image, which means tesserocr; cp312 manylinux wheels exist. The suite's OCR keys come from stubs, and a born-digital PDF never constructs an OCR backend, so no test depends on the engine.)
 
-(5) `remote-controller` job, image steps. Replace:
+(5) `knovas-connector` job, image steps. Replace:
 
 ```yaml
             tesseract --list-langs 2>&1 | tail -n +2 | sort | tr "\n" " "; echo'
@@ -9511,12 +9511,12 @@ with:
 ```yaml
             tesseract --list-langs 2>&1 | tail -n +2 | sort | tr "\n" " "; echo'
           # The [ocr] extra: OCR runs in-process through tesserocr, not the CLI.
-          docker run --rm remote-controller:ci python -c "from knovas_extract._ocr.backend import select_backend; name = select_backend('auto').name; print('OCR engine', name); assert name == 'tesserocr', name"
+          docker run --rm knovas-connector:ci python -c "from knovas_extract._ocr.backend import select_backend; name = select_backend('auto').name; print('OCR engine', name); assert name == 'tesserocr', name"
 
       - name: The Connector image carries the pinned knovas-extract
         run: |
           docker run --rm -i -e KNOVAS_EXTRACT_VERSION -e KNOVAS_EXTRACT_GIT_REF \
-            remote-controller:ci python - < ../scripts/ci/assert_knovas_extract_pin.py
+            knovas-connector:ci python - < ../scripts/ci/assert_knovas_extract_pin.py
 
       - name: No pymupdf-layout (PolyForm-NC) in the Connector image
         # Gates the build (plan M0, [C-reg-9]): both images install the pin of
@@ -9534,18 +9534,18 @@ This rewrites the stale comment of spec E7. The `if docker run … pip show pymu
 Run: `rc-pytest tests/unit/test_image_license_gate.py tests/unit/test_knovas_extract_pin_scripts.py`
 Expected: PASS (12 passed).
 
-Run: `cd $WT && $SP/venvs/pf/Scripts/python -c "import sys, yaml; wf = yaml.safe_load(open(sys.argv[1], encoding='utf-8')); [print(job, [s.get('name', s.get('uses')) for s in wf['jobs'][job]['steps']]) for job in ('knovas-platform', 'remote-controller')]; assert 'env' not in wf['jobs']['remote-controller']" .github/workflows/ci.yml`
-Expected: the workflow parses. `knovas-platform` lists `knovas-extract pin`, `Install dependencies`, …, `Docker compose build`, `The Platform image carries the pinned knovas-extract`, `No pymupdf-layout (PolyForm-NC) in the Platform image`, `Compose contract (Microsoft 365 documents)`. `remote-controller` lists `knovas-extract pin`, `Install Tesseract (OCR tests run against the real engine)`, `Install dependencies`, …, `Image carries Tesseract models and the OMP/TESSDATA env (GI-EXTRACT-05)`, `The Connector image carries the pinned knovas-extract`, `No pymupdf-layout (PolyForm-NC) in the Connector image`, `Boot with valid env and probe health`.
+Run: `cd $WT && $SP/venvs/pf/Scripts/python -c "import sys, yaml; wf = yaml.safe_load(open(sys.argv[1], encoding='utf-8')); [print(job, [s.get('name', s.get('uses')) for s in wf['jobs'][job]['steps']]) for job in ('knovas-platform', 'knovas-connector')]; assert 'env' not in wf['jobs']['knovas-connector']" .github/workflows/ci.yml`
+Expected: the workflow parses. `knovas-platform` lists `knovas-extract pin`, `Install dependencies`, …, `Docker compose build`, `The Platform image carries the pinned knovas-extract`, `No pymupdf-layout (PolyForm-NC) in the Platform image`, `Compose contract (Microsoft 365 documents)`. `knovas-connector` lists `knovas-extract pin`, `Install Tesseract (OCR tests run against the real engine)`, `Install dependencies`, …, `Image carries Tesseract models and the OMP/TESSDATA env (GI-EXTRACT-05)`, `The Connector image carries the pinned knovas-extract`, `No pymupdf-layout (PolyForm-NC) in the Connector image`, `Boot with valid env and probe health`.
 
 Run: `cd $WT && grep -rnE 'KNOVAS_EXTRACT_(REF|FROM_GIT|SHA|EXTRAS)\b' . --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=__pycache__ --exclude-dir=graphify-out`
-Expected: only `RemoteController/CHANGELOG.md` (the released 0.2.0 line and PIN-1's bullet naming the replaced args) and the two test constants (`OLD_BUILD_ARGS`, `"KNOVAS_EXTRACT_SHA" not in ci`).
+Expected: only `KnovasConnector/CHANGELOG.md` (the released 0.2.0 line and PIN-1's bullet naming the replaced args) and the two test constants (`OLD_BUILD_ARGS`, `"KNOVAS_EXTRACT_SHA" not in ci`).
 
 - [ ] **Step 5: Docs**
 
-5a. `RemoteController/docs/local-commands.md`, section "Python from source (dev/staging)". Replace:
+5a. `KnovasConnector/docs/local-commands.md`, section "Python from source (dev/staging)". Replace:
 
 ```bash
-cd RemoteController
+cd KnovasConnector
 cp .env.example .env
 pip install -e ".[dev]"
 ```
@@ -9553,7 +9553,7 @@ pip install -e ".[dev]"
 with:
 
 ```bash
-cd RemoteController
+cd KnovasConnector
 cp .env.example .env
 # knovas-extract: the pin both images use. While it is a git revision (until
 # 0.4.0a1 is on PyPI), install it first: the >=0.4.0a1 floor of
@@ -9579,9 +9579,9 @@ pip install -e ".[dev]"
 pytest
 ```
 
-5b. `RemoteController/docs/configuration.md`, in the "Docker build" paragraph of PIN-1. Replace `and a PyPI install that is not exactly the version fails the build.` with `and a PyPI install that is not exactly the version fails the build. CI fails when the two Dockerfiles' defaults differ (`scripts/ci/check_knovas_extract_pin.sh`), installs exactly this pin in both test jobs and checks it there and in both built images (`scripts/ci/assert_knovas_extract_pin.py`). A source install needs the pin first ([local-commands.md](local-commands.md#python-from-source-devstaging)).`
+5b. `KnovasConnector/docs/configuration.md`, in the "Docker build" paragraph of PIN-1. Replace `and a PyPI install that is not exactly the version fails the build.` with `and a PyPI install that is not exactly the version fails the build. CI fails when the two Dockerfiles' defaults differ (`scripts/ci/check_knovas_extract_pin.sh`), installs exactly this pin in both test jobs and checks it there and in both built images (`scripts/ci/assert_knovas_extract_pin.py`). A source install needs the pin first ([local-commands.md](local-commands.md#python-from-source-devstaging)).`
 
-5c. `RemoteController/CHANGELOG.md`. Directly after PIN-1's bullet, which ends with `the CI check that `pymupdf-layout` is absent from the image blocks the build.`, insert:
+5c. `KnovasConnector/CHANGELOG.md`. Directly after PIN-1's bullet, which ends with `the CI check that `pymupdf-layout` is absent from the image blocks the build.`, insert:
 
 ```markdown
 - CI holds both test jobs and both images to that pin: `scripts/ci/check_knovas_extract_pin.sh` fails when the two Dockerfiles pin different builds and hands the pin to the jobs, which install exactly it (with the images' extras, `ocr` included) before their requirements; `scripts/ci/assert_knovas_extract_pin.py` checks the installed version and commit in both jobs and inside both built images. The `pymupdf-layout` check blocks the Platform image too, and the Connector image must pick tesserocr as its OCR engine.
@@ -9591,8 +9591,8 @@ pytest
 
 ```bash
 cd $WT
-git add .github/workflows/ci.yml RemoteController/tests/unit/test_image_license_gate.py \
-  RemoteController/docs/local-commands.md RemoteController/docs/configuration.md RemoteController/CHANGELOG.md
+git add .github/workflows/ci.yml KnovasConnector/tests/unit/test_image_license_gate.py \
+  KnovasConnector/docs/local-commands.md KnovasConnector/docs/configuration.md KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 ci: both test jobs install exactly the pin; both images are gated
 
@@ -9616,15 +9616,15 @@ EOF
 ### Task PIN-4: Extraction metrics, the extractor in `/sync/status`, and the System tab (L5)
 
 **Files:**
-- Create: `RemoteController/src/sync/extract_metrics.py`
-- Modify: `RemoteController/src/sync/document_text.py` (`ExtractedDocument`, `_extract_bytes`)
-- Modify: `RemoteController/src/sync/knovas_uploader.py` (import, `SemantixUploader.upload_file`)
-- Modify: `RemoteController/src/app.py` (import, `create_app`)
-- Modify: `RemoteController/src/routes/sync_control.py` (import, `sync_status`)
-- Modify: `KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py` (new `extractor_version_from_status`)
+- Create: `KnovasConnector/src/sync/extract_metrics.py`
+- Modify: `KnovasConnector/src/sync/document_text.py` (`ExtractedDocument`, `_extract_bytes`)
+- Modify: `KnovasConnector/src/sync/knovas_uploader.py` (import, `SemantixUploader.upload_file`)
+- Modify: `KnovasConnector/src/app.py` (import, `create_app`)
+- Modify: `KnovasConnector/src/routes/sync_control.py` (import, `sync_status`)
+- Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py` (new `extractor_version_from_status`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py` (new `platform_extractor_version`, `_extractor_check`; `collect`)
-- Modify: `RemoteController/docs/operations.md`, `docs/specifications.md`, `RemoteController/CHANGELOG.md`, `RELEASE_NOTES.md`
-- Test: `RemoteController/tests/unit/test_extract_metrics.py` (new), `RemoteController/tests/unit/test_document_text.py`, `RemoteController/tests/unit/test_knovas_uploader.py`, `RemoteController/tests/integration/test_sync_routes.py`, `KnovasPlatform/components/docbridge_integration/tests/test_web_admin_system_extractor.py` (new)
+- Modify: `KnovasConnector/docs/operations.md`, `docs/specifications.md`, `KnovasConnector/CHANGELOG.md`, `RELEASE_NOTES.md`
+- Test: `KnovasConnector/tests/unit/test_extract_metrics.py` (new), `KnovasConnector/tests/unit/test_document_text.py`, `KnovasConnector/tests/unit/test_knovas_uploader.py`, `KnovasConnector/tests/integration/test_sync_routes.py`, `KnovasPlatform/components/docbridge_integration/tests/test_web_admin_system_extractor.py` (new)
 
 **Interfaces:**
 - Consumes: `sync.document_text.docx_text_mode() -> str` (EXT) and the existing `pdf_text_mode() -> str`, `ocr_engine() -> str`, `pdf_ocr_enabled() -> bool | str`.
@@ -9640,7 +9640,7 @@ EOF
     - `set_build_info() -> None` and `label_sets() -> dict[str, tuple[str, ...]]`.
     - Metrics `rc_build_info` (Gauge, labels `rc_version,knovas_extract_version,pdf_text_mode,docx_text_mode,ocr_engine`), `rc_ocr_pages_total{result}`, `rc_ocr_seconds_total` and `rc_extract_warnings_total{class}`.
   - `GET /sync/status` gains `status["extraction"] = extract_metrics.extraction_info()`. REX adds `"outdated"` to that dict in `sync_status`, not inside `extraction_info()`, whose four values also label `rc_build_info`.
-  - Platform: `remote_controller_client.extractor_version_from_status(status: Any) -> Optional[str]`, `admin_system.platform_extractor_version() -> str | None`, and the System check with key `"extractor"`.
+  - Platform: `knovas_connector_client.extractor_version_from_status(status: Any) -> Optional[str]`, `admin_system.platform_extractor_version() -> str | None`, and the System check with key `"extractor"`.
 
 Commits: one per step group (4A, 4B, 4C).
 
@@ -9648,7 +9648,7 @@ Commits: one per step group (4A, 4B, 4C).
 
 - [ ] **Step 1: Write the failing test**
 
-Create `RemoteController/tests/unit/test_extract_metrics.py`. The warning texts are the library's own; they were collected from every `warnings.append(...)` in `$LIB/src/knovas_extract`, plus the two the library PR adds:
+Create `KnovasConnector/tests/unit/test_extract_metrics.py`. The warning texts are the library's own; they were collected from every `warnings.append(...)` in `$LIB/src/knovas_extract`, plus the two the library PR adds:
 
 ```python
 """Extraction metrics and the extractor's version (spec L5).
@@ -9836,7 +9836,7 @@ def test_rc_version_is_the_pyproject_version():
     assert em.RC_VERSION == tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
 ```
 
-Append to `RemoteController/tests/unit/test_document_text.py`:
+Append to `KnovasConnector/tests/unit/test_document_text.py`:
 
 ```python
 
@@ -9870,7 +9870,7 @@ def test_a_document_without_library_warnings_has_none(tmp_path):
     assert extract_document(p).warnings == ()
 ```
 
-Append to `RemoteController/tests/unit/test_knovas_uploader.py`:
+Append to `KnovasConnector/tests/unit/test_knovas_uploader.py`:
 
 ```python
 
@@ -9906,7 +9906,7 @@ Expected: FAIL. Collecting `test_extract_metrics.py` errors with `ImportError: c
 
 - [ ] **Step 3: Write minimal implementation**
 
-3a. `RemoteController/src/sync/document_text.py`. Append as the last field of `ExtractedDocument`, which today follows `source_metadata` (if an EXT task appended a field there, put this after it):
+3a. `KnovasConnector/src/sync/document_text.py`. Append as the last field of `ExtractedDocument`, which today follows `source_metadata` (if an EXT task appended a field there, put this after it):
 
 ```python
     source_metadata: dict[str, str] = field(default_factory=dict)
@@ -9924,7 +9924,7 @@ In `_extract_bytes`, add the keyword as the last argument of the `return Extract
     )
 ```
 
-3b. Create `RemoteController/src/sync/extract_metrics.py`:
+3b. Create `KnovasConnector/src/sync/extract_metrics.py`:
 
 ```python
 """Prometheus metrics for extraction: which library, which settings, and what
@@ -10143,7 +10143,7 @@ def label_sets() -> dict[str, tuple[str, ...]]:
 
 (The duplicate-registration fallback matches `ocr_metrics.py` / `doc_fields_metrics.py`; prometheus_client's `DuplicateTimeseries` is a `ValueError`. The `ocr` class includes the informational "OCR applied to N of M pages" line; failed and skipped pages are the trouble signal and have their own counter.)
 
-3c. `RemoteController/src/sync/knovas_uploader.py`. Add `extract_metrics` to the `from sync import …` line, which today reads
+3c. `KnovasConnector/src/sync/knovas_uploader.py`. Add `extract_metrics` to the `from sync import …` line, which today reads
 
 ```python
 from sync import doc_fields_metrics, ocr_metrics
@@ -10178,9 +10178,9 @@ Expected: PASS.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/extract_metrics.py RemoteController/src/sync/document_text.py \
-  RemoteController/src/sync/knovas_uploader.py RemoteController/tests/unit/test_extract_metrics.py \
-  RemoteController/tests/unit/test_document_text.py RemoteController/tests/unit/test_knovas_uploader.py
+git add KnovasConnector/src/sync/extract_metrics.py KnovasConnector/src/sync/document_text.py \
+  KnovasConnector/src/sync/knovas_uploader.py KnovasConnector/tests/unit/test_extract_metrics.py \
+  KnovasConnector/tests/unit/test_document_text.py KnovasConnector/tests/unit/test_knovas_uploader.py
 git commit -F - <<'EOF'
 rc: count OCR pages, OCR seconds and extractor warnings by class
 
@@ -10201,7 +10201,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `RemoteController/tests/unit/test_extract_metrics.py`:
+Append to `KnovasConnector/tests/unit/test_extract_metrics.py`:
 
 ```python
 
@@ -10215,7 +10215,7 @@ def test_the_app_sets_the_build_info_at_start(tmp_watch_root, monkeypatch):
     assert calls == [True]
 ```
 
-Append to `RemoteController/tests/integration/test_sync_routes.py`. REX later adds `outdated` to the same block; this test compares only the four keys, so that stays green:
+Append to `KnovasConnector/tests/integration/test_sync_routes.py`. REX later adds `outdated` to the same block; this test compares only the four keys, so that stays green:
 
 ```python
 
@@ -10250,7 +10250,7 @@ Expected: 2 FAIL, with `assert [] == [True]` and `KeyError: 'extraction'`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-3a. `RemoteController/src/app.py`. Replace
+3a. `KnovasConnector/src/app.py`. Replace
 
 ```python
 from routes.sync_control import sync_control_bp
@@ -10276,7 +10276,7 @@ In `create_app`, directly after `    app.register_blueprint(m365_bp)`, insert:
 
 The call goes through the module attribute, so the test's monkeypatch sees it.
 
-3b. `RemoteController/src/routes/sync_control.py`. Replace `from sync.sync_config import load_sync_config` with
+3b. `KnovasConnector/src/routes/sync_control.py`. Replace `from sync.sync_config import load_sync_config` with
 
 ```python
 from sync import extract_metrics
@@ -10308,7 +10308,7 @@ Expected: PASS, apart from the known Windows-only failures listed in the plan he
 
 - [ ] **Step 5: Docs**
 
-5a. `RemoteController/docs/operations.md`, section "Metrics". Directly after the paragraph
+5a. `KnovasConnector/docs/operations.md`, section "Metrics". Directly after the paragraph
 
 ```markdown
 Document fields add four counters (see [Document fields](#document-fields)). Every label value comes from a closed set, anything else counts as `other`, so no field key, value, path or pointer can become a label.
@@ -10338,7 +10338,7 @@ The Platform's *Verwaltung → System* compares `knovas_extract_version` with it
 
 5b. `docs/specifications.md` §1.9, row `GET /sync/status`. Replace `Sync status; supports `?live=1` and `?live=1&deep_scan=1`` with `Sync status; supports `?live=1` and `?live=1&deep_scan=1`; `extraction` names the knovas-extract version and the text modes`.
 
-5c. `RemoteController/CHANGELOG.md`. Directly after PIN-2's bullet, which ends with `and the Connector image must pick tesserocr as its OCR engine.`, insert:
+5c. `KnovasConnector/CHANGELOG.md`. Directly after PIN-2's bullet, which ends with `and the Connector image must pick tesserocr as its OCR engine.`, insert:
 
 ```markdown
 - **Extraction metrics** (`/metrics`): `rc_build_info{rc_version,knovas_extract_version,pdf_text_mode,docx_text_mode,ocr_engine}` (always 1), `rc_ocr_pages_total{result="ocr"|"failed"|"skipped"}`, `rc_ocr_seconds_total` and `rc_extract_warnings_total{class}` — the library's warnings mapped to `ocr`, `layout`, `metadata`, `markdown`, `tables`, `sentences` or `other`, never their text. Counted in the API process from the document the extraction child returns (`ExtractedDocument.warnings` now carries the library's warnings). `GET /sync/status` gains `extraction` (`knovas_extract_version`, `pdf_text_mode`, `docx_text_mode`, `ocr_engine`); the Platform's System tab compares the version with its own.
@@ -10348,9 +10348,9 @@ The Platform's *Verwaltung → System* compares `knovas_extract_version` with it
 
 ```bash
 cd $WT
-git add RemoteController/src/app.py RemoteController/src/routes/sync_control.py \
-  RemoteController/tests/unit/test_extract_metrics.py RemoteController/tests/integration/test_sync_routes.py \
-  RemoteController/docs/operations.md docs/specifications.md RemoteController/CHANGELOG.md
+git add KnovasConnector/src/app.py KnovasConnector/src/routes/sync_control.py \
+  KnovasConnector/tests/unit/test_extract_metrics.py KnovasConnector/tests/integration/test_sync_routes.py \
+  KnovasConnector/docs/operations.md docs/specifications.md KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 rc: publish the extractor version in /metrics and /sync/status
 
@@ -10452,9 +10452,9 @@ class TestBothSides:
         assert "Aktualisieren" in check["hint"]
 
     def test_an_unreachable_connector_skips_the_comparison(self, platform_version):
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
-        check = _extractor(_Connector(error=RemoteControllerError("down")))
+        check = _extractor(_Connector(error=KnovasConnectorError("down")))
         assert check["state"] == "skip"
         assert check["detail"] == "Plattform 0.4.0a1, Knovas Connector nicht erreichbar"
 
@@ -10490,12 +10490,12 @@ class TestVersionFromStatus:
         {"extraction": {"knovas_extract_version": "9" * 41}},
     ])
     def test_anything_but_a_plain_version_is_none(self, status):
-        from remote_controller_client import extractor_version_from_status
+        from knovas_connector_client import extractor_version_from_status
 
         assert extractor_version_from_status(status) is None
 
     def test_a_version_is_returned_as_given(self):
-        from remote_controller_client import extractor_version_from_status
+        from knovas_connector_client import extractor_version_from_status
 
         assert extractor_version_from_status(_status("0.4.0a1")) == "0.4.0a1"
 ```
@@ -10507,7 +10507,7 @@ Expected: FAIL/ERROR. Fixture setup errors with `AttributeError: <module 'web_in
 
 - [ ] **Step 3: Write minimal implementation**
 
-3a. `KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py`. Replace
+3a. `KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py`. Replace
 
 ```python
 import logging
@@ -10548,13 +10548,13 @@ def extractor_version_from_status(status: Any) -> Optional[str]:
 3b. `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py`. Replace
 
 ```python
-from remote_controller_client import capabilities_from_status
+from knovas_connector_client import capabilities_from_status
 ```
 
 with
 
 ```python
-from remote_controller_client import capabilities_from_status, extractor_version_from_status
+from knovas_connector_client import capabilities_from_status, extractor_version_from_status
 ```
 
 Directly before `def collect(client_factory: Callable[[], Any], *, gate=None,`, insert:
@@ -10671,7 +10671,7 @@ insert:
 
 ```bash
 cd $WT
-git add KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py \
+git add KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py \
   KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py \
   KnovasPlatform/components/docbridge_integration/tests/test_web_admin_system_extractor.py RELEASE_NOTES.md
 git commit -F - <<'EOF'
@@ -10701,11 +10701,11 @@ PIN-1 set `b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1` as the interim default. Whe
    cd $WT
    A6_SHA=<full 40-character merge commit from Task A6>
    sed -i "s/^ARG KNOVAS_EXTRACT_GIT_REF=[0-9a-f]*$/ARG KNOVAS_EXTRACT_GIT_REF=${A6_SHA}/" \
-     RemoteController/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
+     KnovasConnector/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
    bash scripts/ci/check_knovas_extract_pin.sh
    bash scripts/ci/test_check_knovas_extract_pin.sh
    rc-pytest tests/unit/test_image_license_gate.py tests/unit/test_knovas_extract_pin_scripts.py
-   git add RemoteController/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
+   git add KnovasConnector/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
    git commit -F - <<'EOF'
    rc+platform: pin knovas-extract to the library PR's merge commit
 
@@ -10724,10 +10724,10 @@ PIN-1 set `b5d45404a6df0aa5fb2b934c8ae4efab9fe764a1` as the interim default. Whe
    ```bash
    cd $WT
    sed -i "s/^ARG KNOVAS_EXTRACT_GIT_REF=[0-9a-f]*$/ARG KNOVAS_EXTRACT_GIT_REF=/" \
-     RemoteController/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
+     KnovasConnector/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
    bash scripts/ci/check_knovas_extract_pin.sh
    rc-pytest tests/unit/test_image_license_gate.py
-   git add RemoteController/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
+   git add KnovasConnector/Dockerfile KnovasPlatform/components/docbridge_integration/Dockerfile
    git commit -F - <<'EOF'
    rc+platform: knovas-extract 0.4.0a1 from PyPI
 
@@ -11508,7 +11508,7 @@ class TestReadingSettingsOnThePage:
         assert '<option value="bcp47" selected>' in form
 ```
 
-In `TestFeatureOff.test_without_a_remote_controller_the_prefix_is_typed` replace `            datatypes=[], date_roles=[], unknown_key_modes=[], date_orders=[],` with
+In `TestFeatureOff.test_without_a_knovas_connector_the_prefix_is_typed` replace `            datatypes=[], date_roles=[], unknown_key_modes=[], date_orders=[],` with
 
 ```python
             datatypes=[], date_roles=[], unknown_key_modes=[], date_orders=[],
@@ -12279,7 +12279,7 @@ In `TestStatic` add:
         assert 'name="enum_values"' not in html and "data-df-choice-row" in html
 ```
 
-In `TestFeatureOff.test_without_a_remote_controller_the_prefix_is_typed` replace `            field_count_text="",` with
+In `TestFeatureOff.test_without_a_knovas_connector_the_prefix_is_typed` replace `            field_count_text="",` with
 
 ```python
             field_count_text="", choice_rows_new=adf.CHOICE_ROWS_NEW,
@@ -15164,7 +15164,7 @@ EOF
 
 ## Part B5: Document fields in the Connector (RCF)
 
-This part covers spec §7 **F4** (upload warnings carry their field key), §7 **F5** (fields are re-sent without a trigger upload) and §8 **L1** (file-property opt-ins `keywords` and `document_status`). The work is in the Knovas Connector (`RemoteController/`). The parts these features need in the Platform (Ingestion tab, ingestion compiler, contract copy) and the mock checks are included here too.
+This part covers spec §7 **F4** (upload warnings carry their field key), §7 **F5** (fields are re-sent without a trigger upload) and §8 **L1** (file-property opt-ins `keywords` and `document_status`). The work is in the Knovas Connector (`KnovasConnector/`). The parts these features need in the Platform (Ingestion tab, ingestion compiler, contract copy) and the mock checks are included here too.
 
 It runs after INT. Every anchor below quotes `$MERGED`, and new user-facing text says "Knovas Connector" as the rename sweep requires. It does not depend on EXT or PIN, except that RCF-6/7 read `ExtractedDocument.source_metadata`, which EXT does not change.
 
@@ -15187,8 +15187,8 @@ Decisions a reviewer should know about:
 ### Task RCF-1: Connector: keep the field key of every upload warning (F4, pure part)
 
 **Files:**
-- Modify: `RemoteController/src/sync/doc_fields_payload.py` (`FieldsEcho`, new `_warning_key`, `parse_init_echo`, `FieldsOutcome`, `outcome_after_init`)
-- Test: `RemoteController/tests/unit/test_doc_fields_payload.py`
+- Modify: `KnovasConnector/src/sync/doc_fields_payload.py` (`FieldsEcho`, new `_warning_key`, `parse_init_echo`, `FieldsOutcome`, `outcome_after_init`)
+- Test: `KnovasConnector/tests/unit/test_doc_fields_payload.py`
 
 **Interfaces:**
 - Consumes: none
@@ -15199,7 +15199,7 @@ Decisions a reviewer should know about:
 
 - [ ] **Step 1: Write the failing test**
 
-In `RemoteController/tests/unit/test_doc_fields_payload.py`, replace the expectation of `test_echo_present`:
+In `KnovasConnector/tests/unit/test_doc_fields_payload.py`, replace the expectation of `test_echo_present`:
 
 ```python
     echo = parse_init_echo(body)
@@ -15272,7 +15272,7 @@ Expected: FAIL with `TypeError: FieldsEcho.__init__() got an unexpected keyword 
 
 - [ ] **Step 3: Write minimal implementation**
 
-`RemoteController/src/sync/doc_fields_payload.py`. Replace:
+`KnovasConnector/src/sync/doc_fields_payload.py`. Replace:
 ```python
 def _keys(values: Any) -> tuple[str, ...]:
     if not isinstance(values, list):
@@ -15425,7 +15425,7 @@ Expected: PASS. The neighbouring suite `rc-pytest tests/unit/test_uploader_doc_f
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/doc_fields_payload.py RemoteController/tests/unit/test_doc_fields_payload.py
+git add KnovasConnector/src/sync/doc_fields_payload.py KnovasConnector/tests/unit/test_doc_fields_payload.py
 git commit -F - <<'EOF'
 rc: keep the field key of every Knovas upload warning
 
@@ -15445,11 +15445,11 @@ EOF
 ### Task RCF-2: Connector: count `(code, key)` per cycle and list them in `/sync/status` (F4)
 
 **Files:**
-- Modify: `RemoteController/src/sync/sync_executor.py` (`MAX_REPORTED_WARNINGS`, `DocFieldsCycle.warning_pairs`, `note_outcome`, new `warning_entries`)
-- Modify: `RemoteController/src/sync/sync_scheduler.py` (`doc_fields_status`)
-- Modify: `RemoteController/src/sync/doc_fields_metrics.py` (`WARNING_CODES`)
-- Modify: `RemoteController/docs/operations.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_sync_executor_doc_fields.py`, `RemoteController/tests/test_doc_fields_no_values_in_logs.py`, `RemoteController/tests/contract/test_doc_fields_against_mock.py`
+- Modify: `KnovasConnector/src/sync/sync_executor.py` (`MAX_REPORTED_WARNINGS`, `DocFieldsCycle.warning_pairs`, `note_outcome`, new `warning_entries`)
+- Modify: `KnovasConnector/src/sync/sync_scheduler.py` (`doc_fields_status`)
+- Modify: `KnovasConnector/src/sync/doc_fields_metrics.py` (`WARNING_CODES`)
+- Modify: `KnovasConnector/docs/operations.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_sync_executor_doc_fields.py`, `KnovasConnector/tests/test_doc_fields_no_values_in_logs.py`, `KnovasConnector/tests/contract/test_doc_fields_against_mock.py`
 
 **Interfaces:**
 - Consumes: `FieldsOutcome.warnings` (RCF-1).
@@ -15463,7 +15463,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-`RemoteController/tests/unit/test_sync_executor_doc_fields.py`: let the scripted server echo configurable warnings. Replace:
+`KnovasConnector/tests/unit/test_sync_executor_doc_fields.py`: let the scripted server echo configurable warnings. Replace:
 ```python
         self.inits: list[dict] = []
 
@@ -15530,7 +15530,7 @@ def test_warning_entries_are_the_most_frequent_first_and_capped():
     assert DocFieldsCycle().warning_entries() == []
 ```
 
-`RemoteController/tests/test_doc_fields_no_values_in_logs.py`: replace:
+`KnovasConnector/tests/test_doc_fields_no_values_in_logs.py`: replace:
 ```python
         self.mode = "values"
         self.refuse: Optional[requests.Response] = None
@@ -15595,7 +15595,7 @@ def test_every_warning_code_of_knovas_1_5_is_a_metric_label():
     assert documented <= m.WARNING_CODES
 ```
 
-`RemoteController/tests/contract/test_doc_fields_against_mock.py` (`test_status_advertises_capabilities_and_the_doc_fields_block`): replace:
+`KnovasConnector/tests/contract/test_doc_fields_against_mock.py` (`test_status_advertises_capabilities_and_the_doc_fields_block`): replace:
 ```python
         assert block["warnings"] == {"unresolved_entity": 1}
 ```
@@ -15615,7 +15615,7 @@ Expected: FAIL with:
 
 - [ ] **Step 3: Write minimal implementation**
 
-`RemoteController/src/sync/sync_executor.py`. Replace:
+`KnovasConnector/src/sync/sync_executor.py`. Replace:
 ```python
 #: At most this many unknown keys / suggestions are kept per cycle.
 MAX_REPORTED_KEYS = 20
@@ -15693,7 +15693,7 @@ with:
     def as_dict(self) -> dict[str, Any]:
 ```
 
-`RemoteController/src/sync/sync_scheduler.py`. Replace:
+`KnovasConnector/src/sync/sync_scheduler.py`. Replace:
 ```python
 def doc_fields_status() -> dict[str, Any]:
     """The ``doc_fields`` block of GET /sync/status: keys, codes and counts.
@@ -15720,7 +15720,7 @@ with:
         "warnings": cycle.warning_entries(),
 ```
 
-`RemoteController/src/sync/doc_fields_metrics.py`. Replace:
+`KnovasConnector/src/sync/doc_fields_metrics.py`. Replace:
 ```python
         "ambiguous_date",
         "unresolved_entity",
@@ -15732,7 +15732,7 @@ with:
         "unresolved_entity",
 ```
 
-`RemoteController/docs/operations.md`. Replace:
+`KnovasConnector/docs/operations.md`. Replace:
 ```
   "warnings": {"unresolved_entity": 12, "ambiguous_date": 1},
 ```
@@ -15759,7 +15759,7 @@ with:
 `ambiguous_date`, `ambiguous_number`, `unresolved_entity`
 ```
 
-`RemoteController/CHANGELOG.md`. Replace the first:
+`KnovasConnector/CHANGELOG.md`. Replace the first:
 ```
 ## Unreleased
 
@@ -15783,11 +15783,11 @@ Expected: PASS. The neighbouring suite `rc-pytest tests/unit/test_sync_scheduler
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/sync_executor.py RemoteController/src/sync/sync_scheduler.py \
-  RemoteController/src/sync/doc_fields_metrics.py RemoteController/docs/operations.md \
-  RemoteController/CHANGELOG.md RemoteController/tests/unit/test_sync_executor_doc_fields.py \
-  RemoteController/tests/test_doc_fields_no_values_in_logs.py \
-  RemoteController/tests/contract/test_doc_fields_against_mock.py
+git add KnovasConnector/src/sync/sync_executor.py KnovasConnector/src/sync/sync_scheduler.py \
+  KnovasConnector/src/sync/doc_fields_metrics.py KnovasConnector/docs/operations.md \
+  KnovasConnector/CHANGELOG.md KnovasConnector/tests/unit/test_sync_executor_doc_fields.py \
+  KnovasConnector/tests/test_doc_fields_no_values_in_logs.py \
+  KnovasConnector/tests/contract/test_doc_fields_against_mock.py
 git commit -F - <<'EOF'
 rc: report Knovas upload warnings per code and field key in /sync/status
 
@@ -15991,8 +15991,8 @@ EOF
 ### Task RCF-4: Connector: capability probe `probe_doc_fields()` (F5, uploader)
 
 **Files:**
-- Modify: `RemoteController/src/sync/knovas_uploader.py` (`DOC_FIELDS_PROBE_PATH`, `PROBE_UNKNOWN_STATUSES`, new `SemantixUploader.probe_doc_fields`)
-- Test: `RemoteController/tests/unit/test_uploader_doc_fields.py`, `RemoteController/tests/contract/test_doc_fields_against_mock.py`
+- Modify: `KnovasConnector/src/sync/knovas_uploader.py` (`DOC_FIELDS_PROBE_PATH`, `PROBE_UNKNOWN_STATUSES`, new `SemantixUploader.probe_doc_fields`)
+- Test: `KnovasConnector/tests/unit/test_uploader_doc_fields.py`, `KnovasConnector/tests/contract/test_doc_fields_against_mock.py`
 
 How `_request` behaves today:
 - It takes one char token and one request token from the ingest limiter per attempt, and raises `RequestException("ingest rate limit exceeded")` when they are exhausted.
@@ -16012,7 +16012,7 @@ The mock needs no change. In `off` mode, `GET /secured/graph/doc-fields` already
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `RemoteController/tests/unit/test_uploader_doc_fields.py`:
+Append to `KnovasConnector/tests/unit/test_uploader_doc_fields.py`:
 ```python
 PROBE = "/secured/graph/doc-fields"
 
@@ -16061,7 +16061,7 @@ class TestCapabilityProbe:
         assert answer is None and calls == []
 ```
 
-Append to `RemoteController/tests/contract/test_doc_fields_against_mock.py`, before `def _sync_response(result) -> dict:`:
+Append to `KnovasConnector/tests/contract/test_doc_fields_against_mock.py`, before `def _sync_response(result) -> dict:`:
 ```python
 class TestCapabilityProbe:
     """Spec F5: the probe against every server state the mock plays."""
@@ -16091,7 +16091,7 @@ Expected: FAIL with `AttributeError: 'SemantixUploader' object has no attribute 
 
 - [ ] **Step 3: Write minimal implementation**
 
-`RemoteController/src/sync/knovas_uploader.py`. Replace:
+`KnovasConnector/src/sync/knovas_uploader.py`. Replace:
 ```python
 RETRY_STATUS = {429, 503, 504}
 MAX_BACKOFF = 30.0
@@ -16153,8 +16153,8 @@ Expected: PASS. The neighbouring suite `rc-pytest tests/unit/test_knovas_uploade
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/knovas_uploader.py RemoteController/tests/unit/test_uploader_doc_fields.py \
-  RemoteController/tests/contract/test_doc_fields_against_mock.py
+git add KnovasConnector/src/sync/knovas_uploader.py KnovasConnector/tests/unit/test_uploader_doc_fields.py \
+  KnovasConnector/tests/contract/test_doc_fields_against_mock.py
 git commit -F - <<'EOF'
 rc: ask Knovas whether it takes document fields (capability probe)
 
@@ -16176,10 +16176,10 @@ EOF
 ### Task RCF-5: Connector: hourly probe re-sends `not_accepted` documents without a trigger upload (F5, executor)
 
 **Files:**
-- Modify: `RemoteController/src/sync/sync_executor.py` (imports, `DOC_FIELDS_PROBE_INTERVAL_SECONDS`, `_last_doc_fields_probe`, `_claim_doc_fields_probe`, `_requeue_not_accepted`, `_probe_doc_fields`, `run_sync_work`)
-- Modify: `RemoteController/tests/conftest.py` (`fresh_doc_fields_memory`)
-- Modify: `RemoteController/docs/configuration.md`, `RemoteController/docs/operations.md`, `RemoteController/CHANGELOG.md`
-- Test: `RemoteController/tests/unit/test_sync_executor_doc_fields.py`
+- Modify: `KnovasConnector/src/sync/sync_executor.py` (imports, `DOC_FIELDS_PROBE_INTERVAL_SECONDS`, `_last_doc_fields_probe`, `_claim_doc_fields_probe`, `_requeue_not_accepted`, `_probe_doc_fields`, `run_sync_work`)
+- Modify: `KnovasConnector/tests/conftest.py` (`fresh_doc_fields_memory`)
+- Modify: `KnovasConnector/docs/configuration.md`, `KnovasConnector/docs/operations.md`, `KnovasConnector/CHANGELOG.md`
+- Test: `KnovasConnector/tests/unit/test_sync_executor_doc_fields.py`
 
 **Where the hourly timestamp lives: a module-level `_last_doc_fields_probe` in `sync_executor`, guarded by a lock.**
 - It is the only place that survives the continuous worker's cycle loop and the one-time runs of `POST /sync`. `_run_once` builds a new `SemantixUploader` every cycle, and `run_sync_work` has no executor object.
@@ -16204,7 +16204,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-`RemoteController/tests/unit/test_sync_executor_doc_fields.py`. Replace:
+`KnovasConnector/tests/unit/test_sync_executor_doc_fields.py`. Replace:
 ```python
 import json
 import os
@@ -16356,7 +16356,7 @@ class TestCapabilityProbe:
         assert rc.fields(REL).outcome == "not_accepted" and rc.fields(REL).digest
 ```
 
-`RemoteController/tests/conftest.py`. Replace:
+`KnovasConnector/tests/conftest.py`. Replace:
 ```python
     """The scheduler keeps the last cycle's document-fields answers and the
     requeue scope in module memory; no test sees another test's."""
@@ -16399,7 +16399,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Write minimal implementation**
 
-`RemoteController/src/sync/sync_executor.py`. Replace:
+`KnovasConnector/src/sync/sync_executor.py`. Replace:
 ```python
 import fnmatch
 import logging
@@ -16519,7 +16519,7 @@ with:
                     logger.info("doc_fields requeued=%d outcome=not_accepted", stats.requeued)
 ```
 
-`RemoteController/docs/configuration.md`. Replace:
+`KnovasConnector/docs/configuration.md`. Replace:
 ```
 cycle's scan reached for a re-upload, within the bound. `POST /sync/doc-fields/requeue` does the same on
 ```
@@ -16534,7 +16534,7 @@ hour later); any other answer means on, and those documents are queued exactly
 as after an echo. `POST /sync/doc-fields/requeue` does the same on
 ```
 
-`RemoteController/docs/operations.md`. Replace:
+`KnovasConnector/docs/operations.md`. Replace:
 ```
 Documents recorded `not_accepted` are queued automatically the first time Knovas answers with an echo (those that cycle's scan reached).
 ```
@@ -16543,7 +16543,7 @@ with:
 Documents recorded `not_accepted` are queued automatically the first time Knovas answers with an echo, or when the hourly capability probe finds the feature on (those that cycle's scan reached; log line `doc_fields probe=on|off|unknown requeued=n`; see [configuration.md](configuration.md#re-uploads-and-what-they-cost)).
 ```
 
-`RemoteController/CHANGELOG.md`. Replace the F4 bullet RCF-2 wrote:
+`KnovasConnector/CHANGELOG.md`. Replace the F4 bullet RCF-2 wrote:
 ```
 - **Upload warnings name their field** (F4): `GET /sync/status` → `doc_fields.warnings` is a list of `{code, key, count}` for the last cycle, the most frequent first, at most 50 (it was `{code: count}`; the `POST /sync` summary keeps that shape). Field keys only — never a value or the warning's JSON path; a "key" that is not key-shaped is reported as `""`. `rc_doc_fields_warnings_total{code}` counts `ambiguous_number` (Knovas 1.5.0) instead of `other`.
 ```
@@ -16561,9 +16561,9 @@ Expected: PASS. With the scripted server's default probe answer of 404, the exis
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/sync_executor.py RemoteController/tests/conftest.py \
-  RemoteController/tests/unit/test_sync_executor_doc_fields.py RemoteController/docs/configuration.md \
-  RemoteController/docs/operations.md RemoteController/CHANGELOG.md
+git add KnovasConnector/src/sync/sync_executor.py KnovasConnector/tests/conftest.py \
+  KnovasConnector/tests/unit/test_sync_executor_doc_fields.py KnovasConnector/docs/configuration.md \
+  KnovasConnector/docs/operations.md KnovasConnector/CHANGELOG.md
 git commit -F - <<'EOF'
 rc: re-send not-accepted document fields without a trigger upload
 
@@ -16585,9 +16585,9 @@ EOF
 ### Task RCF-6: Connector: carry keywords, categories and content status in `source_metadata` (L1, extraction side)
 
 **Files:**
-- Modify: `RemoteController/src/sync/metadata_fields.py` (new constants, `source_metadata_from`)
-- Modify: `RemoteController/src/sync/document_text.py` (`ExtractedDocument` docstring)
-- Test: `RemoteController/tests/unit/test_metadata_fields.py`, `RemoteController/tests/unit/test_document_text_source_metadata.py`
+- Modify: `KnovasConnector/src/sync/metadata_fields.py` (new constants, `source_metadata_from`)
+- Modify: `KnovasConnector/src/sync/document_text.py` (`ExtractedDocument` docstring)
+- Test: `KnovasConnector/tests/unit/test_metadata_fields.py`, `KnovasConnector/tests/unit/test_document_text_source_metadata.py`
 
 What changes and why:
 - Today `source_metadata_from` passes `author`, `language`, `created`, `modified` and `eml:content_language` only, and caps nothing.
@@ -16608,7 +16608,7 @@ Verified with the library at `b5d4540`:
 
 - [ ] **Step 1: Write the failing test**
 
-Append to the `source_metadata_from` section of `RemoteController/tests/unit/test_metadata_fields.py`:
+Append to the `source_metadata_from` section of `KnovasConnector/tests/unit/test_metadata_fields.py`:
 ```python
 def test_source_metadata_from_reads_the_file_properties():
     metadata = SimpleNamespace(
@@ -16637,7 +16637,7 @@ def test_a_file_property_over_the_cap_is_left_out_not_cut():
     assert source_metadata_from(metadata) == {"docx:keywords": "k" * MAX_SOURCE_VALUE_CHARS}
 ```
 
-`RemoteController/tests/unit/test_document_text_source_metadata.py`. Replace the module docstring:
+`KnovasConnector/tests/unit/test_document_text_source_metadata.py`. Replace the module docstring:
 ```python
 """``ExtractedDocument.source_metadata`` (spec section 3.5).
 
@@ -16690,7 +16690,7 @@ Expected: FAIL. `AssertionError: assert {} == {...}`, `ImportError: cannot impor
 
 - [ ] **Step 3: Write minimal implementation**
 
-`RemoteController/src/sync/metadata_fields.py`. Replace:
+`KnovasConnector/src/sync/metadata_fields.py`. Replace:
 ```python
 #: Keys of ``ExtractedDocument.source_metadata`` (knovas-extract ``Metadata``
 #: attributes, plus the .eml Content-Language header from ``extra``).
@@ -16754,7 +16754,7 @@ with:
     return out
 ```
 
-`RemoteController/src/sync/document_text.py`. Replace:
+`KnovasConnector/src/sync/document_text.py`. Replace:
 ```python
     `source_metadata` holds the extractor's `author`, `language`, `created`
     and `modified` plus the .eml `eml:content_language` header, as strings
@@ -16778,8 +16778,8 @@ Expected: PASS. The neighbouring suite `rc-pytest tests/unit/test_doc_fields_pay
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/metadata_fields.py RemoteController/src/sync/document_text.py \
-  RemoteController/tests/unit/test_metadata_fields.py RemoteController/tests/unit/test_document_text_source_metadata.py
+git add KnovasConnector/src/sync/metadata_fields.py KnovasConnector/src/sync/document_text.py \
+  KnovasConnector/tests/unit/test_metadata_fields.py KnovasConnector/tests/unit/test_document_text_source_metadata.py
 git commit -F - <<'EOF'
 rc: carry keywords, Outlook categories and Word content status from the extractor
 
@@ -16817,7 +16817,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Create `RemoteController/contracts/vectors/metadata_fields.json`:
+Create `KnovasConnector/contracts/vectors/metadata_fields.json`:
 ```json
 [
   {
@@ -16921,7 +16921,7 @@ Create `RemoteController/contracts/vectors/metadata_fields.json`:
 ]
 ```
 
-`RemoteController/tests/unit/test_metadata_fields.py`. Replace:
+`KnovasConnector/tests/unit/test_metadata_fields.py`. Replace:
 ```python
 import inspect
 import io
@@ -17039,7 +17039,7 @@ from sync.metadata_fields import (
 ```
 (The rest of the import list is unchanged. `FILE_PROPERTY_KEYS` exists since RCF-6, so the module still imports.)
 
-`RemoteController/tests/unit/test_doc_fields_payload.py`. Append after `test_digest_is_non_empty_for_a_metadata_source_even_when_the_payload_is_empty`:
+`KnovasConnector/tests/unit/test_doc_fields_payload.py`. Append after `test_digest_is_non_empty_for_a_metadata_source_even_when_the_payload_is_empty`:
 ```python
 def test_a_new_file_property_item_changes_the_digest_and_the_old_items_keep_theirs():
     """Spec L1: enabling keywords or document_status re-sends the source
@@ -17063,7 +17063,7 @@ def test_file_properties_stay_below_templates_and_fixed_values():
         "keywords": ["Vertrag", "Miete"], "status": "Final"}
 ```
 
-`RemoteController/tests/test_sync_source_fields_schema.py`. Replace:
+`KnovasConnector/tests/test_sync_source_fields_schema.py`. Replace:
 ```python
 METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author")
 ```
@@ -17082,7 +17082,7 @@ with:
                                       "status", "categories"])
 ```
 
-`RemoteController/tests/contract/test_doc_fields_against_mock.py`. Replace:
+`KnovasConnector/tests/contract/test_doc_fields_against_mock.py`. Replace:
 ```python
 import os
 from pathlib import Path
@@ -17175,7 +17175,7 @@ Expected: PASS already. This test pins existing mock behaviour; the mock needs n
 
 - [ ] **Step 3: Write minimal implementation**
 
-`RemoteController/src/sync/metadata_fields.py`. Replace:
+`KnovasConnector/src/sync/metadata_fields.py`. Replace:
 ```python
     document_author  -> author         pdf/docx/md author, junk skipped
 ```
@@ -17323,7 +17323,7 @@ with:
     return out
 ```
 
-`RemoteController/contracts/sync_request.schema.json`. Replace:
+`KnovasConnector/contracts/sync_request.schema.json`. Replace:
 ```json
             "items": { "enum": ["language", "email_date", "email_doc_type", "email_author", "document_author"] },
             "description": "Extractor metadata items mapped into upload fields for this source, each one opted into by the administrator. Mapped keys are never registered automatically."
@@ -17335,11 +17335,11 @@ with:
 ```
 Then make the Platform copy byte-identical:
 ```bash
-cp $WT/RemoteController/contracts/sync_request.schema.json \
+cp $WT/KnovasConnector/contracts/sync_request.schema.json \
    $WT/KnovasPlatform/components/docbridge_integration/src/identity/rc_contracts/sync_request.schema.json
 ```
 
-`RemoteController/src/sync/sync_scheduler.py`. Replace:
+`KnovasConnector/src/sync/sync_scheduler.py`. Replace:
 ```python
     "metadata_fields_v1",
     "fields_requeue_v1",
@@ -17354,7 +17354,7 @@ with the following. If an earlier task appended an entry after `fields_requeue_v
 )
 ```
 
-`RemoteController/docs/configuration.md`. Replace:
+`KnovasConnector/docs/configuration.md`. Replace:
 ```
 | `document_author` | `author` | `.pdf` / `.docx` author; placeholder authors (`Administrator`, `User`, `Microsoft Office User`, …) are skipped. |
 ```
@@ -17383,7 +17383,7 @@ Platform and a Connector that know them (capability `metadata_fields_v2`);
 golden vectors: [contracts/vectors/metadata_fields.json](../contracts/vectors/metadata_fields.json).
 ```
 
-`RemoteController/docs/operations.md`. Replace:
+`KnovasConnector/docs/operations.md`. Replace:
 ```
 "capabilities": ["source_fields_v1", "field_templates_v1", "metadata_fields_v1", "fields_requeue_v1"],
 ```
@@ -17401,7 +17401,7 @@ with:
 - `enabled` is `RC_DOC_FIELDS`.
 ```
 
-`RemoteController/CHANGELOG.md`. After the F5 bullet that RCF-5 added (it begins `- **Not accepted fields come back without a trigger upload** (F5):`), add:
+`KnovasConnector/CHANGELOG.md`. After the F5 bullet that RCF-5 added (it begins `- **Not accepted fields come back without a trigger upload** (F5):`), add:
 ```
 - **File properties `keywords` and `document_status`** (L1; capability `metadata_fields_v2`): `keywords` → field `keywords` from `pdf:keywords`, `docx:keywords` and `msg:categories` (split on `,` and `;`, trimmed, NFC, de-duplicated ignoring case, at most 32 values of at most 256 characters); `document_status` → field `status` from `docx:content_status`, trimmed and sent as written (Knovas drops a status it does not know with an `invalid_value` warning). Below path templates and fixed values, as every file property. Enabling one changes the documents' config digest, so the folder is re-sent within the bound; `METADATA_MAPPING_VERSION` stays 1. Golden vectors: `contracts/vectors/metadata_fields.json`. knovas-extract 0.4.0a1 does not read Outlook categories yet.
 ```
@@ -17420,13 +17420,13 @@ The neighbouring suite `rc-pytest tests/integration/test_sync_routes.py tests/un
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/metadata_fields.py RemoteController/src/sync/sync_scheduler.py \
-  RemoteController/contracts/sync_request.schema.json RemoteController/contracts/vectors/metadata_fields.json \
+git add KnovasConnector/src/sync/metadata_fields.py KnovasConnector/src/sync/sync_scheduler.py \
+  KnovasConnector/contracts/sync_request.schema.json KnovasConnector/contracts/vectors/metadata_fields.json \
   KnovasPlatform/components/docbridge_integration/src/identity/rc_contracts/sync_request.schema.json \
-  RemoteController/docs/configuration.md RemoteController/docs/operations.md RemoteController/CHANGELOG.md \
-  RemoteController/tests/unit/test_metadata_fields.py RemoteController/tests/unit/test_doc_fields_payload.py \
-  RemoteController/tests/test_sync_source_fields_schema.py \
-  RemoteController/tests/contract/test_doc_fields_against_mock.py \
+  KnovasConnector/docs/configuration.md KnovasConnector/docs/operations.md KnovasConnector/CHANGELOG.md \
+  KnovasConnector/tests/unit/test_metadata_fields.py KnovasConnector/tests/unit/test_doc_fields_payload.py \
+  KnovasConnector/tests/test_sync_source_fields_schema.py \
+  KnovasConnector/tests/contract/test_doc_fields_against_mock.py \
   KnovasPlatform/mock_knovas_api/tests/test_mock_doc_fields.py
 git commit -F - <<'EOF'
 rc+platform: file-property opt-ins keywords and document_status
@@ -17455,7 +17455,7 @@ EOF
 - Modify: `KnovasPlatform/components/docbridge_integration/src/identity/ingestion_compiler.py` (`METADATA_ITEMS`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/doc_fields_view.py` (`METADATA_TARGETS`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_ingestion.py` (module docstring, `METADATA_LABELS`)
-- Modify: `KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py` (`CAP_METADATA_FIELDS_V2`, `METADATA_ITEMS_V2`, `required_capabilities`)
+- Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py` (`CAP_METADATA_FIELDS_V2`, `METADATA_ITEMS_V2`, `required_capabilities`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_system.py` (`RC_DOC_FIELD_CAPABILITIES`)
 - Modify: `KnovasPlatform/docs/features/document-fields.md`, `RELEASE_NOTES.md`
 - Test: `tests/test_ingestion_compiler.py`, `tests/test_web_admin_ingestion.py`, `tests/test_doc_fields_view.py`, `tests/test_web_admin_system_doc_fields.py` (under `KnovasPlatform/components/docbridge_integration/`)
@@ -17468,7 +17468,7 @@ The checkboxes are rendered server-side from `metadata_items` (`admin_ingestion.
   - `ingestion_compiler.METADATA_ITEMS` (7 items, form order)
   - `doc_fields_view.METADATA_TARGETS["keywords"] = "keywords"`, `["document_status"] = "status"`
   - `admin_ingestion.METADATA_LABELS["keywords"] = "Stichwörter aus Datei-Eigenschaften (PDF/Word-Stichwörter, Outlook-Kategorien)"`, `["document_status"] = "Status aus Word-Dokumentstatus"`
-  - `remote_controller_client.CAP_METADATA_FIELDS_V2 = "metadata_fields_v2"`, `METADATA_ITEMS_V2 = frozenset({"keywords", "document_status"})`
+  - `knovas_connector_client.CAP_METADATA_FIELDS_V2 = "metadata_fields_v2"`, `METADATA_ITEMS_V2 = frozenset({"keywords", "document_status"})`
   - `required_capabilities(...)` adds `metadata_fields_v2` when a source opts into either item.
 
 - [ ] **Step 1: Write the failing test**
@@ -17532,10 +17532,10 @@ Append to `TestCheckProfileFields`:
                             rc=_RC(caps=ALL_CAPS + ("metadata_fields_v2",)))
         assert check.profile.sources[0].metadata_fields == ("keywords", "document_status")
 ```
-Append to `TestRemoteControllerClientDocFields`:
+Append to `TestKnovasConnectorClientDocFields`:
 ```python
     def test_the_file_property_items_need_v2(self):
-        from remote_controller_client import CAP_METADATA_FIELDS_V2, required_capabilities
+        from knovas_connector_client import CAP_METADATA_FIELDS_V2, required_capabilities
 
         assert CAP_METADATA_FIELDS_V2 == "metadata_fields_v2"
         assert required_capabilities({"sources": [{"path": "/a", "metadata_fields": ["language"]}]}) == {
@@ -17563,7 +17563,7 @@ Append to `TestTemplateFields`:
         assert keywords in html and "Status aus Word-Dokumentstatus" in html
 ```
 
-`tests/test_web_admin_system_doc_fields.py`. Append to `TestRemoteController`:
+`tests/test_web_admin_system_doc_fields.py`. Append to `TestKnovasConnector`:
 ```python
     def test_the_file_property_capability_is_named(self):
         rc = _RCWithCaps({"source_fields_v1", "metadata_fields_v1", "metadata_fields_v2"})
@@ -17574,7 +17574,7 @@ Append to `TestTemplateFields`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pf-pytest tests/test_ingestion_compiler.py::TestFilePropertyOptIns tests/test_doc_fields_view.py::TestProfileFieldKeys tests/test_web_admin_ingestion.py::TestFieldInputsParse tests/test_web_admin_ingestion.py::TestCheckProfileFields tests/test_web_admin_ingestion.py::TestRemoteControllerClientDocFields tests/test_web_admin_ingestion.py::TestTemplateFields tests/test_web_admin_system_doc_fields.py::TestRemoteController`
+Run: `pf-pytest tests/test_ingestion_compiler.py::TestFilePropertyOptIns tests/test_doc_fields_view.py::TestProfileFieldKeys tests/test_web_admin_ingestion.py::TestFieldInputsParse tests/test_web_admin_ingestion.py::TestCheckProfileFields tests/test_web_admin_ingestion.py::TestKnovasConnectorClientDocFields tests/test_web_admin_ingestion.py::TestTemplateFields tests/test_web_admin_system_doc_fields.py::TestKnovasConnector`
 Expected: FAIL.
 - The `METADATA_ITEMS` order (`AssertionError`).
 - `validate_profile_fields` raises `ProfileError: … unbekannte Dateieigenschaft`.
@@ -17588,13 +17588,13 @@ Expected: FAIL.
 
 `src/identity/ingestion_compiler.py`. Replace:
 ```python
-#: The extractor metadata items RemoteController maps (spec 3.5), in the
+#: The extractor metadata items Knovas Connector maps (spec 3.5), in the
 #: order the form offers them.
 METADATA_ITEMS = ("language", "email_date", "email_doc_type", "email_author", "document_author")
 ```
 with:
 ```python
-#: The extractor metadata items RemoteController maps (spec 3.5, L1), in the
+#: The extractor metadata items Knovas Connector maps (spec 3.5, L1), in the
 #: order the form offers them. ``keywords`` and ``document_status`` need a
 #: Connector that reports ``metadata_fields_v2``.
 METADATA_ITEMS = (
@@ -17643,7 +17643,7 @@ with:
 }
 ```
 
-`src/remote_controller_client.py`. Replace:
+`src/knovas_connector_client.py`. Replace:
 ```python
 CAP_METADATA_FIELDS = "metadata_fields_v1"
 CAP_FIELDS_REQUEUE = "fields_requeue_v1"
@@ -17764,7 +17764,7 @@ Expected: PASS. The neighbouring suite `pf-pytest tests/test_rc_contract_copies.
 cd $WT
 P=KnovasPlatform/components/docbridge_integration
 git add $P/src/identity/ingestion_compiler.py $P/src/doc_fields_view.py \
-  $P/src/web_interface/admin_ingestion.py $P/src/remote_controller_client.py \
+  $P/src/web_interface/admin_ingestion.py $P/src/knovas_connector_client.py \
   $P/src/web_interface/admin_system.py $P/tests/test_ingestion_compiler.py \
   $P/tests/test_doc_fields_view.py $P/tests/test_web_admin_ingestion.py \
   $P/tests/test_web_admin_system_doc_fields.py KnovasPlatform/docs/features/document-fields.md \
@@ -17788,7 +17788,7 @@ EOF
 
 ---
 
-**Section check (after RCF-8):** `rc-pytest tests`, `pf-pytest tests`, `mock-pytest tests`. All pass except the known Windows-only failures listed in the plan header. Then `grep -rn "probe_doc_fields\|warning_pairs\|metadata_fields_v2" $WT/RemoteController/src $WT/KnovasPlatform/components/docbridge_integration/src` shows the new names exactly as in the interface contract, with `SemantixUploader` in place of the contract's `KnovasUploader`.
+**Section check (after RCF-8):** `rc-pytest tests`, `pf-pytest tests`, `mock-pytest tests`. All pass except the known Windows-only failures listed in the plan header. Then `grep -rn "probe_doc_fields\|warning_pairs\|metadata_fields_v2" $WT/KnovasConnector/src $WT/KnovasPlatform/components/docbridge_integration/src` shows the new names exactly as in the interface contract, with `SemantixUploader` in place of the contract's `KnovasUploader`.
 
 ---
 
@@ -17797,7 +17797,7 @@ EOF
 2. **429 deviates from the contract.** RCF-4 and RCF-5 read a 429 as unknown (None), not True: a rate limit says nothing about the feature, and True would re-send billed documents every hour. If you want the contract's wording kept, it is one line, `PROBE_UNKNOWN_STATUSES = frozenset()`, plus moving `429` to True in the uploader test.
 3. **Residual risk in F5, as the spec defines it.** A non-conforming intermediary (proxy or WAF) that answers non-404 to the GET while Knovas ignores upload fields would requeue `not_accepted` documents once an hour, bounded per cycle. A conforming 1.5.0 server cannot cause this. A cheaper alternative, if you want it: on "on", re-send one canary document and let its echo trigger the bulk requeue. That would mean amending the spec.
 4. **New capability `metadata_fields_v2`** (RCF-7/8). It is not in the contract table, but the Platform's push gate needs it. If REX adds a capability too, both are appended at the end of `RC_CAPABILITIES`, and the contract test's list must follow that order.
-5. **Library gap for Part A: `msg:categories` is never produced.** `knovas_extract/extractors/msg.py` uses `getattr(msg, "categories", None)`, but extract-msg 0.56.1 has no `categories` on a `Message`; only `CalendarBase.keywords` exists. A fix would be `getattr(msg, "categories", None) or msg.getNamedProp("Keywords", "{00020329-0000-0000-C000-000000000046}")`, guarded by try/except, plus a test. The Connector already parses the JSON array that `sanitize_scalar` writes. If you add the fix, drop the "Outlook-Kategorien liest knovas-extract 0.4.0a1 noch nicht" sentences from `RemoteController/docs/configuration.md`, `RemoteController/CHANGELOG.md`, the Platform feature doc and `RELEASE_NOTES.md`.
+5. **Library gap for Part A: `msg:categories` is never produced.** `knovas_extract/extractors/msg.py` uses `getattr(msg, "categories", None)`, but extract-msg 0.56.1 has no `categories` on a `Message`; only `CalendarBase.keywords` exists. A fix would be `getattr(msg, "categories", None) or msg.getNamedProp("Keywords", "{00020329-0000-0000-C000-000000000046}")`, guarded by try/except, plus a test. The Connector already parses the JSON array that `sanitize_scalar` writes. If you add the fix, drop the "Outlook-Kategorien liest knovas-extract 0.4.0a1 noch nicht" sentences from `KnovasConnector/docs/configuration.md`, `KnovasConnector/CHANGELOG.md`, the Platform feature doc and `RELEASE_NOTES.md`.
 6. **`/sync/status` `doc_fields.warnings` changes shape** from a dict to a list, as the contract defines. An older Platform simply shows no warnings line; it does not crash. `POST /sync` keeps `{code: count}`.
 7. **Small additions beyond the brief:** `ambiguous_number` added to the Connector's closed metric label set (F4 task), and a 1.5.0 vectors file `contracts/vectors/metadata_fields.json` for the Connector only. The Platform executes no metadata mapping, so it gets no copy; the schema copy is the one kept byte-identical.
 
@@ -17855,8 +17855,8 @@ Spec §8 L6 (decision D5). For every document, the Knovas Connector records whic
 ### Task REX-1: Extraction stamp and uploaded-text hash (`sync.extraction_stamp`)
 
 **Files:**
-- Create: `RemoteController/src/sync/extraction_stamp.py`
-- Test: `RemoteController/tests/unit/test_extraction_stamp.py`
+- Create: `KnovasConnector/src/sync/extraction_stamp.py`
+- Test: `KnovasConnector/tests/unit/test_extraction_stamp.py`
 
 **Interfaces:**
 - Consumes:
@@ -18000,7 +18000,7 @@ Expected: FAIL — collection error `ModuleNotFoundError: No module named 'sync.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `RemoteController/src/sync/extraction_stamp.py`:
+Create `KnovasConnector/src/sync/extraction_stamp.py`:
 
 ```python
 """Extraction stamp and uploaded-text hash (spec L6).
@@ -18144,7 +18144,7 @@ Expected: PASS. The neighbouring suite `rc-pytest tests/unit/test_document_text.
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/extraction_stamp.py RemoteController/tests/unit/test_extraction_stamp.py
+git add KnovasConnector/src/sync/extraction_stamp.py KnovasConnector/tests/unit/test_extraction_stamp.py
 git commit -F - <<'EOF'
 rc: extraction stamp and uploaded-text hash (L6)
 
@@ -18165,9 +18165,9 @@ EOF
 ### Task REX-2: State DB columns and methods for re-extraction
 
 **Files:**
-- Modify: `RemoteController/src/sync/sync_state_db.py` (`_FIELDS_COLUMNS` neighbourhood, `FieldsState` neighbourhood, `_connect`, `_ensure_fields_columns` → `_ensure_columns`, new re-extraction methods before `list_tracked_paths`)
-- Modify: `RemoteController/src/sync/sync_state.py` (import; wrappers before `status_for`)
-- Test: `RemoteController/tests/unit/test_sync_state_db_reextract_migration.py`
+- Modify: `KnovasConnector/src/sync/sync_state_db.py` (`_FIELDS_COLUMNS` neighbourhood, `FieldsState` neighbourhood, `_connect`, `_ensure_fields_columns` → `_ensure_columns`, new re-extraction methods before `list_tracked_paths`)
+- Modify: `KnovasConnector/src/sync/sync_state.py` (import; wrappers before `status_for`)
+- Test: `KnovasConnector/tests/unit/test_sync_state_db_reextract_migration.py`
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -18432,7 +18432,7 @@ Expected: FAIL — `ImportError: cannot import name 'RESEND_REEXTRACT' from 'syn
 
 - [ ] **Step 3: Write minimal implementation**
 
-3.1 `RemoteController/src/sync/sync_state_db.py`: insert directly after the existing tuple
+3.1 `KnovasConnector/src/sync/sync_state_db.py`: insert directly after the existing tuple
 
 ```python
 _FIELDS_COLUMNS = (
@@ -18452,7 +18452,7 @@ the following:
 #: fields columns. ``extraction_stamp`` NULL means synced before stamps
 #: existed, i.e. by an older extraction. ``resend_reason`` is the side-queue
 #: marker (``RESEND_REEXTRACT``); ``resend_attempts`` counts failed
-#: re-extractions. An older RemoteController's ``INSERT OR REPLACE`` resets
+#: re-extractions. An older Knovas Connector's ``INSERT OR REPLACE`` resets
 #: them to NULL / 0: outdated and not queued, the safe direction.
 _EXTRACTION_COLUMNS = (
     ("extraction_stamp", "TEXT"),
@@ -18625,7 +18625,7 @@ The rest of the method (the ALTER, the duplicate-column guard, the commit) stays
 
 ```
 
-3.6 `RemoteController/src/sync/sync_state.py`: replace
+3.6 `KnovasConnector/src/sync/sync_state.py`: replace
 
 ```python
 from sync.sync_state_db import FieldsState, SyncStateDatabase, json_state_path_to_db
@@ -18702,8 +18702,8 @@ Expected: PASS. The neighbouring suite `rc-pytest tests/unit/test_sync_state_db_
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/sync_state_db.py RemoteController/src/sync/sync_state.py \
-  RemoteController/tests/unit/test_sync_state_db_reextract_migration.py
+git add KnovasConnector/src/sync/sync_state_db.py KnovasConnector/src/sync/sync_state.py \
+  KnovasConnector/tests/unit/test_sync_state_db_reextract_migration.py
 git commit -F - <<'EOF'
 rc: state DB columns for re-extraction (L6)
 
@@ -18726,8 +18726,8 @@ EOF
 ### Task REX-3a: Uploader reports stamp and text hash, and skips an unchanged re-extraction
 
 **Files:**
-- Modify: `RemoteController/src/sync/knovas_uploader.py` (imports, `UploadResult`, `SemantixUploader.upload_file`)
-- Test: `RemoteController/tests/unit/test_uploader_reextract.py`
+- Modify: `KnovasConnector/src/sync/knovas_uploader.py` (imports, `UploadResult`, `SemantixUploader.upload_file`)
+- Test: `KnovasConnector/tests/unit/test_uploader_reextract.py`
 
 **Interfaces:**
 - Consumes: REX-1 `current_extraction_stamp()`, `fields_values_digest()`, `upload_text_sha256()`.
@@ -18864,7 +18864,7 @@ Expected: FAIL — `AttributeError: 'UploadResult' object has no attribute 'extr
 
 - [ ] **Step 3: Write minimal implementation**
 
-3.1 `RemoteController/src/sync/knovas_uploader.py`: directly after the `from sync.doc_fields_payload import (... refused_outcome,\n)` block, add:
+3.1 `KnovasConnector/src/sync/knovas_uploader.py`: directly after the `from sync.doc_fields_payload import (... refused_outcome,\n)` block, add:
 
 ```python
 from sync.extraction_stamp import (
@@ -19016,7 +19016,7 @@ Expected: PASS. The neighbouring suites `rc-pytest tests/unit/test_knovas_upload
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/knovas_uploader.py RemoteController/tests/unit/test_uploader_reextract.py
+git add KnovasConnector/src/sync/knovas_uploader.py KnovasConnector/tests/unit/test_uploader_reextract.py
 git commit -F - <<'EOF'
 rc: uploader reports stamp and text hash, skips unchanged re-extractions (L6)
 
@@ -19036,8 +19036,8 @@ EOF
 ### Task REX-3b: Record the stamp and text hash of every upload
 
 **Files:**
-- Modify: `RemoteController/src/sync/sync_executor.py` (import; `record_upload_outcome`: docstring, `ok` branch, unconvertible branch)
-- Test: `RemoteController/tests/unit/test_sync_executor_reextract.py` (new; harness reused by REX-3c)
+- Modify: `KnovasConnector/src/sync/sync_executor.py` (import; `record_upload_outcome`: docstring, `ok` branch, unconvertible branch)
+- Test: `KnovasConnector/tests/unit/test_sync_executor_reextract.py` (new; harness reused by REX-3c)
 
 **Interfaces:**
 - Consumes:
@@ -19049,7 +19049,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Create `RemoteController/tests/unit/test_sync_executor_reextract.py`:
+Create `KnovasConnector/tests/unit/test_sync_executor_reextract.py`:
 
 ```python
 """Re-extraction through the sync cycle (spec L6).
@@ -19262,7 +19262,7 @@ Expected: FAIL — `assert None == '<16 hex>'` in `test_an_upload_stores_the_sta
 
 - [ ] **Step 3: Write minimal implementation**
 
-3.1 `RemoteController/src/sync/sync_executor.py`: directly after the `from sync.document_text import (... is_unconvertible_error,\n)` block, add:
+3.1 `KnovasConnector/src/sync/sync_executor.py`: directly after the `from sync.document_text import (... is_unconvertible_error,\n)` block, add:
 
 ```python
 from sync.extraction_stamp import current_extraction_stamp
@@ -19347,7 +19347,7 @@ Expected: PASS. The neighbouring suites `rc-pytest tests/unit/test_sync_executor
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/sync_executor.py RemoteController/tests/unit/test_sync_executor_reextract.py
+git add KnovasConnector/src/sync/sync_executor.py KnovasConnector/tests/unit/test_sync_executor_reextract.py
 git commit -F - <<'EOF'
 rc: record the extraction stamp and text hash of every upload (L6)
 
@@ -19367,9 +19367,9 @@ EOF
 ### Task REX-3c: Bounded re-extraction side queue (`RC_REEXTRACT_PER_CYCLE`)
 
 **Files:**
-- Modify: `RemoteController/src/config.py` (`AppConfig`, constants, `_reextract_config_problems`, `load_config`, `reextract_per_cycle`)
-- Modify: `RemoteController/src/sync/sync_executor.py` (imports, `REEXTRACT_MAX_ATTEMPTS`, `SyncRunResult`, `_reextract_rank`, `record_upload_outcome`, `_ScanPlan`, `plan_sync_cycle`, `run_sync_work`)
-- Test: `RemoteController/tests/unit/test_sync_executor_reextract.py` (append)
+- Modify: `KnovasConnector/src/config.py` (`AppConfig`, constants, `_reextract_config_problems`, `load_config`, `reextract_per_cycle`)
+- Modify: `KnovasConnector/src/sync/sync_executor.py` (imports, `REEXTRACT_MAX_ATTEMPTS`, `SyncRunResult`, `_reextract_rank`, `record_upload_outcome`, `_ScanPlan`, `plan_sync_cycle`, `run_sync_work`)
+- Test: `KnovasConnector/tests/unit/test_sync_executor_reextract.py` (append)
 
 **Interfaces:**
 - Consumes:
@@ -19384,7 +19384,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Add `import dataclasses` and `import logging` to the imports of `RemoteController/tests/unit/test_sync_executor_reextract.py`, then append:
+Add `import dataclasses` and `import logging` to the imports of `KnovasConnector/tests/unit/test_sync_executor_reextract.py`, then append:
 
 ```python
 def _requeue(rc) -> int:
@@ -19678,7 +19678,7 @@ Expected: FAIL. `TestEveryUploadIsStamped` still passes. The new tests fail with
 
 - [ ] **Step 3: Write minimal implementation**
 
-3.1 `RemoteController/src/config.py`: in `AppConfig`, after `rc_fields_reupload_max_attempts: int = 3`, add:
+3.1 `KnovasConnector/src/config.py`: in `AppConfig`, after `rc_fields_reupload_max_attempts: int = 3`, add:
 
 ```python
     # Re-extraction after an extractor upgrade (spec L6): documents
@@ -19758,7 +19758,7 @@ def reextract_per_cycle() -> int:
     return int(get_config().rc_reextract_per_cycle)
 ```
 
-3.7 `RemoteController/src/sync/sync_executor.py`: add `import heapq` after `import fnmatch`. Add `reextract_per_cycle` to the `from config import ...` line, so that today's line
+3.7 `KnovasConnector/src/sync/sync_executor.py`: add `import heapq` after `import fnmatch`. Add `reextract_per_cycle` to the `from config import ...` line, so that today's line
 
 ```python
 from config import doc_fields_enabled, fields_reupload_max_attempts, fields_reupload_per_cycle
@@ -20140,8 +20140,8 @@ Expected: PASS. The neighbouring suites `rc-pytest tests/unit/test_sync_executor
 
 ```bash
 cd $WT
-git add RemoteController/src/config.py RemoteController/src/sync/sync_executor.py \
-  RemoteController/tests/unit/test_sync_executor_reextract.py
+git add KnovasConnector/src/config.py KnovasConnector/src/sync/sync_executor.py \
+  KnovasConnector/tests/unit/test_sync_executor_reextract.py
 git commit -F - <<'EOF'
 rc: bounded re-extraction side queue, RC_REEXTRACT_PER_CYCLE (L6)
 
@@ -20164,10 +20164,10 @@ EOF
 ### Task REX-4: `POST /sync/reextract/requeue`, extraction counts in `/sync/status`, no idle backoff, docs
 
 **Files:**
-- Modify: `RemoteController/src/sync/sync_scheduler.py` (imports, `reextract_status`, `requeue_reextract`, `_pending_work`)
-- Modify: `RemoteController/src/routes/sync_control.py` (imports, `sync_status`, new route `sync_reextract_requeue`)
-- Modify: `RemoteController/docs/operations.md`, `RemoteController/docs/configuration.md`, `RemoteController/CHANGELOG.md`, `RemoteController/.env.example`, `knovas.env.example`, `docs/specifications.md`
-- Test: `RemoteController/tests/integration/test_sync_reextract_routes.py`
+- Modify: `KnovasConnector/src/sync/sync_scheduler.py` (imports, `reextract_status`, `requeue_reextract`, `_pending_work`)
+- Modify: `KnovasConnector/src/routes/sync_control.py` (imports, `sync_status`, new route `sync_reextract_requeue`)
+- Modify: `KnovasConnector/docs/operations.md`, `KnovasConnector/docs/configuration.md`, `KnovasConnector/CHANGELOG.md`, `KnovasConnector/.env.example`, `knovas.env.example`, `docs/specifications.md`
+- Test: `KnovasConnector/tests/integration/test_sync_reextract_routes.py`
 
 **Interfaces:**
 - Consumes:
@@ -20342,7 +20342,7 @@ Expected: FAIL. `assert 404 == 200`, because the route does not exist yet. `KeyE
 
 - [ ] **Step 3: Write minimal implementation**
 
-3.1 `RemoteController/src/sync/sync_scheduler.py`: add `reextract_per_cycle` to the config import, so that
+3.1 `KnovasConnector/src/sync/sync_scheduler.py`: add `reextract_per_cycle` to the config import, so that
 
 ```python
 from config import doc_fields_enabled, fields_reupload_per_cycle, get_config
@@ -20419,7 +20419,7 @@ def _pending_work(result: SyncRunResult) -> int:
     return ds.pending + ds.modified + ds.fields_changed + result.reextract_reached
 ```
 
-3.4 `RemoteController/src/routes/sync_control.py`: in the `from sync.sync_scheduler import (...)` list, add `reextract_status,` after `load_last_sync_body,` and `requeue_reextract,` after `requeue_doc_fields,`.
+3.4 `KnovasConnector/src/routes/sync_control.py`: in the `from sync.sync_scheduler import (...)` list, add `reextract_status,` after `load_last_sync_body,` and `requeue_reextract,` after `requeue_doc_fields,`.
 
 3.5 In `sync_status`, directly before `    if request.args.get("live") == "1":`, after `status["doc_fields"] = doc_fields_status()` and after any line PIN added for `status["extraction"]`, add:
 
@@ -20455,7 +20455,7 @@ def sync_reextract_requeue():
 
 3.7 Docs.
 
-`RemoteController/docs/operations.md`: insert directly before `## Upgrades`:
+`KnovasConnector/docs/operations.md`: insert directly before `## Upgrades`:
 
 ~~~markdown
 ## Re-extraction after an extractor upgrade
@@ -20492,7 +20492,7 @@ The SQLite `documents` table gains `extraction_stamp`, `text_sha256`, `resend_re
 
 ~~~
 
-`RemoteController/docs/configuration.md`: insert directly before `## Microsoft 365 (OneDrive / SharePoint) as the document source`:
+`KnovasConnector/docs/configuration.md`: insert directly before `## Microsoft 365 (OneDrive / SharePoint) as the document source`:
 
 ~~~markdown
 ### Re-extraction after an extractor upgrade
@@ -20505,7 +20505,7 @@ Read by `config.py`; see [operations.md](operations.md#re-extraction-after-an-ex
 
 ~~~
 
-`RemoteController/CHANGELOG.md`: insert directly after the line `## Unreleased` and its following blank line:
+`KnovasConnector/CHANGELOG.md`: insert directly after the line `## Unreleased` and its following blank line:
 
 ~~~markdown
 ### Re-extraction after an extractor upgrade
@@ -20516,7 +20516,7 @@ Read by `config.py`; see [operations.md](operations.md#re-extraction-after-an-ex
 
 ~~~
 
-`RemoteController/.env.example`: append after `# RC_FIELDS_REUPLOAD_MAX_ATTEMPTS=3`:
+`KnovasConnector/.env.example`: append after `# RC_FIELDS_REUPLOAD_MAX_ATTEMPTS=3`:
 
 ```
 # Documents re-extracted per cycle after the Platform's "Neu extrahieren"
@@ -20542,7 +20542,7 @@ Read by `config.py`; see [operations.md](operations.md#re-extraction-after-an-ex
 **Re-extraction after an extractor upgrade**
 
 - `RC_REEXTRACT_PER_CYCLE` (default `100`, 1–10000) — documents re-extracted per cycle after the Platform's *Neu extrahieren* (`POST /sync/reextract/requeue`); only a document whose upload would change is sent again, each such upload is billed
-- Details: `RemoteController/docs/operations.md` (*Re-extraction after an extractor upgrade*)
+- Details: `KnovasConnector/docs/operations.md` (*Re-extraction after an extractor upgrade*)
 
 ```
 
@@ -20555,10 +20555,10 @@ Expected: PASS. The neighbouring suites `rc-pytest tests/integration tests/unit/
 
 ```bash
 cd $WT
-git add RemoteController/src/sync/sync_scheduler.py RemoteController/src/routes/sync_control.py \
-  RemoteController/tests/integration/test_sync_reextract_routes.py \
-  RemoteController/docs/operations.md RemoteController/docs/configuration.md \
-  RemoteController/CHANGELOG.md RemoteController/.env.example knovas.env.example docs/specifications.md
+git add KnovasConnector/src/sync/sync_scheduler.py KnovasConnector/src/routes/sync_control.py \
+  KnovasConnector/tests/integration/test_sync_reextract_routes.py \
+  KnovasConnector/docs/operations.md KnovasConnector/docs/configuration.md \
+  KnovasConnector/CHANGELOG.md KnovasConnector/.env.example knovas.env.example docs/specifications.md
 git commit -F - <<'EOF'
 rc: POST /sync/reextract/requeue and extraction counts in /sync/status (L6)
 
@@ -20578,26 +20578,26 @@ EOF
 
 ---
 
-### Task REX-5a: `RemoteControllerClient.requeue_reextract`
+### Task REX-5a: `KnovasConnectorClient.requeue_reextract`
 
 **Files:**
-- Modify: `KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py` (new method after `requeue_doc_fields`)
-- Test: `KnovasPlatform/components/docbridge_integration/tests/test_remote_controller_client.py` (append)
+- Modify: `KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py` (new method after `requeue_doc_fields`)
+- Test: `KnovasPlatform/components/docbridge_integration/tests/test_knovas_connector_client.py` (append)
 
 **Interfaces:**
 - Consumes: REX-4 `POST /sync/reextract/requeue`.
-- Produces: `RemoteControllerClient.requeue_reextract(self) -> dict`.
+- Produces: `KnovasConnectorClient.requeue_reextract(self) -> dict`.
   - Returns `{"requeued": int}`; an odd answer gives `{"requeued": 0}`.
-  - Raises `RemoteControllerError` with `status == 404` for an older Connector, and with `status is None` when the Connector is unreachable.
+  - Raises `KnovasConnectorError` with `status == 404` for an older Connector, and with `status is None` when the Connector is unreachable.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/test_remote_controller_client.py`:
+Append to `tests/test_knovas_connector_client.py`:
 
 ```python
 def test_requeue_reextract_posts_an_empty_body_as_the_signed_in_person():
     session = _Session({("POST", "requeue"): _Resp(200, {"requeued": 12})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     assert client.requeue_reextract() == {"requeued": 12}
     method, url, body, headers = session.calls[0]
     assert (method, url, body) == ("POST", f"{BASE}/sync/reextract/requeue", {})
@@ -20607,14 +20607,14 @@ def test_requeue_reextract_posts_an_empty_body_as_the_signed_in_person():
 @pytest.mark.parametrize("answer", [{"requeued": "viele"}, {"requeued": -3}, {}, ["x"], None])
 def test_requeue_reextract_reads_an_odd_answer_as_nothing_queued(answer):
     session = _Session({("POST", "requeue"): _Resp(200, answer)})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
     assert client.requeue_reextract() == {"requeued": 0}
 
 
 def test_requeue_reextract_on_an_old_connector_is_a_404_error():
     session = _Session({("POST", "requeue"): _Resp(404, {"error": "Not Found"})})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.requeue_reextract()
     assert excinfo.value.status == 404
 
@@ -20624,20 +20624,20 @@ def test_requeue_reextract_on_an_unreachable_connector_has_no_status():
         raise requests.exceptions.ConnectionError("refused")
 
     session = _Session({("POST", "requeue"): down})
-    client = RemoteControllerClient(BASE, principal_broker=_Broker(), session=session)
-    with pytest.raises(RemoteControllerError) as excinfo:
+    client = KnovasConnectorClient(BASE, principal_broker=_Broker(), session=session)
+    with pytest.raises(KnovasConnectorError) as excinfo:
         client.requeue_reextract()
     assert excinfo.value.status is None
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pf-pytest tests/test_remote_controller_client.py`
-Expected: FAIL — `AttributeError: 'RemoteControllerClient' object has no attribute 'requeue_reextract'`
+Run: `pf-pytest tests/test_knovas_connector_client.py`
+Expected: FAIL — `AttributeError: 'KnovasConnectorClient' object has no attribute 'requeue_reextract'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/remote_controller_client.py`, directly after the method `requeue_doc_fields` (it ends with `            return 0`), add:
+In `src/knovas_connector_client.py`, directly after the method `requeue_doc_fields` (it ends with `            return 0`), add:
 
 ```python
 
@@ -20647,7 +20647,7 @@ In `src/remote_controller_client.py`, directly after the method `requeue_doc_fie
 
         The Knovas Connector re-extracts them within its per-cycle bound and
         uploads only those whose text changed -- each such upload is billed.
-        An older Connector answers 404: RemoteControllerError with
+        An older Connector answers 404: KnovasConnectorError with
         ``status == 404``.
         """
         payload = self._call("POST", "/sync/reextract/requeue", body={})
@@ -20660,17 +20660,17 @@ In `src/remote_controller_client.py`, directly after the method `requeue_doc_fie
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pf-pytest tests/test_remote_controller_client.py`
-Expected: PASS. The neighbouring test `pf-pytest tests/test_web_admin_ingestion.py::TestRemoteControllerClientDocFields` still passes.
+Run: `pf-pytest tests/test_knovas_connector_client.py`
+Expected: PASS. The neighbouring test `pf-pytest tests/test_web_admin_ingestion.py::TestKnovasConnectorClientDocFields` still passes.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd $WT
-git add KnovasPlatform/components/docbridge_integration/src/remote_controller_client.py \
-  KnovasPlatform/components/docbridge_integration/tests/test_remote_controller_client.py
+git add KnovasPlatform/components/docbridge_integration/src/knovas_connector_client.py \
+  KnovasPlatform/components/docbridge_integration/tests/test_knovas_connector_client.py
 git commit -F - <<'EOF'
-platform: RemoteControllerClient.requeue_reextract (L6)
+platform: KnovasConnectorClient.requeue_reextract (L6)
 
 Wraps the Knovas Connector's POST /sync/reextract/requeue as the
 signed-in person and returns {"requeued": n}. An older Connector's 404
@@ -20690,12 +20690,12 @@ EOF
 - Modify: `KnovasPlatform/components/docbridge_integration/src/web_interface/admin_ingestion.py` (module docstring; re-extraction helpers before `template_preview`; `attach_ingestion_routes` signature; `_reextract_context`; `_page`; route `reextract`)
 - Modify: `KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_ingestion.html`
 - Modify: `KnovasPlatform/docs/features/document-administration.md`, `RELEASE_NOTES.md`
-- Test: `KnovasPlatform/components/docbridge_integration/tests/test_web_admin_ingestion.py` (`FakeRemoteControllerClient`, `TestShape`, new `TestReextractSection`, `TestTemplateReextract`, `TestLiveReextract`)
+- Test: `KnovasPlatform/components/docbridge_integration/tests/test_web_admin_ingestion.py` (`FakeKnovasConnectorClient`, `TestShape`, new `TestReextractSection`, `TestTemplateReextract`, `TestLiveReextract`)
 - No change to `static/js/admin_ingestion.js`: the confirmation is server-rendered, like the field-change and restore confirmations.
 
 **Interfaces:**
 - Consumes:
-  - REX-5a: `RemoteControllerClient.requeue_reextract() -> dict`.
+  - REX-5a: `KnovasConnectorClient.requeue_reextract() -> dict`.
   - REX-4: `/sync/status["extraction"]` with `outdated`, `queued`, `per_cycle`.
   - Existing: `reupload_bound`, `reupload_eta`, `_schedule_label`, `_count`.
 - Produces:
@@ -20708,7 +20708,7 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-1.1 In `FakeRemoteControllerClient`, replace
+1.1 In `FakeKnovasConnectorClient`, replace
 
 ```python
     requeue_answer = 0
@@ -20867,14 +20867,14 @@ class TestLiveReextract:
 
     @pytest.fixture
     def rc(self, monkeypatch):
-        import remote_controller_client
+        import knovas_connector_client
 
-        FakeRemoteControllerClient.last_instance = None
-        monkeypatch.setattr(remote_controller_client, "RemoteControllerClient",
-                            FakeRemoteControllerClient)
-        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block", dict(self.BLOCK))
-        monkeypatch.setattr(FakeRemoteControllerClient, "reextract_answer", {"requeued": 20000})
-        return FakeRemoteControllerClient
+        FakeKnovasConnectorClient.last_instance = None
+        monkeypatch.setattr(knovas_connector_client, "KnovasConnectorClient",
+                            FakeKnovasConnectorClient)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "extraction_block", dict(self.BLOCK))
+        monkeypatch.setattr(FakeKnovasConnectorClient, "reextract_answer", {"requeued": 20000})
+        return FakeKnovasConnectorClient
 
     @pytest.fixture
     def client(self, rc, identity_app):
@@ -20979,7 +20979,7 @@ class TestLiveReextract:
     def test_nothing_outdated_queues_nothing(self, client, people, rc, monkeypatch):
         from _console import sign_in
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block",
+        monkeypatch.setattr(FakeKnovasConnectorClient, "extraction_block",
                             dict(self.BLOCK, outdated=0))
         sign_in(client, "chef@kanzlei.ch")
         r = self._post(client, confirm_reextract="0")
@@ -20989,10 +20989,10 @@ class TestLiveReextract:
 
     def test_an_old_connector_is_told_to_update(self, client, people, rc, monkeypatch):
         from _console import sign_in
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "reextract_error",
-                            RemoteControllerError("HTTP 404", status=404))
+        monkeypatch.setattr(FakeKnovasConnectorClient, "reextract_error",
+                            KnovasConnectorError("HTTP 404", status=404))
         sign_in(client, "chef@kanzlei.ch")
         r = self._post(client, confirm_reextract="20000")
         assert r.status_code == 502
@@ -21003,7 +21003,7 @@ class TestLiveReextract:
     ):
         from _console import sign_in
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "extraction_block", None)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "extraction_block", None)
         sign_in(client, "chef@kanzlei.ch")
         assert "älterer Extraktion" not in client.get("/admin/ingestion").data.decode("utf-8")
         r = self._post(client, confirm_reextract="20000")
@@ -21013,12 +21013,12 @@ class TestLiveReextract:
 
     def test_an_unreachable_connector_is_not_called_too_old(self, client, people, rc, monkeypatch):
         from _console import sign_in
-        from remote_controller_client import RemoteControllerError
+        from knovas_connector_client import KnovasConnectorError
 
         def down(self):
-            raise RemoteControllerError("Knovas Connector nicht erreichbar: timeout", status=None)
+            raise KnovasConnectorError("Knovas Connector nicht erreichbar: timeout", status=None)
 
-        monkeypatch.setattr(FakeRemoteControllerClient, "status", down)
+        monkeypatch.setattr(FakeKnovasConnectorClient, "status", down)
         sign_in(client, "chef@kanzlei.ch")
         r = self._post(client, confirm_reextract="20000")
         html = r.data.decode("utf-8")
@@ -21243,7 +21243,7 @@ with
         rc = rc_client_factory()
         try:
             block = extraction_block(rc.status())
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=_reextract_error(exc), status=502)
         if block is None:
             return _page(error=REEXTRACT_TOO_OLD, status=400)
@@ -21257,11 +21257,11 @@ with
             return _page(error=REEXTRACT_CHANGED, status=400, reextract_confirm=True)
         try:
             answer = rc.requeue_reextract()
-        except (RemoteControllerError, PermissionError) as exc:
+        except (KnovasConnectorError, PermissionError) as exc:
             return _page(error=_reextract_error(exc), status=502)
         count = _count((answer or {}).get("requeued"))
         audit.record(gate.connection(), action=REEXTRACT_AUDIT_ACTION, actor=gate.current_user(),
-                     target_type="remote_controller", target_id="sync",
+                     target_type="knovas_connector", target_id="sync",
                      detail={"outdated": outdated, "requeued": count})
         if not count:
             return _page(notice="Keine Dokumente zum Neu-Extrahieren vorgemerkt.")
@@ -21383,7 +21383,7 @@ indexierte Dokumente profitieren davon erst, wenn sie neu extrahiert werden.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pf-pytest tests/test_web_admin_ingestion.py`
-Expected: PASS. Also pass: `pf-pytest tests/test_remote_controller_client.py tests/test_web_admin_doc_fields.py tests/test_identity_ingestion_profiles.py`, and the full Platform suite `pf-pytest tests`, apart from the known Windows-only failures.
+Expected: PASS. Also pass: `pf-pytest tests/test_knovas_connector_client.py tests/test_web_admin_doc_fields.py tests/test_identity_ingestion_profiles.py`, and the full Platform suite `pf-pytest tests`, apart from the known Windows-only failures.
 
 - [ ] **Step 5: Commit**
 
@@ -21520,7 +21520,7 @@ WTW='E:\Knovas\KnovasComponents\.claude\worktrees\fields-extract-upgrade'
 LIBW='C:\Users\siran\AppData\Local\Temp\claude\E--Knovas-KnovasComponents\c6f4754c-3eb8-4feb-9b99-b78ab17ffd1c\scratchpad\lib-fix'
 MSYS_NO_PATHCONV=1 docker run --rm -v "${WTW}:/repo:ro" -v "${LIBW}:/lib:ro" python:3.12-slim bash -c '
 apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git libmagic1 tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng >/dev/null 2>&1
-cp -r /repo/RemoteController /rc && cp -r /lib /libw && cd /rc
+cp -r /repo/KnovasConnector /rc && cp -r /lib /libw && cd /rc
 pip install -q --root-user-action=ignore "/libw[pdf,ocr,docx,msg,html,rtf,sentences]" && pip install -q --root-user-action=ignore -e ".[dev]"
 RC_SKIP_CONFIG_VALIDATION=true TESTING=true RC_RATE_LIMIT_ENABLED=true RC_MTLS_DEV_BYPASS=true RC_MTLS_DEV_EMPLOYEE_ID=11111111-1111-1111-1111-111111111111 KNOVAS_INTERNAL_API_URL=http://internal-api:5000 RC_INSTANCE_TOKEN=test-token RC_CLIENT_ID=22222222-2222-2222-2222-222222222222 RC_WATCH_ROOTS=/tmp SEMANTIX_SECURE_BASE_URL=https://knovas:8443 SEMANTIX_CLIENT_CERT_PATH=/certs/client.pem SEMANTIX_CLIENT_KEY_PATH=/certs/client.key SEMANTIX_CA_CERT_PATH=/certs/ca.pem python -m pytest -q -p no:cacheprovider | tail -3'
 ```
@@ -21546,17 +21546,17 @@ Expected: Platform, mock and SDK suites pass.
 ### Task VER-3: Both images
 
 - [ ] **Step 1: Build** — `cd "$WT" && ./scripts/setup.sh` is not needed; build directly:
-`docker compose --env-file knovas.env.example build remote-controller docbridge-web` (if the env file is required to be complete, copy `knovas.env.example` to a scratch env file and fill the five required values with dummies; never commit it).
+`docker compose --env-file knovas.env.example build knovas-connector docbridge-web` (if the env file is required to be complete, copy `knovas.env.example` to a scratch env file and fill the five required values with dummies; never commit it).
 
 - [ ] **Step 2: Checks inside the images**
 
 ```bash
-for img in $(docker compose --env-file knovas.env.example config --images | grep -E "remote-controller|docbridge"); do
+for img in $(docker compose --env-file knovas.env.example config --images | grep -E "knovas-connector|docbridge"); do
   echo "== $img"
   docker run --rm --entrypoint sh "$img" -c 'pip show pymupdf-layout >/dev/null 2>&1 && echo "LICENCE FAIL" || echo "licence ok"; python -c "import knovas_extract as k; print(k.__version__)"'
 done
-docker run --rm --entrypoint python "$(docker compose --env-file knovas.env.example config --images | grep remote-controller)" -c "from knovas_extract._ocr.backend import select_backend; print(select_backend('auto', language='deu+eng').name)"
-docker inspect --format '{{json .Config.Cmd}}' "$(docker compose --env-file knovas.env.example config --images | grep remote-controller)"
+docker run --rm --entrypoint python "$(docker compose --env-file knovas.env.example config --images | grep knovas-connector)" -c "from knovas_extract._ocr.backend import select_backend; print(select_backend('auto', language='deu+eng').name)"
+docker inspect --format '{{json .Config.Cmd}}' "$(docker compose --env-file knovas.env.example config --images | grep knovas-connector)"
 ```
 Expected: `licence ok` twice; `0.4.0a1` twice; `tesserocr`; the Connector CMD contains `-k gthread --threads 4`.
 
@@ -21573,7 +21573,7 @@ Expected: `licence ok` twice; `0.4.0a1` twice; `tesserocr`; the Connector CMD co
 - [ ] **Step 2: Run the stack with the mock** — `MOCK_DOC_FIELDS=filters MOCK_RECORD_PARTS=1`, the Connector
 watching `$SP/e2e/docs` with a source profile: fixed `doc_type` none, path template `{mandant}/{period}/**`,
 opt-ins `email_date`, `email_doc_type`, `document_author`, `language`, `keywords`, `document_status`.
-Use the repository's documented local setup (`RemoteController/docs/local-setup.md`, compose profile `mock`)
+Use the repository's documented local setup (`KnovasConnector/docs/local-setup.md`, compose profile `mock`)
 and trigger one cycle with `POST /sync` (it must now return without killing the worker).
 
 - [ ] **Step 3: Assertions** (a script `$SP/e2e/check.py` reading `GET /_mock/parts` and the Connector's
@@ -21599,7 +21599,7 @@ lists the parts (INT, EXT, PIN, FLD, RCF, REX, VER), the library release, and th
 (administrators decide; uploads are billed), ending with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
 **Never touch the user's running stack.** The machine runs the user's own compose project
-`knovascomponents` (docbridge-web on 127.0.0.1:8081, remote-controller on 127.0.0.1:5001, platform-db,
+`knovascomponents` (docbridge-web on 127.0.0.1:8081, knovas-connector on 127.0.0.1:5001, platform-db,
 knovas-mock, experiments-runner). Every compose command in VER-3/VER-4 uses its own project name and
 ports: `docker compose -p kc-verify …` with `DOCBRIDGE_WEB_BIND`/ports moved (e.g. 18081, 15001), and
 `docker compose -p kc-verify down -v` at the end. Never run `docker compose` without `-p kc-verify`,
@@ -21626,12 +21626,12 @@ Part B1 (Integration) is below, ready to paste. I checked it by replaying INT-2 
   - INT-3c also adds a RELEASE_NOTES section, because existing host-nginx installations must renew their site config.
   - INT-3d also gives the image's CMD `--access-logfile=-`, as compose has.
 - **INT-5 renames more than the listed lines:**
-  - Four console messages that 08228ba missed: `remote_controller_client.py:138/151/231` and `ingestion_compiler.py:381`.
+  - Four console messages that 08228ba missed: `knovas_connector_client.py:138/151/231` and `ingestion_compiler.py:381`.
   - The metric help text at `doc_fields_metrics.py:96` (it is in the spec).
   - Four lines that PR #22 renames outside 08228ba: RELEASE_NOTES 100/108/129 and `KnovasPlatform/docs/README.md:26`. They get PR #22's exact text, so the later merge sees identical changes.
   - The RELEASE_NOTES entry uses a619d10's wording, which I found in `wt-main-pr22`.
-- **INT-5 leaves the engineering pack's option value `RemoteController` alone** on purpose: it is stored data, and renaming it needs a migration.
-- **INT-6 rewrites a few more texts with the same "only once Knovas has enabled it" wording:** `docs/KnovasAPI/README.md`, `docs/KnovasAPI/Secure_API.md`, `RemoteController/.env.example`, the `aus` table cell in `document-fields.md`, and the doctor.sh "off" line (with a mock test).
+- **INT-5 leaves the engineering pack's option value `Knovas Connector` alone** on purpose: it is stored data, and renaming it needs a migration.
+- **INT-6 rewrites a few more texts with the same "only once Knovas has enabled it" wording:** `docs/KnovasAPI/README.md`, `docs/KnovasAPI/Secure_API.md`, `KnovasConnector/.env.example`, the `aus` table cell in `document-fields.md`, and the doctor.sh "off" line (with a mock test).
 
 **Open question for the user (S1).** Spec §12 says the server today keeps BROKERED Connector entity values as unlinked names. The fields docs say Knovas refuses such uploads with `401 assertion_rejected` before S1. INT-6 leaves the S1 sentences unchanged; someone should decide which is true for 1.5.0.
 

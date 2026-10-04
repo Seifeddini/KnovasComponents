@@ -1,8 +1,8 @@
 """``python -m m365.check`` -- does the configured OneDrive/SharePoint folder work?
 
-Run inside the RemoteController container (``./scripts/doctor.sh`` does)::
+Run inside the Knovas Connector container (``./scripts/doctor.sh`` does)::
 
-    docker compose --env-file knovas.env exec remote-controller python -m m365.check
+    docker compose --env-file knovas.env exec knovas-connector python -m m365.check
 
 It signs in as the app, resolves the address to a library and folder, reads
 the folder's change feed and counts what would be indexed. Every failure is

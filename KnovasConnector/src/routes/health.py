@@ -72,6 +72,6 @@ def health():
     healthy = config_ok and all_roots_ok and scheduler_ok and m365_ok
     return jsonify({
         "status": "ok" if healthy else "degraded",
-        "service": "remote-controller",
+        "service": "knovas-connector",
         "checks": checks,
     }), (200 if healthy else 503)

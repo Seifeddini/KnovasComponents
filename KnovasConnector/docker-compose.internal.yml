@@ -3,7 +3,7 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
 
 services:
-  remote-controller:
+  knovas-connector:
     ports:
       - "127.0.0.1:5001:5001"
     environment:

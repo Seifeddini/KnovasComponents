@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-fetch_demo_corpus.py — assemble the lawyer demo corpus and stage it for the Remote Controller.
+fetch_demo_corpus.py — assemble the lawyer demo corpus and stage it for the Knovas Connector.
 
 Builds ~8,300 licence-clean legal documents (Swiss case law, Swiss federal
 legislation, leading decisions with official headnotes, English commercial
-contracts) as individual files on disk, so the Remote Controller can discover
+contracts) as individual files on disk, so the Knovas Connector can discover
 and sync them like any customer document tree.
 
 Every slice is CC0, CC BY 4.0, or Swiss federal open data. Nothing here is
@@ -13,16 +13,16 @@ scraped, licence-encumbered, or personal correspondence.
 Subcommands
 -----------
 build     produce the corpus locally (streams parquet over HTTP range requests)
-upload    rsync the corpus to the Remote Controller host (dry-run by default)
+upload    rsync the corpus to the Knovas Connector host (dry-run by default)
 verify    re-hash the corpus against manifest.jsonl
 list      show configured slices and their targets
 
 Examples
 --------
-    python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/
-    python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/ --only caselaw,slds
-    python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py verify --out corpus/
-    python RemoteController/scripts/demo_corpus/fetch_demo_corpus.py upload --out corpus/ \\
+    python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/
+    python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/ --only caselaw,slds
+    python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py verify --out corpus/
+    python KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py upload --out corpus/ \\
         --host rc-demo.example.ch --remote-path /home/master/KnovasInternal/corpus --execute
 """
 from __future__ import annotations

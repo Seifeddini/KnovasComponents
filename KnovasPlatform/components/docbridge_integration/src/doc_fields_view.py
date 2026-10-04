@@ -440,7 +440,7 @@ def title_from_values(pointer: Any, fields_title: Any) -> Optional[str]:
     Real means: a string of at most 100 characters that is neither the
     pointer's file name nor its stem (case-insensitive). Knovas falls back
     to the path basename when no title was stored (return_fields.py:102-106)
-    and the RemoteController sends ``file_path.name`` when nothing was
+    and the Knovas Connector sends ``file_path.name`` when nothing was
     extracted, so a basename here says nothing a file name does not.
     """
     if not isinstance(fields_title, str):
@@ -783,8 +783,8 @@ REQUEUE_AUDIT_ACTION = "ingestion.doc_fields_requeued"
 
 def requeue_audit(outcome: str, count: int) -> Dict[str, Any]:
     """``audit.record`` keywords of a requeue: the outcome and the count the
-    RemoteController reported, never a path."""
-    return {"action": REQUEUE_AUDIT_ACTION, "target_type": "remote_controller",
+    Knovas Connector reported, never a path."""
+    return {"action": REQUEUE_AUDIT_ACTION, "target_type": "knovas_connector",
             "target_id": "sync", "detail": {"outcome": str(outcome), "requeued": int(count)}}
 
 

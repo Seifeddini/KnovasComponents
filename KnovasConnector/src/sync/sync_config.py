@@ -1,4 +1,4 @@
-"""Load, validate, and persist remote_controller_sync.json."""
+"""Load, validate, and persist knovas_connector_sync.json."""
 from __future__ import annotations
 
 import hashlib
@@ -15,7 +15,7 @@ from util.schema import validate
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_FILE = "remote_controller_sync_config.schema.json"
+SCHEMA_FILE = "knovas_connector_sync_config.schema.json"
 
 #: Serialises writes of the sync config file (spec E6). gunicorn's gthread
 #: worker runs requests concurrently: a GET /sync/config that seeds a missing
@@ -78,9 +78,35 @@ def validate_sync_config(doc: dict[str, Any]) -> list[str]:
     return errors
 
 
+CONFIG_FILE_NAME = "knovas_connector_sync.json"
+# The file's name before the rename to Knovas Connector: an installation's
+# rc-config volume still holds its schedule under it.
+_LEGACY_CONFIG_FILE_NAME = "remote_controller_sync.json"
+
+
+def _adopt_legacy_config(p: Path) -> None:
+    """Rename the old-named config beside ``p`` to ``p``, once.
+
+    Only for the default file name, and only when the new file is missing:
+    a schedule an administrator set (window, limits) must survive the
+    rename instead of being replaced by one seeded from the environment.
+    """
+    if p.name != CONFIG_FILE_NAME or p.exists():
+        return
+    legacy = p.with_name(_LEGACY_CONFIG_FILE_NAME)
+    if not legacy.is_file():
+        return
+    with _CONFIG_FILE_LOCK:
+        if p.exists() or not legacy.is_file():
+            return
+        os.replace(legacy, p)
+    logger.info("Sync config renamed: %s -> %s", legacy.name, p.name)
+
+
 def load_sync_config(path: Optional[str] = None) -> dict[str, Any]:
     cfg = get_config()
     p = Path(path or cfg.rc_sync_config_path)
+    _adopt_legacy_config(p)
     if not p.exists():
         with _CONFIG_FILE_LOCK:
             if not p.exists():
@@ -100,6 +126,7 @@ def save_sync_config(doc: dict[str, Any], path: Optional[str] = None) -> None:
         raise ValueError(f"Invalid sync config: {'; '.join(errors)}")
     p = Path(path or get_config().rc_sync_config_path)
     p.parent.mkdir(parents=True, exist_ok=True)
+    _adopt_legacy_config(p)
     with _CONFIG_FILE_LOCK:
         fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
         try:

@@ -70,7 +70,7 @@ from identity.rc_pointers import (
     prefix_for_folder,
 )
 from knovas_client import DocFieldsError, DocFieldsUnavailable
-from remote_controller_client import requeue_supported
+from knovas_connector_client import requeue_supported
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +322,7 @@ def _text(form: Mapping[str, Any], name: str) -> str:
 def _folder_text(form: Mapping[str, Any]) -> str:
     """The picked folder exactly as the tree sent it. Never stripped: a
     folder name may end in a space (Linux, Samba, NAS shares), and
-    RemoteController keeps it in every pointer; a stripped path would make
+    Knovas Connector keeps it in every pointer; a stripped path would make
     the rule miss that folder and hit a sibling without the space. Only an
     all-blank value counts as no folder."""
     raw = str(form.get("folder_path", "") or "")
@@ -1404,7 +1404,7 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
             return None
 
     def _requeue_support() -> Optional[bool]:
-        """Whether the RemoteController advertises ``fields_requeue_v1``:
+        """Whether the Knovas Connector advertises ``fields_requeue_v1``:
         False for an older one or none, None when it cannot be asked."""
         try:
             return requeue_supported(_rc())
@@ -1860,8 +1860,8 @@ def attach_doc_field_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
     @bp.route("/doc-fields/requeue", methods=["POST"])
     @require_admin
     def doc_fields_requeue():
-        """Ask the RemoteController to send uploads Knovas refused again,
-        after the registry changed. Only a RemoteController that advertises
+        """Ask the Knovas Connector to send uploads Knovas refused again,
+        after the registry changed. Only a Knovas Connector that advertises
         ``fields_requeue_v1`` is asked; one that cannot be asked now is
         "nicht erreichbar", never "too old". Audited exactly like the
         Ingestion tab's buttons (one billed operation, one shape)."""

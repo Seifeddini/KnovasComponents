@@ -48,7 +48,7 @@ _last_fields_answer: Optional[str] = None
 _requeue_reachable: Optional[frozenset] = None
 _doc_fields_lock = threading.Lock()
 
-#: What this RemoteController understands in a sync body, read by the
+#: What this Knovas Connector understands in a sync body, read by the
 #: Platform from GET /sync/status before it saves or pushes a profile that
 #: uses them (an older RC answers 400 to the new keys). Advertised while
 #: RC_DOC_FIELDS is off too: the keys are understood, and ``doc_fields.enabled``

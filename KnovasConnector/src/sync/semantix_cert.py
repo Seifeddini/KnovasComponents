@@ -1,4 +1,4 @@
-"""mTLS certificate freshness checks and CSR-based auto-renewal for RemoteController."""
+"""mTLS certificate freshness checks and CSR-based auto-renewal for Knovas Connector."""
 from __future__ import annotations
 
 import logging

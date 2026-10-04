@@ -11,7 +11,7 @@ from the repo root, driven by one `knovas.env`. Run every command below from
 
 This folder is a **search web app** for your Knovas tenant (Docker). It does **not** index documents.
 
-Ingest and sync documents first with [Knovas Connector](../../RemoteController/), then complete this guide.
+Ingest and sync documents first with [Knovas Connector](../../KnovasConnector/), then complete this guide.
 
 ## 2. Before you start
 

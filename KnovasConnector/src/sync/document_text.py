@@ -1,4 +1,4 @@
-"""Adapter over `knovas-extract` for the RemoteController sync pipeline.
+"""Adapter over `knovas-extract` for the Knovas Connector sync pipeline.
 
 Wraps `knovas_extract.extract(...)` and returns text + per-sentence
 citations (with page back-pointers on PDFs). The uploader threads the

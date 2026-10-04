@@ -19,7 +19,7 @@ Before this setup, the following existed:
 | Corpus | `/home/master/KnovasInternal/corpus` | 8 subfolders: `court_decisions_ch`, `court_decisions_de`, `emails_synthetisch`, `eu_recht`, `gesetze_ch`, `gesetze_de`, `synthetisch`, `wikipedia_de` |
 | Tenant mTLS certs | `/home/master/KnovasInternal/certs/` | `client-cert.pem`, `client-key.pem`, `ca-root.pem` (optional `client-key.password.txt`) |
 | KnovasPlatform | `/home/master/KnovasInternal/KnovasPlatform` | Search UI running on `:8081` |
-| Knovas Connector | `/home/master/KnovasInternal/RemoteController` | Present but **not running**; `.env` had placeholder values |
+| Knovas Connector | `/home/master/KnovasInternal/KnovasConnector` | Present but **not running**; `.env` had placeholder values |
 
 **Organisation / tenant UUID** (set `RC_CLIENT_ID` in `.env`; optional `certs/organisation_id.txt`):
 
@@ -89,10 +89,10 @@ cd /home/master/KnovasInternal
 sudo apt install python3.12-venv python3-full   # once
 python3 -m venv .venv-demo-corpus
 source .venv-demo-corpus/bin/activate
-pip install -r RemoteController/scripts/demo_corpus/requirements.txt
+pip install -r KnovasConnector/scripts/demo_corpus/requirements.txt
 
-python3 RemoteController/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/
-python3 RemoteController/scripts/demo_corpus/fetch_demo_corpus.py verify --out corpus/
+python3 KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py build --out corpus/
+python3 KnovasConnector/scripts/demo_corpus/fetch_demo_corpus.py verify --out corpus/
 ```
 
 Expect ~7 GB download, 30–60 minutes. `corpus/manifest.jsonl` confirms a successful
@@ -129,7 +129,7 @@ head -3 corpus/wikipedia_de/Pleite.txt
 ## Step 3 — Inspect existing Knovas Connector state
 
 ```bash
-cd /home/master/KnovasInternal/RemoteController
+cd /home/master/KnovasInternal/KnovasConnector
 ls -la
 cat .env
 docker compose ps
@@ -143,7 +143,7 @@ docker compose ps
 | `RC_CLIENT_ID` | `00000000-0000-0000-0000-000000000001` | Placeholder, not your tenant UUID |
 | `RC_INSTANCE_TOKEN` | `change-me-from-knovas-admin` | Placeholder — **still required from Knovas admin** |
 | `SEMANTIX_*_PATH` | `../semantix-certs/...` | Relative paths — invalid inside container |
-| Certs mount | `RemoteController/certs/` empty | Tenant certs were only in monorepo root |
+| Certs mount | `KnovasConnector/certs/` empty | Tenant certs were only in monorepo root |
 
 ---
 
@@ -152,7 +152,7 @@ docker compose ps
 Docker Compose mounts **`../certs`** (monorepo root) → **`/certs`** in the container. Paths in `.env` must use **container paths** (`/certs/client-cert.pem`, etc.).
 
 ```bash
-cd /home/master/KnovasInternal/RemoteController
+cd /home/master/KnovasInternal/KnovasConnector
 ./scripts/install_tenant_certs.sh   # asks for sudo only if ownership needs changing
 ```
 
@@ -161,7 +161,7 @@ If Knovas shipped `client-key.password.txt`, the key is encrypted with that pass
 Verify mTLS from the container:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.internal.yml exec remote-controller \
+docker compose -f docker-compose.yml -f docker-compose.internal.yml exec knovas-connector \
   python3 -c "import requests; from config import get_config; c=get_config(); r=requests.get(c.semantix_secure_base_url+'/secured/health', cert=(c.semantix_client_cert_path,c.semantix_client_key_path), verify=c.semantix_ca_cert_path, timeout=30); print(r.status_code, r.text[:200])"
 ```
 
@@ -171,7 +171,7 @@ Expected: JSON with `"healthy": true`.
 
 ## Step 5 — Configure `.env` for Docker
 
-Edit `/home/master/KnovasInternal/RemoteController/.env`:
+Edit `/home/master/KnovasInternal/KnovasConnector/.env`:
 
 ```env
 # Required
@@ -196,7 +196,7 @@ RC_SYNC_DEFAULT_MAX_INGESTION_REQUESTS_PER_MINUTE=4
 RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json
 ```
 
-State is stored as SQLite (`.rc-sync-state.db` next to that path). For **much larger** corpora than this ~91 MB example, add to `config/remote_controller_sync.json`:
+State is stored as SQLite (`.rc-sync-state.db` next to that path). For **much larger** corpora than this ~91 MB example, add to `config/knovas_connector_sync.json`:
 
 - `max_files_per_cycle` (e.g. `1000`) — bound uploads per scheduler tick
 - `scan_interval_idle_max_seconds` (e.g. `3600`) — back off rescans when fully synced
@@ -212,7 +212,7 @@ A relative symlink under `./data/corpus` does **not** work reliably in Docker. U
 Start with internal + corpus compose (RC only, no public `:443` edge):
 
 ```bash
-cd /home/master/KnovasInternal/RemoteController
+cd /home/master/KnovasInternal/KnovasConnector
 docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build
 ```
 
@@ -243,13 +243,13 @@ docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-co
 
 The `rc-config` and `rc-state` volumes are created as `root`. The container runs as `rcuser` (uid 10001) and must write:
 
-- `config/remote_controller_sync.json` (auto-created on first boot)
+- `config/knovas_connector_sync.json` (auto-created on first boot)
 - `/var/rc-state/.rc-sync-state.json` (sync progress)
 
 ```bash
-docker exec -u root remotecontroller-remote-controller-1 \
+docker exec -u root knovasconnector-knovas-connector-1 \
   chown -R rcuser:rcuser /app/config /var/rc-state
-docker restart remotecontroller-remote-controller-1
+docker restart knovasconnector-knovas-connector-1
 ```
 
 ---
@@ -265,7 +265,7 @@ curl -sS http://127.0.0.1:5001/health | python3 -m json.tool
 ```json
 {
   "status": "ok",
-  "service": "remote-controller",
+  "service": "knovas-connector",
   "checks": {
     "config": "ok",
     "watch_roots": "ok",
@@ -281,15 +281,15 @@ curl -sS http://127.0.0.1:5001/health | python3 -m json.tool
 Confirm corpus visible inside container:
 
 ```bash
-docker exec remotecontroller-remote-controller-1 \
+docker exec knovasconnector-knovas-connector-1 \
   ls /data/corpus/wikipedia_de | head
 ```
 
 Confirm scheduler config was created:
 
 ```bash
-docker exec remotecontroller-remote-controller-1 \
-  cat config/remote_controller_sync.json
+docker exec knovasconnector-knovas-connector-1 \
+  cat config/knovas_connector_sync.json
 ```
 
 ---
@@ -328,7 +328,7 @@ You still need:
 On the server:
 
 ```bash
-cd /home/master/KnovasInternal/RemoteController
+cd /home/master/KnovasInternal/KnovasConnector
 
 # After setting RC_INSTANCE_TOKEN and RC_MTLS_DEV_EMPLOYEE_ID in .env:
 docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d
@@ -394,7 +394,7 @@ mTLS cert prep, `.env`, Docker build/start, health check. It does **not** downlo
 files. Run `fetch_demo_corpus.py build` first if `corpus/` is empty or outdated.
 
 ```bash
-cd /home/master/KnovasInternal/RemoteController
+cd /home/master/KnovasInternal/KnovasConnector
 ./scripts/setup_server_corpus.sh
 ```
 
@@ -408,7 +408,7 @@ If the server's git checkout of Knovas Connector is older than your dev tree, up
 |--------|---------|
 | Start RC | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d` |
 | Stop RC | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml down` |
-| Logs | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml logs -f remote-controller` |
+| Logs | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml logs -f knovas-connector` |
 | Health | `curl -sS http://127.0.0.1:5001/health` |
 | Metrics | `curl -sS http://127.0.0.1:5001/metrics` |
 | Rebuild | `docker compose -f docker-compose.yml -f docker-compose.internal.yml -f docker-compose.corpus.yml up -d --build` |
@@ -425,7 +425,7 @@ If the server's git checkout of Knovas Connector is older than your dev tree, up
 | `scheduler: error` | `rcuser` cannot write `config/` volume | `docker exec -u root ... chown rcuser:rcuser /app/config /var/rc-state` |
 | `POST /sync` 500, `Permission denied: '/app/tmp…'` | Last sync body written under read-only `/app` | Use current RC (`save` → `/var/rc-state/`); set `RC_SYNC_STATE_PATH=/var/rc-state/.rc-sync-state.json`; rebuild; `chown rcuser:rcuser /var/rc-state` |
 | Sync worker crash, `Permission denied: '/certs/...key'` | Key not readable by uid **10001** | `./scripts/install_tenant_certs.sh` on `~/KnovasInternal/certs` |
-| `401 Client certificate not authorized` | RC still using old copied certs under `RemoteController/certs/` | Mount `../certs`; update `.env` to `/certs/client-cert.pem` etc. |
+| `401 Client certificate not authorized` | RC still using old copied certs under `KnovasConnector/certs/` | Mount `../certs`; update `.env` to `/certs/client-cert.pem` etc. |
 | Sync returns 401/403 | Missing JWT, instance token, or dev employee ID | Set `RC_INSTANCE_TOKEN`, `RC_MTLS_DEV_EMPLOYEE_ID`, use valid JWT |
 
 ---
@@ -435,7 +435,7 @@ If the server's git checkout of Knovas Connector is older than your dev tree, up
 The NGINX edge on `:443` with employee mTLS is **not** set up on this server. Port 443 is free. For production employee access:
 
 1. Obtain employee RC CA + public TLS certs from Knovas
-2. Place under `RemoteController/certs/edge/`
+2. Place under `KnovasConnector/certs/edge/`
 3. Customize `docs/nginx-edge.example.conf`
 4. Start full stack: `docker compose up -d` (without `docker-compose.internal.yml`)
 5. Register public RC URL with Knovas admin
@@ -448,7 +448,7 @@ See [SETUP.md](../SETUP.md) steps 6–8.
 
 | Check | Status |
 |-------|--------|
-| Container running | Yes — `remotecontroller-remote-controller-1` |
+| Container running | Yes — `knovasconnector-knovas-connector-1` |
 | Health | **ok** — `http://127.0.0.1:5001/health` |
 | Corpus mounted | Yes — `/data/corpus` readable, 3,515 files |
 | Tenant mTLS | Yes — certs in `/certs`, API health verified |

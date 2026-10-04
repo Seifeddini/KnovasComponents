@@ -23,4 +23,4 @@
 | Common errors | [integration/troubleshooting.md](integration/troubleshooting.md) |
 | Knovas API (mTLS, ingestion) | [docs/KnovasAPI](../../docs/KnovasAPI/README.md) |
 | mTLS certificates (filenames, permissions) | [docs/certificates.md](../../docs/certificates.md) |
-| Index documents before search | [Knovas Connector](../../RemoteController/README.md) |
+| Index documents before search | [Knovas Connector](../../KnovasConnector/README.md) |

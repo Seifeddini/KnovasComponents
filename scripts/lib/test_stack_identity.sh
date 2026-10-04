@@ -13,7 +13,7 @@ if grep -E '^[[:space:]]*container_name:' docker-compose.yml >/dev/null; then
   fail "docker-compose.yml pins container_name — a second checkout cannot start"
 fi
 grep -qE 'RC_HOST_PORT' docker-compose.yml \
-  || fail "remote-controller host port is hardcoded; a second stack will lose :5001"
+  || fail "knovas-connector host port is hardcoded; a second stack will lose :5001"
 
 # --- Helper ----------------------------------------------------------------
 # shellcheck source=stack_identity.sh
@@ -58,7 +58,7 @@ last_value() { grep -E "^$1=" "$2" | tail -1 | cut -d= -f2-; }
 [[ "$(last_value DOCBRIDGE_WEB_PORT "$ENV_FILE")" == "8082" ]] \
   || fail "prepare_stack should persist a free web port"
 [[ "$(last_value RC_HOST_PORT "$ENV_FILE")" == "5002" ]] \
-  || fail "prepare_stack should persist a free RemoteController port"
+  || fail "prepare_stack should persist a free Knovas Connector port"
 [[ "$(last_value KNOVAS_PLATFORM_URL "$ENV_FILE")" == "http://127.0.0.1:8082" ]] \
   || fail "loopback KNOVAS_PLATFORM_URL should match the web port"
 [[ "$(last_value COMPOSE_PROJECT_NAME "$ENV_FILE")" == "knovasdemo" ]] \

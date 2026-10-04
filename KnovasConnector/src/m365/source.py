@@ -157,7 +157,7 @@ class M365Source:
         # _lock guards resolution and the inventory object; _refresh_lock is
         # held for the whole Graph round trip; _links_lock for the link table.
         # Kept apart so a preview never waits for a refresh -- the first pass
-        # over a large library takes minutes, and RemoteController has a single
+        # over a large library takes minutes, and Knovas Connector has a single
         # gunicorn worker whose request timeout would kill the sync with it.
         self._lock = threading.RLock()
         self._refresh_lock = threading.Lock()

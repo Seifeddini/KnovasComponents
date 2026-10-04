@@ -1,13 +1,13 @@
-"""One profile in, the two RemoteController documents out.
+"""One profile in, the two Knovas Connector documents out.
 
 Why this module exists
 ----------------------
-RemoteController splits its configuration in two, and its own documentation
+Knovas Connector splits its configuration in two, and its own documentation
 presents the split as a feature ("Two configuration layers",
-RemoteController/docs/configuration.md):
+KnovasConnector/docs/configuration.md):
 
     what to sync   -> the POST /sync body     (sync_request.schema.json)
-    when/how fast  -> a file on disk          (remote_controller_sync_config.schema.json)
+    when/how fast  -> a file on disk          (knovas_connector_sync_config.schema.json)
 
 For a service that is a reasonable seam. For a person it is six things to know
 before changing one thing, and two of the traps are silent:
@@ -30,8 +30,8 @@ Design decisions worth knowing
     - ``paused`` is a separate flag from ``schedule``, because
       ``sync_scheduler._run_once`` treats ``enabled: false`` as "do nothing"
       even for a hand-started run. Pausing is not a schedule.
-    - Compilation validates against the schemas RemoteController ships. The
-      checkout copy at ``RemoteController/contracts/`` is preferred; the
+    - Compilation validates against the schemas Knovas Connector ships. The
+      checkout copy at ``KnovasConnector/contracts/`` is preferred; the
       Docker image never contains that tree (build context is
       ``docbridge_integration`` only), so ``rc_contracts/`` beside this
       module is the install fallback. A test keeps the two byte-identical.
@@ -97,7 +97,7 @@ MAX_FIELD_TEMPLATES = 8
 MAX_FIELD_VALUES = 32
 MAX_FIELD_VALUE_CHARS = 256
 
-#: The extractor metadata items RemoteController maps (spec 3.5, L1), in the
+#: The extractor metadata items Knovas Connector maps (spec 3.5, L1), in the
 #: order the form offers them. ``keywords`` and ``document_status`` need a
 #: Connector that reports ``metadata_fields_v2``.
 METADATA_ITEMS = (
@@ -130,14 +130,14 @@ def _field_pairs(raw: Any) -> tuple[tuple[str, Any], ...]:
 class SourceFolder:
     """One folder to index, and the wall its documents are born behind.
 
-    ``access_groups`` is the B3-critical field: RemoteController passes it to
+    ``access_groups`` is the B3-critical field: Knovas Connector passes it to
     ``/secured/init_document_transmission``, which materialises the ACL at
     ingest. Without it every new document from a walled matter lands
     unrestricted and the wall has to be repaired afterwards, once, per document.
 
     ``fields`` (sorted pairs; a dict default would be unhashable),
     ``field_templates`` and ``metadata_fields`` are the source's document
-    fields. They go to RemoteController's upload layer, so changing any of
+    fields. They go to Knovas Connector's upload layer, so changing any of
     them re-sends every document of the source.
     """
 
@@ -166,7 +166,7 @@ class SourceFolder:
                 for key, value in self.fields}
 
     def field_config(self) -> tuple:
-        """What decides RemoteController's config digest for this source, in
+        """What decides Knovas Connector's config digest for this source, in
         a comparable form: a change here re-sends the source."""
         return (self.fields, self.field_templates, frozenset(self.metadata_fields))
 
@@ -199,7 +199,7 @@ class CompiledIngestion:
 
 _REQUIRED_SCHEMA_FILES = (
     "sync_request.schema.json",
-    "remote_controller_sync_config.schema.json",
+    "knovas_connector_sync_config.schema.json",
 )
 
 
@@ -210,9 +210,9 @@ def _is_contracts_dir(path: Path) -> bool:
 
 
 def _checkout_contracts_dir() -> Path | None:
-    """``RemoteController/contracts`` walking up from this file, or None."""
+    """``KnovasConnector/contracts`` walking up from this file, or None."""
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "RemoteController" / "contracts"
+        candidate = parent / "KnovasConnector" / "contracts"
         if _is_contracts_dir(candidate):
             return candidate
     return None
@@ -225,7 +225,7 @@ def _bundled_contracts_dir() -> Path:
 def _contracts_dir() -> Path:
     """Locate the schemas compile_profile validates against.
 
-    The monorepo checkout wins so a schema change in RemoteController is
+    The monorepo checkout wins so a schema change in Knovas Connector is
     picked up without a second edit. The Platform image has no such
     checkout — only ``src/`` — so the bundled copy beside this module is
     what Docker uses.
@@ -237,7 +237,7 @@ def _contracts_dir() -> Path:
     if _is_contracts_dir(bundled):
         return bundled
     raise ProfileError(
-        "RemoteController/contracts was not found in this checkout, so the "
+        "KnovasConnector/contracts was not found in this checkout, so the "
         "compiled configuration cannot be validated before it is sent."
     )
 
@@ -330,8 +330,8 @@ def _compile_sync_request(profile: IngestionProfile) -> dict[str, Any]:
         if groups:
             entry["access_groups"] = list(groups)
         # Document fields, each key only when non-empty (D8): a profile
-        # without them must reach RemoteController byte-identical to before,
-        # and an older RemoteController refuses the keys outright.
+        # without them must reach Knovas Connector byte-identical to before,
+        # and an older Knovas Connector refuses the keys outright.
         if source.fields:
             entry["fields"] = source.fields_json()
         if source.field_templates:
@@ -409,7 +409,7 @@ def _validate(document: dict[str, Any], schema_filename: str, which: str) -> Non
 
 
 def compile_profile(profile: IngestionProfile) -> CompiledIngestion:
-    """Turn ``profile`` into two schema-valid RemoteController documents.
+    """Turn ``profile`` into two schema-valid Knovas Connector documents.
 
     Nothing is sent. Validation happens here so a bad configuration is refused
     in the form, where the person is, rather than by a service they cannot see.
@@ -422,7 +422,7 @@ def compile_profile(profile: IngestionProfile) -> CompiledIngestion:
 
     _reject_secrets(sync_config, "schedule")
     _reject_secrets(sync_request, "folder list")
-    _validate(sync_config, "remote_controller_sync_config.schema.json", "schedule")
+    _validate(sync_config, "knovas_connector_sync_config.schema.json", "schedule")
     _validate(sync_request, "sync_request.schema.json", "folder list")
 
     return CompiledIngestion(sync_config=sync_config, sync_request=sync_request)
@@ -476,7 +476,7 @@ TEMPLATE_ERROR_TEXT = {
     "too_long": "zu lang",
 }
 
-#: RemoteController refuses a body with field keys it does not know; the
+#: Knovas Connector refuses a body with field keys it does not know; the
 #: Platform says so before it tries (spec 2.5, 4.8).
 RC_TOO_OLD = ("Der Knovas Connector ist zu alt \u2013 bitte aktualisieren: er meldet keine "
               "Unterst\u00fctzung f\u00fcr Dokumentfelder.")
@@ -526,7 +526,7 @@ def field_config_changes(old: IngestionProfile | None,
     """Paths of the sources whose document-field configuration changes.
 
     Only sources ``old`` already had count: their documents were uploaded
-    before and RemoteController re-sends every one of them (its config
+    before and Knovas Connector re-sends every one of them (its config
     digest changed). A new source's documents are uploaded for the first
     time anyway, fields and all. Removing a source's fields is a change too:
     the next upload of each document clears them with ``{}``.
@@ -675,7 +675,7 @@ def upload_field_keys(profile: IngestionProfile) -> set[str]:
 
 
 def profile_pointer_prefix(profile: IngestionProfile) -> str:
-    """The pointer prefix RemoteController gives the profile's documents:
+    """The pointer prefix Knovas Connector gives the profile's documents:
     ``<identifier_prefix>/`` (knovas_uploader.upload_file)."""
     return f"{profile.identifier_prefix.strip()}/"
 

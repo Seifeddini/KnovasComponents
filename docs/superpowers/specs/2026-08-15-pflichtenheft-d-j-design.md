@@ -11,7 +11,7 @@ synchronisation, E2 (Swiss procedural computation — declared out of scope unde
 E1, §4.1), F10 (federated Swisslex/Weblaw search), F6 tier 2 (searching superseded
 text), I (RAG), K, L.
 **Repositories:** `KnowledgeBase` (Knovas backend) and `KnovasComponents`
-(customer-hosted Platform, RemoteController, Office add-ins). A copy of this file
+(customer-hosted Platform, Knovas Connector, Office add-ins). A copy of this file
 lives in both — `KnowledgeBase/docs/superpowers/specs/` and
 `KnovasComponents/docs/superpowers/specs/`.
 **Source:** Knovas Pflichtenheft, 14 August 2026
@@ -44,7 +44,7 @@ seven places that shape everything below:
    Everything that narrows a search by matter or practice area inherits this
    blocker, so it is planned as a prerequisite, not assumed.
 3. **There is no eventing spine of any kind** — no outbox, no webhook, no
-   job-status row, no push transport. `RemoteController` is not reachable from
+   job-status row, no push transport. `Knovas Connector` is not reachable from
    the internet in most installs. E6 must be pull-first.
 4. **The graph is further along than its labels**, but four-eyes is
    *unrepresentable*: fact creation does not record an actor, `PATCH /facts/<id>`
@@ -54,7 +54,7 @@ seven places that shape everything below:
    (local users, sessions, broker-signed principal assertions,
    `PrincipalContext.subject`). D2, E3, J2 and H2 consume it; this design does
    not invent a second actor model.
-6. **RemoteController extracts author, language, created and modified for every
+6. **Knovas Connector extracts author, language, created and modified for every
    document and throws them away** at the upload boundary
    (`extract_content.py:50`). D5/F3/F5's ingest-side data exists at zero cost.
 7. **The section-C design and plan (2026-08-14)** already establish the Platform's
@@ -367,7 +367,7 @@ payloads carry `event_type`, `subject_type`, `subject_id`, `occurred_at` and
 ids only; the receiver fetches details over mTLS. Webhook URLs must be `https`,
 resolve to public addresses only (no RFC-1918/link-local/loopback; re-resolved
 at delivery), no embedded credentials — hardened beyond
-`validate_remote_controller_base_url`.
+`validate_knovas_connector_base_url`.
 
 Event catalogue (v1): `document.indexed`, `document.index_failed`,
 `document.deleted`, `document.metadata_updated`, `graph.sort_proposal.created`,
@@ -441,7 +441,7 @@ subscription URL is public https. Alloy `data_plane/event_outbox.als` + mutant
 - `kg_fact_evidence` gains nullable `char_start`, `char_end`, `quote (≤ 300)`;
   `POST /facts/<id>/evidence` and evidence reads carry them (also G3/F7).
 - `POST /secured/graph/facts/propose` — the same `propose_fact` for client-side
-  extractors (RemoteController, add-in): body `{node_id, attribute_id|label,
+  extractors (Knovas Connector, add-in): body `{node_id, attribute_id|label,
   value, evidence:[{chunk_id, char_start?, char_end?, quote?}], confidence?}`.
 - No LLM in this path (deterministic-first per the roadmap; the LLM service has
   no structured-output mode today). Existing GI-FACT-02/03/05 apply; add
@@ -568,7 +568,7 @@ similar, transmissions status, per-seat limits, export), `Knowledge_Graph_API.md
 (identifier kinds/search/duplicates/merge, conflict checks, facts listing/
 propose/adopt, four-eyes, ego, evidence offsets, imports, jobs), new
 `Events_API.md`, new `Export_and_Exit.md`, `Client_Integration_Guide.md`
-(metadata best practices, language), `components/Remote_Controller.md` (OCR
+(metadata best practices, language), the Connector component page (OCR
 statement corrected — OCR shipped; formats; connectors). `Golden_Invariants.md`
 + `alloy_component_coverage_matrix.md` for every new GI; runbooks for the
 delivery worker, the metadata backfill, seat quotas, per-mode gate calibration;
@@ -720,7 +720,7 @@ journal, admins see nothing per person (works-council-friendly by
 construction); nothing leaves the firm's host. Also counts opens by format
 for the F7 precondition.
 
-## 7 · KnovasComponents slice — RemoteController
+## 7 · KnovasComponents slice — Knovas Connector
 
 ### 7.1 Metadata at ingest (F3, D5, F5, F6)
 `ExtractedDocument`/`ExtractionPayload` gain `author`, `language`, `created`,
@@ -759,7 +759,7 @@ registered into `knovas_extract.dispatch.MIME_REGISTRY` at RC import (the
 documented public hook) — inside the two folders, no upstream wait; the five
 extension allow-lists collapse into one `SYNCABLE_EXTENSIONS` source of truth
 from which the globs derive; provenance is stamped honestly (`extractor.name`
-recorded as `remote-controller-office` in the sidecar). Upstreaming to
+recorded as `knovas-connector-office` in the sidecar). Upstreaming to
 knovas-extract is named as the follow-up.
 
 ### 7.4 OCR evidence (F1)
@@ -795,17 +795,17 @@ New: `docs/README.md` (index by audience), `docs/product-statements.md` (legend
 `conflicts-check.md`, `deadlines.md`, `reports-and-inbox.md`,
 `activity-journal.md`, `import-and-bootstrap.md`),
 `KnovasPlatform/docs/integration/office-add-ins.md`, `…/graph-api.md`
-(Platform route reference), `…/events.md`, `RemoteController/docs/connectors.md`,
-`RemoteController/docs/migration.md`, `KnovasPlatform/CHANGELOG.md`.
+(Platform route reference), `…/events.md`, `KnovasConnector/docs/connectors.md`,
+`KnovasConnector/docs/migration.md`, `KnovasPlatform/CHANGELOG.md`.
 Updated: `docs/KnovasAPI/*` re-mirrored from the Developer Kit (+
 `Knowledge_Graph_API.md`, `Events_API.md`, `Export_and_Exit.md`) with a mirror
 policy line and a `scripts/check_devkit_mirror.py` drift check;
 `docs/specifications.md` (§1.3 formats, §1.6 connectors, §2.3 endpoints, §2.5
 `ONTOLOGY_*`, §2.8 add-ins, §4 go-live rows, §7 index); `docs/hosting-requirements.md`
 (mailbox/PST options, Graph egress, per-seat throughput); `docs/search-ui-backlog.md`
-(F3/F6/F7/F8 resolved, dated); `RemoteController/docs/configuration.md`
+(F3/F6/F7/F8 resolved, dated); `KnovasConnector/docs/configuration.md`
 (formats, OCR languages, metadata keys); `KnovasPlatform/docs/README.md`;
-`RELEASE_NOTES.md`; `RemoteController/CHANGELOG.md`; `docs/certificates.md`
+`RELEASE_NOTES.md`; `KnovasConnector/CHANGELOG.md`; `docs/certificates.md`
 if the add-in host needs the bundle.
 
 ## 9 · Normative design rules
@@ -847,7 +847,7 @@ merges; their backend halves ship earlier with `actor_kind=client_ref`.
 | New Weaviate properties invisible for existing documents | backfill CLI is part of the same task; verified by `manage_weaviate.py verify` |
 | Delivery worker needs cluster egress | own Deployment + explicit egress NetworkPolicy; pull path works without it |
 | Four-eyes over client-supplied `actor_ref` before BROKERED | `actor_kind` recorded and rendered; docs say "verified once brokered" |
-| RC-local XLSX/PPTX misattributed to the certified extractor | provenance stamped `remote-controller-office`; upstream follow-up named |
+| RC-local XLSX/PPTX misattributed to the certified extractor | provenance stamped `knovas-connector-office`; upstream follow-up named |
 | PST volumes / GPL tool | separate process, writable volumes documented in SETUP; licence note |
 | Office add-in auth inside the taskpane webview | Platform session cookie on the same HTTPS origin; documented fallback: login inside the taskpane |
 | Cortex graph mode at firm scale (whole-topology fetch) | ego endpoint + server-side node filters (C-plan B4) replace topology scans |
@@ -866,7 +866,7 @@ Answers change the plan materially; defaults are stated.
 3. **Four-eyes semantics** — enforce at the API over the verified subject when
    brokered, over `actor_ref` otherwise, with `adopt` for extracted facts?
    *Default: yes.*
-4. **XLSX/PPTX in RemoteController** via the public `MIME_REGISTRY` hook now,
+4. **XLSX/PPTX in Knovas Connector** via the public `MIME_REGISTRY` hook now,
    upstream to knovas-extract later? *Default: yes.*
 5. **Mailbox protocol** — Microsoft Graph first; IMAP/EWS declared later?
    *Default: Graph.*

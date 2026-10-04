@@ -1,7 +1,7 @@
 # Plan: markdown-lite layout extraction on a CPU-maximised per-page OCR pipeline
 
 **Date:** 2026-10-01 · **Status:** ready for implementation (pending the human-review items in §10)
-**Scope:** `knovas-extract-python` (library), `KnovasComponents/RemoteController` (RC), `KnovasComponents/KnovasPlatform` (admin ingestion + hit context), `KnowledgeBase` (server contract tests, one small flagged server change, Alloy models + Golden Invariants)
+**Scope:** `knovas-extract-python` (library), `KnovasComponents/KnovasConnector` (RC), `KnovasComponents/KnovasPlatform` (admin ingestion + hit context), `KnowledgeBase` (server contract tests, one small flagged server change, Alloy models + Golden Invariants)
 **Companion documents:**
 - diagnosis — `KnovasComponents/docs/superpowers/specs/2026-10-01-fiduciary-search-diagnosis.md`
 - server-side audit — `KnowledgeBase/docs/superpowers/audits/2026-10-01-fiduciary-search-audit.md`
@@ -105,7 +105,7 @@ Flüssige Mittel | 2023: 1'234'567.80 | 2022: 987'654.30
 Forderungen aus Lieferungen und Leistungen | Anhang: 2.1 | 2023: 456'789.00 | 2022: 400'120.00
 ```
 
-## 5. RemoteController
+## 5. Knovas Connector
 
 **M0 (stop the bleeding)**: `emit_markdown=False` (`document_text.py:256`) — this also unparks DOCX files whose tables tripped `check_expansion` `[C-reg-8]`; Dockerfile `ENV TESSDATA_PREFIX OMP_THREAD_LIMIT=1`, `tesseract-ocr-ita`; extras `[pdf,ocr,docx,msg,html,sentences]` **pinned to `knovas-extract==0.4.0a1`** (the `pip show pymupdf-layout` must-fail check is advisory until the pin lands `[C-reg-9]`); purge recipe in `docs/operations.md` covering `.pdf/.docx/.eml/.msg` rows parked with "markdown expansion ratio".
 
@@ -126,8 +126,8 @@ Admin ingestion mirrors the RC's kwargs and markers — **but runs extraction in
 **Already written (red, TDD) and bound to Alloy obligations** (`KnowledgeBase/knovas-software/models/alloy/ci/obligations.yaml`, cross-repo via `external_tests`):
 - `knovas-extract-python/tests/unit/test_ocr_decision.py` — decision mechanism end-to-end through `extract()` with an injected fake backend (mixed cover + scan; title page with 60 % logo kept verbatim; garbage layer not trusted; blank page left empty; counts are scalars and warnings carry no text).
 - `knovas-extract-python/tests/unit/test_ocr_scheduler.py` — `run_ocr_schedule` with fake backends and a fake clock: bound, no spurious skip, one failed page does not stop the rest, time budget stops submitting, partial result with counts, exception counted not raised, page timeout is a failed page, 1 vs N determinism, warnings never contain text.
-- `RemoteController/tests/unit/test_page_markers.py` — D11 in full: no marker at part start, offsets relative to the part, empty pages → extra markers, leading empty pages, marker after the heading prefix, markers inside the part budget, join-line part declared on the preceding page, page/sentence numbers unchanged.
-- `RemoteController/tests/unit/test_sync_executor_partial.py` — recording outcomes, wall-clock kill retryable, retry cap escalates to partial, library-flagged unconvertible still parked, budget/timeout messages never unconvertible.
+- `KnovasConnector/tests/unit/test_page_markers.py` — D11 in full: no marker at part start, offsets relative to the part, empty pages → extra markers, leading empty pages, marker after the heading prefix, markers inside the part budget, join-line part declared on the preceding page, page/sentence numbers unchanged.
+- `KnovasConnector/tests/unit/test_sync_executor_partial.py` — recording outcomes, wall-clock kill retryable, retry cap escalates to partial, library-flagged unconvertible still parked, budget/timeout messages never unconvertible.
 - `KnowledgeBase/tests/test_information_object_processing.py::TestPageBreakProvenance::test_consecutive_markers_count_empty_pages` (green today — the server half is already right).
 
 **Layers to add per milestone** (thresholds at/just below measured; `[C-reg-5][C-reg-10][C-sec-12]` applied):

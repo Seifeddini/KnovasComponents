@@ -4,7 +4,7 @@
 
 **Goal:** Give the firm's administrator a console that lists every document their tenant has uploaded, lets them change access on one document or a whole folder, and makes a walled folder stay walled across re-syncs.
 
-**Architecture:** RemoteController learns to send the per-source `access_groups` its own contract has documented since July. `knovas_client.py` gains the RBAC methods it has never had. Two tabs attach to the existing `admin.py` blueprint: **Dokumente** (a virtualised, cursor-fed inventory) and **Zugriffsgruppen** (group tree, folder rules, backfill progress). The console never holds the corpus — it holds one keyset page at a time.
+**Architecture:** Knovas Connector learns to send the per-source `access_groups` its own contract has documented since July. `knovas_client.py` gains the RBAC methods it has never had. Two tabs attach to the existing `admin.py` blueprint: **Dokumente** (a virtualised, cursor-fed inventory) and **Zugriffsgruppen** (group tree, folder rules, backfill progress). The console never holds the corpus — it holds one keyset page at a time.
 
 **Tech Stack:** Python 3.11, Flask blueprints, Jinja2, vanilla JS (no build step — the Platform ships no bundler), pytest, `requests` over mTLS.
 
@@ -17,7 +17,7 @@
 - **UI copy is German.** Existing screens (`admin_people.html`, `_sidebar.html`) are German; match them. Client-method docstrings are German, matching the `graph_*` block in `knovas_client.py:1569-1700`.
 - **Every state-changing POST validates CSRF** via the blueprint's `_form_csrf_ok()` before doing anything, and every route is authorised on the route — hiding a link is presentation, refusing the POST is the control.
 - **Walls bind the administrator** (spec D1). The console never asks the backend for a system principal, and there is no "show everything" toggle.
-- Tests run from `KnovasPlatform/components/docbridge_integration/` for Platform work and `RemoteController/` for RemoteController work.
+- Tests run from `KnovasPlatform/components/docbridge_integration/` for Platform work and `KnovasConnector/` for Knovas Connector work.
 
 ---
 
@@ -30,26 +30,26 @@
 - `KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js`
 - `KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py`
 - `KnovasPlatform/components/docbridge_integration/tests/test_knovas_client_rbac.py`
-- `RemoteController/tests/test_sync_access_groups.py`
+- `KnovasConnector/tests/test_sync_access_groups.py`
 
 **Modify:**
-- `RemoteController/src/sync/sync_executor.py:290,330-360,394-480,627` — carry `access_groups` from source to upload
-- `RemoteController/src/sync/knovas_uploader.py:135-195` — put it in `init_body`
+- `KnovasConnector/src/sync/sync_executor.py:290,330-360,394-480,627` — carry `access_groups` from source to upload
+- `KnovasConnector/src/sync/knovas_uploader.py:135-195` — put it in `init_body`
 - `KnovasPlatform/components/docbridge_integration/src/knovas_client.py` — RBAC client methods
 - `KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py` — register the two tabs
 - `KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html` — tab strip
-- `RemoteController/docs/configuration.md`, `KnovasPlatform/docs/` — documentation
+- `KnovasConnector/docs/configuration.md`, `KnovasPlatform/docs/` — documentation
 
 ---
 
-## PART KC-A — RemoteController (no dependency on Part A or section B)
+## PART KC-A — Knovas Connector (no dependency on Part A or section B)
 
 ### Task 1: Carry `sources[].access_groups` from the source to the uploader
 
 **Files:**
-- Modify: `RemoteController/src/sync/sync_executor.py:290` (`upload_queue` type), `:330-360` (`build_walk_targets`), `:394-480` (`_plan`), `:627` (upload loop)
-- Modify: `RemoteController/src/sync/knovas_uploader.py:135-195`
-- Test: `RemoteController/tests/test_sync_access_groups.py`
+- Modify: `KnovasConnector/src/sync/sync_executor.py:290` (`upload_queue` type), `:330-360` (`build_walk_targets`), `:394-480` (`_plan`), `:627` (upload loop)
+- Modify: `KnovasConnector/src/sync/knovas_uploader.py:135-195`
+- Test: `KnovasConnector/tests/test_sync_access_groups.py`
 
 **Interfaces:**
 - Consumes: `contracts/sync_request.schema.json:18` — `sources[].access_groups`, an array of strings, already contractually defined.
@@ -57,7 +57,7 @@
 
 - [ ] **Step 1: Write the failing test**
 
-Create `RemoteController/tests/test_sync_access_groups.py`:
+Create `KnovasConnector/tests/test_sync_access_groups.py`:
 
 ```python
 """Per-source access groups reach /secured/init_document_transmission.
@@ -188,7 +188,7 @@ class TestUploaderSendsGroups:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd RemoteController && python -m pytest tests/test_sync_access_groups.py -v`
+Run: `cd KnovasConnector && python -m pytest tests/test_sync_access_groups.py -v`
 Expected: FAIL — `AttributeError: '_WalkTarget' object has no attribute 'access_groups'`
 
 - [ ] **Step 3: Add the field to `_WalkTarget` and read it**
@@ -289,13 +289,13 @@ construction at `:177-181`:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `cd RemoteController && python -m pytest tests/test_sync_access_groups.py tests/ -q`
-Expected: PASS — the whole RemoteController suite, since the `upload_queue`
+Run: `cd KnovasConnector && python -m pytest tests/test_sync_access_groups.py tests/ -q`
+Expected: PASS — the whole Knovas Connector suite, since the `upload_queue`
 tuple width changed and other tests construct it.
 
 - [ ] **Step 7: Document the sequential-mode caveat**
 
-In `RemoteController/docs/configuration.md`, in the sources section:
+In `KnovasConnector/docs/configuration.md`, in the sources section:
 
 ```markdown
 ### Per-source access groups
@@ -308,7 +308,7 @@ Omit the key for unrestricted folders. An *absent* key lets the Secure API
 apply whatever folder rule covers the pointer; an explicit empty array means
 "deliberately unrestricted" and overrides that rule.
 
-**Caveat:** with `sequential_subfolders` enabled, RemoteController processes
+**Caveat:** with `sequential_subfolders` enabled, Knovas Connector processes
 one source per cycle (`sync_executor.py` logs `sequential_subfolders requires
 exactly one source; using first only`). In that mode the first source's
 `access_groups` applies. Use one profile per walled folder if you need
@@ -318,10 +318,10 @@ different groups under sequential mode.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add RemoteController/src/sync/sync_executor.py \
-        RemoteController/src/sync/knovas_uploader.py \
-        RemoteController/tests/test_sync_access_groups.py \
-        RemoteController/docs/configuration.md
+git add KnovasConnector/src/sync/sync_executor.py \
+        KnovasConnector/src/sync/knovas_uploader.py \
+        KnovasConnector/tests/test_sync_access_groups.py \
+        KnovasConnector/docs/configuration.md
 git commit -m "feat(rc): implement sources[].access_groups end to end"
 ```
 
@@ -1847,7 +1847,7 @@ Create `KnovasPlatform/docs/features/document-administration.md` covering:
   with one ACL. Most restrictive wins; where two rules leave no reader at all
   the document is parked as a conflict for a human decision, and the
   "nur Konflikte" filter finds those.
-- **RemoteController** — `sources[].access_groups`, and the
+- **Knovas Connector** — `sources[].access_groups`, and the
   `sequential_subfolders` caveat from Task 1.
 - **Scale** — the list pages by cursor; there is no page number and no total
   page count, deliberately.
@@ -1871,7 +1871,7 @@ Run:
 
 ```bash
 cd KnovasPlatform/components/docbridge_integration && python -m pytest tests/ -q
-cd ../../../RemoteController && python -m pytest tests/ -q
+cd ../../../KnovasConnector && python -m pytest tests/ -q
 ```
 
 Expected: PASS in both.
@@ -1891,7 +1891,7 @@ git commit -m "docs(admin): document administration and folder access rules"
 
 | Spec section | Task |
 |---|---|
-| §6.1 RemoteController `sources[].access_groups` | 1 |
+| §6.1 Knovas Connector `sources[].access_groups` | 1 |
 | §6.2 client methods — groups, document ACL | 2 |
 | §6.2 client methods — inventory, folder rules | 3 |
 | §6.3 Dokumente tab (routes) | 4 |
@@ -1903,7 +1903,7 @@ git commit -m "docs(admin): document administration and folder access rules"
 
 **Type consistency:** `access_groups` is a `list[str]` across
 `set_document_access`, `create_folder_rule` and `update_folder_rule`; the
-RemoteController side uses `tuple[str, ...]` internally and converts once, at
+Knovas Connector side uses `tuple[str, ...]` internally and converts once, at
 the `init_body` assignment in Task 1. `next_after` is `str | None` in Task 3's
 client, Task 4's `DocumentsView.page`, and the `data-next-after` attribute in
 Task 5.

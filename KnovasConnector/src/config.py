@@ -247,7 +247,7 @@ def load_config(*, validate: bool = True, force_reload: bool = False) -> AppConf
         knovas_verify_cache_ttl_seconds=ttl,
         knovas_verify_timeout_seconds=_env_int("RC_VERIFY_TIMEOUT_SECONDS", 10),
         rc_sync_config_path=os.environ.get(
-            "RC_SYNC_CONFIG_PATH", "config/remote_controller_sync.json"
+            "RC_SYNC_CONFIG_PATH", "config/knovas_connector_sync.json"
         ),
         rc_sync_config_api_enabled=_env_bool("RC_SYNC_CONFIG_API_ENABLED", False),
         rc_sync_auto_start_continuous=_env_bool("RC_SYNC_AUTO_START_CONTINUOUS", False),

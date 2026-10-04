@@ -30,7 +30,7 @@ class TestRcHealthEndpoint:
 
     def test_health_service_field(self, rc_client):
         body = _get_health(rc_client).get_json()
-        assert body["service"] == "remote-controller"
+        assert body["service"] == "knovas-connector"
 
     def test_health_checks_key_present(self, rc_client):
         body = _get_health(rc_client).get_json()

@@ -1,4 +1,4 @@
-"""System tab: the document-fields line and the RemoteController's capabilities.
+"""System tab: the document-fields line and the Knovas Connector's capabilities.
 
 The System tab is the one place that names a reduced document-fields state
 (H6), so each of the four states is pinned here, with its wording. The
@@ -113,7 +113,7 @@ class _RC:
 
 
 class _RCWithCaps(_RC):
-    """A RemoteController whose /sync/status (what health() returns) lists
+    """A Knovas Connector whose /sync/status (what health() returns) lists
     its capabilities, as the real one does."""
 
     def health(self):
@@ -127,14 +127,14 @@ class _BusyRC(_RCWithCaps):
     """The ping answered; a second status request would time out."""
 
     def capabilities(self):
-        raise TimeoutError("RemoteController busy")
+        raise TimeoutError("Knovas Connector busy")
 
     def reachable_capabilities(self):
         return None
 
 
-class TestRemoteController:
-    def test_a_new_remote_controller_reports_its_field_capabilities(self):
+class TestKnovasConnector:
+    def test_a_new_knovas_connector_reports_its_field_capabilities(self):
         rc = _RCWithCaps({"source_fields_v1", "field_templates_v1", "fields_requeue_v1",
                           "something_else"})
         check = _rc(_collect(FakeDocFieldsApi("values"), rc))
@@ -142,7 +142,7 @@ class TestRemoteController:
         assert check["detail"] == ("antwortet; Dokumentfelder: source_fields_v1, "
                                    "field_templates_v1, fields_requeue_v1")
 
-    def test_an_old_remote_controller_is_called_out_while_fields_are_on(self):
+    def test_an_old_knovas_connector_is_called_out_while_fields_are_on(self):
         check = _rc(_collect(FakeDocFieldsApi("values"), _RC()))
         assert check["state"] == "warn"
         assert "nicht unterstuetzt" in check["detail"]
@@ -157,7 +157,7 @@ class TestRemoteController:
         assert check["state"] == "ok"
         assert check["detail"] == "antwortet; Dokumentfelder: source_fields_v1, field_templates_v1"
 
-    def test_with_fields_off_an_old_remote_controller_reads_as_before(self):
+    def test_with_fields_off_an_old_knovas_connector_reads_as_before(self):
         check = _rc(_collect(FakeDocFieldsApi("off"), _RCWithCaps(set())))
         assert check["state"] == "ok" and check["detail"] == "antwortet"
 

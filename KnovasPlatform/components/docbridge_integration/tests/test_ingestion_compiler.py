@@ -1,9 +1,9 @@
-"""Compiling one ingestion profile into the two RemoteController documents.
+"""Compiling one ingestion profile into the two Knovas Connector documents.
 
 KC-IN-6. The point of the compiler is that the "two configuration layers" in
-RemoteController/docs/configuration.md stop being the administrator's problem.
+KnovasConnector/docs/configuration.md stop being the administrator's problem.
 These tests pin the properties that make that true — above all that the
-compiled documents validate against the schemas RemoteController itself ships,
+compiled documents validate against the schemas Knovas Connector itself ships,
 and that max_document_age_seconds is written to exactly one of them.
 """
 
@@ -17,7 +17,7 @@ from identity import ingestion_compiler as ic
 from identity import ingestion_presets as presets
 
 _CONTRACTS = (
-    Path(__file__).resolve().parents[4] / "RemoteController" / "contracts"
+    Path(__file__).resolve().parents[4] / "KnovasConnector" / "contracts"
 )
 
 
@@ -28,7 +28,7 @@ def _validator(name: str) -> Draft202012Validator:
 
 @pytest.fixture(scope="module")
 def sync_config_validator():
-    return _validator("remote_controller_sync_config.schema.json")
+    return _validator("knovas_connector_sync_config.schema.json")
 
 
 @pytest.fixture(scope="module")
@@ -210,7 +210,7 @@ class TestNoSecretsAreEverCompiled:
 
 class TestTheSchemaChangeIsAdditive:
     """KC-IN-4 widened sources[] with access_groups. Every request that was
-    valid before must still be valid, or existing RemoteController deployments
+    valid before must still be valid, or existing Knovas Connector deployments
     break on upgrade."""
 
     @pytest.mark.parametrize(
@@ -258,14 +258,14 @@ class TestRedactionForSupport:
 
 _BUNDLED_SCHEMA_NAMES = (
     "sync_request.schema.json",
-    "remote_controller_sync_config.schema.json",
+    "knovas_connector_sync_config.schema.json",
 )
 
 
 class TestContractsAreAvailableWithoutAMonorepoCheckout:
     """The Platform image copies only docbridge_integration/src (Dockerfile).
 
-    Walking up from /app/src/identity never finds RemoteController/contracts,
+    Walking up from /app/src/identity never finds KnovasConnector/contracts,
     which is how 'Speichern' on the Ingestion tab fails in Docker. The
     compiler must ship the two schemas it validates against, and keep them
     byte-identical to the checkout when that checkout is present.
@@ -277,9 +277,9 @@ class TestContractsAreAvailableWithoutAMonorepoCheckout:
             assert (bundled / name).is_file(), name
 
     def test_bundled_schemas_match_the_checkout_when_present(self):
-        checkout = Path(__file__).resolve().parents[4] / "RemoteController" / "contracts"
+        checkout = Path(__file__).resolve().parents[4] / "KnovasConnector" / "contracts"
         if not checkout.is_dir():
-            pytest.skip("RemoteController is not in this checkout")
+            pytest.skip("Knovas Connector is not in this checkout")
         bundled = Path(ic.__file__).resolve().parent / "rc_contracts"
         for name in _BUNDLED_SCHEMA_NAMES:
             assert (bundled / name).read_bytes() == (checkout / name).read_bytes(), name
@@ -330,7 +330,7 @@ class TestAFolderAssignedToOneGroupTwice:
 
 # What the compiler emitted before document fields existed, frozen from the
 # previous commit's compile_profile (json.dumps of the dicts, key order and
-# all): a profile without fields must reach RemoteController byte-identical
+# all): a profile without fields must reach Knovas Connector byte-identical
 # (D8, spec 2.5 "New Platform + old RC").
 _FROZEN = {
     "walled": (

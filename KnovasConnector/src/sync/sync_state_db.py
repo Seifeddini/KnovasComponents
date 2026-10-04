@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS extract_retries (
 _MAX_LAST_ERROR_CHARS = 500
 
 #: Knovas document-fields columns of ``documents`` (spec 3.7), added in place
-#: to older files. Additive only: an older RemoteController reading the same
+#: to older files. Additive only: an older Knovas Connector reading the same
 #: file never names them, and its ``INSERT OR REPLACE`` resets them to these
 #: defaults, which the newer one reads as "nothing known".
 _FIELDS_COLUMNS = (
@@ -51,7 +51,7 @@ _FIELDS_COLUMNS = (
 #: existed, i.e. by an older extraction. ``resend_reason`` is the side-queue
 #: marker (``RESEND_REEXTRACT``), or ``RESEND_KEPT`` after a re-extraction
 #: that was not sent; ``resend_attempts`` counts failed re-extractions. An
-#: older RemoteController's ``INSERT OR REPLACE`` resets them to NULL / 0:
+#: older Knovas Connector's ``INSERT OR REPLACE`` resets them to NULL / 0:
 #: outdated and not queued, the safe direction.
 _EXTRACTION_COLUMNS = (
     ("extraction_stamp", "TEXT"),

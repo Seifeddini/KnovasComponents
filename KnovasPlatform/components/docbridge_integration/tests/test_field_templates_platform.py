@@ -1,11 +1,11 @@
-"""The Platform reads a path template exactly as RemoteController will.
+"""The Platform reads a path template exactly as Knovas Connector will.
 
 The Ingestion tab compiles templates when a profile is saved and previews
-their captures over the paths RemoteController reports (spec 3.4, 4.8). A
+their captures over the paths Knovas Connector reports (spec 3.4, 4.8). A
 preview that disagrees with the sync shows a person values their documents
 never get, so the Platform's implementation is pinned three ways: against
-the golden vectors (a byte copy of RemoteController's), against
-RemoteController's own module on every pairing of the vectors' templates
+the golden vectors (a byte copy of Knovas Connector's), against
+Knovas Connector's own module on every pairing of the vectors' templates
 and paths, and through the preview function the page actually calls.
 """
 
@@ -22,7 +22,7 @@ import pytest
 
 from identity import field_templates as ft
 
-RC_MODULE = (Path(__file__).resolve().parents[4] / "RemoteController" / "src" / "sync"
+RC_MODULE = (Path(__file__).resolve().parents[4] / "KnovasConnector" / "src" / "sync"
              / "field_templates.py")
 
 
@@ -43,10 +43,10 @@ def _outcome(module, template, path):
 
 @pytest.fixture(scope="module")
 def rc_templates():
-    """RemoteController's module, loaded from the checkout by file path (it
+    """Knovas Connector's module, loaded from the checkout by file path (it
     lives in a package the Platform cannot import)."""
     if not RC_MODULE.is_file():
-        pytest.skip("RemoteController is not in this checkout")
+        pytest.skip("Knovas Connector is not in this checkout")
     spec = importlib.util.spec_from_file_location("_rc_field_templates", RC_MODULE)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module  # dataclasses resolve their module by name
@@ -80,7 +80,7 @@ class TestGoldenVectors:
         assert any(c["captures"] == {} for c in VECTORS), "a match that captures nothing"
 
 
-class TestSameAnswersAsRemoteController:
+class TestSameAnswersAsKnovasConnector:
     def test_every_vector_template_against_every_vector_path(self, rc_templates):
         templates = sorted({c["template"] for c in VECTORS})
         paths = sorted({c["path"] for c in VECTORS}) + [
@@ -129,7 +129,7 @@ class TestThePreviewThePageShows:
     @pytest.mark.parametrize("case", [c for c in VECTORS if c["error"] is not None],
                              ids=lambda c: f"{c['template'][:30]}|{c['error']}")
     def test_a_bad_template_captures_nothing_and_names_its_code(self, case):
-        """RemoteController skips the whole folder on a bad template, so the
+        """Knovas Connector skips the whole folder on a bad template, so the
         preview must not pretend another template still applies."""
         from web_interface.admin_ingestion import template_preview
 
