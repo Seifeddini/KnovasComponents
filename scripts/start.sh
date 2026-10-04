@@ -6,13 +6,16 @@ cd "$ROOT_DIR"
 
 # shellcheck source=lib/stack_identity.sh
 source "$ROOT_DIR/scripts/lib/stack_identity.sh"
+# shellcheck source=lib/old_connector_name.sh
+source "$ROOT_DIR/scripts/lib/old_connector_name.sh"
 
 KNOVAS_ENV="$ROOT_DIR/knovas.env"
 if [[ ! -f "$KNOVAS_ENV" ]]; then
   echo "Run ./scripts/setup.sh first." >&2
   exit 1
 fi
-if [[ ! -f "$ROOT_DIR/RemoteController/.env.generated" ]]; then
+knovas_adopt_old_connector_files "$ROOT_DIR"
+if [[ ! -f "$ROOT_DIR/KnovasConnector/.env.generated" ]]; then
   echo "Run ./scripts/setup.sh first (missing .env.generated)." >&2
   exit 1
 fi
@@ -20,6 +23,7 @@ fi
 knovas_prepare_stack "$KNOVAS_ENV" "$ROOT_DIR"
 knovas_load_compose_project "$KNOVAS_ENV" "$ROOT_DIR"
 
+knovas_retire_old_connector_container "$COMPOSE_PROJECT_NAME"
 docker compose --env-file "$KNOVAS_ENV" up -d --build
 
 echo "==> Health checks"
@@ -49,6 +53,6 @@ docker compose --env-file "$KNOVAS_ENV" ps
 if [[ -n "$(read_env_var KNOVAS_DOCUMENTS_URL "" "$KNOVAS_ENV")" ]]; then
   echo "==> OneDrive/SharePoint folder"
   docker compose --env-file "$KNOVAS_ENV" exec -T -e PYTHONWARNINGS=ignore \
-    remote-controller python -m m365.check \
+    knovas-connector python -m m365.check \
     || echo "    Fix the line marked FAIL in knovas.env, then ./scripts/setup.sh && ./scripts/start.sh"
 fi

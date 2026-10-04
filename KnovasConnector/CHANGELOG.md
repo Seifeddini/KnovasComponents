@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Renamed to **Knovas Connector** in documentation, the Platform's screens and script output. The folder `RemoteController/`, the Docker service `remote-controller`, the `RC_*` settings and the config keys keep their names, so existing installations upgrade unchanged.
+- Renamed to **Knovas Connector** throughout: documentation, the Platform's screens, script output, the folder `KnovasConnector/`, the Docker service and image `knovas-connector` (also the host name on `knovas-internal`, `http://knovas-connector:5001`, and `/health`'s `service`), the Python package `knovas-connector`, the Platform's `knovas_connector_client` and its `knovas_connector.base_url` config key, and the sync config file `config/knovas_connector_sync.json` with its schema `knovas_connector_sync_config.schema.json`. The `RC_*` settings keep their names. Upgrading needs nothing beyond `./scripts/start.sh`: it moves the generated `.env.generated` from the old folder, stops (up to 2 minutes) and removes the Connector container of the old service before starting the new one, so two Connectors never share `rc-state`; the Connector renames the old sync config file in `rc-config` at its first read, so a schedule set by hand survives; `setup.sh` rewrites an old host name in a `knovas.env` override. New audit entries name the target `knovas_connector`; earlier ones keep what they recorded. `scripts/ci/check_old_connector_name.sh` keeps the old name out.
 
 ### Document fields per Knovas 1.5.0 (Knovas Connector)
 
@@ -88,7 +88,7 @@ Docs: [configuration.md](docs/configuration.md#per-source-document-fields-dokume
 
 ## 0.1.0 — 2026-05-18
 
-- Initial standalone Remote Controller release.
+- Initial standalone Knovas Connector release.
 - Flask API: `/health`, `/metrics`, `/discover`, `/sync`, `/sync/start`, `/sync/stop`, `/sync/status`, `/sync/config`.
 - Knovas operator verification via `POST /remote_controller/verify_operator`.
 - Filesystem discovery and Knovas Secure API upload with incremental sync state.

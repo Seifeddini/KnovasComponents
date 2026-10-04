@@ -193,7 +193,7 @@ Feldbereich der Vorschau.
 
 Anleitung: [KnovasPlatform/docs/features/document-fields.md](KnovasPlatform/docs/features/document-fields.md),
 fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),
-Knovas Connector: [RemoteController/CHANGELOG.md](RemoteController/CHANGELOG.md) (0.3.0).
+Knovas Connector: [KnovasConnector/CHANGELOG.md](KnovasConnector/CHANGELOG.md) (0.3.0).
 
 Die API-Referenz `docs/KnovasAPI/Secure_API.md` ist zugunsten des Knovas
 Developer Kit stillgelegt (wie zuvor `KnovasPlatform/knovas-docs/`); die
@@ -217,12 +217,21 @@ sie die Host-nginx-Seite aus der Vorlage
 gunicorn wie compose (`DOCBRIDGE_WEB_TIMEOUT`, Zugriffsprotokoll ohne
 Adressen), auch wenn es ohne compose laeuft.
 
-## RemoteController heisst jetzt Knovas Connector
+## Der Dienst heisst durchgehend Knovas Connector
 
-Nur der Name, den man liest: Dokumentation, Oberflaeche und Ausgaben der
-Skripte. Ordner `RemoteController/`, Docker-Dienst `remote-controller`, die
-`RC_*`-Einstellungen und die Konfigurationsschluessel bleiben, wie sie sind --
-eine bestehende Installation wird ohne Aenderung an `knovas.env` aktualisiert.
+Dokumentation, Oberflaeche, Ausgaben der Skripte, Ordner `KnovasConnector/`,
+Docker-Dienst `knovas-connector` (auch der Rechnername im internen Netz:
+`http://knovas-connector:5001`) und die Sync-Konfiguration
+`knovas_connector_sync.json`. Die `RC_*`-Einstellungen in `knovas.env` bleiben.
+
+Aktualisieren: `git pull`, dann `./scripts/start.sh` -- sonst nichts.
+`start.sh` uebernimmt die erzeugte `.env.generated` aus dem alten Ordner,
+haelt den Container des alten Dienstes an (bis 2 Minuten) und entfernt ihn,
+bevor der neue startet; zwei Connectoren auf denselben Daten laufen nie. Der
+Connector benennt die Sync-Konfiguration beim ersten Lesen um, ein von Hand
+gesetztes Zeitfenster bleibt also erhalten. Befehle nennen den Dienst jetzt
+`knovas-connector`, etwa
+`docker compose --env-file knovas.env logs knovas-connector`.
 
 ## Dokumente in OneDrive und SharePoint (`KNOVAS_DOCUMENTS_URL`)
 
@@ -379,7 +388,7 @@ Vier-Augen-Prinzip erst im strikten Modus.
 ### Ingestion in der Verwaltung
 
 Was indexiert wird, wann und hinter welcher Wand, wird jetzt in der Verwaltung
-eingestellt — mit Vorschau, Versionen und Wiederherstellung. Der RemoteController
+eingestellt — mit Vorschau, Versionen und Wiederherstellung. Der Knovas Connector
 akzeptiert dafür die Anmeldung der Kanzlei selbst.
 
 ### Experimente
@@ -441,14 +450,14 @@ Einschalten:
 Beschreibung, Einstellungen und Sicherheitsmodell:
 [KnovasPlatform/docs/features/experiments.md](KnovasPlatform/docs/features/experiments.md)
 
-## RemoteController
+## Knovas Connector
 
 Discover and sync local text files to Knovas (employee JWT; tenant mTLS for ingestion).
 
-- Deploy: [RemoteController/docs/SETUP.md](RemoteController/docs/SETUP.md)
+- Deploy: [KnovasConnector/docs/SETUP.md](KnovasConnector/docs/SETUP.md)
 
 ## Prerequisites (from Knovas)
 
 - Tenant mTLS certificates — each component expects different filenames in a different directory; see [docs/certificates.md](docs/certificates.md)
-- Documents indexed in Knovas (via RemoteController or your ingestion pipeline)
-- For RemoteController: instance token, employee RC certificates, registered public URL
+- Documents indexed in Knovas (via Knovas Connector or your ingestion pipeline)
+- For Knovas Connector: instance token, employee RC certificates, registered public URL

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURES="$ROOT_DIR/scripts/lib/fixtures"
-RC_ENV="$ROOT_DIR/RemoteController/.env.generated"
+RC_ENV="$ROOT_DIR/KnovasConnector/.env.generated"
 KP_ENV="$ROOT_DIR/KnovasPlatform/.env.generated"
 
 cd "$ROOT_DIR"
@@ -67,7 +67,7 @@ last_value() { grep -E "^$1=" "$2" | tail -1 | cut -d= -f2-; }
 [[ "$(last_value DOCBRIDGE_WEB_PORT "$KP_ENV")" == "18081" ]] \
   || fail "DOCBRIDGE_WEB_PORT override lost — a second stack on 8081 would still bind 8081"
 
-# An RC_* key belongs to RemoteController and must not leak into the Platform.
+# An RC_* key belongs to Knovas Connector and must not leak into the Platform.
 [[ "$(last_value RC_SYNC_AUTO_START_CONTINUOUS "$RC_ENV")" == "false" ]] || fail "RC override lost"
 grep -q '^RC_SYNC_AUTO_START_CONTINUOUS=' "$KP_ENV" && fail "RC key leaked into the Platform env"
 
@@ -78,7 +78,7 @@ grep -q '^RC_SYNC_AUTO_START_CONTINUOUS=' "$KP_ENV" && fail "RC key leaked into 
 bash scripts/lib/expand_knovas_env.sh "$FIXTURES/knovas.env.m365.fixture"
 [[ "$(last_value DOCUMENT_SOURCE "$KP_ENV")" == "m365" ]] || fail "Platform not switched to Microsoft 365 mode"
 [[ "$(last_value SEARCH_ENRICHMENT_PATH "$KP_ENV")" == "/var/rc-state/m365/links.jsonl" ]] \
-  || fail "Platform does not read RemoteController's OneDrive/SharePoint links"
+  || fail "Platform does not read Knovas Connector's OneDrive/SharePoint links"
 # The generated files are world-readable; the app secret must be in neither.
 grep -q 'not-a-real-secret-m365-fixture' "$RC_ENV" "$KP_ENV" \
   && fail "the Microsoft 365 client secret was written into a world-readable .env.generated"
@@ -105,5 +105,13 @@ sed 's#^KNOVAS_DOCUMENTS_URL=.*#KNOVAS_DOCUMENTS_URL=https://example.com/docs#' 
   | refused "a non-SharePoint address was accepted"
 grep -v '^KNOVAS_DOCUMENTS_URL=' "$FIXTURES/knovas.env.m365.fixture" \
   | refused "no document source at all was accepted"
+
+# --- A knovas.env from before the rename names the Connector's old host -----
+OLD_HOST="$(mktemp)"
+{ cat "$FIXTURES/knovas.env.fixture"; echo "RC_BASE_URL=http://remote-controller:5001"; } > "$OLD_HOST"
+bash scripts/lib/expand_knovas_env.sh "$OLD_HOST" 2>/dev/null
+rm -f "$OLD_HOST"
+[[ "$(last_value RC_BASE_URL "$RC_ENV")" == "http://knovas-connector:5001" ]] \
+  || fail "the Connector's old host name was passed through unchanged"
 
 echo "expand_knovas_env smoke OK"

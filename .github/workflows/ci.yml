@@ -97,6 +97,14 @@ jobs:
         working-directory: .
         run: bash scripts/lib/test_rc_extraction_settings.sh
 
+      - name: Upgrade from the Connector's old name
+        working-directory: .
+        run: bash scripts/lib/test_old_connector_name.sh
+
+      - name: The Connector's old name stays gone
+        working-directory: .
+        run: bash scripts/ci/check_old_connector_name.sh
+
       - name: Generate compose inputs
         working-directory: .
         run: |
@@ -128,7 +136,7 @@ jobs:
           echo "pymupdf-layout absent"
 
       # OneDrive/SharePoint: no KNOVAS_DOCUMENTS_PATH, the app secret handed to
-      # RemoteController alone and never to the internet-facing Platform.
+      # Knovas Connector alone and never to the internet-facing Platform.
       - name: Compose contract (Microsoft 365 documents)
         working-directory: .
         run: |
@@ -137,9 +145,9 @@ jobs:
           python3 - <<'PY'
           import json
           services = json.load(open("m365-compose.json"))["services"]
-          rc, web = services["remote-controller"]["environment"], services["docbridge-web"]
+          rc, web = services["knovas-connector"]["environment"], services["docbridge-web"]
           assert rc["M365_FOLDER_URL"].startswith("https://contoso.sharepoint.com/"), rc
-          assert rc["M365_CLIENT_SECRET"], "RemoteController did not get the app secret"
+          assert rc["M365_CLIENT_SECRET"], "Knovas Connector did not get the app secret"
           assert "not-a-real-secret" not in json.dumps(web), "the app secret reached the Platform"
           assert web["environment"]["DOCUMENT_SOURCE"] == "m365"
           PY
@@ -272,11 +280,11 @@ jobs:
           "${DC[@]}" logs experiments-runner 2>&1 | grep "Emptied the socket directory"
           "${DC[@]}" down -v
 
-  remote-controller:
+  knovas-connector:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: RemoteController
+        working-directory: KnovasConnector
     steps:
       - uses: actions/checkout@v4
 
@@ -302,7 +310,7 @@ jobs:
         # steht nicht in den Paketabhaengigkeiten -- seine Tests sammelt pytest
         # aber mit ein. Ohne diese Zeile fehlt msgforge, das Einsammeln
         # scheitert, und ein Sammelfehler bricht den GANZEN Lauf ab: seit
-        # Einfuehrung des Generators lief kein einziger RemoteController-Test
+        # Einfuehrung des Generators lief kein einziger Knovas-Connector-Test
         # mehr durch.
         #
         # knovas-extract comes first: exactly the pin of the previous step,
@@ -352,11 +360,11 @@ jobs:
           python -c "import json, pathlib; from jsonschema import Draft202012Validator; [Draft202012Validator.check_schema(json.loads(p.read_text())) for p in pathlib.Path('contracts').glob('*.json')]"
 
       - name: Build image
-        run: docker build -t remote-controller:ci .
+        run: docker build -t knovas-connector:ci .
 
       - name: Image carries Tesseract models and the OMP/TESSDATA env (GI-EXTRACT-05)
         run: |
-          docker run --rm remote-controller:ci sh -c '
+          docker run --rm knovas-connector:ci sh -c '
             test "$OMP_THREAD_LIMIT" = "1" || { echo "OMP_THREAD_LIMIT is not 1"; exit 1; }
             test -d "$TESSDATA_PREFIX" || { echo "TESSDATA_PREFIX $TESSDATA_PREFIX missing"; exit 1; }
             for lang in deu eng fra ita; do
@@ -364,12 +372,12 @@ jobs:
             done
             tesseract --list-langs 2>&1 | tail -n +2 | sort | tr "\n" " "; echo'
           # The [ocr] extra: OCR runs in-process through tesserocr, not the CLI.
-          docker run --rm remote-controller:ci python -c "from knovas_extract._ocr.backend import select_backend; name = select_backend('auto').name; print('OCR engine', name); assert name == 'tesserocr', name"
+          docker run --rm knovas-connector:ci python -c "from knovas_extract._ocr.backend import select_backend; name = select_backend('auto').name; print('OCR engine', name); assert name == 'tesserocr', name"
 
       - name: The Connector image carries the pinned knovas-extract
         run: |
           docker run --rm -i -e KNOVAS_EXTRACT_VERSION -e KNOVAS_EXTRACT_GIT_REF \
-            remote-controller:ci python - < ../scripts/ci/assert_knovas_extract_pin.py
+            knovas-connector:ci python - < ../scripts/ci/assert_knovas_extract_pin.py
 
       - name: No pymupdf-layout (PolyForm-NC) in the Connector image
         # Gates the build (plan M0, [C-reg-9]): both images install the pin of
@@ -378,7 +386,7 @@ jobs:
         # pymupdf-layout, is in the separate [pdf-markdown] extra that neither
         # image installs. A bump or an extra that drags it back in fails here.
         run: |
-          if docker run --rm remote-controller:ci pip show pymupdf-layout >/dev/null 2>&1; then
+          if docker run --rm knovas-connector:ci pip show pymupdf-layout >/dev/null 2>&1; then
             echo "pymupdf-layout is installed in the image"; exit 1
           fi
           echo "pymupdf-layout absent"
@@ -399,7 +407,7 @@ jobs:
           EOF
           docker run -d --name rc-ci --env-file ci.env \
             -v /tmp/rc-watch:/data:ro \
-            remote-controller:ci
+            knovas-connector:ci
           sleep 3
           docker exec rc-ci python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:5001/health'); assert r.status==200, r.status"
           # E6: PID 1 is gunicorn itself (shell-form CMD with exec), one
