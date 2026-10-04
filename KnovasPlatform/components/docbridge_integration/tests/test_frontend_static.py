@@ -412,6 +412,71 @@ class TestEntityNamesWithASemicolon:
         assert result["more"] == [{"name": "Huber"}, {"name": name}, {"name": "Beispiel GmbH"}]
 
 
+@needs_node
+class TestPanelEditorKeepsStoredValues:
+    """The value editor in the preview panel shows a many-valued field's
+    values joined with "; " and splits what is saved at ";". A stored value
+    may hold ";" itself -- Outlook categories such as "Kunde; Muster AG"
+    (RemoteController/contracts/vectors/metadata_fields.json). Saved as
+    shown, the stored values go back as they are; changed text is split,
+    and a stored value still standing whole in it stays one value."""
+
+    def _saved(self, edit_value, edits):
+        """What each save sends for ``keywords``: the editor opened on
+        ``edit_value``, its input left as shown (None) or replaced by an
+        edit, where ``{shown}`` stands for the text the editor showed."""
+        return _rail(r"""
+        FakeEl.prototype.append = function (...nodes) { nodes.forEach((n) => this.appendChild(n)); };
+        FakeEl.prototype.focus = function () {};
+        FakeEl.prototype.closest = function () { return null; };
+        const editValue = """ + json.dumps(edit_value) + r""";
+        const edits = """ + json.dumps(edits) + r""";
+        const field = { key: 'keywords', label: 'Stichwoerter', datatype: 'text',
+                        cardinality: 'many', layer: 'upload' };
+        const ui = Object.create(__DF.prototype);
+        ui.fields = [field];
+        ui._panelView = { version: 3 };
+        ui.panel = new FakeEl('div');
+        const sent = [];
+        ui._save = (ops) => { sent.push(ops.set ? ops.set.keywords : ops); };
+        let shown = null;
+        edits.forEach((edit) => {
+          ui._openEditor(new FakeEl('button'), Object.assign({ edit_value: editValue }, field));
+          const form = ui.panel.children[ui.panel.children.length - 1];
+          const input = form.children[1];
+          shown = input.value;
+          if (edit !== null) input.value = edit.replace('{shown}', shown);
+          form.children[3].children[0].listeners.click.forEach((fn) => fn());
+        });
+        out({ shown, sent });
+        """)
+
+    def test_a_save_without_a_change_sends_the_stored_values(self):
+        result = self._saved(["Projekt Alpha", "Kunde; Muster AG"], [None])
+        assert result["shown"] == "Projekt Alpha; Kunde; Muster AG"
+        assert result["sent"] == [["Projekt Alpha", "Kunde; Muster AG"]]
+
+    def test_changed_text_is_split_and_stored_values_stay_whole(self):
+        result = self._saved(["Projekt Alpha", "Kunde; Muster AG"],
+                             ["{shown}; Projekt Beta", "Kunde; Muster AG", "Neu; Wert", ""])
+        assert result["sent"] == [
+            ["Projekt Alpha", "Kunde; Muster AG", "Projekt Beta"],
+            ["Kunde; Muster AG"],
+            ["Neu", "Wert"],
+            {"unset": ["keywords"]},
+        ]
+
+    def test_a_stored_value_stays_whole_as_often_as_it_is_stored(self):
+        """An Outlook category "Kunde; Muster AG" next to the keywords
+        "Kunde" and "Muster AG": saved as shown, all three go back; with a
+        value added, the text holds the whole value once and the two single
+        ones beside it."""
+        stored = ["Kunde; Muster AG", "Kunde", "Muster AG"]
+        result = self._saved(stored, [None, "{shown}; Projekt Beta"])
+        assert result["shown"] == "Kunde; Muster AG; Kunde; Muster AG"
+        assert result["sent"] == [stored, stored + ["Projekt Beta"]]
+
+
 def test_the_rail_controls_use_the_one_builder():
     """F2: every facet control reads and restores through buildOperand and
     parseOperand, so search and "Liste anzeigen" send the same values."""
