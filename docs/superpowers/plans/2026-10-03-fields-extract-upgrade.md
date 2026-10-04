@@ -92,7 +92,7 @@ decoded as cp1252 and two `test_experiments_frontend.py::TestSearchHitCards` tes
 | A1 library CI green | done | `2767bd0` on `release/0.4.0a1` |
 | A2–A4 library (e-mail HTML, sentence cap, DOCX layout) | done | `82f63ee`, `b3f76f6`, `a0383c4` on `release/0.4.0a1` |
 | A7 library (MSG categories), release hygiene, selectolax below 1.0 | done | `26c36ef`, `bd16695`, `23f30cc` on `release/0.4.0a1` (pushed) |
-| A5, A6 library merge and pin | open: the owner merges the library PR, then both Dockerfiles take its merge commit (no PyPI release for now) | — |
+| A5, A6 library merge and pin | done: the owner merged the library PR (#20, merge `2c95cbc`, tree equal to `23f30cc`); both Dockerfiles pin it (no PyPI release for now) | `bfac394` |
 | SETUP | done (`$SP/setup-venvs.sh`; per-section PostgreSQL containers) | — |
 | INT-1 merge, INT-2, INT-4 | done | `ac878c3`, `731dbae`, `3a5443c` |
 | INT-3a–d, INT-5, INT-6 | done | merge `de09209` |
