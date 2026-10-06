@@ -2409,6 +2409,43 @@ class KnovasAPIClient:
             return None
         return _graph_payload_list(payload, 'facts')
 
+    def graph_type_facts(self, node_type_id: str, *, page_size: int = 500,
+                         max_rows: int = 5000) -> Optional[Dict[str, Any]]:
+        """Read visible facts for a type without an N+1 request per node."""
+        page_size = max(1, min(1000, int(page_size)))
+        rows: List[Dict[str, Any]] = []
+        seen: set = set()
+        offset = 0
+        while True:
+            payload = self._graph_request('GET', '/facts', params={
+                'node_type_id': node_type_id,
+                'limit': page_size,
+                'offset': offset,
+            })
+            if payload is None:
+                return None if not rows else {'facts': rows, 'complete': False}
+            page = _graph_payload_list(payload, 'facts', strict=True)
+            fresh = [fact for fact in page if str(fact.get('id')) not in seen]
+            if page and not fresh:
+                return {'facts': rows, 'complete': True}
+            seen.update(str(fact.get('id')) for fact in fresh)
+            rows.extend(fresh)
+            total = payload.get('count') if isinstance(payload, dict) else None
+            if len(page) < page_size or (
+                    isinstance(total, int) and len(rows) >= total):
+                return {'facts': rows, 'complete': True}
+            if len(rows) >= max_rows:
+                return {'facts': rows[:max_rows], 'complete': False}
+            offset += len(page)
+
+    def graph_fact_history(self, fact_id: str) -> Optional[List[Dict[str, Any]]]:
+        """GET /secured/graph/facts/<id>/history when supported."""
+        payload = self._graph_request(
+            'GET', f'/facts/{quote(str(fact_id), safe="")}/history')
+        if payload is None:
+            return None
+        return _graph_payload_list(payload, 'history', 'events', strict=True)
+
     def graph_create_fact(self, node_id: str, value: Any,
                           attribute_id: Optional[str] = None,
                           label: Optional[str] = None) -> Optional[Dict[str, Any]]:

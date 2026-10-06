@@ -1779,7 +1779,8 @@ def create_app(config_path: Optional[str] = None):
         if cortex_enabled:
             return None
         path = request.path or ''
-        if path == '/ontology' or path.startswith('/api/ontology'):
+        if (path == '/ontology' or path.startswith('/api/ontology')
+                or path.startswith('/api/graph')):
             if path.startswith('/api/'):
                 return jsonify({'success': False, 'error': 'Cortex ist deaktiviert.'}), 404
             return redirect(url_for('index'))
@@ -1796,6 +1797,7 @@ def create_app(config_path: Optional[str] = None):
             brand=web_brand,
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
+            graph_mode=_ontology_source_is_graph() and identity_gate is not None,
         )
 
     @app.route('/settings')
@@ -1840,6 +1842,7 @@ def create_app(config_path: Optional[str] = None):
             },
         ))
 
+        from identity.directories import DirectoryStore
         from identity.node_grants import NodeGrantStore
         from web_interface.graph_routes import create_graph_blueprint
 
@@ -1854,6 +1857,8 @@ def create_app(config_path: Optional[str] = None):
             # naming it here rather than calling it through a lambda would read
             # it before it is bound.
             graph_mode=lambda: _ontology_source_is_graph(),
+            topology=lambda: _ontology_source(),
+            directories=lambda: DirectoryStore(identity_gate.connection()),
         ))
 
         if experiments_settings.enabled:

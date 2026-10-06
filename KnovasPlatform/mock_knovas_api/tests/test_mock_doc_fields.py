@@ -210,12 +210,12 @@ class TestEveryMode:
         status, body = mock.call("GET", "/secured/graph/node-types")
         assert status == 200
         types = {t["name"]: t["id"] for t in body["node_types"]}
-        assert set(types) == {"Mandant", "Gericht"}
+        assert {"Mandat", "Person", "Mandant", "Organisation", "Gericht", "Frist"} == set(types)
         status, body = mock.call("GET", f"/secured/graph/nodes?node_type_id={types['Mandant']}")
         assert status == 200
         assert [n["name"] for n in body["nodes"]] == ["Beispiel GmbH", "Muster AG"]
         assert {n["node_type_id"] for n in body["nodes"]} == {types["Mandant"]}
-        assert len(mock.call("GET", "/secured/graph/nodes")[1]["nodes"]) == 3
+        assert len(mock.call("GET", "/secured/graph/nodes")[1]["nodes"]) == 14
         node = testing.mock_module().stable_id("node", "Muster AG")
         status, body = mock.call("GET", f"/secured/graph/nodes/{node}")
         assert status == 200
@@ -229,6 +229,40 @@ class TestEveryMode:
         tree = body["groups"][0]
         assert tree["is_admin"] is False
         assert [c["is_admin"] for c in tree["children"]] == [True, False]
+
+    def test_cortex_demo_graph_has_fields_edges_and_history(self, mode):
+        mock = Mock(doc_fields=mode)
+        matter = testing.mock_module().stable_id(
+            "node", "K\u00fcndigungsanfechtung Steiner")
+        type_id = testing.mock_module().stable_id("node_type", "Mandat")
+
+        status, exported = mock.call("GET", "/secured/graph")
+        assert status == 200
+        assert len(exported["edges"]) >= 10
+
+        status, schema = mock.call(
+            "GET", f"/secured/graph/node-types/{type_id}/schema")
+        assert status == 200
+        assert {field["name"] for field in schema["attributes"]} >= {
+            "Aktenzeichen", "Streitwert", "Sachbearbeiter",
+        }
+
+        status, detail = mock.call("GET", f"/secured/graph/nodes/{matter}")
+        assert status == 200
+        assert len(detail["facts"]) >= 9
+        assert len(detail["assignments"]) == 2
+
+        status, network = mock.call(
+            "GET", f"/secured/graph/nodes/{matter}/neighbors?depth=1&include_edges=true")
+        assert status == 200
+        assert len(network["neighbors"]) >= 5
+        assert network["edges"]
+
+        fact_id = detail["facts"][0]["id"]
+        status, history = mock.call(
+            "GET", f"/secured/graph/facts/{fact_id}/history")
+        assert status == 200
+        assert history["history"][0]["action"] == "created"
 
 
 # -- off ----------------------------------------------------------------------
@@ -580,7 +614,7 @@ class TestValuesRegistry:
         status, body = mock.call("POST", "/secured/graph/doc-fields/packs/legal_ch/install")
         assert status == 200
         assert body["installed"] == 11 and body["skipped"] == 0
-        assert body["warnings"] == ["target_type_missing:matter"]
+        assert body["warnings"] == []
         body = mock.call("POST", "/secured/graph/doc-fields/packs/legal_ch/install")[1]
         assert (body["installed"], body["skipped"]) == (0, 11)
         status, body = mock.call("POST", "/secured/graph/doc-fields/packs/medical/install")

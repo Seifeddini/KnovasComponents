@@ -37,6 +37,39 @@
                 <span class="graph-add-type-label">Typ anlegen</span>
             </button>
             <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Cortex vorhanden.</p>
+            <p class="cortex-status" id="cortexStatus" role="status" aria-live="polite"></p>
+
+            {% if graph_mode is defined and graph_mode %}
+            <div class="cortex-dock" aria-label="Cortex-Ansichten">
+                <div class="cortex-dock-group">
+                    <span class="cortex-dock-label">Verzeichnis</span>
+                    <div class="cortex-segmented" id="cortexViewSwitch" role="group"
+                         aria-label="Verzeichnis auswählen">
+                        <button type="button" class="active" data-view="all"
+                                aria-pressed="true">Cortex allgemein</button>
+                    </div>
+                </div>
+                <div class="cortex-dock-divider" aria-hidden="true"></div>
+                <div class="cortex-dock-group">
+                    <span class="cortex-dock-label">Ansicht am Knoten</span>
+                    <div class="cortex-segmented" id="cortexContextSwitch" role="group"
+                         aria-label="Ansicht am ausgewählten Knoten">
+                        <button type="button" data-context="fields" disabled>Felder</button>
+                        <button type="button" data-context="network" disabled>Wissensnetz</button>
+                        <button type="button" data-context="documents" disabled>Dokumente</button>
+                        <button type="button" data-context="history" disabled>Verlauf</button>
+                    </div>
+                </div>
+                <label class="cortex-depth" id="cortexDepthWrap" hidden>
+                    Tiefe
+                    <select id="cortexDepth">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </label>
+            </div>
+            {% endif %}
 
             <aside class="ontology-drawer" id="entityPane" aria-label="Entitäten und Belege">
                 <div class="ontology-pane-header">
@@ -75,7 +108,13 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+    {% if graph_mode is defined and graph_mode %}
+    <script src="{{ url_for('static', filename='js/vendor/3d-force-graph.min.js') }}?v={{ asset_version }}"></script>
+    {% endif %}
     <script src="{{ url_for('static', filename='js/ontology_connect.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/ontology.js') }}?v={{ asset_version }}"></script>
+    {% if graph_mode is defined and graph_mode %}
+    <script src="{{ url_for('static', filename='js/cortex3d.js') }}?v={{ asset_version }}"></script>
+    {% endif %}
 </body>
 </html>

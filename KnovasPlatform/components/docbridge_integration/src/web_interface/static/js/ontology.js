@@ -1731,5 +1731,8 @@ class CortexApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    window.cortexApp = new CortexApp();
+    // cortex3d.js owns the same stage when WebGL/Three.js is available.
+    // Keeping this initializer as a fallback preserves the proven Cytoscape
+    // experience on unsupported devices.
+    if (!window.KnovasCortex3D) window.cortexApp = new CortexApp();
 });

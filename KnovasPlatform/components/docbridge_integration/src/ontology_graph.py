@@ -250,6 +250,23 @@ class GraphOntologySource:
                 self._evict_stale_export_cache(now)
         return data
 
+    def topology(self) -> Dict[str, Any]:
+        """Principal-scoped topology for other Cortex projections.
+
+        Returning shallow list copies prevents a view composer from mutating
+        the cached export shared by later requests from the same principal.
+        """
+        data = self._export()
+        return {
+            "node_types": list(data.get("node_types") or []),
+            "nodes": list(data.get("nodes") or []),
+            "edges": list(data.get("edges") or []),
+        }
+
+    def invalidate(self) -> None:
+        """Public invalidation hook for the graph workbench."""
+        self._invalidate()
+
     def summary(self) -> Dict[str, Any]:
         data = self._export()
         nodes = data["nodes"]

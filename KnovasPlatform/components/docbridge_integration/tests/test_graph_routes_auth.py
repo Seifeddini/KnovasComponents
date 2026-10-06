@@ -9,8 +9,8 @@ Two halves, deliberately:
   four decorators today. They are ordinary tests and they fail when a gate
   breaks — the module's own docstring promised this shape and it is the only
   coverage the gates have until D1-D3 land.
-* The xfail classes below describe the real endpoints. They are the acceptance
-  criteria for D1-D3 and they are expected to fail until then.
+* The integration classes below describe the real endpoints and exercise them
+  against the migrated identity database.
 
 Alloy: models/alloy/node_grants.als (WriteGateMechanism, ReadGateMechanism).
 """
@@ -21,13 +21,6 @@ from flask import Flask, jsonify
 
 from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
 from web_interface.graph_routes import create_graph_blueprint
-
-# C2 builds the blueprint and its four gates; the routes they guard arrive in
-# D1-D3, so until then every call below lands on 404. The mark comes off class
-# by class as each task adds its routes — it is not strict, because a class may
-# start passing one route before the next.
-_AWAITING_ROUTES = pytest.mark.xfail(reason="routes arrive in D1-D3", strict=False)
-
 
 # ---------------------------------------------------------------------------
 # The gates themselves, on a bare Flask app. No database, no identity schema:
@@ -216,7 +209,6 @@ _DB = pytest.mark.skipif(
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestAuthentication:
     def test_an_anonymous_caller_gets_401(self, anon_client):
         """XPASSes today, and not because of this blueprint: the app-wide
@@ -231,7 +223,6 @@ class TestAuthentication:
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestAdminGate:
     def test_a_member_may_not_create_a_node_type(self, member_client):
         response = member_client.post("/api/graph/node-types", json={"name": "Mandat"})
@@ -243,7 +234,6 @@ class TestAdminGate:
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestNodeWriteGate:
     def test_a_non_editor_may_not_patch_a_node(self, member_client, node_owned_by_alice):
         response = member_client.patch(f"/api/graph/nodes/{node_owned_by_alice}",
@@ -262,7 +252,6 @@ class TestNodeWriteGate:
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestCsrf:
     def test_a_state_changing_request_without_the_header_is_refused(
             self, admin_client_no_csrf):
@@ -272,7 +261,6 @@ class TestCsrf:
 
 
 @_DB
-@_AWAITING_ROUTES
 class TestFixtureMode:
     def test_every_graph_route_refuses_in_fixture_mode(self, fixture_mode_client):
         response = fixture_mode_client.get("/api/graph/node-types")

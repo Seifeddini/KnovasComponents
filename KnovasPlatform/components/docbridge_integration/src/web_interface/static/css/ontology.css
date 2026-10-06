@@ -34,6 +34,184 @@
 }
 
 #graphContainer { position: absolute; inset: 0; }
+#graphContainer canvas { outline: none; }
+
+.cortex-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.cortex-label-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: clip;
+    pointer-events: none;
+}
+
+.cortex-node-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: 180px;
+    padding: 4px 7px;
+    color: var(--text-primary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(var(--text-primary-rgb), 0.08);
+    font-family: var(--font-heading);
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: pre-line;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.cortex-node-label-field,
+.cortex-node-label-document,
+.cortex-node-label-history {
+    border-radius: var(--radius);
+    font-family: var(--font-body);
+    font-weight: 500;
+}
+
+.cortex-node-label:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.cortex-dock {
+    position: absolute;
+    z-index: 4;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    max-width: calc(100% - 32px);
+    overflow-x: auto;
+    padding: 10px 12px;
+    background: rgba(var(--text-primary-rgb), 0.92);
+    color: var(--card-bg);
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 10px 32px rgba(var(--text-primary-rgb), 0.24);
+    backdrop-filter: blur(12px);
+}
+
+.cortex-dock-group {
+    flex: 0 0 auto;
+    display: grid;
+    gap: 5px;
+    min-width: max-content;
+}
+
+.cortex-dock-label {
+    font-family: var(--font-heading);
+    font-size: 0.62rem;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--highlight);
+}
+
+.cortex-segmented {
+    display: flex;
+    gap: 3px;
+}
+
+.cortex-segmented button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 6px 11px;
+    color: var(--card-bg);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cortex-segmented button:hover:not(:disabled) {
+    background: rgba(var(--accent-rgb), 0.18);
+}
+
+.cortex-segmented button.active {
+    color: var(--text-primary);
+    background: var(--card-bg);
+    border-color: var(--card-bg);
+}
+
+.cortex-segmented button:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+}
+
+.cortex-segmented button:focus-visible,
+.cortex-depth select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.cortex-dock-divider {
+    align-self: stretch;
+    width: 1px;
+    background: rgba(var(--accent-rgb), 0.35);
+}
+
+.cortex-depth {
+    display: grid;
+    gap: 5px;
+    font-family: var(--font-heading);
+    font-size: 0.62rem;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--highlight);
+}
+.cortex-depth[hidden] { display: none; }
+
+.cortex-depth select {
+    min-height: 34px;
+    color: var(--text-primary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 4px 8px;
+}
+
+.cortex-tooltip {
+    max-width: 240px;
+    padding: 7px 9px;
+    color: var(--text-primary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    box-shadow: 0 6px 20px rgba(var(--text-primary-rgb), 0.18);
+    white-space: pre-line;
+}
+
+.cortex-tooltip strong,
+.cortex-tooltip small {
+    display: block;
+}
+
+.cortex-tooltip small {
+    margin-top: 2px;
+    color: var(--text-secondary);
+}
 
 .ontology-empty {
     color: var(--text-secondary);
@@ -53,7 +231,7 @@
     position: absolute;
     top: 16px;
     right: 16px;
-    bottom: 16px;
+    bottom: 82px;
     width: min(var(--drawer-w), calc(100vw - 72px));
     display: flex;
     flex-direction: column;
@@ -104,6 +282,67 @@
    hidden: hidden macht den Kasten zu einem Rollbehaelter, den ein focus()
    verschieben kann - genau daran hatte sich der Graph schon einmal verzogen. */
 #docPaneBody { overflow: clip; }
+
+.cortex-field-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.cortex-field {
+    display: grid;
+    grid-template-columns: minmax(110px, .8fr) minmax(0, 1.4fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+}
+
+.cortex-field.missing {
+    border-style: dashed;
+}
+
+.cortex-field-name {
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.cortex-field-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.cortex-field-input,
+.cortex-currency-input {
+    width: 100%;
+    padding: 7px 9px;
+    color: var(--text-primary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+}
+
+.cortex-money-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 70px;
+    gap: 6px;
+}
+
+.cortex-field-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.form-error {
+    grid-column: 1 / -1;
+    color: var(--error-color);
+    font-size: 0.82rem;
+}
 
 .entity-hint { color: var(--text-secondary); font-size: 0.85rem;
                padding: 10px var(--gutter) 0; margin: 0; }
@@ -395,6 +634,7 @@
 }
 .graph-add-type:hover { border-color: var(--accent); color: var(--text-primary); }
 .graph-add-type:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.graph-add-type[hidden] { display: none; }
 .graph-add-type-circle {
     display: grid;
     place-items: center;
@@ -426,3 +666,18 @@
 .connect-handle:hover { transform: scale(1.25); }
 .connect-handle:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 .connect-handle[hidden] { display: none; }
+
+@media (max-width: 900px) {
+    .app-content { align-self: stretch; width: 100%; }
+    .cortex-dock {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        transform: none;
+        align-items: stretch;
+        overflow-x: auto;
+    }
+    .cortex-dock-divider { display: none; }
+    .ontology-drawer { bottom: 132px; }
+    .cortex-field { grid-template-columns: 1fr; }
+}

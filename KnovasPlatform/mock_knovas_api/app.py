@@ -684,14 +684,184 @@ class MockState:
         self.settings = {"unknown_keys": "ignore", "date_order": "dmy"}
         self.node_types: Dict[str, Dict[str, Any]] = {}
         self.nodes: Dict[str, Dict[str, Any]] = {}
-        for type_name in ("Mandant", "Gericht"):
+        self.graph_schemas: Dict[str, List[Dict[str, Any]]] = {}
+        self.graph_facts: Dict[str, List[Dict[str, Any]]] = {}
+        self.graph_edges: List[Dict[str, Any]] = []
+        self.graph_assignments: Dict[str, List[Dict[str, Any]]] = {}
+        self.graph_history: Dict[str, List[Dict[str, Any]]] = {}
+        for type_name in ("Mandat", "Person", "Mandant", "Organisation", "Gericht", "Frist"):
             tid = stable_id("node_type", type_name)
             self.node_types[tid] = {"id": tid, "name": type_name, "description": None}
-        for type_name, name in (("Mandant", "Muster AG"), ("Mandant", "Beispiel GmbH"),
-                                ("Gericht", "Bezirksgericht Musterhausen")):
+        seed_nodes = (
+            ("Mandant", "Muster AG"),
+            ("Mandant", "Beispiel GmbH"),
+            ("Organisation", "Netzbau Zentralschweiz AG"),
+            ("Organisation", "Alpenblick Immobilien AG"),
+            ("Gericht", "Bezirksgericht Musterhausen"),
+            ("Gericht", "Kantonsgericht Luzern"),
+            ("Person", "Marco Steiner"),
+            ("Person", "A. Brunner"),
+            ("Person", "Laura Meier"),
+            ("Mandat", "K\u00fcndigungsanfechtung Steiner"),
+            ("Mandat", "Arbeitsvertrag Meier"),
+            ("Mandat", "Mietstreit Keller"),
+            ("Frist", "Schlichtungsverhandlung 15.10.2026"),
+            ("Frist", "Klageantwort 30.11.2026"),
+        )
+        for type_name, name in seed_nodes:
             nid = stable_id("node", name)
             self.nodes[nid] = {"id": nid, "name": name, "description": None,
                                "node_type_id": stable_id("node_type", type_name)}
+
+        mandate_type = stable_id("node_type", "Mandat")
+        person_type = stable_id("node_type", "Person")
+        mandant_type = stable_id("node_type", "Mandant")
+        organisation_type = stable_id("node_type", "Organisation")
+        court_type = stable_id("node_type", "Gericht")
+        deadline_type = stable_id("node_type", "Frist")
+
+        def attr(key: str, name: str, datatype: str = "text", **extra: Any) -> Dict[str, Any]:
+            return {
+                "id": stable_id("graph_attribute", f"{mandate_type}:{key}"),
+                "name": name,
+                "datatype": datatype,
+                "required": bool(extra.pop("required", False)),
+                "sort_order": len(self.graph_schemas.get(mandate_type, [])) * 10 + 10,
+                **extra,
+            }
+
+        mandate_schema = [
+            attr("file_number", "Aktenzeichen", required=True),
+            attr("status", "Status", "enum", required=True,
+                 enum_values=["Offen", "In Bearbeitung", "Abgeschlossen"]),
+            attr("practice", "Rechtsgebiet", "enum",
+                 enum_values=["Arbeitsrecht", "Mietrecht", "Vertragsrecht"]),
+            attr("opened", "Er\u00f6ffnet", "date"),
+            attr("amount", "Streitwert", "money"),
+            attr("client", "Mandant", "entity_ref", target_node_type_id=mandant_type),
+            attr("opponent", "Gegenpartei", "entity_ref",
+                 target_node_type_id=organisation_type),
+            attr("court", "Zust\u00e4ndiges Gericht", "entity_ref",
+                 target_node_type_id=court_type),
+            attr("owner", "Sachbearbeiter", "entity_ref", target_node_type_id=person_type),
+        ]
+        for index, field in enumerate(mandate_schema, start=1):
+            field["sort_order"] = index * 10
+        self.graph_schemas[mandate_type] = mandate_schema
+        self.graph_schemas[person_type] = [
+            {
+                "id": stable_id("graph_attribute", f"{person_type}:role"),
+                "name": "Rolle", "datatype": "text", "required": True, "sort_order": 10,
+            },
+            {
+                "id": stable_id("graph_attribute", f"{person_type}:email"),
+                "name": "E-Mail", "datatype": "text", "required": False, "sort_order": 20,
+            },
+            {
+                "id": stable_id("graph_attribute", f"{person_type}:organisation"),
+                "name": "Organisation", "datatype": "entity_ref", "required": False,
+                "sort_order": 30, "target_node_type_id": organisation_type,
+            },
+        ]
+        self.graph_schemas[mandant_type] = []
+        self.graph_schemas[organisation_type] = []
+        self.graph_schemas[court_type] = []
+        self.graph_schemas[deadline_type] = []
+
+        by_name = {node["name"]: node["id"] for node in self.nodes.values()}
+        by_field = {field["name"]: field["id"] for field in mandate_schema}
+        now = "2026-10-06T09:30:00Z"
+
+        def fact(node_name: str, field_name: str, value: Any) -> None:
+            fact_id = stable_id("graph_fact", f"{node_name}:{field_name}")
+            self.graph_facts.setdefault(by_name[node_name], []).append({
+                "id": fact_id,
+                "node_id": by_name[node_name],
+                "attribute_id": by_field[field_name],
+                "value": value,
+                "created_at": now,
+                "updated_at": now,
+            })
+            self.graph_history[fact_id] = [{
+                "id": stable_id("graph_history", fact_id),
+                "action": "created",
+                "new_value": value,
+                "created_at": now,
+                "actor_name": "Demo-Import",
+            }]
+
+        fact("K\u00fcndigungsanfechtung Steiner", "Aktenzeichen", "2026-0031")
+        fact("K\u00fcndigungsanfechtung Steiner", "Status", "Offen")
+        fact("K\u00fcndigungsanfechtung Steiner", "Rechtsgebiet", "Arbeitsrecht")
+        fact("K\u00fcndigungsanfechtung Steiner", "Er\u00f6ffnet",
+             {"value": "2026-02-03", "precision": "day"})
+        fact("K\u00fcndigungsanfechtung Steiner", "Streitwert",
+             {"amount": "22000", "currency": "CHF"})
+        fact("K\u00fcndigungsanfechtung Steiner", "Mandant",
+             {"node_id": by_name["Muster AG"]})
+        fact("K\u00fcndigungsanfechtung Steiner", "Gegenpartei",
+             {"node_id": by_name["Netzbau Zentralschweiz AG"]})
+        fact("K\u00fcndigungsanfechtung Steiner", "Zust\u00e4ndiges Gericht",
+             {"node_id": by_name["Kantonsgericht Luzern"]})
+        fact("K\u00fcndigungsanfechtung Steiner", "Sachbearbeiter",
+             {"node_id": by_name["A. Brunner"]})
+
+        for matter, number, area, amount in (
+            ("Arbeitsvertrag Meier", "2026-0042", "Vertragsrecht", "78000"),
+            ("Mietstreit Keller", "2026-0057", "Mietrecht", "14500"),
+        ):
+            fact(matter, "Aktenzeichen", number)
+            fact(matter, "Status", "In Bearbeitung")
+            fact(matter, "Rechtsgebiet", area)
+            fact(matter, "Streitwert", {"amount": amount, "currency": "CHF"})
+
+        person_fields = {
+            field["name"]: field["id"] for field in self.graph_schemas[person_type]
+        }
+        for name, role, email, organisation in (
+            ("Marco Steiner", "Mandant", "marco.steiner@example.ch", "Muster AG"),
+            ("A. Brunner", "Sachbearbeitung", "a.brunner@example.ch",
+             "Netzbau Zentralschweiz AG"),
+            ("Laura Meier", "Gegenpartei", "laura.meier@example.ch",
+             "Alpenblick Immobilien AG"),
+        ):
+            for field_name, value in (
+                ("Rolle", role),
+                ("E-Mail", email),
+                ("Organisation", {"node_id": by_name[organisation]}),
+            ):
+                fact_id = stable_id("graph_fact", f"{name}:{field_name}")
+                self.graph_facts.setdefault(by_name[name], []).append({
+                    "id": fact_id, "node_id": by_name[name],
+                    "attribute_id": person_fields[field_name],
+                    "value": value, "created_at": now, "updated_at": now,
+                })
+                self.graph_history[fact_id] = []
+
+        edge_specs = (
+            ("K\u00fcndigungsanfechtung Steiner", "Marco Steiner", "Mandant"),
+            ("K\u00fcndigungsanfechtung Steiner", "A. Brunner", "Sachbearbeiter"),
+            ("K\u00fcndigungsanfechtung Steiner", "Netzbau Zentralschweiz AG", "Gegenpartei"),
+            ("K\u00fcndigungsanfechtung Steiner", "Kantonsgericht Luzern", "Zust\u00e4ndiges Gericht"),
+            ("K\u00fcndigungsanfechtung Steiner", "Klageantwort 30.11.2026", "hat Frist"),
+            ("Arbeitsvertrag Meier", "Laura Meier", "betrifft"),
+            ("Arbeitsvertrag Meier", "A. Brunner", "Sachbearbeiter"),
+            ("Mietstreit Keller", "Beispiel GmbH", "Mandant"),
+            ("Mietstreit Keller", "Bezirksgericht Musterhausen", "Zust\u00e4ndiges Gericht"),
+            ("Mietstreit Keller", "Schlichtungsverhandlung 15.10.2026", "hat Frist"),
+        )
+        for left, right, relation in edge_specs:
+            self.graph_edges.append({
+                "id": stable_id("graph_edge", f"{left}:{relation}:{right}"),
+                "node_lo": by_name[left],
+                "node_hi": by_name[right],
+                "relation": relation,
+                "edge_source": "manual",
+            })
+        self.graph_assignments[by_name["K\u00fcndigungsanfechtung Steiner"]] = [
+            {"pointer": "demo-003", "title": "K\u00fcndigung und Klageantwort", "page": 1},
+            {"pointer": "demo-001", "title": "Mandatsvereinbarung", "page": 1},
+        ]
         self.access_groups = [{
             "group_id": stable_id("group", "Kanzlei"), "name": "Kanzlei", "depth": 0,
             "is_admin": False, "children": [
@@ -1764,12 +1934,34 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
             }
         )
 
-    # -- graph vocabulary and access groups (read by the doc-fields UI) -----
+    # -- graph vocabulary and Cortex demo -----------------------------------
+
+    @app.get("/secured/graph")
+    def graph_export() -> Any:
+        _caller(_body())
+        return _success("Graph export", {
+            "node_types": copy.deepcopy(list(state.node_types.values())),
+            "nodes": copy.deepcopy(list(state.nodes.values())),
+            "edges": copy.deepcopy(state.graph_edges),
+        })
 
     @app.get("/secured/graph/node-types")
     def node_types() -> Any:
         _caller(_body())
         return _success("Node types", {"node_types": list(state.node_types.values())})
+
+    @app.post("/secured/graph/node-types")
+    def create_node_type() -> Any:
+        body = _body()
+        _caller(body)
+        name = " ".join(str(body.get("name") or "").split())
+        if not name:
+            raise DocFieldError("invalid_value", 400, "name")
+        type_id = stable_id("node_type", name)
+        row = {"id": type_id, "name": name, "description": None}
+        state.node_types[type_id] = row
+        state.graph_schemas.setdefault(type_id, [])
+        return _success("Node type created", {"node_type": copy.deepcopy(row)}, 201)
 
     @app.get("/secured/graph/nodes")
     def nodes() -> Any:
@@ -1780,6 +1972,24 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
         rows = [n for n in state.nodes.values() if not wanted or n["node_type_id"] == wanted]
         return _success("Nodes", {"nodes": sorted(rows, key=lambda n: n["name"])})
 
+    @app.post("/secured/graph/nodes")
+    def create_graph_node() -> Any:
+        body = _body()
+        _caller(body)
+        name = " ".join(str(body.get("name") or "").split())
+        if not name:
+            raise DocFieldError("invalid_value", 400, "name")
+        node_id = str(uuid4())
+        row = {
+            "id": node_id,
+            "name": name,
+            "description": body.get("description"),
+            "node_type_id": body.get("node_type_id"),
+        }
+        state.nodes[node_id] = row
+        state.graph_facts[node_id] = []
+        return _success("Node created", {"node": copy.deepcopy(row)}, 201)
+
     @app.get("/secured/graph/nodes/<node_id>")
     def node_detail(node_id: str) -> Any:
         # One node, as the Platform reads it to name an auto_scope node.
@@ -1789,8 +1999,162 @@ def create_app(doc_fields: Optional[str] = None, calibrated: bool = True,
         node = state.nodes.get(node_id)
         if node is None:
             raise _not_found("Node")
-        return _success("Node detail", {"node": copy.deepcopy(node), "assignments": [],
-                                        "sections": [], "facts": []})
+        return _success("Node detail", {
+            "node": copy.deepcopy(node),
+            "assignments": copy.deepcopy(state.graph_assignments.get(node_id, [])),
+            "sections": [],
+            "facts": copy.deepcopy(state.graph_facts.get(node_id, [])),
+        })
+
+    @app.patch("/secured/graph/nodes/<node_id>")
+    def update_graph_node(node_id: str) -> Any:
+        body = _body()
+        _caller(body)
+        node = state.nodes.get(node_id)
+        if node is None:
+            raise _not_found("Node")
+        for key in ("name", "description", "node_type_id"):
+            if key in body:
+                node[key] = body[key]
+        return _success("Node updated", {"node": copy.deepcopy(node)})
+
+    @app.get("/secured/graph/edges")
+    def graph_edges() -> Any:
+        _caller(_body())
+        return _success("Edges", {"edges": copy.deepcopy(state.graph_edges)})
+
+    @app.get("/secured/graph/node-types/<type_id>/schema")
+    def graph_schema(type_id: str) -> Any:
+        _caller(_body())
+        if type_id not in state.node_types:
+            raise _not_found("Node type")
+        rows = state.graph_schemas.get(type_id, [])
+        if request.args.get("include_deprecated") != "true":
+            rows = [
+                row for row in rows
+                if not row.get("deprecated") and not row.get("deprecated_at")
+            ]
+        return _success("Node schema", {"attributes": copy.deepcopy(rows)})
+
+    @app.get("/secured/graph/nodes/<node_id>/facts")
+    def node_facts(node_id: str) -> Any:
+        _caller(_body())
+        if node_id not in state.nodes:
+            raise _not_found("Node")
+        return _success("Node facts", {
+            "facts": copy.deepcopy(state.graph_facts.get(node_id, [])),
+        })
+
+    @app.get("/secured/graph/facts")
+    def type_facts() -> Any:
+        _caller(_body())
+        wanted = request.args.get("node_type_id")
+        limit = max(1, min(1000, int(request.args.get("limit") or 500)))
+        offset = max(0, int(request.args.get("offset") or 0))
+        rows = [
+            fact
+            for node_id, facts in state.graph_facts.items()
+            if not wanted or (state.nodes.get(node_id) or {}).get("node_type_id") == wanted
+            for fact in facts
+        ]
+        return _success("Facts", {
+            "facts": copy.deepcopy(rows[offset:offset + limit]),
+            "count": len(rows),
+        })
+
+    @app.post("/secured/graph/nodes/<node_id>/facts")
+    def create_graph_fact(node_id: str) -> Any:
+        body = _body()
+        _caller(body)
+        if node_id not in state.nodes:
+            raise _not_found("Node")
+        if not body.get("attribute_id") and not body.get("label"):
+            raise DocFieldError("invalid_value", 400, "attribute_id")
+        fact = {
+            "id": str(uuid4()),
+            "node_id": node_id,
+            "attribute_id": body.get("attribute_id"),
+            "label": body.get("label"),
+            "value": copy.deepcopy(body.get("value")),
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+        }
+        state.graph_facts.setdefault(node_id, []).append(fact)
+        state.graph_history[fact["id"]] = []
+        return _success("Fact created", {"fact": copy.deepcopy(fact)}, 201)
+
+    @app.patch("/secured/graph/facts/<fact_id>")
+    def update_graph_fact(fact_id: str) -> Any:
+        body = _body()
+        _caller(body)
+        for facts in state.graph_facts.values():
+            for fact in facts:
+                if fact["id"] == fact_id:
+                    old_value = copy.deepcopy(fact.get("value"))
+                    fact["value"] = copy.deepcopy(body.get("value"))
+                    fact["updated_at"] = _now_iso()
+                    state.graph_history.setdefault(fact_id, []).append({
+                        "id": str(uuid4()), "action": "changed",
+                        "old_value": old_value, "new_value": copy.deepcopy(fact["value"]),
+                        "created_at": fact["updated_at"], "actor_name": "Demo-Benutzer",
+                    })
+                    return _success("Fact updated", {"fact": copy.deepcopy(fact)})
+        raise _not_found("Fact")
+
+    @app.delete("/secured/graph/facts/<fact_id>")
+    def delete_graph_fact(fact_id: str) -> Any:
+        _caller(_body())
+        for node_id, facts in state.graph_facts.items():
+            kept = [fact for fact in facts if fact["id"] != fact_id]
+            if len(kept) != len(facts):
+                state.graph_facts[node_id] = kept
+                return _success("Fact deleted")
+        raise _not_found("Fact")
+
+    @app.get("/secured/graph/facts/<fact_id>/history")
+    def graph_fact_history(fact_id: str) -> Any:
+        _caller(_body())
+        if fact_id not in state.graph_history:
+            raise _not_found("Fact")
+        return _success("Fact history", {
+            "history": copy.deepcopy(state.graph_history[fact_id]),
+        })
+
+    @app.get("/secured/graph/nodes/<node_id>/neighbors")
+    def graph_neighbors(node_id: str) -> Any:
+        _caller(_body())
+        if node_id not in state.nodes:
+            raise _not_found("Node")
+        depth = max(1, min(3, int(request.args.get("depth") or 1)))
+        visible = {node_id}
+        frontier = {node_id}
+        hops: Dict[str, int] = {}
+        for hop in range(1, depth + 1):
+            next_frontier: set[str] = set()
+            for edge in state.graph_edges:
+                left, right = edge["node_lo"], edge["node_hi"]
+                if left in frontier and right not in visible:
+                    next_frontier.add(right)
+                if right in frontier and left not in visible:
+                    next_frontier.add(left)
+            for found in next_frontier:
+                hops[found] = hop
+            visible.update(next_frontier)
+            frontier = next_frontier
+            if not frontier:
+                break
+        neighbors = [
+            {**copy.deepcopy(state.nodes[nid]), "depth": hops[nid]}
+            for nid in sorted(hops, key=lambda value: (hops[value], state.nodes[value]["name"]))
+        ]
+        edges = [
+            copy.deepcopy(edge) for edge in state.graph_edges
+            if edge["node_lo"] in visible and edge["node_hi"] in visible
+        ]
+        return _success("Node neighborhood", {
+            "neighbors": neighbors,
+            "edges": edges if request.args.get("include_edges") == "true" else [],
+        })
 
     @app.get("/secured/access_groups")
     def access_groups() -> Any:
