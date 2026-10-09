@@ -9,33 +9,116 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/ontology.css') }}?v={{ asset_version }}">
 </head>
-<body>
-    <div class="app-shell">
-        {% include '_sidebar.html' %}
+<body class="cortex-page">
+    <div class="cortex-surface">
+        <a class="cortex-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
+            <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
+                 alt="Knovas" width="120" height="16">
+        </a>
 
-        <div class="app-content">
-        <div class="container container-wide">
-        <header class="site-header">
-            <h1 class="site-greeting">Cortex<br>
-                <span class="site-greeting-question">Ihr Wissen, vernetzt.</span>
-            </h1>
-        </header>
+        <nav class="galaxy-breadcrumb" id="galaxyBreadcrumb"
+             aria-label="Galaxie-Pfad" hidden>
+            <button type="button" id="galaxyUp">← Galaxie</button>
+            <span aria-hidden="true">/</span>
+            <button type="button" id="galaxySystemUp" hidden></button>
+            <span id="galaxyEntitySeparator" aria-hidden="true" hidden>/</span>
+            <span id="galaxyBreadcrumbCurrent"></span>
+        </nav>
+
+        <div class="cortex-account-dock" aria-label="Account und Navigation">
+            <a class="cortex-account" href="{{ url_for('settings_page') }}"
+               aria-label="Account von {{ company_name }}">
+                <span class="cortex-account-avatar" aria-hidden="true">{{ company_name[0] | upper }}</span>
+                <span class="cortex-account-name">{{ company_name }}</span>
+            </a>
+            {% if console_url %}
+            <a class="cortex-dock-link" href="{{ console_url }}" aria-label="Verwaltung" title="Verwaltung">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+            </a>
+            {% endif %}
+            <a class="cortex-dock-link" href="{{ url_for('settings_page') }}"
+               aria-label="Einstellungen" title="Einstellungen">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+                    <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+                    <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+                    <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/>
+                    <line x1="17" y1="16" x2="23" y2="16"/>
+                </svg>
+            </a>
+            {% if feedback_url %}
+            <a class="cortex-dock-link" href="{{ feedback_url }}" target="_blank"
+               rel="noopener noreferrer" aria-label="Feedback" title="Feedback">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+            </a>
+            {% endif %}
+            <a class="cortex-dock-link cortex-dock-link-primary" href="{{ url_for('index') }}"
+               aria-label="Suche" title="Suche">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                </svg>
+            </a>
+            <button type="button" class="cortex-dock-link cortex-dock-link-primary"
+                    id="typeCreate" aria-label="Typ anlegen" title="Typ anlegen">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+            </button>
+        </div>
 
         <main class="ontology-stage" aria-label="Cortex">
-            <div class="ontology-pane-header">
-                <h2>Struktur</h2>
-                <div class="graph-toolbar" role="toolbar" aria-label="Werkzeuge">
-                    <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
-                    <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
-                    <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
-                </div>
-            </div>
             <div class="ontology-stage-body">
+            <canvas class="point-cloud-mockup" id="pointCloudMockup" aria-hidden="true"></canvas>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Mandant"
+                    aria-label="Sonnensystem Mandant öffnen" title="Mandant öffnen"></button>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Gericht"
+                    aria-label="Sonnensystem Gericht öffnen" title="Gericht öffnen"></button>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Personen"
+                    aria-label="Sonnensystem Personen öffnen" title="Personen öffnen"></button>
             <div id="graphContainer" aria-hidden="true"></div>
-            <button type="button" class="graph-add-type" id="typeCreate">
-                <span class="graph-add-type-circle" aria-hidden="true">+</span>
-                <span class="graph-add-type-label">Typ anlegen</span>
-            </button>
+            <section class="galaxy-entity-panel" id="galaxyEntityPanel"
+                     aria-label="Entitätsdetails" hidden>
+                <span class="galaxy-entity-kicker" id="galaxyEntityType"></span>
+                <h2 id="galaxyEntityTitle"></h2>
+                <div id="galaxyEntityFields"></div>
+            </section>
+            <section class="galaxy-entity-panel galaxy-documents-panel"
+                     id="galaxyDocumentsPanel" aria-label="Relevante Dokumente" hidden>
+                <span class="galaxy-entity-kicker">Belege</span>
+                <h2>Relevante Dokumente</h2>
+                <div id="galaxyEntityDocuments"></div>
+            </section>
+            <section class="galaxy-entity-panel galaxy-history-panel"
+                     id="galaxyHistoryPanel" aria-label="Verlauf" hidden>
+                <span class="galaxy-entity-kicker">Aktivitäten</span>
+                <h2>Verlauf</h2>
+                <div id="galaxyEntityHistory"></div>
+            </section>
+            <div class="galaxy-entity-tabs" id="galaxyEntityTabs"
+                 role="tablist" aria-label="Entitätsansicht" hidden>
+                <button type="button" class="galaxy-orbit-tab active"
+                        id="galaxyFieldsTab" role="tab" aria-selected="true">
+                    Stammdaten
+                </button>
+                <button type="button" class="galaxy-orbit-tab"
+                        id="galaxyDocumentsTab" role="tab" aria-selected="false">
+                    Dokumente
+                </button>
+                <button type="button" class="galaxy-orbit-tab"
+                        id="galaxyHistoryTab" role="tab" aria-selected="false">
+                    Verlauf
+                </button>
+            </div>
+            <div class="graph-toolbar" role="toolbar" aria-label="Ansicht">
+                <button type="button" id="zoomIn" class="btn btn-outline" aria-label="Vergrössern">+</button>
+                <button type="button" id="zoomOut" class="btn btn-outline" aria-label="Verkleinern">−</button>
+                <button type="button" id="zoomFit" class="btn btn-outline">Einpassen</button>
+            </div>
             <p class="ontology-empty" id="graphEmpty" hidden>Noch keine Daten im Cortex vorhanden.</p>
 
             <aside class="ontology-drawer" id="entityPane" aria-label="Entitäten und Belege">
@@ -70,11 +153,10 @@
             </aside>
             </div>
         </main>
-        </div>
-        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/point_cloud_mockup.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/ontology_connect.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/ontology.js') }}?v={{ asset_version }}"></script>
 </body>

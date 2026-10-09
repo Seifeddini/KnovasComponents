@@ -168,7 +168,11 @@ def test_ontology_page_renders_after_login(app):
     _login(client)
     resp = client.get("/ontology")
     assert resp.status_code == 200
-    assert "Cortex".encode("utf-8") in resp.data
+    body = resp.data.decode("utf-8")
+    assert "Cortex" in body
+    assert 'class="cortex-brand"' in body
+    assert 'class="cortex-account"' in body
+    assert 'class="app-sidebar"' not in body
 
 
 def _csrf_header(client):
@@ -261,7 +265,7 @@ def test_sidebar_never_shows_corpus_count(app, tmp_path, monkeypatch):
     """Corpus counts were removed from the sidebar; fixture data must not invent them."""
     client = app.test_client()
     _login(client)
-    empty_body = client.get("/ontology").data.decode("utf-8")
+    empty_body = client.get("/").data.decode("utf-8")
     assert "corpus-status" not in empty_body
     assert "Suche" in empty_body
     assert "Cortex" in empty_body
@@ -272,7 +276,7 @@ def test_sidebar_never_shows_corpus_count(app, tmp_path, monkeypatch):
     fixture_path.write_text(json.dumps(data), encoding="utf-8")
     import ontology_store
     ontology_store._cache = None
-    body = client.get("/ontology").data.decode("utf-8")
+    body = client.get("/").data.decode("utf-8")
     assert "corpus-status" not in body
     assert "1&#39;847" not in body
     assert "Dokumente gelesen" not in body

@@ -1,66 +1,1897 @@
-/* style.css -- loaded by every page of the Platform.
+/* Knovas Document Search */
 
-   Blank canvas: the visual design that lived here (tokens, fonts, layout,
-   components) is gone on this branch. To look at it again:
-       git show main:KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/style.css
-   The guide is DESIGN-CANVAS.md, next to static/ and templates/.
+/* IBM Plex, selbst gehostet (SIL OFL). Kein CDN: die Anwendung laeuft
+   kundengehostet und teils offline. */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/IBMPlexSans-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../fonts/IBMPlexMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
 
-   What is left is behaviour: rules the scripts rely on to show, hide and
-   size things. Restyle them freely, but keep what each one does. Colours
-   below are CSS system colours (Canvas, Mark, Highlight ...), the browser's
-   own defaults, so they carry no design of their own. */
+:root {
+    /* Knovas Branding, Seiten 15-16 */
+    /* Rollenverteilung nach den USE-Angaben des Guides: Royal ist dort
+       "CALLOUT TEXT", Azure ist die Identitaetsfarbe "KNOVAS BLUE".
+       Azure erreicht als Textfarbe nur 3.97:1 und als Buttonflaeche unter
+       Weiss nur 4.04:1 -- beides unter WCAG AA. Royal erreicht 7.59:1
+       bzw. 7.72:1. Azure bleibt deshalb dekorativ. */
+    --primary-color: #1A45C7;     /* Royal Blue -- Text/Links/Buttonflaechen */
+    --primary-hover: #193284;     /* Marine Blue -- Hover-Zustand */
+    --accent: #3B79F2;            /* Azure Blue -- nur dekorativ: Rahmen, Fokusringe, Chip-Highlights. Nie als Textfarbe, nie als Flaeche unter Text. */
+    --accent-rgb: 59, 121, 242;    /* RGB-Tripel von --accent, fuer rgba()-Transparenzen */
+    --success-color: #1a6b4a;
+    --error-color: #c41e1e;
+    --bg-color: #FDFDFD;          /* Off White -- Seitenhintergrund */
+    --card-bg: #FDFDFD;           /* Off White -- Container liegen flach auf der Seite,
+                                     abgegrenzt allein durch --border-color */
+    --surface-sunken: #F4F6FC;    /* Ice Blue -- zurueckgesetzte Flaechen: Treffer-Karten,
+                                     Eingabefelder, Chips */
+    --callout: #6E88DC;           /* Cornflower Blue -- laut Guide "CALLOUT CONTAINER" */
+    --highlight: #D9E0F7;         /* Grayish Blue -- Fundstellen-Markierung, ersetzt das
+                                     markenfremde Gelb */
+    --text-primary: #283647;      /* Slate Blue */
+    --text-primary-rgb: 40, 54, 71; /* RGB-Tripel von --text-primary, fuer rgba()-Transparenzen */
+    --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
+    --text-muted: #5A6B80;        /* abgedunkelt von #A3B0C0 (2.17:1, unter AA) auf 5.36:1 --
+                                     identisch zu --text-secondary, da --text-muted auch auf
+                                     essenziellem Text (Trefferzahl, Score-Chips) verwendet wird */
+    --border-color: #D1D6DF;      /* Light Ice Blue */
+    --radius: 6px;
+    --radius-lg: 8px;
+    /* Abstaende von Sektionen. Ohne Token liefen Suche (20px), Cortex
+       (12px 16px) und Einstellungen (16px 20px) auseinander; --gutter ist
+       der seitliche Rand, an dem alle Inhalte einer Sektion ausgerichtet
+       stehen. */
+    --pad-section: 16px 20px;
+    --gutter: 20px;
+    --font-body: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-heading: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
 
-/* --- Behaviour ----------------------------------------------------------- */
-
-/* The scripts hide and show elements with the hidden attribute. A display
-   you give a class (flex, grid) would beat the browser's own [hidden] rule
-   and leave hidden things on screen. */
 [hidden] {
     display: none !important;
 }
 
-/* Labels for screen readers only (form labels, table headers of icon
-   columns). */
-.visually-hidden {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    padding: 0 !important;
-    margin: -1px !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
-    white-space: nowrap !important;
-    border: 0 !important;
+/* Formularelemente erben font-family nicht vom Body -- ohne diese Regel
+   fallen Suchfeld, Buttons und Selects auf die UA-Schrift zurueck. */
+input,
+button,
+select,
+textarea {
+    font-family: inherit;
+    font-size: inherit;
 }
 
-/* Search preview: a PDF opens in an iframe, which the browser would draw at
-   300 x 150 px. */
+body {
+    font-family: var(--font-body);
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2 {
+    font-family: var(--font-heading);
+    /* IBM Plex Mono ships 400/600 only (no 700) -- use the heaviest
+       shipped weight so browsers never synthesize a fake bold. */
+    font-weight: 600;
+}
+
+.container {
+    max-width: 1360px;
+    /* Linksbuendig, nicht zentriert. Zentriert loeste sich der Inhalt auf
+       breiten Bildschirmen von der Seitenleiste, waehrend Cortex ohne
+       Breitendeckel an ihr klebte - dieselbe Seite, zwei linke Kanten.
+       Der Deckel bleibt: Suchtreffer ueber 1360px waeren unlesbar. */
+    margin: 0;
+    padding: 24px 20px 32px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header */
+.site-header {
+    padding: 12px 0 24px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Markenzeile und Abmelden in einer Reihe, Begruessung darunter. */
+.site-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+}
+
+.site-brand {
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+}
+
+.site-brand img {
+    height: 18px;
+    width: auto;
+}
+
+.site-brand:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+    border-radius: var(--radius);
+}
+
+.site-greeting {
+    font-family: var(--font-heading);
+    font-size: 1.6rem;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+    color: var(--title-color, var(--text-primary));
+}
+
+.site-greeting-question {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+
+.feedback-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    color: var(--primary-color);
+    font-weight: 500;
+    font-size: 0.9rem;
+    text-decoration: none;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: rgba(var(--accent-rgb), 0.06);
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.feedback-link:hover {
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.1);
+    text-decoration: none;
+}
+
+.feedback-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.feedback-link--footer {
+    font-size: inherit;
+    font-weight: 500;
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+}
+
+.logout-form {
+    flex: 0 0 auto;
+}
+
+.logout-button {
+    font-size: 0.85rem;
+    padding: 7px 14px;
+}
+
+.logout-button:hover {
+    color: var(--primary-color);
+}
+
+/* Main */
+main {
+    flex: 1;
+}
+
+/* Search */
+.search-section {
+    background: var(--card-bg);
+    padding: var(--pad-section);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 20px;
+}
+
+.search-box {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+#searchInput {
+    flex: 1;
+    padding: 13px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    font-size: 1rem;
+    background: var(--surface-sunken);
+    transition: border-color 0.2s;
+}
+
+#searchInput:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--card-bg);
+}
+
+.btn {
+    padding: 13px 22px;
+    border: none;
+    /* Vollrund: 999px statt 50%, damit der Radius bei jeder Breite gleich
+       bleibt -- 50% wuerde bei breiten Buttons zu Ellipsen fuehren. */
+    border-radius: 999px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: var(--primary-hover);
+}
+
+.btn-primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.btn-success {
+    background-color: var(--primary-color);
+    color: #FFFFFF;
+    border: 1px solid var(--primary-color);
+    padding: 9px 16px;
+    font-size: 0.875rem;
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 9px 16px;
+    font-size: 0.875rem;
+}
+
+/* Results */
+.results-section {
+    /* Kein eigener Rahmen: die Karten grenzen sich selbst ab, ein Kasten um
+       Kaesten herum ist eine Ebene zu viel. */
+    padding: 0;
+}
+
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.results-header h2 {
+    font-family: var(--font-heading);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.results-count {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.results-query {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+.results-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Zwischenueberschrift je Akte. Flach gehalten: eine Linie und ein Label,
+   kein Kasten -- sonst waere die Verschachtelung wieder da, die wir gerade
+   abgebaut haben. */
+.results-group {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 22px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.results-group:first-child {
+    margin-top: 4px;
+}
+
+.results-group-label {
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--primary-color);
+}
+
+.results-group-count {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.results-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 18px;
+}
+
+.results-more button[hidden] {
+    display: none;
+}
+
+/* Document cards */
+.document-card {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    transition: border-color 0.2s;
+    cursor: pointer;
+}
+
+.document-card:hover {
+    border-color: var(--accent);
+}
+
+/* Welches Dokument gerade im Panel steht. Ohne das verliert man bei mehreren
+   Treffern den Bezug zwischen Liste und Vorschau. */
+.document-card.is-active {
+    border-color: var(--primary-color);
+    background: rgba(var(--accent-rgb), 0.04);
+}
+
+/* Bild und Icon teilen sich Groesse und Rahmen, damit die Karten unabhaengig
+   vom Format in einer Flucht bleiben. */
+.document-thumb {
+    flex: 0 0 auto;
+    /* 260px Breite: wer den Dateinamen nicht kennt, erkennt das Dokument nur
+       am Briefkopf und der Ueberschrift -- bei 200px waren die grenzwertig
+       lesbar. Die Hoehe zeigt weiterhin nur den oberen Teil der Seite, im
+       gleichen Verhaeltnis wie zuvor; dort steht, was ein Dokument
+       identifiziert. Die Karte waechst dadurch auf rund 250px. Das ist
+       bewusst: die Wiedererkennung ist wichtiger als die Anzahl Treffer pro
+       Bildschirm. */
+    width: 260px;
+    height: 224px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--surface-sunken);
+    overflow: hidden;
+    position: relative;
+}
+
+/* Der Kasten schimmert, solange das Bild laedt. Bei vielen Treffern feuern
+   ebenso viele Thumbnail-Anfragen, die serverseitig je eine PDF-Seite
+   rendern -- ohne das stuenden hier bis dahin nur graue Flaechen.
+   Die Klasse nimmt das Bild selbst weg, sobald es geladen ist. */
+.document-thumb--loading {
+    background: linear-gradient(90deg, var(--surface-sunken), var(--border-color), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .document-thumb--loading { animation: none; }
+}
+
+/* Weiche Unterkante: der Ausschnitt endet mitten im Satzspiegel, und ohne
+   diesen Verlauf liest sich das als abgeschnitten statt als fortgesetzt. */
+.document-thumb:not(.document-thumb--icon)::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 34px;
+    background: linear-gradient(to bottom, rgba(253, 253, 253, 0), var(--card-bg));
+    pointer-events: none;
+}
+
+.document-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    display: block;
+}
+
+.document-thumb--icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.document-thumb--icon svg {
+    width: 34px;
+    height: 34px;
+}
+
+.document-body {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.document-headline {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.document-headline-text {
+    min-width: 0;
+}
+
+.document-metaline {
+    font-family: var(--font-heading);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 3px;
+}
+
+.document-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.document-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.document-body .document-first-page-text,
+.document-body .document-context-snippet-text {
+    margin-top: 8px;
+    /* Drei Zeilen reichen zum Beurteilen; alles darueber gehoert ins Modal. */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.document-first-page-text,
+.document-context-snippet-text {
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+mark.context-snippet-match,
+.context-snippet-match {
+    background: var(--highlight);
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+.document-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Skelett: gleiche Kartenform, damit beim Eintreffen der Ergebnisse nichts
+   springt. Nutzt dieselbe Shimmer-Animation wie die Vorschau. */
+.document-card--skeleton {
+    cursor: default;
+}
+
+.skeleton-block,
+.skeleton-line {
+    background: linear-gradient(90deg, var(--surface-sunken), var(--border-color), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
+    border-radius: 4px;
+}
+
+.skeleton-line {
+    display: block;
+    height: 11px;
+    margin-bottom: 9px;
+}
+
+.skeleton-line--meta { width: 34%; height: 8px; }
+.skeleton-line--title { width: 52%; height: 15px; margin-bottom: 12px; }
+.skeleton-line--short { width: 68%; }
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-block,
+    .skeleton-line { animation: none; }
+}
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state-hints {
+    margin: 10px 0 0 18px;
+    color: var(--text-secondary);
+}
+
+.empty-state h3 {
+    font-size: 1.15rem;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* Footer */
+.site-footer {
+    text-align: center;
+    padding: 28px 0 8px;
+    margin-top: 32px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.footer-links {
+    margin-top: 10px;
+}
+
+.footer-links a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.footer-links a:hover {
+    text-decoration: underline;
+}
+
+.footer-sep {
+    margin: 0 0.35rem;
+    color: var(--border-color);
+    user-select: none;
+}
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.badge-error {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+/* Buttons */
+.btn-text {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    font-size: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    padding: 0;
+}
+
+.btn-text:hover {
+    text-decoration: underline;
+}
+
+/* Login */
+.login-page {
+    min-height: 100vh;
+    background: var(--bg-color);
+}
+
+.login-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--card-bg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    padding: 32px;
+}
+
+.login-logo {
+    display: block;
+    height: 30px;
+    width: auto;
+    margin-bottom: 6px;
+}
+
+/* Der Slogan aus dem Brand-Guide, in der Header-Schrift. */
+.login-slogan {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+.login-brand {
+    color: var(--primary-color);
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.login-card h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.login-subtitle {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.login-form label {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.login-form input[type="text"],
+.login-form input[type="password"] {
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    font-size: 1rem;
+    margin-bottom: 8px;
+}
+
+.login-form input[type="text"]:focus,
+.login-form input[type="password"]:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.login-submit {
+    justify-content: center;
+    margin-top: 8px;
+}
+
+.login-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    font-size: 0.9rem;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .search-box {
+        flex-direction: column;
+    }
+
+    .document-headline {
+        flex-direction: column;
+    }
+
+    .document-actions {
+        width: 100%;
+    }
+
+    .btn {
+        flex: 1;
+        justify-content: center;
+    }
+}
+
+.hidden {
+    display: none !important;
+}
+
+.mt-20 {
+    margin-top: 16px;
+}
+
+
+/* --- Dokumentvorschau als Modal ---------------------------------------- */
+
+.preview-dialog {
+    --dialog-pad-x: 20px;
+
+    /* Der globale `* { margin: 0 }`-Reset kippt das `margin: auto`, mit dem
+       der Browser modale Dialoge zentriert -- ohne diese Zeile klebt das
+       Modal in der linken oberen Ecke. */
+    margin: auto;
+    width: min(1100px, calc(100vw - 2 * clamp(16px, 5vw, 72px)));
+    height: min(900px, calc(100vh - 2 * clamp(16px, 5vh, 56px)));
+    max-width: none;
+    max-height: none;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    overflow: hidden;
+}
+
+.preview-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.preview-dialog::backdrop {
+    background: rgba(7, 23, 45, 0.38);
+}
+
+.preview-dialog-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px var(--dialog-pad-x) 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Eigene Regel, weil der `*`-Reset sonst alles auf 0 setzt: der Button
+   braucht Abstand zur Trennlinie oben und zum Inhalt darunter. */
+.preview-actionbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px var(--dialog-pad-x);
+}
+
+.preview-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.preview-actions:empty {
+    display: none;
+}
+
+.preview-findings-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.preview-findings-position {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Lesefläche und Fundstellen nebeneinander. min-height 0 aus demselben Grund
+   wie beim Body: sonst wächst die Zeile mit ihrem Inhalt aus dem Dialog. */
+.preview-content {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    align-items: stretch;
+}
+
+.preview-sidebar {
+    flex: 0 0 272px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--dialog-pad-x) var(--dialog-pad-x);
+    border-left: 1px solid var(--border-color);
+    background: var(--surface-sunken);
+}
+
+.preview-sidebar[hidden] {
+    display: none;
+}
+
+.preview-sidebar-section + .preview-sidebar-section {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color);
+}
+
+.preview-sidebar-title {
+    position: sticky;
+    top: 0;
+    margin: 0 0 10px;
+    padding: 16px 0 8px;
+    background: var(--surface-sunken);
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+/* Die Fundstellen selbst. Eine pro Zeile, Seitenzahl zuerst: in einem
+   60-seitigen Vertrag ist sie die Angabe, nach der gesucht wird. */
+.preview-findings-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.preview-finding {
+    width: 100%;
+    display: block;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.preview-finding:hover {
+    border-color: var(--accent);
+}
+
+.preview-finding:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.preview-finding.is-active {
+    border-color: var(--accent);
+    background: var(--highlight);
+}
+
+.preview-finding-where {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.preview-finding-active-flag {
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+.preview-finding-text {
+    display: block;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--text-primary);
+}
+
+.preview-finding-text mark {
+    background: transparent;
+    font-weight: 600;
+    color: inherit;
+}
+
+/* Der Treffersatz gegen seinen Kontext. Im Dokument leuchtet genau dieser
+   Satz auf -- steht er in der Liste gleichwertig neben dem Satz davor, sieht
+   der Sprung aus, als ginge er auf die falsche Stelle. */
+.preview-finding-hit {
+    color: var(--text-primary);
+}
+
+.preview-finding-context {
+    color: var(--text-secondary);
+}
+
+/* Dokumentdaten: Bezeichnung und Wert fluchten, wie im Mailkopf. */
+.preview-docdata {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 0.82rem;
+}
+
+.preview-docdata dt {
+    color: var(--text-secondary);
+}
+
+.preview-docdata dd {
+    margin: 0;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+/* Schmale Fenster: die Fundstellen unter die Lesefläche statt daneben, sonst
+   bleibt für keins von beiden genug Breite. */
+@media (max-width: 860px) {
+    .preview-content {
+        flex-direction: column;
+    }
+
+    .preview-sidebar {
+        flex: 0 0 auto;
+        max-height: 40%;
+        border-left: 0;
+        border-top: 1px solid var(--border-color);
+    }
+}
+
+.preview-dialog-heading {
+    min-width: 0;
+}
+
+.preview-dialog-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Zaehler zwischen den Pfeilen: ohne ihn weiss niemand, wie weit die Liste
+   noch reicht, sobald sie hinter dem Modal liegt. */
+.preview-position {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    padding: 0 6px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.preview-icon-button--close {
+    margin-left: 6px;
+}
+
+.preview-icon-button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.preview-icon-button:disabled:hover {
+    background: none;
+    color: var(--text-secondary);
+}
+
+.preview-title {
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.preview-meta {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.preview-icon-button {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    line-height: 1;
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius);
+}
+
+.preview-icon-button:hover {
+    background: var(--bg-color);
+    color: var(--text-primary);
+}
+
+.icon {
+    flex: 0 0 auto;
+}
+
+/* Basis 0 statt auto: mit inhaltsbasierter Basis faellt der Body bei einem
+   iframe auf dessen intrinsische 150px zusammen, statt den Rest des Panels
+   zu fuellen. min-height 0 erlaubt das Schrumpfen unter die Inhaltsgroesse. */
+.preview-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--dialog-pad-x) var(--dialog-pad-x);
+    font-size: 0.9rem;
+}
+
+/* Kopffelder einer E-Mail: zwei Spalten, damit Bezeichnung und Wert
+   untereinander fluchten und man sie ueberfliegen kann. */
+.mail-header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 14px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.88rem;
+}
+
+.mail-header-label {
+    color: var(--text-secondary);
+}
+
+.mail-header-value {
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.preview-body h3,
+.preview-body h4,
+.preview-body h5,
+.preview-body h6 {
+    margin: 14px 0 6px;
+    font-size: 0.95rem;
+}
+
+.preview-body p {
+    margin: 0 0 10px;
+    overflow-wrap: anywhere;
+}
+
+.preview-body ul {
+    margin: 0 0 10px 18px;
+}
+
+.preview-body code {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--bg-color);
+    padding: 1px 4px;
+    border-radius: 4px;
+}
+
+/* Kein gerechnetes hoehe: das iframe fuellt den Rest des Panels. Jede feste
+   Hoehe verfehlt frueher oder spaeter den verfuegbaren Platz und erzeugt eine
+   zweite Scrollbar neben der des PDF-Viewers. */
+/* Der Viewer laeuft randlos bis an die Dialogkanten -- er bringt seine
+   eigene Oberflaeche mit, ein Rahmen darum waere ein Rahmen zu viel. Die
+   Oberkante trennt ihn von der Aktionszeile. */
+.preview-body.is-pdf {
+    display: flex;
+    overflow: hidden;
+    padding: 0;
+    border-top: 1px solid var(--border-color);
+}
+
 .preview-body.is-pdf iframe {
-    width: 85vw;
-    height: 75vh;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    height: auto;
+    border: 0;
 }
 
-/* Findings in the previewed text. <mark class="body-hit"> brings its own
-   highlight; the passage of a semantic hit is a <span>, and the arrows in
-   the preview jump to the .is-active one. */
-.preview-body .passage-hit {
-    background: Mark;
-    color: MarkText;
+.preview-error {
+    color: var(--error-color);
 }
 
-.preview-body .is-active {
-    outline: 2px solid Highlight;
+.preview-skeleton span {
+    display: block;
+    height: 12px;
+    margin-bottom: 9px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--bg-color), var(--border-color), var(--bg-color));
+    background-size: 200% 100%;
+    animation: preview-shimmer 1.2s ease-in-out infinite;
 }
 
-/* Toasts (saved, copied, errors) float above the page instead of landing
-   below the last search result. */
+.preview-skeleton span:nth-child(2) { width: 92%; }
+.preview-skeleton span:nth-child(3) { width: 78%; }
+.preview-skeleton span:nth-child(4) { width: 86%; }
+
+@keyframes preview-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .preview-skeleton span { animation: none; }
+}
+
+@media (max-width: 900px) {
+            body.preview-open {
+        overflow: hidden;
+    }
+}
+
+/* --- Toasts -------------------------------------------------------------- */
+
 .toast-container {
     position: fixed;
-    right: 1rem;
-    bottom: 1rem;
+    right: 16px;
+    bottom: 16px;
     z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(420px, calc(100vw - 32px));
+}
+
+/* Der Toast schwebt bewusst ueber dem Inhalt -- hier ist Tiefe Information,
+   nicht Dekoration, deshalb behaelt er als einziges Element einen Schatten. */
+.toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    box-shadow: 0 8px 24px rgba(7, 23, 45, 0.10);
+    font-size: 0.88rem;
+    animation: toast-in 140ms ease-out;
+}
+
+/* Jede Variante ist eine durchgefaerbte Flaeche, kein weisser Kasten mit
+   farbigem Streifen. Der Zustand liegt damit auf der ganzen Box statt an
+   einer 4px-Kante, und alle drei Textfarben liegen ueber 8:1. */
+.toast--error {
+    background: #FDECEC;
+    border-color: #F0B4B4;
+    color: #8E1616;
+}
+
+.toast--success {
+    background: #E8F3EE;
+    border-color: #A8CDBB;
+    color: #14503A;
+}
+
+.toast--info {
+    background: #E9EDFB;
+    border-color: #B4C2EE;
+    color: #12308C;
+}
+
+.toast--error .toast-close,
+.toast--success .toast-close,
+.toast--info .toast-close {
+    color: inherit;
+    opacity: 0.7;
+}
+
+.toast--error .toast-close:hover,
+.toast--success .toast-close:hover,
+.toast--info .toast-close:hover {
+    opacity: 1;
+}
+
+.toast-text {
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+}
+
+.toast-close {
+    flex: 0 0 auto;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 2px 4px;
+    color: var(--text-secondary);
+}
+
+.toast-close:hover { color: var(--text-primary); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+}
+
+/* Hauptnavigation (Suche | Cortex) */
+.site-nav { display: flex; gap: 16px; margin-inline: auto; }
+.site-nav a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-family: var(--font-heading);
+    font-size: 0.9rem;
+    padding: 4px 2px;
+    border-bottom: 2px solid transparent;
+}
+.site-nav a:hover { color: var(--primary-color); }
+.site-nav a[aria-current="page"] {
+    color: var(--primary-color);
+    border-bottom-color: var(--accent);
+}
+.site-nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* --- Plattform-Rahmen: feste Seitenleiste links, Module daneben ---------
+   Eine Konstante fuer alle Bereiche (Suche, Cortex, Einstellungen). Nur
+   bestehende Tokens; keine neuen Farbwerte. */
+.app-shell {
+    display: flex;
+    align-items: flex-start;
+    min-height: 100vh;
+}
+
+.app-sidebar {
+    flex: 0 0 240px;
+    align-self: stretch;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    padding: 24px 16px 20px;
+    background: var(--surface-sunken);
+    border-right: 1px solid var(--border-color);
+}
+
+.app-content { flex: 1; min-width: 0; }
+
+.app-brand { display: inline-flex; align-items: center; padding: 0 8px; line-height: 0; }
+
+.app-nav { display: flex; flex-direction: column; gap: 2px; }
+
+.app-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.92rem;
+    font-weight: 500;
+    transition: background-color .15s ease, color .15s ease;
+}
+.app-nav-item:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--text-primary); }
+.app-nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app-nav-item.active {
+    background: var(--highlight);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* Fuss: Konto am unteren Rand der Leiste. */
+.app-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 14px; }
+
+.app-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: background-color .15s ease;
+}
+.app-user:hover { background: rgba(var(--accent-rgb), 0.08); }
+.app-user:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app-avatar {
+    flex: 0 0 auto;
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: var(--bg-color);
+    font-family: var(--font-heading);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+.app-user-text { display: flex; flex-direction: column; min-width: 0; }
+.app-user-name {
+    font-size: 0.88rem; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.app-user-role { font-size: 0.72rem; color: var(--text-secondary); }
+
+/* Einstellungen */
+.settings-layout { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
+.settings-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--pad-section);
+}
+.settings-card h2 { font-size: 1rem; margin-bottom: 12px; }
+.settings-list {
+    display: grid;
+    grid-template-columns: minmax(120px, auto) 1fr;
+    gap: 6px 20px;
+    margin-bottom: 16px;
+}
+.settings-list dt {
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    align-self: center;
+}
+.settings-list dd { color: var(--text-primary); }
+.settings-list dd.mono { font-family: var(--font-heading); font-size: 0.85rem; }
+
+/* Schmale Fenster: Leiste wird zur Kopfzeile, Korpus-Zahl entfaellt. */
+@media (max-width: 900px) {
+    .app-shell { flex-direction: column; }
+    .app-sidebar {
+        flex: none;
+        position: static;
+        height: auto;
+        width: 100%;
+        flex-direction: row;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 16px;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+    /* Die Navigation scrollt in sich, statt die Seite seitwaerts zu schieben
+       (wie admin.css in der Verwaltung); _sidebar.html rueckt den aktuellen
+       Eintrag ins Bild. */
+    .app-nav { flex-direction: row; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+    .app-nav-item { flex: 0 0 auto; }
+    .app-sidebar-foot { margin-top: 0; margin-left: auto; flex-direction: row; align-items: center; }
+    .corpus-status { display: none; }
+    .app-user-text { display: none; }
+}
+
+/* Einstellungen: Statusanzeige und Rechtliches (aus dem Fuss der Suchseite).
+   Der Punkt traegt die Aussage nicht allein - daneben steht sie als Text,
+   damit sie auch ohne Farbunterscheidung ankommt. */
+.status-list { list-style: none; padding: 0; margin: 0; display: flex;
+               flex-direction: column; gap: 4px; }
+.status-item { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+.status-dot {
+    flex: 0 0 auto;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+.status-dot.is-online { background: var(--success-color); }
+.status-dot.is-offline { background: var(--error-color); }
+.status-dot.is-pending, .status-dot.is-unknown { background: var(--border-color); }
+.status-name { color: var(--text-primary); }
+.status-value { color: var(--text-secondary); font-size: 0.85rem; }
+.settings-legal {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Verwaltungskonsole: Reiterleiste (templates/_admin_tabs.html) */
+.admin .tabs { display: flex; gap: 18px; border-bottom: 1px solid #e2e8f0; margin-bottom: 18px; }
+.admin .tabs a { padding: 8px 2px; text-decoration: none; color: #475569; border-bottom: 2px solid transparent; }
+.admin .tabs a.active { color: #0f172a; border-bottom-color: #0f172a; font-weight: 600; }
+.admin .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+
+/* Der Hinweis über der Trefferliste und der in der Fundstellenspalte. Beide
+   erklären dasselbe: die Suche hat Ähnliches gefunden, nicht das Wort. */
+.results-notice {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--callout);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.preview-findings-note {
+    margin: 0 0 10px;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
 }
 
 
-/* --- Your design starts here --------------------------------------------- */
+/* Lesefassung: der Treffer ist nicht kaputt, nur nicht mehr zu öffnen. Grau
+   statt rot, weil Rot "Fehler" heisst und Leute von einer Karte abhält, die
+   sie noch lesen können. */
+.badge-muted {
+    background: var(--surface-sunken);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.preview-index-notice {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--callout);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+
+/* Fundstellen im dargestellten Text. --highlight ist im Markenleitfaden genau
+   dafür vorgesehen; die aktive Stelle bekommt zusätzlich einen Rahmen, damit
+   man sie nach dem Springen findet, ohne dass die übrigen verschwinden. */
+.preview-body mark.body-hit {
+    background: var(--highlight);
+    color: inherit;
+    padding: 0 1px;
+    border-radius: 2px;
+}
+
+.preview-body mark.body-hit.is-active {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+
+/* Die Trefferstelle als Absatz. Ohne sie wäre an einem rein semantischen
+   Treffer nichts markiert: er enthält die gesuchten Wörter gar nicht. */
+.preview-body .passage-hit {
+    background: rgba(var(--accent-rgb), 0.09);
+    border-radius: 2px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+/* Der Bereich, den die Suche bewertet hat. Deutlich schwaecher als der Satz:
+   er sagt "hier drin", nicht "hier". Nur an Fundstellen, die kein gesuchtes
+   Wort enthalten -- sonst waere es Flaeche ohne Aussage. */
+.preview-body .chunk-hit {
+    /* Unterstrichen statt hinterlegt: der Satz ist hinterlegt, und zwei
+       Flaechen uebereinander lassen sich nicht auseinanderhalten -- die
+       schwaechere verschwindet, und bei einem Chunk ueber eine halbe Seite
+       bleibt nur "hier ist alles etwas blau". Eine Linie markiert denselben
+       Bereich, ohne mit der Satzmarkierung um dieselbe Flaeche zu streiten. */
+    border-bottom: 1px dotted rgba(var(--accent-rgb), 0.45);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+.preview-body .chunk-hit.is-active {
+    border-bottom-style: solid;
+    border-bottom-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.07);
+}
+
+.preview-body .passage-hit.is-active {
+    background: var(--highlight);
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Eine Fundstelle, die im dargestellten Text nicht wiederzufinden ist. Sie
+   bleibt in der Liste -- sie ist ja ein echter Treffer --, aber der Klick
+   springt nirgendwohin, und das muss man sehen. */
+.preview-finding.is-unlocatable {
+    opacity: 0.72;
+}
+
+.preview-finding.is-unlocatable .preview-finding-where::after {
+    content: " · nicht im dargestellten Text";
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+/* Dokumentfelder (doc_fields.js). Nur sichtbar, wenn Knovas sie fuer diesen
+   Mandanten anbietet; die Farben folgen den Chips und Hinweisen oben. */
+.doc-fields-rail {
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+}
+
+.doc-fields-rail[hidden],
+.doc-fields-understood[hidden],
+.doc-fields-panel [hidden] {
+    display: none;
+}
+
+.doc-fields-rail-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.doc-fields-rail-title {
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.doc-fields-rail-hint {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.doc-fields-rail-inputs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px 14px;
+}
+
+.doc-fields-control {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.82rem;
+}
+
+.doc-fields-control label,
+.doc-fields-rail-sort label {
+    color: var(--text-secondary);
+}
+
+.doc-fields-control input,
+.doc-fields-control select,
+.doc-fields-rail-sort select,
+.doc-fields-editor input,
+.doc-fields-editor select,
+.doc-fields-editor textarea,
+.doc-fields-add {
+    padding: 7px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font: inherit;
+    color: var(--text-primary);
+}
+
+.doc-fields-control input:focus,
+.doc-fields-control select:focus,
+.doc-fields-editor input:focus,
+.doc-fields-editor select:focus,
+.doc-fields-editor textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.doc-fields-range {
+    display: flex;
+    gap: 6px;
+}
+
+.doc-fields-range input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Bedingung und Eingaben eines Filters: nur die der gewählten Bedingung
+   sind sichtbar (doc_fields.js setzt hidden; .doc-fields-range ist flex). */
+.doc-fields-control [hidden] {
+    display: none;
+}
+
+.doc-fields-control select[multiple] {
+    padding: 4px 6px;
+}
+
+.doc-fields-partly {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+}
+
+.doc-fields-rail-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.doc-fields-rail-sort {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.82rem;
+}
+
+.doc-fields-rail-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* "Verstanden als": was der Server vom Filter verstanden hat. */
+.doc-fields-understood {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 12px;
+}
+
+.doc-fields-understood-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-right: 4px;
+}
+
+.doc-fields-partial {
+    flex-basis: 100%;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Feldwerte auf der Karte und in "Verstanden als". */
+.document-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 2px;
+}
+
+.field-chip {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 3px 9px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-sunken);
+    font-size: 0.76rem;
+    line-height: 1.4;
+    max-width: 100%;
+}
+
+.field-chip-label {
+    color: var(--text-secondary);
+}
+
+.field-chip-text {
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+/* Knovas ist sich bei diesem Treffer nicht sicher. Kein Rot: es ist kein
+   Fehler, nur eine Einstufung. */
+.badge-borderline {
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    border: 1px dashed var(--border-color);
+    padding: 3px 9px;
+}
+
+.empty-state-note {
+    margin-top: 8px;
+    font-size: 0.85rem;
+}
+
+.doc-fields-refusal .btn,
+.empty-state .btn {
+    margin-top: 14px;
+}
+
+/* Das Feldpanel in der Vorschau. */
+.doc-fields-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.82rem;
+}
+
+.doc-fields-row {
+    display: grid;
+    grid-template-columns: minmax(80px, auto) 1fr;
+    gap: 2px 12px;
+}
+
+.doc-fields-row-label {
+    color: var(--text-secondary);
+}
+
+.doc-fields-row-value {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: baseline;
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+}
+
+.doc-fields-layer {
+    padding: 1px 7px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    background: var(--card-bg);
+}
+
+.doc-fields-layer--manual {
+    border-color: var(--accent);
+    color: var(--primary-color);
+}
+
+.doc-fields-note {
+    flex-basis: 100%;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+}
+
+.doc-fields-action {
+    padding: 0;
+    color: var(--primary-color);
+    font: inherit;
+    font-size: 0.76rem;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.doc-fields-held,
+.doc-fields-message {
+    display: block;
+    margin: 0 0 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--callout);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    font-size: 0.8rem;
+    color: var(--text-primary);
+}
+
+.doc-fields-message--ok {
+    border-left-color: var(--success-color);
+}
+
+.doc-fields-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 0 8px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+}
+
+.doc-fields-editor-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.doc-fields-editor-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.doc-fields-editor-actions .btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+.doc-fields-error {
+    font-size: 0.78rem;
+    color: var(--error-color);
+}
+
+.doc-fields-add {
+    margin-top: 10px;
+    width: 100%;
+    font-size: 0.8rem;
+}
+
+/* Cortex: "Dokumente mit <Feld> = <Name>" (ontology.js). */
+.doc-field-link-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.doc-field-link {
+    padding: 0;
+    color: var(--primary-color);
+    font: inherit;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    text-decoration: underline;
+}
