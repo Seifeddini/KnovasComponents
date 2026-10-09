@@ -1,428 +1,1258 @@
-/* src/web_interface/static/css/ontology.css — Cortex-Layout.
-   Ausschliesslich Design-Tokens aus style.css; keine neuen Farbwerte
-   (Schatten nutzen die vorhandenen RGB-Tripel-Tokens mit Transparenz). */
+/* ontology.css -- Cortex (/cortex), on top of style.css.
 
-/* Nur die Breite faellt aus der Reihe, damit der Graph den Bildschirm
-   bekommt. Abstaende bleiben die der anderen Seiten: der Rumpf hatte hier
-   einmal engere Werte, wodurch Suche, Cortex und Einstellungen sichtbar
-   unterschiedlich sassen. */
-.container-wide { max-width: none; height: 100vh; }
+   Blank canvas, like style.css. What is left is behaviour: Cytoscape draws
+   the graph into #graphContainer and needs a box with a real size, the
+   controls over the graph must sit above its canvas to stay clickable, and
+   the drawers slide in when a type or a document is chosen (.open).
+   The look of nodes and edges is not CSS: it is the `style:` list in
+   static/js/ontology.js (CortexApp, cytoscape({ style: [...] })). */
 
-/* Die Box wie gehabt (Rahmen, Header mit Titel und Zoom), aber über die
-   ganze Bildschirmbreite und die restliche Höhe. */
-.ontology-stage {
-    flex: 1;
+
+/* --- Behaviour ----------------------------------------------------------- */
+
+/* The graph area. Its height is the canvas Cytoscape gets. */
+.ontology-stage-body {
+    position: relative;
+    height: 75vh;
     min-height: 420px;
-    display: flex;
-    flex-direction: column;
-    background: var(--surface-sunken);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    /* clip statt hidden: hidden macht die Box zum Scrollcontainer, und die
-       ausgeblendeten Drawer stehen per transform rechts ausserhalb. Ein
-       focus() im Drawer liess den Browser dorthin scrollen - der Graph rutschte
-       424px nach links und Cytoscapes Zeigermathematik stimmte nicht mehr.
-       clip kappt genauso, erzeugt aber keinen scrollbaren Bereich. */
     overflow: clip;
 }
 
-/* Innenraum der Box: Graph füllt alles, Drawer gleiten darüber. */
-.ontology-stage-body {
-    position: relative;
-    flex: 1;
-    min-height: 0;
+#graphContainer {
+    position: absolute;
+    inset: 0;
 }
 
-#graphContainer { position: absolute; inset: 0; }
-
-.ontology-empty {
-    color: var(--text-secondary);
-    padding: 24px 16px;
-    text-align: center;
+/* "Typ anlegen", the empty-graph note and the handle for connecting two
+   nodes lie over the canvas. ontology_connect.js sets the handle's size and
+   position itself. */
+.graph-add-type {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
 }
-#graphEmpty { position: absolute; inset: 0; display: grid; place-content: center; }
-#graphEmpty[hidden] { display: none; }
 
-.graph-toolbar { display: flex; gap: 6px; }
-.graph-toolbar .btn { padding: 4px 10px; line-height: 1; }
+#graphEmpty {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+}
 
-/* Drawer: erscheinen erst bei Auswahl, gleiten von rechts über den Graphen. */
-.ontology-stage-body { --drawer-w: 400px; }
+.connect-handle {
+    position: absolute;
+    z-index: 2;
+}
 
+/* Drawers over the graph: the entity drawer when a node is chosen, the
+   document drawer (a PDF in an iframe) above it when a source is opened.
+   ontology.js measures the open one to keep the graph out from under it. */
 .ontology-drawer {
     position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    width: min(400px, 100%);
+    display: flex;
+    flex-direction: column;
+    background: Canvas;
+    color: CanvasText;
+    border-left: 1px solid GrayText;
+    visibility: hidden;
+}
+
+.ontology-drawer.open {
+    visibility: visible;
+}
+
+.ontology-drawer-doc {
+    z-index: 3;
+    width: min(680px, 100%);
+}
+
+#entityPaneBody,
+#docPaneBody {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.doc-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+
+/* --- Your design starts here --------------------------------------------- */
+
+:root {
+    color-scheme: light;
+    --primary-color: #2859cd;
+    --accent: #3975e8;
+    --highlight: #e8efff;
+    --callout: #7d91bb;
+    --text-primary: #20283b;
+    --text-secondary: #697287;
+    --border-color: #cbd2e2;
+    --card-bg: #ffffff;
+    --surface-sunken: #f3f5fb;
+    --font-heading: "SFMono-Regular", "Cascadia Mono", "Roboto Mono", monospace;
+    --font-body: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --surface: #ffffff;
+    --surface-line: rgba(40, 89, 205, 0.035);
+    --shadow-float: 0 10px 30px rgba(35, 47, 80, 0.09),
+                    0 2px 8px rgba(35, 47, 80, 0.06);
+    --shadow-drawer: -12px 20px 50px rgba(35, 47, 80, 0.14);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body.cortex-page {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+body.cortex-page {
+    color: var(--text-primary);
+    background: var(--surface);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+button,
+a {
+    -webkit-tap-highlight-color: transparent;
+}
+
+.cortex-surface,
+.ontology-stage,
+.ontology-stage-body {
+    width: 100%;
+    height: 100%;
+}
+
+.cortex-surface {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background-color: var(--surface);
+    background-image: radial-gradient(circle, var(--surface-line) 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+.ontology-stage {
+    position: absolute;
+    inset: 0;
+}
+
+.point-cloud-mockup {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: 1;
+    filter: contrast(1.24) saturate(1.12);
+}
+
+#graphContainer {
+    z-index: 1;
+}
+
+.galaxy-sun-target {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    width: 64px;
+    height: 64px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+}
+
+.galaxy-sun-target::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 1px solid transparent;
+    border-radius: inherit;
+    transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.galaxy-sun-target:hover::after {
+    border-color: rgba(40, 89, 205, 0.38);
+    transform: scale(1.08);
+}
+
+.galaxy-sun-target:focus-visible {
+    outline: 3px solid rgba(40, 89, 205, 0.28);
+    outline-offset: 3px;
+}
+
+.galaxy-entity-target {
+    position: absolute;
+    z-index: 3;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+}
+
+.galaxy-entity-target::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    border: 1px solid transparent;
+    border-radius: inherit;
+    transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.galaxy-entity-target:hover::after {
+    border-color: rgba(40, 89, 205, 0.42);
+    transform: scale(1.16);
+}
+
+.galaxy-entity-target:focus-visible {
+    outline: 3px solid rgba(40, 89, 205, 0.25);
+    outline-offset: 2px;
+}
+
+.galaxy-connection-arrow {
+    position: absolute;
+    z-index: 4;
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    padding: 0;
+    color: var(--arrow-color, var(--primary-color));
+    border: 1px solid color-mix(in srgb, var(--arrow-color, var(--primary-color)) 35%, white);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--arrow-color, var(--primary-color)) 28%, transparent);
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    animation: galaxy-arrow-pulse 1.8s ease-out infinite;
+}
+
+.galaxy-connection-arrow svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transform: rotate(var(--arrow-angle, 0rad));
+}
+
+.galaxy-connection-arrow:hover {
+    background: #fff;
+    box-shadow: 0 5px 18px rgba(35, 47, 80, 0.18);
+    animation-play-state: paused;
+}
+
+.galaxy-connection-arrow:focus-visible {
+    outline: 3px solid rgba(40, 89, 205, 0.25);
+    outline-offset: 2px;
+}
+
+.galaxy-connection-popover {
+    position: absolute;
+    z-index: 6;
+    display: grid;
+    min-width: 210px;
+    gap: 4px;
+    padding: 14px 40px 14px 16px;
+    color: var(--text-primary);
+    border: 1px solid rgba(140, 151, 177, 0.42);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: var(--shadow-float);
+    font-size: 0.78rem;
+}
+
+.galaxy-connection-popover strong {
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+}
+
+.galaxy-connection-popover span {
+    color: var(--text-secondary);
+}
+
+.galaxy-connection-close {
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--text-secondary);
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+.galaxy-connection-close:hover {
+    color: var(--primary-color);
+    background: var(--highlight);
+}
+
+.galaxy-entity-panel {
+    position: absolute;
+    top: 132px;
+    right: clamp(28px, 7vw, 92px);
+    z-index: 4;
+    width: min(390px, 39vw);
+    max-height: calc(100vh - 230px);
+    padding: 22px;
+    overflow: auto;
+    color: var(--text-primary);
+    border: 1px solid rgba(140, 151, 177, 0.4);
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: var(--shadow-float);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(20px, -14px) scale(0.985);
+    transition: opacity 220ms ease, transform 280ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.galaxy-entity-panel.open {
+    z-index: 2;
+    opacity: 0.72;
+}
+
+.galaxy-documents-panel.open:not(.active) {
+    z-index: 2;
+    transform: translate(16px, -11px) scale(0.988);
+}
+
+.galaxy-history-panel.open:not(.active) {
+    display: none;
+}
+
+.galaxy-entity-panel.open.active {
+    z-index: 4;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+.galaxy-entity-panel.open.view-hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(42px, -8px) scale(0.97);
+}
+
+.galaxy-entity-kicker {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+
+.galaxy-entity-panel h2 {
+    margin: 0 0 20px;
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+}
+
+.galaxy-field-group + .galaxy-field-group {
+    margin-top: 22px;
+}
+
+.galaxy-field-group h3 {
+    margin: 0 0 8px;
+    font-size: 0.75rem;
+}
+
+.galaxy-field-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.galaxy-field-table th,
+.galaxy-field-table td {
+    padding: 8px 0;
+    border-bottom: 1px solid #e3e7ef;
+    line-height: 1.35;
+    text-align: left;
+    vertical-align: top;
+}
+
+.galaxy-field-table th {
+    width: 39%;
+    padding-right: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.galaxy-field-table td {
+    font-weight: 600;
+}
+
+.galaxy-document-list {
+    display: grid;
+    gap: 9px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.galaxy-document-item {
+    padding: 12px 13px;
+    border: 1px solid #dce2ed;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.galaxy-document-title {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.galaxy-document-meta {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+}
+
+.galaxy-history-list {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.galaxy-history-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 74px 1fr;
+    gap: 12px;
+    padding: 11px 0 11px 16px;
+    border-bottom: 1px solid #e3e7ef;
+    font-size: 0.76rem;
+    line-height: 1.4;
+}
+
+.galaxy-history-item::before {
+    content: "";
+    position: absolute;
+    top: 17px;
+    left: 1px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    box-shadow: 0 0 0 4px var(--highlight);
+}
+
+.galaxy-history-time {
+    color: var(--text-secondary);
+}
+
+.galaxy-entity-tabs {
+    position: absolute;
+    top: 51%;
+    left: calc(30% - 220px);
+    z-index: 5;
+    display: grid;
+    width: 122px;
+    gap: 8px;
+    transform: translateY(-50%);
+}
+
+.galaxy-orbit-tab {
+    width: 122px;
+    min-height: 40px;
+    padding: 0 13px;
+    color: var(--text-secondary);
+    border: 1px solid rgba(140, 151, 177, 0.36);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 5px 16px rgba(35, 47, 80, 0.07);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+}
+
+.galaxy-orbit-tab:hover,
+.galaxy-orbit-tab.active {
+    color: var(--primary-color);
+    border-color: rgba(40, 89, 205, 0.44);
+    background: #edf3ff;
+}
+
+.galaxy-orbit-tab.active {
+    box-shadow: 0 7px 18px rgba(40, 89, 205, 0.13);
+}
+
+.galaxy-orbit-tab:focus-visible {
+    outline: 3px solid rgba(40, 89, 205, 0.24);
+    outline-offset: 2px;
+}
+
+@keyframes galaxy-arrow-pulse {
+    0% {
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--arrow-color, var(--primary-color)) 28%, transparent);
+    }
+    70% {
+        box-shadow: 0 0 0 9px color-mix(in srgb, var(--arrow-color, var(--primary-color)) 0%, transparent);
+    }
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--arrow-color, var(--primary-color)) 0%, transparent);
+    }
+}
+
+.ontology-stage-body {
+    height: 100svh;
+    min-height: 360px;
+}
+
+.cortex-brand,
+.cortex-account,
+.cortex-dock-link,
+.graph-toolbar,
+.graph-add-type {
+    position: absolute;
+    z-index: 5;
+    border: 1px solid rgba(140, 151, 177, 0.35);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-float);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.cortex-brand {
+    top: 22px;
+    left: 22px;
+    display: grid;
+    width: 164px;
+    height: 52px;
+    place-items: center;
+    border-radius: 16px;
+}
+
+.cortex-brand img {
+    display: block;
+    width: 120px;
+    height: auto;
+}
+
+.galaxy-breadcrumb {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    z-index: 5;
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 14px;
+    color: var(--text-secondary);
+    border: 1px solid rgba(140, 151, 177, 0.35);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: var(--shadow-float);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    font-size: 0.78rem;
+    transform: translateX(-50%);
+}
+
+.galaxy-breadcrumb button {
+    padding: 6px 2px;
+    color: var(--primary-color);
+    border: 0;
+    background: transparent;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.galaxy-breadcrumb button:hover {
+    color: #193f9d;
+}
+
+#galaxyBreadcrumbCurrent {
+    color: var(--text-primary);
+    font-family: var(--font-heading);
+    font-weight: 650;
+}
+
+.cortex-account {
+    position: relative;
+    display: flex;
+    width: 164px;
+    min-width: 0;
+    height: 56px;
+    align-items: center;
+    gap: 11px;
+    padding: 7px 16px 7px 7px;
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: 18px;
+}
+
+.cortex-account-dock {
+    position: absolute;
+    bottom: 22px;
+    left: 22px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cortex-dock-link {
+    position: relative;
+    display: grid;
+    width: 56px;
+    height: 56px;
+    place-items: center;
+    color: var(--text-secondary);
+    border-radius: 18px;
+}
+
+button.cortex-dock-link {
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+}
+
+.cortex-dock-link svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.cortex-dock-link-primary {
+    color: var(--primary-color);
+    border-color: rgba(40, 89, 205, 0.2);
+    background: rgba(232, 239, 255, 0.94);
+}
+
+.cortex-dock-link-primary:hover {
+    color: #214db7;
+    border-color: rgba(40, 89, 205, 0.38);
+    background: #dce7ff;
+}
+
+.cortex-account-avatar {
+    display: grid;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    color: #fff;
+    background: var(--primary-color);
+    border-radius: 13px;
+    font-family: var(--font-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.cortex-account-name {
+    overflow: hidden;
+    font-size: 0.84rem;
+    font-weight: 650;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cortex-brand,
+.cortex-account,
+.cortex-dock-link,
+.btn,
+.graph-add-type,
+.entity-card,
+.relation-card,
+.evidence-item,
+.btn-text {
+    transition: border-color 160ms ease, box-shadow 160ms ease,
+                background-color 160ms ease, color 160ms ease,
+                transform 160ms ease;
+}
+
+.cortex-brand:hover,
+.cortex-account:hover,
+.cortex-dock-link:hover,
+.graph-add-type:hover {
+    color: var(--primary-color);
+    border-color: rgba(40, 89, 205, 0.38);
+    box-shadow: 0 14px 34px rgba(35, 47, 80, 0.13),
+                0 2px 8px rgba(35, 47, 80, 0.07);
+    transform: translateY(-1px);
+}
+
+.cortex-brand:focus-visible,
+.cortex-account:focus-visible,
+.cortex-dock-link:focus-visible,
+.btn:focus-visible,
+.graph-add-type:focus-visible,
+.entity-card:focus-visible,
+.relation-card:focus-visible,
+.evidence-item:focus-visible,
+.btn-text:focus-visible,
+input:focus-visible {
+    outline: 3px solid rgba(40, 89, 205, 0.24);
+    outline-offset: 2px;
+}
+
+.graph-toolbar {
+    top: 22px;
+    right: 22px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px;
+    border-radius: 16px;
+}
+
+.btn {
+    min-height: 38px;
+    padding: 0 14px;
+    color: var(--text-primary);
+    border: 1px solid transparent;
+    border-radius: 11px;
+    background: transparent;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.graph-toolbar .btn {
+    min-width: 38px;
+    padding: 0 11px;
+    font-size: 0.92rem;
+}
+
+.graph-toolbar #zoomIn,
+.graph-toolbar #zoomOut {
+    font-size: 1.15rem;
+}
+
+.btn:hover {
+    color: var(--primary-color);
+    background: var(--highlight);
+}
+
+.btn-primary {
+    color: #fff;
+    background: var(--primary-color);
+}
+
+.btn-primary:hover {
+    color: #fff;
+    background: #214db7;
+}
+
+.btn-danger {
+    color: #a72d3f;
+    background: #fff0f2;
+}
+
+.btn-danger:hover {
+    color: #8c1e30;
+    background: #ffe2e7;
+}
+
+.graph-add-type {
+    top: 92px;
+    left: 22px;
+    display: flex;
+    height: 48px;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 15px 5px 5px;
+    color: var(--text-secondary);
+    border-radius: 16px;
+    cursor: pointer;
+}
+
+.graph-add-type-circle {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    color: var(--primary-color);
+    border: 1.5px dashed var(--accent);
+    border-radius: 12px;
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+.graph-add-type-label {
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+#graphEmpty {
+    right: 22px;
+    bottom: 24px;
+    left: auto;
+    max-width: 28rem;
+    margin: 0;
+    padding: 10px 14px;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: var(--shadow-float);
+    font-size: 0.84rem;
+}
+
+/* Context lives in floating sheets; the canvas itself remains one surface. */
+.ontology-drawer {
     top: 16px;
     right: 16px;
     bottom: 16px;
-    width: min(var(--drawer-w), calc(100vw - 72px));
-    display: flex;
-    flex-direction: column;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 8px 28px rgba(var(--text-primary-rgb), 0.14);
-    transform: translateX(calc(100% + 40px));
+    width: min(400px, calc(100% - 32px));
+    color: var(--text-primary);
+    border: 1px solid rgba(140, 151, 177, 0.42);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: var(--shadow-drawer);
+    opacity: 0;
     visibility: hidden;
-    transition: transform .28s ease, visibility 0s linear .28s;
-    will-change: transform;   /* Drawer-Slide auf eigener GPU-Ebene */
-    z-index: 2;
-}
-.ontology-drawer.open {
-    transform: none;
-    visibility: visible;
-    transition: transform .28s ease;
+    pointer-events: none;
+    transform: translateX(calc(100% + 28px));
+    transition: opacity 180ms ease, transform 240ms cubic-bezier(.2, .8, .2, 1),
+                visibility 0s linear 240ms;
+    overflow: hidden;
 }
 
-/* Dokument-Drawer: breiter, links neben dem Entitäten-Drawer. */
+.ontology-drawer.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+    transition-delay: 0s;
+}
+
 .ontology-drawer-doc {
-    right: calc(16px + var(--drawer-w) + 12px);
-    width: min(680px, calc(100vw - var(--drawer-w) - 120px));
+    width: min(680px, calc(100% - 32px));
 }
 
 .ontology-pane-header {
     display: flex;
+    min-height: 66px;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: var(--pad-section);
-    border-bottom: 1px solid var(--border-color);
+    gap: 16px;
+    padding: 14px 16px 14px 20px;
+    border-bottom: 1px solid #e2e6ef;
 }
+
 .ontology-pane-header h2 {
+    overflow: hidden;
+    margin: 0;
     font-family: var(--font-heading);
     font-size: 0.95rem;
-    color: var(--text-primary);
-}
-.drawer-close {
-    padding: 2px 9px;
+    font-weight: 700;
     line-height: 1.3;
-    font-size: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-#entityPaneBody, #docPaneBody { flex: 1; min-height: 0; overflow: auto; }
-/* Die Dokumentvorschau bringt ihre eigene Bildlaufleiste mit. Bliebe der
-   Rumpf hier ebenfalls rollbar, staenden zwei nebeneinander. clip statt
-   hidden: hidden macht den Kasten zu einem Rollbehaelter, den ein focus()
-   verschieben kann - genau daran hatte sich der Graph schon einmal verzogen. */
-#docPaneBody { overflow: clip; }
-
-.entity-hint { color: var(--text-secondary); font-size: 0.85rem;
-               padding: 10px var(--gutter) 0; margin: 0; }
-
-/* Entitätenliste in Kartenform — gleiche DNA wie .document-card der Suche
-   (Karte auf card-bg, Hover-Akzent, Metazeile + Titel). */
-.entity-cards { list-style: none; padding: 10px var(--gutter) 16px; margin: 0;
-                display: flex; flex-direction: column; gap: 8px; }
-.entity-card {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    padding: 12px 14px;
-    cursor: pointer;
-    font: inherit;
-    color: var(--text-primary);
-    transition: border-color 0.2s;
+.pane-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
-.entity-card:hover { border-color: var(--accent); }
-.entity-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.entity-card-metaline {
-    display: block;
+
+.drawer-close,
+.drawer-delete {
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+    font-size: 1.15rem;
+}
+
+#entityPaneBody,
+#docPaneBody {
+    scrollbar-color: #bec6d8 transparent;
+    scrollbar-width: thin;
+}
+
+#entityPaneBody {
+    padding: 20px;
+}
+
+.entity-detail h3 {
+    margin: 8px 0 20px;
     font-family: var(--font-heading);
-    font-size: 0.68rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    margin-bottom: 2px;
-}
-.entity-card-title {
-    display: block;
-    font-size: 0.95rem;
-    font-weight: 600;
-    overflow-wrap: anywhere;
+    font-size: 1.05rem;
+    line-height: 1.4;
 }
 
-.entity-detail { padding: 12px var(--gutter); }
-.entity-detail h3 { font-family: var(--font-heading); color: var(--text-primary); margin: 8px 0; }
 .entity-detail h4 {
-    font-family: var(--font-heading);
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    margin: 16px 0 6px;
+    margin: 26px 0 10px;
+    font-size: 0.78rem;
+    font-weight: 750;
 }
-/* Verbundene Entitäten: klickbare Mini-Karten (lesbares Prädikat als
-   Metazeile, Chevron als Klick-Signal; Richtung zeigt der Graph). */
-.relation-cards { list-style: none; padding: 0; margin: 0;
-                  display: flex; flex-direction: column; gap: 6px; }
+
+.entity-hint,
+.confirm-detail,
+.filter-status,
+.ontology-empty {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.55;
+}
+
+.entity-cards,
+.relation-cards,
+.evidence-list,
+.filter-list,
+.doc-field-link-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.entity-card,
+.relation-card,
+.evidence-item {
+    width: 100%;
+    padding: 13px 14px;
+    color: var(--text-primary);
+    border: 1px solid #dce1eb;
+    border-radius: 13px;
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+}
+
+.entity-card:hover,
+.relation-card:hover,
+.evidence-item:hover {
+    border-color: #9fb4e4;
+    background: #f8faff;
+}
+
+.entity-card-metaline,
+.relation-card-metaline,
+.evidence-source {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.entity-card-title,
+.relation-card-title {
+    display: block;
+    font-size: 0.87rem;
+    font-weight: 650;
+    line-height: 1.4;
+}
+
 .relation-card {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    width: 100%;
-    text-align: left;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    padding: 8px 12px;
-    cursor: pointer;
-    font: inherit;
-    color: var(--text-primary);
-    transition: border-color 0.2s;
+    gap: 12px;
 }
-.relation-card:hover { border-color: var(--accent); }
-.relation-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.relation-card-metaline {
-    display: block;
-    font-family: var(--font-heading);
-    font-size: 0.65rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-}
-.relation-card-title { display: block; font-size: 0.9rem; font-weight: 500; }
-.relation-card-chevron { color: var(--text-secondary); font-size: 1.1rem; line-height: 1; }
 
-.evidence-list { list-style: none; padding: 0; }
-.evidence-item {
+.relation-card-chevron {
+    color: var(--callout);
+    font-size: 1.3rem;
+}
+
+.evidence-quote {
     display: block;
-    width: 100%;
-    text-align: left;
-    background: var(--surface-sunken);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    padding: 10px 12px;
     margin-bottom: 8px;
-    cursor: pointer;
-    font: inherit;
-    color: var(--text-primary);
+    font-size: 0.84rem;
+    line-height: 1.5;
 }
-.evidence-item:hover { border-color: var(--accent); }
-.evidence-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.evidence-item.selected { background: var(--highlight); border-color: var(--primary-color); }
-.evidence-quote { display: block; }
-.evidence-source { display: block; margin-top: 4px; font-size: 0.85rem; color: var(--text-secondary); }
 
-/* display block, sonst sitzt das iframe als Inline-Kasten auf der
-   Textgrundlinie und ist ein paar Pixel hoeher als sein Elternteil. */
-.doc-frame { display: block; width: 100%; height: 100%; border: 0;
-             border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--card-bg); }
-
-/* Filter (Req 2.2): hervorgehobene Karte, Chips, Prüf-Panel. Nur Tokens. */
-.filter-card {
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-lg);
-    background: rgba(var(--accent-rgb), 0.05);
-    padding: 12px 14px;
-    margin: 12px 0 4px;
+.evidence-item.selected {
+    border-color: var(--primary-color);
+    background: var(--highlight);
 }
-.filter-card .filter-card-title {
+
+.create-row,
+.filter-create,
+.confirm-actions,
+.proposal-actions {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-family: var(--font-heading);
-    font-size: 0.78rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--primary-color);
-    margin: 0 0 4px;
+    gap: 8px;
+    margin-top: 16px;
 }
-.filter-card-purpose {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    margin: 0 0 8px;
-}
-.filter-list { list-style: none; padding: 0; margin: 0 0 8px; }
-.filter-list li { padding: 2px 0; }
-.filter-chip { display: block; text-align: left; }
-.filter-chip-label { display: block; }
-.filter-chip-state {
-    display: block;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-}
-.filter-create { display: flex; gap: 8px; margin-top: 6px; }
-.filter-create input {
-    flex: 1;
+
+input[type="text"] {
     min-width: 0;
-    padding: 6px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    background: var(--surface-sunken);
+    min-height: 42px;
+    flex: 1;
+    padding: 0 12px;
     color: var(--text-primary);
+    border: 1px solid #cbd2e2;
+    border-radius: 11px;
+    background: #fff;
 }
-.filter-create input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.filter-create .btn { white-space: nowrap; }
 
-.filter-status { color: var(--text-secondary); font-size: 0.85rem; margin: 4px 0 10px; }
+input[type="text"]::placeholder {
+    color: #929aae;
+}
 
-.tab-chips { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
-.tab-chip {
-    padding: 4px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-    background: var(--card-bg);
-    color: var(--text-secondary);
-    cursor: pointer;
-    font: inherit;
+.btn-text {
+    padding: 5px 0;
+    color: var(--primary-color);
+    border: 0;
+    background: transparent;
     font-size: 0.82rem;
+    font-weight: 650;
+    text-align: left;
+    cursor: pointer;
 }
-.tab-chip:hover { border-color: var(--accent); }
-.tab-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.btn-text:hover {
+    color: #193f9d;
+}
+
+.filter-card,
+.proposal-card {
+    margin-top: 16px;
+    padding: 15px;
+    border: 1px solid #dbe2f1;
+    border-radius: 15px;
+    background: var(--surface-sunken);
+}
+
+.filter-card-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 8px !important;
+    color: var(--primary-color);
+}
+
+.filter-card-purpose,
+.proposal-note {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.filter-list {
+    margin-top: 10px;
+}
+
+.filter-chip {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #dde2ec;
+}
+
+.filter-chip-state {
+    color: var(--text-secondary);
+    font-weight: 450;
+}
+
+.tab-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 14px 0;
+}
+
+.tab-chip,
+.score-chip {
+    display: inline-flex;
+    min-height: 30px;
+    align-items: center;
+    padding: 0 10px;
+    color: var(--text-secondary);
+    border: 1px solid #d5dbe8;
+    border-radius: 999px;
+    background: #fff;
+    font-size: 0.72rem;
+    font-weight: 650;
+}
+
+button.tab-chip {
+    cursor: pointer;
+}
+
 .tab-chip.active {
+    color: var(--primary-color);
+    border-color: #9db4eb;
     background: var(--highlight);
-    border-color: var(--primary-color);
-    color: var(--text-primary);
 }
 
 .proposal-card {
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    padding: 10px 12px;
     margin-bottom: 10px;
-    background: var(--card-bg);
 }
-.proposal-card .evidence-item { margin: 6px 0 0; }
-.score-chip {
-    display: inline-block;
-    font-family: var(--font-heading);
-    font-size: 0.72rem;
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-    padding: 1px 8px;
-    background: var(--surface-sunken);
-}
-.proposal-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
-.proposal-actions .btn { padding: 4px 12px; }
-.proposal-note { color: var(--text-secondary); font-size: 0.82rem; margin-top: 8px; }
-.proposal-confirm { color: var(--primary-color); margin: 4px 0; }
 
-/* Lade-Skeleton: schimmernde Platzhalterzeilen statt Spinner/Textblitzer.
-   Nur Token-Farben; die Animation nutzt Transparenz, keinen neuen Farbwert. */
+.proposal-card .evidence-item {
+    margin-top: 10px;
+}
+
 .skeleton-row {
-    height: 14px;
-    margin: 12px 16px;
-    border-radius: var(--radius);
-    background: var(--highlight);
-    animation: skeleton-pulse 1.2s ease-in-out infinite;
+    height: 54px;
+    margin-bottom: 10px;
+    border-radius: 12px;
+    background: linear-gradient(90deg, #eef1f7 25%, #f8f9fc 50%, #eef1f7 75%);
+    background-size: 200% 100%;
+    animation: cortex-skeleton 1.3s linear infinite;
 }
-.skeleton-row:nth-child(2) { width: 70%; }
-.skeleton-row:nth-child(3) { width: 85%; }
-@keyframes skeleton-pulse {
-    0%, 100% { opacity: 0.45; }
-    50%      { opacity: 1; }
+
+@keyframes cortex-skeleton {
+    to { background-position: -200% 0; }
 }
+
+@media (max-width: 640px) {
+    .cortex-brand {
+        top: 14px;
+        left: 14px;
+        width: 136px;
+        height: 46px;
+        border-radius: 14px;
+    }
+
+    .cortex-brand img {
+        width: 100px;
+    }
+
+    .graph-toolbar {
+        top: 14px;
+        right: 14px;
+        padding: 4px;
+        border-radius: 14px;
+    }
+
+    .graph-toolbar .btn {
+        min-width: 34px;
+        min-height: 36px;
+        padding: 0 8px;
+        font-size: 0.78rem;
+    }
+
+    .graph-add-type {
+        top: 74px;
+        left: 14px;
+    }
+
+    .galaxy-breadcrumb {
+        top: 72px;
+        min-height: 40px;
+    }
+
+    .cortex-account-dock {
+        bottom: 14px;
+        left: 14px;
+        gap: 6px;
+    }
+
+    .cortex-account {
+        width: 50px;
+        height: 50px;
+        padding: 7px;
+        border-radius: 15px;
+    }
+
+    .cortex-account-name {
+        display: none;
+    }
+
+    .cortex-dock-link {
+        width: 50px;
+        height: 50px;
+        border-radius: 15px;
+    }
+
+    .cortex-account-avatar {
+        flex-basis: 36px;
+        width: 36px;
+        height: 36px;
+        border-radius: 11px;
+    }
+
+    .ontology-drawer,
+    .ontology-drawer-doc {
+        top: 10px;
+        right: 10px;
+        bottom: 10px;
+        width: calc(100% - 20px);
+    }
+
+    .create-row,
+    .filter-create {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .create-row .btn,
+    .filter-create .btn {
+        width: 100%;
+    }
+
+    .galaxy-entity-panel {
+        top: auto;
+        right: 10px;
+        bottom: 76px;
+        left: 10px;
+        width: auto;
+        max-height: 42vh;
+    }
+
+    .galaxy-entity-tabs {
+        top: 35%;
+        left: 10px;
+        transform: translateY(-50%) scale(0.82);
+        transform-origin: left center;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .skeleton-row { animation: none; opacity: 0.6; }
-    .ontology-drawer { transition: none; }
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
 }
-
-/* Ruhige Übergänge für interaktive Elemente. */
-.evidence-item, .site-nav a, .btn { transition: border-color .15s ease, background-color .15s ease, color .15s ease; }
-
-/* Schmale Fenster: Drawer als Vollflächen-Overlay statt Nebeneinander. */
-@media (max-width: 1100px) {
-    .ontology-drawer { left: 16px; width: auto; }
-    .ontology-drawer-doc { right: 16px; width: auto; z-index: 3; }
-}
-
-/* Kuratieren: Entitaet und Typ anlegen. Der Wissensgraph wird gepflegt,
-   nicht abgeleitet - diese Eingaben gehoeren zum Ablauf. */
-.create-row { display: flex; gap: 8px; padding: 4px var(--gutter) 16px; }
-.create-row input {
-    flex: 1;
-    min-width: 0;
-    padding: 6px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    background: var(--surface-sunken);
-    color: var(--text-primary);
-    font: inherit;
-}
-.create-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.create-row .btn { white-space: nowrap; }
-
-/* Bereits verwendete Beziehungen als Chips. Eine datalist waere weniger
-   Code, aber ihr Aufklapp-Dreieck stellt der Browser und es passt weder
-   zur Marke noch sitzt es mittig. */
-.connect-vorschlaege { padding: 0 var(--gutter) 16px; margin-bottom: 0; }
-
-/* Loeschen liegt im Drawer-Kopf neben dem Schliessen - nicht im Rumpf,
-   wo es buendig an der Kante klebte und neben dem Anlegen zu leicht zu
-   treffen war. Bestaetigt wird auf einem eigenen Blatt, das die Folgen nennt. */
-.pane-actions { display: flex; align-items: center; gap: 6px; }
-.drawer-delete {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 8px;
-    color: var(--text-secondary);
-}
-.drawer-delete:hover { color: var(--error-color); border-color: var(--error-color); }
-.drawer-delete[hidden] { display: none; }
-
-.confirm-detail { color: var(--text-secondary); font-size: 0.9rem; margin: 6px 0 14px; }
-.confirm-actions { display: flex; align-items: center; gap: 12px; }
-.btn-danger {
-    background: var(--error-color);
-    color: var(--bg-color);
-    border: 1px solid var(--error-color);
-}
-.btn-danger:hover { filter: brightness(0.92); }
-
-/* Typ anlegen liegt sichtbar in der Graphflaeche, ist aber ein Bedienelement
-   ueber dem Canvas und kein Knoten darin: als Knoten musste das Einpassen ihn
-   mit einbeziehen, wodurch sich das ganze Netz verzogen hat. */
-.graph-add-type {
-    position: absolute;
-    top: 16px;
-    left: 16px;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 14px 6px 6px;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    box-shadow: 0 2px 10px rgba(var(--text-primary-rgb), 0.08);
-    transition: border-color .15s ease, color .15s ease;
-}
-.graph-add-type:hover { border-color: var(--accent); color: var(--text-primary); }
-.graph-add-type:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.graph-add-type-circle {
-    display: grid;
-    place-items: center;
-    width: 30px; height: 30px;
-    border: 2px dashed var(--accent);
-    border-radius: 50%;
-    color: var(--primary-color);
-    font-family: var(--font-heading);
-    font-size: 1.1rem;
-    line-height: 1;
-}
-.graph-add-type:hover .graph-add-type-circle { border-style: solid; }
-
-/* Griff zum Verbinden: erscheint beim Zeigen auf einen Knoten. Absolut
-   ueber dem Canvas, damit er unabhaengig von Cytoscape klickbar bleibt. */
-.connect-handle {
-    position: absolute;
-    z-index: 2;
-    width: 16px;
-    height: 16px;
-    margin: -8px 0 0 -8px;
-    padding: 0;
-    border: 2px solid var(--card-bg);
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: crosshair;
-    transition: transform .12s ease;
-}
-.connect-handle:hover { transform: scale(1.25); }
-.connect-handle:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-.connect-handle[hidden] { display: none; }

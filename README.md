@@ -1,5 +1,9 @@
 # Knovas Components
 
+> **Design canvas branch.** The Platform's visual design is taken out here so a
+> new one can start from nothing; everything still works. Start with
+> [DESIGN-CANVAS.md](KnovasPlatform/components/docbridge_integration/src/web_interface/DESIGN-CANVAS.md).
+
 Customer-hosted components for the Knovas platform.
 
 | Folder | Purpose |
