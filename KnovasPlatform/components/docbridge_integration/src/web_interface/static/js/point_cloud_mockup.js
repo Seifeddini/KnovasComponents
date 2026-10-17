@@ -9,6 +9,10 @@
     const context = canvas.getContext('2d', { alpha: true });
     if (!context) return;
 
+    const heatmapCanvas = document.getElementById('galaxyHeatmap');
+    const heatmapContext = heatmapCanvas
+        ? heatmapCanvas.getContext('2d', { alpha: true })
+        : null;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const stars = [];
     const systems = [];
@@ -30,6 +34,9 @@
     const fieldsTab = document.getElementById('galaxyFieldsTab');
     const documentsTab = document.getElementById('galaxyDocumentsTab');
     const historyTab = document.getElementById('galaxyHistoryTab');
+    const searchForm = document.getElementById('galaxySearch');
+    const searchInput = document.getElementById('galaxySearchInput');
+    const searchStatus = document.getElementById('galaxySearchStatus');
     let width = 0;
     let height = 0;
     let pixelRatio = 1;
@@ -53,6 +60,13 @@
     let targetHistoryMix = 0;
     let detailView = 'fields';
     let travelTimer = 0;
+    let searchState = {
+        query: '',
+        level: 'idle',
+        results: [],
+        system: null,
+        entity: null,
+    };
 
     // Seeded randomness keeps the galaxy recognisable across reloads.
     let seed = 0x4b4e4f56;
@@ -92,46 +106,353 @@
 
     const systemDefinitions = [
         {
-            x: -0.46, y: -0.02, z: 0.08, label: 'Mandant', primary: true, warm: true,
+            x: -0.46, y: -0.02, z: 0.08, label: 'Mandate', primary: true, warm: true,
             entities: [
-                'Müller Bau AG', 'Meier Immobilien', 'Keller Holding',
-                'NovaTech AG', 'Familie Baumann', 'Stadtwerke Nord',
+                {
+                    label: 'Müller Bau AG · Werklohnstreit',
+                    number: 'M-2026-041', area: 'Bau- und Werkvertragsrecht',
+                    status: 'Rechtshängig', lead: 'Dr. Anna Keller',
+                    value: 'CHF 1’850’000', deadline: 'Klageantwort · 30. Oktober 2026',
+                    opened: '12. Februar 2026',
+                    connection: { system: 'Gerichte', entity: 'Handelsgericht Zürich' },
+                },
+                {
+                    label: 'Meier Immobilien · Mietzinsverfahren',
+                    number: 'M-2026-038', area: 'Mietrecht', status: 'Schlichtung',
+                    lead: 'Sofia Rossi', value: 'CHF 186’000',
+                    deadline: 'Schlichtungsverhandlung · 4. November 2026',
+                    opened: '29. Januar 2026',
+                },
+                {
+                    label: 'NovaTech AG · Beteiligungsrunde',
+                    number: 'M-2026-057', area: 'Gesellschaftsrecht', status: 'Due Diligence',
+                    lead: 'Dr. Anna Keller', value: 'CHF 8’500’000',
+                    deadline: 'Signing · 20. November 2026', opened: '18. März 2026',
+                },
+                {
+                    label: 'Familie Baumann · Nachlass',
+                    number: 'M-2025-119', area: 'Erbrecht', status: 'Teilung in Vorbereitung',
+                    lead: 'Daniel Weber', value: 'CHF 3’240’000',
+                    deadline: 'Erbteilungsvertrag · 12. Dezember 2026',
+                    opened: '7. November 2025',
+                },
+                {
+                    label: 'Stadtwerke Nord · Vergabebeschwerde',
+                    number: 'M-2026-063', area: 'Öffentliches Beschaffungsrecht',
+                    status: 'Beschwerdeverfahren', lead: 'Thomas Frei',
+                    value: 'CHF 12’400’000', deadline: 'Replik · 23. Oktober 2026',
+                    opened: '6. April 2026',
+                },
+                {
+                    label: 'Alpenblick Klinik · Arbeitsstreit',
+                    number: 'M-2026-071', area: 'Arbeitsrecht', status: 'Vergleichsgespräche',
+                    lead: 'Sofia Rossi', value: 'CHF 245’000',
+                    deadline: 'Vergleichsvorschlag · 27. Oktober 2026',
+                    opened: '2. Mai 2026',
+                },
+                {
+                    label: 'Keller Holding · Steuerreorganisation',
+                    number: 'M-2026-029', area: 'Steuer- und Gesellschaftsrecht',
+                    status: 'In Bearbeitung', lead: 'Daniel Weber',
+                    value: 'CHF 24’000’000', deadline: 'Ruling-Antrag · 6. November 2026',
+                    opened: '14. Januar 2026',
+                },
+                {
+                    label: 'GreenGrid GmbH · Lizenzvertrag',
+                    number: 'M-2026-084', area: 'IT- und Immaterialgüterrecht',
+                    status: 'Vertragsverhandlung', lead: 'Thomas Frei',
+                    value: 'CHF 960’000', deadline: 'Redline-Fassung · 21. Oktober 2026',
+                    opened: '17. Juni 2026',
+                    connection: { system: 'Gegenparteien', entity: 'Helvetia Projektentwicklung AG' },
+                },
             ],
         },
         {
-            x: 0.44, y: 0.015, z: -0.12, label: 'Gericht', primary: true, warm: false,
+            x: 0.44, y: 0.015, z: -0.12, label: 'Mandanten', primary: true, warm: false,
             entities: [
-                'Bezirksgericht Zürich', 'Obergericht Zürich', 'Handelsgericht',
-                'Bundesgericht', 'Arbeitsgericht', 'Schlichtungsstelle',
+                {
+                    label: 'Müller Bau AG', number: 'K-10041', legalForm: 'Aktiengesellschaft',
+                    location: 'Winterthur ZH', contact: 'Markus Müller, CEO',
+                    email: 'markus.mueller@muellerbau.example', activeMatters: '3',
+                    since: '2018', industry: 'Bau und Generalunternehmung',
+                    connection: { system: 'Mandate', entity: 'Müller Bau AG · Werklohnstreit' },
+                },
+                {
+                    label: 'Meier Immobilien AG', number: 'K-10127',
+                    legalForm: 'Aktiengesellschaft', location: 'Zürich',
+                    contact: 'Markus Meier, Verwaltungsrat',
+                    email: 'markus.meier@meier-immo.example', activeMatters: '5',
+                    since: '2020', industry: 'Immobilienverwaltung',
+                },
+                {
+                    label: 'NovaTech AG', number: 'K-10318', legalForm: 'Aktiengesellschaft',
+                    location: 'Zug', contact: 'Dr. Lea Hartmann, CFO',
+                    email: 'lea.hartmann@novatech.example', activeMatters: '2',
+                    since: '2024', industry: 'Software und Medizintechnik',
+                },
+                {
+                    label: 'Erbengemeinschaft Baumann', number: 'K-09984',
+                    legalForm: 'Erbengemeinschaft', location: 'Küsnacht ZH',
+                    contact: 'Lisa Baumann', email: 'l.baumann@example.ch',
+                    activeMatters: '1', since: '2025', industry: 'Privatmandat',
+                },
+                {
+                    label: 'Stadtwerke Nord', number: 'K-10256',
+                    legalForm: 'Selbständige Anstalt', location: 'Schaffhausen',
+                    contact: 'Claudia Brunner, Leiterin Recht',
+                    email: 'claudia.brunner@stadtwerke-nord.example',
+                    activeMatters: '4', since: '2022', industry: 'Energieversorgung',
+                },
+                {
+                    label: 'Alpenblick Klinik AG', number: 'K-10344',
+                    legalForm: 'Aktiengesellschaft', location: 'Zürich',
+                    contact: 'Dr. Miriam Vogt, Direktorin',
+                    email: 'miriam.vogt@alpenblick.example', activeMatters: '2',
+                    since: '2025', industry: 'Gesundheitswesen',
+                },
+                {
+                    label: 'Keller Holding AG', number: 'K-09762',
+                    legalForm: 'Aktiengesellschaft', location: 'Zug',
+                    contact: 'Urs Keller, Verwaltungsratspräsident',
+                    email: 'urs.keller@keller-holding.example', activeMatters: '7',
+                    since: '2016', industry: 'Industriebeteiligungen',
+                },
+                {
+                    label: 'GreenGrid GmbH', number: 'K-10391',
+                    legalForm: 'Gesellschaft mit beschränkter Haftung',
+                    location: 'Baden AG', contact: 'Nina Graf, Geschäftsführerin',
+                    email: 'nina.graf@greengrid.example', activeMatters: '2',
+                    since: '2026', industry: 'Energietechnologie',
+                    connection: { system: 'Personen', entity: 'Thomas Frei' },
+                },
             ],
         },
         {
             x: -0.08, y: 0.025, z: 0.5, label: 'Personen', primary: true, warm: false,
             entities: [
-                'Dr. Anna Keller', 'Markus Meier', 'Lisa Baumann',
-                'Thomas Frei', 'Sofia Rossi', 'Daniel Weber',
+                {
+                    label: 'Dr. Anna Keller', role: 'Partnerin · Fallverantwortung',
+                    organisation: 'Kanzlei Keller & Partner', phone: '+41 44 555 01 10',
+                    email: 'anna.keller@kanzlei.example', matters: 'M-2026-041, M-2026-057',
+                    expertise: 'Prozessführung, Gesellschaftsrecht',
+                    connection: { system: 'Mandate', entity: 'Müller Bau AG · Werklohnstreit' },
+                },
+                {
+                    label: 'Markus Müller', role: 'CEO · Mandantenvertretung',
+                    organisation: 'Müller Bau AG', phone: '+41 52 555 18 20',
+                    email: 'markus.mueller@muellerbau.example', matters: 'M-2026-041',
+                    expertise: 'Bauleitung und Unternehmensführung',
+                },
+                {
+                    label: 'Sofia Rossi', role: 'Rechtsanwältin · Senior Associate',
+                    organisation: 'Kanzlei Keller & Partner', phone: '+41 44 555 01 24',
+                    email: 'sofia.rossi@kanzlei.example', matters: 'M-2026-038, M-2026-071',
+                    expertise: 'Arbeits- und Mietrecht',
+                },
+                {
+                    label: 'Daniel Weber', role: 'Rechtsanwalt · Counsel',
+                    organisation: 'Kanzlei Keller & Partner', phone: '+41 44 555 01 16',
+                    email: 'daniel.weber@kanzlei.example', matters: 'M-2025-119, M-2026-029',
+                    expertise: 'Erbrecht und Steuerrecht',
+                },
+                {
+                    label: 'Thomas Frei', role: 'Rechtsanwalt · Associate',
+                    organisation: 'Kanzlei Keller & Partner', phone: '+41 44 555 01 31',
+                    email: 'thomas.frei@kanzlei.example', matters: 'M-2026-063, M-2026-084',
+                    expertise: 'Öffentliches Recht und IT-Recht',
+                    connection: { system: 'Mandanten', entity: 'GreenGrid GmbH' },
+                },
+                {
+                    label: 'lic. iur. Eva Schmid', role: 'Gegenanwältin',
+                    organisation: 'Schmid Legal AG', phone: '+41 44 555 74 12',
+                    email: 'eva.schmid@schmid-legal.example', matters: 'M-2026-041',
+                    expertise: 'Bau- und Immobilienrecht',
+                },
+                {
+                    label: 'Prof. Dr. Reto Haller', role: 'Privatgutachter',
+                    organisation: 'Haller Bauexpertise GmbH', phone: '+41 31 555 22 08',
+                    email: 'reto.haller@bauexpertise.example', matters: 'M-2026-041',
+                    expertise: 'Baumängel und Kostenplanung',
+                },
+                {
+                    label: 'Nina Graf', role: 'Geschäftsführerin',
+                    organisation: 'GreenGrid GmbH', phone: '+41 56 555 08 42',
+                    email: 'nina.graf@greengrid.example', matters: 'M-2026-084',
+                    expertise: 'Energiesysteme und Lizenzierung',
+                },
             ],
         },
-        { x: 0.14, y: -0.03, z: -0.62 },
-        { x: 0.76, y: 0.01, z: 0.28 },
-        { x: -0.82, y: -0.02, z: -0.27 },
+        {
+            x: 0.14, y: -0.03, z: -0.62, label: 'Gerichte', primary: true, warm: false,
+            entities: [
+                {
+                    label: 'Handelsgericht Zürich', level: 'Kantonales Fachgericht',
+                    location: 'Zürich', jurisdiction: 'Handelsrecht',
+                    reference: 'HG260184-O', status: 'Schriftenwechsel',
+                    judge: 'Handelsrichterin Dr. M. Steiner',
+                    nextDate: 'Klageantwort · 30. Oktober 2026',
+                    connection: { system: 'Mandate', entity: 'Müller Bau AG · Werklohnstreit' },
+                },
+                {
+                    label: 'Mietgericht Zürich', level: 'Bezirksgericht',
+                    location: 'Zürich', jurisdiction: 'Miet- und Pachtrecht',
+                    reference: 'MJ260392-L', status: 'Sistiert bis Schlichtung',
+                    judge: 'Bezirksrichter P. Egli', nextDate: 'Statusbericht · 6. November 2026',
+                },
+                {
+                    label: 'Obergericht Zürich', level: 'Kantonales Obergericht',
+                    location: 'Zürich', jurisdiction: 'Zivil- und Strafrecht',
+                    reference: 'LB260071-O/U', status: 'Berufungsverfahren',
+                    judge: 'I. Zivilkammer', nextDate: 'Berufungsantwort · 18. November 2026',
+                },
+                {
+                    label: 'Bundesgericht', level: 'Oberstes Gericht',
+                    location: 'Lausanne', jurisdiction: 'Bundesrecht',
+                    reference: '4A_418/2026', status: 'Instruktion',
+                    judge: 'I. zivilrechtliche Abteilung',
+                    nextDate: 'Kostenvorschuss · 28. Oktober 2026',
+                },
+                {
+                    label: 'Arbeitsgericht Zürich', level: 'Bezirksgericht',
+                    location: 'Zürich', jurisdiction: 'Arbeitsrecht',
+                    reference: 'AN260066-L', status: 'Vergleichsverhandlung',
+                    judge: 'Bezirksrichterin S. Frei',
+                    nextDate: 'Verhandlung · 11. November 2026',
+                    connection: { system: 'Mandate', entity: 'Alpenblick Klinik · Arbeitsstreit' },
+                },
+                {
+                    label: 'Verwaltungsgericht Schaffhausen', level: 'Kantonales Gericht',
+                    location: 'Schaffhausen', jurisdiction: 'Verwaltungsrecht',
+                    reference: 'VGE 2026/83', status: 'Beschwerdeverfahren',
+                    judge: '2. Kammer', nextDate: 'Replik · 23. Oktober 2026',
+                },
+                {
+                    label: 'Schiedsgericht Swiss Rules', level: 'Institutionelles Schiedsgericht',
+                    location: 'Zürich', jurisdiction: 'Vertragsrecht',
+                    reference: 'ASA 600721-2026', status: 'Konstituiert',
+                    judge: 'Einzelschiedsrichterin C. Rey',
+                    nextDate: 'Case Management Conference · 2. November 2026',
+                },
+                {
+                    label: 'Friedensrichteramt Kreis 7', level: 'Schlichtungsbehörde',
+                    location: 'Zürich', jurisdiction: 'Zivilsachen',
+                    reference: 'GV.2026.00418', status: 'Verhandlung terminiert',
+                    judge: 'Friedensrichter M. Ott', nextDate: 'Verhandlung · 4. November 2026',
+                },
+            ],
+        },
+        {
+            x: 0.76, y: 0.01, z: 0.28, label: 'Gegenparteien', primary: true, warm: false,
+            entities: [
+                {
+                    label: 'Helvetia Projektentwicklung AG', legalForm: 'Aktiengesellschaft',
+                    location: 'Zürich', counsel: 'Schmid Legal AG',
+                    contact: 'lic. iur. Eva Schmid', matter: 'M-2026-041',
+                    position: 'Bestreitet Mehrvergütung und Fristverlängerung',
+                    connection: { system: 'Mandate', entity: 'Müller Bau AG · Werklohnstreit' },
+                },
+                {
+                    label: 'Wohnbaugenossenschaft Limmat', legalForm: 'Genossenschaft',
+                    location: 'Zürich', counsel: 'Intern vertreten',
+                    contact: 'Andreas Roth, Leiter Bewirtschaftung', matter: 'M-2026-038',
+                    position: 'Beruft sich auf umfassende Sanierung',
+                },
+                {
+                    label: 'Apex Ventures II LP', legalForm: 'Limited Partnership',
+                    location: 'London, UK', counsel: 'Baker & Rowe LLP',
+                    contact: 'James Cole, Partner', matter: 'M-2026-057',
+                    position: 'Investorin und federführende Vertragspartei',
+                },
+                {
+                    label: 'Peter Baumann', legalForm: 'Privatperson',
+                    location: 'Bern', counsel: 'Advokatur am Bundesplatz',
+                    contact: 'RA Dr. Nicole Wenger', matter: 'M-2025-119',
+                    position: 'Beantragt Anrechnung lebzeitiger Zuwendungen',
+                },
+                {
+                    label: 'Energia Solutions AG', legalForm: 'Aktiengesellschaft',
+                    location: 'Basel', counsel: 'Hofmann Rechtsanwälte',
+                    contact: 'RA Lukas Hofmann', matter: 'M-2026-063',
+                    position: 'Zuschlagsempfängerin im Vergabeverfahren',
+                    connection: { system: 'Gerichte', entity: 'Verwaltungsgericht Schaffhausen' },
+                },
+                {
+                    label: 'Dr. Felix Marti', legalForm: 'Privatperson',
+                    location: 'Zollikon ZH', counsel: 'Wenger Arbeitsrecht',
+                    contact: 'RA Corinne Wenger', matter: 'M-2026-071',
+                    position: 'Macht missbräuchliche Kündigung geltend',
+                },
+                {
+                    label: 'Kantonales Steueramt Zürich', legalForm: 'Behörde',
+                    location: 'Zürich', counsel: 'Rechtsdienst',
+                    contact: 'Dr. Jürg Ammann', matter: 'M-2026-029',
+                    position: 'Prüft steuerneutrale Umstrukturierung',
+                },
+                {
+                    label: 'Gridware Europe S.A.', legalForm: 'Société anonyme',
+                    location: 'Lausanne', counsel: 'LexTech Avocats',
+                    contact: 'Me Camille Morel', matter: 'M-2026-084',
+                    position: 'Lizenzgeberin der Plattformtechnologie',
+                },
+            ],
+        },
+        {
+            x: -0.82, y: -0.02, z: -0.27, label: 'Behörden', primary: true, warm: false,
+            entities: [
+                {
+                    label: 'Handelsregisteramt Zürich', kind: 'Kantonale Registerbehörde',
+                    location: 'Zürich', reference: 'CHE-108.445.219',
+                    matter: 'M-2026-057', status: 'Voranfrage eingereicht',
+                    nextDate: 'Rückmeldung erwartet · 23. Oktober 2026',
+                    connection: { system: 'Mandanten', entity: 'NovaTech AG' },
+                },
+                {
+                    label: 'Kantonales Steueramt Zürich', kind: 'Kantonale Steuerbehörde',
+                    location: 'Zürich', reference: 'RUL-2026-8841',
+                    matter: 'M-2026-029', status: 'Ruling in Prüfung',
+                    nextDate: 'Ergänzende Unterlagen · 6. November 2026',
+                },
+                {
+                    label: 'WEKO', kind: 'Bundesbehörde',
+                    location: 'Bern', reference: 'RPW 2026/4-118',
+                    matter: 'M-2026-057', status: 'Informelle Vorprüfung',
+                    nextDate: 'Marktabgrenzung einreichen · 30. Oktober 2026',
+                },
+                {
+                    label: 'Eidgenössisches Institut für Geistiges Eigentum',
+                    kind: 'Bundesinstitut', location: 'Bern', reference: 'TM-824771',
+                    matter: 'M-2026-084', status: 'Markenanmeldung publiziert',
+                    nextDate: 'Widerspruchsfrist · 14. Dezember 2026',
+                },
+                {
+                    label: 'Baupolizeiamt Winterthur', kind: 'Kommunale Behörde',
+                    location: 'Winterthur', reference: 'BAP-2025-1948',
+                    matter: 'M-2026-041', status: 'Akteneinsicht gewährt',
+                    nextDate: 'Planeinsicht · 22. Oktober 2026',
+                    connection: { system: 'Mandate', entity: 'Müller Bau AG · Werklohnstreit' },
+                },
+                {
+                    label: 'Zivilstandsamt Küsnacht', kind: 'Kommunale Behörde',
+                    location: 'Küsnacht ZH', reference: 'NZ-2025-441',
+                    matter: 'M-2025-119', status: 'Urkunden vollständig',
+                    nextDate: 'Keine offene Frist',
+                },
+                {
+                    label: 'Amt für Wirtschaft und Arbeit', kind: 'Kantonale Behörde',
+                    location: 'Zürich', reference: 'AWA-AR-2026-319',
+                    matter: 'M-2026-071', status: 'Stellungnahme ausstehend',
+                    nextDate: 'Stellungnahme · 29. Oktober 2026',
+                },
+                {
+                    label: 'Eidgenössisches Starkstrominspektorat',
+                    kind: 'Aufsichtsbehörde', location: 'Fehraltorf ZH',
+                    reference: 'ESTI-2026-7714', matter: 'M-2026-063',
+                    status: 'Technische Prüfung', nextDate: 'Prüfbericht · 9. November 2026',
+                },
+            ],
+        },
         { x: 0.22, y: 0.02, z: 0.18 },
     ];
-
-    const connections = {
-        Mandant: {
-            1: { system: 'Gericht', entity: 'Bezirksgericht Zürich' },
-            4: { system: 'Personen', entity: 'Lisa Baumann' },
-        },
-        Gericht: {
-            1: { system: 'Mandant', entity: 'Müller Bau AG' },
-            4: { system: 'Personen', entity: 'Dr. Anna Keller' },
-        },
-        Personen: {
-            1: { system: 'Mandant', entity: 'Meier Immobilien' },
-            4: { system: 'Gericht', entity: 'Arbeitsgericht' },
-        },
-    };
 
     systemDefinitions.forEach((definition, systemIndex) => {
         const system = {
@@ -154,23 +475,233 @@
                 warmth: definition.warm ? 0.98 : random(),
             });
         }
-        (definition.entities || []).forEach((label, index, entities) => {
+        (definition.entities || []).forEach((entity, index, entities) => {
             const angle = (index / entities.length) * Math.PI * 2 + systemIndex * 0.36;
             const ring = 0.2 + (index % 2) * 0.075;
             system.entityNodes.push({
+                ...entity,
                 x: definition.x + Math.cos(angle) * ring,
                 y: definition.y + ((index % 3) - 1) * 0.012,
                 z: definition.z + Math.sin(angle) * ring * 0.74,
-                label,
                 size: 4.1 + (index % 3) * 0.45,
-                connection: connections[definition.label]
-                    ? connections[definition.label][index] || null
-                    : null,
             });
         });
         systems.push(system);
         stars.push(...system.orbit);
     });
+
+    function normalizeSearchValue(value) {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/ß/g, 'ss')
+            .toLocaleLowerCase('de-CH')
+            .replace(/[^\p{L}\p{N}]+/gu, ' ')
+            .trim();
+    }
+
+    function rankSearch(query) {
+        const normalizedQuery = normalizeSearchValue(query);
+        const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+        return systems.map((system) => {
+            const systemLabel = normalizeSearchValue(system.label);
+            const entityResults = system.entityNodes.map((entity) => {
+                const label = normalizeSearchValue(entity.label);
+                const details = normalizeSearchValue(
+                    Object.entries(entity)
+                        .filter(([key, value]) =>
+                            key !== 'label' && typeof value === 'string')
+                        .map(([, value]) => value)
+                        .join(' '),
+                );
+                const connection = entity.connection
+                    ? normalizeSearchValue(
+                        `${entity.connection.system} ${entity.connection.entity}`)
+                    : '';
+                let score = 0;
+                let directScore = 0;
+                let matchedTokens = 0;
+                let directMatchedTokens = 0;
+                tokens.forEach((token) => {
+                    let tokenDirectScore = 0;
+                    if (label.includes(token)) tokenDirectScore += 5;
+                    if (label.startsWith(token)) tokenDirectScore += 2;
+                    if (details.includes(token)) tokenDirectScore += 2;
+                    const connectionScore = connection.includes(token) ? 1 : 0;
+                    const tokenScore = tokenDirectScore + connectionScore;
+                    if (tokenScore > 0) matchedTokens += 1;
+                    if (tokenDirectScore > 0) directMatchedTokens += 1;
+                    score += tokenScore;
+                    directScore += tokenDirectScore;
+                });
+                if (normalizedQuery && label.includes(normalizedQuery)) {
+                    score += 5;
+                    directScore += 5;
+                }
+                return {
+                    entity,
+                    score,
+                    directScore,
+                    matchedTokens,
+                    directMatchedTokens,
+                };
+            }).sort((a, b) => b.score - a.score);
+            let systemScore = entityResults[0] ? entityResults[0].score : 0;
+            let systemDirectScore = Math.max(
+                0,
+                ...entityResults.map((entry) => entry.directScore),
+            );
+            if (entityResults[1]) systemScore += entityResults[1].score * 0.16;
+            tokens.forEach((token) => {
+                if (systemLabel.includes(token)) {
+                    systemScore += 7;
+                    systemDirectScore += 7;
+                }
+                if (systemLabel.startsWith(token)) {
+                    systemScore += 2;
+                    systemDirectScore += 2;
+                }
+            });
+            if (normalizedQuery && systemLabel.includes(normalizedQuery)) {
+                systemScore += 6;
+                systemDirectScore += 6;
+            }
+            return {
+                system,
+                score: systemScore,
+                directScore: systemDirectScore,
+                entities: entityResults,
+                tokenCount: tokens.length,
+            };
+        }).sort((a, b) => b.score - a.score);
+    }
+
+    function setSearchStatus(message) {
+        if (searchStatus) searchStatus.textContent = message;
+    }
+
+    function applySearch(value, forceDetail = false) {
+        const query = String(value || '').trim();
+        const normalizedQuery = normalizeSearchValue(query);
+        document.body.classList.toggle('galaxy-searching', Boolean(normalizedQuery));
+
+        if (!normalizedQuery) {
+            searchState = {
+                query: '',
+                level: 'idle',
+                results: [],
+                system: null,
+                entity: null,
+            };
+            setSearchStatus('Galaxie durchsuchen');
+            fitGalaxy();
+            return;
+        }
+
+        const results = rankSearch(query);
+        const positiveResults = results.filter((result) => result.score > 0);
+        const directSystemResults = results
+            .filter((result) => result.directScore > 0)
+            .sort((a, b) => b.directScore - a.directScore);
+        const topSystem = directSystemResults[0] || positiveResults[0] || null;
+        const secondSystem = directSystemResults[1] || null;
+        const globalEntities = results.flatMap((result) =>
+            result.entities.map((entry) => ({
+                ...entry,
+                system: result.system,
+                tokenCount: result.tokenCount,
+            })))
+            .filter((entry) => entry.score > 0)
+            .sort((a, b) => b.score - a.score);
+        const directEntities = globalEntities
+            .filter((entry) => entry.directScore > 0)
+            .sort((a, b) => b.directScore - a.directScore);
+        const topEntity = directEntities[0] || null;
+        const secondEntity = directEntities[1] || null;
+        const allEntityTokensMatch = topEntity
+            && topEntity.directMatchedTokens === topEntity.tokenCount;
+        const entityIsDistinct = topEntity && (
+            !secondEntity
+            || topEntity.directScore - secondEntity.directScore >= 4
+            || topEntity.directScore >= secondEntity.directScore * 1.28
+        );
+        const systemIsDistinct = topSystem && (
+            !secondSystem
+            || topSystem.directScore - secondSystem.directScore >= 3
+            || topSystem.directScore >= secondSystem.directScore * 1.2
+        );
+        const systemLabelMatches = topSystem
+            && normalizeSearchValue(topSystem.system.label).includes(normalizedQuery);
+        const strongEntitySignal = topEntity && allEntityTokensMatch
+            && entityIsDistinct && topEntity.directScore >= 8;
+        const showEntity = topEntity && allEntityTokensMatch && entityIsDistinct
+            && ((normalizedQuery.length >= 6 && topEntity.directScore >= 8)
+                || (forceDetail && normalizedQuery.length >= 3));
+        const showSystem = topSystem
+            && directSystemResults.length
+            && (systemLabelMatches
+                || (normalizedQuery.length >= 3
+                    && topSystem.directScore >= 5
+                    && (systemIsDistinct || strongEntitySignal))
+                || forceDetail);
+
+        if (showEntity) {
+            searchState = {
+                query,
+                level: 'entity',
+                results,
+                system: topEntity.system,
+                entity: topEntity.entity,
+            };
+            setSearchStatus(
+                `${topEntity.system.label} · Detailtreffer ${topEntity.entity.label}`,
+            );
+            if (!selectedEntity
+                    || selectedEntity.label !== topEntity.entity.label
+                    || focusedSystem !== topEntity.system) {
+                openEntityDetail(topEntity.system.label, topEntity.entity.label);
+            } else {
+                restart();
+            }
+            return;
+        }
+
+        if (showSystem) {
+            const bestEntity = topSystem.entities.find((entry) => entry.score > 0);
+            searchState = {
+                query,
+                level: 'system',
+                results,
+                system: topSystem.system,
+                entity: bestEntity ? bestEntity.entity : null,
+            };
+            setSearchStatus(
+                `Eingegrenzt auf ${topSystem.system.label} · Heatmap aktiv`,
+            );
+            if (focusedSystem !== topSystem.system || selectedEntity) {
+                openSystem(topSystem.system.label);
+            }
+            highlightedEntity = bestEntity ? bestEntity.entity.label : null;
+            restart();
+            return;
+        }
+
+        searchState = {
+            query,
+            level: 'galaxy',
+            results,
+            system: null,
+            entity: null,
+        };
+        if (positiveResults.length) {
+            setSearchStatus(
+                `${positiveResults.length} Wissensräume werden gewichtet`,
+            );
+        } else {
+            setSearchStatus('Noch kein eindeutiger Bereich · Galaxie wird geprüft');
+        }
+        fitGalaxy();
+    }
 
     const connectionArrows = Array.from({ length: 2 }, (_, index) => {
         const button = document.createElement('button');
@@ -184,7 +715,10 @@
         canvas.parentElement.appendChild(button);
         return button;
     });
-    const entityTargets = Array.from({ length: 6 }, (_, index) => {
+    const entityTargetCount = Math.max(
+        ...systems.map((system) => system.entityNodes.length),
+    );
+    const entityTargets = Array.from({ length: entityTargetCount }, (_, index) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'galaxy-entity-target';
@@ -211,72 +745,151 @@
     });
 
     function detailGroups(system, entity) {
-        if (system.label === 'Personen') {
+        if (system.label === 'Mandate') {
             return [
-                ['Stammdaten', [
-                    ['Name', entity.label],
-                    ['Geburtsdatum', '14. März 1982'],
-                    ['Adresse', 'Bahnhofstrasse 24, Zürich'],
-                    ['E-Mail', 'kontakt@beispiel.ch'],
+                ['Akte', [
+                    ['Mandatsnummer', entity.number],
+                    ['Rechtsgebiet', entity.area],
+                    ['Status', entity.status],
+                    ['Eröffnet', entity.opened],
                 ]],
-                ['Zuordnung', [
-                    ['Rolle', 'Ansprechperson'],
-                    ['Organisation', 'Müller Bau AG'],
-                    ['Status', 'Aktiv'],
+                ['Verantwortung & Fristen', [
+                    ['Fallverantwortung', entity.lead],
+                    ['Streit-/Transaktionswert', entity.value],
+                    ['Nächste Frist', entity.deadline],
+                    ['Konfliktprüfung', 'Abgeschlossen · keine Treffer'],
                 ]],
             ];
         }
-        if (system.label === 'Gericht') {
+        if (system.label === 'Mandanten') {
+            return [
+                ['Stammdaten', [
+                    ['Kundennummer', entity.number],
+                    ['Rechtsform', entity.legalForm],
+                    ['Sitz / Wohnort', entity.location],
+                    ['Branche', entity.industry],
+                ]],
+                ['Mandatsbeziehung', [
+                    ['Hauptkontakt', entity.contact],
+                    ['E-Mail', entity.email],
+                    ['Aktive Mandate', entity.activeMatters],
+                    ['Mandant seit', entity.since],
+                ]],
+            ];
+        }
+        if (system.label === 'Personen') {
+            return [
+                ['Kontakt', [
+                    ['Name', entity.label],
+                    ['Funktion', entity.role],
+                    ['Organisation', entity.organisation],
+                    ['Telefon', entity.phone],
+                    ['E-Mail', entity.email],
+                ]],
+                ['Zuordnung', [
+                    ['Mandate', entity.matters],
+                    ['Fachgebiet', entity.expertise],
+                    ['Status', 'Aktiv · Identität verifiziert'],
+                ]],
+            ];
+        }
+        if (system.label === 'Gerichte') {
             return [
                 ['Stammdaten', [
                     ['Bezeichnung', entity.label],
-                    ['Gerichtsebene', 'Kantonal'],
-                    ['Ort', 'Zürich'],
-                    ['Zuständigkeit', 'Zivilrecht'],
+                    ['Gerichtsebene', entity.level],
+                    ['Ort', entity.location],
+                    ['Zuständigkeit', entity.jurisdiction],
                 ]],
                 ['Verfahren', [
-                    ['Aktenzeichen', 'HG-2026-184'],
-                    ['Status', 'Laufend'],
-                    ['Letzte Aktivität', '8. Oktober 2026'],
+                    ['Aktenzeichen', entity.reference],
+                    ['Status', entity.status],
+                    ['Spruchkörper', entity.judge],
+                    ['Nächster Termin', entity.nextDate],
+                ]],
+            ];
+        }
+        if (system.label === 'Gegenparteien') {
+            return [
+                ['Stammdaten', [
+                    ['Name / Firma', entity.label],
+                    ['Rechtsform', entity.legalForm],
+                    ['Sitz / Wohnort', entity.location],
+                    ['Zugeordnetes Mandat', entity.matter],
+                ]],
+                ['Vertretung & Position', [
+                    ['Rechtsvertretung', entity.counsel],
+                    ['Kontakt', entity.contact],
+                    ['Verfahrensposition', entity.position],
+                    ['Konfliktstatus', 'Geprüft · Gegenpartei'],
                 ]],
             ];
         }
         return [
-            ['Stammdaten', [
-                ['Firmierung', entity.label],
-                ['Mandatsnummer', 'M-2026-041'],
-                ['Rechtsform', 'Aktiengesellschaft'],
-                ['Sitz', 'Zürich'],
+            ['Behörde', [
+                ['Bezeichnung', entity.label],
+                ['Behördentyp', entity.kind],
+                ['Ort', entity.location],
+                ['Geschäftsnummer', entity.reference],
             ]],
-            ['Betreuung', [
-                ['Ansprechperson', 'Dr. Anna Keller'],
-                ['Fachgebiet', 'Vertragsrecht'],
-                ['Status', 'Aktiv'],
+            ['Vorgang', [
+                ['Zugeordnetes Mandat', entity.matter],
+                ['Status', entity.status],
+                ['Nächster Termin', entity.nextDate],
             ]],
         ];
     }
 
     function documentsFor(system, entity) {
+        if (system.label === 'Mandate') {
+            return [
+                [`Mandatsvereinbarung ${entity.number}.pdf`, 'Mandatsakte · unterzeichnet'],
+                ['Sachverhaltschronologie.pdf', 'Arbeitsprodukt · aktualisiert heute'],
+                ['Rechtliche Würdigung v4.docx', `Memo · ${entity.area}`],
+                ['Beilagenverzeichnis.xlsx', 'Beweismittel · 42 Positionen'],
+                ['Korrespondenz Gegenpartei.msg', 'E-Mail · 15. Oktober 2026'],
+                ['Vollmacht.pdf', 'Vollmacht · qualifiziert signiert'],
+            ];
+        }
+        if (system.label === 'Mandanten') {
+            return [
+                [`Mandantenstammblatt ${entity.number}.pdf`, 'KYC · geprüft'],
+                ['Handelsregisterauszug.pdf', 'Registerauszug · aktuell'],
+                ['Vollmacht Rahmenmandat.pdf', 'Vollmacht · unterzeichnet'],
+                ['Konfliktprüfung.pdf', 'Compliance · freigegeben'],
+                ['Honorarvereinbarung.pdf', 'Vertrag · vertraulich'],
+            ];
+        }
         if (system.label === 'Personen') {
             return [
                 [`Vollmacht ${entity.label}.pdf`, 'Vollmacht · 8. Oktober 2026'],
-                ['Mandatsvertrag Müller Bau AG.pdf', 'Vertrag · 26. September 2026'],
-                ['Korrespondenz zur Sache.msg', 'E-Mail · 19. September 2026'],
-                ['Besprechungsnotiz.pdf', 'Notiz · 4. September 2026'],
+                [`Kontaktakte ${entity.label}.pdf`, `CRM · ${entity.organisation}`],
+                ['Korrespondenz zur Sache.msg', `E-Mail · ${entity.matters}`],
+                ['Besprechungsnotiz 08-10-2026.pdf', 'Aktennotiz · 8. Oktober 2026'],
             ];
         }
-        if (system.label === 'Gericht') {
+        if (system.label === 'Gerichte') {
             return [
-                ['Verfügung HG-2026-184.pdf', 'Verfügung · 7. Oktober 2026'],
-                ['Klageantwort.pdf', 'Rechtsschrift · 28. September 2026'],
-                ['Vorladung Hauptverhandlung.pdf', 'Vorladung · 12. September 2026'],
+                [`Verfügung ${entity.reference}.pdf`, `Verfügung · ${entity.status}`],
+                ['Eingangsbestätigung Rechtsschrift.pdf', 'Gerichtspost · 14. Oktober 2026'],
+                ['Zustellnachweis.pdf', 'eGov-Zustellung · verifiziert'],
+                ['Fristenkontrollblatt.pdf', `Frist · ${entity.nextDate}`],
+                ['Verfahrenskorrespondenz.msg', `Korrespondenz · ${entity.judge}`],
+            ];
+        }
+        if (system.label === 'Gegenparteien') {
+            return [
+                [`Parteidossier ${entity.label}.pdf`, 'Parteienakte · vertraulich'],
+                ['Korrespondenz Rechtsvertretung.msg', `E-Mail · ${entity.counsel}`],
+                ['Stellungnahme Gegenpartei.pdf', `Rechtsschrift · ${entity.matter}`],
+                ['Konfliktprüfung.pdf', 'Compliance · dokumentiert'],
             ];
         }
         return [
-            [`Mandatsvertrag ${entity.label}.pdf`, 'Vertrag · 26. September 2026'],
-            ['Handelsregisterauszug.pdf', 'Register · 18. September 2026'],
-            ['Vollmacht.pdf', 'Vollmacht · 4. September 2026'],
-            ['Korrespondenz.msg', 'E-Mail · 29. August 2026'],
+            [`Eingabe ${entity.reference}.pdf`, `Behördeneingabe · ${entity.matter}`],
+            ['Empfangsbestätigung.pdf', 'eGov-Zustellung · 14. Oktober 2026'],
+            ['Aktennotiz Behördenkontakt.pdf', `Notiz · ${entity.status}`],
+            ['Fristennotiz.ics', `Kalender · ${entity.nextDate}`],
         ];
     }
 
@@ -300,16 +913,50 @@
         entityDocuments.appendChild(list);
     }
 
-    function renderHistory(entity) {
+    function renderHistory(system, entity) {
         if (!entityHistory) return;
         entityHistory.replaceChildren();
         const list = document.createElement('ol');
         list.className = 'galaxy-history-list';
+        const contextualEvents = {
+            Mandate: [
+                `Fristenprüfung für ${entity.number} abgeschlossen`,
+                `Neue Korrespondenz durch ${entity.lead} abgelegt`,
+                `Status auf „${entity.status}“ aktualisiert`,
+            ],
+            Mandanten: [
+                `KYC-Daten für ${entity.number} bestätigt`,
+                `${entity.activeMatters} aktive Mandate abgeglichen`,
+                'Handelsregisterdaten automatisch aktualisiert',
+            ],
+            Personen: [
+                `Kontakt ${entity.label} einem Dokument zugeordnet`,
+                `Mandatsbezug ${entity.matters} bestätigt`,
+                `Kontaktdaten aus Signatur ergänzt`,
+            ],
+            Gerichte: [
+                `Gerichtsfrist zu ${entity.reference} kontrolliert`,
+                `Neue Verfügung dem Verfahren ${entity.reference} zugeordnet`,
+                `Verfahrensstatus „${entity.status}“ übernommen`,
+            ],
+            Gegenparteien: [
+                `Parteistellung in ${entity.matter} bestätigt`,
+                `Korrespondenz von ${entity.counsel} importiert`,
+                'Konfliktprüfung dokumentiert',
+            ],
+            Behörden: [
+                `Geschäft ${entity.reference} synchronisiert`,
+                `Status „${entity.status}“ übernommen`,
+                `Behördenkontakt dem Mandat ${entity.matter} zugeordnet`,
+            ],
+        };
+        const events = contextualEvents[system.label] || [];
         [
             ['Heute, 09:42', `${entity.label} im Wissensnetz geöffnet`],
-            ['8. Okt.', 'Neue Verbindung bestätigt'],
-            ['26. Sept.', 'Stammdaten aus Dokument ergänzt'],
-            ['4. Sept.', 'Entität erstmals erkannt'],
+            ['15. Okt.', events[0]],
+            ['8. Okt.', events[1]],
+            ['26. Sept.', events[2]],
+            ['4. Sept.', 'Entität erstmals aus Dokumenten erkannt'],
         ].forEach(([time, event]) => {
             const item = document.createElement('li');
             item.className = 'galaxy-history-item';
@@ -375,7 +1022,7 @@
             entityFields.appendChild(section);
         });
         renderDocuments(system, entity);
-        renderHistory(entity);
+        renderHistory(system, entity);
         entityPanel.hidden = false;
         documentsPanel.hidden = false;
         historyPanel.hidden = false;
@@ -409,6 +1056,11 @@
         canvas.width = Math.round(width * pixelRatio);
         canvas.height = Math.round(height * pixelRatio);
         context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        if (heatmapCanvas && heatmapContext) {
+            heatmapCanvas.width = Math.round(width * pixelRatio);
+            heatmapCanvas.height = Math.round(height * pixelRatio);
+            heatmapContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        }
     }
 
     function rotatePoint(point, rotationX, rotationY) {
@@ -441,23 +1093,29 @@
     function drawSun(system, projected) {
         const radius = system.size * projected.depthScale;
         const warm = system.warm;
-        const glow = context.createRadialGradient(
-            projected.x, projected.y, 0,
-            projected.x, projected.y, radius * 4.8,
-        );
-        glow.addColorStop(0, warm ? 'rgba(255, 244, 184, 1)' : 'rgba(225, 240, 255, 1)');
-        glow.addColorStop(0.18, warm ? 'rgba(246, 181, 66, .95)' : 'rgba(78, 139, 255, .95)');
-        glow.addColorStop(0.52, warm ? 'rgba(238, 146, 40, .32)' : 'rgba(40, 89, 205, .3)');
-        glow.addColorStop(1, 'rgba(40, 89, 205, 0)');
+        const fill = warm ? '#f9ab00' : '#1a73e8';
+        const outline = warm ? '#e37400' : '#0b57d0';
+
+        context.save();
         context.beginPath();
-        context.arc(projected.x, projected.y, radius * 4.8, 0, Math.PI * 2);
-        context.fillStyle = glow;
+        context.arc(projected.x, projected.y, radius * 2.25, 0, Math.PI * 2);
+        context.fillStyle = warm
+            ? 'rgba(249, 171, 0, .12)'
+            : 'rgba(26, 115, 232, .12)';
         context.fill();
 
+        context.shadowColor = 'rgba(60, 64, 67, .24)';
+        context.shadowBlur = 8;
+        context.shadowOffsetY = 2;
         context.beginPath();
         context.arc(projected.x, projected.y, radius, 0, Math.PI * 2);
-        context.fillStyle = warm ? '#ffd46a' : '#dceaff';
+        context.fillStyle = fill;
         context.fill();
+        context.shadowColor = 'transparent';
+        context.strokeStyle = outline;
+        context.lineWidth = 1.25;
+        context.stroke();
+        context.restore();
 
         if (!system.label) return;
         context.font = '600 12px "IBM Plex Mono", ui-monospace, monospace';
@@ -576,22 +1234,44 @@
         }
     }
 
+    function foregroundDepthFactor(x, y) {
+        if (!selectedEntity || entityMix < 0.015) return 1;
+        const focusX = width < 720 ? width * 0.5 : width * 0.3;
+        const focusY = width < 720 ? height * 0.32 : height * 0.51;
+        const radius = Math.min(width, height)
+            * (width < 720 ? 0.065 : 0.078);
+        const distance = Math.hypot(x - focusX, y - focusY);
+        const proximity = Math.max(0, 1 - distance / (radius * 3.2));
+        return 1 - proximity * entityMix * 0.82;
+    }
+
+    function detailSystemCenter(projectedSun) {
+        const target = width < 720
+            ? { x: width * 0.68, y: height * 0.55 }
+            : { x: width * 0.58, y: height * 0.4 };
+        return {
+            x: projectedSun.x + (target.x - projectedSun.x) * entityMix,
+            y: projectedSun.y + (target.y - projectedSun.y) * entityMix,
+        };
+    }
+
     function drawFocusedSystem(system, projectedSun, projectedSystems,
                                rotation, scale, centerX, centerY, time) {
         if (!system || focusMix < 0.015) return [];
+        const visualCenter = detailSystemCenter(projectedSun);
         const nodes = system.entityNodes.map((entity, index, entities) => {
             const natural = project(entity, rotation, scale, centerX, centerY);
             const angle = -Math.PI / 2 + (index / entities.length) * Math.PI * 2;
-            const orbitWidth = Math.min(width * 0.19, 190);
-            const orbitHeight = Math.min(height * 0.062, 52);
-            const orbitTilt = -0.24;
+            const orbitWidth = Math.min(width * 0.14, 165);
+            const orbitHeight = Math.min(height * 0.1, 70);
+            const orbitTilt = 0.34;
             const orbitX = Math.cos(angle) * orbitWidth;
             const orbitY = Math.sin(angle) * orbitHeight;
             const depth = Math.sin(angle);
             const arranged = {
-                x: width * 0.47
+                x: visualCenter.x
                     + orbitX * Math.cos(orbitTilt) - orbitY * Math.sin(orbitTilt),
-                y: height * 0.44
+                y: visualCenter.y
                     + orbitX * Math.sin(orbitTilt) + orbitY * Math.cos(orbitTilt),
                 depthScale: 0.68 + (depth + 1) * 0.17,
             };
@@ -630,8 +1310,10 @@
 
         nodes.forEach((node, index) => {
             if (selectedEntity && node.label === selectedEntity.label) return;
+            context.save();
+            context.globalAlpha *= foregroundDepthFactor(node.x, node.y);
             context.beginPath();
-            context.moveTo(projectedSun.x, projectedSun.y);
+            context.moveTo(visualCenter.x, visualCenter.y);
             context.lineTo(node.x, node.y);
             context.strokeStyle = systemColor;
             context.lineWidth = 0.9;
@@ -653,11 +1335,16 @@
                 );
                 arrowIndex += 1;
             }
+            context.restore();
         });
 
         nodes.forEach((node, index) => {
             if (selectedEntity && node.label === selectedEntity.label) return;
-            const radius = node.size * node.depthScale;
+            const depthFactor = foregroundDepthFactor(node.x, node.y);
+            const radius = node.size * node.depthScale
+                * (0.72 + depthFactor * 0.28);
+            context.save();
+            context.globalAlpha *= depthFactor;
             const isHighlighted = node.label === highlightedEntity;
             if (isHighlighted) {
                 const pulse = reducedMotion.matches ? 0.5
@@ -676,24 +1363,28 @@
                 context.lineWidth = 2;
                 context.stroke();
             }
-            const glow = context.createRadialGradient(
-                node.x, node.y, 0, node.x, node.y, radius * 3.4);
-            glow.addColorStop(0, system.warm
-                ? 'rgba(255, 223, 143, .95)' : 'rgba(222, 236, 255, .98)');
-            glow.addColorStop(0.28, system.warm
-                ? 'rgba(222, 143, 43, .78)' : 'rgba(59, 121, 242, .82)');
-            glow.addColorStop(1, 'rgba(40, 89, 205, 0)');
+            context.save();
             context.beginPath();
-            context.arc(node.x, node.y, radius * 3.4, 0, Math.PI * 2);
-            context.fillStyle = glow;
+            context.arc(node.x, node.y, radius * 2.2, 0, Math.PI * 2);
+            context.fillStyle = system.warm
+                ? 'rgba(249, 171, 0, .12)'
+                : 'rgba(26, 115, 232, .12)';
             context.fill();
+            context.shadowColor = 'rgba(60, 64, 67, .22)';
+            context.shadowBlur = 7;
+            context.shadowOffsetY = 2;
             context.beginPath();
             context.arc(node.x, node.y, radius, 0, Math.PI * 2);
-            context.fillStyle = system.warm ? '#e6a137' : '#4d83e9';
+            context.fillStyle = system.warm ? '#f9ab00' : '#1a73e8';
             context.fill();
+            context.shadowColor = 'transparent';
+            context.strokeStyle = system.warm ? '#e37400' : '#0b57d0';
+            context.lineWidth = 1;
+            context.stroke();
+            context.restore();
 
             context.font = `${isHighlighted ? 700 : 500} 11px "IBM Plex Sans", ui-sans-serif, sans-serif`;
-            context.textAlign = node.x < projectedSun.x ? 'right' : 'left';
+            context.textAlign = node.x < visualCenter.x ? 'right' : 'left';
             context.textBaseline = 'middle';
             context.fillStyle = '#283647';
             context.fillText(
@@ -702,12 +1393,13 @@
                 node.y,
             );
             if (!selectedEntity) positionEntityTarget(index, node, system);
+            context.restore();
         });
         context.restore();
         return nodes;
     }
 
-    function drawHistoryCylinder(system, entity, x, y, radius, time) {
+    function drawHistoryCylinder(system, entity, x, y, radius) {
         if (historyMix < 0.015) return;
         const entries = [
             ['Heute · 09:42', 'Im Wissensnetz geöffnet'],
@@ -716,6 +1408,8 @@
             ['04. Sept.', 'Entität erkannt'],
         ];
         const color = system.warm ? '199, 123, 24' : '40, 89, 205';
+        const fillColor = system.warm ? '#f9ab00' : '#1a73e8';
+        const outlineColor = system.warm ? '#e37400' : '#0b57d0';
         const available = Math.min(width - x - 92, width * 0.46);
         const spacing = Math.max(82, available / (entries.length - 1));
         const discHeight = radius * 0.86;
@@ -731,17 +1425,15 @@
         context.save();
         context.globalAlpha = entityMix * historyMix;
 
-        const body = context.createLinearGradient(x, y, lastX, y);
-        body.addColorStop(0, `rgba(${color}, .28)`);
-        body.addColorStop(0.55, `rgba(${color}, .09)`);
-        body.addColorStop(1, `rgba(${color}, .2)`);
         context.beginPath();
         context.moveTo(x + topXOffset, y + topYOffset);
         context.lineTo(lastX + topXOffset, y + topYOffset);
         context.lineTo(lastX + bottomXOffset, y + bottomYOffset);
         context.lineTo(x + bottomXOffset, y + bottomYOffset);
         context.closePath();
-        context.fillStyle = body;
+        context.fillStyle = system.warm
+            ? 'rgba(249, 171, 0, .12)'
+            : 'rgba(26, 115, 232, .12)';
         context.fill();
 
         context.beginPath();
@@ -761,30 +1453,26 @@
             if (local <= 0) return;
             const movement = 1 - Math.pow(1 - local, 3);
             const discX = x + spacing * index * movement;
-            const pulse = reducedMotion.matches
-                ? 0.5
-                : (Math.sin(time * 0.0035 + index * 0.9) + 1) / 2;
 
             context.save();
             context.globalAlpha = entityMix * local;
-            const disc = context.createLinearGradient(
-                discX - discWidth, y, discX + discWidth, y);
-            disc.addColorStop(0, `rgba(${color}, .3)`);
-            disc.addColorStop(0.45, `rgba(${color}, .92)`);
-            disc.addColorStop(1, `rgba(${color}, .4)`);
+            context.shadowColor = 'rgba(60, 64, 67, .2)';
+            context.shadowBlur = 7;
+            context.shadowOffsetY = 2;
             context.beginPath();
             context.ellipse(
                 discX,
                 y,
-                discWidth + pulse * 1.2,
+                discWidth,
                 discHeight,
                 discTilt,
                 0,
                 Math.PI * 2,
             );
-            context.fillStyle = disc;
+            context.fillStyle = fillColor;
             context.fill();
-            context.strokeStyle = `rgba(${color}, .8)`;
+            context.shadowColor = 'transparent';
+            context.strokeStyle = outlineColor;
             context.lineWidth = index === 0 ? 2 : 1.3;
             context.stroke();
 
@@ -809,7 +1497,7 @@
     }
 
     function drawEntityDetail(system, entity, rotation, scale, centerX, centerY,
-                              time, projectedOrigin, projectedSystemCenter) {
+                              projectedOrigin, projectedSystemCenter) {
         if (!system || !entity || entityMix < 0.015) return;
         const origin = projectedOrigin
             || project(entity, rotation, scale, centerX, centerY);
@@ -823,7 +1511,6 @@
         const targetRadius = Math.min(width, height) * (width < 720 ? 0.065 : 0.078);
         const radius = origin.size * origin.depthScale
             + (targetRadius - origin.size * origin.depthScale) * entityMix;
-        const pulse = reducedMotion.matches ? 0.5 : (Math.sin(time * 0.0045) + 1) / 2;
 
         context.save();
         context.globalAlpha = entityMix * (1 - historyMix);
@@ -867,54 +1554,44 @@
         context.fillStyle = tether;
         context.fill();
 
-        const outerGlow = context.createRadialGradient(x, y, radius * 0.25, x, y, radius * 1.8);
-        outerGlow.addColorStop(0, system.warm
-            ? 'rgba(255, 210, 106, .58)' : 'rgba(91, 142, 244, .55)');
-        outerGlow.addColorStop(0.62, system.warm
-            ? 'rgba(214, 132, 30, .13)' : 'rgba(40, 89, 205, .13)');
-        outerGlow.addColorStop(1, 'rgba(40, 89, 205, 0)');
         context.globalAlpha = entityMix;
         const sphereWidth = radius * (1 - historyMix * 0.82);
         const sphereTilt = -0.24 * historyMix;
         context.beginPath();
         context.ellipse(
-            x, y, sphereWidth * 1.8, radius * 1.8,
+            x, y, sphereWidth * 1.28, radius * 1.28,
             sphereTilt, 0, Math.PI * 2);
-        context.fillStyle = outerGlow;
+        context.fillStyle = system.warm
+            ? 'rgba(249, 171, 0, .12)'
+            : 'rgba(26, 115, 232, .12)';
         context.fill();
 
-        const sphere = context.createRadialGradient(
-            x - radius * 0.3, y - radius * 0.35, radius * 0.05,
-            x, y, radius,
-        );
-        if (system.warm) {
-            sphere.addColorStop(0, '#fff3c4');
-            sphere.addColorStop(0.38, '#f3bb54');
-            sphere.addColorStop(1, '#bc6915');
-        } else {
-            sphere.addColorStop(0, '#f7fbff');
-            sphere.addColorStop(0.38, '#6fa0f5');
-            sphere.addColorStop(1, '#244eaf');
-        }
+        context.shadowColor = 'rgba(60, 64, 67, .28)';
+        context.shadowBlur = 12;
+        context.shadowOffsetY = 4;
         context.beginPath();
         context.ellipse(
             x, y, sphereWidth, radius, sphereTilt, 0, Math.PI * 2);
-        context.fillStyle = sphere;
+        context.fillStyle = system.warm ? '#f9ab00' : '#1a73e8';
         context.fill();
+        context.shadowColor = 'transparent';
+        context.strokeStyle = system.warm ? '#e37400' : '#0b57d0';
+        context.lineWidth = 1.5;
+        context.stroke();
 
         context.beginPath();
         context.ellipse(
             x,
             y,
-            sphereWidth * (1.22 + pulse * 0.12),
-            radius * (1.22 + pulse * 0.12),
+            sphereWidth * 1.18,
+            radius * 1.18,
             sphereTilt,
             0,
             Math.PI * 2,
         );
         context.strokeStyle = system.warm
-            ? `rgba(199, 123, 24, ${0.35 - pulse * 0.15})`
-            : `rgba(40, 89, 205, ${0.35 - pulse * 0.15})`;
+            ? 'rgba(227, 116, 0, .28)'
+            : 'rgba(11, 87, 208, .28)';
         context.lineWidth = 1.5;
         context.stroke();
 
@@ -925,8 +1602,108 @@
         context.globalAlpha = entityMix * (1 - historyMix);
         context.fillText(entity.label, x, y + radius + 18);
         context.globalAlpha = entityMix;
-        drawHistoryCylinder(system, entity, x, y, radius, time);
+        drawHistoryCylinder(system, entity, x, y, radius);
         context.restore();
+    }
+
+    function drawHeatSpot(x, y, strength, radius) {
+        if (!heatmapContext || strength <= 0) return;
+        const safeStrength = Math.max(0.08, Math.min(1, strength));
+        const gradient = heatmapContext.createRadialGradient(
+            x, y, 0, x, y, radius);
+        gradient.addColorStop(0, `rgba(219, 58, 40, ${0.7 * safeStrength})`);
+        gradient.addColorStop(
+            0.24,
+            `rgba(249, 171, 0, ${0.56 * safeStrength})`,
+        );
+        gradient.addColorStop(
+            0.56,
+            `rgba(26, 115, 232, ${0.3 * safeStrength})`,
+        );
+        gradient.addColorStop(1, 'rgba(26, 115, 232, 0)');
+        heatmapContext.beginPath();
+        heatmapContext.arc(x, y, radius, 0, Math.PI * 2);
+        heatmapContext.fillStyle = gradient;
+        heatmapContext.fill();
+    }
+
+    function drawSearchHeatmap(projectedSystems, focusedNodes,
+                               selectedProjection) {
+        if (!heatmapContext) return;
+        heatmapContext.clearRect(0, 0, width, height);
+        if (!searchState.query) return;
+
+        const maxSystemScore = Math.max(
+            1,
+            ...searchState.results.map((result) => result.score),
+        );
+        if (searchState.level === 'galaxy') {
+            searchState.results.forEach((result) => {
+                const projection = projectedSystems.find(
+                    (entry) => entry.system === result.system);
+                if (!projection) return;
+                const strength = result.score > 0
+                    ? 0.28 + 0.72 * (result.score / maxSystemScore)
+                    : 0.11;
+                const radius = Math.min(width, height)
+                    * (0.075 + 0.045 * strength);
+                drawHeatSpot(
+                    projection.projected.x,
+                    projection.projected.y,
+                    strength,
+                    radius,
+                );
+            });
+            return;
+        }
+
+        const focusedResult = searchState.results.find(
+            (result) => result.system === focusedSystem);
+        const focusedProjection = projectedSystems.find(
+            (entry) => entry.system === focusedSystem);
+        if (focusedProjection) {
+            drawHeatSpot(
+                focusedProjection.projected.x,
+                focusedProjection.projected.y,
+                searchState.level === 'entity' ? 0.3 : 0.62,
+                Math.min(width, height) * 0.115,
+            );
+        }
+        if (!focusedResult || !focusedNodes) return;
+
+        const maxEntityScore = Math.max(
+            1,
+            ...focusedResult.entities.map((entry) => entry.score),
+        );
+        focusedResult.entities
+            .filter((entry) => entry.score > 0)
+            .slice(0, 5)
+            .forEach((entry) => {
+                const node = focusedNodes.find(
+                    (candidate) => candidate.label === entry.entity.label);
+                if (!node) return;
+                const strength = 0.24 + 0.76 * (entry.score / maxEntityScore);
+                drawHeatSpot(
+                    node.x,
+                    node.y,
+                    strength,
+                    Math.min(width, height) * (0.052 + 0.025 * strength),
+                );
+            });
+        if (searchState.level === 'entity' && selectedProjection) {
+            const detailTarget = {
+                x: width < 720 ? width * 0.5 : width * 0.3,
+                y: width < 720 ? height * 0.32 : height * 0.51,
+            };
+            drawHeatSpot(
+                selectedProjection.x
+                    + (detailTarget.x - selectedProjection.x) * entityMix,
+                selectedProjection.y
+                    + (detailTarget.y - selectedProjection.y) * entityMix,
+                1,
+                Math.min(width, height) * 0.13,
+            );
+        }
     }
 
     function draw(time = 0) {
@@ -979,10 +1756,15 @@
 
         for (const star of projected) {
             const depth = Math.max(0, Math.min(1, (star.z + 1.25) / 2.5));
+            const depthFactor = foregroundDepthFactor(star.x, star.y);
             const alpha = (0.27 + depth * 0.73) * star.brightness
                 * (1 - focusMix * 0.68)
-                * (1 - entityMix * 0.72);
-            const radius = Math.max(0.35, star.size * star.depthScale);
+                * (1 - entityMix * 0.72)
+                * depthFactor;
+            const radius = Math.max(
+                0.3,
+                star.size * star.depthScale * (0.78 + depthFactor * 0.22),
+            );
             context.beginPath();
             context.arc(star.x, star.y, radius, 0, Math.PI * 2);
             context.fillStyle = star.warmth > 0.93
@@ -996,19 +1778,33 @@
             projected: project(system, rotation, scale, centerX, centerY),
         }));
         projectedSystems.forEach(({ system, projected: projectedSystem }) => {
+            const displayCenter = system === focusedSystem
+                ? detailSystemCenter(projectedSystem)
+                : projectedSystem;
+            const displayedSystem = {
+                ...projectedSystem,
+                x: displayCenter.x,
+                y: displayCenter.y,
+            };
             context.save();
             context.globalAlpha = focusedSystem && focusedSystem !== system
                 ? 1 - focusMix * 0.88
                 : 1;
             context.globalAlpha *= 1 - entityMix * 0.88;
-            drawSun(system, projectedSystem);
+            context.globalAlpha *= foregroundDepthFactor(
+                displayedSystem.x,
+                displayedSystem.y,
+            );
+            drawSun(system, displayedSystem);
             context.restore();
-            positionSunTarget(system, projectedSystem);
+            positionSunTarget(system, displayedSystem);
         });
         const focusedProjection = projectedSystems.find(
             (entry) => entry.system === focusedSystem);
+        let focusedNodes = null;
+        let selectedProjection = null;
         if (focusedProjection) {
-            const focusedNodes = drawFocusedSystem(
+            focusedNodes = drawFocusedSystem(
                 focusedSystem,
                 focusedProjection.projected,
                 projectedSystems,
@@ -1018,7 +1814,7 @@
                 centerY,
                 time,
             );
-            const selectedProjection = selectedEntity
+            selectedProjection = selectedEntity
                 ? focusedNodes.find((node) => node.label === selectedEntity.label)
                 : null;
             drawEntityDetail(
@@ -1028,11 +1824,11 @@
                 scale,
                 centerX,
                 centerY,
-                time,
                 selectedProjection,
-                focusedProjection.projected,
+                detailSystemCenter(focusedProjection.projected),
             );
         }
+        drawSearchHeatmap(projectedSystems, focusedNodes, selectedProjection);
 
         if (!reducedMotion.matches) frame = window.requestAnimationFrame(draw);
     }
@@ -1154,8 +1950,29 @@
         galaxySystemUp.addEventListener(
             'click', () => openSystem(galaxySystemUp.dataset.system));
     }
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            applySearch(searchInput.value);
+        });
+        searchInput.addEventListener('search', () => {
+            applySearch(searchInput.value);
+        });
+    }
+    if (searchForm) {
+        searchForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            applySearch(searchInput ? searchInput.value : '', true);
+        });
+    }
     window.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && focusedSystem) fitGalaxy();
+        if (event.key !== 'Escape') return;
+        if (searchInput && searchInput.value) {
+            searchInput.value = '';
+            applySearch('');
+            searchInput.focus();
+        } else if (focusedSystem) {
+            fitGalaxy();
+        }
     });
     window.addEventListener('resize', restart);
     window.addEventListener('pointermove', (event) => {

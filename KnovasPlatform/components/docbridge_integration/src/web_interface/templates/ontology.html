@@ -56,12 +56,6 @@
                 </svg>
             </a>
             {% endif %}
-            <a class="cortex-dock-link cortex-dock-link-primary" href="{{ url_for('index') }}"
-               aria-label="Suche" title="Suche">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-                </svg>
-            </a>
             <button type="button" class="cortex-dock-link cortex-dock-link-primary"
                     id="typeCreate" aria-label="Typ anlegen" title="Typ anlegen">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -71,15 +65,40 @@
             </button>
         </div>
 
+        <form class="cortex-galaxy-search" id="galaxySearch" role="search">
+            <label class="cortex-search-label" for="galaxySearchInput">
+                Cortex durchsuchen
+            </label>
+            <div class="cortex-search-control">
+                <input type="search" id="galaxySearchInput" name="q"
+                       autocomplete="off" spellcheck="false"
+                       placeholder="Mandat, Person oder Aktenzeichen suchen">
+                <button type="submit" id="galaxySearchButton" aria-label="Suchen">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <circle cx="11" cy="11" r="7.5"/>
+                        <path d="m20 20-3.7-3.7"/>
+                    </svg>
+                </button>
+            </div>
+        </form>
+
         <main class="ontology-stage" aria-label="Cortex">
             <div class="ontology-stage-body">
             <canvas class="point-cloud-mockup" id="pointCloudMockup" aria-hidden="true"></canvas>
-            <button type="button" class="galaxy-sun-target" data-galaxy-system="Mandant"
-                    aria-label="Sonnensystem Mandant öffnen" title="Mandant öffnen"></button>
-            <button type="button" class="galaxy-sun-target" data-galaxy-system="Gericht"
-                    aria-label="Sonnensystem Gericht öffnen" title="Gericht öffnen"></button>
+            <canvas class="galaxy-heatmap" id="galaxyHeatmap" aria-hidden="true"></canvas>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Mandate"
+                    aria-label="Sonnensystem Mandate öffnen" title="Mandate öffnen"></button>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Mandanten"
+                    aria-label="Sonnensystem Mandanten öffnen" title="Mandanten öffnen"></button>
             <button type="button" class="galaxy-sun-target" data-galaxy-system="Personen"
                     aria-label="Sonnensystem Personen öffnen" title="Personen öffnen"></button>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Gerichte"
+                    aria-label="Sonnensystem Gerichte öffnen" title="Gerichte öffnen"></button>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Gegenparteien"
+                    aria-label="Sonnensystem Gegenparteien öffnen"
+                    title="Gegenparteien öffnen"></button>
+            <button type="button" class="galaxy-sun-target" data-galaxy-system="Behörden"
+                    aria-label="Sonnensystem Behörden öffnen" title="Behörden öffnen"></button>
             <div id="graphContainer" aria-hidden="true"></div>
             <section class="galaxy-entity-panel" id="galaxyEntityPanel"
                      aria-label="Entitätsdetails" hidden>
