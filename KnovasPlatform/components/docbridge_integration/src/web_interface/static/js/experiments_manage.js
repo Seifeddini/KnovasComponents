@@ -244,7 +244,7 @@
                     button('Werte', () => openFieldOptionsDialog(d)), ' ',
                     button('Exportieren', (e) => exportDomain(d, e.currentTarget)))))));
         }
-        const packsBox = el('div', { style: { 'margin-top': '28px' } });
+        const packsBox = el('div', {});
         box.appendChild(packsBox);
         renderPacks(packsBox);
     }
@@ -365,7 +365,7 @@
         const key = KX.input({ name: 'key', maxlength: 32, class: 'kx-input kx-mono', value: editing ? domain.key : '', readOnly: editing });
         const prefix = KX.input({ name: 'id_prefix', maxlength: 8, class: 'kx-input kx-mono', value: editing ? domain.id_prefix : '', readOnly: editing });
         const colorValue = editing && COLOR_RE.test(domain.color || '') ? domain.color : '#5A6B80';
-        const color = el('input', { type: 'color', name: 'color', value: colorValue, class: 'kx-input', style: { width: '64px', padding: '2px' } });
+        const color = el('input', { type: 'color', name: 'color', value: colorValue, class: 'kx-input' });
         const description = KX.textarea({ name: 'description', rows: 3, maxlength: 2000 }, editing ? domain.description || '' : '');
         const archived = el('input', { type: 'checkbox', name: 'archived' });
         archived.checked = Boolean(editing && domain.archived);
@@ -385,7 +385,7 @@
                     + 'Metriken des Grundpakets (Erfolgsquote, Dauer, Bewertung …). Eigene Metriken kommen '
                     + 'unter «Metriken» dazu.' })),
             KX.field({ label: 'Name', input: name, name: 'name', required: true }),
-            el('div', { class: 'kx-form-row', style: { 'margin-top': '14px' } },
+            el('div', { class: 'kx-form-row' },
                 KX.field({ label: 'Schlüssel', input: key, name: 'key', required: !editing, help: editing ? 'Lässt sich nicht ändern.' : 'Kleinbuchstaben, Ziffern, Bindestrich.' }),
                 KX.field({ label: 'Kürzel', input: prefix, name: 'id_prefix', required: !editing, help: editing ? 'Lässt sich nicht ändern.' : 'Für Schlüssel wie MKT-12: 2–8 Grossbuchstaben oder Ziffern.' }),
                 KX.field({ label: 'Farbe', input: color, name: 'color', help: 'Nur als Punkt neben dem Namen.' })),
@@ -736,7 +736,7 @@
                 el('h3', { text: `${type.name} · ${type.key}` }),
                 el('div', { class: 'kx-section-actions' }, copy, archiveToggle)),
             el('p', { class: 'kx-help', text: `${domainName(type.domain_key)} · aktuelle Version ${type.current_version}${type.archived ? ' · archiviert' : ''}` }),
-            el('div', { class: 'kx-form-row', style: { 'margin-top': '12px' } },
+            el('div', { class: 'kx-form-row' },
                 KX.field({ label: 'Name', input: name, name: 'name' }),
                 KX.field({ label: 'Beschreibung', input: description, name: 'description' })),
             KX.field({ label: 'Definition (YAML oder JSON)', input: text, name: 'definition_text', help: 'Tab rückt ein; Escape, dann Tab verlässt das Feld.' }),
@@ -758,7 +758,7 @@
             description: 'Die aktuelle Version wird Version 1 des neuen Typs. Metriken müssen im Zielbereich oder global bestehen.',
             body: el('div', null,
                 KX.field({ label: 'Zielbereich', input: domain, name: 'domain' }),
-                el('div', { class: 'kx-form-row', style: { 'margin-top': '14px' } },
+                el('div', { class: 'kx-form-row' },
                     KX.field({ label: 'Schlüssel', input: key, name: 'key', required: true }),
                     KX.field({ label: 'Name', input: name, name: 'name', required: true }))),
             actions: [
@@ -945,7 +945,7 @@
         const archived = el('input', { type: 'checkbox' });
         archived.checked = Boolean(editing && metric.archived);
         const levelsField = KX.field({ label: 'Stufen', input: levels, name: 'levels', aliases: ['definition.levels'], help: 'Eine je Zeile: Wert = Bezeichnung. Pflicht für Kategorien, möglich für Skalen.' });
-        const boundsRow = el('div', { class: 'kx-form-row', style: { 'margin-top': '14px' } },
+        const boundsRow = el('div', { class: 'kx-form-row' },
             KX.field({ label: 'Nachkommastellen', input: decimals, name: 'decimals', aliases: ['definition.decimals'] }),
             KX.field({ label: 'Minimum', input: min, name: 'min', aliases: ['definition.min'] }),
             KX.field({ label: 'Maximum', input: max, name: 'max', aliases: ['definition.max'] }));
@@ -971,7 +971,7 @@
                 KX.field({ label: 'Bereich', input: domain, name: 'domain', help: editing ? 'Lässt sich nicht ändern.' : null }),
                 KX.field({ label: 'Name', input: name, name: 'name', required: true }),
                 KX.field({ label: 'Schlüssel', input: key, name: 'key', required: !editing, help: editing ? 'Lässt sich nicht ändern.' : null })),
-            el('div', { class: 'kx-form-row', style: { 'margin-top': '14px' } },
+            el('div', { class: 'kx-form-row' },
                 kindField,
                 KX.field({ label: 'Einheit', input: unit, name: 'unit', help: 'z. B. %, ms, CHF, Punkte' }),
                 KX.field({ label: 'Richtung', input: direction, name: 'direction' })),
@@ -1153,7 +1153,7 @@
                 openEvaluatorEditor(null, editorBox, listBox);
             }, 'primary')]));
         box.appendChild(banner);
-        box.appendChild(el('div', { class: 'kx-split', style: { 'margin-top': '14px' } }, listBox, editorBox));
+        box.appendChild(el('div', { class: 'kx-split' }, listBox, editorBox));
         loadEvaluators(listBox, editorBox);
     }
 
@@ -1318,7 +1318,7 @@
 
     /** Test gegen ein Experiment und eine Metrik, mit dem Code im Editor (auch ungespeichert). */
     function testPanel(ev, codeArea) {
-        const panelBox = el('div', { class: 'kx-card', style: { 'margin-top': '14px' } });
+        const panelBox = el('div', { class: 'kx-card' });
         panelBox.appendChild(el('div', { class: 'kx-block-head' }, el('h3', { text: 'Testen' })));
         if (!ev) {
             panelBox.appendChild(el('p', { class: 'kx-muted', text: 'Zum Testen den Auswerter zuerst anlegen.' }));
@@ -1394,7 +1394,7 @@
             }
         });
         panelBox.appendChild(el('p', { class: 'kx-help', text: 'Rechnet mit dem Code im Editor, auch wenn er noch nicht gespeichert ist. Das Ergebnis wird nicht gespeichert.' }));
-        panelBox.appendChild(el('div', { class: 'kx-form-row', style: { 'margin-top': '10px' } },
+        panelBox.appendChild(el('div', { class: 'kx-form-row' },
             KX.field({ label: 'Experiment', input: experiment, name: 'experiment' }),
             KX.field({ label: 'Metrik', input: metric, name: 'metric' })));
         panelBox.appendChild(KX.field({ label: 'Parameter (JSON)', input: params, name: 'params' }));
@@ -1409,17 +1409,17 @@
         const box = panel('zugangsschluessel');
         clear(box);
         if (!canManage) {
-            box.appendChild(el('div', { class: 'kx-banner kx-banner--info', style: { 'margin-bottom': '16px' } },
+            box.appendChild(el('div', { class: 'kx-banner kx-banner--info' },
                 el('p', { text: 'Neue Bereiche, Typen, Metriken und Auswerter richten Verantwortliche ein '
                     + '(Rolle «experiments_manager» oder Administration). Bitten Sie eine dieser Personen, '
                     + 'wenn ein Bereich fehlt.' })));
         }
         box.appendChild(sectionHead('Zugangsschlüssel',
             'Persönliche Schlüssel für CI und Skripte (Python-SDK, Julia, curl). Ein Schlüssel handelt mit Ihren Rollen, wie sie beim Aufruf gelten. Er wird nur beim Anlegen angezeigt.'));
-        const prefBox = el('div', { class: 'kx-card', style: { 'margin-bottom': '16px' } });
+        const prefBox = el('div', { class: 'kx-card' });
         box.appendChild(prefBox);
         renderPreferences(prefBox);
-        const createBox = el('div', { class: 'kx-card', style: { 'margin-bottom': '16px' } });
+        const createBox = el('div', { class: 'kx-card' });
         box.appendChild(createBox);
         const listBox = el('div');
         box.appendChild(listBox);
@@ -1533,7 +1533,7 @@
             const ok = await KX.copyText(secret);
             KX.toast(ok ? 'Schlüssel kopiert.' : 'Kopieren ging nicht; bitte markieren und kopieren.', ok ? 'success' : 'error');
         });
-        clear(box).appendChild(el('div', { class: 'kx-banner kx-banner--ok', role: 'status', style: { display: 'block' } },
+        clear(box).appendChild(el('div', { class: 'kx-banner kx-banner--ok', role: 'status' },
             el('p', null, el('strong', { text: `Schlüssel «${token.name || ''}» angelegt.` }),
                 ` Er wird nur jetzt angezeigt; gültig bis ${KX.fmtDate(token.expires_at)}.`),
             el('div', { class: 'kx-token-box' }, el('code', { text: secret }), copyButton),
@@ -1671,7 +1671,7 @@
                 : runner.ok ? `Erreichbar${KX.finite(runner.busy) !== null ? `, ${KX.fmtNumber(runner.busy, 0)} ${runner.busy === 1 ? 'Auftrag läuft' : 'Aufträge laufen'}` : ''}.`
                     : 'Eingerichtet, aber nicht erreichbar.',
         }));
-        const settingsBox = el('div', { class: 'kx-card', style: { 'margin-top': '20px' } });
+        const settingsBox = el('div', { class: 'kx-card' });
         box.appendChild(settingsBox);
         renderGlobalSettings(settingsBox);
     }

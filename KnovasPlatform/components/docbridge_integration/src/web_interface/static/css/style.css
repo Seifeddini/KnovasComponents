@@ -79,6 +79,10 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 /* Formularelemente erben font-family nicht vom Body -- ohne diese Regel
    fallen Suchfeld, Buttons und Selects auf die UA-Schrift zurueck. */
 input,

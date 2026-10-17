@@ -190,14 +190,22 @@ class CortexApp {
     }
 
     renderGraph(data) {
+        // Im Galaxie-Mockup erscheinen diese beiden Typen als beschriftete
+        // Sonnen im Canvas statt ein zweites Mal als normale Graph-Knoten.
+        const sunLabels = new Set(['mandant', 'gericht', 'personen']);
+        const graphTypes = data.types.filter(
+            (type) => !sunLabels.has(foldText(type.label).trim()));
+        const graphTypeIds = new Set(graphTypes.map((type) => type.id));
+        const graphRelations = data.relations.filter(
+            (relation) => graphTypeIds.has(relation.src) && graphTypeIds.has(relation.dst));
         const iconColor = cssToken('--primary-color');
-        const maxCount = Math.max(...data.types.map((t) => t.count), 1);
-        const n = data.types.length;
+        const maxCount = Math.max(...graphTypes.map((t) => t.count), 1);
+        const n = graphTypes.length;
         // Deterministischer Kreis-Seed (Spec Regel 4): das anschliessende
         // cose-Layout mit randomize:false liefert damit stets dasselbe Bild.
         const seedRadius = 300;
-        const typeIcons = iconsForTypes(data.types, iconColor);
-        const nodes = data.types.map((t, i) => ({
+        const typeIcons = iconsForTypes(graphTypes, iconColor);
+        const nodes = graphTypes.map((t, i) => ({
             data: { id: t.id, label: t.label, count: t.count,
                     icon: typeIcons[i],
                     size: 54 + Math.round(40 * (t.count / maxCount)) },
@@ -206,8 +214,8 @@ class CortexApp {
                 y: seedRadius * Math.sin((2 * Math.PI * i) / n - Math.PI / 2),
             },
         }));
-        const maxRel = Math.max(...data.relations.map((r) => r.count), 1);
-        const edges = data.relations.map((r, i) => ({
+        const maxRel = Math.max(...graphRelations.map((r) => r.count), 1);
+        const edges = graphRelations.map((r, i) => ({
             data: { id: `r-${i}`, source: r.src, target: r.dst,
                     src: r.src, dst: r.dst, predicate: r.predicate,
                     label: r.count ? `${r.predicate} (${formatCount(r.count)})`
@@ -512,9 +520,21 @@ class CortexApp {
             this.cy.animate({ zoom: level, pan },
                             { duration: 220, easing: 'ease-out-quart' });
         };
-        const fitAll = () => this.fitToVisible();
-        document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.25));
-        document.getElementById('zoomOut').addEventListener('click', () => zoomBy(0.8));
+        const galaxyZoomBy = (factor) => {
+            if (window.cortexGalaxy) window.cortexGalaxy.zoomBy(factor);
+        };
+        const fitAll = () => {
+            this.fitToVisible();
+            if (window.cortexGalaxy) window.cortexGalaxy.fit();
+        };
+        document.getElementById('zoomIn').addEventListener('click', () => {
+            zoomBy(1.25);
+            galaxyZoomBy(1.25);
+        });
+        document.getElementById('zoomOut').addEventListener('click', () => {
+            zoomBy(0.8);
+            galaxyZoomBy(0.8);
+        });
         document.getElementById('zoomFit').addEventListener('click', fitAll);
     }
 
