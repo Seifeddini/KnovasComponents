@@ -616,6 +616,7 @@ head_ "Documents, preview and opening"
   docbridge-web python - <<'PY' 2>&1 | sed 's/^/  /'
 import json
 import os
+import time
 
 from web_interface.app import (
     _autodoc_identifier_prefixes,
@@ -716,6 +717,82 @@ if sample:
         print(f"   FAIL  the pointer '{pointer}' does not resolve to a file.")
         print(f"         The app looks for {resolved or '<refused>'}.")
         print("         /preview, /thumbnail, /download and /client-path all answer 404 for it.")
+
+# A file can be on the mount and still not be there. A share backed by OneDrive
+# (Files On-Demand) or Azure File Sync (cloud tiering) lists every document, but
+# holds the bytes of many only in the cloud until someone opens them. The
+# thumbnail reads one page and appears; the PDF preview reads the whole file
+# and hangs -- until the person opens the document once on their PC, after
+# which it works. Word files, small and opened daily, rarely show it. Over SMB
+# the server tells Linux which files those are (system.cifs_attrib); those are
+# reported and never read here, so this check does not download them either.
+OFFLINE, RECALL_ON_OPEN, UNPINNED, RECALL_ON_DATA = 0x1000, 0x40000, 0x100000, 0x400000
+fstype = "?"
+try:
+    best = ""
+    with open("/proc/self/mountinfo", encoding="utf-8") as handle:
+        for line in handle:
+            left, _, right = line.partition(" - ")
+            point = left.split()[4]
+            if (root == point or root.startswith(point.rstrip("/") + "/")) and len(point) >= len(best):
+                best, fstype = point, right.split()[0]
+except (OSError, IndexError):
+    pass
+print(f"mount filesystem = {fstype}")
+
+pdfs = []
+scanned = 0
+for current, dirs, names in os.walk(root):
+    dirs[:] = [d for d in dirs if not d.startswith(".")]
+    scanned += len(names)
+    for name in names:
+        if name.lower().endswith(".pdf") and not name.startswith("."):
+            pdfs.append(os.path.join(current, name))
+    if len(pdfs) >= 300 or scanned >= 5000:
+        break
+cloud_only, local = [], []
+for path in pdfs:
+    try:
+        raw = os.getxattr(path, "system.cifs_attrib")
+        attrib = int.from_bytes(raw[:4], "little")
+    except (OSError, AttributeError):
+        attrib = 0
+    (cloud_only if attrib & (OFFLINE | RECALL_ON_OPEN | RECALL_ON_DATA | UNPINNED) else local).append(path)
+if pdfs and cloud_only:
+    print(f"   WARN  {len(cloud_only)} of {len(pdfs)} sampled PDFs are online-only on the file server")
+    print(f"         (e.g. {os.path.relpath(cloud_only[0], root)}): OneDrive Files On-Demand or")
+    print("         Azure File Sync cloud tiering. Their thumbnail shows, but the preview and")
+    print("         Öffnen wait for the whole file to come down from the cloud -- or give up.")
+    print("         Keep the folder on the file server: OneDrive 'Always keep on this device',")
+    print("         or exclude it from cloud tiering.")
+elif pdfs and fstype in ("cifs", "smb3"):
+    print(f"     OK  none of {len(pdfs)} sampled PDFs is online-only on the file server")
+
+# How long the whole file takes, for the largest of what is local. The preview
+# streams the entire PDF before the viewer shows page one.
+sample_pdfs = sorted(local, key=lambda p: os.path.getsize(p) if os.path.exists(p) else 0)[-3:]
+slow = []
+for path in sample_pdfs:
+    started = time.monotonic()
+    try:
+        with open(path, "rb") as handle:
+            size = 0
+            while chunk := handle.read(1 << 20):
+                size += len(chunk)
+                if time.monotonic() - started > 30:
+                    break
+    except OSError as exc:
+        print(f"   FAIL  {os.path.relpath(path, root)} is listed but cannot be read: {exc}")
+        continue
+    took = time.monotonic() - started
+    if took > 5:
+        slow.append((os.path.relpath(path, root), size, took))
+if slow:
+    name, size, took = slow[0]
+    print(f"   WARN  reading a PDF from the mount is slow: {name} ({size / 1e6:.1f} MB) took {took:.0f} s.")
+    print("         The preview reads the whole file before it shows a page.")
+elif sample_pdfs:
+    print("     OK  the largest sampled PDFs read in full in under 5 s")
 PY
 
 # Öffnen is a client-side launch: the browser asks for the path THIS PC should
@@ -1109,6 +1186,7 @@ import http.client
 import json
 import os
 import re
+import time
 import urllib.parse
 
 query = os.environ.get("DOCTOR_QUERY") or "Rechnung"
@@ -1249,12 +1327,28 @@ if on_share:
     pdf = next((r for r in on_share if str(r.get("path") or "").lower().endswith(".pdf")), None)
     if pdf:
         doc = urllib.parse.quote(str(pdf.get("doc_id") or pdf.get("path")), safe="/")
+        # The whole response, timed: the dialog shows a skeleton until the
+        # last byte, and reading only the first eight said "OK" for a preview
+        # nobody waited out. The search words make the server mark the hits,
+        # exactly as the dialog asks.
+        started = time.monotonic()
         status, raw = call("GET", f"/api/document/{doc}/preview?"
-                           + urllib.parse.urlencode({"path": pdf.get("path"), "q": query}), limit=8)
-        if status == 200 and raw.startswith(b"%PDF"):
-            print("     OK  the PDF preview opens")
+                           + urllib.parse.urlencode({"path": pdf.get("path"), "q": query}))
+        took = time.monotonic() - started
+        if status == 200 and raw.startswith(b"%PDF") and took <= 10:
+            print(f"     OK  the PDF preview opens ({len(raw) / 1e6:.1f} MB in {took:.1f} s)")
+        elif status == 200 and raw.startswith(b"%PDF"):
+            print(f"   WARN  the PDF preview took {took:.0f} s ({len(raw) / 1e6:.1f} MB): people see an")
+            print("         empty dialog that long. See the online-only and read-time checks under")
+            print("         'Documents, preview and opening'.")
         else:
             print(f"   FAIL  the PDF preview answers HTTP {status}")
+        status, _ = call("GET", f"/api/document/{doc}/preview?"
+                         + urllib.parse.urlencode({"path": pdf.get("path"), "probe": "1"}))
+        if status != 204:
+            print(f"   WARN  the preview's availability check answers HTTP {status}, not 204: the")
+            print("         running image predates this doctor.sh, and every PDF is marked twice")
+            print("         before it shows. Rebuild: ./scripts/start.sh")
 
 seen = sorted({p.split("/", 1)[0] for p in pointers if "/" in p})
 if len(seen) == 1:

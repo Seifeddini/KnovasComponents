@@ -1,5 +1,26 @@
 # Unreleased
 
+## PDF-Vorschau: das PDF steht, wo vorher nur das Vorschaubild kam
+
+- **Lange PDFs oeffnen in der Vorschau in Sekunden statt gar nicht.** Das
+  Vorschaubild kam sofort, das PDF daneben blieb ein leeres Skelett: der
+  Dialog fragte vorab, ob die Datei da ist, und der Server markierte dafuer
+  das ganze Dokument -- und fuer das PDF selbst gleich noch einmal, mit einer
+  Anmerkung je Fundstelle. Bei 150 Seiten waren das zweimal 17 s, bevor der
+  Viewer das erste Byte sah. Jetzt antwortet die Vorab-Frage ohne Markieren
+  (`probe=1`, 204), eine Anmerkung traegt alle Fundstellen eines Wortes auf
+  einer Seite (17 s -> 2 s, ein Viertel der Groesse), und nach 5 s wird nicht
+  weiter markiert -- das PDF kommt trotzdem ganz.
+- **"Pfad kopieren" kopiert auch ueber http://.** Ohne HTTPS gibt der Browser
+  der Seite keine Zwischenablage; die Schaltflaeche zeigte den Pfad nur an.
+- **`doctor.sh` findet PDFs, die nur in der Cloud liegen.** Liegt die Ablage
+  auf einem Dateiserver mit OneDrive Files On-Demand oder Azure File Sync
+  (Cloud-Tiering), meldet er die Dateien, die erst beim ersten Oeffnen
+  heruntergeladen werden -- Vorschaubild ja, Vorschau und Oeffnen nicht, bis
+  jemand sie einmal geoeffnet hat. Ausserdem misst er, wie lange ein grosses
+  PDF von der Ablage zu lesen ist und wie lange die Vorschau wirklich braucht
+  (bisher las er nur die ersten 8 Bytes).
+
 ## Dokumentfelder: Hinweise mit Feld, Stichwoerter und Status, erneutes Senden
 
 - **Hinweise von Knovas nennen das Feld.** Der Reiter *Ingestion* zeigt die

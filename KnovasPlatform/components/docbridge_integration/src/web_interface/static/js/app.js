@@ -1086,11 +1086,14 @@ class DocumentSearchApp {
                     .catch(() => {});
             }
             try {
-                const probe = await fetch(src, { method: 'GET', headers: { Range: 'bytes=0-0' },
-                                                 credentials: 'same-origin', signal: controller.signal });
+                // Nur "ist die Datei da": probe=1 antwortet 204, ohne das PDF
+                // zu markieren. Das Markieren laeuft einmal, fuer das iframe.
+                const probe = await fetch(`${src}&probe=1`, {
+                    credentials: 'same-origin', signal: controller.signal,
+                });
                 if (this._redirectIfLoginRequired(probe)) return;
                 if (this._previewIndex !== index) return;
-                if (!probe.ok && probe.status !== 206) {
+                if (!probe.ok) {
                     throw new Error(`HTTP ${probe.status}`);
                 }
                 this.previewMeta.textContent = 'PDF';
@@ -1865,15 +1868,35 @@ class DocumentSearchApp {
     }
 
     async _copyTextOptional(text) {
-        if (!text || !navigator.clipboard || !navigator.clipboard.writeText) {
-            return false;
+        if (!text) return false;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (e) {
+                console.warn('Clipboard copy failed:', e);
+            }
         }
+        // Ueber http:// (Intranet ohne Zertifikat) gibt es navigator.clipboard
+        // nicht -- "Pfad kopieren" kopierte dort nie etwas. execCommand ist
+        // veraltet, geht aber in jedem Kontext, solange ein Klick ausloest.
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        // In den offenen Dialog, nicht in den body: ein modaler <dialog>
+        // macht alles ausserhalb unfokussierbar, und dann gibt es keine Auswahl.
+        const host = this.previewDialog && this.previewDialog.open ? this.previewDialog : document.body;
+        host.appendChild(area);
         try {
-            await navigator.clipboard.writeText(text);
-            return true;
+            area.select();
+            return document.execCommand('copy');
         } catch (e) {
-            console.warn('Clipboard copy failed:', e);
+            console.warn('Clipboard fallback failed:', e);
             return false;
+        } finally {
+            area.remove();
         }
     }
 

@@ -298,3 +298,71 @@ def test_a_semantic_hit_is_marked_even_without_the_words(logged_in_client, tmp_p
     assert response.status_code == 200
     # "Mietzins" kommt im Dokument nicht vor; markiert ist trotzdem die Stelle.
     assert _annotation_count(response.data) >= 1
+
+
+# --- Wie schnell das PDF im Dialog steht ---------------------------------------
+#
+# Das Vorschaubild kam in Millisekunden, das PDF daneben gar nicht: der Dialog
+# fragte vorab mit Range: bytes=0-0, und der Server markierte dafuer das ganze
+# Dokument -- vor dem iframe, das es gleich noch einmal tat. Je Rechteck eine
+# Anmerkung machte ein langes PDF zweimal 17 s lang.
+
+def test_the_probe_answers_without_reading_the_pdf(logged_in_client, tmp_path, monkeypatch):
+    from web_interface import app as web_app
+
+    _write_pdf(tmp_path / "akte.pdf", ["Sophie Keller hat die Akte gefuehrt."])
+
+    def no_highlighting(*args, **kwargs):
+        raise AssertionError("the probe must not mark the PDF")
+
+    monkeypatch.setattr(web_app, "highlight_pdf", no_highlighting)
+    response = logged_in_client.get(
+        "/api/document/akte.pdf/preview?path=akte.pdf&q=Sophie&probe=1"
+    )
+    assert response.status_code == 204
+    assert response.data == b""
+
+
+def test_the_probe_still_says_when_the_file_is_missing(logged_in_client):
+    response = logged_in_client.get(
+        "/api/document/fehlt.pdf/preview?path=fehlt.pdf&q=Sophie&probe=1"
+    )
+    assert response.status_code == 404
+
+
+def test_one_annotation_per_term_and_page(logged_in_client, tmp_path):
+    """Zwanzig Treffer eines Wortes auf einer Seite sind eine Anmerkung mit
+    zwanzig Rechtecken, nicht zwanzig Anmerkungen."""
+    _write_pdf(tmp_path / "akte.pdf", ["Keller"] * 20)
+    response = logged_in_client.get(
+        "/api/document/akte.pdf/preview?path=akte.pdf&q=Keller"
+    )
+    assert response.status_code == 200
+    assert _annotation_count(response.data) == 1
+    pymupdf = pytest.importorskip("pymupdf")
+    with pymupdf.open(stream=response.data, filetype="pdf") as doc:
+        page = doc[0]
+        annot = next(page.annots())
+        assert len(annot.vertices) // 4 == 20
+
+
+def test_the_time_budget_still_serves_the_whole_pdf(tmp_path, monkeypatch):
+    """Ueber dem Zeitbudget werden keine weiteren Seiten markiert; das PDF
+    kommt trotzdem ganz, mit dem, was bis dahin markiert war."""
+    pymupdf = pytest.importorskip("pymupdf")
+    from web_interface import preview
+
+    path = tmp_path / "lang.pdf"
+    doc = pymupdf.open()
+    for _ in range(5):
+        doc.new_page().insert_text((60, 100), "Keller", fontsize=11)
+    doc.save(str(path))
+    doc.close()
+
+    clock = iter([0.0, 0.0, 0.0, 99.0, 99.0, 99.0, 99.0])
+    monkeypatch.setattr(preview.time, "monotonic", lambda: next(clock, 99.0))
+    data = preview.highlight_pdf(str(path), ["keller"])
+    with pymupdf.open(stream=data, filetype="pdf") as served:
+        assert served.page_count == 5
+        marked = [len(list(page.annots() or [])) for page in served]
+    assert marked == [1, 1, 0, 0, 0]

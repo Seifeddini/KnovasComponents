@@ -15,6 +15,7 @@ from __future__ import annotations
 import inspect
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 # Jede Endung, die Knovas Connector standardmaessig aufnimmt
@@ -177,6 +178,12 @@ HIGHLIGHT_MAX_PAGES = 200
 HIGHLIGHT_MAX_TERMS = 6
 HIGHLIGHT_MAX_PER_PAGE = 40
 HIGHLIGHT_MAX_PASSAGES = 8
+# Zeitbudget fuer das Markieren, in Sekunden. Der Viewer bekommt kein Byte,
+# bevor es fertig ist; ein langes PDF auf einer langsamen Freigabe stand sonst
+# minutenlang als leeres Skelett im Dialog, waehrend das Vorschaubild in
+# Millisekunden kam. Danach werden keine weiteren Seiten markiert -- die
+# bisherigen Markierungen bleiben, das PDF kommt vollstaendig.
+HIGHLIGHT_TIME_BUDGET_SECONDS = 5.0
 # Wie weit ueber der Trefferzeile der Viewer einsteigt, in PDF-Punkten.
 ANCHOR_MARGIN = 60
 
@@ -316,10 +323,13 @@ def highlight_pdf(path: str, terms, passages=None, active: str = "") -> Optional
     except ImportError:
         return None
 
+    deadline = time.monotonic() + HIGHLIGHT_TIME_BUDGET_SECONDS
     try:
         with pymupdf.open(path) as doc:
             marked = 0
             for page in doc.pages(0, min(doc.page_count, HIGHLIGHT_MAX_PAGES)):
+                if time.monotonic() > deadline:
+                    break
                 on_page = 0
                 # Erst die Trefferstelle als Ganzes, dann die Woerter darin --
                 # in dieser Reihenfolge, damit die Wortmarkierung obenauf liegt.
@@ -335,14 +345,18 @@ def highlight_pdf(path: str, terms, passages=None, active: str = "") -> Optional
                     if on_page >= HIGHLIGHT_MAX_PER_PAGE:
                         break
                     rects = _search_page(page, span) if is_passage else page.search_for(span)
-                    for rect in rects or []:
-                        annot = page.add_highlight_annot(rect)
-                        annot.set_colors(stroke=colour)
-                        annot.update()
-                        on_page += 1
-                        marked += 1
-                        if on_page >= HIGHLIGHT_MAX_PER_PAGE:
-                            break
+                    rects = list(rects or [])[: HIGHLIGHT_MAX_PER_PAGE - on_page]
+                    if not rects:
+                        continue
+                    # Eine Anmerkung je Stelle und Seite, mit allen Rechtecken:
+                    # sieht gleich aus wie eine je Rechteck, kostet aber einen
+                    # Bruchteil -- bei 150 Seiten 0.6 s statt 4 s, und das
+                    # ausgelieferte PDF bleibt ein Drittel so gross.
+                    annot = page.add_highlight_annot(rects)
+                    annot.set_colors(stroke=colour)
+                    annot.update()
+                    on_page += len(rects)
+                    marked += len(rects)
             if not marked:
                 return None
             return doc.tobytes(garbage=0, deflate=True)

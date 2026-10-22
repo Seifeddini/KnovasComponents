@@ -2387,6 +2387,17 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'error': 'Document file not found'}), 404
             if not str(full_path).lower().endswith('.pdf'):
                 return jsonify({'error': 'Preview only supported for PDF'}), 415
+            # probe=1: der Dialog fragt vorab nur, ob die Datei da und lesbar
+            # ist. Bisher war das ein GET mit Range: bytes=0-0, und der lief
+            # das ganze Markieren durch, um ein Byte zu liefern -- vor dem
+            # iframe, das es gleich noch einmal tat. Ein langes PDF wartete so
+            # zweimal, bevor der Viewer das erste Byte sah.
+            if request.args.get('probe'):
+                try:
+                    _open_autodoc_fileobj(full_path).close()
+                except OSError:
+                    return jsonify({'error': 'Document file not found'}), 404
+                return '', 204
             # Die Fundstellen im Dokument selbst markieren. Der browsereigene
             # Viewer hebt nichts hervor, was man ihm sagt -- aber er zeigt
             # Anmerkungen an, die im Dokument stehen. Nur der ausgelieferte
