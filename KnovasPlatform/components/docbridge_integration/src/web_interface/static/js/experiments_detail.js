@@ -931,7 +931,7 @@
                 return value;
             },
         })));
-        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true, style: { margin: '12px 0 0' } });
+        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true });
         const save = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'Angaben speichern' });
         const close = () => {
             closeEditor('fields');
@@ -1060,7 +1060,7 @@
             });
             const row = el('tr', { dataset: { original: v ? v.key : '' } },
                 el('td', null, key), el('td', null, name), el('td', null, description),
-                el('td', { style: { 'text-align': 'center' } }, control),
+                el('td', {}, control),
                 el('td', null, allocation), el('td', { class: 'kx-row-actions' }, remove));
             remove.addEventListener('click', () => {
                 row.remove();
@@ -1076,7 +1076,7 @@
             const row = addRow(null);
             row.querySelector('input').focus();
         });
-        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true, style: { margin: '12px 0 0' } });
+        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true });
         const save = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'Varianten speichern' });
         const close = () => {
             closeEditor('variants');
@@ -1286,7 +1286,7 @@
         }
 
         (state.exp.metrics || []).forEach((m) => addRow(m));
-        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true, style: { margin: '12px 0 0' } });
+        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true });
         const add = el('button', {
             type: 'button', class: 'btn btn-outline btn-sm', text: 'Metrik hinzufügen',
             disabled: !options.length,
@@ -1661,7 +1661,7 @@
                 },
             })));
         const block = el('div', { class: 'kx-chart-block' },
-            el('div', { class: 'kx-block-head', style: { 'margin-top': '14px' } },
+            el('div', { class: 'kx-block-head' },
                 el('h3', { text: 'Verlauf' }), switcher),
             holder);
         loadChart(m, holder);
@@ -1769,7 +1769,7 @@
                 KX.field({ label: 'Metrik', input: metricSelect, name: 'metric' }),
                 KX.field({ label: 'Variante', input: variantSelect, name: 'variant' }),
                 KX.field({ label: 'Beobachtet am', input: observed, name: 'observed_at' })),
-            el('div', { style: { 'margin-top': '14px' } }, kindBox),
+            el('div', {}, kindBox),
             el('details', { class: 'kx-details' },
                 el('summary', { text: 'Merkmale (optional)' }),
                 KX.field({
@@ -2359,7 +2359,7 @@
             const unit = metric ? metric.unit : '';
             const dec = decimalsOf(metric);
             const fmtV = (x) => (kind ? KX.fmtEstimate(kind, x, unit, dec) : KX.fmtPlain(x));
-            card.appendChild(el('div', { class: 'kx-table-wrap', style: { 'margin-top': '12px' } },
+            card.appendChild(el('div', { class: 'kx-table-wrap' },
                 el('table', { class: 'kx-table kx-table--compact' },
                     el('thead', null, el('tr', null,
                         el('th', { scope: 'col', text: 'Variante' }),
@@ -2537,7 +2537,7 @@
             scopeChoice('period', 'Zeitraum', false));
         const since = KX.input({ type: 'date', name: 'since' });
         const until = KX.input({ type: 'date', name: 'until' });
-        const period = el('div', { class: 'kx-form-row', hidden: true, style: { 'margin-top': '10px' } },
+        const period = el('div', { class: 'kx-form-row', hidden: true },
             KX.field({ label: 'Von', input: since, name: 'since', aliases: ['scope.since'] }),
             KX.field({ label: 'Bis', input: until, name: 'until', aliases: ['scope.until'] }));
         scopeGroup.addEventListener('change', () => {
@@ -2685,7 +2685,7 @@
         const save = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'Notiz speichern' });
         const form = el('form', { class: 'kx-card', noValidate: true },
             KX.field({ label: 'Neue Notiz', input: text, name: 'body', help: 'Markdown ist erlaubt. Notizen sind in der Knovas-Suche auffindbar.' }),
-            el('div', { class: 'kx-form-row kx-form-row--narrow', style: { 'margin-top': '10px' } },
+            el('div', { class: 'kx-form-row kx-form-row--narrow' },
                 KX.field({ label: 'Art der Notiz', input: kind, name: 'kind' }),
                 (state.exp.variants || []).length ? KX.field({ label: 'Variante', input: variant, name: 'variant' }) : null),
             el('div', { class: 'kx-form-actions' }, save));
@@ -2721,8 +2721,8 @@
 
     function notesList() {
         const notes = state.exp.notes || [];
-        if (!notes.length) return el('p', { class: 'kx-muted kx-notes-list', style: { 'margin-top': '12px' }, text: 'Noch keine Notizen.' });
-        return el('ul', { class: 'kx-timeline kx-notes-list', style: { 'margin-top': '12px' } }, notes.map((n) => el('li', { class: 'kx-timeline-item' },
+        if (!notes.length) return el('p', { class: 'kx-muted kx-notes-list', text: 'Noch keine Notizen.' });
+        return el('ul', { class: 'kx-timeline kx-notes-list' }, notes.map((n) => el('li', { class: 'kx-timeline-item' },
             el('div', { class: 'kx-timeline-head' },
                 KX.chip(n.kind_label || KX.label('note_kinds', n.kind), n.kind === 'status' ? 'running' : 'muted'),
                 el('span', { text: personName(n.created_by) || DASH }),
@@ -2803,7 +2803,7 @@
         const rationale = KX.textarea({ name: 'rationale', rows: 4, maxlength: 20000 });
         const learning = KX.textarea({ name: 'learning', rows: 4, maxlength: 20000 });
         const save = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'Entscheidung festhalten' });
-        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true, style: { margin: '12px 0 0' } });
+        const error = el('div', { class: 'kx-dialog-error', role: 'alert', hidden: true });
         const t = decidesTransition();
         const form = el('form', { class: 'kx-card kx-decision-box', noValidate: true },
             // Der Name des Zielstatus ("Entschieden"), nicht die Beschriftung
@@ -2811,7 +2811,7 @@
             el('p', { class: 'kx-help', text: t
                 ? `Mit der Entscheidung wechselt der Status zu «${stateLabel(t.to)}».`
                 : 'Die Entscheidung wird festgehalten; der Status bleibt.' }),
-            el('div', { class: 'kx-form-row kx-form-row--narrow', style: { 'margin-top': '10px' } },
+            el('div', { class: 'kx-form-row kx-form-row--narrow' },
                 KX.field({ label: 'Entscheidung', input: verdict, name: 'verdict', required: true })),
             KX.field({ label: 'Begründung', input: rationale, name: 'rationale', help: 'Warum so entschieden? Welche Auswertung trägt die Entscheidung?' }),
             KX.field({

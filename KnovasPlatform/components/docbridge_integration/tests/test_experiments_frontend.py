@@ -391,22 +391,20 @@ class TestScriptsStatic:
         for name in PAGE_TEMPLATES + ("_sidebar.html",):
             assert "\u00df" not in (TEMPLATES / name).read_text(encoding="utf-8")
 
-    def test_stylesheet_uses_the_product_tokens(self):
+    def test_stylesheet_pulls_nothing_in(self):
         css = (CSS / "experiments.css").read_text(encoding="utf-8")
-        for token in ("var(--primary-color)", "var(--border-color)", "var(--radius-lg)",
-                      "var(--font-heading)", "var(--surface-sunken)", "var(--card-bg)"):
-            assert token in css
         assert "@import" not in css and "url(" not in css  # self-hosted, no fonts or images pulled in
 
     def test_hidden_wins_over_display_classes_in_pages_and_dialogs(self):
-        """.kx-field / .kx-form-row set display, which beats the browser's
-        [hidden]; dialogs live under <body>, outside .kx-page. Without both
-        rules the date range of an evaluation and the levels of a metric
-        showed even when they did not apply."""
-        css = re.sub(r"/\*.*?\*/", "", (CSS / "experiments.css").read_text(encoding="utf-8"), flags=re.S)
+        """.kx-field / .kx-form-row may set display, which beats the browser's
+        [hidden]; dialogs live under <body>, outside .kx-page. Without the
+        rule the date range of an evaluation and the levels of a metric
+        showed even when they did not apply. One rule in style.css covers
+        every page and dialog."""
+        css = re.sub(r"/\*.*?\*/", "", (CSS / "style.css").read_text(encoding="utf-8"), flags=re.S)
         selectors = {sel.strip() for m in re.finditer(r"([^{}]*)\{\s*display:\s*none\s*!important;\s*\}", css)
                      for sel in m.group(1).split(",")}
-        assert ".kx-page [hidden]" in selectors and ".kx-dialog [hidden]" in selectors
+        assert "[hidden]" in selectors
 
     def test_app_js_methods_stay_unique_and_the_new_ones_exist(self):
         from test_frontend_static import _method_names
@@ -1634,24 +1632,13 @@ class TestManagePageRegressions:
 
 
 class TestLayoutRegressions:
-    def test_list_titles_never_break_mid_word(self):
-        """e2e-ui-14 (2): overflow-wrap: anywhere squeezed the title column to
-        one character on a phone ('Produktbil d')."""
-        css = re.sub(r"/\*.*?\*/", "", (CSS / "experiments.css").read_text(encoding="utf-8"), flags=re.S)
-        rules = dict((sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css))
-        assert "min-width: 12rem" in rules[".kx-title-cell"]
-        assert "overflow-wrap: break-word" in rules[".kx-title-cell strong"]
-        assert "anywhere" not in rules[".kx-title-cell strong"]
+    # The blank-canvas branch has no layout of its own. e2e-ui-14 (2), list
+    # titles breaking mid-word, and the CSS half of (3) return with the new
+    # design; see DESIGN-CANVAS.md.
 
-    def test_mobile_nav_scrolls_inside_on_every_page(self):
-        """e2e-ui-14 (3): below 900px the nav pushed '/' and '/settings' to
-        802px wide; only the experiments pages made it scroll in itself."""
-        css = re.sub(r"/\*.*?\*/", "", (CSS / "style.css").read_text(encoding="utf-8"), flags=re.S)
-        start = css.rindex("@media (max-width: 900px)")
-        block = css[start:css.index("\n}", start)]
-        nav = re.search(r"\.app-nav \{([^}]*)\}", block).group(1)
-        assert "overflow-x: auto" in nav and "min-width: 0" in nav
-        assert re.search(r"\.app-nav-item \{[^}]*flex: 0 0 auto", block)
+    def test_sidebar_brings_the_active_item_into_view(self):
+        """e2e-ui-14 (3): when the nav scrolls in itself (below 900px), the
+        sidebar script moves the current entry to its start."""
         sidebar = (TEMPLATES / "_sidebar.html").read_text(encoding="utf-8")
         script = re.search(r"<script>(.*?)</script>", sidebar, re.S).group(1)
         assert ".app-nav-item.active" in script and "scrollLeft" in script

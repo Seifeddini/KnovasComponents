@@ -631,3 +631,26 @@ def test_an_unwritable_marker_does_not_break_a_write(tmp_path):
     source = GraphOntologySource(FakeGraphClient(), marker_path="/proc/nonexistent/gen")
     source._invalidate()
     assert source.summary()["types"], "source stopped working without its marker"
+
+
+def test_graph_store_export_edges_get_their_relation_name_from_relation_types():
+    """Since 2026-10-24 the graph-store export carries only relation_type_id on an
+    edge; the name lives in relation_types. The view must still show the edge."""
+    client = FakeGraphClient(edges=[{"id": "e-1", "node_lo": "n-1", "node_hi": "n-2",
+                                 "relation_type_id": "tenant:rel/abc"}])
+    client.graph_export = lambda: {"status": "success", "node_types": client.node_types,
+                                   "nodes": client.nodes, "edges": client.edges,
+                                   "relation_types": [{"id": "tenant:rel/abc", "name": "hat_Dossier"}]}
+    source = GraphOntologySource(client)
+    assert source.summary()["relations"] == [
+        {"src": "t-mandant", "predicate": "hat_Dossier", "dst": "t-dossier", "count": 1}]
+
+
+def test_export_edges_without_any_resolvable_name_fall_back_to_the_edges_route():
+    client = FakeGraphClient(edges=[{"id": "e-1", "node_lo": "n-1", "node_hi": "n-2",
+                                 "relation_type_id": "tenant:rel/unknown"}])
+    client.graph_export = lambda: {"status": "success", "node_types": client.node_types,
+                                   "nodes": client.nodes, "edges": client.edges, "relation_types": []}
+    client.graph_edges = lambda: [{"node_lo": "n-1", "node_hi": "n-2", "relation": "hat_Dossier"}]
+    source = GraphOntologySource(client)
+    assert source.summary()["relations"][0]["predicate"] == "hat_Dossier"
