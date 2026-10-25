@@ -86,6 +86,33 @@ def _edge_ends(edge: Dict[str, Any]) -> Optional[tuple]:
     return src, dst, predicate
 
 
+def _name_edges(edges: List[Dict[str, Any]],
+                relation_types: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Kanten ohne Relationsnamen den Namen ihres Relationstyps geben.
+
+    Kanten, die schon einen Namen tragen, bleiben unveraendert; eine Kante,
+    deren Typ unbekannt ist, bleibt namenlos (und faellt in _edge_ends weg).
+    """
+    names: Dict[str, str] = {}
+    for rt in relation_types or []:
+        if not isinstance(rt, dict):
+            continue
+        rid = str(_first(rt, "id", "relation_type_id"))
+        name = str(_first(rt, "name", "label", "inverse_name"))
+        if rid and name:
+            names[rid] = name
+    out: List[Dict[str, Any]] = []
+    for edge in edges or []:
+        if not isinstance(edge, dict):
+            continue
+        if _first(edge, "relation", "predicate", "label", "type"):
+            out.append(edge)
+            continue
+        name = names.get(str(edge.get("relation_type_id") or ""))
+        out.append({**edge, "relation": name} if name else edge)
+    return out
+
+
 def _pointers_of(node_detail: Dict[str, Any]) -> List[str]:
     """Dokument-Pointer eines Knotens aus seinen Zuordnungen."""
     out: List[str] = []
@@ -238,6 +265,14 @@ class GraphOntologySource:
         if not nodes:
             nodes = self._client.graph_nodes()
         if not edges:
+            edges = self._client.graph_edges()
+        # Der Graph-Store-Export (seit 2026-10-24) traegt an einer Kante nur
+        # relation_type_id, keinen Namen; der Name steht in relation_types.
+        # Ohne Namen wuerde _edge_ends jede Kante verwerfen - also hier
+        # aufloesen, und wenn das nicht reicht, die Kantenroute fragen, die
+        # den Namen weiterhin liefert.
+        edges = _name_edges(edges, _graph_payload_list(raw.get("relation_types") or [], "relation_types"))
+        if edges and not any(_edge_ends(e) for e in edges):
             edges = self._client.graph_edges()
         data = {"node_types": node_types, "nodes": nodes, "edges": edges}
         if key is not None and self._ttl > 0:
