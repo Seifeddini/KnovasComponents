@@ -2865,9 +2865,13 @@
 
     const galaxyTopKey = 'cortex-galaxy-top';
     let galaxyTopIds = new Set();
+    let galaxyTopSaved = false;
     try {
         const savedTop = JSON.parse(localStorage.getItem(galaxyTopKey) || 'null');
-        if (Array.isArray(savedTop)) galaxyTopIds = new Set(savedTop.map(String));
+        if (Array.isArray(savedTop)) {
+            galaxyTopIds = new Set(savedTop.map(String));
+            galaxyTopSaved = true;
+        }
     } catch (err) { /* no saved front layer */ }
     let liveTypes = [];
     let liveRelations = [];
@@ -3049,6 +3053,13 @@
                 entities: samples[index],
             }));
             if (!populated.length) throw new Error('empty');
+            // Ohne gespeicherte Wahl steht der Demo-Mandant vorn. Die
+            // verbundenen Typen liegen dann auf dem naechsten Ring. Gespeichert
+            // wird die Wahl erst, wenn sie jemand aendert.
+            if (!galaxyTopSaved) {
+                const client = liveTypes.find((type) => type.label === 'Client' && type.count > 0);
+                if (client) galaxyTopIds.add(client.id);
+            }
             applyLiveLayers();
         } catch (err) {
             mountSystems(systemDefinitions);

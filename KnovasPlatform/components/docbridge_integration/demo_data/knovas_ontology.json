@@ -1,0 +1,1617 @@
+{
+  "summary": {
+    "success": true,
+    "types": [
+      {
+        "id": "type-client",
+        "label": "Client",
+        "count": 1
+      },
+      {
+        "id": "type-market",
+        "label": "Target market",
+        "count": 3
+      },
+      {
+        "id": "type-persona",
+        "label": "Persona",
+        "count": 4
+      },
+      {
+        "id": "type-icp",
+        "label": "ICP",
+        "count": 3
+      },
+      {
+        "id": "type-channel",
+        "label": "Channel",
+        "count": 4
+      },
+      {
+        "id": "type-campaign",
+        "label": "Campaign",
+        "count": 3
+      },
+      {
+        "id": "type-experiment",
+        "label": "Experiment",
+        "count": 3
+      },
+      {
+        "id": "type-evaluation",
+        "label": "Evaluation",
+        "count": 3
+      }
+    ],
+    "relations": [
+      {
+        "src": "type-client",
+        "predicate": "targets",
+        "dst": "type-market",
+        "count": 3
+      },
+      {
+        "src": "type-client",
+        "predicate": "addresses",
+        "dst": "type-persona",
+        "count": 4
+      },
+      {
+        "src": "type-client",
+        "predicate": "defines",
+        "dst": "type-icp",
+        "count": 3
+      },
+      {
+        "src": "type-client",
+        "predicate": "reaches through",
+        "dst": "type-channel",
+        "count": 4
+      },
+      {
+        "src": "type-client",
+        "predicate": "plans",
+        "dst": "type-campaign",
+        "count": 3
+      },
+      {
+        "src": "type-client",
+        "predicate": "learns from",
+        "dst": "type-experiment",
+        "count": 3
+      },
+      {
+        "src": "type-client",
+        "predicate": "reads",
+        "dst": "type-evaluation",
+        "count": 3
+      },
+      {
+        "src": "type-icp",
+        "predicate": "fits",
+        "dst": "type-market",
+        "count": 3
+      },
+      {
+        "src": "type-persona",
+        "predicate": "works in",
+        "dst": "type-market",
+        "count": 4
+      },
+      {
+        "src": "type-icp",
+        "predicate": "speaks as",
+        "dst": "type-persona",
+        "count": 4
+      },
+      {
+        "src": "type-campaign",
+        "predicate": "speaks to",
+        "dst": "type-icp",
+        "count": 3
+      },
+      {
+        "src": "type-campaign",
+        "predicate": "runs on",
+        "dst": "type-channel",
+        "count": 3
+      },
+      {
+        "src": "type-campaign",
+        "predicate": "rests on",
+        "dst": "type-experiment",
+        "count": 3
+      },
+      {
+        "src": "type-campaign",
+        "predicate": "informed by",
+        "dst": "type-evaluation",
+        "count": 2
+      },
+      {
+        "src": "type-campaign",
+        "predicate": "blocked by",
+        "dst": "type-evaluation",
+        "count": 1
+      },
+      {
+        "src": "type-experiment",
+        "predicate": "produced",
+        "dst": "type-evaluation",
+        "count": 3
+      }
+    ]
+  },
+  "entities": {
+    "type-client": [
+      {
+        "id": "client-heliogrid",
+        "label": "HelioGrid AG",
+        "type": "type-client",
+        "doc_count": 1
+      }
+    ],
+    "type-market": [
+      {
+        "id": "market-dach",
+        "label": "DACH industrial mid-market",
+        "type": "type-market",
+        "doc_count": 0
+      },
+      {
+        "id": "market-utilities",
+        "label": "Swiss municipal utilities",
+        "type": "type-market",
+        "doc_count": 0
+      },
+      {
+        "id": "market-food",
+        "label": "Benelux food production",
+        "type": "type-market",
+        "doc_count": 0
+      }
+    ],
+    "type-persona": [
+      {
+        "id": "persona-ops",
+        "label": "Plant operations director",
+        "type": "type-persona",
+        "doc_count": 0
+      },
+      {
+        "id": "persona-energy",
+        "label": "Energy manager",
+        "type": "type-persona",
+        "doc_count": 0
+      },
+      {
+        "id": "persona-cio",
+        "label": "Municipal utility CIO",
+        "type": "type-persona",
+        "doc_count": 0
+      },
+      {
+        "id": "persona-procurement",
+        "label": "Procurement lead",
+        "type": "type-persona",
+        "doc_count": 0
+      }
+    ],
+    "type-icp": [
+      {
+        "id": "icp-manufacturers",
+        "label": "DACH manufacturers, energy above 8 percent",
+        "type": "type-icp",
+        "doc_count": 0
+      },
+      {
+        "id": "icp-utilities",
+        "label": "Swiss utilities with a flexibility mandate",
+        "type": "type-icp",
+        "doc_count": 0
+      },
+      {
+        "id": "icp-food",
+        "label": "Benelux food groups under retailer clauses",
+        "type": "type-icp",
+        "doc_count": 0
+      }
+    ],
+    "type-channel": [
+      {
+        "id": "channel-linkedin",
+        "label": "LinkedIn",
+        "type": "type-channel",
+        "doc_count": 0
+      },
+      {
+        "id": "channel-webinar",
+        "label": "Partner webinars",
+        "type": "type-channel",
+        "doc_count": 0
+      },
+      {
+        "id": "channel-events",
+        "label": "Industry events",
+        "type": "type-channel",
+        "doc_count": 0
+      },
+      {
+        "id": "channel-email",
+        "label": "Outbound email",
+        "type": "type-channel",
+        "doc_count": 0
+      }
+    ],
+    "type-campaign": [
+      {
+        "id": "campaign-winter",
+        "label": "Winter flexibility briefing",
+        "type": "type-campaign",
+        "doc_count": 1
+      },
+      {
+        "id": "campaign-roundtable",
+        "label": "Stadtwerke roundtable series",
+        "type": "type-campaign",
+        "doc_count": 1
+      },
+      {
+        "id": "campaign-sprint",
+        "label": "Food-producer outbound sprint",
+        "type": "type-campaign",
+        "doc_count": 1
+      }
+    ],
+    "type-experiment": [
+      {
+        "id": "experiment-14",
+        "label": "EXP-14 LinkedIn message length",
+        "type": "type-experiment",
+        "doc_count": 1
+      },
+      {
+        "id": "experiment-18",
+        "label": "EXP-18 Webinar versus roundtable",
+        "type": "type-experiment",
+        "doc_count": 1
+      },
+      {
+        "id": "experiment-21",
+        "label": "EXP-21 Subject lines for food producers",
+        "type": "type-experiment",
+        "doc_count": 1
+      }
+    ],
+    "type-evaluation": [
+      {
+        "id": "evaluation-09",
+        "label": "EV-09 Short messages won",
+        "type": "type-evaluation",
+        "doc_count": 1
+      },
+      {
+        "id": "evaluation-11",
+        "label": "EV-11 Roundtables converted",
+        "type": "type-evaluation",
+        "doc_count": 1
+      },
+      {
+        "id": "evaluation-21",
+        "label": "EV-21 Inconclusive, rerun required",
+        "type": "type-evaluation",
+        "doc_count": 1
+      }
+    ]
+  },
+  "details": {
+    "client-heliogrid": {
+      "entity": {
+        "id": "client-heliogrid",
+        "label": "HelioGrid AG",
+        "type": "type-client",
+        "description": "Zurich software company. HelioGrid shifts industrial electricity use into cheaper hours. This is the demo client: three target markets, four personas, three ICPs and four channels. A campaign is scheduled only after an experiment produces a decisive evaluation.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "targets",
+          "direction": "out",
+          "target": {
+            "id": "market-dach",
+            "label": "DACH industrial mid-market",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "targets",
+          "direction": "out",
+          "target": {
+            "id": "market-utilities",
+            "label": "Swiss municipal utilities",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "targets",
+          "direction": "out",
+          "target": {
+            "id": "market-food",
+            "label": "Benelux food production",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "addresses",
+          "direction": "out",
+          "target": {
+            "id": "persona-ops",
+            "label": "Plant operations director",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "addresses",
+          "direction": "out",
+          "target": {
+            "id": "persona-energy",
+            "label": "Energy manager",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "addresses",
+          "direction": "out",
+          "target": {
+            "id": "persona-cio",
+            "label": "Municipal utility CIO",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "addresses",
+          "direction": "out",
+          "target": {
+            "id": "persona-procurement",
+            "label": "Procurement lead",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "defines",
+          "direction": "out",
+          "target": {
+            "id": "icp-manufacturers",
+            "label": "DACH manufacturers, energy above 8 percent",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "defines",
+          "direction": "out",
+          "target": {
+            "id": "icp-utilities",
+            "label": "Swiss utilities with a flexibility mandate",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "defines",
+          "direction": "out",
+          "target": {
+            "id": "icp-food",
+            "label": "Benelux food groups under retailer clauses",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "reaches through",
+          "direction": "out",
+          "target": {
+            "id": "channel-linkedin",
+            "label": "LinkedIn",
+            "type": "type-channel"
+          }
+        },
+        {
+          "predicate": "reaches through",
+          "direction": "out",
+          "target": {
+            "id": "channel-webinar",
+            "label": "Partner webinars",
+            "type": "type-channel"
+          }
+        },
+        {
+          "predicate": "reaches through",
+          "direction": "out",
+          "target": {
+            "id": "channel-events",
+            "label": "Industry events",
+            "type": "type-channel"
+          }
+        },
+        {
+          "predicate": "reaches through",
+          "direction": "out",
+          "target": {
+            "id": "channel-email",
+            "label": "Outbound email",
+            "type": "type-channel"
+          }
+        },
+        {
+          "predicate": "plans",
+          "direction": "out",
+          "target": {
+            "id": "campaign-winter",
+            "label": "Winter flexibility briefing",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "plans",
+          "direction": "out",
+          "target": {
+            "id": "campaign-roundtable",
+            "label": "Stadtwerke roundtable series",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "plans",
+          "direction": "out",
+          "target": {
+            "id": "campaign-sprint",
+            "label": "Food-producer outbound sprint",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "learns from",
+          "direction": "out",
+          "target": {
+            "id": "experiment-14",
+            "label": "EXP-14 LinkedIn message length",
+            "type": "type-experiment"
+          }
+        },
+        {
+          "predicate": "learns from",
+          "direction": "out",
+          "target": {
+            "id": "experiment-18",
+            "label": "EXP-18 Webinar versus roundtable",
+            "type": "type-experiment"
+          }
+        },
+        {
+          "predicate": "learns from",
+          "direction": "out",
+          "target": {
+            "id": "experiment-21",
+            "label": "EXP-21 Subject lines for food producers",
+            "type": "type-experiment"
+          }
+        },
+        {
+          "predicate": "reads",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-09",
+            "label": "EV-09 Short messages won",
+            "type": "type-evaluation"
+          }
+        },
+        {
+          "predicate": "reads",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-11",
+            "label": "EV-11 Roundtables converted",
+            "type": "type-evaluation"
+          }
+        },
+        {
+          "predicate": "reads",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-21",
+            "label": "EV-21 Inconclusive, rerun required",
+            "type": "type-evaluation"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Marketing operating picture",
+            "path": "Marketing operating picture"
+          },
+          "page": 1,
+          "quote": "HelioGrid runs marketing as experiments. A campaign is scheduled only when an evaluation is decisive."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "market-dach": {
+      "entity": {
+        "id": "market-dach",
+        "label": "DACH industrial mid-market",
+        "type": "type-market",
+        "description": "Manufacturing plants in Germany, Austria and Switzerland, roughly 200 to 2,000 staff, where electricity is a line on the plant manager's weekly review.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "targets",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "fits",
+          "direction": "in",
+          "target": {
+            "id": "icp-manufacturers",
+            "label": "DACH manufacturers, energy above 8 percent",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "in",
+          "target": {
+            "id": "persona-ops",
+            "label": "Plant operations director",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "in",
+          "target": {
+            "id": "persona-energy",
+            "label": "Energy manager",
+            "type": "type-persona"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "market-utilities": {
+      "entity": {
+        "id": "market-utilities",
+        "label": "Swiss municipal utilities",
+        "type": "type-market",
+        "description": "Stadtwerke that must offer flexibility to the grid and have no in-house data team to build it.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "targets",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "fits",
+          "direction": "in",
+          "target": {
+            "id": "icp-utilities",
+            "label": "Swiss utilities with a flexibility mandate",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "in",
+          "target": {
+            "id": "persona-cio",
+            "label": "Municipal utility CIO",
+            "type": "type-persona"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "market-food": {
+      "entity": {
+        "id": "market-food",
+        "label": "Benelux food production",
+        "type": "type-market",
+        "description": "Multi-site food producers in the Netherlands and Belgium, bound by retailer clauses on energy use.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "targets",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "fits",
+          "direction": "in",
+          "target": {
+            "id": "icp-food",
+            "label": "Benelux food groups under retailer clauses",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "in",
+          "target": {
+            "id": "persona-procurement",
+            "label": "Procurement lead",
+            "type": "type-persona"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "persona-ops": {
+      "entity": {
+        "id": "persona-ops",
+        "label": "Plant operations director",
+        "type": "type-persona",
+        "description": "Owns the energy bill for one or more plants and will champion a tool that pays back inside a heating season.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "addresses",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "out",
+          "target": {
+            "id": "market-dach",
+            "label": "DACH industrial mid-market",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "in",
+          "target": {
+            "id": "icp-manufacturers",
+            "label": "DACH manufacturers, energy above 8 percent",
+            "type": "type-icp"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "persona-energy": {
+      "entity": {
+        "id": "persona-energy",
+        "label": "Energy manager",
+        "type": "type-persona",
+        "description": "Builds the flexibility case, picks the data sources, and is the day-to-day user.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "addresses",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "out",
+          "target": {
+            "id": "market-dach",
+            "label": "DACH industrial mid-market",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "in",
+          "target": {
+            "id": "icp-manufacturers",
+            "label": "DACH manufacturers, energy above 8 percent",
+            "type": "type-icp"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "persona-cio": {
+      "entity": {
+        "id": "persona-cio",
+        "label": "Municipal utility CIO",
+        "type": "type-persona",
+        "description": "Buys for a public mandate. Prefers a short roundtable with peers over a vendor webinar.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "addresses",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "out",
+          "target": {
+            "id": "market-utilities",
+            "label": "Swiss municipal utilities",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "in",
+          "target": {
+            "id": "icp-utilities",
+            "label": "Swiss utilities with a flexibility mandate",
+            "type": "type-icp"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "persona-procurement": {
+      "entity": {
+        "id": "persona-procurement",
+        "label": "Procurement lead",
+        "type": "type-persona",
+        "description": "Enters after a shortlist. Compares vendors on contract terms and on proof from a finished evaluation, not on a slogan.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "addresses",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "works in",
+          "direction": "out",
+          "target": {
+            "id": "market-food",
+            "label": "Benelux food production",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "in",
+          "target": {
+            "id": "icp-food",
+            "label": "Benelux food groups under retailer clauses",
+            "type": "type-icp"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "icp-manufacturers": {
+      "entity": {
+        "id": "icp-manufacturers",
+        "label": "DACH manufacturers, energy above 8 percent",
+        "type": "type-icp",
+        "description": "Plants with 200 to 2,000 staff in DACH whose energy cost is above 8 percent of operating cost, and who already meter production lines.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "defines",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "fits",
+          "direction": "out",
+          "target": {
+            "id": "market-dach",
+            "label": "DACH industrial mid-market",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "out",
+          "target": {
+            "id": "persona-ops",
+            "label": "Plant operations director",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "out",
+          "target": {
+            "id": "persona-energy",
+            "label": "Energy manager",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "speaks to",
+          "direction": "in",
+          "target": {
+            "id": "campaign-winter",
+            "label": "Winter flexibility briefing",
+            "type": "type-campaign"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "icp-utilities": {
+      "entity": {
+        "id": "icp-utilities",
+        "label": "Swiss utilities with a flexibility mandate",
+        "type": "type-icp",
+        "description": "Municipal utilities with a published flexibility mandate and no data team of their own.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "defines",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "fits",
+          "direction": "out",
+          "target": {
+            "id": "market-utilities",
+            "label": "Swiss municipal utilities",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "out",
+          "target": {
+            "id": "persona-cio",
+            "label": "Municipal utility CIO",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "speaks to",
+          "direction": "in",
+          "target": {
+            "id": "campaign-roundtable",
+            "label": "Stadtwerke roundtable series",
+            "type": "type-campaign"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "icp-food": {
+      "entity": {
+        "id": "icp-food",
+        "label": "Benelux food groups under retailer clauses",
+        "type": "type-icp",
+        "description": "Food groups with at least three sites, a retailer energy clause, and a procurement lead who will not take a meeting without a finished test.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "defines",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "fits",
+          "direction": "out",
+          "target": {
+            "id": "market-food",
+            "label": "Benelux food production",
+            "type": "type-market"
+          }
+        },
+        {
+          "predicate": "speaks as",
+          "direction": "out",
+          "target": {
+            "id": "persona-procurement",
+            "label": "Procurement lead",
+            "type": "type-persona"
+          }
+        },
+        {
+          "predicate": "speaks to",
+          "direction": "in",
+          "target": {
+            "id": "campaign-sprint",
+            "label": "Food-producer outbound sprint",
+            "type": "type-campaign"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "channel-linkedin": {
+      "entity": {
+        "id": "channel-linkedin",
+        "label": "LinkedIn",
+        "type": "type-channel",
+        "description": "Short direct messages to operations directors and energy managers. The channel that EXP-14 measured.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "reaches through",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "runs on",
+          "direction": "in",
+          "target": {
+            "id": "campaign-winter",
+            "label": "Winter flexibility briefing",
+            "type": "type-campaign"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "channel-webinar": {
+      "entity": {
+        "id": "channel-webinar",
+        "label": "Partner webinars",
+        "type": "type-channel",
+        "description": "Webinars hosted with an industry association. Measured against roundtables in EXP-18 and lost.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "reaches through",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "channel-events": {
+      "entity": {
+        "id": "channel-events",
+        "label": "Industry events",
+        "type": "type-channel",
+        "description": "Closed roundtables of eight to twelve peers. The format EV-11 said to scale for utilities.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "reaches through",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "runs on",
+          "direction": "in",
+          "target": {
+            "id": "campaign-roundtable",
+            "label": "Stadtwerke roundtable series",
+            "type": "type-campaign"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "channel-email": {
+      "entity": {
+        "id": "channel-email",
+        "label": "Outbound email",
+        "type": "type-channel",
+        "description": "Named sequences to procurement leads. On hold until a subject-line test beats the noise.",
+        "doc_count": 0
+      },
+      "relations": [
+        {
+          "predicate": "reaches through",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "runs on",
+          "direction": "in",
+          "target": {
+            "id": "campaign-sprint",
+            "label": "Food-producer outbound sprint",
+            "type": "type-campaign"
+          }
+        }
+      ],
+      "evidence": [],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "campaign-winter": {
+      "entity": {
+        "id": "campaign-winter",
+        "label": "Winter flexibility briefing",
+        "type": "type-campaign",
+        "description": "Scheduled for the week of 16 November 2026. Short LinkedIn messages to the DACH manufacturer ICP, because EV-09 found that the short variant replied at 4.8 percent against 2.1 percent for the long one.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "plans",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "speaks to",
+          "direction": "out",
+          "target": {
+            "id": "icp-manufacturers",
+            "label": "DACH manufacturers, energy above 8 percent",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "runs on",
+          "direction": "out",
+          "target": {
+            "id": "channel-linkedin",
+            "label": "LinkedIn",
+            "type": "type-channel"
+          }
+        },
+        {
+          "predicate": "rests on",
+          "direction": "out",
+          "target": {
+            "id": "experiment-14",
+            "label": "EXP-14 LinkedIn message length",
+            "type": "type-experiment"
+          }
+        },
+        {
+          "predicate": "informed by",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-09",
+            "label": "EV-09 Short messages won",
+            "type": "type-evaluation"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Campaign brief, winter flexibility",
+            "path": "Campaign brief, winter flexibility"
+          },
+          "page": 1,
+          "quote": "Launch the winter briefing on LinkedIn with the short message. Do not revive the long variant."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "campaign-roundtable": {
+      "entity": {
+        "id": "campaign-roundtable",
+        "label": "Stadtwerke roundtable series",
+        "type": "type-campaign",
+        "description": "First session on 3 December 2026. Closed roundtables for the municipal-utility ICP. EV-11 found roundtables converted 3.4 times the partner webinars, so the webinar channel is not used for this campaign.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "plans",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "speaks to",
+          "direction": "out",
+          "target": {
+            "id": "icp-utilities",
+            "label": "Swiss utilities with a flexibility mandate",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "runs on",
+          "direction": "out",
+          "target": {
+            "id": "channel-events",
+            "label": "Industry events",
+            "type": "type-channel"
+          }
+        },
+        {
+          "predicate": "rests on",
+          "direction": "out",
+          "target": {
+            "id": "experiment-18",
+            "label": "EXP-18 Webinar versus roundtable",
+            "type": "type-experiment"
+          }
+        },
+        {
+          "predicate": "informed by",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-11",
+            "label": "EV-11 Roundtables converted",
+            "type": "type-evaluation"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Campaign brief, Stadtwerke roundtables",
+            "path": "Campaign brief, Stadtwerke roundtables"
+          },
+          "page": 1,
+          "quote": "Book three closed roundtables. Do not promote them as webinars."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "campaign-sprint": {
+      "entity": {
+        "id": "campaign-sprint",
+        "label": "Food-producer outbound sprint",
+        "type": "type-campaign",
+        "description": "Not scheduled. EXP-21 tested subject lines for the Benelux food ICP and EV-21 came back inside the noise. The sprint stays a draft until a rerun produces a decisive evaluation.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "plans",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "speaks to",
+          "direction": "out",
+          "target": {
+            "id": "icp-food",
+            "label": "Benelux food groups under retailer clauses",
+            "type": "type-icp"
+          }
+        },
+        {
+          "predicate": "runs on",
+          "direction": "out",
+          "target": {
+            "id": "channel-email",
+            "label": "Outbound email",
+            "type": "type-channel"
+          }
+        },
+        {
+          "predicate": "rests on",
+          "direction": "out",
+          "target": {
+            "id": "experiment-21",
+            "label": "EXP-21 Subject lines for food producers",
+            "type": "type-experiment"
+          }
+        },
+        {
+          "predicate": "blocked by",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-21",
+            "label": "EV-21 Inconclusive, rerun required",
+            "type": "type-evaluation"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Campaign brief, food-producer sprint",
+            "path": "Campaign brief, food-producer sprint"
+          },
+          "page": 1,
+          "quote": "Do not launch the outbound sprint. The subject-line test is inside the noise."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "experiment-14": {
+      "entity": {
+        "id": "experiment-14",
+        "label": "EXP-14 LinkedIn message length",
+        "type": "type-experiment",
+        "description": "Two-week LinkedIn test in October 2026. Same offer, short message against long message, sent to plant operations directors in DACH.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "learns from",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "rests on",
+          "direction": "in",
+          "target": {
+            "id": "campaign-winter",
+            "label": "Winter flexibility briefing",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "produced",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-09",
+            "label": "EV-09 Short messages won",
+            "type": "type-evaluation"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Experiment card EXP-14",
+            "path": "Experiment card EXP-14"
+          },
+          "page": 1,
+          "quote": "Hypothesis: a short LinkedIn message gets more replies than a long one from the same operations directors."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "experiment-18": {
+      "entity": {
+        "id": "experiment-18",
+        "label": "EXP-18 Webinar versus roundtable",
+        "type": "type-experiment",
+        "description": "October 2026. The same Stadtwerke story told as a partner webinar and as a closed roundtable. Success was a meeting booked within 14 days.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "learns from",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "rests on",
+          "direction": "in",
+          "target": {
+            "id": "campaign-roundtable",
+            "label": "Stadtwerke roundtable series",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "produced",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-11",
+            "label": "EV-11 Roundtables converted",
+            "type": "type-evaluation"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Experiment card EXP-18",
+            "path": "Experiment card EXP-18"
+          },
+          "page": 1,
+          "quote": "Hypothesis: a closed roundtable books more utility meetings than a partner webinar."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "experiment-21": {
+      "entity": {
+        "id": "experiment-21",
+        "label": "EXP-21 Subject lines for food producers",
+        "type": "type-experiment",
+        "description": "Subject-line test on outbound email to Benelux food procurement leads. Three variants, one week, October 2026. Not enough replies to call a winner.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "learns from",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "rests on",
+          "direction": "in",
+          "target": {
+            "id": "campaign-sprint",
+            "label": "Food-producer outbound sprint",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "produced",
+          "direction": "out",
+          "target": {
+            "id": "evaluation-21",
+            "label": "EV-21 Inconclusive, rerun required",
+            "type": "type-evaluation"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Experiment card EXP-21",
+            "path": "Experiment card EXP-21"
+          },
+          "page": 1,
+          "quote": "Hypothesis: one of three subject lines beats the others by a margin large enough to launch the sprint."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "evaluation-09": {
+      "entity": {
+        "id": "evaluation-09",
+        "label": "EV-09 Short messages won",
+        "type": "type-evaluation",
+        "description": "Decisive. Short LinkedIn messages won: 4.8 percent reply rate, 2.1 percent for the long variant, same audience. The winter briefing uses the short message.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "reads",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "informed by",
+          "direction": "in",
+          "target": {
+            "id": "campaign-winter",
+            "label": "Winter flexibility briefing",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "produced",
+          "direction": "in",
+          "target": {
+            "id": "experiment-14",
+            "label": "EXP-14 LinkedIn message length",
+            "type": "type-experiment"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Evaluation EV-09",
+            "path": "Evaluation EV-09"
+          },
+          "page": 1,
+          "quote": "Short messages 4.8 percent, long messages 2.1 percent. Ship the short variant on LinkedIn."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "evaluation-11": {
+      "entity": {
+        "id": "evaluation-11",
+        "label": "EV-11 Roundtables converted",
+        "type": "type-evaluation",
+        "description": "Decisive. Roundtables booked a meeting 3.4 times as often as the partner webinar. The Stadtwerke series uses roundtables and leaves webinars off the plan.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "reads",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "informed by",
+          "direction": "in",
+          "target": {
+            "id": "campaign-roundtable",
+            "label": "Stadtwerke roundtable series",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "produced",
+          "direction": "in",
+          "target": {
+            "id": "experiment-18",
+            "label": "EXP-18 Webinar versus roundtable",
+            "type": "type-experiment"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Evaluation EV-11",
+            "path": "Evaluation EV-11"
+          },
+          "page": 1,
+          "quote": "Roundtables converted 3.4 times the webinar. Scale the roundtable, drop the webinar for this ICP."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    },
+    "evaluation-21": {
+      "entity": {
+        "id": "evaluation-21",
+        "label": "EV-21 Inconclusive, rerun required",
+        "type": "type-evaluation",
+        "description": "Not decisive. All three subject lines sat inside the noise. The food-producer sprint is blocked until the test is rerun.",
+        "doc_count": 1
+      },
+      "relations": [
+        {
+          "predicate": "reads",
+          "direction": "in",
+          "target": {
+            "id": "client-heliogrid",
+            "label": "HelioGrid AG",
+            "type": "type-client"
+          }
+        },
+        {
+          "predicate": "blocked by",
+          "direction": "in",
+          "target": {
+            "id": "campaign-sprint",
+            "label": "Food-producer outbound sprint",
+            "type": "type-campaign"
+          }
+        },
+        {
+          "predicate": "produced",
+          "direction": "in",
+          "target": {
+            "id": "experiment-21",
+            "label": "EXP-21 Subject lines for food producers",
+            "type": "type-experiment"
+          }
+        }
+      ],
+      "evidence": [
+        {
+          "document": {
+            "title": "Evaluation EV-21",
+            "path": "Evaluation EV-21"
+          },
+          "page": 1,
+          "quote": "No subject line cleared the noise. Hold the sprint and rerun the test."
+        }
+      ],
+      "filters": [],
+      "doc_field_links": []
+    }
+  }
+}
