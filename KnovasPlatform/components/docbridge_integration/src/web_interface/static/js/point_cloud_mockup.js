@@ -60,6 +60,10 @@
     let viewFrame = null;
     let heldRotation = null;
     let nodeDrag = null;
+    let springFrames = 0;
+    let springsArmed = false;
+    let springPin = null;
+    let linkRests = new Map();
     let selectedEntity = null;
     let entityMix = 0;
     let targetEntityMix = 0;
@@ -1256,9 +1260,8 @@
         }
         if (!nodeDrag.moved || !viewFrame) return;
         if (heldRotation == null) heldRotation = viewFrame.rotation;
+        armSprings(nodeDrag.kind === 'sun' ? 'sun' : 'siblings');
         if (nodeDrag.kind === 'sun') {
-            const previousX = nodeDrag.system.x;
-            const previousZ = nodeDrag.system.z;
             const world = screenToDisk(
                 point.x - nodeDrag.offsetX,
                 point.y - nodeDrag.offsetY,
@@ -1268,99 +1271,169 @@
             nodeDrag.system.x = world.x;
             nodeDrag.system.y = 0;
             nodeDrag.system.z = world.z;
-            pullLinkedSystems(
-                nodeDrag.system,
-                world.x - previousX,
-                world.z - previousZ,
-            );
+            nodeDrag.system.vx = 0;
+            nodeDrag.system.vz = 0;
         } else if (nodeDrag.slot) {
-            const dx = point.x - nodeDrag.lastX;
-            const dy = point.y - nodeDrag.lastY;
-            nodeDrag.slot.x += dx;
-            nodeDrag.slot.y += dy;
+            nodeDrag.slot.x += point.x - nodeDrag.lastX;
+            nodeDrag.slot.y += point.y - nodeDrag.lastY;
+            nodeDrag.slot.vx = 0;
+            nodeDrag.slot.vy = 0;
             nodeDrag.lastX = point.x;
             nodeDrag.lastY = point.y;
-            pullSiblings(nodeDrag.points, nodeDrag.slotIndex, dx, dy);
         }
         event.preventDefault();
     }
 
-    function pullLinkedSystems(dragged, dx, dz) {
-        if (!dx && !dz) return;
-        const linked = new Set();
-        (dragged.links || []).forEach((link) => {
-            const other = systems.find((system) => system.label === link.label);
-            if (other) linked.add(other);
-        });
+    function armSprings(mode) {
+        springFrames = 90;
+        if (springsArmed && springPin && springPin.mode === mode) return;
+        springsArmed = true;
+        springPin = { mode, drag: nodeDrag };
+        linkRests = new Map();
         systems.forEach((system) => {
-            if ((system.links || []).some((link) => link.label === dragged.label)) {
-                linked.add(system);
+            system.vx = 0;
+            system.vz = 0;
+            system.restReady = false;
+            if (system.focusAnchor) {
+                system.focusAnchor.vx = 0;
+                system.focusAnchor.vy = 0;
             }
+            (system.siblingPoints || []).forEach((point) => {
+                point.vx = 0;
+                point.vy = 0;
+            });
         });
-        linked.forEach((system) => {
-            system.x += dx * 0.62;
-            system.z += dz * 0.62;
-        });
-        separateSystems(dragged);
     }
 
-    function separateSystems(skip) {
-        const minX = 0.16;
-        const minZ = 0.2;
-        systems.forEach((left, i) => {
-            if (!left.label) return;
-            for (let j = i + 1; j < systems.length; j += 1) {
-                const right = systems[j];
-                if (!right.label) continue;
+    function band(ax, ay, bx, by, rest, stiffness) {
+        let dx = bx - ax;
+        let dy = by - ay;
+        const dist = Math.hypot(dx, dy) || 0.0001;
+        const pull = (dist - rest) * stiffness;
+        return { x: (dx / dist) * pull, y: (dy / dist) * pull };
+    }
+
+    function stepWorldSprings(pinned) {
+        const labelled = systems.filter((system) => system.label);
+        const seen = new Set();
+        labelled.forEach((system) => {
+            (system.links || []).forEach((link) => {
+                const other = labelled.find((candidate) => candidate.label === link.label);
+                if (!other || other === system) return;
+                const key = [system.label, other.label].sort().join('|');
+                if (seen.has(key)) return;
+                seen.add(key);
+                const dist = Math.hypot(other.x - system.x, other.z - system.z) || 0.0001;
+                if (!linkRests.has(key)) linkRests.set(key, dist);
+                const force = band(system.x, system.z, other.x, other.z, linkRests.get(key), 0.085);
+                if (system !== pinned) { system.vx += force.x; system.vz += force.y; }
+                if (other !== pinned) { other.vx -= force.x; other.vz -= force.y; }
+            });
+        });
+        for (let i = 0; i < labelled.length; i += 1) {
+            for (let j = i + 1; j < labelled.length; j += 1) {
+                const left = labelled[i];
+                const right = labelled[j];
                 let dx = left.x - right.x;
                 let dz = left.z - right.z;
-                if (dx === 0 && dz === 0) { dx = 0.02; dz = 0.01; }
-                const nx = dx / minX;
-                const nz = dz / minZ;
-                const ell = Math.hypot(nx, nz);
-                if (!ell || ell >= 1) continue;
-                const push = (1 - ell) * 0.5;
-                const ux = (nx / ell) * minX * push;
-                const uz = (nz / ell) * minZ * push;
-                if (left !== skip) { left.x += ux; left.z += uz; }
-                if (right !== skip) { right.x -= ux; right.z -= uz; }
+                const dist = Math.hypot(dx, dz) || 0.0001;
+                if (dist >= 0.2) continue;
+                const push = (0.2 - dist) * 0.35;
+                dx /= dist;
+                dz /= dist;
+                if (left !== pinned) { left.vx += dx * push; left.vz += dz * push; }
+                if (right !== pinned) { right.vx -= dx * push; right.vz -= dz * push; }
             }
+        }
+        labelled.forEach((system) => {
+            if (system === pinned) { system.vx = 0; system.vz = 0; return; }
+            system.vx *= 0.72;
+            system.vz *= 0.72;
+            const speed = Math.hypot(system.vx, system.vz);
+            const scale = speed > 0.08 ? 0.08 / speed : 1;
+            system.x += system.vx * scale;
+            system.z += system.vz * scale;
         });
     }
 
-    function pullSiblings(points, draggedIndex, dx, dy) {
-        if (!points || (!dx && !dy)) return;
-        const dragged = points[draggedIndex];
-        if (!dragged) return;
-        points.forEach((point, index) => {
-            if (index === draggedIndex) return;
-            const distance = Math.hypot(point.x - dragged.x, point.y - dragged.y) || 1;
-            const follow = Math.max(0.22, 0.84 * Math.exp(-distance / 320));
-            point.x += dx * follow;
-            point.y += dy * follow;
-        });
-        const minDist = 168;
-        for (let i = 0; i < points.length; i += 1) {
-            for (let j = i + 1; j < points.length; j += 1) {
-                let sepX = points[i].x - points[j].x;
-                let sepY = points[i].y - points[j].y;
-                let dist2 = sepX * sepX + sepY * sepY;
-                if (dist2 < 9) { sepX = 3; sepY = 0; dist2 = 9; }
-                const distance = Math.sqrt(dist2);
-                if (distance >= minDist) continue;
-                const push = (minDist - distance) * 0.42;
-                const ux = sepX / distance;
-                const uy = sepY / distance;
-                if (i !== draggedIndex) {
-                    points[i].x += ux * push;
-                    points[i].y += uy * push;
-                }
-                if (j !== draggedIndex) {
-                    points[j].x -= ux * push;
-                    points[j].y -= uy * push;
+    function stepSiblingSprings(system, pinnedIndex) {
+        const points = system.siblingPoints;
+        if (!points || points.length < 2) return;
+        if (!system.focusAnchor) system.focusAnchor = { x: 0, y: 0, vx: 0, vy: 0 };
+        const anchor = system.focusAnchor;
+        if (!system.restReady) {
+            points.forEach((point) => {
+                point.rest = Math.hypot(point.x - anchor.x, point.y - anchor.y) || 1;
+                point.vx = 0;
+                point.vy = 0;
+            });
+            system.pairRest = points.map(() => []);
+            for (let i = 0; i < points.length; i += 1) {
+                for (let j = i + 1; j < points.length; j += 1) {
+                    system.pairRest[i][j] = Math.hypot(
+                        points[i].x - points[j].x,
+                        points[i].y - points[j].y,
+                    ) || 1;
                 }
             }
+            anchor.vx = 0;
+            anchor.vy = 0;
+            system.restReady = true;
         }
+        const fx = points.map(() => 0);
+        const fy = points.map(() => 0);
+        let anchorX = 0;
+        let anchorY = 0;
+        points.forEach((point, index) => {
+            const force = band(point.x, point.y, anchor.x, anchor.y, point.rest, 0.06);
+            if (index !== pinnedIndex) { fx[index] += force.x; fy[index] += force.y; }
+            anchorX -= force.x;
+            anchorY -= force.y;
+        });
+        for (let i = 0; i < points.length; i += 1) {
+            for (let j = i + 1; j < points.length; j += 1) {
+                const force = band(
+                    points[i].x, points[i].y,
+                    points[j].x, points[j].y,
+                    system.pairRest[i][j],
+                    0.018,
+                );
+                if (i !== pinnedIndex) { fx[i] += force.x; fy[i] += force.y; }
+                if (j !== pinnedIndex) { fx[j] -= force.x; fy[j] -= force.y; }
+            }
+        }
+        const damp = 0.74;
+        points.forEach((point, index) => {
+            if (index === pinnedIndex) { point.vx = 0; point.vy = 0; return; }
+            point.vx = (point.vx + fx[index]) * damp;
+            point.vy = (point.vy + fy[index]) * damp;
+            const speed = Math.hypot(point.vx, point.vy);
+            const scale = speed > 22 ? 22 / speed : 1;
+            point.x += point.vx * scale;
+            point.y += point.vy * scale;
+        });
+        anchor.vx = (anchor.vx + anchorX) * damp;
+        anchor.vy = (anchor.vy + anchorY) * damp;
+        const anchorSpeed = Math.hypot(anchor.vx, anchor.vy);
+        const anchorScale = anchorSpeed > 18 ? 18 / anchorSpeed : 1;
+        anchor.x += anchor.vx * anchorScale;
+        anchor.y += anchor.vy * anchorScale;
+    }
+
+    function stepSprings() {
+        const pin = nodeDrag && nodeDrag.moved ? nodeDrag : springPin;
+        if (!pin) return;
+        if ((pin.kind || (pin.drag && pin.drag.kind)) === 'sun'
+                || (pin.mode === 'sun')) {
+            const system = pin.system || (pin.drag && pin.drag.system);
+            stepWorldSprings(system);
+            return;
+        }
+        const system = focusedSystem;
+        const index = pin.slotIndex != null
+            ? pin.slotIndex
+            : (pin.drag ? pin.drag.slotIndex : -1);
+        if (system) stepSiblingSprings(system, index);
     }
 
     function endNodeDrag(event) {
@@ -1372,7 +1445,17 @@
         const drag = nodeDrag;
         nodeDrag = null;
         if (drag.button) drag.button.classList.remove('dragging');
-        if (drag.moved) return;
+        if (drag.moved) {
+            springPin = {
+                mode: drag.kind === 'sun' ? 'sun' : 'siblings',
+                drag,
+            };
+            springFrames = 90;
+            return;
+        }
+        springsArmed = false;
+        springPin = null;
+        springFrames = 0;
         if (drag.kind === 'sun') openSystem(drag.system.label);
         else if (drag.kind === 'entity') openEntityDetail(drag.systemLabel, drag.entityLabel);
     }
@@ -1599,6 +1682,11 @@
                                rotation, scale, centerX, centerY, time) {
         if (!system || focusMix < 0.015) return [];
         const visualCenter = detailSystemCenter(projectedSun);
+        const anchor = system.focusAnchor || { x: 0, y: 0 };
+        const hub = {
+            x: visualCenter.x + anchor.x,
+            y: visualCenter.y + anchor.y,
+        };
         const spread = spreadSiblings(system, system.entityNodes.length);
         const nodes = system.entityNodes.map((entity, index, entities) => {
             const natural = project(entity, rotation, scale, centerX, centerY);
@@ -1648,7 +1736,7 @@
             context.save();
             context.globalAlpha *= foregroundDepthFactor(node.x, node.y);
             context.beginPath();
-            context.moveTo(visualCenter.x, visualCenter.y);
+            context.moveTo(hub.x, hub.y);
             context.lineTo(node.x, node.y);
             context.strokeStyle = systemColor;
             context.lineWidth = 0.9;
@@ -2061,6 +2149,15 @@
         entityMix += (targetEntityMix - entityMix) * motionStep;
         historyMix += (targetHistoryMix - historyMix) * motionStep;
 
+        if (nodeDrag || springFrames > 0) {
+            const substeps = 6;
+            for (let substep = 0; substep < substeps; substep += 1) stepSprings();
+            if (!nodeDrag) springFrames -= 1;
+            if (!nodeDrag && springFrames <= 0) {
+                springsArmed = false;
+                springPin = null;
+            }
+        }
         const rotation = heldRotation != null
             ? heldRotation
             : (reducedMotion.matches ? 0.2 : time * 0.000022);
@@ -2132,10 +2229,11 @@
             const displayCenter = system === focusedSystem
                 ? detailSystemCenter(projectedSystem)
                 : projectedSystem;
+            const anchor = system === focusedSystem ? system.focusAnchor : null;
             const displayedSystem = {
                 ...projectedSystem,
-                x: displayCenter.x,
-                y: displayCenter.y,
+                x: displayCenter.x + (anchor ? anchor.x : 0),
+                y: displayCenter.y + (anchor ? anchor.y : 0),
             };
             context.save();
             context.globalAlpha = focusedSystem && focusedSystem !== system
