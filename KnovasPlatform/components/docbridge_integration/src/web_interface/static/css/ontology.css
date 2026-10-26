@@ -1846,13 +1846,10 @@ body.galaxy-results-active .galaxy-heatmap {
     }
 }
 
-/* The force graph is the picture you drag. The star field stays behind it
-   as atmosphere, not as a second set of nodes you have to click through. */
-body.cortex-page:has(#pointCloudMockup) .point-cloud-mockup {
-    opacity: 0.22;
-}
-
-body.cortex-page:has(#pointCloudMockup) .galaxy-sun-target {
+/* One picture. The type graph stays in the DOM for the drawers, but it must
+   not paint a second layer over the stars. */
+body.cortex-page:has(#pointCloudMockup) #graphContainer {
+    opacity: 0;
     pointer-events: none;
 }
 
