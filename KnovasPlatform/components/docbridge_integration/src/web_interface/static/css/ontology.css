@@ -429,9 +429,54 @@ body.galaxy-searching .galaxy-heatmap {
 
 .galaxy-detail-link {
     display: block;
-    width: 100%;
+    flex: 1;
     text-align: left;
     padding: 6px 0;
+}
+
+.galaxy-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.galaxy-hide {
+    flex: none;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+}
+
+.galaxy-hidden {
+    position: absolute;
+    z-index: 6;
+    left: 22px;
+    bottom: 22px;
+    width: min(320px, 70vw);
+    max-height: 36vh;
+    overflow: auto;
+    padding: 12px 14px;
+    border: 1px solid rgba(140, 151, 177, 0.4);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.galaxy-hidden h2 {
+    margin: 0 0 8px;
+    font-size: 0.92rem;
+}
+
+.galaxy-hidden ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.galaxy-hidden li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0;
 }
 
 .galaxy-field-group + .galaxy-field-group {

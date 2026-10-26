@@ -60,6 +60,56 @@
     let viewFrame = null;
     let heldRotation = null;
     let nodeDrag = null;
+    const hiddenStoreKey = 'cortex-galaxy-hidden';
+    let hiddenItems = { nodes: [], entities: [], edges: [] };
+    try {
+        const savedHidden = JSON.parse(localStorage.getItem(hiddenStoreKey) || 'null');
+        if (savedHidden && Array.isArray(savedHidden.nodes)) hiddenItems = {
+            nodes: savedHidden.nodes,
+            entities: savedHidden.entities || [],
+            edges: savedHidden.edges || [],
+        };
+    } catch (err) { /* no saved hides */ }
+
+    function saveHidden() {
+        localStorage.setItem(hiddenStoreKey, JSON.stringify(hiddenItems));
+        renderHiddenTray();
+    }
+
+    function hiddenKeyList(kind) {
+        return hiddenItems[kind].map((item) => item.key);
+    }
+
+    function nodeKey(system) {
+        return system && (system.id || `label:${system.label}`);
+    }
+
+    function entityKey(entity) {
+        return entity && (entity.id || `label:${entity.label}`);
+    }
+
+    function isNodeHidden(system) {
+        return hiddenKeyList('nodes').includes(nodeKey(system));
+    }
+
+    function isEntityHidden(entity) {
+        return hiddenKeyList('entities').includes(entityKey(entity));
+    }
+
+    function isEdgeHidden(key) {
+        return hiddenKeyList('edges').includes(key);
+    }
+
+    function rememberHidden(kind, key, label) {
+        if (hiddenKeyList(kind).includes(key)) return;
+        hiddenItems[kind].push({ key, label });
+        saveHidden();
+    }
+
+    function forgetHidden(kind, key) {
+        hiddenItems[kind] = hiddenItems[kind].filter((item) => item.key !== key);
+        saveHidden();
+    }
     let springFrames = 0;
     let springsArmed = false;
     let springPin = null;
@@ -1314,43 +1364,34 @@
     }
 
     function stepWorldSprings(pinned) {
+        if (!pinned) return;
         const labelled = systems.filter((system) => system.label);
         const seen = new Set();
-        labelled.forEach((system) => {
+        const touch = (system) => {
             (system.links || []).forEach((link) => {
                 const other = labelled.find((candidate) => candidate.label === link.label);
                 if (!other || other === system) return;
+                if (system !== pinned && other !== pinned) return;
                 const key = [system.label, other.label].sort().join('|');
                 if (seen.has(key)) return;
                 seen.add(key);
                 const dist = Math.hypot(other.x - system.x, other.z - system.z) || 0.0001;
                 if (!linkRests.has(key)) linkRests.set(key, dist);
-                const force = band(system.x, system.z, other.x, other.z, linkRests.get(key), 0.085);
+                const force = band(system.x, system.z, other.x, other.z, linkRests.get(key), 0.018);
                 if (system !== pinned) { system.vx += force.x; system.vz += force.y; }
                 if (other !== pinned) { other.vx -= force.x; other.vz -= force.y; }
             });
+        };
+        touch(pinned);
+        labelled.forEach((system) => {
+            if (system !== pinned) touch(system);
         });
-        for (let i = 0; i < labelled.length; i += 1) {
-            for (let j = i + 1; j < labelled.length; j += 1) {
-                const left = labelled[i];
-                const right = labelled[j];
-                let dx = left.x - right.x;
-                let dz = left.z - right.z;
-                const dist = Math.hypot(dx, dz) || 0.0001;
-                if (dist >= 0.2) continue;
-                const push = (0.2 - dist) * 0.35;
-                dx /= dist;
-                dz /= dist;
-                if (left !== pinned) { left.vx += dx * push; left.vz += dz * push; }
-                if (right !== pinned) { right.vx -= dx * push; right.vz -= dz * push; }
-            }
-        }
         labelled.forEach((system) => {
             if (system === pinned) { system.vx = 0; system.vz = 0; return; }
-            system.vx *= 0.72;
-            system.vz *= 0.72;
+            system.vx *= 0.62;
+            system.vz *= 0.62;
             const speed = Math.hypot(system.vx, system.vz);
-            const scale = speed > 0.08 ? 0.08 / speed : 1;
+            const scale = speed > 0.025 ? 0.025 / speed : 1;
             system.x += system.vx * scale;
             system.z += system.vz * scale;
         });
@@ -1367,57 +1408,26 @@
                 point.vx = 0;
                 point.vy = 0;
             });
-            system.pairRest = points.map(() => []);
-            for (let i = 0; i < points.length; i += 1) {
-                for (let j = i + 1; j < points.length; j += 1) {
-                    system.pairRest[i][j] = Math.hypot(
-                        points[i].x - points[j].x,
-                        points[i].y - points[j].y,
-                    ) || 1;
-                }
-            }
             anchor.vx = 0;
             anchor.vy = 0;
             system.restReady = true;
         }
         const fx = points.map(() => 0);
         const fy = points.map(() => 0);
-        let anchorX = 0;
-        let anchorY = 0;
         points.forEach((point, index) => {
-            const force = band(point.x, point.y, anchor.x, anchor.y, point.rest, 0.06);
+            const force = band(point.x, point.y, anchor.x, anchor.y, point.rest, 0.012);
             if (index !== pinnedIndex) { fx[index] += force.x; fy[index] += force.y; }
-            anchorX -= force.x;
-            anchorY -= force.y;
         });
-        for (let i = 0; i < points.length; i += 1) {
-            for (let j = i + 1; j < points.length; j += 1) {
-                const force = band(
-                    points[i].x, points[i].y,
-                    points[j].x, points[j].y,
-                    system.pairRest[i][j],
-                    0.018,
-                );
-                if (i !== pinnedIndex) { fx[i] += force.x; fy[i] += force.y; }
-                if (j !== pinnedIndex) { fx[j] -= force.x; fy[j] -= force.y; }
-            }
-        }
-        const damp = 0.74;
+        const damp = 0.55;
         points.forEach((point, index) => {
             if (index === pinnedIndex) { point.vx = 0; point.vy = 0; return; }
             point.vx = (point.vx + fx[index]) * damp;
             point.vy = (point.vy + fy[index]) * damp;
             const speed = Math.hypot(point.vx, point.vy);
-            const scale = speed > 22 ? 22 / speed : 1;
+            const scale = speed > 8 ? 8 / speed : 1;
             point.x += point.vx * scale;
             point.y += point.vy * scale;
         });
-        anchor.vx = (anchor.vx + anchorX) * damp;
-        anchor.vy = (anchor.vy + anchorY) * damp;
-        const anchorSpeed = Math.hypot(anchor.vx, anchor.vy);
-        const anchorScale = anchorSpeed > 18 ? 18 / anchorSpeed : 1;
-        anchor.x += anchor.vx * anchorScale;
-        anchor.y += anchor.vy * anchorScale;
     }
 
     function stepSprings() {
@@ -1523,11 +1533,13 @@
         projectedSystems.forEach(({ system, projected }) => {
             (system.links || []).forEach((link) => {
                 const key = [system.label, link.label].sort().join('|');
-                if (seen.has(key)) return;
+                const edgeKey = `type|${key}|${link.predicate || ''}`;
+                if (seen.has(key) || isEdgeHidden(edgeKey)) return;
+                if (isNodeHidden(system)) return;
                 seen.add(key);
                 const other = projectedSystems.find(
                     (entry) => entry.system.label === link.label);
-                if (!other) return;
+                if (!other || isNodeHidden(other.system)) return;
                 context.beginPath();
                 context.moveTo(projected.x, projected.y);
                 context.lineTo(other.projected.x, other.projected.y);
@@ -1688,17 +1700,19 @@
             y: visualCenter.y + anchor.y,
         };
         const spread = spreadSiblings(system, system.entityNodes.length);
-        const nodes = system.entityNodes.map((entity, index, entities) => {
+        const nodes = [];
+        system.entityNodes.forEach((entity, index) => {
+            if (!entity || isEntityHidden(entity)) return;
             const natural = project(entity, rotation, scale, centerX, centerY);
             const slot = spread[index] || { x: 0, y: 0 };
             const depth = Math.sin(
-                -Math.PI / 2 + (index / Math.max(entities.length, 1)) * Math.PI * 2);
+                -Math.PI / 2 + (index / Math.max(system.entityNodes.length, 1)) * Math.PI * 2);
             const arranged = {
                 x: visualCenter.x + slot.x,
                 y: visualCenter.y + slot.y,
                 depthScale: 0.68 + (depth + 1) * 0.17,
             };
-            return {
+            nodes.push({
                 ...natural,
                 x: natural.x + (arranged.x - natural.x) * Math.max(focusMix, entityMix),
                 y: natural.y + (arranged.y - natural.y) * Math.max(focusMix, entityMix),
@@ -1706,7 +1720,8 @@
                     + (arranged.depthScale - natural.depthScale) * entityMix,
                 label: entity.label,
                 connection: entity.connection,
-            };
+                sourceIndex: index,
+            });
         });
         const systemColor = system.warm ? 'rgba(214, 132, 30, .34)'
                                         : 'rgba(40, 89, 205, .34)';
@@ -1746,6 +1761,9 @@
                 const links = node.connections
                     || (node.connection ? [node.connection] : []);
                 links.forEach((connection) => {
+                    if (isEdgeHidden(`to|${entityKey(system.entityNodes[node.sourceIndex])}|${connection.system}`)) {
+                        return;
+                    }
                     const destination = projectedSystems.find(
                         (entry) => entry.system.label === connection.system);
                     if (!destination) return;
@@ -1823,7 +1841,7 @@
                 node.x + (node.x < projectedSun.x ? -radius - 7 : radius + 7),
                 node.y,
             );
-            positionEntityTarget(index, node, system);
+            positionEntityTarget(node.sourceIndex, node, system);
             context.restore();
         });
         context.restore();
@@ -2150,7 +2168,7 @@
         historyMix += (targetHistoryMix - historyMix) * motionStep;
 
         if (nodeDrag || springFrames > 0) {
-            const substeps = 6;
+            const substeps = 2;
             for (let substep = 0; substep < substeps; substep += 1) stepSprings();
             if (!nodeDrag) springFrames -= 1;
             if (!nodeDrag && springFrames <= 0) {
@@ -2226,6 +2244,12 @@
         }));
         drawTypeLinks(projectedSystems);
         projectedSystems.forEach(({ system, projected: projectedSystem }) => {
+            if (isNodeHidden(system)) {
+                const target = sunTargets.find(
+                    (button) => button.dataset.galaxySystem === system.label);
+                if (target) target.hidden = true;
+                return;
+            }
             const displayCenter = system === focusedSystem
                 ? detailSystemCenter(projectedSystem)
                 : projectedSystem;
@@ -2426,14 +2450,109 @@
     }
 
     function detailButton(text, onClick) {
-        const item = document.createElement('li');
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'btn-text galaxy-detail-link';
         button.textContent = text;
         button.addEventListener('click', onClick);
-        item.appendChild(button);
+        return button;
+    }
+
+    function detailRow(text, onOpen, onHide) {
+        const item = document.createElement('li');
+        item.className = 'galaxy-detail-row';
+        item.appendChild(detailButton(text, onOpen));
+        if (onHide) {
+            const hide = document.createElement('button');
+            hide.type = 'button';
+            hide.className = 'btn-text galaxy-hide';
+            hide.textContent = 'Ausblenden';
+            hide.addEventListener('click', (event) => {
+                event.stopPropagation();
+                onHide();
+            });
+            item.appendChild(hide);
+        }
         return item;
+    }
+
+    function renderHiddenTray() {
+        const host = canvas.parentElement;
+        if (!host) return;
+        let tray = document.getElementById('galaxyHidden');
+        const count = hiddenItems.nodes.length
+            + hiddenItems.entities.length
+            + hiddenItems.edges.length;
+        if (!count) {
+            if (tray) tray.remove();
+            return;
+        }
+        if (!tray) {
+            tray = document.createElement('section');
+            tray.id = 'galaxyHidden';
+            tray.className = 'galaxy-hidden';
+            host.appendChild(tray);
+        }
+        tray.replaceChildren();
+        const title = document.createElement('h2');
+        title.textContent = `Ausgeblendet · ${count}`;
+        tray.appendChild(title);
+        const list = document.createElement('ul');
+        const add = (kind, item) => {
+            const row = document.createElement('li');
+            const name = document.createElement('span');
+            name.textContent = item.label;
+            const back = document.createElement('button');
+            back.type = 'button';
+            back.className = 'btn-text';
+            back.textContent = 'Einblenden';
+            back.addEventListener('click', () => forgetHidden(kind, item.key));
+            row.append(name, back);
+            list.appendChild(row);
+        };
+        hiddenItems.nodes.forEach((item) => add('nodes', item));
+        hiddenItems.entities.forEach((item) => add('entities', item));
+        hiddenItems.edges.forEach((item) => add('edges', item));
+        tray.appendChild(list);
+    }
+
+    function hideNode(system) {
+        rememberHidden('nodes', nodeKey(system), system.label);
+        if (focusedSystem === system) fitGalaxy();
+        else hideEntityPanel();
+    }
+
+    function hideEntityNode(system, entity) {
+        rememberHidden('entities', entityKey(entity), `${entity.label} · ${system.label}`);
+        if (selectedEntity === entity) selectedEntity = null;
+        if (focusedSystem === system) showTypeDetails(system);
+    }
+
+    function typeEdgeKey(system, link) {
+        return `type|${[system.label, link.label].sort().join('|')}|${link.predicate || ''}`;
+    }
+
+    function hideTypeEdge(system, link) {
+        const predicate = String(link.predicate || 'Kante').replace(/[_-]+/g, ' ');
+        rememberHidden('edges', typeEdgeKey(system, link), `${predicate} · ${system.label} – ${link.label}`);
+        if (focusedSystem === system) showTypeDetails(system);
+    }
+
+    function entityEdgeKey(entity, typeLabel) {
+        return `to|${entityKey(entity)}|${typeLabel}`;
+    }
+
+    function hideEntityEdge(system, entity, relation) {
+        const target = relation.target || {};
+        const host = systems.find((candidate) => candidate.id === target.type);
+        const typeLabel = host ? host.label : (target.type || target.label || '');
+        const predicate = String(relation.predicate || 'Kante').replace(/[_-]+/g, ' ');
+        rememberHidden(
+            'edges',
+            entityEdgeKey(entity, typeLabel),
+            `${predicate} · ${entity.label} – ${target.label || typeLabel}`,
+        );
+        showEntityDetails(system, entity);
     }
 
     async function showTypeDetails(system) {
@@ -2451,7 +2570,13 @@
             ? `${formatGalaxyCount(total)} ${total === 1 ? 'Eintrag' : 'Einträge'}`
             : 'Keine Einträge';
         entityFields.appendChild(hint);
-        const links = system.links || [];
+        const hideThis = document.createElement('button');
+        hideThis.type = 'button';
+        hideThis.className = 'btn-text galaxy-hide';
+        hideThis.textContent = 'Knoten ausblenden';
+        hideThis.addEventListener('click', () => hideNode(system));
+        entityFields.appendChild(hideThis);
+        const links = (system.links || []).filter((link) => !isEdgeHidden(typeEdgeKey(system, link)));
         if (links.length) {
             const heading = document.createElement('h3');
             heading.textContent = 'Verbindungen';
@@ -2460,9 +2585,10 @@
             list.className = 'galaxy-detail-list';
             links.forEach((link) => {
                 const predicate = String(link.predicate || 'verbunden').replace(/[_-]+/g, ' ');
-                list.appendChild(detailButton(
+                list.appendChild(detailRow(
                     `${predicate} → ${link.label}`,
                     () => openSystem(link.label),
+                    () => hideTypeEdge(system, link),
                 ));
             });
             entityFields.appendChild(list);
@@ -2476,8 +2602,8 @@
         const paintEntries = (rows) => {
             entries.replaceChildren();
             (rows || []).slice(0, 48).forEach((row) => {
-                if (!row || !row.label) return;
-                entries.appendChild(detailButton(row.label, () => {
+                if (!row || !row.label || isEntityHidden(row)) return;
+                entries.appendChild(detailRow(row.label, () => {
                     const known = (system.entityNodes || []).find(
                         (node) => node.id === row.id || node.label === row.label);
                     if (!known) {
@@ -2490,7 +2616,7 @@
                         });
                     }
                     openEntityDetail(system.label, row.label);
-                }));
+                }, () => hideEntityNode(system, row)));
             });
             if (!entries.childElementCount) {
                 const empty = document.createElement('li');
@@ -2544,10 +2670,22 @@
             const docs = Number(record.doc_count) || 0;
             meta.textContent = `${formatGalaxyCount(docs)} ${docs === 1 ? 'Dokument' : 'Dokumente'}`;
             entityFields.appendChild(meta);
+            const hideThis = document.createElement('button');
+            hideThis.type = 'button';
+            hideThis.className = 'btn-text galaxy-hide';
+            hideThis.textContent = 'Knoten ausblenden';
+            hideThis.addEventListener('click', () => hideEntityNode(system, entity));
+            entityFields.appendChild(hideThis);
             const heading = document.createElement('h3');
             heading.textContent = 'Verbindungen';
             entityFields.appendChild(heading);
-            const relations = Array.isArray(data.relations) ? data.relations : [];
+            const relations = (Array.isArray(data.relations) ? data.relations : [])
+                .filter((relation) => {
+                    const target = relation.target || {};
+                    const host = systems.find((candidate) => candidate.id === target.type);
+                    const typeLabel = host ? host.label : (target.type || '');
+                    return !isEdgeHidden(entityEdgeKey(entity, typeLabel));
+                });
             if (!relations.length) {
                 const empty = document.createElement('p');
                 empty.className = 'entity-hint';
@@ -2562,7 +2700,7 @@
                     const text = relation.direction === 'in'
                         ? `${target.label || 'Eintrag'} · ${predicate}`
                         : `${predicate} → ${target.label || 'Eintrag'}`;
-                    list.appendChild(detailButton(text, () => {
+                    list.appendChild(detailRow(text, () => {
                         const host = systems.find((candidate) => candidate.id === target.type);
                         if (!host || !target.label) return;
                         if (!(host.entityNodes || []).some((node) => node.id === target.id)) {
@@ -2574,7 +2712,7 @@
                             });
                         }
                         openEntityDetail(host.label, target.label);
-                    }));
+                    }, () => hideEntityEdge(system, entity, relation)));
                 });
                 entityFields.appendChild(list);
             }
@@ -2917,6 +3055,7 @@
         }
     }
     reducedMotion.addEventListener('change', restart);
+    renderHiddenTray();
     loadLiveGalaxy();
 
     restart();
