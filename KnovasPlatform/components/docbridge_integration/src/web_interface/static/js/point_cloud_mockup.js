@@ -1319,9 +1319,13 @@
         const visualCenter = detailSystemCenter(projectedSun);
         const nodes = system.entityNodes.map((entity, index, entities) => {
             const natural = project(entity, rotation, scale, centerX, centerY);
-            const angle = -Math.PI / 2 + (index / entities.length) * Math.PI * 2;
-            const orbitWidth = Math.min(width * 0.14, 165);
-            const orbitHeight = Math.min(height * 0.1, 70);
+            const perRing = 12;
+            const ring = Math.floor(index / perRing);
+            const slot = index % perRing;
+            const slots = Math.min(perRing, entities.length - ring * perRing);
+            const angle = -Math.PI / 2 + ((slot + 0.5) / Math.max(slots, 1)) * Math.PI * 2;
+            const orbitWidth = Math.min(width * 0.16, 210) + ring * Math.min(width * 0.07, 120);
+            const orbitHeight = Math.min(height * 0.11, 92) + ring * Math.min(height * 0.055, 62);
             const orbitTilt = 0.34;
             const orbitX = Math.cos(angle) * orbitWidth;
             const orbitY = Math.sin(angle) * orbitHeight;
@@ -1377,21 +1381,28 @@
             context.lineWidth = 0.9;
             context.stroke();
 
-            if (node.connection && !selectedEntity) {
-                const destination = projectedSystems.find(
-                    (entry) => entry.system.label === node.connection.system);
-                const lineTarget = destination
-                    ? { x: destination.projected.x, y: destination.projected.y }
-                    : { x: node.x + width * 0.43, y: node.y - height * 0.24 };
-                const arrowPosition = fadingLine(node, lineTarget, systemColor);
-                positionConnectionArrow(
-                    arrowIndex,
-                    arrowPosition,
-                    node.label,
-                    node.connection,
-                    system.warm,
-                );
-                arrowIndex += 1;
+            if (node.connections || node.connection) {
+                const links = node.connections
+                    || (node.connection ? [node.connection] : []);
+                links.forEach((connection) => {
+                    const destination = projectedSystems.find(
+                        (entry) => entry.system.label === connection.system);
+                    if (!destination) return;
+                    const lineTarget = {
+                        x: destination.projected.x,
+                        y: destination.projected.y,
+                    };
+                    const arrowPosition = fadingLine(node, lineTarget, systemColor);
+                    if (connection.button === false) return;
+                    positionConnectionArrow(
+                        arrowIndex,
+                        arrowPosition,
+                        node.label,
+                        connection,
+                        system.warm,
+                    );
+                    arrowIndex += 1;
+                });
             }
             context.restore();
         });
@@ -1446,7 +1457,7 @@
             context.textBaseline = 'middle';
             context.fillStyle = '#283647';
             context.fillText(
-                node.label,
+                shortLabel(node.label, nodes.length > 16 ? 18 : 32),
                 node.x + (node.x < projectedSun.x ? -radius - 7 : radius + 7),
                 node.y,
             );
@@ -1936,7 +1947,13 @@
         if (!breadcrumb || !breadcrumbCurrent) return;
         if (galaxySystemUp) galaxySystemUp.hidden = true;
         if (entitySeparator) entitySeparator.hidden = true;
-        breadcrumbCurrent.textContent = system.label;
+        const total = Number(system.count) || 0;
+        const shown = (system.entityNodes || []).length;
+        breadcrumbCurrent.textContent = total > shown && shown > 0
+            ? `${system.label} · ${formatGalaxyCount(shown)} von ${formatGalaxyCount(total)}`
+            : total > 0
+                ? `${system.label} · ${formatGalaxyCount(total)}`
+                : system.label;
         breadcrumb.hidden = false;
     }
 
@@ -1948,6 +1965,43 @@
         if (entitySeparator) entitySeparator.hidden = false;
         breadcrumbCurrent.textContent = entity.label;
         breadcrumb.hidden = false;
+    }
+
+    async function loadChildLinks(system) {
+        if (!system || system.linksLoaded) return;
+        const nodes = (system.entityNodes || []).filter((entity) => entity && entity.id);
+        if (!nodes.length) return;
+        system.linksLoaded = true;
+        const batch = 6;
+        for (let start = 0; start < nodes.length; start += batch) {
+            const slice = nodes.slice(start, start + batch);
+            const details = await Promise.all(slice.map((entity) =>
+                fetch(`/api/ontology/entities/${encodeURIComponent(entity.id)}`)
+                    .then((resp) => (resp.ok ? resp.json() : null))
+                    .catch(() => null)));
+            details.forEach((data, index) => {
+                const grouped = new Map();
+                ((data && data.relations) || []).forEach((rel) => {
+                    if (!rel || !rel.target || !rel.predicate) return;
+                    const other = systems.find((candidate) => candidate.id === rel.target.type);
+                    if (!other || other === system) return;
+                    if (!grouped.has(other.label)) {
+                        grouped.set(other.label, { predicates: new Set(), names: [] });
+                    }
+                    const bucket = grouped.get(other.label);
+                    bucket.predicates.add(String(rel.predicate).replace(/[_-]+/g, ' '));
+                    if (rel.target.label && bucket.names.length < 3) {
+                        bucket.names.push(rel.target.label);
+                    }
+                });
+                slice[index].connections = [...grouped.entries()].map(([label, bucket]) => ({
+                    system: label,
+                    entity: `${[...bucket.predicates].join(', ')} → ${bucket.names.join(', ')}`,
+                    button: false,
+                }));
+            });
+            if (reducedMotion.matches && focusedSystem === system) draw();
+        }
     }
 
     function openSystem(label) {
@@ -1963,6 +2017,7 @@
         hideEntityPanel();
         showBreadcrumb(system);
         setZoom(2.65);
+        loadChildLinks(system);
     }
 
     function openEntityDetail(systemLabel, entityLabel) {
@@ -1998,6 +2053,7 @@
             hideEntityPanel();
             showBreadcrumb(destination);
             setZoom(3.05);
+            loadChildLinks(destination);
         };
         if (reducedMotion.matches) arrive();
         else travelTimer = window.setTimeout(arrive, 380);
@@ -2206,13 +2262,15 @@
                 y: 0,
                 z: Math.sin(angle) * span * 0.84,
                 label: type.label,
+                count: type.count,
                 primary: role === 'top',
                 warm: role === 'top',
                 size: role === 'top'
                     ? 6.2 + 3.2 * Math.sqrt(type.count / maxCount)
                     : 3.1 + 1.8 * Math.sqrt((type.count || 1) / maxCount),
-                entities: (type.entities || []).slice(0, 6).map((label) => ({
-                    label,
+                entities: (type.entities || []).slice(0, 48).map((entity) => ({
+                    id: entity.id || '',
+                    label: entity.label || String(entity),
                     live: true,
                     typeCount: formatGalaxyCount(type.count),
                 })),
@@ -2248,14 +2306,14 @@
                 .filter((type) => type && type.count > 0 && type.label)
                 .sort((a, b) => b.count - a.count || String(a.label).localeCompare(b.label, 'de'));
             const samples = await Promise.all(populated.map(async (type) => {
-                const limit = type.count <= 12 ? type.count : 6;
+                const limit = Math.min(type.count, 48);
                 try {
                     const ents = await fetch(`/api/ontology/entities?type=${encodeURIComponent(type.id)}`);
                     if (!ents.ok) return [];
                     const json = await ents.json();
                     return (json.entities || []).slice(0, limit)
-                        .map((entity) => entity.label)
-                        .filter(Boolean);
+                        .filter((entity) => entity && entity.label)
+                        .map((entity) => ({ id: entity.id, label: entity.label }));
                 } catch (err) {
                     return [];
                 }

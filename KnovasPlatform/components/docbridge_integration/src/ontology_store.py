@@ -28,6 +28,15 @@ _EMPTY: Dict[str, Any] = {
 }
 
 
+def _replace_by_id(items: List[Dict[str, Any]], entry: Dict[str, Any]) -> None:
+    """Eintrag in einer Fixture-Liste an seiner Id ersetzen."""
+    for index, item in enumerate(items):
+        if str(item.get("id")) == str(entry.get("id")):
+            items[index] = dict(entry)
+            return
+    items.append(dict(entry))
+
+
 def _as_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -69,6 +78,42 @@ class OntologyStore:
         self._types.append(entry)
         self._persist(lambda raw: raw.setdefault("types", []).append(dict(entry)))
         return dict(entry)
+
+    def update_type(self, type_id: str, label: str) -> Optional[Dict[str, Any]]:
+        """Typ umbenennen. Ein leerer Name und ein belegter Name bleiben stehen."""
+        label = " ".join(str(label or "").split())
+        type_id = str(type_id or "").strip()
+        if not label or not type_id:
+            return None
+        target = None
+        for existing in self._types:
+            if existing["id"] == type_id:
+                target = existing
+            elif existing["label"].lower() == label.lower():
+                return None
+        if target is None:
+            return None
+        target["label"] = label
+        self._persist(lambda raw: _replace_by_id(raw.setdefault("types", []), target))
+        return dict(target)
+
+    def update_entity(self, entity_id: str, label: Optional[str] = None,
+                      description: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Name oder Beschreibung einer Entität ändern."""
+        entity = self._entity_by_id.get(str(entity_id or "").strip())
+        if entity is None:
+            return None
+        if label is None and description is None:
+            return dict(entity)
+        if label is not None:
+            label = " ".join(str(label).split())
+            if not label:
+                return None
+            entity["label"] = label
+        if description is not None:
+            entity["description"] = " ".join(str(description).split())
+        self._persist(lambda raw: _replace_by_id(raw.setdefault("entities", []), entity))
+        return dict(entity)
 
     def _slug(self, label: str) -> str:
         base = re.sub(r"[^a-z0-9]+", "_",
@@ -358,8 +403,12 @@ def _validate(raw: Any, path_exists: Optional[Callable[[str], bool]]) -> Tuple[D
             warnings.append(f"Entität verworfen: {e!r}")
             continue
         seen_entity_ids.add(eid)
-        entities.append({"id": eid, "label": label, "type": etype,
-                         "doc_count": _as_int(e.get("doc_count"))})
+        entry = {"id": eid, "label": label, "type": etype,
+                 "doc_count": _as_int(e.get("doc_count"))}
+        description = " ".join(str(e.get("description") or "").split())
+        if description:
+            entry["description"] = description
+        entities.append(entry)
 
     entity_relations = []
     for r in raw.get("entity_relations") or []:

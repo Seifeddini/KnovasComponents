@@ -1153,6 +1153,44 @@ input:focus-visible {
     margin-top: 16px;
 }
 
+.detail-edit {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.detail-edit .create-row {
+    margin-top: 0;
+}
+
+.detail-edit-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.detail-edit textarea {
+    min-height: 88px;
+    padding: 10px 12px;
+    color: var(--text-primary);
+    border: 1px solid #cbd2e2;
+    border-radius: 11px;
+    background: #fff;
+    font: inherit;
+    resize: vertical;
+}
+
+.detail-edit .btn {
+    align-self: flex-start;
+}
+
+.detail-edit-error {
+    margin: 0;
+    color: var(--danger, #9b2c2c);
+    font-size: 0.85rem;
+}
+
 input[type="text"] {
     min-width: 0;
     min-height: 42px;
@@ -1808,10 +1846,13 @@ body.galaxy-results-active .galaxy-heatmap {
     }
 }
 
-/* The star page is the picture. The type graph stays in the DOM for the
-   drawers, but it must not paint a second layer over the stars. */
-body.cortex-page:has(#pointCloudMockup) #graphContainer {
-    opacity: 0;
+/* The force graph is the picture you drag. The star field stays behind it
+   as atmosphere, not as a second set of nodes you have to click through. */
+body.cortex-page:has(#pointCloudMockup) .point-cloud-mockup {
+    opacity: 0.22;
+}
+
+body.cortex-page:has(#pointCloudMockup) .galaxy-sun-target {
     pointer-events: none;
 }
 

@@ -654,3 +654,25 @@ def test_export_edges_without_any_resolvable_name_fall_back_to_the_edges_route()
     client.graph_edges = lambda: [{"node_lo": "n-1", "node_hi": "n-2", "relation": "hat_Dossier"}]
     source = GraphOntologySource(client)
     assert source.summary()["relations"][0]["predicate"] == "hat_Dossier"
+
+
+def test_update_type_and_entity_call_the_graph_api():
+    client = FakeGraphClient()
+    type_calls = []
+    node_calls = []
+    client.graph_update_node_type = lambda type_id, **fields: (
+        type_calls.append((type_id, fields)) or {"node_type": {"id": type_id, "name": fields["name"]}})
+    client.graph_update_node = lambda node_id, **fields: (
+        node_calls.append((node_id, fields)) or {"node": {"id": node_id, "name": fields.get("name", "alt"),
+                                                          "description": fields.get("description", ""),
+                                                          "node_type_id": "t-mandant"}})
+    source = GraphOntologySource(client)
+    assert source.update_type("t-mandant", "  Mandant neu ")["label"] == "Mandant neu"
+    assert type_calls == [("t-mandant", {"name": "Mandant neu"})]
+    assert source.update_type("t-mandant", " ") is None
+    updated = source.update_entity("n-1", label="  Neu ", description="Notiz")
+    assert updated["label"] == "Neu"
+    assert updated["description"] == "Notiz"
+    assert node_calls == [("n-1", {"name": "Neu", "description": "Notiz"})]
+    assert source.update_entity("n-1", label="") is None
+    assert source.entity_detail("n-1")["entity"]["description"] == ""

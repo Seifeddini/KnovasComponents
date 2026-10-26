@@ -3127,6 +3127,21 @@ def create_app(config_path: Optional[str] = None):
             logger.error("Ontology relation delete error", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
+    @app.route('/api/ontology/types/<type_id>', methods=['PATCH'])
+    def ontology_type_update(type_id: str):
+        try:
+            payload = request.get_json(silent=True) or {}
+            label = str(payload.get('label') or '').strip()
+            if not label:
+                return jsonify({'success': False, 'error': 'Name fehlt'}), 400
+            updated = _ontology_source().update_type(type_id, label)
+            if updated is None:
+                return jsonify({'success': False, 'error': 'Typ nicht gespeichert'}), 404
+            return jsonify({'success': True, 'type': updated})
+        except Exception:
+            logger.error("Ontology type update error for %s", type_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
     @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
     def ontology_type_delete(type_id: str):
         try:
@@ -3135,6 +3150,23 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': True})
         except Exception:
             logger.error("Ontology type delete error for %s", type_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/entities/<entity_id>', methods=['PATCH'])
+    def ontology_entity_update(entity_id: str):
+        try:
+            payload = request.get_json(silent=True) or {}
+            if 'label' not in payload and 'description' not in payload:
+                return jsonify({'success': False, 'error': 'Nichts zu speichern'}), 400
+            label = payload.get('label') if 'label' in payload else None
+            description = payload.get('description') if 'description' in payload else None
+            updated = _ontology_source().update_entity(
+                entity_id, label=label, description=description)
+            if updated is None:
+                return jsonify({'success': False, 'error': 'Entität nicht gespeichert'}), 404
+            return jsonify({'success': True, 'entity': updated})
+        except Exception:
+            logger.error("Ontology entity update error for %s", entity_id, exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])
