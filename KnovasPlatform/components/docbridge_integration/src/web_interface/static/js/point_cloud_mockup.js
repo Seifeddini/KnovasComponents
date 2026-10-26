@@ -1313,28 +1313,64 @@
         };
     }
 
+    function spreadSiblings(system, count) {
+        if (!count) return [];
+        const labelChars = count > 16 ? 18 : 32;
+        const minDist = 42 + labelChars * 6.2;
+        if (!system.siblingPoints || system.siblingPoints.length !== count) {
+            const radius = Math.max(minDist, (count * minDist) / (2 * Math.PI));
+            system.siblingPoints = Array.from({ length: count }, (_, index) => {
+                const angle = -Math.PI / 2 + (index / count) * Math.PI * 2;
+                return {
+                    x: Math.cos(angle) * radius,
+                    y: Math.sin(angle) * radius,
+                };
+            });
+        }
+        const points = system.siblingPoints;
+        const repel = 42000;
+        for (let pass = 0; pass < 8; pass += 1) {
+            for (let i = 0; i < count; i += 1) {
+                for (let j = i + 1; j < count; j += 1) {
+                    let dx = points[i].x - points[j].x;
+                    let dy = points[i].y - points[j].y;
+                    let dist2 = dx * dx + dy * dy;
+                    if (dist2 < 9) { dx = 3; dy = 0; dist2 = 9; }
+                    const dist = Math.sqrt(dist2);
+                    if (dist > minDist * 1.6) continue;
+                    const push = repel / dist2
+                        + (dist < minDist ? (minDist - dist) * 2.2 : 0);
+                    const step = 0.01;
+                    points[i].x += (dx / dist) * push * step;
+                    points[i].y += (dy / dist) * push * step;
+                    points[j].x -= (dx / dist) * push * step;
+                    points[j].y -= (dy / dist) * push * step;
+                }
+            }
+            const rest = Math.max(minDist * 1.2, (count * minDist) / (2 * Math.PI));
+            for (let i = 0; i < count; i += 1) {
+                const dist = Math.hypot(points[i].x, points[i].y) || 1;
+                const pull = (dist - rest) * 0.06;
+                points[i].x -= (points[i].x / dist) * pull;
+                points[i].y -= (points[i].y / dist) * pull;
+            }
+        }
+        return points;
+    }
+
     function drawFocusedSystem(system, projectedSun, projectedSystems,
                                rotation, scale, centerX, centerY, time) {
         if (!system || focusMix < 0.015) return [];
         const visualCenter = detailSystemCenter(projectedSun);
+        const spread = spreadSiblings(system, system.entityNodes.length);
         const nodes = system.entityNodes.map((entity, index, entities) => {
             const natural = project(entity, rotation, scale, centerX, centerY);
-            const perRing = 12;
-            const ring = Math.floor(index / perRing);
-            const slot = index % perRing;
-            const slots = Math.min(perRing, entities.length - ring * perRing);
-            const angle = -Math.PI / 2 + ((slot + 0.5) / Math.max(slots, 1)) * Math.PI * 2;
-            const orbitWidth = Math.min(width * 0.16, 210) + ring * Math.min(width * 0.07, 120);
-            const orbitHeight = Math.min(height * 0.11, 92) + ring * Math.min(height * 0.055, 62);
-            const orbitTilt = 0.34;
-            const orbitX = Math.cos(angle) * orbitWidth;
-            const orbitY = Math.sin(angle) * orbitHeight;
-            const depth = Math.sin(angle);
+            const slot = spread[index] || { x: 0, y: 0 };
+            const depth = Math.sin(
+                -Math.PI / 2 + (index / Math.max(entities.length, 1)) * Math.PI * 2);
             const arranged = {
-                x: visualCenter.x
-                    + orbitX * Math.cos(orbitTilt) - orbitY * Math.sin(orbitTilt),
-                y: visualCenter.y
-                    + orbitX * Math.sin(orbitTilt) + orbitY * Math.cos(orbitTilt),
+                x: visualCenter.x + slot.x,
+                y: visualCenter.y + slot.y,
                 depthScale: 0.68 + (depth + 1) * 0.17,
             };
             return {
@@ -2286,9 +2322,35 @@
             if (!from || !to) return;
             from.links.push({ label: to.label, predicate: relation.predicate || '' });
         });
+        relaxDisk(definitions);
         mountSystems(definitions);
         document.body.classList.add('galaxy-live');
         renderGalaxyLayers();
+    }
+
+    function relaxDisk(definitions) {
+        const minX = 0.38;
+        const minZ = 0.56;
+        for (let pass = 0; pass < 28; pass += 1) {
+            for (let i = 0; i < definitions.length; i += 1) {
+                for (let j = i + 1; j < definitions.length; j += 1) {
+                    let dx = definitions[i].x - definitions[j].x;
+                    let dz = definitions[i].z - definitions[j].z;
+                    if (dx === 0 && dz === 0) { dx = 0.02; dz = 0.01; }
+                    const nx = dx / minX;
+                    const nz = dz / minZ;
+                    const ell = Math.hypot(nx, nz);
+                    if (ell >= 1) continue;
+                    const push = (1 - ell) * 0.55 + 0.08 / Math.max(ell * ell, 0.02);
+                    const ux = nx / ell;
+                    const uz = nz / ell;
+                    definitions[i].x += ux * minX * push;
+                    definitions[i].z += uz * minZ * push;
+                    definitions[j].x -= ux * minX * push;
+                    definitions[j].z -= uz * minZ * push;
+                }
+            }
+        }
     }
 
     function formatGalaxyCount(count) {

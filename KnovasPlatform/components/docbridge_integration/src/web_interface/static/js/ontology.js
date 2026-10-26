@@ -440,15 +440,16 @@ class CortexApp {
             // Kleiner als früher (war 1200x800): auf der grossen Fläche trieben
             // schwach verbundene Typen so weit auseinander, dass die Startansicht
             // fast nur Zwischenraum zeigte.
-            boundingBox: { x1: 0, y1: 0, w: 820, h: 560 },
+            boundingBox: { x1: 0, y1: 0, w: 1400, h: 960 },
             nodeDimensionsIncludeLabels: true,
-            // Enger gestellt als zuvor (130 / 150000 / 2.2). Die Abstossung
-            // dominierte die Federn, deshalb lag der Graph als dünner Schleier
-            // über der Fläche statt als lesbare Gruppe.
-            idealEdgeLength: () => 85,
-            nodeRepulsion: () => 42000,
-            edgeElasticity: () => 190,
-            gravity: 4.5,
+            // Abstossung stark genug, dass Beschriftungen von Geschwistern
+            // nicht aufeinanderliegen. Die Fläche ist groesser, damit die
+            // Knoten dafuer Platz haben, statt in den alten Kasten gepresst
+            // zu werden.
+            idealEdgeLength: () => 130,
+            nodeRepulsion: () => 130000,
+            edgeElasticity: () => 160,
+            gravity: 3.2,
             numIter: 3000,
         }).run();
         // Erst rahmen, wenn die Positionen stehen: sonst rechnet fitToVisible
@@ -639,8 +640,8 @@ class CortexApp {
         };
         if (this.draggedId) loosen(this.draggedId);
         nodes.filter((node) => node.hasClass('entity')).forEach((node) => loosen(node.id()));
-        const repel = 7200;
-        const cutoff = 480;
+        const repel = 32000;
+        const cutoff = 720;
         for (let i = 0; i < ids.length; i += 1) {
             for (let j = i + 1; j < ids.length; j += 1) {
                 const a = pos.get(ids[i]);
@@ -672,7 +673,7 @@ class CortexApp {
             const dist = Math.hypot(dx, dy) || 1;
             const width = Number(edge.data('width')) || 1.5;
             const toChild = edge.hasClass('entity-edge');
-            const rest = toChild ? 128 : Math.max(72, 168 - width * 14);
+            const rest = toChild ? 220 : Math.max(120, 210 - width * 10);
             const strength = toChild ? 0.012 : 0.01 + Math.min(0.06, width * 0.012);
             const pull = (dist - rest) * strength;
             if (loose.has(edge.source().id())) {
@@ -787,7 +788,7 @@ class CortexApp {
         if (count <= 1) {
             return [{ x: inner * Math.cos(base), y: inner * Math.sin(base) }];
         }
-        const gap = 92;
+        const gap = 168;
         const golden = Math.PI * (3 - Math.sqrt(5));
         const points = [];
         for (let i = 0; i < count; i += 1) {
