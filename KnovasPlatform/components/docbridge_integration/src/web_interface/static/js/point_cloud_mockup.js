@@ -1257,6 +1257,8 @@
         if (!nodeDrag.moved || !viewFrame) return;
         if (heldRotation == null) heldRotation = viewFrame.rotation;
         if (nodeDrag.kind === 'sun') {
+            const previousX = nodeDrag.system.x;
+            const previousZ = nodeDrag.system.z;
             const world = screenToDisk(
                 point.x - nodeDrag.offsetX,
                 point.y - nodeDrag.offsetY,
@@ -1266,13 +1268,99 @@
             nodeDrag.system.x = world.x;
             nodeDrag.system.y = 0;
             nodeDrag.system.z = world.z;
+            pullLinkedSystems(
+                nodeDrag.system,
+                world.x - previousX,
+                world.z - previousZ,
+            );
         } else if (nodeDrag.slot) {
-            nodeDrag.slot.x += point.x - nodeDrag.lastX;
-            nodeDrag.slot.y += point.y - nodeDrag.lastY;
+            const dx = point.x - nodeDrag.lastX;
+            const dy = point.y - nodeDrag.lastY;
+            nodeDrag.slot.x += dx;
+            nodeDrag.slot.y += dy;
             nodeDrag.lastX = point.x;
             nodeDrag.lastY = point.y;
+            pullSiblings(nodeDrag.points, nodeDrag.slotIndex, dx, dy);
         }
         event.preventDefault();
+    }
+
+    function pullLinkedSystems(dragged, dx, dz) {
+        if (!dx && !dz) return;
+        const linked = new Set();
+        (dragged.links || []).forEach((link) => {
+            const other = systems.find((system) => system.label === link.label);
+            if (other) linked.add(other);
+        });
+        systems.forEach((system) => {
+            if ((system.links || []).some((link) => link.label === dragged.label)) {
+                linked.add(system);
+            }
+        });
+        linked.forEach((system) => {
+            system.x += dx * 0.62;
+            system.z += dz * 0.62;
+        });
+        separateSystems(dragged);
+    }
+
+    function separateSystems(skip) {
+        const minX = 0.16;
+        const minZ = 0.2;
+        systems.forEach((left, i) => {
+            if (!left.label) return;
+            for (let j = i + 1; j < systems.length; j += 1) {
+                const right = systems[j];
+                if (!right.label) continue;
+                let dx = left.x - right.x;
+                let dz = left.z - right.z;
+                if (dx === 0 && dz === 0) { dx = 0.02; dz = 0.01; }
+                const nx = dx / minX;
+                const nz = dz / minZ;
+                const ell = Math.hypot(nx, nz);
+                if (!ell || ell >= 1) continue;
+                const push = (1 - ell) * 0.5;
+                const ux = (nx / ell) * minX * push;
+                const uz = (nz / ell) * minZ * push;
+                if (left !== skip) { left.x += ux; left.z += uz; }
+                if (right !== skip) { right.x -= ux; right.z -= uz; }
+            }
+        });
+    }
+
+    function pullSiblings(points, draggedIndex, dx, dy) {
+        if (!points || (!dx && !dy)) return;
+        const dragged = points[draggedIndex];
+        if (!dragged) return;
+        points.forEach((point, index) => {
+            if (index === draggedIndex) return;
+            const distance = Math.hypot(point.x - dragged.x, point.y - dragged.y) || 1;
+            const follow = Math.max(0.22, 0.84 * Math.exp(-distance / 320));
+            point.x += dx * follow;
+            point.y += dy * follow;
+        });
+        const minDist = 168;
+        for (let i = 0; i < points.length; i += 1) {
+            for (let j = i + 1; j < points.length; j += 1) {
+                let sepX = points[i].x - points[j].x;
+                let sepY = points[i].y - points[j].y;
+                let dist2 = sepX * sepX + sepY * sepY;
+                if (dist2 < 9) { sepX = 3; sepY = 0; dist2 = 9; }
+                const distance = Math.sqrt(dist2);
+                if (distance >= minDist) continue;
+                const push = (minDist - distance) * 0.42;
+                const ux = sepX / distance;
+                const uy = sepY / distance;
+                if (i !== draggedIndex) {
+                    points[i].x += ux * push;
+                    points[i].y += uy * push;
+                }
+                if (j !== draggedIndex) {
+                    points[j].x -= ux * push;
+                    points[j].y -= uy * push;
+                }
+            }
+        }
     }
 
     function endNodeDrag(event) {
@@ -1330,6 +1418,8 @@
         beginNodeDrag(event, {
             kind: 'entity',
             slot: system.siblingPoints[index],
+            points: system.siblingPoints,
+            slotIndex: index,
             systemLabel: system.label,
             entityLabel: button.dataset.label,
         });
