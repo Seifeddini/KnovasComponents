@@ -1290,6 +1290,37 @@ input[type="text"]::placeholder {
     color: #193f9d;
 }
 
+.galaxy-entity-panel .btn-text,
+.galaxy-hidden .btn-text {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.galaxy-entity-panel .btn-text:hover,
+.galaxy-hidden .btn-text:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}
+
+.galaxy-entity-panel .galaxy-hide {
+    color: var(--text-secondary);
+}
+
+.galaxy-entity-panel .galaxy-danger {
+    color: #9b2c2c;
+}
+
+.galaxy-action-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 16px;
+}
+
+.galaxy-action-form input {
+    flex: 1 1 140px;
+}
+
 .filter-card,
 .proposal-card {
     margin-top: 16px;

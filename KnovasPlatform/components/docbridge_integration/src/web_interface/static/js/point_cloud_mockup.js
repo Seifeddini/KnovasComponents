@@ -2458,22 +2458,155 @@
         return button;
     }
 
-    function detailRow(text, onOpen, onHide) {
+    function detailRow(text, onOpen, onHide, onDelete) {
         const item = document.createElement('li');
         item.className = 'galaxy-detail-row';
         item.appendChild(detailButton(text, onOpen));
-        if (onHide) {
-            const hide = document.createElement('button');
-            hide.type = 'button';
-            hide.className = 'btn-text galaxy-hide';
-            hide.textContent = 'Ausblenden';
-            hide.addEventListener('click', (event) => {
+        if (onHide) item.appendChild(smallAction('Ausblenden', 'galaxy-hide', onHide));
+        if (onDelete) {
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn btn-danger galaxy-mini';
+            remove.textContent = 'Löschen';
+            remove.addEventListener('click', (event) => {
                 event.stopPropagation();
-                onHide();
+                onDelete();
             });
-            item.appendChild(hide);
+            item.appendChild(remove);
         }
         return item;
+    }
+
+    function smallAction(text, className, onClick) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `btn-text ${className}`;
+        button.textContent = text;
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            onClick();
+        });
+        return button;
+    }
+
+    function galaxyCsrf() {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.content : '';
+    }
+
+    async function galaxyWrite(url, method, payload) {
+        const response = await fetch(url, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': galaxyCsrf(),
+            },
+            body: payload == null ? undefined : JSON.stringify(payload),
+        });
+        if (response.status === 401) {
+            window.location.assign('/login');
+            return null;
+        }
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success === false) {
+            throw new Error(data.error || 'Das hat nicht geklappt.');
+        }
+        return data;
+    }
+
+    function findLoadedEntity(label) {
+        const want = String(label || '').trim().toLowerCase();
+        if (!want) return null;
+        for (let s = 0; s < systems.length; s += 1) {
+            const hit = (systems[s].entityNodes || []).find(
+                (node) => node.label && node.label.toLowerCase() === want);
+            if (hit && hit.id) return hit;
+        }
+        return null;
+    }
+
+    function actionForm(fields, submitLabel, onSubmit) {
+        const form = document.createElement('form');
+        form.className = 'galaxy-action-form';
+        const inputs = {};
+        fields.forEach((field) => {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = field.placeholder;
+            input.setAttribute('aria-label', field.placeholder);
+            input.maxLength = field.max || 120;
+            inputs[field.name] = input;
+            form.appendChild(input);
+        });
+        const button = document.createElement('button');
+        button.type = 'submit';
+        button.className = 'btn btn-primary';
+        button.textContent = submitLabel;
+        form.appendChild(button);
+        const error = document.createElement('p');
+        error.className = 'entity-hint';
+        error.hidden = true;
+        form.appendChild(error);
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            error.hidden = true;
+            try {
+                await onSubmit(inputs);
+            } catch (err) {
+                error.textContent = err.message || 'Das hat nicht geklappt.';
+                error.hidden = false;
+            }
+        });
+        return form;
+    }
+
+    function nodeCreateForm(selectedTypeId) {
+        const form = document.createElement('form');
+        form.className = 'galaxy-action-form';
+        const select = document.createElement('select');
+        select.className = 'galaxy-type-select';
+        select.setAttribute('aria-label', 'Typ des neuen Knotens');
+        systems
+            .filter((system) => system.id && system.label)
+            .slice()
+            .sort((a, b) => a.label.localeCompare(b.label, 'de'))
+            .forEach((system) => {
+                const option = document.createElement('option');
+                option.value = system.id;
+                option.textContent = system.label;
+                if (system.id === selectedTypeId) option.selected = true;
+                select.appendChild(option);
+            });
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Name des Knotens';
+        input.setAttribute('aria-label', 'Name des Knotens');
+        input.maxLength = 120;
+        const button = document.createElement('button');
+        button.type = 'submit';
+        button.className = 'btn btn-primary';
+        button.textContent = 'Knoten anlegen';
+        const error = document.createElement('p');
+        error.className = 'entity-hint';
+        error.hidden = true;
+        form.append(select, input, button, error);
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            error.hidden = true;
+            const host = systems.find((system) => system.id === select.value);
+            if (!host) {
+                error.textContent = 'Wählen Sie einen Typ.';
+                error.hidden = false;
+                return;
+            }
+            try {
+                await createEntity(host, input.value);
+            } catch (err) {
+                error.textContent = err.message || 'Das hat nicht geklappt.';
+                error.hidden = false;
+            }
+        });
+        return form;
     }
 
     function renderHiddenTray() {
@@ -2555,6 +2688,80 @@
         showEntityDetails(system, entity);
     }
 
+    async function createEntity(system, label) {
+        const name = String(label || '').trim();
+        if (!name) throw new Error('Name fehlt.');
+        if (!system.id) throw new Error('Dieser Typ kann hier nicht ergänzt werden.');
+        const data = await galaxyWrite('/api/ontology/entities', 'POST', {
+            type: system.id,
+            label: name,
+        });
+        const created = data && data.entity;
+        if (!created) return;
+        system.entityNodes = system.entityNodes || [];
+        system.entityNodes.unshift({
+            id: created.id,
+            label: created.label || name,
+            live: true,
+        });
+        system.count = (Number(system.count) || 0) + 1;
+        system.siblingPoints = null;
+        showTypeDetails(system);
+    }
+
+    async function removeEntity(system, entity) {
+        if (!entity.id) throw new Error('Dieser Eintrag kann hier nicht gelöscht werden.');
+        if (!window.confirm(`${entity.label} löschen?`)) return;
+        await galaxyWrite(
+            `/api/ontology/entities/${encodeURIComponent(entity.id)}`,
+            'DELETE',
+        );
+        system.entityNodes = (system.entityNodes || []).filter((node) => node.id !== entity.id);
+        system.count = Math.max(0, (Number(system.count) || 1) - 1);
+        system.siblingPoints = null;
+        if (selectedEntity && selectedEntity.id === entity.id) selectedEntity = null;
+        showTypeDetails(system);
+    }
+
+    async function removeType(system) {
+        if (!system.id) throw new Error('Dieser Knoten kann hier nicht gelöscht werden.');
+        if (!window.confirm(`${system.label} und seine Einträge löschen?`)) return;
+        await galaxyWrite(`/api/ontology/types/${encodeURIComponent(system.id)}`, 'DELETE');
+        const index = systems.indexOf(system);
+        if (index >= 0) systems.splice(index, 1);
+        fitGalaxy();
+    }
+
+    async function createRelation(system, entity, predicate, targetLabel) {
+        const name = String(predicate || '').trim();
+        const target = findLoadedEntity(targetLabel);
+        if (!name) throw new Error('Art der Verbindung fehlt.');
+        if (!entity.id) throw new Error('Dieser Eintrag kann hier nicht verbunden werden.');
+        if (!target) throw new Error('Zielknoten nicht gefunden. Öffnen Sie ihn zuerst.');
+        await galaxyWrite('/api/ontology/relations', 'POST', {
+            src: entity.id,
+            predicate: name,
+            dst: target.id,
+        });
+        showEntityDetails(system, entity);
+    }
+
+    async function removeRelation(system, entity, relation) {
+        const target = relation.target || {};
+        if (!entity.id || !target.id || !relation.predicate) {
+            throw new Error('Diese Kante kann hier nicht gelöscht werden.');
+        }
+        const src = relation.direction === 'in' ? target.id : entity.id;
+        const dst = relation.direction === 'in' ? entity.id : target.id;
+        if (!window.confirm(`${relation.predicate} löschen?`)) return;
+        await galaxyWrite('/api/ontology/relations', 'DELETE', {
+            src,
+            predicate: relation.predicate,
+            dst,
+        });
+        showEntityDetails(system, entity);
+    }
+
     async function showTypeDetails(system) {
         if (!entityPanel || !entityType || !entityTitle || !entityFields) return;
         entityType.textContent = 'Typ';
@@ -2576,6 +2783,17 @@
         hideThis.textContent = 'Knoten ausblenden';
         hideThis.addEventListener('click', () => hideNode(system));
         entityFields.appendChild(hideThis);
+        const removeTypeButton = document.createElement('button');
+        removeTypeButton.type = 'button';
+        removeTypeButton.className = 'btn btn-danger galaxy-mini';
+        removeTypeButton.textContent = 'Löschen';
+        removeTypeButton.addEventListener('click', () => {
+            removeType(system).catch((err) => {
+                hint.textContent = err.message;
+            });
+        });
+        entityFields.appendChild(removeTypeButton);
+        entityFields.appendChild(nodeCreateForm(system.id));
         const links = (system.links || []).filter((link) => !isEdgeHidden(typeEdgeKey(system, link)));
         if (links.length) {
             const heading = document.createElement('h3');
@@ -2616,7 +2834,11 @@
                         });
                     }
                     openEntityDetail(system.label, row.label);
-                }, () => hideEntityNode(system, row)));
+                }, () => hideEntityNode(system, row), () => {
+                    removeEntity(system, row).catch((err) => {
+                        hint.textContent = err.message;
+                    });
+                }));
             });
             if (!entries.childElementCount) {
                 const empty = document.createElement('li');
@@ -2674,8 +2896,18 @@
             hideThis.type = 'button';
             hideThis.className = 'btn-text galaxy-hide';
             hideThis.textContent = 'Knoten ausblenden';
-            hideThis.addEventListener('click', () => hideEntityNode(system, entity));
-            entityFields.appendChild(hideThis);
+        hideThis.addEventListener('click', () => hideEntityNode(system, entity));
+        entityFields.appendChild(hideThis);
+        const removeNode = document.createElement('button');
+        removeNode.type = 'button';
+        removeNode.className = 'btn btn-danger galaxy-mini';
+        removeNode.textContent = 'Löschen';
+        removeNode.addEventListener('click', () => {
+            removeEntity(system, entity).catch((err) => {
+                hint.textContent = err.message;
+            });
+        });
+        entityFields.appendChild(removeNode);
             const heading = document.createElement('h3');
             heading.textContent = 'Verbindungen';
             entityFields.appendChild(heading);
@@ -2712,10 +2944,27 @@
                             });
                         }
                         openEntityDetail(host.label, target.label);
-                    }, () => hideEntityEdge(system, entity, relation)));
+                    }, () => hideEntityEdge(system, entity, relation), () => {
+                        removeRelation(system, entity, relation).catch((err) => {
+                            hint.textContent = err.message;
+                        });
+                    }));
                 });
                 entityFields.appendChild(list);
             }
+            entityFields.appendChild(actionForm(
+                [
+                    { name: 'predicate', placeholder: 'Art, z. B. member of' },
+                    { name: 'target', placeholder: 'Zielknoten, genauer Name' },
+                ],
+                'Verbinden',
+                (inputs) => createRelation(
+                    system,
+                    entity,
+                    inputs.predicate.value,
+                    inputs.target.value,
+                ),
+            ));
             const evidence = Array.isArray(data.evidence) ? data.evidence : [];
             if (entityDocuments && documentsPanel && entityTabs && evidence.length) {
                 entityDocuments.replaceChildren();
