@@ -65,6 +65,21 @@
             </button>
         </div>
 
+        <nav class="galaxy-versions" id="galaxyVersions" aria-label="Suchansicht">
+            <a href="/ontology" data-version="1">Heatmap</a>
+            <a href="/ontology?version=2" data-version="2">Orbit</a>
+            <a href="/ontology?version=3" data-version="3">Konstellation</a>
+            <a href="/ontology?version=4" data-version="4">Dossiers</a>
+        </nav>
+        <aside class="galaxy-examples" id="galaxyExamples" aria-label="Beispielsuchen">
+            <a href="/ontology?q=Müller">Müller · Heatmap</a>
+            <a href="/ontology?version=2&amp;q=M-2026-041" data-demo="M-2026-041" data-demo-version="2">Akte über sechs Räume</a>
+            <a href="/ontology?version=3&amp;q=Vollmacht" data-demo="Vollmacht" data-demo-version="3">Vollmachten, verstreut</a>
+            <a href="/ontology?version=4&amp;q=Baumann" data-demo="Baumann" data-demo-version="4">Nachlass als Dossier</a>
+            <a href="/ontology?version=3&amp;q=Keller" data-demo="Keller" data-demo-version="3">Keller quer durch den Graphen</a>
+            <a href="/ontology?version=2&amp;q=HG260184-O" data-demo="HG260184-O" data-demo-version="2">Gerichtsnummer</a>
+            <a href="/ontology?version=3&amp;q=Kryptowährung" data-demo="Kryptowährung" data-demo-version="3">Kein Treffer</a>
+        </aside>
         <form class="cortex-galaxy-search" id="galaxySearch" role="search">
             <label class="cortex-search-label" for="galaxySearchInput">
                 Cortex durchsuchen
@@ -100,6 +115,9 @@
             <button type="button" class="galaxy-sun-target" data-galaxy-system="Behörden"
                     aria-label="Sonnensystem Behörden öffnen" title="Behörden öffnen"></button>
             <div id="graphContainer" aria-hidden="true"></div>
+            <div class="galaxy-results" id="galaxyResults" hidden aria-live="polite"></div>
+            <aside class="galaxy-results-rail" id="galaxyResultsRail" hidden aria-label="Trefferliste"></aside>
+            <aside class="galaxy-document-card" id="galaxyDocumentCard" hidden aria-label="Dokument"></aside>
             <section class="galaxy-entity-panel" id="galaxyEntityPanel"
                      aria-label="Entitätsdetails" hidden>
                 <span class="galaxy-entity-kicker" id="galaxyEntityType"></span>
@@ -175,8 +193,10 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/galaxy_search.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/point_cloud_mockup.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/ontology_connect.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/galaxy_results.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/ontology.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

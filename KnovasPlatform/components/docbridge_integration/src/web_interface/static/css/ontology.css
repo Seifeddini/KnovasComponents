@@ -1278,6 +1278,375 @@ button.tab-chip {
     to { background-position: -200% 0; }
 }
 
+.galaxy-versions {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    z-index: 7;
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    transform: translateX(-50%);
+    border: 1px solid rgba(40, 89, 205, 0.18);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 28px rgba(28, 55, 123, 0.12);
+    backdrop-filter: blur(16px);
+}
+
+.galaxy-versions a {
+    padding: 7px 12px;
+    color: #283647;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.galaxy-versions a.active,
+.galaxy-versions a[aria-current="page"] {
+    color: #fff;
+    background: #2859cd;
+}
+
+.galaxy-examples {
+    position: absolute;
+    right: 22px;
+    bottom: 98px;
+    z-index: 7;
+    display: flex;
+    max-width: min(640px, 48vw);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.galaxy-examples a {
+    padding: 5px 10px;
+    color: #3c4a5e;
+    border: 1px solid rgba(40, 89, 205, 0.16);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.88);
+    font-size: 0.72rem;
+    font-weight: 560;
+    text-decoration: none;
+}
+
+.galaxy-results {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.galaxy-results-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.galaxy-orbit-ring {
+    fill: none;
+    stroke: rgba(40, 89, 205, 0.22);
+    stroke-width: 1;
+}
+
+.galaxy-result-node {
+    position: absolute;
+    z-index: 1;
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    color: #283647;
+    border: 0;
+    background: transparent;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.galaxy-orb,
+.galaxy-sheet {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: block;
+}
+
+.galaxy-orb {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #1a73e8;
+    box-shadow: 0 0 0 5px rgba(26, 115, 232, 0.14),
+                0 0 16px rgba(26, 115, 232, 0.45);
+    transform: translate(-50%, -50%);
+}
+
+.is-mandate .galaxy-orb {
+    background: #f9ab00;
+    box-shadow: 0 0 0 5px rgba(249, 171, 0, 0.18),
+                0 0 16px rgba(227, 116, 0, 0.5);
+}
+
+.galaxy-sheet {
+    width: 12px;
+    height: 15px;
+    border: 1px solid #283647;
+    border-radius: 1px 4px 1px 1px;
+    background:
+        linear-gradient(135deg, #ffffff 55%, #d7deea 55%) top right / 6px 6px no-repeat,
+        #ffffff;
+    transform: translate(-50%, -50%);
+}
+
+.galaxy-result-caption {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: 160px;
+    overflow: hidden;
+    padding: 1px 7px;
+    color: #283647;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.94);
+    font-size: 12px;
+    font-weight: 560;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.galaxy-result-node.is-entity {
+    z-index: 2;
+}
+
+body.galaxy-view-2 .galaxy-result-node.tier-1 .galaxy-result-caption,
+body.galaxy-view-2 .galaxy-result-node.tier-2 .galaxy-result-caption,
+body.galaxy-view-2 .galaxy-result-node.is-document .galaxy-result-caption,
+body.galaxy-view-3 .galaxy-result-node.is-document .galaxy-result-caption {
+    opacity: 0;
+}
+
+body.galaxy-view-3 .galaxy-orb {
+    width: 9px;
+    height: 9px;
+    box-shadow: 0 0 0 4px rgba(26, 115, 232, 0.16),
+                0 0 10px rgba(26, 115, 232, 0.35);
+}
+
+body.galaxy-view-3 .is-mandate .galaxy-orb {
+    box-shadow: 0 0 0 4px rgba(249, 171, 0, 0.2),
+                0 0 10px rgba(227, 116, 0, 0.4);
+}
+
+.galaxy-result-node:hover .galaxy-result-caption,
+.galaxy-result-node:focus-visible .galaxy-result-caption {
+    z-index: 2;
+    opacity: 1;
+}
+
+.galaxy-dossier-board {
+    position: absolute;
+    inset: 96px 28px 108px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: safe center;
+    gap: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    pointer-events: auto;
+}
+
+.galaxy-dossier {
+    width: min(360px, 100%);
+    flex: 0 0 auto;
+    padding: 12px 8px 8px;
+    border: 1px solid rgba(40, 54, 71, 0.12);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 16px 40px rgba(28, 55, 123, 0.1);
+    pointer-events: auto;
+}
+
+.galaxy-dossier h3 {
+    margin: 2px 10px 6px;
+    color: #1748bd;
+    font-size: 0.95rem;
+    font-weight: 650;
+}
+
+.galaxy-dossier button {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    color: #283647;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.galaxy-dossier button:hover,
+.galaxy-dossier button:focus-visible {
+    background: rgba(26, 115, 232, 0.08);
+}
+
+.galaxy-dossier .galaxy-orb,
+.galaxy-dossier .galaxy-sheet {
+    position: static;
+    transform: none;
+}
+
+.galaxy-dossier button span {
+    overflow: hidden;
+    font-size: 0.84rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.galaxy-dossier button em {
+    color: #5f6b7a;
+    font-size: 0.72rem;
+    font-style: normal;
+    font-weight: 500;
+}
+
+.galaxy-results-rail {
+    position: absolute;
+    top: 86px;
+    left: 22px;
+    z-index: 6;
+    width: min(260px, 32vw);
+    max-height: calc(100% - 180px);
+    overflow: auto;
+    padding: 14px 14px 10px;
+    border: 1px solid rgba(40, 89, 205, 0.14);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 16px 40px rgba(28, 55, 123, 0.12);
+}
+
+.galaxy-results-rail h2 {
+    margin: 0 0 8px;
+    font-size: 0.82rem;
+}
+
+.galaxy-results-rail ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.galaxy-results-rail li + li {
+    margin-top: 4px;
+}
+
+.galaxy-results-rail button {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 6px 8px;
+    color: inherit;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.galaxy-results-rail button:hover,
+.galaxy-results-rail button:focus-visible {
+    background: rgba(26, 115, 232, 0.08);
+}
+
+.galaxy-results-rail span {
+    color: #5f6b7a;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.62rem;
+}
+
+.galaxy-results-rail strong {
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+
+.galaxy-document-card {
+    position: absolute;
+    right: 22px;
+    bottom: 210px;
+    z-index: 8;
+    width: min(320px, 46vw);
+    padding: 18px 20px 16px;
+    border: 1px solid rgba(40, 89, 205, 0.16);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 18px 44px rgba(28, 55, 123, 0.16);
+}
+
+.galaxy-doc-kicker,
+.galaxy-doc-matters {
+    color: #1748bd;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.galaxy-document-card strong {
+    display: block;
+    margin: 6px 0 8px;
+    font-size: 1rem;
+}
+
+.galaxy-document-card p {
+    margin: 0;
+    color: #3c4a5e;
+    font-size: 0.82rem;
+}
+
+.galaxy-doc-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    color: #283647;
+    border: 0;
+    background: transparent;
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+
+body.galaxy-results-active .galaxy-examples {
+    display: none;
+}
+
+body.galaxy-view-2 .point-cloud-mockup {
+    opacity: 0.22;
+}
+
+body.galaxy-view-3 .point-cloud-mockup {
+    opacity: 1;
+}
+
+body.galaxy-view-4 .point-cloud-mockup {
+    opacity: 0.28;
+}
+
+body.galaxy-results-active .galaxy-heatmap {
+    opacity: 0;
+}
+
 @media (max-width: 640px) {
     .cortex-brand {
         top: 14px;
@@ -1319,6 +1688,29 @@ button.tab-chip {
         bottom: 14px;
         left: 14px;
         gap: 6px;
+    }
+
+    .galaxy-versions {
+        top: 64px;
+        max-width: calc(100% - 28px);
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .galaxy-examples {
+        right: 14px;
+        bottom: 148px;
+        left: 14px;
+        max-width: none;
+        justify-content: flex-start;
+    }
+
+    .galaxy-results-rail {
+        top: auto;
+        bottom: 210px;
+        left: 14px;
+        width: auto;
+        max-height: 28vh;
     }
 
     .cortex-galaxy-search {
@@ -1414,4 +1806,73 @@ button.tab-chip {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
     }
+}
+
+/* The star page is the picture. The type graph stays in the DOM for the
+   drawers, but it must not paint a second layer over the stars. */
+body.cortex-page:has(#pointCloudMockup) #graphContainer {
+    opacity: 0;
+    pointer-events: none;
+}
+
+body.galaxy-live .galaxy-examples,
+body.galaxy-live .galaxy-versions {
+    display: none;
+}
+
+.galaxy-layers {
+    position: absolute;
+    z-index: 6;
+    top: 88px;
+    left: 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: min(280px, 70vw);
+}
+
+.galaxy-layer {
+    border: 1px solid rgba(140, 151, 177, 0.35);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 7px 12px;
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.galaxy-layer:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.galaxy-top-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: min(52vh, 420px);
+    overflow: auto;
+    padding: 8px;
+    border: 1px solid rgba(140, 151, 177, 0.35);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.galaxy-top-panel p {
+    margin: 0 0 6px;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+}
+
+.galaxy-top-panel label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    font-family: var(--font-heading);
+    font-size: 0.82rem;
+    cursor: pointer;
 }

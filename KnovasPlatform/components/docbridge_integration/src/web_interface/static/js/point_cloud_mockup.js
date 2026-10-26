@@ -37,6 +37,10 @@
     const searchForm = document.getElementById('galaxySearch');
     const searchInput = document.getElementById('galaxySearchInput');
     const searchStatus = document.getElementById('galaxySearchStatus');
+    const searchApi = window.CortexGalaxySearch;
+    const searchVersion = searchApi
+        ? searchApi.versionFromSearch(window.location.search)
+        : 1;
     let width = 0;
     let height = 0;
     let pixelRatio = 1;
@@ -195,6 +199,8 @@
                     legalForm: 'Erbengemeinschaft', location: 'Küsnacht ZH',
                     contact: 'Lisa Baumann', email: 'l.baumann@example.ch',
                     activeMatters: '1', since: '2025', industry: 'Privatmandat',
+                    matters: 'M-2025-119',
+                    connection: { system: 'Mandate', entity: 'Familie Baumann · Nachlass' },
                 },
                 {
                     label: 'Stadtwerke Nord', number: 'K-10256',
@@ -454,10 +460,15 @@
         { x: 0.22, y: 0.02, z: 0.18 },
     ];
 
-    systemDefinitions.forEach((definition, systemIndex) => {
+    function mountSystems(definitions) {
+        for (let index = stars.length - 1; index >= 0; index -= 1) {
+            if (stars[index].systemOrbit) stars.splice(index, 1);
+        }
+        systems.length = 0;
+        definitions.forEach((definition, systemIndex) => {
         const system = {
             ...definition,
-            size: definition.primary ? 8.5 : 3.2 + random() * 1.8,
+            size: definition.size || (definition.primary ? 8.5 : 3.2 + random() * 1.8),
             orbit: [],
             entityNodes: [],
         };
@@ -473,6 +484,7 @@
                 size: 0.42 + random() * 0.72,
                 brightness: 0.52 + random() * 0.48,
                 warmth: definition.warm ? 0.98 : random(),
+                systemOrbit: true,
             });
         }
         (definition.entities || []).forEach((entity, index, entities) => {
@@ -488,7 +500,21 @@
         });
         systems.push(system);
         stars.push(...system.orbit);
-    });
+        });
+        rebuildSunTargets();
+        if (focusedSystem && !systems.includes(focusedSystem)) {
+            focusedSystem = null;
+            selectedEntity = null;
+            highlightedEntity = null;
+            targetFocusMix = 0;
+            targetEntityMix = 0;
+            hideEntityPanel();
+        }
+    }
+
+    const documents = searchVersion === 1 || !searchApi
+        ? []
+        : searchApi.placeDocuments(systems, searchApi.DOCUMENTS);
 
     function normalizeSearchValue(value) {
         return String(value || '')
@@ -581,6 +607,7 @@
     }
 
     function applySearch(value, forceDetail = false) {
+        if (searchVersion !== 1) return;
         const query = String(value || '').trim();
         const normalizedQuery = normalizeSearchValue(query);
         document.body.classList.toggle('galaxy-searching', Boolean(normalizedQuery));
@@ -745,6 +772,13 @@
     });
 
     function detailGroups(system, entity) {
+        if (entity.live) {
+            return [['Eintrag', [
+                ['Name', entity.label],
+                ['Typ', system.label],
+                ['Einträge im Typ', entity.typeCount || '—'],
+            ]]];
+        }
         if (system.label === 'Mandate') {
             return [
                 ['Akte', [
@@ -841,6 +875,7 @@
     }
 
     function documentsFor(system, entity) {
+        if (entity.live) return [];
         if (system.label === 'Mandate') {
             return [
                 [`Mandatsvereinbarung ${entity.number}.pdf`, 'Mandatsakte · unterzeichnet'],
@@ -950,7 +985,7 @@
                 `Behördenkontakt dem Mandat ${entity.matter} zugeordnet`,
             ],
         };
-        const events = contextualEvents[system.label] || [];
+        const events = entity.live ? [] : (contextualEvents[system.label] || []);
         [
             ['Heute, 09:42', `${entity.label} im Wissensnetz geöffnet`],
             ['15. Okt.', events[0]],
@@ -1122,7 +1157,7 @@
         context.textAlign = 'center';
         context.textBaseline = 'top';
         context.fillStyle = '#283647';
-        context.fillText(system.label, projected.x, projected.y + radius + 9);
+        context.fillText(shortLabel(system.label, 22), projected.x, projected.y + radius + 9);
     }
 
     function positionSunTarget(system, projected) {
@@ -1158,6 +1193,29 @@
             button.onclick = () => openEntityDetail(
                 button.dataset.system, button.dataset.label);
         }
+    }
+
+    function drawTypeLinks(projectedSystems) {
+        if (focusMix > 0.25) return;
+        context.save();
+        context.lineWidth = 1.15;
+        context.strokeStyle = 'rgba(26, 69, 199, 0.38)';
+        const seen = new Set();
+        projectedSystems.forEach(({ system, projected }) => {
+            (system.links || []).forEach((link) => {
+                const key = [system.label, link.label].sort().join('|');
+                if (seen.has(key)) return;
+                seen.add(key);
+                const other = projectedSystems.find(
+                    (entry) => entry.system.label === link.label);
+                if (!other) return;
+                context.beginPath();
+                context.moveTo(projected.x, projected.y);
+                context.lineTo(other.projected.x, other.projected.y);
+                context.stroke();
+            });
+        });
+        context.restore();
     }
 
     function fadingLine(from, to, color) {
@@ -1492,7 +1550,7 @@
         context.textBaseline = 'bottom';
         context.fillStyle = '#283647';
         context.font = '700 13px "IBM Plex Mono", ui-monospace, monospace';
-        context.fillText(entity.label, x - discWidth, y - discHeight - 50);
+        context.fillText(shortLabel(entity.label, 36), x - discWidth, y - discHeight - 50);
         context.restore();
     }
 
@@ -1600,7 +1658,7 @@
         context.textBaseline = 'top';
         context.fillStyle = '#283647';
         context.globalAlpha = entityMix * (1 - historyMix);
-        context.fillText(entity.label, x, y + radius + 18);
+        context.fillText(shortLabel(entity.label, 32), x, y + radius + 18);
         context.globalAlpha = entityMix;
         drawHistoryCylinder(system, entity, x, y, radius);
         context.restore();
@@ -1777,6 +1835,7 @@
             system,
             projected: project(system, rotation, scale, centerX, centerY),
         }));
+        drawTypeLinks(projectedSystems);
         projectedSystems.forEach(({ system, projected: projectedSystem }) => {
             const displayCenter = system === focusedSystem
                 ? detailSystemCenter(projectedSystem)
@@ -1829,6 +1888,34 @@
             );
         }
         drawSearchHeatmap(projectedSystems, focusedNodes, selectedProjection);
+        const screenPositions = {};
+        projectedSystems.forEach(({ system, projected: projectedSystem }) => {
+            const displayCenter = system === focusedSystem
+                ? detailSystemCenter(projectedSystem)
+                : projectedSystem;
+            screenPositions[`system:${system.label}`] = {
+                x: displayCenter.x,
+                y: displayCenter.y,
+            };
+            (system.entityNodes || []).forEach((entity) => {
+                const placed = project(entity, rotation, scale, centerX, centerY);
+                screenPositions[`${system.label}::${entity.label}`] = {
+                    x: placed.x,
+                    y: placed.y,
+                };
+            });
+        });
+        documents.forEach((doc) => {
+            const placed = project(doc, rotation, scale, centerX, centerY);
+            screenPositions[`Dokumente::${doc.label}`] = {
+                x: placed.x,
+                y: placed.y,
+            };
+        });
+        if (window.cortexGalaxy) window.cortexGalaxy.screenPositions = screenPositions;
+        if (window.cortexGalaxyResults && window.cortexGalaxyResults.syncPositions) {
+            window.cortexGalaxyResults.syncPositions();
+        }
 
         if (!reducedMotion.matches) frame = window.requestAnimationFrame(draw);
     }
@@ -1935,6 +2022,11 @@
         },
         fit: fitGalaxy,
         open: openSystem,
+        systems,
+        documents,
+        version: searchVersion,
+        screenPositions: {},
+        redraw: restart,
     };
 
     sunTargets.forEach((target) => {
@@ -1964,6 +2056,13 @@
             applySearch(searchInput ? searchInput.value : '', true);
         });
     }
+    const initialQuery = searchApi
+        ? searchApi.queryFromSearch(window.location.search)
+        : '';
+    if (searchInput && initialQuery && !searchInput.value) {
+        searchInput.value = initialQuery;
+    }
+    if (searchVersion === 1 && initialQuery) applySearch(initialQuery);
     window.addEventListener('keydown', (event) => {
         if (event.key !== 'Escape') return;
         if (searchInput && searchInput.value) {
@@ -1986,6 +2085,195 @@
         if (document.hidden) window.cancelAnimationFrame(frame);
         else restart();
     });
+    function shortLabel(text, max) {
+        const value = String(text || '');
+        return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+    }
+
+    function rebuildSunTargets() {
+        const host = canvas.parentElement;
+        if (!host) return;
+        host.querySelectorAll('[data-galaxy-system]').forEach((button) => button.remove());
+        sunTargets.length = 0;
+        systems.forEach((system) => {
+            if (!system.label) return;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'galaxy-sun-target';
+            button.dataset.galaxySystem = system.label;
+            button.setAttribute('aria-label', `${system.label} öffnen`);
+            button.title = `${system.label} öffnen`;
+            button.addEventListener('click', () => openSystem(system.label));
+            host.appendChild(button);
+            sunTargets.push(button);
+        });
+    }
+
+    const galaxyTopKey = 'cortex-galaxy-top';
+    let galaxyTopIds = new Set();
+    try {
+        const savedTop = JSON.parse(localStorage.getItem(galaxyTopKey) || 'null');
+        if (Array.isArray(savedTop)) galaxyTopIds = new Set(savedTop.map(String));
+    } catch (err) { /* no saved front layer */ }
+    let liveTypes = [];
+    let liveRelations = [];
+
+    function renderGalaxyLayers() {
+        let bar = document.getElementById('galaxyLayers');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'galaxyLayers';
+            bar.className = 'galaxy-layers';
+            canvas.parentElement.appendChild(bar);
+        }
+        const pickerOpen = bar.dataset.open === 'true';
+        bar.replaceChildren();
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'galaxy-layer';
+        toggle.setAttribute('aria-expanded', pickerOpen ? 'true' : 'false');
+        const chosen = liveTypes.filter((type) => galaxyTopIds.has(type.id) && type.count > 0);
+        toggle.textContent = chosen.length
+            ? `Vordergrund · ${chosen.length}`
+            : 'Vordergrund wählen';
+        toggle.addEventListener('click', () => {
+            bar.dataset.open = pickerOpen ? 'false' : 'true';
+            renderGalaxyLayers();
+        });
+        bar.appendChild(toggle);
+        if (!pickerOpen) return;
+        const panel = document.createElement('div');
+        panel.className = 'galaxy-top-panel';
+        panel.setAttribute('role', 'group');
+        panel.setAttribute('aria-label', 'Knoten der vorderen Schicht');
+        const note = document.createElement('p');
+        note.textContent = 'Die nächste Schicht sind die verbundenen Typen.';
+        panel.appendChild(note);
+        const populated = liveTypes
+            .filter((type) => type.count > 0)
+            .slice()
+            .sort((a, b) => a.label.localeCompare(b.label, 'de'));
+        populated.forEach((type) => {
+            const label = document.createElement('label');
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = galaxyTopIds.has(type.id);
+            box.addEventListener('change', () => {
+                if (box.checked) galaxyTopIds.add(type.id);
+                else galaxyTopIds.delete(type.id);
+                localStorage.setItem(galaxyTopKey, JSON.stringify([...galaxyTopIds]));
+                applyLiveLayers();
+            });
+            const name = document.createElement('span');
+            name.textContent = type.label;
+            label.append(box, name);
+            panel.appendChild(label);
+        });
+        bar.appendChild(panel);
+    }
+
+    function applyLiveLayers() {
+        focusedSystem = null;
+        selectedEntity = null;
+        highlightedEntity = null;
+        targetFocusMix = 0;
+        targetEntityMix = 0;
+        hideEntityPanel();
+        const byId = new Map(liveTypes.map((type) => [type.id, type]));
+        const tops = liveTypes.filter((type) => galaxyTopIds.has(type.id) && type.count > 0);
+        const neighborIds = new Map();
+        liveRelations.forEach((relation) => {
+            const srcTop = galaxyTopIds.has(relation.src);
+            const dstTop = galaxyTopIds.has(relation.dst);
+            if (srcTop === dstTop) return;
+            const otherId = srcTop ? relation.dst : relation.src;
+            if (!byId.has(otherId) || galaxyTopIds.has(otherId)) return;
+            if (!neighborIds.has(otherId)) neighborIds.set(otherId, relation.predicate || '');
+        });
+        const neighbors = [...neighborIds.keys()].map((id) => byId.get(id)).filter(Boolean);
+        const maxCount = Math.max(
+            ...tops.map((type) => type.count),
+            ...neighbors.map((type) => type.count),
+            1,
+        );
+        const definitions = [];
+        const place = (type, index, total, radius, role) => {
+            const angle = (index / Math.max(total, 1)) * Math.PI * 2 - Math.PI / 2;
+            const span = role === 'top' && total === 1 ? 0 : radius;
+            definitions.push({
+                id: type.id,
+                x: Math.cos(angle) * span,
+                y: 0,
+                z: Math.sin(angle) * span * 0.84,
+                label: type.label,
+                primary: role === 'top',
+                warm: role === 'top',
+                size: role === 'top'
+                    ? 6.2 + 3.2 * Math.sqrt(type.count / maxCount)
+                    : 3.1 + 1.8 * Math.sqrt((type.count || 1) / maxCount),
+                entities: (type.entities || []).slice(0, 6).map((label) => ({
+                    label,
+                    live: true,
+                    typeCount: formatGalaxyCount(type.count),
+                })),
+                links: [],
+            });
+        };
+        tops.forEach((type, index) => place(type, index, tops.length, 0.26, 'top'));
+        neighbors.forEach((type, index) => place(type, index, neighbors.length, 0.62, 'next'));
+        const byDef = new Map(definitions.map((definition) => [definition.id, definition]));
+        liveRelations.forEach((relation) => {
+            const from = byDef.get(relation.src);
+            const to = byDef.get(relation.dst);
+            if (!from || !to) return;
+            from.links.push({ label: to.label, predicate: relation.predicate || '' });
+        });
+        mountSystems(definitions);
+        document.body.classList.add('galaxy-live');
+        renderGalaxyLayers();
+    }
+
+    function formatGalaxyCount(count) {
+        return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+    }
+
+    async function loadLiveGalaxy() {
+        try {
+            const response = await fetch('/api/ontology/summary');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            const types = Array.isArray(data.types) ? data.types : [];
+            liveRelations = Array.isArray(data.relations) ? data.relations : [];
+            const populated = types
+                .filter((type) => type && type.count > 0 && type.label)
+                .sort((a, b) => b.count - a.count || String(a.label).localeCompare(b.label, 'de'));
+            const samples = await Promise.all(populated.map(async (type) => {
+                const limit = type.count <= 12 ? type.count : 6;
+                try {
+                    const ents = await fetch(`/api/ontology/entities?type=${encodeURIComponent(type.id)}`);
+                    if (!ents.ok) return [];
+                    const json = await ents.json();
+                    return (json.entities || []).slice(0, limit)
+                        .map((entity) => entity.label)
+                        .filter(Boolean);
+                } catch (err) {
+                    return [];
+                }
+            }));
+            liveTypes = populated.map((type, index) => ({
+                id: type.id,
+                label: type.label,
+                count: type.count,
+                entities: samples[index],
+            }));
+            if (!populated.length) throw new Error('empty');
+            applyLiveLayers();
+        } catch (err) {
+            mountSystems(systemDefinitions);
+        }
+    }
     reducedMotion.addEventListener('change', restart);
+    loadLiveGalaxy();
+
     restart();
 }());
