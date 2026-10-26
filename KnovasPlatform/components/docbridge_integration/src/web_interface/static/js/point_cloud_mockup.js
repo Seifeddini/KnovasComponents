@@ -1315,21 +1315,30 @@
 
     function spreadSiblings(system, count) {
         if (!count) return [];
-        const labelChars = count > 16 ? 18 : 32;
-        const minDist = 42 + labelChars * 6.2;
-        if (!system.siblingPoints || system.siblingPoints.length !== count) {
-            const radius = Math.max(minDist, (count * minDist) / (2 * Math.PI));
-            system.siblingPoints = Array.from({ length: count }, (_, index) => {
-                const angle = -Math.PI / 2 + (index / count) * Math.PI * 2;
-                return {
-                    x: Math.cos(angle) * radius,
-                    y: Math.sin(angle) * radius,
-                };
-            });
+        if (system.siblingPoints && system.siblingPoints.length === count) {
+            return system.siblingPoints;
         }
-        const points = system.siblingPoints;
-        const repel = 42000;
-        for (let pass = 0; pass < 8; pass += 1) {
+        const minDist = count > 18 ? 176 : 220;
+        const points = [];
+        let placed = 0;
+        let ring = 0;
+        while (placed < count) {
+            const radius = 220 + ring * minDist;
+            const capacity = Math.max(5, Math.floor((2 * Math.PI * radius) / minDist));
+            const n = Math.min(capacity, count - placed);
+            for (let slot = 0; slot < n; slot += 1) {
+                const angle = -Math.PI / 2
+                    + ((slot + 0.5) / n) * Math.PI * 2
+                    + ring * 0.4;
+                points.push({
+                    x: Math.cos(angle) * radius,
+                    y: Math.sin(angle) * radius * 0.92,
+                });
+            }
+            placed += n;
+            ring += 1;
+        }
+        for (let pass = 0; pass < 14; pass += 1) {
             for (let i = 0; i < count; i += 1) {
                 for (let j = i + 1; j < count; j += 1) {
                     let dx = points[i].x - points[j].x;
@@ -1337,24 +1346,16 @@
                     let dist2 = dx * dx + dy * dy;
                     if (dist2 < 9) { dx = 3; dy = 0; dist2 = 9; }
                     const dist = Math.sqrt(dist2);
-                    if (dist > minDist * 1.6) continue;
-                    const push = repel / dist2
-                        + (dist < minDist ? (minDist - dist) * 2.2 : 0);
-                    const step = 0.01;
-                    points[i].x += (dx / dist) * push * step;
-                    points[i].y += (dy / dist) * push * step;
-                    points[j].x -= (dx / dist) * push * step;
-                    points[j].y -= (dy / dist) * push * step;
+                    if (dist >= minDist) continue;
+                    const push = (minDist - dist) * 0.5;
+                    points[i].x += (dx / dist) * push;
+                    points[i].y += (dy / dist) * push;
+                    points[j].x -= (dx / dist) * push;
+                    points[j].y -= (dy / dist) * push;
                 }
             }
-            const rest = Math.max(minDist * 1.2, (count * minDist) / (2 * Math.PI));
-            for (let i = 0; i < count; i += 1) {
-                const dist = Math.hypot(points[i].x, points[i].y) || 1;
-                const pull = (dist - rest) * 0.06;
-                points[i].x -= (points[i].x / dist) * pull;
-                points[i].y -= (points[i].y / dist) * pull;
-            }
         }
+        system.siblingPoints = points;
         return points;
     }
 
@@ -1375,8 +1376,8 @@
             };
             return {
                 ...natural,
-                x: natural.x + (arranged.x - natural.x) * entityMix,
-                y: natural.y + (arranged.y - natural.y) * entityMix,
+                x: natural.x + (arranged.x - natural.x) * Math.max(focusMix, entityMix),
+                y: natural.y + (arranged.y - natural.y) * Math.max(focusMix, entityMix),
                 depthScale: natural.depthScale
                     + (arranged.depthScale - natural.depthScale) * entityMix,
                 label: entity.label,
@@ -2313,8 +2314,8 @@
                 links: [],
             });
         };
-        tops.forEach((type, index) => place(type, index, tops.length, 0.26, 'top'));
-        neighbors.forEach((type, index) => place(type, index, neighbors.length, 0.62, 'next'));
+        tops.forEach((type, index) => place(type, index, tops.length, 0.16, 'top'));
+        neighbors.forEach((type, index) => place(type, index, neighbors.length, 0.34, 'next'));
         const byDef = new Map(definitions.map((definition) => [definition.id, definition]));
         liveRelations.forEach((relation) => {
             const from = byDef.get(relation.src);
@@ -2329,9 +2330,9 @@
     }
 
     function relaxDisk(definitions) {
-        const minX = 0.38;
-        const minZ = 0.56;
-        for (let pass = 0; pass < 28; pass += 1) {
+        const minX = 0.12;
+        const minZ = 0.16;
+        for (let pass = 0; pass < 6; pass += 1) {
             for (let i = 0; i < definitions.length; i += 1) {
                 for (let j = i + 1; j < definitions.length; j += 1) {
                     let dx = definitions[i].x - definitions[j].x;
@@ -2340,8 +2341,8 @@
                     const nx = dx / minX;
                     const nz = dz / minZ;
                     const ell = Math.hypot(nx, nz);
-                    if (ell >= 1) continue;
-                    const push = (1 - ell) * 0.55 + 0.08 / Math.max(ell * ell, 0.02);
+                    if (ell >= 1 || ell === 0) continue;
+                    const push = (1 - ell) * 0.22;
                     const ux = nx / ell;
                     const uz = nz / ell;
                     definitions[i].x += ux * minX * push;

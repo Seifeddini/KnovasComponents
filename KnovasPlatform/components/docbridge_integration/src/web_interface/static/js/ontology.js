@@ -440,16 +440,14 @@ class CortexApp {
             // Kleiner als früher (war 1200x800): auf der grossen Fläche trieben
             // schwach verbundene Typen so weit auseinander, dass die Startansicht
             // fast nur Zwischenraum zeigte.
-            boundingBox: { x1: 0, y1: 0, w: 1400, h: 960 },
+            boundingBox: { x1: 0, y1: 0, w: 980, h: 680 },
             nodeDimensionsIncludeLabels: true,
-            // Abstossung stark genug, dass Beschriftungen von Geschwistern
-            // nicht aufeinanderliegen. Die Fläche ist groesser, damit die
-            // Knoten dafuer Platz haben, statt in den alten Kasten gepresst
-            // zu werden.
-            idealEdgeLength: () => 130,
-            nodeRepulsion: () => 130000,
-            edgeElasticity: () => 160,
-            gravity: 3.2,
+            // Die Uebersicht bleibt eine Gruppe. Die starke Abstossung gilt
+            // fuer die Kinder eines geoeffneten Knotens, nicht fuer diese Ebene.
+            idealEdgeLength: () => 96,
+            nodeRepulsion: () => 52000,
+            edgeElasticity: () => 180,
+            gravity: 5.2,
             numIter: 3000,
         }).run();
         // Erst rahmen, wenn die Positionen stehen: sonst rechnet fitToVisible
@@ -788,7 +786,7 @@ class CortexApp {
         if (count <= 1) {
             return [{ x: inner * Math.cos(base), y: inner * Math.sin(base) }];
         }
-        const gap = 168;
+        const gap = 240;
         const golden = Math.PI * (3 - Math.sqrt(5));
         const points = [];
         for (let i = 0; i < count; i += 1) {
