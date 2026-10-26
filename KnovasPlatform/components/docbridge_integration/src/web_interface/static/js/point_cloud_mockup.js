@@ -745,19 +745,21 @@
         canvas.parentElement.appendChild(button);
         return button;
     });
-    const entityTargetCount = Math.max(
-        ...systems.map((system) => system.entityNodes.length),
-    );
-    const entityTargets = Array.from({ length: entityTargetCount }, (_, index) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'galaxy-entity-target';
-        button.dataset.entityIndex = String(index);
-        button.hidden = true;
-        bindEntityDrag(button);
-        canvas.parentElement.appendChild(button);
-        return button;
-    });
+    const entityTargets = [];
+
+    function ensureEntityTargets(count) {
+        const host = canvas.parentElement;
+        if (!host) return;
+        while (entityTargets.length < count) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'galaxy-entity-target';
+            button.hidden = true;
+            bindEntityDrag(button);
+            host.appendChild(button);
+            entityTargets.push(button);
+        }
+    }
     const connectionPopover = document.createElement('aside');
     connectionPopover.className = 'galaxy-connection-popover';
     connectionPopover.hidden = true;
@@ -1274,7 +1276,11 @@
     }
 
     function endNodeDrag(event) {
-        if (!nodeDrag || event.pointerId !== nodeDrag.pointerId) return;
+        if (!nodeDrag) return;
+        const same = event.pointerId == null
+            || nodeDrag.pointerId == null
+            || event.pointerId === nodeDrag.pointerId;
+        if (!same) return;
         const drag = nodeDrag;
         nodeDrag = null;
         if (drag.button) drag.button.classList.remove('dragging');
@@ -1584,6 +1590,7 @@
             context.restore();
         });
 
+        ensureEntityTargets(nodes.length);
         nodes.forEach((node, index) => {
             if (selectedEntity && node.label === selectedEntity.label) return;
             const depthFactor = foregroundDepthFactor(node.x, node.y);
@@ -1638,7 +1645,7 @@
                 node.x + (node.x < projectedSun.x ? -radius - 7 : radius + 7),
                 node.y,
             );
-            if (!selectedEntity) positionEntityTarget(index, node, system);
+            positionEntityTarget(index, node, system);
             context.restore();
         });
         context.restore();
@@ -2198,10 +2205,10 @@
         targetEntityMix = 0;
         targetFocusMix = 1;
         connectionPopover.hidden = true;
-        hideEntityPanel();
         showBreadcrumb(system);
         setZoom(2.65);
         loadChildLinks(system);
+        showTypeDetails(system);
     }
 
     function openEntityDetail(systemLabel, entityLabel) {
@@ -2216,8 +2223,191 @@
         targetFocusMix = 1;
         connectionPopover.hidden = true;
         showEntityBreadcrumb(system, entity);
-        renderEntityPanel(system, entity);
+        if (entity.id) showEntityDetails(system, entity);
+        else renderEntityPanel(system, entity);
         setZoom(1.7);
+    }
+
+    function revealDetailPanel() {
+        if (!entityPanel) return;
+        entityPanel.hidden = false;
+        window.requestAnimationFrame(() => {
+            entityPanel.classList.add('open');
+            if (typeof setDetailTab === 'function') setDetailTab('fields');
+        });
+    }
+
+    function detailButton(text, onClick) {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn-text galaxy-detail-link';
+        button.textContent = text;
+        button.addEventListener('click', onClick);
+        item.appendChild(button);
+        return item;
+    }
+
+    async function showTypeDetails(system) {
+        if (!entityPanel || !entityType || !entityTitle || !entityFields) return;
+        entityType.textContent = 'Typ';
+        entityTitle.textContent = system.label;
+        entityFields.replaceChildren();
+        if (documentsPanel) documentsPanel.hidden = true;
+        if (historyPanel) historyPanel.hidden = true;
+        if (entityTabs) entityTabs.hidden = true;
+        const total = Number(system.count) || (system.entityNodes || []).length;
+        const hint = document.createElement('p');
+        hint.className = 'entity-hint';
+        hint.textContent = total
+            ? `${formatGalaxyCount(total)} ${total === 1 ? 'Eintrag' : 'Einträge'}`
+            : 'Keine Einträge';
+        entityFields.appendChild(hint);
+        const links = system.links || [];
+        if (links.length) {
+            const heading = document.createElement('h3');
+            heading.textContent = 'Verbindungen';
+            entityFields.appendChild(heading);
+            const list = document.createElement('ul');
+            list.className = 'galaxy-detail-list';
+            links.forEach((link) => {
+                const predicate = String(link.predicate || 'verbunden').replace(/[_-]+/g, ' ');
+                list.appendChild(detailButton(
+                    `${predicate} → ${link.label}`,
+                    () => openSystem(link.label),
+                ));
+            });
+            entityFields.appendChild(list);
+        }
+        const entriesHeading = document.createElement('h3');
+        entriesHeading.textContent = 'Einträge';
+        entityFields.appendChild(entriesHeading);
+        const entries = document.createElement('ul');
+        entries.className = 'galaxy-detail-list';
+        entityFields.appendChild(entries);
+        const paintEntries = (rows) => {
+            entries.replaceChildren();
+            (rows || []).slice(0, 48).forEach((row) => {
+                if (!row || !row.label) return;
+                entries.appendChild(detailButton(row.label, () => {
+                    const known = (system.entityNodes || []).find(
+                        (node) => node.id === row.id || node.label === row.label);
+                    if (!known) {
+                        system.entityNodes = system.entityNodes || [];
+                        system.entityNodes.push({
+                            id: row.id,
+                            label: row.label,
+                            live: true,
+                            typeCount: formatGalaxyCount(total),
+                        });
+                    }
+                    openEntityDetail(system.label, row.label);
+                }));
+            });
+            if (!entries.childElementCount) {
+                const empty = document.createElement('li');
+                empty.className = 'entity-hint';
+                empty.textContent = 'Keine Einträge geladen.';
+                entries.appendChild(empty);
+            }
+        };
+        paintEntries(system.entityNodes);
+        revealDetailPanel();
+        if (!system.id) return;
+        try {
+            const response = await fetch(
+                `/api/ontology/entities?type=${encodeURIComponent(system.id)}`);
+            if (!response.ok) return;
+            const data = await response.json();
+            if (focusedSystem !== system) return;
+            paintEntries(data.entities || []);
+        } catch (err) { /* die schon gezeigte Liste bleibt */ }
+    }
+
+    async function showEntityDetails(system, entity) {
+        if (!entityPanel || !entityType || !entityTitle || !entityFields) return;
+        entityType.textContent = system.label;
+        entityTitle.textContent = entity.label;
+        entityFields.replaceChildren();
+        const hint = document.createElement('p');
+        hint.className = 'entity-hint';
+        hint.textContent = 'Wird geladen…';
+        entityFields.appendChild(hint);
+        if (documentsPanel) documentsPanel.hidden = true;
+        if (historyPanel) historyPanel.hidden = true;
+        if (entityTabs) entityTabs.hidden = true;
+        revealDetailPanel();
+        try {
+            const response = await fetch(
+                `/api/ontology/entities/${encodeURIComponent(entity.id)}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (selectedEntity !== entity) return;
+            const record = data.entity || {};
+            entityTitle.textContent = record.label || entity.label;
+            entityFields.replaceChildren();
+            if (record.description) {
+                const description = document.createElement('p');
+                description.textContent = record.description;
+                entityFields.appendChild(description);
+            }
+            const meta = document.createElement('p');
+            meta.className = 'entity-hint';
+            const docs = Number(record.doc_count) || 0;
+            meta.textContent = `${formatGalaxyCount(docs)} ${docs === 1 ? 'Dokument' : 'Dokumente'}`;
+            entityFields.appendChild(meta);
+            const heading = document.createElement('h3');
+            heading.textContent = 'Verbindungen';
+            entityFields.appendChild(heading);
+            const relations = Array.isArray(data.relations) ? data.relations : [];
+            if (!relations.length) {
+                const empty = document.createElement('p');
+                empty.className = 'entity-hint';
+                empty.textContent = 'Keine Verbindungen erfasst.';
+                entityFields.appendChild(empty);
+            } else {
+                const list = document.createElement('ul');
+                list.className = 'galaxy-detail-list';
+                relations.forEach((relation) => {
+                    const target = relation.target || {};
+                    const predicate = String(relation.predicate || '').replace(/[_-]+/g, ' ');
+                    const text = relation.direction === 'in'
+                        ? `${target.label || 'Eintrag'} · ${predicate}`
+                        : `${predicate} → ${target.label || 'Eintrag'}`;
+                    list.appendChild(detailButton(text, () => {
+                        const host = systems.find((candidate) => candidate.id === target.type);
+                        if (!host || !target.label) return;
+                        if (!(host.entityNodes || []).some((node) => node.id === target.id)) {
+                            host.entityNodes = host.entityNodes || [];
+                            host.entityNodes.push({
+                                id: target.id,
+                                label: target.label,
+                                live: true,
+                            });
+                        }
+                        openEntityDetail(host.label, target.label);
+                    }));
+                });
+                entityFields.appendChild(list);
+            }
+            const evidence = Array.isArray(data.evidence) ? data.evidence : [];
+            if (entityDocuments && documentsPanel && entityTabs && evidence.length) {
+                entityDocuments.replaceChildren();
+                evidence.forEach((item) => {
+                    const line = document.createElement('p');
+                    const documentInfo = item.document || {};
+                    const title = documentInfo.title || documentInfo.path || 'Dokument';
+                    line.textContent = item.quote
+                        ? `«${item.quote}» — ${title}, Seite ${item.page}`
+                        : `${title}, Seite ${item.page || 1}`;
+                    entityDocuments.appendChild(line);
+                });
+                documentsPanel.hidden = false;
+                entityTabs.hidden = false;
+            }
+        } catch (err) {
+            hint.textContent = 'Details konnten nicht geladen werden.';
+        }
     }
 
     function travelTo(systemLabel, entityLabel) {
