@@ -57,6 +57,9 @@
     let targetFocusMix = 0;
     let focusedSystem = null;
     let highlightedEntity = null;
+    let viewFrame = null;
+    let heldRotation = null;
+    let nodeDrag = null;
     let selectedEntity = null;
     let entityMix = 0;
     let targetEntityMix = 0;
@@ -751,6 +754,7 @@
         button.className = 'galaxy-entity-target';
         button.dataset.entityIndex = String(index);
         button.hidden = true;
+        bindEntityDrag(button);
         canvas.parentElement.appendChild(button);
         return button;
     });
@@ -1190,10 +1194,146 @@
                 || button.dataset.system !== system.label) {
             button.dataset.label = node.label;
             button.dataset.system = system.label;
-            button.onclick = () => openEntityDetail(
-                button.dataset.system, button.dataset.label);
+            button.dataset.entityIndex = String(index);
         }
     }
+
+    function canvasPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+        };
+    }
+
+    function screenToDisk(sx, sy, depthScale) {
+        const view = viewFrame;
+        if (!view || !depthScale) return null;
+        const rx = (sx - view.centerX) / (view.scale * depthScale);
+        const ry = (sy - view.centerY) / (view.scale * depthScale);
+        const rotationY = view.rotation + view.tiltY;
+        const sinX = Math.sin(view.tiltX);
+        const cosY = Math.cos(rotationY);
+        const sinY = Math.sin(rotationY);
+        const z1 = Math.abs(sinX) > 0.2 ? -ry / sinX : 0;
+        const x1 = rx;
+        return {
+            x: x1 * cosY + z1 * sinY,
+            z: -x1 * sinY + z1 * cosY,
+        };
+    }
+
+    function beginNodeDrag(event, payload) {
+        if (event.button != null && event.button !== 0) return;
+        const point = canvasPoint(event);
+        nodeDrag = {
+            ...payload,
+            pointerId: event.pointerId,
+            button: event.currentTarget && event.currentTarget.classList
+                ? event.currentTarget : null,
+            startX: event.clientX,
+            startY: event.clientY,
+            lastX: point.x,
+            lastY: point.y,
+            moved: false,
+        };
+        if (nodeDrag.button && nodeDrag.button.setPointerCapture
+                && event.pointerId != null) {
+            nodeDrag.button.setPointerCapture(event.pointerId);
+            nodeDrag.button.classList.add('dragging');
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    function moveNodeDrag(event) {
+        if (!nodeDrag || event.pointerId !== nodeDrag.pointerId) return;
+        const point = canvasPoint(event);
+        if (Math.hypot(event.clientX - nodeDrag.startX, event.clientY - nodeDrag.startY) > 3) {
+            nodeDrag.moved = true;
+        }
+        if (!nodeDrag.moved || !viewFrame) return;
+        if (heldRotation == null) heldRotation = viewFrame.rotation;
+        if (nodeDrag.kind === 'sun') {
+            const world = screenToDisk(
+                point.x - nodeDrag.offsetX,
+                point.y - nodeDrag.offsetY,
+                nodeDrag.depthScale,
+            );
+            if (!world) return;
+            nodeDrag.system.x = world.x;
+            nodeDrag.system.y = 0;
+            nodeDrag.system.z = world.z;
+        } else if (nodeDrag.slot) {
+            nodeDrag.slot.x += point.x - nodeDrag.lastX;
+            nodeDrag.slot.y += point.y - nodeDrag.lastY;
+            nodeDrag.lastX = point.x;
+            nodeDrag.lastY = point.y;
+        }
+        event.preventDefault();
+    }
+
+    function endNodeDrag(event) {
+        if (!nodeDrag || event.pointerId !== nodeDrag.pointerId) return;
+        const drag = nodeDrag;
+        nodeDrag = null;
+        if (drag.button) drag.button.classList.remove('dragging');
+        if (drag.moved) return;
+        if (drag.kind === 'sun') openSystem(drag.system.label);
+        else if (drag.kind === 'entity') openEntityDetail(drag.systemLabel, drag.entityLabel);
+    }
+
+    function bindSunDrag(button) {
+        button.addEventListener('pointerdown', (event) => startSunDrag(button, event));
+        button.addEventListener('mousedown', (event) => startSunDrag(button, event));
+    }
+
+    function startSunDrag(button, event) {
+        if (nodeDrag) return;
+        const system = systems.find(
+            (candidate) => candidate.label === button.dataset.galaxySystem);
+        if (!system || !viewFrame) return;
+        const point = canvasPoint(event);
+        const projected = project(
+            system, viewFrame.rotation, viewFrame.scale,
+            viewFrame.centerX, viewFrame.centerY);
+        beginNodeDrag(event, {
+            kind: 'sun',
+            system,
+            depthScale: projected.depthScale || 1,
+            offsetX: point.x - projected.x,
+            offsetY: point.y - projected.y,
+        });
+    }
+
+    function bindEntityDrag(button) {
+        button.addEventListener('pointerdown', (event) => startEntityDrag(button, event));
+        button.addEventListener('mousedown', (event) => startEntityDrag(button, event));
+    }
+
+    function startEntityDrag(button, event) {
+        if (nodeDrag) return;
+        const system = systems.find(
+            (candidate) => candidate.label === button.dataset.system);
+        const index = Number(button.dataset.entityIndex);
+        if (!system) return;
+        if (!system.siblingPoints || !system.siblingPoints[index]) {
+            spreadSiblings(system, (system.entityNodes || []).length);
+        }
+        if (!system.siblingPoints || !system.siblingPoints[index]) return;
+        beginNodeDrag(event, {
+            kind: 'entity',
+            slot: system.siblingPoints[index],
+            systemLabel: system.label,
+            entityLabel: button.dataset.label,
+        });
+    }
+
+    window.addEventListener('pointermove', moveNodeDrag);
+    window.addEventListener('mousemove', moveNodeDrag);
+    window.addEventListener('pointerup', endNodeDrag);
+    window.addEventListener('mouseup', endNodeDrag);
+    window.addEventListener('pointercancel', endNodeDrag);
 
     function drawTypeLinks(projectedSystems) {
         if (focusMix > 0.25) return;
@@ -1824,7 +1964,13 @@
         entityMix += (targetEntityMix - entityMix) * motionStep;
         historyMix += (targetHistoryMix - historyMix) * motionStep;
 
-        const rotation = reducedMotion.matches ? 0.2 : time * 0.000022;
+        const rotation = heldRotation != null
+            ? heldRotation
+            : (reducedMotion.matches ? 0.2 : time * 0.000022);
+        if (nodeDrag) {
+            targetTiltX = tiltX;
+            targetTiltY = tiltY;
+        }
         const scale = Math.min(width, height) * (width < 640 ? 0.32 : 0.3) * zoom;
         const baseCenterX = width * 0.5;
         const baseCenterY = height * 0.46;
@@ -1840,6 +1986,7 @@
         cameraY += (wantedCameraY - cameraY) * motionStep;
         const centerX = baseCenterX + cameraX;
         const centerY = baseCenterY + cameraY;
+        viewFrame = { rotation, scale, centerX, centerY, tiltX, tiltY };
         const halo = context.createRadialGradient(
             centerX, centerY, 0,
             centerX, centerY, scale * 1.15,
@@ -2122,9 +2269,7 @@
         redraw: restart,
     };
 
-    sunTargets.forEach((target) => {
-        target.addEventListener('click', () => openSystem(target.dataset.galaxySystem));
-    });
+    sunTargets.forEach((target) => bindSunDrag(target));
     if (fieldsTab) fieldsTab.addEventListener('click', () => setDetailTab('fields'));
     if (documentsTab) {
         documentsTab.addEventListener('click', () => setDetailTab('documents'));
@@ -2168,7 +2313,7 @@
     });
     window.addEventListener('resize', restart);
     window.addEventListener('pointermove', (event) => {
-        if (reducedMotion.matches) return;
+        if (reducedMotion.matches || nodeDrag) return;
         targetTiltY = 0.14
             + ((event.clientX / Math.max(window.innerWidth, 1)) - 0.5) * 0.42;
         targetTiltX = 0.58
@@ -2196,7 +2341,7 @@
             button.dataset.galaxySystem = system.label;
             button.setAttribute('aria-label', `${system.label} öffnen`);
             button.title = `${system.label} öffnen`;
-            button.addEventListener('click', () => openSystem(system.label));
+            bindSunDrag(button);
             host.appendChild(button);
             sunTargets.push(button);
         });

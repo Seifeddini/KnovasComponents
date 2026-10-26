@@ -212,7 +212,8 @@ body.galaxy-searching .galaxy-heatmap {
     border: 0;
     border-radius: 50%;
     background: transparent;
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none;
 }
 
 .galaxy-sun-target::after {
@@ -243,8 +244,15 @@ body.galaxy-searching .galaxy-heatmap {
     border: 0;
     border-radius: 50%;
     background: transparent;
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none;
     transform: translate(-50%, -50%);
+}
+
+.galaxy-sun-target.dragging,
+.galaxy-entity-target.dragging {
+    cursor: grabbing;
+    z-index: 8;
 }
 
 .galaxy-entity-target::after {
