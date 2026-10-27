@@ -69,7 +69,7 @@
         }
         const ctx = el('section', { className: 'views-context' }, [el('h3', { text: 'Kontext' })]);
         const ctxRow = el('div', { className: 'views-context-row' });
-        d.context.forEach((a, i) => ctxRow.appendChild(artefactBlock(page, a, 'context', i, false)));
+        d.context.forEach((a, i) => { if (!page.isHidden(a.type)) ctxRow.appendChild(artefactBlock(page, a, 'context', i, false)); });
         ctx.appendChild(ctxRow);
         box.appendChild(ctx);
 
@@ -84,7 +84,7 @@
                     lane.entered ? el('div', { className: 'views-tech', text: `betreten ${lane.entered}` }) : null,
                 ]),
                 lane.description ? el('p', { className: 'views-lane-desc', text: lane.description }) : null,
-                ...lane.artefacts.map((a, i) => artefactBlock(page, a, lane.id, i, flagged)),
+                ...lane.artefacts.map((a, i) => (page.isHidden(a.type) ? null : artefactBlock(page, a, lane.id, i, flagged))),
                 exitList(lane),
             ]));
         });
@@ -93,7 +93,17 @@
         if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
 
+    const SORTS = {
+        key: (a, b) => String(a.key || '').localeCompare(String(b.key || '')),
+        name: (a, b) => a.name.localeCompare(b.name),
+        days: (a, b) => (b.days_in_step || 0) - (a.days_in_step || 0),
+        missing: (a, b) => b.missing - a.missing,
+        risks: (a, b) => b.open_risks - a.open_risks,
+    };
+
     function renderBoard(box, d, page) {
+        const sort = SORTS[(page.viewSettings || {}).sorting];
+        if (sort) d.columns.forEach((col) => col.cards.sort(sort));
         box.appendChild(el('p', { className: 'views-muted', text: `${d.total} Instanzen · ${d.process.name}` }));
         const cols = el('div', { className: 'views-board' });
         d.columns.forEach((col) => {

@@ -128,6 +128,7 @@ class TestTheSchema:
             "audit_log",
             "ingestion_profiles",
             "settings",
+            "saved_views",
         } <= _tables(db)
 
     def test_email_is_unique_case_insensitively(self, db):
