@@ -51,8 +51,13 @@ def main(argv: list[str] | None = None) -> int:
     for name, path in FILES.items():
         if args.only and name not in args.only:
             continue
-        data = subprocess.run(["git", "-C", args.kb, "show", f"{commit}:{path}"], check=True,
-                              capture_output=True).stdout
+        shown = subprocess.run(["git", "-C", args.kb, "show", f"{commit}:{path}"], capture_output=True)
+        if shown.returncode != 0:
+            # Not committed at that commit (process-completeness.json was untracked
+            # on 2026-10-27): keep the existing copy and its pin, say so.
+            print(f"{name}  not in {commit[:12]}; skipped", file=sys.stderr)
+            continue
+        data = shown.stdout
         (TARGET / name).write_bytes(data)
         source["files"][name] = {"path": path, "commit": commit, "sha256": digest(data)}
         print(f"{name}  {commit[:12]}  {digest(data)[:12]}")

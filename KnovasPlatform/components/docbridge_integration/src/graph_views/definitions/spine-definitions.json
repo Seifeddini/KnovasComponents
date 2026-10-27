@@ -1,0 +1,291 @@
+{
+ "version": 1,
+ "generated_at": "2026-10-27",
+ "source": "docs/ModernDocs/client-zero/ontology/spines.yaml",
+ "spines": [
+  {
+   "key": "SPINE-product",
+   "name": "Product spine",
+   "description": "What Knovas sells and how it is built: product → tier or API group → capability → software area → component → sub-part.",
+   "levels": [
+    {
+     "id": "L1",
+     "name": "Product",
+     "types": [
+      "Product"
+     ],
+     "verified": true
+    },
+    {
+     "id": "L2",
+     "name": "Tier or API service group",
+     "types": [
+      "PlatformTier",
+      "ApiServiceGroup"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "part_of",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L3",
+     "name": "Capability",
+     "types": [
+      "Capability"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "offers",
+      "direction": "in"
+     }
+    },
+    {
+     "id": "L4",
+     "name": "Software area (L1)",
+     "types": [
+      "BoundedContext"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "realises",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L5",
+     "name": "Component (L2)",
+     "types": [
+      "Component"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "part_of",
+      "direction": "out"
+     },
+     "filter": {
+      "key_prefix": "L2-"
+     }
+    },
+    {
+     "id": "L6",
+     "name": "Sub-part (L3)",
+     "types": [
+      "Component"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "part_of",
+      "direction": "out"
+     },
+     "filter": {
+      "key_prefix": "L3-"
+     }
+    }
+   ]
+  },
+  {
+   "key": "SPINE-organisation",
+   "name": "Organisation spine",
+   "description": "Who does what: company → function → role → person.",
+   "levels": [
+    {
+     "id": "L1",
+     "name": "Company",
+     "types": [
+      "Company"
+     ],
+     "verified": true
+    },
+    {
+     "id": "L2",
+     "name": "Function",
+     "types": [
+      "Function"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "part_of",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L3",
+     "name": "Role",
+     "types": [
+      "Role"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "member_of",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L4",
+     "name": "Person",
+     "types": [
+      "Person"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "held_by",
+      "direction": "in"
+     }
+    }
+   ]
+  },
+  {
+   "key": "SPINE-process",
+   "name": "Process spine",
+   "description": "How work moves: value stream → process → step.",
+   "levels": [
+    {
+     "id": "L1",
+     "name": "Value stream",
+     "types": [
+      "ValueStream"
+     ],
+     "verified": true
+    },
+    {
+     "id": "L2",
+     "name": "Process",
+     "types": [
+      "Process"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "part_of",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L3",
+     "name": "Step",
+     "types": [
+      "ProcessStep"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "has_step",
+      "direction": "in"
+     }
+    }
+   ]
+  },
+  {
+   "key": "SPINE-market",
+   "name": "Market, sales and marketing spine",
+   "description": "Whom Knovas sells to and what it learned: segment → persona → hypothesis → campaign → result or evidence; with the sales branch account → opportunity → customer.",
+   "levels": [
+    {
+     "id": "L1",
+     "name": "Segment (ICP)",
+     "types": [
+      "Segment"
+     ],
+     "verified": true
+    },
+    {
+     "id": "L2",
+     "name": "Persona",
+     "types": [
+      "Persona"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "member_of",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L3",
+     "name": "Hypothesis",
+     "types": [
+      "Hypothesis"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "targets",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L4",
+     "name": "Campaign or experiment",
+     "types": [
+      "Campaign",
+      "Experiment"
+     ],
+     "verified": true,
+     "link_to_parent": {
+      "relation": "tests",
+      "direction": "out"
+     }
+    },
+    {
+     "id": "L5",
+     "name": "Result or evidence",
+     "types": [
+      "Result",
+      "EvidenceRecord"
+     ],
+     "verified": false,
+     "links_to_parent": {
+      "Result": {
+       "relation": "results_in",
+       "direction": "in"
+      },
+      "EvidenceRecord": {
+       "relation": "about",
+       "direction": "out"
+      }
+     }
+    }
+   ],
+   "branches": [
+    {
+     "key": "sales",
+     "name": "Sales branch",
+     "description": "Account → opportunity → customer; a lead hangs off the campaign that produced it.",
+     "levels": [
+      {
+       "id": "B1",
+       "name": "Account",
+       "types": [
+        "Account"
+       ],
+       "verified": true
+      },
+      {
+       "id": "B2",
+       "name": "Opportunity",
+       "types": [
+        "Opportunity"
+       ],
+       "verified": false,
+       "link_to_parent": {
+        "relation": "for_account",
+        "direction": "out"
+       }
+      },
+      {
+       "id": "B3",
+       "name": "Customer",
+       "types": [
+        "Customer"
+       ],
+       "verified": false,
+       "link_to_parent": {
+        "relation": "converts_to",
+        "direction": "in"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
