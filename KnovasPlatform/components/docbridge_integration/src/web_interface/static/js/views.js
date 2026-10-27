@@ -25,8 +25,10 @@
                 rows: params.get('rows') || 'L3',
                 cols: params.get('cols') || 'L5',
                 expand: (params.get('expand') || '').split(',').filter(Boolean),
+                view: params.get('view') || '',
             };
             this.typeLabels = {};
+            this.viewSettings = { hidden: new Set(), sorting: '' };
             this.overrides = {};
             this.legend = {};
             this.cy = null;
@@ -54,6 +56,14 @@
                 b.addEventListener('click', () => this.setKind(b.dataset.kind));
             });
             this.setKind(this.state.kind, true);
+            if (root.SavedViews) {
+                this.saved = new root.SavedViews(this);
+                this.saved.init();
+            }
+        }
+
+        isHidden(type) {
+            return !!(this.viewSettings && this.viewSettings.hidden && this.viewSettings.hidden.has(type));
         }
 
         /** Render kinds drawn as DOM (everything but the graph), by name. */
@@ -103,6 +113,7 @@
             const params = new URLSearchParams(root.location.search);
             ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand'].forEach((k) => params.delete(k));
             params.set('kind', this.state.kind);
+            if (this.state.view) params.set('view', this.state.view); else params.delete('view');
             const own = { process: ['trace', 'board'], instance: ['trace'], owner: ['board'], capability: ['board'], status: ['board'],
                 spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'] };
             Object.entries(own).forEach(([k, kinds]) => {

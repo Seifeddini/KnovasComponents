@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views_spine.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views_spine.js", "views_saved.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -126,7 +126,7 @@ def test_trace_flags_only_the_current_lane():
                                          "min_count": 1, "count": 0, "missing": True, "items": [], "chip": None}]}
     out = _run_node("""
         const box = document.createElement('div');
-        const page = {typeLabel: (t) => t, overrides: {}, openDossier() {}, openTraceItems() {}, center() {}};
+        const page = {typeLabel: (t) => t, overrides: {}, isHidden: () => false, openDossier() {}, openTraceItems() {}, center() {}};
         window.ViewsProcess.renderTrace(box, {instance: {id: 'x', name: 'X', key: 'K'}, process: {name: 'P'},
             current: {step: 'b', since: '2026-10-20', days: 7}, missing: [{}], unmet: [], context: [],
             lanes: [LANE_A, LANE_B]}, page);

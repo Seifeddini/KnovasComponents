@@ -15,7 +15,11 @@
             <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}" alt="Knovas" width="96" height="13">
         </a>
         <h1 class="views-title">Ansichten</h1>
-        <div class="views-picker" id="viewsPicker" hidden></div>
+        <div class="views-picker" id="viewsPicker" hidden>
+            <label class="visually-hidden" for="viewsSaved">Gespeicherte Ansicht</label>
+            <select id="viewsSaved"></select>
+            <button type="button" class="views-button" id="viewsSavedMenu" title="Speichern, teilen, Protokoll">Ansichten …</button>
+        </div>
         <nav class="views-kinds" id="viewsKinds" aria-label="Darstellung">
             <button type="button" data-kind="graph" aria-pressed="true">Graph</button>
             <button type="button" data-kind="trace" aria-pressed="false">Ablauf</button>
@@ -92,6 +96,7 @@
     <script src="{{ url_for('static', filename='js/views_definitions.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_process.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_spine.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_saved.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>
