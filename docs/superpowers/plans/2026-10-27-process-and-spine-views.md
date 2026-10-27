@@ -128,12 +128,12 @@ Views carry no access rights: what a view shows is still filtered by the brain p
 
 ## Steps (one PR each)
 
-- [ ] **Step 1 — Ego graph, decluttered.** Topology index, fact reader, meta classifier, grouping, ego and dossier routes, `/views` page with the graph render kind, meta toggle (off), legend with descriptions, chips, dossier panel, Cortex dock link. Done when the Knovas tenant shows no meta node by default and no node draws more than N same-type neighbours.
-- [ ] **Step 2 — Definition loader.** Tenant definition nodes → JSON shape → schema validation; vendored fallback with pin test; definitions page (read-only; errors for admins). Done when 7 processes and 4 spines load and validate, and an invalid one shows a readable error.
-- [ ] **Step 3 — TRACE and BOARD.** Done when both render for the feature lifecycle on the tenant within budget (TRACE < 2 s, BOARD < 5 s) and the missing items match `process-completeness.json`.
-- [ ] **Step 4 — TREE and MATRIX.** Done when the product spine renders as a tree (level expansion < 1 s) and Capability × Component renders within budget.
-- [ ] **Step 5 — Saved views.** Done when a user can save, reopen and share a view, and the audit log shows the change.
-- [ ] **Step 6 — Default shared views.** Development cycle, Development board, Management trace, Decisions & risks, Market. Done when all five open from the picker on the tenant within budget.
+- [x] **Step 1 — Ego graph, decluttered.** Topology index, fact reader, meta classifier, grouping, ego and dossier routes, `/views` page with the graph render kind, meta toggle (off), legend with descriptions, chips, dossier panel, Cortex dock link. Done when the Knovas tenant shows no meta node by default and no node draws more than N same-type neighbours.
+- [x] **Step 2 — Definition loader.** Tenant definition nodes → JSON shape → schema validation; vendored fallback with pin test; definitions page (read-only; errors for admins). Done when 7 processes and 4 spines load and validate, and an invalid one shows a readable error.
+- [x] **Step 3 — TRACE and BOARD.** Done when both render for the feature lifecycle on the tenant within budget (TRACE < 2 s, BOARD < 5 s) and the missing items match `process-completeness.json`.
+- [x] **Step 4 — TREE and MATRIX.** Done when the product spine renders as a tree (level expansion < 1 s) and Capability × Component renders within budget.
+- [x] **Step 5 — Saved views.** Done when a user can save, reopen and share a view, and the audit log shows the change.
+- [x] **Step 6 — Default shared views.** Development cycle, Development board, Management trace, Decisions & risks, Market. Done when all five open from the picker on the tenant within budget.
 
 ## Related
 

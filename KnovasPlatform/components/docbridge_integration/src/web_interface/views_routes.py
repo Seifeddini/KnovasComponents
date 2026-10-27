@@ -160,6 +160,9 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         instance = _arg("instance")
         if not _arg("process") or not instance:
             return jsonify({"success": False, "error": "Prozess und Instanz angeben."}), 400
+        if _arg("sections") == "context":
+            return _placeable(lambda: jsonify(process_views.context_only(
+                context, d, _arg("process"), instance, show_meta=_flag("meta"))))
         return _placeable(lambda: jsonify(process_views.trace(
             context, d, _arg("process"), instance, show_meta=_flag("meta"))))
 
@@ -263,6 +266,18 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     def saved_share(store, user, view_id):
         view = store.share(view_id, user, name=str(_body().get("name") or "") or None)
         return jsonify({"success": True, "view": view}), 201
+
+    @bp.route("/api/views/saved/defaults", methods=["POST"])
+    @saved
+    def saved_defaults(store, user):
+        if not is_admin():
+            return jsonify({"success": False, "error": "Nur für Administratoren."}), 403
+        from graph_views import default_views
+
+        which = str(_body().get("set") or "knovas")
+        if which not in default_views.SETS:
+            return jsonify({"success": False, "error": f"Unbekannter Satz {which}."}), 400
+        return jsonify({"success": True, **default_views.seed(store, user, which)})
 
     @bp.route("/api/views/saved/audit", methods=["GET"])
     @saved

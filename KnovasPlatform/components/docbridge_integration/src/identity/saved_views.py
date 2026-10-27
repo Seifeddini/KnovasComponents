@@ -76,7 +76,7 @@ def clean_settings(raw: Any) -> Dict[str, Any]:
         return {}
     if not isinstance(raw, dict):
         raise InvalidView("settings muss ein Objekt sein.")
-    unknown = set(raw) - {"default_root", "threshold", "hidden_types", "filters", "sorting", "colours"}
+    unknown = set(raw) - {"default_root", "threshold", "hidden_types", "filters", "sorting", "colours", "sections"}
     if unknown:
         raise InvalidView(f"Unbekannte Einstellungen: {', '.join(sorted(unknown))}. "
                           "Eine Ansicht speichert nur Darstellung.")
@@ -115,6 +115,10 @@ def clean_settings(raw: Any) -> Dict[str, Any]:
         if raw["sorting"] not in SORTINGS:
             raise InvalidView(f"sorting ist eines von {', '.join(SORTINGS)}.")
         out["sorting"] = raw["sorting"]
+    if raw.get("sections"):
+        if raw["sections"] not in (["context"], ["context", "lanes"]):
+            raise InvalidView("sections ist [\"context\"] (nur der Kontext) oder [\"context\", \"lanes\"].")
+        out["sections"] = list(raw["sections"])
     if raw.get("colours"):
         colours = raw["colours"]
         if not isinstance(colours, dict) or len(colours) > 60 or \

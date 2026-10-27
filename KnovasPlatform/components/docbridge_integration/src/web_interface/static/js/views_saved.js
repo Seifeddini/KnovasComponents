@@ -70,8 +70,9 @@
             if (filters.cols) s.cols = filters.cols;
             s.meta = !!filters.meta;
             if (settings.threshold) s.threshold = settings.threshold;
-            s.instance = v.render_kind === 'trace' ? (settings.default_root || '') : s.instance;
+            if (v.render_kind === 'trace') s.instance = settings.default_root || s.instance;
             s.expand = v.render_kind === 'tree' && settings.default_root ? settings.default_root.split(',') : [];
+            s.sections = settings.sections || [];
             this.page.viewSettings = { hidden: new Set(settings.hidden_types || []), sorting: settings.sorting || '' };
             this.page.overrides = Object.fromEntries(Object.entries(settings.colours || {}).map(([t, c]) => [t, { color: c }]));
             if (this.page.fillSpineControls) this.page.fillSpineControls();
@@ -91,6 +92,7 @@
             const settings = { filters, threshold: s.threshold };
             if (kind === 'trace' && s.instance) settings.default_root = s.instance;
             if (kind === 'tree' && s.expand && s.expand.length) settings.default_root = s.expand.join(',');
+            if (kind === 'trace' && s.sections && s.sections.length) settings.sections = s.sections;
             const vs = this.page.viewSettings || {};
             if (vs.hidden && vs.hidden.size) settings.hidden_types = Array.from(vs.hidden);
             if (vs.sorting) settings.sorting = vs.sorting;
@@ -165,7 +167,16 @@
                 body.appendChild(actions);
             }
             body.appendChild(msg);
-            if (this.isAdmin) this.showLog(body);
+            if (this.isAdmin) {
+                body.appendChild(el('button', { type: 'button', className: 'views-button', text: 'Standardansichten anlegen', onclick: async () => {
+                    try {
+                        const d = await api('/api/views/saved/defaults', {}, { method: 'POST', body: JSON.stringify({ set: 'knovas' }) });
+                        await this.load();
+                        msg.textContent = d.created.length ? `Angelegt: ${d.created.join(', ')}` : 'Alle Standardansichten gibt es schon.';
+                    } catch (err) { msg.textContent = err.message; }
+                } }));
+                this.showLog(body);
+            }
         }
 
         async showLog(body) {
