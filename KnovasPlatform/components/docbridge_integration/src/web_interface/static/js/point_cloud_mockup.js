@@ -56,6 +56,8 @@
     let focusMix = 0;
     let targetFocusMix = 0;
     let focusedSystem = null;
+    let centralNode = null;
+    let lastNodeActivate = 0;
     let highlightedEntity = null;
     let viewFrame = null;
     let heldRotation = null;
@@ -1210,6 +1212,13 @@
         context.strokeStyle = outline;
         context.lineWidth = 1.25;
         context.stroke();
+        if (centralNode && centralNode.system === system && !centralNode.opened && focusMix < 0.25) {
+            context.beginPath();
+            context.arc(projected.x, projected.y, radius * 2.6, 0, Math.PI * 2);
+            context.strokeStyle = warm ? 'rgba(227, 116, 0, .85)' : 'rgba(26, 69, 199, .85)';
+            context.lineWidth = 1.6;
+            context.stroke();
+        }
         context.restore();
 
         if (!system.label) return;
@@ -1230,7 +1239,7 @@
         target.style.height = `${size}px`;
         target.style.transform =
             `translate3d(${projected.x - size / 2}px, ${projected.y - size / 2}px, 0)`;
-        const enabled = !focusedSystem || focusedSystem === system;
+        const enabled = focusMix < 0.45 || !focusedSystem || focusedSystem === system;
         target.style.pointerEvents = enabled ? 'auto' : 'none';
         target.tabIndex = enabled ? 0 : -1;
     }
@@ -1466,8 +1475,11 @@
         springsArmed = false;
         springPin = null;
         springFrames = 0;
-        if (drag.kind === 'sun') openSystem(drag.system.label);
-        else if (drag.kind === 'entity') openEntityDetail(drag.systemLabel, drag.entityLabel);
+        const now = performance.now();
+        if (now - lastNodeActivate < 180) return;
+        lastNodeActivate = now;
+        if (drag.kind === 'sun') clickSun(drag.system);
+        else if (drag.kind === 'entity') clickEntity(drag.systemLabel, drag.entityLabel);
     }
 
     function bindSunDrag(button) {
@@ -1540,6 +1552,14 @@
                 const other = projectedSystems.find(
                     (entry) => entry.system.label === link.label);
                 if (!other || isNodeHidden(other.system)) return;
+                const neighborhood = centralNode
+                    && centralNode.kind === 'sun'
+                    && !centralNode.opened
+                    && focusMix < 0.25;
+                const onContext = !neighborhood
+                    || system === centralNode.system
+                    || other.system === centralNode.system;
+                context.globalAlpha = onContext ? 1 : 0.12;
                 context.beginPath();
                 context.moveTo(projected.x, projected.y);
                 context.lineTo(other.projected.x, other.projected.y);
@@ -1790,8 +1810,10 @@
         nodes.forEach((node, index) => {
             if (selectedEntity && node.label === selectedEntity.label) return;
             const depthFactor = foregroundDepthFactor(node.x, node.y);
-            const radius = node.size * node.depthScale
-                * (0.72 + depthFactor * 0.28);
+            const radius = Math.max(
+                9,
+                node.size * node.depthScale * (0.72 + depthFactor * 0.28),
+            );
             context.save();
             context.globalAlpha *= depthFactor;
             const isHighlighted = node.label === highlightedEntity;
@@ -2193,6 +2215,10 @@
                 focusedSystem, rotation, scale, baseCenterX, baseCenterY);
             wantedCameraX = baseCenterX - focusAtRest.x;
             wantedCameraY = baseCenterY - focusAtRest.y;
+            if (centralNode && centralNode.kind === 'entity' && centralNode.slot) {
+                wantedCameraX -= centralNode.slot.x;
+                wantedCameraY -= centralNode.slot.y;
+            }
         }
         cameraX += (wantedCameraX - cameraX) * motionStep;
         cameraY += (wantedCameraY - cameraY) * motionStep;
@@ -2263,6 +2289,10 @@
             context.globalAlpha = focusedSystem && focusedSystem !== system
                 ? 1 - focusMix * 0.88
                 : 1;
+            if (centralNode && centralNode.kind === 'sun' && !centralNode.opened && focusMix < 0.25
+                    && !sharesContext(system)) {
+                context.globalAlpha *= 0.16;
+            }
             context.globalAlpha *= 1 - entityMix * 0.88;
             context.globalAlpha *= foregroundDepthFactor(
                 displayedSystem.x,
@@ -2300,6 +2330,15 @@
                 selectedProjection,
                 detailSystemCenter(focusedProjection.projected),
             );
+            if (centralNode && centralNode.kind === 'entity'
+                    && centralNode.system === focusedSystem) {
+                const placed = (focusedNodes || []).find(
+                    (node) => node.label === centralNode.entity.label);
+                const hub = placed
+                    ? { x: placed.x, y: placed.y }
+                    : detailSystemCenter(focusedProjection.projected);
+                drawChildRing(hub, nodeChildren(focusedSystem, centralNode.entity));
+            }
         }
         drawSearchHeatmap(projectedSystems, focusedNodes, selectedProjection);
         const screenPositions = {};
@@ -2402,15 +2441,214 @@
                     entity: `${[...bucket.predicates].join(', ')} → ${bucket.names.join(', ')}`,
                     button: false,
                 }));
+                slice[index].related = ((data && data.relations) || []).map((rel) => {
+                    const target = rel && rel.target;
+                    if (!target || !target.label) return null;
+                    const host = systems.find((candidate) => candidate.id === target.type);
+                    return {
+                        id: target.id || '',
+                        label: target.label,
+                        typeLabel: host ? host.label : '',
+                        predicate: String(rel.predicate || '').replace(/[_-]+/g, ' '),
+                    };
+                }).filter(Boolean);
             });
             if (reducedMotion.matches && focusedSystem === system) draw();
         }
+    }
+
+    function rememberHomes() {
+        systems.forEach((system) => {
+            if (!system.home) system.home = { x: system.x, z: system.z };
+        });
+    }
+
+    function restoreHomes() {
+        systems.forEach((system) => {
+            if (!system.home) return;
+            system.x = system.home.x;
+            system.z = system.home.z;
+            system.vx = 0;
+            system.vz = 0;
+        });
+    }
+
+    function sharesContext(system) {
+        if (!centralNode || centralNode.kind !== 'sun') return true;
+        if (system === centralNode.system) return true;
+        return (centralNode.system.links || []).some((link) => link.label === system.label);
+    }
+
+    function placeNeighborhood(system) {
+        rememberHomes();
+        restoreHomes();
+        system.x = 0;
+        system.z = 0;
+        system.vx = 0;
+        system.vz = 0;
+        const neighbors = systems.filter((other) => other !== system
+            && other.label
+            && !isNodeHidden(other)
+            && (system.links || []).some((link) => link.label === other.label));
+        const radius = neighbors.length > 10 ? 0.62 : 0.46;
+        neighbors.forEach((other, index) => {
+            const angle = -Math.PI / 2 + (index / Math.max(neighbors.length, 1)) * Math.PI * 2;
+            other.x = Math.cos(angle) * radius;
+            other.z = Math.sin(angle) * radius * 0.84;
+            other.vx = 0;
+            other.vz = 0;
+        });
+        const outsiders = systems.filter((other) => other.label
+            && other !== system
+            && !neighbors.includes(other)
+            && !isNodeHidden(other));
+        outsiders.forEach((other, index) => {
+            const angle = (index / Math.max(outsiders.length, 1)) * Math.PI * 2;
+            other.x = Math.cos(angle) * 1.05;
+            other.z = Math.sin(angle) * 0.88;
+            other.vx = 0;
+            other.vz = 0;
+        });
+    }
+
+    function showNeighborhood(system) {
+        centralNode = { kind: 'sun', system, opened: false };
+        focusedSystem = system;
+        highlightedEntity = null;
+        selectedEntity = null;
+        targetEntityMix = 0;
+        targetFocusMix = 1;
+        connectionPopover.hidden = true;
+        hideEntityPanel();
+        placeNeighborhood(system);
+        showBreadcrumb(system);
+        loadChildLinks(system);
+        setZoom(2.35);
+    }
+
+    function clickSun(system) {
+        const same = centralNode
+            && centralNode.kind === 'sun'
+            && centralNode.system === system;
+        if (same && centralNode.opened) return;
+        if (same) openSystem(system.label);
+        else showNeighborhood(system);
+    }
+
+    function clickEntity(systemLabel, entityLabel) {
+        const system = systems.find((candidate) => candidate.label === systemLabel);
+        const entity = system && system.entityNodes.find(
+            (candidate) => candidate.label === entityLabel);
+        if (!system || !entity) return;
+        const index = system.entityNodes.indexOf(entity);
+        const same = centralNode
+            && centralNode.kind === 'entity'
+            && centralNode.entity === entity;
+        if (same && centralNode.opened) return;
+        if (same) {
+            openEntityDetail(systemLabel, entityLabel);
+            return;
+        }
+        centralNode = {
+            kind: 'entity',
+            system,
+            entity,
+            opened: false,
+            slot: (system.siblingPoints && system.siblingPoints[index]) || { x: 0, y: 0 },
+        };
+        focusedSystem = system;
+        selectedEntity = null;
+        highlightedEntity = entity.label;
+        targetEntityMix = 0;
+        targetFocusMix = 1;
+        connectionPopover.hidden = true;
+        hideEntityPanel();
+        showEntityBreadcrumb(system, entity);
+        loadEntityRelated(entity);
+        setZoom(Math.max(targetZoom, 2.05));
+    }
+
+    function nodeChildren(system, entity) {
+        const related = (entity && entity.related) || [];
+        if (related.length) {
+            return related.map((item) => ({
+                label: item.label,
+                caption: item.predicate,
+            }));
+        }
+        return (system.links || []).map((link) => ({
+            label: link.label,
+            caption: String(link.predicate || '').replace(/[_-]+/g, ' '),
+        }));
+    }
+
+    function drawChildRing(hub, items) {
+        if (!hub || !items.length) return;
+        context.save();
+        context.globalAlpha = 1;
+        const perRing = items.length > 14 ? 10 : Math.max(items.length, 1);
+        items.forEach((item, index) => {
+            const ring = Math.floor(index / perRing);
+            const slot = index % perRing;
+            const count = Math.min(perRing, items.length - ring * perRing);
+            const angle = -Math.PI / 2 + ((slot + 0.5) / count) * Math.PI * 2;
+            const orbit = 188 + ring * 156;
+            const x = hub.x + Math.cos(angle) * orbit;
+            const y = hub.y + Math.sin(angle) * orbit;
+            context.beginPath();
+            context.moveTo(hub.x, hub.y);
+            context.lineTo(x, y);
+            context.strokeStyle = 'rgba(40, 89, 205, .4)';
+            context.lineWidth = 1.15;
+            context.stroke();
+            context.beginPath();
+            context.arc(x, y, 8, 0, Math.PI * 2);
+            context.fillStyle = '#1a73e8';
+            context.fill();
+            context.strokeStyle = '#0b57d0';
+            context.lineWidth = 1.2;
+            context.stroke();
+            context.font = '600 12px "IBM Plex Sans", ui-sans-serif, sans-serif';
+            context.fillStyle = '#283647';
+            context.textAlign = x < hub.x ? 'right' : 'left';
+            context.textBaseline = 'middle';
+            context.fillText(
+                shortLabel(item.label, 32),
+                x + (x < hub.x ? -14 : 14),
+                y,
+            );
+        });
+        context.restore();
+    }
+
+    async function loadEntityRelated(entity) {
+        if (!entity || !entity.id || entity.relatedLoaded) return;
+        entity.relatedLoaded = true;
+        try {
+            const response = await fetch(
+                `/api/ontology/entities/${encodeURIComponent(entity.id)}`);
+            if (!response.ok) return;
+            const data = await response.json();
+            entity.related = ((data && data.relations) || []).map((rel) => {
+                const target = rel && rel.target;
+                if (!target || !target.label) return null;
+                const host = systems.find((candidate) => candidate.id === target.type);
+                return {
+                    id: target.id || '',
+                    label: target.label,
+                    typeLabel: host ? host.label : '',
+                    predicate: String(rel.predicate || '').replace(/[_-]+/g, ' '),
+                };
+            }).filter(Boolean);
+            if (centralNode && centralNode.entity === entity) restart();
+        } catch (err) { /* the type links stay as the visible layer */ }
     }
 
     function openSystem(label) {
         window.clearTimeout(travelTimer);
         const system = systems.find((candidate) => candidate.label === label);
         if (!system) return;
+        centralNode = { kind: 'sun', system, opened: true };
         focusedSystem = system;
         highlightedEntity = null;
         selectedEntity = null;
@@ -2428,6 +2666,14 @@
         const entity = system && system.entityNodes.find(
             (candidate) => candidate.label === entityLabel);
         if (!system || !entity) return;
+        const index = system.entityNodes.indexOf(entity);
+        centralNode = {
+            kind: 'entity',
+            system,
+            entity,
+            opened: true,
+            slot: (system.siblingPoints && system.siblingPoints[index]) || centralNode && centralNode.slot,
+        };
         focusedSystem = system;
         selectedEntity = entity;
         highlightedEntity = entity.label;
@@ -2435,6 +2681,7 @@
         targetFocusMix = 1;
         connectionPopover.hidden = true;
         showEntityBreadcrumb(system, entity);
+        loadEntityRelated(entity);
         if (entity.id) showEntityDetails(system, entity);
         else renderEntityPanel(system, entity);
         setZoom(1.7);
@@ -3010,7 +3257,9 @@
 
     function fitGalaxy() {
         window.clearTimeout(travelTimer);
+        restoreHomes();
         focusedSystem = null;
+        centralNode = null;
         highlightedEntity = null;
         selectedEntity = null;
         targetEntityMix = 0;
@@ -3032,6 +3281,22 @@
         version: searchVersion,
         screenPositions: {},
         redraw: restart,
+        noteEntity(entity) {
+            if (!entity || !entity.id) return;
+            const system = systems.find((candidate) => candidate.id === entity.type);
+            if (!system) return;
+            system.entityNodes = system.entityNodes || [];
+            if (!system.entityNodes.some((node) => node.id === entity.id)) {
+                system.entityNodes.unshift({
+                    id: entity.id,
+                    label: entity.label,
+                    live: true,
+                });
+                system.count = (Number(system.count) || 0) + 1;
+                system.siblingPoints = null;
+            }
+            if (focusedSystem === system) showTypeDetails(system);
+        },
     };
 
     sunTargets.forEach((target) => bindSunDrag(target));
@@ -3181,6 +3446,7 @@
 
     function applyLiveLayers() {
         focusedSystem = null;
+        centralNode = null;
         selectedEntity = null;
         highlightedEntity = null;
         targetFocusMix = 0;

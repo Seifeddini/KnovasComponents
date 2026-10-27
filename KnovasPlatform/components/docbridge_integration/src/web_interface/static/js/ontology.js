@@ -1537,6 +1537,9 @@ class CortexApp {
             const data = await this.postJson('/api/ontology/entities',
                                              { type: typeId, label });
             if (!data) return;
+            if (data.entity && window.cortexGalaxy && window.cortexGalaxy.noteEntity) {
+                window.cortexGalaxy.noteEntity(data.entity);
+            }
             // Satelliten zuerst abräumen, dann den Typ frisch aufklappen —
             // sonst überschneidet sich die Einfahr-Animation mit dem Neuaufbau.
             this.collapseType(typeId);
@@ -1552,24 +1555,61 @@ class CortexApp {
     openTypeCreateForm() {
         this.openEntityDrawer();
         this.setDrawerDelete(null);
-        document.getElementById('entityPaneTitle').textContent = 'Neuer Typ';
+        document.getElementById('entityPaneTitle').textContent = 'Anlegen';
         const body = document.getElementById('entityPaneBody');
         body.innerHTML = `
             <div class="entity-detail">
-                <p class="entity-hint">Typen sind die Struktur Ihres Netzes,
-                   zum Beispiel Mandant, Dossier oder Vertrag.</p>
+                <h3>Neuer Typ</h3>
+                <p class="entity-hint">Ein Typ ist eine Sorte von Knoten, zum Beispiel Mandant oder Capability.</p>
                 <div class="create-row">
                     <input type="text" id="typeInput" maxlength="80"
                            placeholder="Name des Typs, z. B. Mandant"
                            aria-label="Name des neuen Typs">
-                    <button type="button" id="typeCreateSubmit" class="btn btn-primary">Anlegen</button>
+                    <button type="button" id="typeCreateSubmit" class="btn btn-primary">Typ anlegen</button>
                 </div>
+                <h3>Neuer Knoten</h3>
+                <p class="entity-hint">Ein Knoten gehört zu einem Typ. Wählen Sie den Typ und den Namen.</p>
+                <div class="create-row">
+                    <select id="nodeType" aria-label="Typ des neuen Knotens"></select>
+                    <input type="text" id="nodeInput" maxlength="120"
+                           placeholder="Name des Knotens"
+                           aria-label="Name des neuen Knotens">
+                    <button type="button" id="nodeCreateSubmit" class="btn btn-primary">Knoten anlegen</button>
+                </div>
+                <p class="entity-hint" id="createFehler" hidden></p>
             </div>`;
+        const select = document.getElementById('nodeType');
+        this.cy.nodes().forEach((node) => {
+            if (node.hasClass('entity') || node.hasClass('filter-node')) return;
+            const name = node.data('label');
+            if (!name) return;
+            const option = document.createElement('option');
+            option.value = node.id();
+            option.textContent = name;
+            select.appendChild(option);
+        });
         const input = document.getElementById('typeInput');
-        const submit = () => this.onTypeCreate(input.value);
-        document.getElementById('typeCreateSubmit').addEventListener('click', submit);
+        const submitType = () => this.onTypeCreate(input.value);
+        document.getElementById('typeCreateSubmit').addEventListener('click', submitType);
         input.addEventListener('keydown', (evt) => {
-            if (evt.key === 'Enter') { evt.preventDefault(); submit(); }
+            if (evt.key === 'Enter') { evt.preventDefault(); submitType(); }
+        });
+        const nodeInput = document.getElementById('nodeInput');
+        const submitNode = () => {
+            const option = select.selectedOptions[0];
+            const fehler = document.getElementById('createFehler');
+            if (!option) {
+                if (fehler) {
+                    fehler.textContent = 'Wählen Sie einen Typ.';
+                    fehler.hidden = false;
+                }
+                return;
+            }
+            this.onEntityCreate(select.value, option.textContent, nodeInput.value);
+        };
+        document.getElementById('nodeCreateSubmit').addEventListener('click', submitNode);
+        nodeInput.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter') { evt.preventDefault(); submitNode(); }
         });
         input.focus({ preventScroll: true });
     }

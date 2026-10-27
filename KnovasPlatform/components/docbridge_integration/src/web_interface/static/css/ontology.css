@@ -1321,6 +1321,22 @@ input[type="text"]::placeholder {
     flex: 1 1 140px;
 }
 
+.galaxy-type-select {
+    flex: 1 1 160px;
+    min-height: 42px;
+    padding: 0 12px;
+    color: var(--text-primary);
+    border: 1px solid #cbd2e2;
+    border-radius: 11px;
+    background: #fff;
+}
+
+.galaxy-mini {
+    min-height: 32px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+}
+
 .filter-card,
 .proposal-card {
     margin-top: 16px;
