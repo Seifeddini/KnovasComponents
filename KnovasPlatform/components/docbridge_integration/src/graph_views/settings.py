@@ -21,6 +21,7 @@ class ViewSettings:
     workers: int = 4
     fanout_threshold: int = 5
     chip_status_max: int = 60
+    trace_fact_budget: int = 48
     page_size: int = 50
     max_hops: int = 4
     max_nodes_per_hop: int = 2000

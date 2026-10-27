@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -116,3 +116,25 @@ def test_definitions_render_without_messages_appends_no_empty_node():
 def test_definitions_path_text_follows_direction():
     source = (JS / "views_definitions.js").read_text(encoding="utf-8")
     assert "h.direction === 'out'" in source
+
+
+@needs_node
+def test_trace_flags_only_the_current_lane():
+    lane = lambda state: {"id": state, "name": state, "order": 1, "state": state, "entered": None,
+                          "description": "", "exit_criteria": [],
+                          "artefacts": [{"type": "Commit", "path": "←implements– Commit", "required": True,
+                                         "min_count": 1, "count": 0, "missing": True, "items": [], "chip": None}]}
+    out = _run_node("""
+        const box = document.createElement('div');
+        const page = {typeLabel: (t) => t, overrides: {}, openDossier() {}, openTraceItems() {}, center() {}};
+        window.ViewsProcess.renderTrace(box, {instance: {id: 'x', name: 'X', key: 'K'}, process: {name: 'P'},
+            current: {step: 'b', since: '2026-10-20', days: 7}, missing: [{}], unmet: [], context: [],
+            lanes: [LANE_A, LANE_B]}, page);
+        const flagged = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (c && c.className) {
+            if (String(c.className).includes('views-art-missing')) flagged.push(1); walk(c); } });
+        walk(box);
+        out(flagged.length);
+    """.replace("LANE_A", __import__("json").dumps(lane("done"))).replace("LANE_B", __import__("json").dumps(lane("current"))),
+        [JS / "views_core.js", JS / "views_process.js"])
+    assert out == 1

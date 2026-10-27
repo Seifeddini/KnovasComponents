@@ -15,7 +15,13 @@
                 node: params.get('node') || '',
                 meta: params.get('meta') === '1',
                 threshold: parseInt(params.get('n') || '5', 10) || 5,
+                process: params.get('process') || 'PROC-feature-lifecycle',
+                instance: params.get('instance') || '',
+                owner: params.get('owner') || '',
+                capability: params.get('capability') || '',
+                status: params.get('status') || '',
             };
+            this.typeLabels = {};
             this.overrides = {};
             this.legend = {};
             this.cy = null;
@@ -37,6 +43,7 @@
             this.$('viewsRefresh').addEventListener('click', () => this.reload(true));
             this.$('viewsPanelClose').addEventListener('click', () => this.closePanel());
             this.bindSearch();
+            this.bindProcessControls();
             document.querySelectorAll('#viewsKinds button[data-kind]').forEach((b) => {
                 b.addEventListener('click', () => this.setKind(b.dataset.kind));
             });
@@ -47,6 +54,15 @@
         static get DOM_KINDS() {
             return {
                 definitions: { path: () => ['/api/views/definitions', {}], render: (box, body) => root.ViewsDefinitions.render(box, body, this) },
+                trace: {
+                    path: (s) => (s.instance ? ['/api/views/trace', { process: s.process, instance: s.instance, meta: s.meta }] : null),
+                    empty: 'Eine Instanz suchen (Schlüssel oder Name), um ihren Ablauf zu sehen.',
+                    render: (box, body, page) => { page.learnLabels(body.legend); root.ViewsProcess.renderTrace(box, body, page); },
+                },
+                board: {
+                    path: (s) => ['/api/views/board', { process: s.process, owner: s.owner, capability: s.capability, status: s.status }],
+                    render: (box, body, page) => { page.fillFilters(body.filters, body.applied); root.ViewsProcess.renderBoard(box, body, page); },
+                },
             };
         }
 
@@ -64,14 +80,18 @@
             this.$('viewsDoc').hidden = isGraph;
             this.$('viewsLegend').hidden = !isGraph;
             if (!initial) this.closePanel();
+            if (['trace', 'board'].includes(this.state.kind)) this.loadProcesses();
             this.reload();
         }
 
         syncUrl() {
             // Keep parameters this controller does not own (?open= of the definitions).
             const params = new URLSearchParams(root.location.search);
-            ['node', 'meta', 'n'].forEach((k) => params.delete(k));
+            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status'].forEach((k) => params.delete(k));
             params.set('kind', this.state.kind);
+            ['process', 'instance', 'owner', 'capability', 'status'].forEach((k) => {
+                if (this.state[k] && (k !== 'process' || ['trace', 'board'].includes(this.state.kind))) params.set(k, this.state[k]);
+            });
             if (this.state.node) params.set('node', this.state.node);
             if (this.state.meta) params.set('meta', '1');
             if (this.state.threshold !== 5) params.set('n', String(this.state.threshold));
@@ -120,11 +140,17 @@
             const box = clear(this.$('viewsDoc'));
             box.appendChild(el('p', { className: 'views-muted', text: 'Lädt…' }));
             try {
-                const [path, params] = kind.path(this.state);
+                const target = kind.path(this.state);
+                if (!target) {
+                    clear(box);
+                    box.appendChild(el('p', { className: 'views-muted', text: kind.empty || '' }));
+                    return;
+                }
+                const [path, params] = target;
                 const body = await api(path, Object.assign({}, params, { refresh: !!refresh }));
                 clear(box);
                 this.showAnswerMeta(body);
-                kind.render(box, body);
+                kind.render(box, body, this);
             } catch (err) {
                 clear(box);
                 box.appendChild(el('p', { className: 'views-error', text: err.message }));
@@ -146,7 +172,105 @@
         center(id) {
             this.state.node = id;
             this.closePanel();
-            this.reload();
+            if (this.state.kind !== 'graph') this.setKind('graph');
+            else this.reload();
+        }
+
+        openTrace(id) {
+            this.state.instance = id;
+            this.setKind('trace');
+        }
+
+        learnLabels(legend) {
+            (legend || []).forEach((t) => { this.typeLabels[t.name] = t.label; this.legend[t.name] = t; });
+        }
+
+        typeLabel(type) {
+            return this.typeLabels[type] || type;
+        }
+
+        async loadProcesses() {
+            if (this.processesLoaded) return;
+            this.processesLoaded = true;
+            const select = this.$('viewsProcess');
+            try {
+                const d = await api('/api/views/definitions');
+                clear(select);
+                d.processes.forEach((p) => select.appendChild(el('option', { value: p.key, text: p.name, selected: p.key === this.state.process })));
+            } catch (err) {
+                this.processesLoaded = false;
+            }
+        }
+
+        bindProcessControls() {
+            const select = this.$('viewsProcess');
+            select.appendChild(el('option', { value: this.state.process, text: this.state.process }));
+            select.addEventListener('change', () => {
+                this.state.process = select.value;
+                this.state.instance = '';
+                this.state.owner = '';
+                this.state.capability = '';
+                this.state.status = '';
+                this.reload();
+            });
+            [['owner', 'viewsFilterOwner'], ['capability', 'viewsFilterCapability'], ['status', 'viewsFilterStatus']].forEach(([k, id]) => {
+                this.$(id).addEventListener('change', (e) => { this.state[k] = e.target.value; this.reload(); });
+            });
+            const input = this.$('viewsInstanceInput');
+            const list = this.$('viewsInstanceResults');
+            let timer = null;
+            const run = async () => {
+                try {
+                    const d = await api('/api/views/instances', { process: this.state.process, q: input.value.trim() });
+                    clear(list);
+                    d.results.forEach((r) => list.appendChild(el('li', { role: 'option' }, [
+                        el('button', { type: 'button', onclick: () => { list.hidden = true; input.value = ''; this.openTrace(r.id); } },
+                            [el('span', { className: 'views-tech', text: r.key || '' }), el('span', { text: r.name }),
+                                r.step ? el('span', { className: 'views-badge views-badge-muted', text: r.step }) : null]),
+                    ])));
+                    if (!d.results.length) list.appendChild(el('li', { className: 'views-muted', text: 'Nichts gefunden.' }));
+                    list.hidden = false;
+                } catch (err) {
+                    this.notice(err.message);
+                }
+            };
+            input.addEventListener('focus', run);
+            input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 250); });
+        }
+
+        fillFilters(filters, applied) {
+            const fill = (id, values, current, label) => {
+                const select = clear(this.$(id));
+                select.appendChild(el('option', { value: '', text: label }));
+                values.forEach((v) => {
+                    const value = typeof v === 'string' ? v : v.id;
+                    const text = typeof v === 'string' ? v : v.name;
+                    select.appendChild(el('option', { value, text, selected: value === current }));
+                });
+            };
+            fill('viewsFilterOwner', filters.owners, applied.owner, 'alle Verantwortlichen');
+            fill('viewsFilterCapability', filters.capabilities, applied.capability, 'alle Fähigkeiten');
+            fill('viewsFilterStatus', filters.statuses, applied.status, 'alle Status');
+        }
+
+        async openTraceItems(where, position, artefact) {
+            const body = this.openPanel(artefact.count + ' × ' + this.typeLabel(artefact.type));
+            const load = async (pageNo) => {
+                clear(body);
+                try {
+                    const d = await api('/api/views/trace/items', { process: this.state.process, instance: this.state.instance, where, position, page: pageNo });
+                    body.appendChild(el('p', { className: 'views-muted', text: d.path + ' · Seite ' + (d.page + 1) + ' von ' + d.pages }));
+                    body.appendChild(el('ul', { className: 'views-list' }, d.members.map((m) => el('li', {}, [
+                        this.nodeLink(m), m.status ? el('span', { className: 'views-status', dataset: { status: m.status }, text: m.status }) : null]))));
+                    const nav = el('div', { className: 'views-pager' });
+                    if (d.page > 0) nav.appendChild(el('button', { type: 'button', className: 'views-button', text: '‹ Zurück', onclick: () => load(d.page - 1) }));
+                    if (d.page + 1 < d.pages) nav.appendChild(el('button', { type: 'button', className: 'views-button', text: 'Weiter ›', onclick: () => load(d.page + 1) }));
+                    body.appendChild(nav);
+                } catch (err) {
+                    body.appendChild(el('p', { className: 'views-error', text: err.message }));
+                }
+            };
+            load(0);
         }
 
         renderLegend(types) {

@@ -128,6 +128,56 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             body.update(errors=d.errors, gaps=d.gaps, differences=d.differences)
         return jsonify(body)
 
+    from graph_views import process_views
+
+    def _arg(name: str) -> str:
+        return str(request.args.get(name, "") or "").strip()
+
+    def _process_context():
+        context = ctx()
+        return context, service.definitions(context)
+
+    def _placeable(fn):
+        try:
+            return fn()
+        except process_views.NotPlaceable as exc:
+            return jsonify({"success": False, "error": str(exc)}), 404
+
+    @bp.route("/api/views/instances")
+    @guarded
+    def process_instances():
+        context, d = _process_context()
+        rows = process_views.search_instances(context, d, _arg("process"), _arg("q"))
+        return jsonify(context.envelope(results=rows))
+
+    @bp.route("/api/views/trace")
+    @guarded
+    def process_trace():
+        context, d = _process_context()
+        instance = _arg("instance")
+        if not _arg("process") or not instance:
+            return jsonify({"success": False, "error": "Prozess und Instanz angeben."}), 400
+        return _placeable(lambda: jsonify(process_views.trace(
+            context, d, _arg("process"), instance, show_meta=_flag("meta"))))
+
+    @bp.route("/api/views/trace/items")
+    @guarded
+    def process_trace_items():
+        context, d = _process_context()
+        return _placeable(lambda: jsonify(process_views.trace_items(
+            context, d, _arg("process"), _arg("instance"), _arg("where"),
+            _int("position", -1), _int("page", 0) or 0)))
+
+    @bp.route("/api/views/board")
+    @guarded
+    def process_board():
+        context, d = _process_context()
+        if not _arg("process"):
+            return jsonify({"success": False, "error": "Prozess angeben."}), 400
+        return _placeable(lambda: jsonify(process_views.board(
+            context, d, _arg("process"), owner=_arg("owner"), capability=_arg("capability"),
+            status=_arg("status"))))
+
     bp.guarded = guarded
     bp.is_admin = is_admin
     bp.view_context = ctx
