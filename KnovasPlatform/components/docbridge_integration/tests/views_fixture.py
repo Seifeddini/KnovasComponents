@@ -119,19 +119,68 @@ class FakeViewsClient:
         return 404, {"error": f"no route {path}"}
 
 
+def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, Any]]] = None,
+                          spines: Optional[List[Dict[str, Any]]] = None) -> Dict[str, str]:
+    """Write definition nodes the way KnowledgeBase's loader does (--only definitions).
+
+    Facts as on tenant af639810 on 2026-10-27: JSON for context, requires,
+    produces, levels and branches; comma lists for instance_types and
+    exit_criteria; transitions as transitions_to edges; the value stream as a
+    part_of edge. Returns node ids by key.
+    """
+    import json as _json
+    from graph_views import definitions as defs
+
+    proc_doc, spine_doc = defs.vendored()
+    ids: Dict[str, str] = {}
+    streams: Dict[str, str] = {}
+    for p in processes if processes is not None else proc_doc["processes"]:
+        facts = {"meta": "yes", "owner_role": p["owner_role"], "instance_types": ", ".join(p["instance_types"]),
+                 "context": _json.dumps(p.get("context", []), separators=(",", ":")),
+                 "source": "docs/ModernDocs/client-zero/ontology/processes.yaml"}
+        for opt in ("exists_today", "pack"):
+            if p.get(opt):
+                facts[opt] = p[opt]
+        pid = g.node("Process", p["name"], key=p["key"], description=p.get("description", ""), **facts)
+        ids[p["key"]] = pid
+        if p.get("value_stream"):
+            vs = streams.get(p["value_stream"]) or g.node("ValueStream", p["value_stream"], key=p["value_stream"])
+            streams[p["value_stream"]] = vs
+            ids.setdefault(p["value_stream"], vs)
+            g.edge(pid, "part_of", vs)
+        by_step = {}
+        for s in p["steps"]:
+            sf = {"meta": "yes", "order": s["order"], "resting": "yes" if s.get("resting") else "no"}
+            for fld in ("requires", "produces"):
+                if s.get(fld):
+                    sf[fld] = _json.dumps(s[fld], separators=(",", ":"))
+            if s.get("exit_criteria"):
+                sf["exit_criteria"] = ", ".join(s["exit_criteria"])
+            sid = g.node("ProcessStep", f"{p['name']}: {s.get('name', s['id'])}", key=s["key"],
+                         description=f"Step {s['order']} of {len(p['steps'])} in the {p['name']} process.", **sf)
+            ids[s["key"]] = sid
+            by_step[s["id"]] = sid
+            g.edge(pid, "has_step", sid)
+        for t in p.get("transitions", []):
+            g.edge(by_step[t["from"]], "transitions_to", by_step[t["to"]])
+    for sp in spines if spines is not None else spine_doc["spines"]:
+        sf = {"meta": "yes", "levels": _json.dumps(sp["levels"], separators=(",", ":"))}
+        if sp.get("branches"):
+            sf["branches"] = _json.dumps(sp["branches"], separators=(",", ":"))
+        ids[sp["key"]] = g.node("Spine", sp["name"], key=sp["key"], description=sp.get("description", ""), **sf)
+    return ids
+
+
 def client_zero_graph() -> FixtureGraph:
     """Enough of tenant af639810 to exercise every view (grown per step)."""
     g = FixtureGraph()
     for t in ("Process", "ProcessStep", "Spine", "SpineLevel", "GlossaryTerm", "Event", "Phase", "Gate"):
         g.type(t, meta_capable=True)
 
-    proc = g.node("Process", "Feature lifecycle", key="PROC-feature-lifecycle", meta="yes")
-    steps = {}
-    for order, step in enumerate(["idea", "brief", "approved", "implementing", "verified",
-                                  "implemented", "released", "killed"], start=1):
-        steps[step] = g.node("ProcessStep", f"Feature lifecycle: {step}",
-                             key=f"STEP-feature-lifecycle-{step}", order=order, meta="yes")
-        g.edge(proc, "has_step", steps[step])
+    defs_ids = load_definitions_into(g)
+    proc = defs_ids["PROC-feature-lifecycle"]
+    steps = {k[len("STEP-feature-lifecycle-"):]: v for k, v in defs_ids.items()
+             if k.startswith("STEP-feature-lifecycle-")}
 
     comp = g.node("Component", "L2-KNOWLEDGE-GRAPH — Knowledge Graph", key="L2-KNOWLEDGE-GRAPH",
                   description="The knowledge graph the brain is built on.")

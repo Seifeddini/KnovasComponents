@@ -18,6 +18,7 @@
         <div class="views-picker" id="viewsPicker" hidden></div>
         <nav class="views-kinds" id="viewsKinds" aria-label="Darstellung">
             <button type="button" data-kind="graph" aria-pressed="true">Graph</button>
+            <button type="button" data-kind="definitions" aria-pressed="false">Definitionen</button>
         </nav>
         <div class="views-freshness">
             <span id="viewsAsOf" class="views-asof" aria-live="polite"></span>
@@ -32,15 +33,15 @@
     <main class="views-main"><p class="views-empty">Wissensnetz-Modus erforderlich</p></main>
     {% else %}
     <div class="views-toolbar" id="viewsToolbar">
-        <form class="views-search" id="viewsSearch" role="search" autocomplete="off">
+        <form class="views-search" id="viewsSearch" role="search" autocomplete="off" data-kinds="graph">
             <label class="visually-hidden" for="viewsSearchInput">Knoten suchen</label>
             <input id="viewsSearchInput" type="search" placeholder="Knoten suchen (Name)…" minlength="2">
             <ul class="views-search-results" id="viewsSearchResults" role="listbox" hidden></ul>
         </form>
-        <label class="views-toggle">
+        <label class="views-toggle" data-kinds="graph">
             <input type="checkbox" id="viewsMeta"> Meta-Ebene zeigen
         </label>
-        <label class="views-threshold">
+        <label class="views-threshold" data-kinds="graph">
             Gruppieren ab <input type="number" id="viewsThreshold" min="1" max="50" value="5"> Nachbarn
         </label>
         <p class="views-notice" id="viewsNotice" hidden></p>
@@ -50,6 +51,7 @@
         <aside class="views-legend" id="viewsLegend" aria-label="Legende der Typen"></aside>
         <section class="views-stage" id="viewsStage" aria-live="polite">
             <div class="views-canvas" id="viewsCanvas"></div>
+            <div class="views-doc" id="viewsDoc" hidden></div>
             <p class="views-empty" id="viewsEmpty">Einen Knoten suchen, um seine Umgebung zu sehen.</p>
         </section>
         <aside class="views-panel" id="viewsPanel" aria-label="Dossier" hidden>
@@ -66,6 +68,7 @@
     <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_core.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_graph.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_definitions.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

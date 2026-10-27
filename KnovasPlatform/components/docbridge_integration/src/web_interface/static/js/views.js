@@ -37,11 +37,40 @@
             this.$('viewsRefresh').addEventListener('click', () => this.reload(true));
             this.$('viewsPanelClose').addEventListener('click', () => this.closePanel());
             this.bindSearch();
+            document.querySelectorAll('#viewsKinds button[data-kind]').forEach((b) => {
+                b.addEventListener('click', () => this.setKind(b.dataset.kind));
+            });
+            this.setKind(this.state.kind, true);
+        }
+
+        /** Render kinds drawn as DOM (everything but the graph), by name. */
+        static get DOM_KINDS() {
+            return {
+                definitions: { path: () => ['/api/views/definitions', {}], render: (box, body) => root.ViewsDefinitions.render(box, body, this) },
+            };
+        }
+
+        setKind(kind, initial) {
+            const known = kind === 'graph' || ViewsPage.DOM_KINDS[kind];
+            this.state.kind = known ? kind : 'graph';
+            document.querySelectorAll('#viewsKinds button[data-kind]').forEach((b) => {
+                b.setAttribute('aria-pressed', String(b.dataset.kind === this.state.kind));
+            });
+            document.querySelectorAll('[data-kinds]').forEach((n) => {
+                n.hidden = !n.dataset.kinds.split(' ').includes(this.state.kind);
+            });
+            const isGraph = this.state.kind === 'graph';
+            this.$('viewsCanvas').hidden = !isGraph;
+            this.$('viewsDoc').hidden = isGraph;
+            this.$('viewsLegend').hidden = !isGraph;
+            if (!initial) this.closePanel();
             this.reload();
         }
 
         syncUrl() {
-            const params = new URLSearchParams();
+            // Keep parameters this controller does not own (?open= of the definitions).
+            const params = new URLSearchParams(root.location.search);
+            ['node', 'meta', 'n'].forEach((k) => params.delete(k));
             params.set('kind', this.state.kind);
             if (this.state.node) params.set('node', this.state.node);
             if (this.state.meta) params.set('meta', '1');
@@ -69,6 +98,8 @@
 
         async reload(refresh) {
             this.syncUrl();
+            const domKind = ViewsPage.DOM_KINDS[this.state.kind];
+            if (domKind) return this.reloadDom(domKind, refresh);
             if (!this.state.node) {
                 this.$('viewsEmpty').hidden = false;
                 return;
@@ -81,6 +112,22 @@
                 this.draw(body);
             } catch (err) {
                 this.notice(err.message);
+            }
+        }
+
+        async reloadDom(kind, refresh) {
+            this.$('viewsEmpty').hidden = true;
+            const box = clear(this.$('viewsDoc'));
+            box.appendChild(el('p', { className: 'views-muted', text: 'Lädt…' }));
+            try {
+                const [path, params] = kind.path(this.state);
+                const body = await api(path, Object.assign({}, params, { refresh: !!refresh }));
+                clear(box);
+                this.showAnswerMeta(body);
+                kind.render(box, body);
+            } catch (err) {
+                clear(box);
+                box.appendChild(el('p', { className: 'views-error', text: err.message }));
             }
         }
 

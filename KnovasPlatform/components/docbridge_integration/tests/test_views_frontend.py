@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -94,3 +94,25 @@ def test_chip_label_names_nodes_without_a_status():
             breakdown: [{status: null, count: 8}]}, 'Commit')));
     """, [JS / "views_core.js"])
     assert unquote(out) == "8 × Commit"
+
+
+@needs_node
+def test_definitions_render_without_messages_appends_no_empty_node():
+    """An empty error list once appended null, which a real DOM refuses."""
+    out = _run_node("""
+        const box = document.createElement('div');
+        window.ViewsDefinitions.render(box, {source: 'tenant', errors: [], gaps: [], differences: [],
+            processes: [{key: 'PROC-x', name: 'X', instance_types: ['T'], context: [],
+                         steps: [{id: 'a', name: 'a', order: 1, requires: [], produces: [], exit_criteria: []}]}],
+            spines: [{key: 'SPINE-x', name: 'S', levels: [{id: 'L1', name: 'L', types: ['T']}]}]});
+        const nulls = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (!c) nulls.push(1); else walk(c); });
+        walk(box);
+        out([nulls.length, box.children[0].children.length]);
+    """, [JS / "views_core.js", JS / "views_definitions.js"])
+    assert out[0] == 0 and out[1] > 0
+
+
+def test_definitions_path_text_follows_direction():
+    source = (JS / "views_definitions.js").read_text(encoding="utf-8")
+    assert "h.direction === 'out'" in source

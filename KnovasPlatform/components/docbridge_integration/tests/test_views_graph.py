@@ -445,8 +445,9 @@ def test_vendored_copies_match_their_pin():
     assert source["files"], "SOURCE.json lists no file"
     for name, pin in source["files"].items():
         data = (DEFINITIONS / name).read_bytes().replace(b"\r\n", b"\n")
-        assert hashlib.sha256(data).hexdigest() == pin["sha256"], f"{name} diverged from {pin['commit']}"
-        assert len(pin["commit"]) == 40
+        assert hashlib.sha256(data).hexdigest() == pin["sha256"], f"{name} diverged from its pin"
+        # A copy is pinned to a KnowledgeBase commit, or says why it cannot be.
+        assert (pin.get("commit") and len(pin["commit"]) == 40) or pin.get("note"), name
 
 
 def test_every_vendored_file_is_pinned():

@@ -58,7 +58,8 @@ class ViewService:
         self._bucket = bucket
         self.cache = TopologyCache(self.settings, now=now)
         self.schemas = KeyedTTL(self.settings.definitions_ttl_seconds, now=now)
-        self._markers = markers or (lambda: type_markers(descriptions.load()))
+        self.defs = KeyedTTL(self.settings.definitions_ttl_seconds, now=now)
+        self._markers = markers or _file_markers
 
     def _acquire(self) -> None:
         bucket = self._bucket or shared_bucket(self.settings.fact_rate_per_minute,
@@ -78,6 +79,12 @@ class ViewService:
                               exact_max=self.settings.meta_exact_max)
         return ViewContext(state, reader, meta, schemas, key, self.settings, started=started)
 
+    def definitions(self, ctx: ViewContext, refresh: bool = False):
+        """Process and spine definitions for this subject, cached for the definitions TTL."""
+        from graph_views import definitions as defs
+
+        return self.defs.get(ctx.key, lambda: defs.load(ctx), refresh=refresh)
+
     def forget_subject(self, subject_id: str) -> None:
         """Logout: drop this subject's index, facts and schema decisions."""
         import json
@@ -85,6 +92,15 @@ class ViewService:
         self.cache.drop_subject(subject_id)
         self.schemas.drop(lambda k: isinstance(k, tuple) and k[0] is not None
                           and json.loads(k[0])[1] == str(subject_id))
+        self.defs.drop(lambda k: k is not None and json.loads(k)[1] == str(subject_id))
+
+
+def _file_markers() -> Set[str]:
+    """Type-level meta markers from the pinned ontology files (none yet; Phase P adds them)."""
+    from graph_views import definitions as defs
+
+    proc, spine = defs.vendored()
+    return type_markers(descriptions.load(), proc, spine)
 
 
 # -- helpers shared by the views ------------------------------------------------

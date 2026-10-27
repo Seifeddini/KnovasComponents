@@ -106,6 +106,29 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         return jsonify(views.search(ctx(), str(request.args.get("q", "") or ""),
                                     show_meta=_flag("meta")))
 
+    def is_admin() -> bool:
+        # Identity off: the one shared login is the operator of this deployment.
+        if gate is None:
+            return True
+        user = gate.current_user()
+        return user is not None and "admin" in user.roles
+
+    @bp.route("/api/views/definitions")
+    @guarded
+    def definitions():
+        context = ctx()
+        d = service.definitions(context, refresh=_flag("refresh"))
+        body = context.envelope(
+            source=d.source, processes=d.processes, spines=d.spines, rules=d.rules,
+            pinned={name: {k: v for k, v in pin.items() if k in ("commit", "note")}
+                    for name, pin in (d.pinned.get("files") or {}).items()})
+        if is_admin():
+            # Validation errors, gaps and differences are for the people who can
+            # fix the ontology; everyone else sees the definitions themselves.
+            body.update(errors=d.errors, gaps=d.gaps, differences=d.differences)
+        return jsonify(body)
+
     bp.guarded = guarded
+    bp.is_admin = is_admin
     bp.view_context = ctx
     return bp
