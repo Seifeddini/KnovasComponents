@@ -1,0 +1,15 @@
+{
+ "files": {
+  "descriptions.yaml": {
+   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "path": "docs/ModernDocs/client-zero/ontology/descriptions.yaml",
+   "sha256": "77a670ccc6f167a4635ae0ef4986223e5c3c241655f75333d77d1a7070c8d693"
+  },
+  "relations.yaml": {
+   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "path": "docs/ModernDocs/client-zero/ontology/relations.yaml",
+   "sha256": "4727e9b3be4ddd321f9e3603cbd82425825384ffb95e13cc9413f02b7808498f"
+  }
+ },
+ "repository": "Seifeddini/KnowledgeBase"
+}

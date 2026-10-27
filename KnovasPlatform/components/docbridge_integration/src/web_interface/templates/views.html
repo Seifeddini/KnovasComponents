@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ brand }} Ansichten</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/views.css') }}?v={{ asset_version }}">
+</head>
+<body class="views-page" data-admin="{{ 'true' if is_admin else 'false' }}">
+    <header class="views-header">
+        <a class="views-brand" href="{{ url_for('ontology_page') }}" aria-label="Zurück zum Cortex">
+            <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}" alt="Knovas" width="96" height="13">
+        </a>
+        <h1 class="views-title">Ansichten</h1>
+        <div class="views-picker" id="viewsPicker" hidden></div>
+        <nav class="views-kinds" id="viewsKinds" aria-label="Darstellung">
+            <button type="button" data-kind="graph" aria-pressed="true">Graph</button>
+        </nav>
+        <div class="views-freshness">
+            <span id="viewsAsOf" class="views-asof" aria-live="polite"></span>
+            <button type="button" id="viewsRefresh" class="views-icon-button" title="Neu laden (ohne Zwischenspeicher)"
+                    aria-label="Neu laden">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+            </button>
+        </div>
+    </header>
+
+    {% if not graph_mode %}
+    <main class="views-main"><p class="views-empty">Wissensnetz-Modus erforderlich</p></main>
+    {% else %}
+    <div class="views-toolbar" id="viewsToolbar">
+        <form class="views-search" id="viewsSearch" role="search" autocomplete="off">
+            <label class="visually-hidden" for="viewsSearchInput">Knoten suchen</label>
+            <input id="viewsSearchInput" type="search" placeholder="Knoten suchen (Name)…" minlength="2">
+            <ul class="views-search-results" id="viewsSearchResults" role="listbox" hidden></ul>
+        </form>
+        <label class="views-toggle">
+            <input type="checkbox" id="viewsMeta"> Meta-Ebene zeigen
+        </label>
+        <label class="views-threshold">
+            Gruppieren ab <input type="number" id="viewsThreshold" min="1" max="50" value="5"> Nachbarn
+        </label>
+        <p class="views-notice" id="viewsNotice" hidden></p>
+    </div>
+
+    <main class="views-main">
+        <aside class="views-legend" id="viewsLegend" aria-label="Legende der Typen"></aside>
+        <section class="views-stage" id="viewsStage" aria-live="polite">
+            <div class="views-canvas" id="viewsCanvas"></div>
+            <p class="views-empty" id="viewsEmpty">Einen Knoten suchen, um seine Umgebung zu sehen.</p>
+        </section>
+        <aside class="views-panel" id="viewsPanel" aria-label="Dossier" hidden>
+            <header class="views-panel-head">
+                <h2 id="viewsPanelTitle"></h2>
+                <button type="button" class="views-icon-button" id="viewsPanelClose" aria-label="Schließen">×</button>
+            </header>
+            <div class="views-panel-body" id="viewsPanelBody"></div>
+        </aside>
+    </main>
+    <div class="views-tooltip" id="viewsTooltip" role="tooltip" hidden></div>
+    {% endif %}
+
+    <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_core.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_graph.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>
