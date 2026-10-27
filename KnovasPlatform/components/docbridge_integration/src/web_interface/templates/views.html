@@ -20,6 +20,8 @@
             <button type="button" data-kind="graph" aria-pressed="true">Graph</button>
             <button type="button" data-kind="trace" aria-pressed="false">Ablauf</button>
             <button type="button" data-kind="board" aria-pressed="false">Board</button>
+            <button type="button" data-kind="tree" aria-pressed="false">Baum</button>
+            <button type="button" data-kind="matrix" aria-pressed="false">Matrix</button>
             <button type="button" data-kind="definitions" aria-pressed="false">Definitionen</button>
         </nav>
         <div class="views-freshness">
@@ -48,6 +50,12 @@
             <input id="viewsInstanceInput" type="search" placeholder="Instanz suchen (Schlüssel oder Name)…" autocomplete="off">
             <ul class="views-search-results" id="viewsInstanceResults" role="listbox" hidden></ul>
         </div>
+        <label class="views-field" data-kinds="tree matrix">Achse
+            <select id="viewsSpine"></select>
+        </label>
+        <label class="views-field" data-kinds="tree matrix"><select id="viewsBranch" aria-label="Zweig"></select></label>
+        <label class="views-field" data-kinds="matrix">Zeilen <select id="viewsRows"></select></label>
+        <label class="views-field" data-kinds="matrix">Spalten <select id="viewsCols"></select></label>
         <label class="views-field" data-kinds="board"><select id="viewsFilterOwner" aria-label="Verantwortlich"></select></label>
         <label class="views-field" data-kinds="board"><select id="viewsFilterCapability" aria-label="Fähigkeit"></select></label>
         <label class="views-field" data-kinds="board"><select id="viewsFilterStatus" aria-label="Status"></select></label>
@@ -83,6 +91,7 @@
     <script src="{{ url_for('static', filename='js/views_graph.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_definitions.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_process.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_spine.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

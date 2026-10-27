@@ -178,6 +178,32 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             context, d, _arg("process"), owner=_arg("owner"), capability=_arg("capability"),
             status=_arg("status"))))
 
+    from graph_views import spine_views
+
+    def _drawable(fn):
+        try:
+            return fn()
+        except spine_views.NotDrawable as exc:
+            return jsonify({"success": False, "error": str(exc)}), 404
+
+    @bp.route("/api/views/tree")
+    @guarded
+    def spine_tree():
+        context, d = _process_context()
+        if not _arg("spine"):
+            return jsonify({"success": False, "error": "Achse angeben."}), 400
+        return _drawable(lambda: jsonify(spine_views.tree(
+            context, d, _arg("spine"), parent=_arg("parent"), level=_arg("level"), branch=_arg("branch"))))
+
+    @bp.route("/api/views/matrix")
+    @guarded
+    def spine_matrix():
+        context, d = _process_context()
+        if not (_arg("spine") and _arg("rows") and _arg("cols")):
+            return jsonify({"success": False, "error": "Achse, Zeilen- und Spaltenebene angeben."}), 400
+        return _drawable(lambda: jsonify(spine_views.matrix(
+            context, d, _arg("spine"), _arg("rows"), _arg("cols"), branch=_arg("branch"))))
+
     bp.guarded = guarded
     bp.is_admin = is_admin
     bp.view_context = ctx
