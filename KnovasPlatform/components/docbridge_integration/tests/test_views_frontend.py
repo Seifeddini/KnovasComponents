@@ -1,0 +1,96 @@
+"""Ansichten: the page's scripts, run in Node with the stub DOM of the
+experiments tests. No markup sinks, chips drawn as one element, stable styles.
+"""
+from __future__ import annotations
+
+import subprocess
+from urllib.parse import unquote
+
+import pytest
+
+from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
+
+VIEW_JS = ("views_core.js", "views_graph.js", "views.js")
+_MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
+
+
+@needs_node
+@pytest.mark.parametrize("name", VIEW_JS)
+def test_scripts_parse(name):
+    proc = subprocess.run([NODE, "--check", str(JS / name)], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+
+@pytest.mark.parametrize("name", VIEW_JS)
+def test_no_markup_sinks(name):
+    source = (JS / name).read_text(encoding="utf-8")
+    for sink in _MARKUP_SINKS:
+        assert sink not in source, f"{name} uses {sink}"
+
+
+@pytest.mark.parametrize("name", VIEW_JS)
+def test_nothing_from_the_brain_is_stored_in_the_browser(name):
+    source = (JS / name).read_text(encoding="utf-8")
+    for store in ("localStorage", "sessionStorage", "indexedDB"):
+        assert store not in source, f"{name} uses {store}"
+
+
+def test_page_loads_core_before_the_kinds_and_the_controller_last():
+    page = (TEMPLATES / "views.html").read_text(encoding="utf-8")
+    order = [page.index(f"js/{name}") for name in ("vendor/cytoscape.min.js",) + VIEW_JS]
+    assert order == sorted(order)
+
+
+def test_cortex_dock_links_the_views():
+    assert 'href="/views"' in (TEMPLATES / "ontology.html").read_text(encoding="utf-8")
+
+
+ANSWER = {
+    "root": {"id": "c", "name": "Knowledge Graph", "type": "Component", "meta": False},
+    "nodes": [{"id": "p", "name": "Plan", "type": "FeaturePlan", "relation": "affects",
+               "direction": "in", "meta": False},
+              {"id": "i", "name": "GI-1", "type": "Invariant", "relation": "keeps",
+               "direction": "out", "meta": False}],
+    "chips": [{"key": "in:verifies:AlloyCheck", "relation": "verifies", "relation_label": "verifiziert",
+               "direction": "in", "type": "AlloyCheck", "count": 22,
+               "breakdown": [{"status": "passed", "count": 20}, {"status": "failed", "count": 2}]}],
+    "legend": [{"name": "AlloyCheck", "label": "Alloy-Prüfung"}],
+}
+
+
+@needs_node
+def test_elements_draw_a_chip_as_one_node_with_its_breakdown():
+    out = _run_node(f"""
+        const els = window.ViewsGraph.elements({__import__('json').dumps(ANSWER)});
+        out(els.map((e) => ({{group: e.group, kind: e.data.kind || null, label: encodeURIComponent(e.data.label),
+                              source: e.data.source || null, target: e.data.target || null}})));
+    """, [JS / "views_core.js", JS / "views_graph.js"])
+    nodes = [e for e in out if e["group"] == "nodes"]
+    assert [n["kind"] for n in nodes] == ["root", "node", "node", "chip"]
+    assert unquote(nodes[-1]["label"]) == "22 × Alloy-Prüfung: 20 passed, 2 failed"
+    edges = [e for e in out if e["group"] == "edges"]
+    # in: the edge points at the root; out: away from it, as stored in the brain
+    affects = next(e for e in edges if unquote(e["label"]) == "affects")
+    assert affects["target"] == "c"
+    keeps = next(e for e in edges if unquote(e["label"]) == "keeps")
+    assert keeps["source"] == "c"
+
+
+@needs_node
+def test_type_style_is_stable_and_overridable():
+    out = _run_node("""
+        const a = window.ViewsCore.typeStyle('Component');
+        const b = window.ViewsCore.typeStyle('Component');
+        const c = window.ViewsCore.typeStyle('Component', {Component: {color: '#000000'}});
+        out([a.color === b.color && a.shape === b.shape, c.color, c.shape === a.shape]);
+    """, [JS / "views_core.js"])
+    assert out == [True, "#000000", True]
+
+
+@needs_node
+def test_chip_label_names_nodes_without_a_status():
+    out = _run_node("""
+        out(encodeURIComponent(window.ViewsCore.chipLabel({count: 8, type: 'Commit',
+            breakdown: [{status: null, count: 8}]}, 'Commit')));
+    """, [JS / "views_core.js"])
+    assert unquote(out) == "8 × Commit"

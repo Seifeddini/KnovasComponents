@@ -320,6 +320,29 @@ experiments:
 
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Optional companion (semantix-doc:) if browser launch is blocked by policy.
+# Ansichten (/views): process and spine views drawn from the ontology's
+# definitions. Plan: docs/superpowers/plans/2026-10-27-process-and-spine-views.md
+views:
+  # Per-subject topology index (D1): lifetime, and the scale guard above which a
+  # request walks per node instead of reading the edge list.
+  ttl_seconds: "${VIEWS_TTL_SECONDS:-60}"
+  definitions_ttl_seconds: "${VIEWS_DEFINITIONS_TTL_SECONDS:-600}"
+  edge_limit: "${VIEWS_EDGE_LIMIT:-100000}"
+  edge_budget_seconds: "${VIEWS_EDGE_BUDGET_SECONDS:-2}"
+  fallback_max_expansions: "${VIEWS_FALLBACK_MAX_EXPANSIONS:-40}"
+  # Meta detection (D2): meta-capable types up to this size are decided per node.
+  meta_exact_max: "${VIEWS_META_EXACT_MAX:-50}"
+  # Fact reads (D3): share of the tenant's 600 calls/minute, burst, parallelism.
+  fact_rate_per_minute: "${VIEWS_FACT_RATE_PER_MINUTE:-300}"
+  fact_burst: "${VIEWS_FACT_BURST:-120}"
+  workers: "${VIEWS_WORKERS:-4}"
+  # Fan-out grouping: more neighbours than this of one type and relation become a chip.
+  fanout_threshold: "${VIEWS_FANOUT_THRESHOLD:-5}"
+  chip_status_max: "${VIEWS_CHIP_STATUS_MAX:-60}"
+  page_size: "${VIEWS_PAGE_SIZE:-50}"
+  max_hops: "${VIEWS_MAX_HOPS:-4}"
+  max_nodes_per_hop: "${VIEWS_MAX_NODES_PER_HOP:-2000}"
+
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
   companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"

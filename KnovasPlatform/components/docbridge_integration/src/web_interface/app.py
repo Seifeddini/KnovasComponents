@@ -888,7 +888,7 @@ def create_app(config_path: Optional[str] = None):
         """Avoid browsers serving cached HTML/JS after docker rebuild."""
         path = request.path or ''
         if (
-            path in ('/', '/login', '/ontology')
+            path in ('/', '/login', '/ontology', '/views')
             or path == '/experiments'
             or path.startswith('/experiments/')
             or path.endswith('.js')
@@ -1639,6 +1639,11 @@ def create_app(config_path: Optional[str] = None):
         if not _csrf_token_is_valid(submitted_csrf):
             return jsonify({'success': False, 'error': 'CSRF token ungültig'}), 400
         if identity_gate is not None:
+            leaving = identity_gate.current_user()
+            if leaving is not None and 'views' in app.extensions:
+                # The views keep this person's topology and facts in memory;
+                # they leave with the session, not at the end of the TTL.
+                app.extensions['views'].forget_subject(str(leaving.id))
             identity_gate.sign_out()
         else:
             session.clear()
@@ -1779,7 +1784,8 @@ def create_app(config_path: Optional[str] = None):
         if cortex_enabled:
             return None
         path = request.path or ''
-        if path == '/ontology' or path.startswith('/api/ontology'):
+        if (path in ('/ontology', '/views') or path.startswith('/api/ontology')
+                or path.startswith('/api/views')):
             if path.startswith('/api/'):
                 return jsonify({'success': False, 'error': 'Cortex ist deaktiviert.'}), 404
             return redirect(url_for('index'))
@@ -2953,6 +2959,26 @@ def create_app(config_path: Optional[str] = None):
                 state_path=(os.getenv('ONTOLOGY_FILTER_STATE_PATH') or '').strip() or None,
                 text_resolver=_document_text_resolver())
         return _cortex_text_resolver['filters']
+
+    # Ansichten (/views): process and spine views drawn from the ontology's
+    # definitions; read-only on the brain. One service per worker, because it
+    # holds the per-subject topology caches (plan 2026-10-27, D1).
+    from graph_views.service import ViewService
+    from graph_views.settings import ViewSettings
+    from web_interface.views_routes import create_views_blueprint
+
+    view_service = ViewService(lambda: api_client, ViewSettings.from_config(config))
+    app.extensions['views'] = view_service
+    app.register_blueprint(create_views_blueprint(
+        identity_gate, view_service,
+        graph_mode=_ontology_source_is_graph,
+        page_context=lambda: {
+            **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+            'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version(),
+            'is_admin': bool(identity_gate is not None and identity_gate.current_user() is not None
+                             and 'admin' in identity_gate.current_user().roles),
+        },
+    ))
 
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():

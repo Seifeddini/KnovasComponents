@@ -2281,6 +2281,72 @@ class KnovasAPIClient:
                       if isinstance(edges, list) else []),
         }
 
+    def graph_get_many(
+        self,
+        calls: List[Tuple[str, Optional[Dict[str, Any]]]],
+        *,
+        workers: int = 4,
+        acquire: Optional[Any] = None,
+        max_retries: int = 3,
+    ) -> List[Tuple[int, Any]]:
+        """Several read-only ``GET /secured/graph<path>`` calls, in parallel.
+
+        For the views (docs/superpowers/plans/2026-10-27-process-and-spine-views.md,
+        D3): a board needs the facts of a few dozen nodes, and the 200 ms
+        spacing of ``_rate_limit`` alone would put that over its budget. Pacing
+        here is the caller's ``acquire()``, a token bucket kept under the
+        tenant's limit; a 429 waits for its ``Retry-After`` and is tried again.
+
+        Every call gets its own principal assertion, minted here on the
+        request thread: an assertion is single-use (``jti``), and the worker
+        threads have no request context to mint one from.
+
+        Returns ``(status, payload)`` per call, in order; status 599 when no
+        response came back. Nothing is raised for a single failed call, so one
+        unreadable node does not blank a whole view.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        if not calls:
+            return []
+        self._ensure_certificate_freshness()
+        bodies = [self._with_principal(None) for _ in calls]
+        headers = self._get_headers()
+
+        def one(index: int) -> Tuple[int, Any]:
+            path, params = calls[index]
+            url = f"{self.base_url}/secured/graph{path}"
+            status, payload = 599, None
+            for attempt in range(max_retries + 1):
+                if acquire is not None:
+                    acquire()
+                try:
+                    response = self._session.request(
+                        method='GET', url=url, json=bodies[index], params=params,
+                        headers=headers, timeout=self.http_read_timeout,
+                        allow_redirects=False,
+                    )
+                except _RETRYABLE_REQUEST_EXCEPTIONS as exc:
+                    logger.warning("Graph read %s failed: %s", path, type(exc).__name__)
+                    continue
+                status = response.status_code
+                if status in (429, 503) and attempt < max_retries:
+                    try:
+                        wait = float(response.headers.get('Retry-After') or 1)
+                    except ValueError:
+                        wait = 1.0
+                    time.sleep(min(max(wait, 0.1), 10.0))
+                    continue
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = None
+                break
+            return status, payload
+
+        with ThreadPoolExecutor(max_workers=max(1, min(int(workers), len(calls)))) as pool:
+            return list(pool.map(one, range(len(calls))))
+
     # -- Kuratieren (der Graph wird vom Client gepflegt, nicht abgeleitet) --
 
     def graph_create_node_type(self, name: str) -> Optional[Dict[str, Any]]:
