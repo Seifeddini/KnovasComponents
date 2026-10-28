@@ -12,7 +12,8 @@ from typing import Any, Dict, List, Optional
 
 from graph_views import completeness as comp
 from graph_views import descriptions, discovery, edit_map, process_views
-from graph_views.change_set import lock_info
+from graph_views.change_requests import ChangeError
+from graph_views.change_set import classify, lock_info
 from graph_views.facts import KeyedTTL, fact_values, read_facts
 from graph_views.traverse import path_text
 
@@ -24,8 +25,9 @@ def _artefacts(proc: Dict[str, Any], where: str) -> List[Dict[str, Any]]:
     return ((step.get("requires") or []) + (step.get("produces") or [])) if step else []
 
 
-def edit_of(instance_type: str, artefact: Dict[str, Any]) -> Dict[str, Any]:
-    """The edit info of one declared artefact of an instance."""
+def edit_of(instance_type: str, artefact: Dict[str, Any], defs: Any = None, proc_key: str = "") -> Dict[str, Any]:
+    """The edit info of one declared artefact of an instance: routable by the edit map, and classified
+    by the process's change classes (an unclassified change cannot be proposed, so it is not offered)."""
     hops = artefact["path"]
     if len(hops) != 1:
         via = " → ".join(h["to_type"] for h in hops[:-1])
@@ -33,6 +35,11 @@ def edit_of(instance_type: str, artefact: Dict[str, Any]) -> Dict[str, Any]:
                 "why": f"Indirekter Pfad über {via}: dort ändern, nicht an dieser Instanz."}
     info = lock_info(edit_map.relation_id(instance_type, hops[0]))
     info["indirect"] = False
+    if info["routable"] and defs is not None:
+        try:
+            info["class"] = classify(defs, proc_key, info["id"])
+        except ChangeError as exc:
+            info.update(routable=False, can_add=False, why=str(exc))
     return info
 
 
@@ -42,9 +49,9 @@ def annotate_trace(defs: Any, proc_key: str, body: Dict[str, Any], pending: List
     itype = body["instance"]["type"]
     for lane in body.get("lanes") or []:
         for a, d in zip(lane["artefacts"], _artefacts(proc, lane["id"])):
-            a["edit"] = edit_of(itype, d)
+            a["edit"] = edit_of(itype, d, defs, proc_key)
     for a, d in zip(body.get("context") or [], proc.get("context") or []):
-        a["edit"] = edit_of(itype, d)
+        a["edit"] = edit_of(itype, d, defs, proc_key)
     body["pending"] = [{"pr_number": s["pr_number"], "pr_url": s["pr_url"], "state": s["state"],
                         "ops": [{k: o.get(k) for k in ("edit_id", "kind", "target", "new_target", "field")}
                                 for o in s["ops"] if o.get("instance") == body["instance"]["id"]]}
@@ -69,7 +76,7 @@ def picker(ctx: Any, defs: Any, cache: KeyedTTL, *, process: str, node: str, whe
         raise process_views.NotPlaceable("Artefakt unbekannt.")
     a = arts[position]
     itype = ctx.index.type_of(node)
-    edit = edit_of(itype, a)
+    edit = edit_of(itype, a, defs, process)
     target_type = a["path"][-1]["to_type"]
     key = fact_values(read_facts(ctx.state, ctx.reader, [node]).get(node)).get("key") or ""
     item = edit_map.suggestions_for(key, path_text(a["path"]))
@@ -96,40 +103,56 @@ def picker(ctx: Any, defs: Any, cache: KeyedTTL, *, process: str, node: str, whe
 
 def gaps(ctx: Any, defs: Any, *, process: str = "", step: str = "", type_name: str = "",
          owner: str = "") -> Dict[str, Any]:
-    """One row per missing artefact or flagged rule, across all instances of the chosen processes."""
+    """One row per missing artefact or flagged rule, across all instances of the chosen processes.
+
+    Steps and missing artefacts come from the topology alone; flagged rules from the KB report,
+    matched by type and name. Facts (key, owner) are read only for instances that have a row, so
+    all seven processes cost a read per instance with a gap, not per instance.
+    """
     keys = [process] if process else [p["key"] for p in defs.processes]
     report = comp.kb_report()
+    flagged = {(r.get("type"), r.get("name")): r for r in report["rows"].values()
+               if any(x.get("passed") is False for x in r.get("rule_results") or [])}
+    s = ctx.settings
     rows, options = [], {"processes": [], "steps": set(), "types": set(), "owners": set()}
     for pk in keys:
         proc = defs.process(pk)
         if proc is None:
             continue
         options["processes"].append({"key": pk, "name": proc["name"]})
-        try:
-            board = process_views.board(ctx, defs, pk)
-        except process_views.NotPlaceable:
-            continue
-        steps = {s["id"]: s for s in proc["steps"]}
-        for col in board["columns"]:
-            for card in col["cards"]:
-                base = {"instance": card["id"], "key": card["key"], "name": card["name"], "process": pk,
-                        "process_name": proc["name"], "step": card["step"], "owner": card["owner"]}
-                itype = ctx.index.type_of(card["id"])
-                for m in card["missing_items"]:
-                    arts = _artefacts(proc, card["step"]) if card["step"] in steps else []
-                    pos = next((i for i, a in enumerate(arts) if a["type"] == m["type"] and path_text(a["path"]) == m["path"]), None)
-                    sug = edit_map.suggestions_for(card["key"] or "", m["path"])
-                    rows.append({**base, "kind": "missing", "type": m["type"], "path": m["path"],
-                                 "why": f"Fehlt: {m['found']} von {m['min_count']}" + (f" (oder {m['alternative']})" if m.get("alternative") else ""),
-                                 "where": card["step"], "position": pos,
-                                 "edit": edit_of(itype, arts[pos]) if pos is not None else None,
-                                 "candidates": (sug or {}).get("candidates") or [],
-                                 "no_rule": bool(sug and sug.get("no_rule"))})
-                for r in (report["rows"].get(card["key"] or "") or {}).get("rule_results") or []:
-                    if r.get("passed") is False:
-                        rows.append({**base, "kind": "rule", "type": None, "path": None, "rule": r["id"],
-                                     "why": "; ".join(r.get("why") or []) or r["id"], "edit": None,
-                                     "candidates": [], "no_rule": True, "source": "kb-report"})
+        steps = {st["id"]: st for st in proc["steps"]}
+        todo = []
+        for nid in process_views.instances(ctx, defs, pk):
+            st = process_views.current_step(ctx, defs, pk, nid)
+            missing = comp.missing_artefacts(ctx.index, nid, steps[st], max_hops=s.max_hops,
+                                             max_nodes_per_hop=s.max_nodes_per_hop) \
+                if st in steps and st not in (proc.get("final") or []) else []
+            rr = flagged.get((ctx.index.type_of(nid), ctx.index.nodes[nid]["name"]))
+            failing = [x for x in (rr or {}).get("rule_results") or []
+                       if x.get("passed") is False and (rr or {}).get("process") == pk]
+            if missing or failing:
+                todo.append((nid, st, missing, failing, rr))
+        facts = read_facts(ctx.state, ctx.reader, [t[0] for t in todo])
+        for nid, st, missing, failing, rr in todo:
+            v = fact_values(facts.get(nid))
+            key = v.get("key") or (rr or {}).get("instance")
+            base = {"instance": nid, "key": key, "name": ctx.index.nodes[nid]["name"], "process": pk,
+                    "process_name": proc["name"], "step": st, "owner": v.get("owner")}
+            itype = ctx.index.type_of(nid)
+            arts = _artefacts(proc, st) if st in steps else []
+            for m in missing:
+                pos = next((i for i, a in enumerate(arts) if a["type"] == m["type"] and path_text(a["path"]) == m["path"]), None)
+                sug = edit_map.suggestions_for(key or "", m["path"])
+                rows.append({**base, "kind": "missing", "type": m["type"], "path": m["path"],
+                             "why": f"Fehlt: {m['found']} von {m['min_count']}" + (f" (oder {m['alternative']})" if m.get("alternative") else ""),
+                             "where": st, "position": pos,
+                             "edit": edit_of(itype, arts[pos], defs, pk) if pos is not None else None,
+                             "candidates": (sug or {}).get("candidates") or [],
+                             "no_rule": bool(sug and sug.get("no_rule"))})
+            for r in failing:
+                rows.append({**base, "kind": "rule", "type": None, "path": None, "rule": r["id"],
+                             "why": "; ".join(r.get("why") or []) or r["id"], "edit": None,
+                             "candidates": [], "no_rule": True, "source": "kb-report"})
     for r in rows:
         options["steps"].add(r["step"] or "")
         options["owners"].add(r["owner"] or "")

@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_change.js", "views_process.js", "views_spine.js", "views_discover.js", "views_saved.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_change.js", "views_process.js", "views_spine.js", "views_discover.js", "views_gaps.js", "views_saved.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -223,3 +223,133 @@ def test_change_form_round_trips_keys_and_risks():
     """, [JS / "views_core.js", JS / "views_change.js"])
     assert out == [["CAP-05", "GOAL-2026-Q4-x"], [{"id": "RISK-01", "risk": "Edges lost", "mitigation": "dual write"}],
                    ["L2-A", "L2-B", "L2-C"]]
+
+
+# -- Step 7: fix in place, gaps, review ----------------------------------------------------------
+
+_EDIT_OPEN = {"id": "FeaturePlan serves Capability", "known": True, "editable": True, "routable": True, "can_add": True}
+_EDIT_LOCK = {"id": "Commit implements FeaturePlan", "known": True, "editable": False, "routable": False,
+              "reason": "from git", "fix_at": "name the plan in the commit message"}
+
+
+def _art(type_, edit, items=()):
+    return {"kind": "requires", "type": type_, "path": "→serves→ " + type_, "required": True, "min_count": 1,
+            "count": len(items), "missing": not items, "verified": True, "items": list(items), "chip": None, "edit": edit}
+
+
+def _texts(out):
+    return [unquote(x.split(":", 1)[1]) for x in out if ":" in x]
+
+
+def _buttons(out):
+    return [unquote(x.split(":", 1)[1]) for x in out if x.startswith("BUTTON:")]
+
+
+@needs_node
+def test_trace_offers_fixes_where_the_edit_map_allows_and_a_lock_elsewhere():
+    import json
+
+    lane = {"id": "brief", "name": "brief", "order": 1, "state": "current", "entered": None, "description": "",
+            "exit_criteria": [], "artefacts": [_art("Capability", _EDIT_OPEN, [{"id": "c", "name": "CAP-11", "type": "Capability"}]),
+                                               _art("Commit", _EDIT_LOCK)]}
+    trace = {"instance": {"id": "x", "name": "X", "key": "K"}, "process": {"key": "P", "name": "P"},
+             "current": {"step": "brief", "since": "2026-10-20", "days": 7}, "missing": [], "unmet": [], "context": [],
+             "changeable": True, "lanes": [lane],
+             "pending": [{"pr_number": 301, "pr_url": "https://x/301", "state": "submitted",
+                          "ops": [{"edit_id": "FeaturePlan serves Capability"}]}]}
+    out = _run_node(_walk_js() + """
+        const box = document.createElement('div');
+        const page = {typeLabel: (t) => t, overrides: {}, isHidden: () => false, openDossier() {}, openTraceItems() {}, center() {},
+                      changes: {pendingIn: () => [{}]}};
+        window.ViewsProcess.renderTrace(box, TRACE, page);
+        walk(box);
+        out(found);
+    """.replace("TRACE", json.dumps(trace)), [JS / "views_core.js", JS / "views_change.js", JS / "views_process.js"])
+    texts, buttons = _texts(out), _buttons(out)
+    assert "Bearbeiten" in buttons and buttons.count("+ hinzufügen") == 1     # not on the locked Commit
+    assert "falsch / entfernen" in buttons and "ersetzen" in buttons
+    assert any("from git" in t and "commit message" in t for t in texts)
+    assert any(t.startswith("Änderung ausstehend: PR #301") for t in texts)
+    assert "im Änderungssatz (1)" in texts
+
+
+@needs_node
+def test_a_trace_without_accounts_offers_no_fixes():
+    import json
+
+    lane = {"id": "brief", "name": "brief", "order": 1, "state": "current", "entered": None, "description": "",
+            "exit_criteria": [], "artefacts": [_art("Capability", _EDIT_OPEN)]}
+    trace = {"instance": {"id": "x", "name": "X", "key": "K"}, "process": {"key": "P", "name": "P"},
+             "current": {"step": "brief"}, "missing": [], "unmet": [], "context": [], "changeable": False, "lanes": [lane]}
+    out = _run_node(_walk_js() + """
+        const box = document.createElement('div');
+        const page = {typeLabel: (t) => t, overrides: {}, isHidden: () => false, openDossier() {}, openTraceItems() {}, center() {}};
+        window.ViewsProcess.renderTrace(box, TRACE, page);
+        walk(box);
+        out(found);
+    """.replace("TRACE", json.dumps(trace)), [JS / "views_core.js", JS / "views_change.js", JS / "views_process.js"])
+    assert _buttons(out) == ["Im Graph zeigen"]
+
+
+@needs_node
+def test_gaps_rows_preselect_the_top_suggestion_and_lock_what_cannot_be_fixed_here():
+    import json
+
+    rows = [
+        {"instance": "a", "key": "FEAT-1", "name": "Eins", "process": "P", "step": "brief", "owner": None, "kind": "missing",
+         "type": "Goal", "path": "→motivated_by→ Goal", "why": "Fehlt: 0 von 1", "where": "brief", "position": 3,
+         "edit": _EDIT_OPEN, "candidates": [{"target": "GOAL-1", "score": 3, "rule": "r", "reason": "motivates a sibling"}],
+         "no_rule": False},
+        {"instance": "a", "key": "FEAT-1", "name": "Eins", "process": "P", "step": "brief", "owner": None, "kind": "missing",
+         "type": "Commit", "path": "←implements– Commit", "why": "Fehlt", "where": "brief", "position": 4,
+         "edit": _EDIT_LOCK, "candidates": [], "no_rule": True},
+        {"instance": "b", "key": "FEAT-2", "name": "Zwei", "process": "P", "step": "approved", "owner": "ROLE-X", "kind": "rule",
+         "rule": "change-class", "type": None, "path": None, "why": "substantive change", "edit": None, "candidates": [],
+         "no_rule": True}]
+    body = {"rows": rows, "total": 3, "suggestions_as_of": "2026-10-28", "kb_report_as_of": "2026-10-28",
+            "filters": {"processes": [{"key": "P", "name": "P"}], "steps": ["brief"], "types": ["Goal"], "owners": []}}
+    out = _run_node(_walk_js() + """
+        const box = document.createElement('div');
+        const page = {state: {gapProcess: 'P', gapStep: '', gapType: '', gapOwner: ''}, typeLabel: (t) => t, changes: {}};
+        window.ViewsGaps.render(box, BODY, page);
+        walk(box);
+        out(found);
+    """.replace("BODY", json.dumps(body)), [JS / "views_core.js", JS / "views_change.js", JS / "views_gaps.js"])
+    texts, buttons = _texts(out), _buttons(out)
+    assert buttons.count("Übernehmen") == 1 and "Vorschläge übernehmen (ausgewählte)" in buttons
+    assert "GOAL-1 (Punkte 3)" in texts and "motivates a sibling" in texts
+    assert any("from git" in t for t in texts) and any("KB-Regelbericht" in t for t in texts)
+    assert "NULL" not in out
+
+
+@needs_node
+def test_the_review_names_conflicts_rollback_and_why_submit_waits():
+    import json
+
+    review = {"success": True, "base": {"branch": "master", "commit": "a" * 40}, "head": "b" * 40, "behind": True,
+              "ops": [{"id": "o1", "instance": "x", "kind": "add", "edit_id": "FeaturePlan serves Capability",
+                       "target": "CAP-02", "class": "substantive", "ok": True, "permitted": True,
+                       "suggestion": {"rule": "realised-by-affected", "score": 3, "reason": "realised by L2-KG"}}],
+              "files": [{"path": "docs/x.md", "diff": "+status: draft", "new": False, "ops": ["o1", "rollback:FEAT-1"], "blob": "c"}],
+              "instances": [{"node": "x", "key": "FEAT-1", "name": "Eins", "class": "substantive", "rules": ["R1"],
+                             "rollback": {"from_step": "approved", "to_step": "brief", "status": "draft"},
+                             "decision": "docs/decisions/DEC-0018-x.md",
+                             "impact": {"components": [1], "invariants": [], "risks": [], "decisions": []}}],
+              "conflicts": [{"path": "docs/x.md", "diff": "-old"}], "missing_reasons": ["FEAT-1"],
+              "ready": False, "permitted": True, "can_write": False}
+    out = _run_node(_walk_js() + """
+        window.fetch = async () => ({status: 200, ok: true, json: async () => (REVIEW)});
+        globalThis.fetch = window.fetch;
+        const box = document.createElement('div');
+        const page = {changes: {data: null, badge() {}, drop() {}, discard() {}}, reload() {}};
+        window.ViewsChange.renderReview(box, {success: true, count: 1, change_set: {reasons: {}, ops: []}}, page).then(() => {
+            walk(box);
+            out(found);
+        });
+    """.replace("REVIEW", json.dumps(review)), [JS / "views_core.js", JS / "views_change.js"])
+    texts, buttons = _texts(out), _buttons(out)
+    assert any(t.startswith("Konflikt") for t in texts) and "Neu aufsetzen (Rebase)" in buttons
+    assert any("Status zurück auf „draft“" in t for t in texts)
+    assert any(t.startswith("Vorschlag realised-by-affected (Punkte 3)") for t in texts)
+    assert any("Begründung fehlt für FEAT-1" in t and "kein GitHub-Zugang" in t for t in texts)
+    assert "Pull Request erstellen" in buttons

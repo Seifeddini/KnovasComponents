@@ -27,7 +27,10 @@
             <button type="button" data-kind="tree" aria-pressed="false">Baum</button>
             <button type="button" data-kind="matrix" aria-pressed="false">Matrix</button>
             <button type="button" data-kind="list" aria-pressed="false">Liste</button>
+            <button type="button" data-kind="gaps" aria-pressed="false">Lücken</button>
             <button type="button" data-kind="definitions" aria-pressed="false">Definitionen</button>
+            <button type="button" data-kind="changes" aria-pressed="false" title="Änderungssatz prüfen und als Pull Request einreichen">Änderungen
+                <span class="views-count" id="viewsChangeCount" hidden></span></button>
         </nav>
         <div class="views-freshness">
             <span id="viewsAsOf" class="views-asof" aria-live="polite"></span>
@@ -95,6 +98,7 @@
     <script src="{{ url_for('static', filename='js/views_process.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_spine.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_discover.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_gaps.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_saved.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views.js') }}?v={{ asset_version }}"></script>
 </body>
