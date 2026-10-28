@@ -1,0 +1,705 @@
+# Client Zero — sorted term list and node-type spec (Phase 0, Brain v0)
+#
+# One file, two purposes:
+#   1. The ontology on paper: every term the Client Zero plan uses, sorted into
+#      euo | pack | knovas with the reason, and the SeDM iri it maps to when one
+#      exists. A term whose iri does not exist yet is a promotion candidate
+#      (reason starts with "candidate:").
+#   2. The loader spec: what `scripts/client_zero/load_ontology.py` writes into
+#      the tenant through today's API. Everything is loaded as a Knovas company
+#      term (flat node type); level, parent and iri go into the type description
+#      header "[level=…; parent=…; iri=…]" (DEC-0004).
+#
+# Prefixes: euo: https://knovas.ch/ontology/euo#  int: https://knovas.ch/ontology/integration#
+#           eng: https://knovas.ch/ontology/domain/engineering#
+# Datatypes the API accepts: date | money | enum | text | entity_ref (DEC-0005: numbers as text).
+
+version: 1
+tenant: af639810-afc7-403f-8139-f6026d085c99
+
+# Added to every node type by the loader (DEC-0003); the core master data every node carries (plan,
+# "Descriptions and master data"): key, source, owner, last confirmed. Name and short description are
+# the node's own name and description fields.
+common_attributes:
+  - {name: key, datatype: text, required: true, description: "Stable repository id (L2-*, FEAT-*, GI-*, P-*, CAP-*, …); the loader upserts by (type, key)."}
+  - {name: source, datatype: text, required: false, description: "Document, file or system the node was created from."}
+  - {name: owner, datatype: text, required: false, description: "The person or role responsible; filled by the providers where the source names one."}
+  - {name: last_confirmed, datatype: date, required: false, description: "When a person last checked that this is still true."}
+
+# Repository id kinds that must map to exactly one node type (gate G0 · v0).
+id_kinds:
+  - {pattern: "^L1-[A-Z]+$",                     example: L1-RETRIEVE}
+  - {pattern: "^L2-[A-Z0-9-]+$",                 example: L2-KNOWLEDGE-GRAPH}
+  - {pattern: "^L3-[A-Z0-9-]+$",                 example: L3-SORTER}
+  - {pattern: "^FEAT-\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+$", example: FEAT-2026-07-30-company-brain-foundation}
+  - {pattern: "^GI-[A-Z0-9]+(-[A-Z0-9]+)*-\\d+$", example: GI-GRAPH-13}
+  - {pattern: "^(PRE|POST|RESP)-\\d+$",          example: PRE-01}
+  - {pattern: "^RISK-\\d+$",                     example: RISK-01}
+  - {pattern: "^DEC-\\d{4}$",                    example: DEC-0001}
+  - {pattern: "^ADR-\\d{4}$",                    example: ADR-0001}
+  - {pattern: "^FEAT-\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+/(D|OD)-[A-Z]*-?\\d+$", example: FEAT-2026-10-05-graph-native-brain/D-GNB-01}
+  - {pattern: "^P-\\d{2}$",                      example: P-02}
+  - {pattern: "^ICP-\\d{2}$",                    example: ICP-03}
+  - {pattern: "^(ICP|P)-\\d{2}\\.H\\d{2}$",      example: P-02.H03}
+  - {pattern: "^EV-\\d{4}$",                     example: EV-0001}
+  - {pattern: "^MKT-\\d{2}$",                    example: MKT-01}
+  - {pattern: "^CAP-\\d{2}$",                    example: CAP-06}
+  - {pattern: "^G[0-4E]$",                       example: G0}
+  - {pattern: "^FEAT-\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+/RISK-\\d+$", example: FEAT-2026-07-30-company-brain-foundation/RISK-01}
+  - {pattern: "^L2-[A-Z0-9-]+/(PRE|POST|RESP)-[A-Z0-9-]+$", example: L2-KNOWLEDGE-GRAPH/POST-P0-01}
+  - {pattern: "^REC-.+$",                        example: REC-docs/ModernDocs/glossary/NodeType.md}
+  - {pattern: "^SRC-.+$",                        example: SRC-knovas-software/app/src/api/graph_api.py}
+  - {pattern: "^COMMIT-[0-9a-f]{7,40}$",         example: COMMIT-215b05af1234}
+  - {pattern: "^ALLOY-.+#.+$",                   example: "ALLOY-models/alloy/core/identity.als#no_non_uuid_tenant"}
+  - {pattern: "^TESTRUN-.+@\\d{4}-\\d{2}-\\d{2}$", example: "TESTRUN-tests/test_graph_api.py@2026-10-25"}
+  - {pattern: "^SYM-.+#.+$",                     example: "SYM-knovas-software/app/src/api/graph_api.py#create_node"}
+
+node_types:
+
+  # ---------------------------------------------------------------- product spine
+  - name: Product
+    level: euo
+    sedm_iri: euo:Product
+    parent: euo:Offering
+    reason: Every company sells products or services; the EUO already has it.
+    id_prefixes: ["^PROD-[A-Z]+$"]
+    attributes:
+      - {name: audience, datatype: text}
+
+  - name: PlatformTier
+    level: knovas
+    sedm_iri: null
+    parent: euo:Product
+    reason: Core, Cortex and Nexus are Knovas names for cumulative tiers of one product; no other company shares them.
+    id_prefixes: ["^TIER-[A-Z]+$"]
+    attributes:
+      - {name: price_per_user_month, datatype: text, description: "Text with unit, e.g. '59.90 CHF' (DEC-0005)."}
+      - {name: includes_tier, datatype: text}
+
+  - name: ApiServiceGroup
+    level: knovas
+    sedm_iri: null
+    parent: euo:Product
+    reason: The grouping of the Knovas API for software vendors; Knovas-specific and still a proposal (open point).
+    id_prefixes: ["^API-[A-Z-]+$"]
+    attributes: []
+
+  - name: Capability
+    level: euo
+    sedm_iri: euo:Capability
+    parent: euo:RealizableEntity
+    reason: Any company can state what a customer can do with it; the EUO already has it.
+    id_prefixes: ["^CAP-\\d{2}$"]
+    attributes:
+      - {name: status, datatype: enum, enum_values: [live, live-on-request, built-not-activated, not-activated, research, planned], description: "Typed in Phase 0; derived from realising components from Phase 1."}
+      - {name: tier, datatype: text, description: "Platform tier the capability belongs to, or 'to be decided'."}
+
+  - name: BoundedContext
+    level: pack
+    sedm_iri: null
+    parent: euo:Software
+    reason: "candidate: engineering pack — every software company has bounded contexts or domains; the L1-* names are Knovas-specific, the type is not."
+    id_prefixes: ["^L1-[A-Z]+$"]
+    attributes: []
+
+  - name: Component
+    level: pack
+    sedm_iri: eng:Component
+    parent: euo:MaterialObject
+    reason: The engineering pack already defines Component (brake-caliper use case); a software component is the same type with CodeArtifact realisations.
+    id_prefixes: ["^L2-[A-Z0-9-]+$", "^L3-[A-Z0-9-]+$"]
+    attributes:
+      - {name: alloy_status, datatype: text, description: "Manifest status (Covered, Proposed, Foundation, Not modeled, Out of scope)."}
+      - {name: docs_status, datatype: text, description: "'component folder present' or 'no component folder'."}
+      - {name: source_paths, datatype: text, description: "Semicolon-separated source paths from the manifest."}
+      - {name: display_name, datatype: text}
+
+  - name: ComponentContract
+    level: pack
+    sedm_iri: null
+    parent: euo:Requirement
+    reason: "candidate: engineering pack — pre/postconditions and responsibilities of a component; EUO Requirement is the parent."
+    id_prefixes: ["^(PRE|POST|RESP)-\\d+$", "^L2-[A-Z0-9-]+/(PRE|POST|RESP)-[A-Z0-9-]+$"]
+    attributes:
+      - {name: kind, datatype: enum, enum_values: [precondition, postcondition, responsibility]}
+
+  - name: Invariant
+    level: pack
+    sedm_iri: null
+    parent: euo:Requirement
+    reason: "candidate: engineering pack — a structural rule the system must keep (GI-*), verified by checks; a Requirement that never ends."
+    id_prefixes: ["^GI-[A-Z0-9]+(-[A-Z0-9]+)*-\\d+$"]
+    attributes:
+      - {name: catalog_status, datatype: text}
+      - {name: area, datatype: text}
+
+  - name: FeaturePlan
+    level: euo
+    sedm_iri: euo:Plan
+    parent: euo:DirectiveContent
+    reason: A plan with owner, status and gates is universal; FeaturePlan is the Knovas name for euo:Plan instances of the feature process.
+    id_prefixes: ["^FEAT-\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: status, datatype: enum, enum_values: [draft, review, approved, implementing, verified, implemented, released, killed], required: true}
+      - {name: date, datatype: date}
+      - {name: size_points, datatype: text, description: "Story points as text, e.g. '34 sp' (rule 7 threshold)."}
+
+  - name: Phase
+    level: euo
+    sedm_iri: null
+    parent: euo:Plan
+    reason: "candidate: EUO — a dated part of a plan that ends at a gate; every project-running company has phases."
+    id_prefixes: ["^PH-[A-Z0-9-]+$"]
+    attributes:
+      - {name: meta, datatype: enum, enum_values: ["yes"], description: "Bookkeeping node: instance views hide it."}
+      - {name: starts_on, datatype: date}
+      - {name: ends_on, datatype: date}
+      - {name: effort, datatype: text, description: "e.g. '10–12 pd'"}
+
+  - name: Gate
+    level: euo
+    sedm_iri: euo:Milestone
+    parent: euo:Milestone
+    reason: A gate is a milestone with a pass criterion the brain can check; modelled as euo:Milestone with a 'passes_when' attribute.
+    id_prefixes: ["^G[0-4E]$"]
+    attributes:
+      - {name: meta, datatype: enum, enum_values: ["yes"], description: "Bookkeeping node: instance views hide it."}
+      - {name: passes_when, datatype: text, required: true}
+      - {name: due, datatype: date}
+      - {name: status, datatype: enum, enum_values: [open, passed, failed, cut-scope]}
+      - {name: passed_on, datatype: date}
+
+  - name: Milestone
+    level: euo
+    sedm_iri: euo:Milestone
+    parent: euo:Occurrent
+    reason: In the EUO.
+    id_prefixes: ["^MS-[A-Z0-9-]+$"]
+    attributes:
+      - {name: due, datatype: date}
+
+  # ---------------------------------------------------------------- steering types
+  - name: Goal
+    level: euo
+    sedm_iri: euo:Objective
+    parent: euo:DirectiveContent
+    reason: The EUO has Objective; the plan calls it Goal (monthly or quarterly). Goal is the display name, euo:Objective the term (alias).
+    id_prefixes: ["^GOAL-\\d{4}-(Q[1-4]|\\d{2})-[a-z0-9-]+$"]
+    attributes:
+      - {name: period, datatype: enum, enum_values: [month, quarter, year], required: true}
+      - {name: status, datatype: enum, enum_values: [draft, active, graded, dropped]}
+      - {name: grade, datatype: text, description: "0–1 at period end, as text."}
+
+  - name: KeyResult
+    level: euo
+    sedm_iri: null
+    parent: euo:Objective
+    reason: "candidate: EUO — a measurable target on a metric; universal in OKR-run companies."
+    id_prefixes: ["^KR-[a-z0-9-]+$"]
+    attributes:
+      - {name: metric_key, datatype: text, required: true}
+      - {name: baseline, datatype: text}
+      - {name: target, datatype: text, required: true}
+      - {name: actual, datatype: text, description: "Computed from metric samples; typed by hand only with source 'asserted'."}
+
+  - name: Metric
+    level: euo
+    sedm_iri: null
+    parent: euo:InformationContentEntity
+    reason: "candidate: EUO — a named, computable measure with unit and direction."
+    id_prefixes: ["^MET-[a-z0-9-]+$"]
+    attributes:
+      - {name: unit, datatype: text, required: true}
+      - {name: direction, datatype: enum, enum_values: [up, down, hold], required: true}
+      - {name: definition, datatype: text, required: true}
+      - {name: computed_from, datatype: text, description: "The query over L0 that computes it; 'asserted' while none exists."}
+      - {name: target_g4, datatype: text}
+
+  - name: MetricSample
+    level: euo
+    sedm_iri: euo:Observation
+    parent: euo:Observation
+    reason: A measured value at a time is an Observation; L0, written by scripts only.
+    id_prefixes: ["^SAMPLE-[a-z0-9-]+-\\d{4}-\\d{2}-\\d{2}$"]
+    attributes:
+      - {name: value, datatype: text, required: true}
+      - {name: measured_on, datatype: date, required: true}
+      - {name: variant, datatype: text}
+
+  - name: Decision
+    level: euo
+    sedm_iri: euo:Decision
+    parent: euo:InformationContentEntity
+    reason: In the EUO.
+    id_prefixes: ["^DEC-\\d{4}$", "^ADR-\\d{4}$", "^FEAT-\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+/(D|OD)-[A-Z]*-?\\d+$", "^L2-[A-Z0-9-]+/D[A-Z]*-\\d+$", "^CMP-[a-z0-9-]+/D-\\d+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: status, datatype: enum, enum_values: [proposed, reviewed, decided, rejected, superseded], required: true}
+      - {name: decided_on, datatype: date}
+      - {name: reversibility, datatype: enum, enum_values: [easy, hard, one-way]}
+
+  - name: Risk
+    level: euo
+    sedm_iri: euo:Risk
+    parent: euo:InformationContentEntity
+    reason: In the EUO.
+    id_prefixes: ["^RISK-\\d+$", "^FEAT-\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+/RISK-\\d+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: likelihood, datatype: enum, enum_values: [low, medium, high]}
+      - {name: impact, datatype: enum, enum_values: [low, medium, high]}
+      - {name: status, datatype: enum, enum_values: [identified, assessed, owned, mitigating, accepted, closed], required: true}
+      - {name: review_date, datatype: date, required: true}
+      - {name: treatment, datatype: enum, enum_values: [avoid, modify, retain, transfer]}
+      - {name: mitigation, datatype: text, description: "The mitigation named in the plan or register; rule 4 accepts it in place of a mitigated_by edge."}
+      - {name: likelihood_impact, datatype: text, description: "Severity as written in the source, e.g. 'high · high'."}
+
+  - name: Hypothesis
+    level: euo
+    sedm_iri: euo:Assumption
+    parent: euo:InformationContentEntity
+    reason: The EUO has Assumption; a hypothesis is an assumption with a test and a status. Alias.
+    id_prefixes: ["^(ICP|P)-\\d{2}\\.H\\d{2}$", "^H-[A-Z0-9-]+$"]
+    attributes:
+      - {name: status, datatype: enum, enum_values: [asserted, tested, validated, refuted], required: true}
+      - {name: importance, datatype: enum, enum_values: [low, high, critical]}
+      - {name: how_we_know, datatype: text}
+
+  - name: Experiment
+    level: euo
+    sedm_iri: null
+    parent: euo:PlannedProcess
+    reason: "candidate: EUO — a registered test of a hypothesis with keep and kill thresholds; every learning company runs them."
+    id_prefixes: ["^EXP-[a-z0-9-]+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: status, datatype: enum, enum_values: [registered, running, decided-keep, decided-kill, decided-iterate, exploration], required: true}
+      - {name: keep_threshold, datatype: text, required: true}
+      - {name: kill_threshold, datatype: text, required: true}
+      - {name: ends_on, datatype: date, required: true}
+
+  - name: Result
+    level: euo
+    sedm_iri: euo:Observation
+    parent: euo:Observation
+    reason: The measured outcome of an experiment is an Observation (L0).
+    id_prefixes: ["^RES-[a-z0-9-]+$"]
+    attributes:
+      - {name: verdict, datatype: enum, enum_values: [keep, kill, iterate, inconclusive]}
+      - {name: sample, datatype: text}
+      - {name: value, datatype: text, required: true}
+      - {name: measured_on, datatype: date}
+
+  - name: PreMortem
+    level: euo
+    sedm_iri: euo:Meeting
+    parent: euo:Meeting
+    reason: A review event on a plan, goal or decision; a Meeting with a purpose. Alias.
+    id_prefixes: ["^PM-[a-z0-9-]+$"]
+    attributes:
+      - {name: held_on, datatype: date, required: true}
+      - {name: participants, datatype: text}
+
+  - name: Tripwire
+    level: euo
+    sedm_iri: null
+    parent: euo:DirectiveContent
+    reason: "candidate: EUO — a threshold on a metric that forces a decision when it fires; also kill criteria and research gates."
+    id_prefixes: ["^TW-[a-z0-9-]+$"]
+    attributes:
+      - {name: metric_key, datatype: text, required: true}
+      - {name: threshold, datatype: text, required: true}
+      - {name: action, datatype: text, required: true}
+
+  # ---------------------------------------------------------------- process spine
+  - name: Process
+    level: euo
+    sedm_iri: euo:ProcessDefinition
+    parent: euo:DirectiveContent
+    reason: The definition of a process (steps and transitions) is euo:ProcessDefinition.
+    id_prefixes: ["^PROC-[a-z-]+$"]
+    attributes:
+      - {name: owner_role, datatype: text, required: true}
+      - {name: instance_types, datatype: text, description: "The node types that are instances of this process, comma-separated."}
+      - {name: pack, datatype: text, description: "The pack candidate the concrete process belongs to: engineering or sales-and-marketing."}
+      - {name: context, datatype: text, description: "Artefacts shown across all steps, as JSON paths (label-only until E1)."}
+      - {name: meta, datatype: enum, enum_values: ["yes"], description: "Definition node: instance views hide it."}
+      - {name: exists_today, datatype: text}
+
+  - name: ProcessStep
+    level: euo
+    sedm_iri: null
+    parent: euo:ProcessDefinition
+    reason: "candidate: EUO — a named state of a process definition."
+    id_prefixes: ["^STEP-[a-z-]+-[a-z-]+$"]
+    attributes:
+      - {name: order, datatype: text, required: true}
+      - {name: resting, datatype: enum, enum_values: ["yes", "no"], description: "Work rests here: never reported as stuck."}
+      - {name: produces, datatype: text, description: "What the step produces, as JSON artefact paths (label-only until E1)."}
+      - {name: requires, datatype: text, description: "What must exist before the step starts, as JSON artefact paths."}
+      - {name: exit_criteria, datatype: text, description: "Rule ids (R1–R8, P-rules) that must be clean to leave the step, comma-separated."}
+      - {name: meta, datatype: enum, enum_values: ["yes"]}
+
+  - name: ProcessInstance
+    level: euo
+    sedm_iri: euo:Process
+    parent: euo:Occurrent
+    reason: A running process is euo:Process (L3).
+    id_prefixes: ["^PI-[a-z0-9-]+$"]
+    attributes:
+      - {name: current_step, datatype: text}
+
+  - name: Event
+    level: euo
+    sedm_iri: null
+    parent: euo:Occurrent
+    reason: "candidate: EUO — a state change with actor, time and the objects it touched (object-centric event)."
+    id_prefixes: ["^EVT-[a-z0-9-]+$"]
+    attributes:
+      - {name: meta, datatype: enum, enum_values: ["yes"], description: "Bookkeeping node: instance views hide it."}
+      - {name: occurred_at, datatype: date, required: true}
+      - {name: actor, datatype: text, required: true}
+
+  # ---------------------------------------------------------------- organisation spine
+  - name: Function
+    level: euo
+    sedm_iri: euo:OrganizationalUnit
+    parent: euo:Organization
+    reason: Research, engineering, sales, finance, legal are organisational units.
+    id_prefixes: ["^FN-[A-Z]+$"]
+    attributes: []
+
+  - name: Role
+    level: euo
+    sedm_iri: euo:OrganizationalRole
+    parent: euo:Role
+    reason: In the EUO.
+    id_prefixes: ["^ROLE-[A-Z-]+$"]
+    attributes:
+      - {name: holder, datatype: text, description: "Person currently holding the hat."}
+
+  - name: Person
+    level: euo
+    sedm_iri: euo:Person
+    parent: euo:Agent
+    reason: In the EUO.
+    id_prefixes: ["^PERS-[a-z-]+$"]
+    attributes: []
+
+  - name: Agent
+    level: euo
+    sedm_iri: euo:AutomatedAgent
+    parent: euo:Agent
+    reason: In the EUO (AutomatedAgent); an AI agent or a job.
+    id_prefixes: ["^AGENT-[a-z0-9-]+$"]
+    attributes:
+      - {name: model, datatype: text}
+
+  # ---------------------------------------------------------------- market, sales and marketing spine
+  - name: Market
+    level: pack
+    sedm_iri: null
+    parent: euo:GeographicRegion
+    reason: "candidate: sales pack — a market definition (region × offering); Knovas has MKT-01 DACH."
+    id_prefixes: ["^MKT-\\d{2}$"]
+    attributes: []
+
+  - name: Segment
+    level: pack
+    sedm_iri: null
+    parent: euo:Topic
+    reason: "candidate: sales pack — an ideal customer profile; every sales team has segments."
+    id_prefixes: ["^ICP-\\d{2}$"]
+    attributes:
+      - {name: region, datatype: text}
+
+  - name: Persona
+    level: pack
+    sedm_iri: null
+    parent: euo:Role
+    reason: "candidate: sales pack — a buying-centre role described as a person archetype."
+    id_prefixes: ["^P-\\d{2}$"]
+    attributes:
+      - {name: role_in_deal, datatype: text}
+      - {name: version, datatype: text}
+
+  - name: EvidenceRecord
+    level: euo
+    sedm_iri: euo:Observation
+    parent: euo:Observation
+    reason: An evidence record (interview, statistic, source) is an Observation. Alias.
+    id_prefixes: ["^EV-\\d{4}$", "^EV-cmp-[a-z0-9-]+$"]
+    attributes:
+      - {name: evidence_level, datatype: text}
+      - {name: recorded_on, datatype: date}
+
+  - name: Channel
+    level: pack
+    sedm_iri: null
+    parent: euo:Service
+    reason: "candidate: sales pack — how a segment is reached (direct, resellers, vendors, events, content)."
+    id_prefixes: ["^CH-[A-Z-]+$"]
+    attributes: []
+
+  - name: Campaign
+    level: pack
+    sedm_iri: null
+    parent: euo:PlannedProcess
+    reason: "candidate: sales pack."
+    id_prefixes: ["^CMP-[a-z0-9-]+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: status, datatype: enum, enum_values: [planned, running, done, exploration]}
+      - {name: metric_key, datatype: text, required: true}
+      - {name: minimum_sample, datatype: text, required: true}
+      - {name: keep_threshold, datatype: text, required: true}
+      - {name: kill_threshold, datatype: text, required: true}
+      - {name: variants, datatype: text}
+      - {name: starts_on, datatype: date}
+      - {name: ends_on, datatype: date, required: true}
+
+  - name: MarketingAsset
+    level: pack
+    sedm_iri: euo:Document
+    parent: euo:Document
+    reason: A one-pager, deck or case study is a Document written for a persona. Alias.
+    id_prefixes: ["^ASSET-[a-z0-9-]+$"]
+    attributes: []
+
+  - name: Lead
+    level: pack
+    sedm_iri: null
+    parent: euo:Party
+    reason: "candidate: sales pack."
+    id_prefixes: ["^LEAD-[a-z0-9-]+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: segment_key, datatype: text}
+      - {name: account_key, datatype: text}
+      - {name: persona_key, datatype: text}
+      - {name: role_in_deal, datatype: text}
+      - {name: stage, datatype: enum, enum_values: [new, replied, meeting, opportunity, dropped]}
+
+  - name: Account
+    level: euo
+    sedm_iri: euo:Organization
+    parent: euo:Party
+    reason: A prospect or customer organisation is euo:Organization. Alias.
+    id_prefixes: ["^ACC-[a-z0-9-]+$"]
+    attributes:
+      - {name: region, datatype: text}
+
+  - name: Opportunity
+    level: pack
+    sedm_iri: null
+    parent: euo:Transaction
+    reason: "candidate: sales pack — a deal in the pipeline; MEDDPICC elements are its attributes (DEC-0007)."
+    id_prefixes: ["^OPP-[a-z0-9-]+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: stage, datatype: enum, enum_values: [lead, qualified, demo, proof-of-concept, quote, contract, won, lost], required: true}
+      - {name: meddpicc_metrics, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_economic_buyer, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_decision_criteria, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_decision_process, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_paper_process, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_pain, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_champion, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_competition, datatype: enum, enum_values: [unknown, partial, confirmed]}
+      - {name: meddpicc_notes, datatype: text, description: "One note per element, 'M: … | E: … | …'."}
+      - {name: account_key, datatype: text}
+      - {name: value, datatype: text}
+      - {name: next_step, datatype: text}
+      - {name: next_step_on, datatype: date}
+      - {name: buying_centre, datatype: text, description: "Roles mapped to personas, 'economic buyer: P-09; champion: P-10' — never names (privacy rule)."}
+
+  - name: Quote
+    level: pack
+    sedm_iri: null
+    parent: euo:Document
+    reason: "candidate: sales pack — articles, seats, API buckets."
+    id_prefixes: ["^QUO-[a-z0-9-]+$"]
+    attributes:
+      - {name: amount, datatype: text}
+
+  - name: Contract
+    level: euo
+    sedm_iri: euo:Contract
+    parent: euo:Agreement
+    reason: In the EUO.
+    id_prefixes: ["^CTR-[a-z0-9-]+$"]
+    attributes:
+      - {name: signed_on, datatype: date}
+      - {name: value_per_year, datatype: text}
+
+  - name: Customer
+    level: euo
+    sedm_iri: euo:CustomerRole
+    parent: euo:PartyRole
+    reason: In the EUO as a role of a party.
+    id_prefixes: ["^CUST-[a-z0-9-]+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: status, datatype: enum, enum_values: [onboarding, active, renewal-due, expanded, churned]}
+      - {name: account_key, datatype: text}
+      - {name: onboarding_state, datatype: enum, enum_values: [organisation-created, client-created, certificate-issued, first-query]}
+      - {name: tier, datatype: text}
+      - {name: seats, datatype: text}
+      - {name: started_on, datatype: date}
+      - {name: renewal_on, datatype: date}
+
+  # ---------------------------------------------------------------- records and ground truth (types only in Phase 0)
+  - name: Record
+    level: euo
+    sedm_iri: euo:Document
+    parent: euo:InformationContentEntity
+    reason: A README, guide, runbook or kit page is a Document; Diátaxis kind as attribute.
+    id_prefixes: ["^REC-.+$"]
+    attributes:
+      - {name: kind, datatype: enum, enum_values: [tutorial, how-to, reference, explanation]}
+      - {name: updated_on, datatype: date}
+      - {name: stale, datatype: enum, enum_values: ["yes", "no"]}
+      - {name: path, datatype: text}
+      - {name: content_hash, datatype: text, description: "sha256 of the file, first 16 hex"}
+
+  - name: Repository
+    level: pack
+    sedm_iri: null
+    parent: euo:InformationCarrier
+    reason: "candidate: engineering pack."
+    id_prefixes: ["^REPO-[a-z0-9-]+$"]
+    attributes: []
+
+  - name: SourceFile
+    level: pack
+    sedm_iri: eng:CodeArtifact
+    parent: euo:InformationContentEntity
+    reason: The engineering pack has CodeArtifact.
+    id_prefixes: ["^SRC-.+$"]
+    attributes:
+      - {name: content_hash, datatype: text}
+
+  - name: Symbol
+    level: pack
+    sedm_iri: eng:CodeArtifact
+    parent: eng:CodeArtifact
+    reason: A class, function or method inside a source file; a CodeArtifact part. Alias.
+    id_prefixes: ["^SYM-.+#.+$"]
+    attributes:
+      - {name: kind, datatype: enum, enum_values: [module, class, function, method]}
+      - {name: line, datatype: text}
+
+  - name: Commit
+    level: pack
+    sedm_iri: null
+    parent: euo:Change
+    reason: "candidate: engineering pack — a recorded change to a repository (euo:Change is the parent)."
+    id_prefixes: ["^COMMIT-[0-9a-f]{7,40}$"]
+    attributes:
+      - {name: committed_on, datatype: date}
+      - {name: author, datatype: text}
+      - {name: message, datatype: text, description: "first line, 200 chars"}
+      - {name: pull_request, datatype: text, description: "#n when the commit merges a pull request"}
+
+  - name: TestRun
+    level: pack
+    sedm_iri: eng:TestExecution
+    parent: euo:Process
+    reason: The engineering pack has TestExecution.
+    id_prefixes: ["^TESTRUN-.+@\\d{4}-\\d{2}-\\d{2}$"]
+    attributes:
+      - {name: outcome, datatype: enum, enum_values: [passed, failed, skipped]}
+      - {name: run_date, datatype: date}
+      - {name: tests, datatype: text}
+      - {name: failures, datatype: text}
+
+  - name: AlloyCheck
+    level: knovas
+    sedm_iri: null
+    parent: eng:TestExecution
+    reason: A bounded formal check in Alloy is Knovas tooling; subtype of TestExecution by convention.
+    id_prefixes: ["^ALLOY-.+#.+$"]
+    attributes:
+      - {name: outcome, datatype: enum, enum_values: [passed, failed]}
+      - {name: expected, datatype: enum, enum_values: [counterexample, no_counterexample], description: "a mutant check expects a counterexample"}
+      - {name: model, datatype: text}
+
+  - name: GlossaryTerm
+    level: euo
+    sedm_iri: euo:Designation
+    parent: euo:Designation
+    reason: A term's name and plain-language description is a Designation in the EUO; one node per type, attribute, relation and value so a manager can read the brain without the ontology files.
+    id_prefixes: ["^TERM-(type|attribute|relation|value)-.+$"]
+    attributes:
+      - {name: meta, datatype: enum, enum_values: ["yes"], description: "Bookkeeping node: instance views hide it."}
+      - {name: term_kind, datatype: enum, enum_values: [type, attribute, relation, value], required: true}
+      - {name: technical_name, datatype: text, required: true}
+      - {name: display_de, datatype: text}
+      - {name: display_en, datatype: text}
+      - {name: example, datatype: text}
+      - {name: not_to_confuse, datatype: text}
+
+  - name: Release
+    level: pack
+    sedm_iri: null
+    parent: euo:PlannedProcess
+    reason: "candidate: engineering pack — a versioned release moving candidate → verified → deployed → announced; no git tag or deploy flow marks releases today, so the engine owner records them in releases.yaml."
+    id_prefixes: ["^REL-[a-z0-9.-]+$"]
+    attributes:
+      - {name: current_step, datatype: text, description: "The effective process step, written by the loader from the in_state edge; its dated history is what the flow view reads."}
+      - {name: version, datatype: text, required: true}
+      - {name: environment, datatype: enum, enum_values: [dev, prod], required: true}
+      - {name: released_on, datatype: date}
+      - {name: status, datatype: enum, enum_values: [candidate, verified, deployed, announced], required: true}
+
+  - name: Spine
+    level: euo
+    sedm_iri: null
+    parent: euo:InformationContentEntity
+    reason: "candidate: EUO — a spine is an ordered list of levels (type + link to the parent level) the Platform draws trees and matrices from; Knovas's four spines are company terms."
+    id_prefixes: ["^SPINE-[a-z-]+$"]
+    attributes:
+      - {name: levels, datatype: text, description: "The levels as JSON (label-only until E1): id, name, types, link_to_parent, verified."}
+      - {name: branches, datatype: text, description: "The spine's branches as JSON, each {key, name, description, levels}."}
+      - {name: meta, datatype: enum, enum_values: ["yes"], description: "Definition node: instance views hide it."}
+
+  - name: SpineLevel
+    level: euo
+    sedm_iri: null
+    parent: euo:InformationContentEntity
+    reason: "candidate: EUO — one level of a spine: its node types and the relation linking it to the parent level."
+    id_prefixes: ["^SPINE-[a-z-]+/(L|B)\\d+$"]
+    attributes:
+      - {name: order, datatype: text, required: true}
+      - {name: types, datatype: text, required: true, description: "Allowed node types, comma-separated."}
+      - {name: link_to_parent, datatype: text, description: "relation and direction, '<relation> <out|in>'."}
+      - {name: branch, datatype: text, description: "main, or the key of the branch the level belongs to."}
+      - {name: verified, datatype: enum, enum_values: ["yes", "no"], description: "no: no edge of this shape on the tenant yet."}
+      - {name: meta, datatype: enum, enum_values: ["yes"]}
+
+  - name: Company
+    level: euo
+    sedm_iri: euo:Organization
+    parent: euo:Party
+    reason: The company itself, root of the organisation spine; euo:Organization.
+    id_prefixes: ["^COMP-[a-z0-9-]+$"]
+    attributes: []
+
+  - name: ValueStream
+    level: euo
+    sedm_iri: null
+    parent: euo:PlannedProcess
+    reason: "candidate: EUO — a value stream groups the processes that deliver one kind of value (build, sell); root of the process spine."
+    id_prefixes: ["^VS-[a-z-]+$"]
+    attributes: []
+
+  - name: Deployment
+    level: pack
+    sedm_iri: null
+    parent: euo:Process
+    reason: "candidate: engineering pack."
+    id_prefixes: ["^DEPLOY-[a-z0-9-]+$"]
+    attributes:
+      - {name: environment, datatype: enum, enum_values: [dev, prod]}
+      - {name: deployed_on, datatype: date}

@@ -90,3 +90,43 @@ Three exceptions, stated plainly:
 | **Dossier latency** (1.3 s) | Slow side panel |
 
 Observed on 2026-10-27: the export (`GET /secured/graph`) now carries relation names, so BUG-02 looks fixed there. `neighbors?include_edges=true` works (A2 is live), although `knovas_client.graph_neighbors` still says it is not rolled out.
+
+## Step 6b — discovery and navigation (2026-10-28)
+
+**The sparse ego graph of FEAT-2026-10-05-graph-native-brain.** It was not the edge index (6,718 edges, complete), a stale cache, grouping, the meta filter or direction handling. The server returned all neighbours: 10 drawn plus chips for 51 decisions, 24 risks, 22 test runs and 11 components.
+
+The cause was navigation state. The Graph tab's centre (`node`) and the trace's instance (`instance`) were two selections, and `node` stayed in the URL across tabs. Opening the plan in Ablauf and then the Graph tab re-centred on the last centred node, for example RISK-22 from the risk chip's member list. RISK-22's ego graph is the plan alone (the meta nodes are hidden), which is what was seen.
+
+Fixed by one shared selection for every tab, remembered per user in the Platform's `settings` table. Regression tests in `tests/test_views_discovery.py`:
+- one chip per (type, relation, direction) above the threshold;
+- every neighbour reachable through drawn nodes or paged chips;
+- RISK-22 alone shows only the plan.
+
+**Built:**
+- **Start panel** ("Startpunkt wählen", also the Graph tab without a selection): tiles per type in spine order, meta types only with "Meta-Ebene zeigen", plus four suggestions: Meine offenen Pläne, Zuletzt geöffnet, Ziele dieses Quartals, Am stärksten vernetzt.
+- **"Liste" tab:** one paged table per type (key, name, status, owner, step, last confirmed, edges) with search, sort, filters and the row actions Ablauf / Graph / Baum.
+- **One typeahead** over names, keys and descriptions, with suggestions while empty.
+- The pinned copies moved to KnowledgeBase master (1a58e068), since Phase P has merged (gate GP). `terms.yaml` was added for the declared key patterns.
+
+**Measured (live, fresh server):**
+
+| Action | Time | Reads |
+|---|---|---|
+| First search (FEAT-2026-10-05), including topology | 1.6 s | 61 |
+| Later searches | 5–324 ms | |
+| Start page, first time per user | up to 7 s | ~150, cached 10 min |
+| Start page, after that | 2–3 ms | |
+| List page of a large type | 1.6 s | 50 |
+| List of a small type | 2 ms | |
+| Locating a node for Ablauf / Baum | 21–181 ms | |
+
+The start page's first-time cost is a schema per type plus the meta fact of the ~100 nodes of small meta-capable types.
+
+**Limits, stated in the UI:**
+- Types with more than 60 nodes whose names do not carry their keys (AlloyCheck, Commit, ComponentContract, Hypothesis, Record, SourceFile) are searched by name only.
+- Lists of such types read status and owner per page, so those columns sort and filter within the page.
+
+**For KnowledgeBase (data):**
+- Plan-table decisions are named `D-10: …`, but their keys (`FEAT-…/D-10`) are not in their names.
+- A plan's Author row reads "Drafted by Claude Code for owner review", which becomes its owner.
+- The `curation_status` of facts is never `confirmed` on the tenant, so "Zuletzt bestätigt" stays empty everywhere.

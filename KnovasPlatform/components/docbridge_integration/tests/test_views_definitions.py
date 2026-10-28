@@ -155,7 +155,7 @@ class TestRoute:
     def test_admins_see_errors_gaps_and_differences(self):
         body = _app(client_zero_graph(), ("admin",)).get("/api/views/definitions").get_json()
         assert body["errors"] == [] and body["gaps"] and "differences" in body
-        assert body["pinned"]["process-definitions.json"]["commit"].startswith("06f2974e")
+        assert len(body["pinned"]["process-definitions.json"]["commit"]) == 40
 
 
 def test_page_offers_the_definitions_kind():
