@@ -124,6 +124,47 @@ def _entered(history: List[Tuple[str, str]], step_ids: List[str]) -> Dict[str, s
     return out
 
 
+def context_only(ctx: Any, defs: Any, proc_key: str, node_id: str, *,
+                 show_meta: bool = False, fact_budget: Optional[int] = None) -> Dict[str, Any]:
+    """Only the context lane (decisions, risks, events) of a process, for any node.
+
+    The process's declared context paths are applied to the node; a path whose
+    first hop cannot start at the node's type (relations.yaml domain/range) is
+    left out and named, rather than walked.
+    """
+    fact_budget = ctx.settings.trace_fact_budget if fact_budget is None else fact_budget
+    proc = defs.process(proc_key)
+    if proc is None:
+        raise NotPlaceable(f"Prozess {proc_key} ist nicht definiert.")
+    index = ctx.index
+    index.ensure([node_id])
+    if node_id not in index.nodes:
+        raise NotPlaceable("Knoten nicht gefunden oder nicht sichtbar.")
+    start_type = index.type_of(node_id)
+    instance = start_type in proc["instance_types"]
+    context, skipped = [], []
+    for a in proc.get("context") or []:
+        if not instance and not descriptions.hop_fits(start_type, a["path"][0]):
+            skipped.append({"type": a["type"], "path": path_text(a["path"]),
+                            "why": f"{a['path'][0]['relation']} ({a['path'][0]['direction']}) beginnt laut relations.yaml nicht bei {start_type}"})
+            continue
+        context.append(_artefact(ctx, node_id, a, "context"))
+    if not show_meta:
+        for e in context:
+            is_meta = ctx.meta.classify(e["_members"])
+            e["_members"] = [m for m in e["_members"] if not is_meta.get(m)]
+            e["count"] = len(e["_members"])
+    spent = _dress(ctx, context, fact_budget)
+    doc = descriptions.load()
+    return ctx.envelope(
+        legend=[descriptions.type_entry(t, doc) for t in sorted({e["type"] for e in context} | {start_type})],
+        process={"key": proc_key, "name": proc["name"]}, sections=["context"],
+        instance={"id": node_id, "name": index.nodes[node_id]["name"], "type": start_type,
+                  "key": None, "owner": None, "status": None},
+        current={"step": None, "since": None, "days": None}, lanes=[], context=context,
+        skipped=skipped, missing=[], unmet=[], fact_reads=spent)
+
+
 def trace(ctx: Any, defs: Any, proc_key: str, node_id: str, *,
           today: Optional[dt.date] = None, show_meta: bool = False,
           fact_budget: Optional[int] = None) -> Dict[str, Any]:

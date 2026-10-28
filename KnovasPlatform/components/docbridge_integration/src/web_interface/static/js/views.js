@@ -26,6 +26,7 @@
                 cols: params.get('cols') || 'L5',
                 expand: (params.get('expand') || '').split(',').filter(Boolean),
                 view: params.get('view') || '',
+                sections: params.get('sections') === 'context' ? ['context'] : [],
             };
             this.typeLabels = {};
             this.viewSettings = { hidden: new Set(), sorting: '' };
@@ -71,7 +72,8 @@
             return {
                 definitions: { path: () => ['/api/views/definitions', {}], render: (box, body) => root.ViewsDefinitions.render(box, body, this) },
                 trace: {
-                    path: (s) => (s.instance ? ['/api/views/trace', { process: s.process, instance: s.instance, meta: s.meta }] : null),
+                    path: (s) => (s.instance ? ['/api/views/trace', { process: s.process, instance: s.instance, meta: s.meta,
+                        sections: s.sections.join(',') === 'context' ? 'context' : '' }] : null),
                     empty: 'Eine Instanz suchen (Schlüssel oder Name), um ihren Ablauf zu sehen.',
                     render: (box, body, page) => { page.learnLabels(body.legend); root.ViewsProcess.renderTrace(box, body, page); },
                 },
@@ -111,10 +113,10 @@
         syncUrl() {
             // Keep parameters this controller does not own (?open= of the definitions).
             const params = new URLSearchParams(root.location.search);
-            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand'].forEach((k) => params.delete(k));
+            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand', 'sections'].forEach((k) => params.delete(k));
             params.set('kind', this.state.kind);
             if (this.state.view) params.set('view', this.state.view); else params.delete('view');
-            const own = { process: ['trace', 'board'], instance: ['trace'], owner: ['board'], capability: ['board'], status: ['board'],
+            const own = { sections: ['trace'], process: ['trace', 'board'], instance: ['trace'], owner: ['board'], capability: ['board'], status: ['board'],
                 spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'] };
             Object.entries(own).forEach(([k, kinds]) => {
                 const v = Array.isArray(this.state[k]) ? this.state[k].join(',') : this.state[k];
@@ -251,11 +253,16 @@
             let timer = null;
             const run = async () => {
                 try {
-                    const d = await api('/api/views/instances', { process: this.state.process, q: input.value.trim() });
+                    // Context only: any plan or component; otherwise instances of the process.
+                    const contextOnly = this.state.sections.join(',') === 'context';
+                    if (contextOnly && input.value.trim().length < 2) { list.hidden = true; return; }
+                    const d = contextOnly
+                        ? await api('/api/views/search', { q: input.value.trim() })
+                        : await api('/api/views/instances', { process: this.state.process, q: input.value.trim() });
                     clear(list);
                     d.results.forEach((r) => list.appendChild(el('li', { role: 'option' }, [
                         el('button', { type: 'button', onclick: () => { list.hidden = true; input.value = ''; this.openTrace(r.id); } },
-                            [el('span', { className: 'views-tech', text: r.key || '' }), el('span', { text: r.name }),
+                            [el('span', { className: 'views-tech', text: r.key || r.type || '' }), el('span', { text: r.name }),
                                 r.step ? el('span', { className: 'views-badge views-badge-muted', text: r.step }) : null]),
                     ])));
                     if (!d.results.length) list.appendChild(el('li', { className: 'views-muted', text: 'Nichts gefunden.' }));
