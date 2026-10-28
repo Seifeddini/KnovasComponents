@@ -96,12 +96,33 @@ def _plan(ctx: Any, node_id: str) -> Tuple[writers.Plan, Dict[str, Any]]:
     return writers.Plan(p["key"], p["path"]), p
 
 
+def process_of_instance(ctx: Any, defs: Any, node: str) -> Optional[str]:
+    """The process the instance is ``instance_of`` in the brain, by its definition node."""
+    for _, _, m in ctx.index.neighbours(node, "instance_of", "out"):
+        if m in defs.process_nodes:
+            return defs.process_nodes[m]
+    return None
+
+
+def check_instance(ctx: Any, defs: Any, process: str, node: str) -> None:
+    """The class, and with it the permission, depends on the process: never take it from the request
+    alone. The instance must be ``instance_of`` that process and of one of its instance types."""
+    proc = defs.process(process) if defs is not None else None
+    if proc is None:
+        raise ChangeError(f"Prozess {process} ist nicht definiert.")
+    if ctx.index.type_of(node) not in (proc.get("instance_types") or []):
+        raise ChangeError(f"{ctx.index.type_of(node)} ist kein Instanztyp von {process}.")
+    if process_of_instance(ctx, defs, node) != process:
+        raise ChangeError(f"Die Instanz gehört laut Wissensnetz nicht zu {process}.")
+
+
 def new_op(ctx: Any, defs: Any, user: Any, grants: Any, *, process: str, node: str, kind: str,
            edit_id: str = "", target: str = "", new_target: str = "", field: str = "", value: Any = None,
            reason: str = "", suggestion: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """One checked operation: routable, classified, permitted, well-formed. Does not touch a file."""
     if kind not in KINDS:
         raise ChangeError(f"Unbekannte Änderungsart {kind!r}.")
+    check_instance(ctx, defs, process, node)
     plan, p = _plan(ctx, node)
     if kind == "field":
         if field in writers.FIELD_UNROUTED:
