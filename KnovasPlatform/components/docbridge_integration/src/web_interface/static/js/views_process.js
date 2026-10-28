@@ -55,6 +55,7 @@
     function renderTrace(box, d, page) {
         const head = el('div', { className: 'views-trace-head' }, [
             el('h2', { text: d.instance.name }),
+            (d.sections || []).join(',') === 'context' ? el('span', { className: 'views-badge', text: 'nur Kontext' }) : null,
             el('p', { className: 'views-muted', text: [d.instance.key, d.process.name,
                 d.instance.owner ? `verantwortlich ${d.instance.owner}` : null,
                 d.current.step ? `seit ${d.current.since || '?'} in „${d.current.step}“ (${d.current.days ?? '?'} Tage)` : 'kein aktueller Schritt'].filter(Boolean).join(' · ') }),
@@ -69,10 +70,12 @@
         }
         const ctx = el('section', { className: 'views-context' }, [el('h3', { text: 'Kontext' })]);
         const ctxRow = el('div', { className: 'views-context-row' });
-        d.context.forEach((a, i) => ctxRow.appendChild(artefactBlock(page, a, 'context', i, false)));
+        d.context.forEach((a, i) => { if (!page.isHidden(a.type)) ctxRow.appendChild(artefactBlock(page, a, 'context', i, false)); });
         ctx.appendChild(ctxRow);
         box.appendChild(ctx);
 
+        (d.skipped || []).forEach((s) => ctxRow.appendChild(el('p', { className: 'views-muted', text: `${s.type} ${s.path}: ${s.why}` })));
+        if ((d.sections || []).join(',') === 'context') return;
         const lanes = el('div', { className: 'views-lanes' });
         d.lanes.forEach((lane) => {
             const flagged = lane.state === 'current';
@@ -84,7 +87,7 @@
                     lane.entered ? el('div', { className: 'views-tech', text: `betreten ${lane.entered}` }) : null,
                 ]),
                 lane.description ? el('p', { className: 'views-lane-desc', text: lane.description }) : null,
-                ...lane.artefacts.map((a, i) => artefactBlock(page, a, lane.id, i, flagged)),
+                ...lane.artefacts.map((a, i) => (page.isHidden(a.type) ? null : artefactBlock(page, a, lane.id, i, flagged))),
                 exitList(lane),
             ]));
         });
@@ -93,7 +96,17 @@
         if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
 
+    const SORTS = {
+        key: (a, b) => String(a.key || '').localeCompare(String(b.key || '')),
+        name: (a, b) => a.name.localeCompare(b.name),
+        days: (a, b) => (b.days_in_step || 0) - (a.days_in_step || 0),
+        missing: (a, b) => b.missing - a.missing,
+        risks: (a, b) => b.open_risks - a.open_risks,
+    };
+
     function renderBoard(box, d, page) {
+        const sort = SORTS[(page.viewSettings || {}).sorting];
+        if (sort) d.columns.forEach((col) => col.cards.sort(sort));
         box.appendChild(el('p', { className: 'views-muted', text: `${d.total} Instanzen · ${d.process.name}` }));
         const cols = el('div', { className: 'views-board' });
         d.columns.forEach((col) => {

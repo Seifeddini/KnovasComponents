@@ -255,3 +255,38 @@
 .views-card-meta { color: var(--text-secondary); font-size: 12px; }
 .views-card-badges .views-badge { margin: 0 6px 0 0; }
 
+/* TREE */
+.views-tree { list-style: none; margin: 0; padding-left: 22px; }
+.views-tree-root { padding-left: 0; }
+.views-tree-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.views-tree-row .views-tech { white-space: nowrap; }
+.views-tree-toggle { width: 22px; height: 22px; padding: 0; border: 0; background: none; cursor: pointer; color: var(--text-secondary); }
+.views-tree-toggle[disabled] { cursor: default; }
+.views-tree-level { margin: 4px 0; }
+.views-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.views-status-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 10px; font-size: 12px; }
+.views-status-legend > span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* MATRIX */
+.views-matrix-wrap { overflow: auto; max-height: calc(100vh - 220px); border: 1px solid var(--border-color); border-radius: var(--radius-lg); }
+.views-matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.views-matrix th, .views-matrix td { border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); }
+.views-matrix thead th { position: sticky; top: 0; z-index: 2; background: var(--card-bg); }
+.views-matrix-col { height: 150px; vertical-align: bottom; padding: 4px 2px; white-space: nowrap; }
+.views-matrix-col .views-link { writing-mode: vertical-rl; transform: rotate(180deg); padding: 0; }
+.views-matrix-col .views-link span { max-width: 140px; }
+.views-matrix-row { position: sticky; left: 0; z-index: 1; background: var(--card-bg); text-align: left; padding: 3px 8px;
+    white-space: nowrap; max-width: 320px; overflow: hidden; display: flex; align-items: center; gap: 6px; }
+.views-matrix-corner { position: sticky; left: 0; z-index: 3; }
+.views-matrix td { width: 22px; min-width: 22px; height: 24px; text-align: center; }
+.views-matrix-on { background: var(--surface-sunken); }
+.views-matrix-unlinked .views-matrix-row { color: var(--text-secondary); }
+
+.views-tree-row .views-status { margin-left: 0; }
+
+/* Saved views */
+.views-picker { display: flex; align-items: center; gap: 6px; }
+.views-picker select { font: 13px var(--font-body); padding: 4px 6px; max-width: 240px; }
+.views-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.views-form input { font: 13px var(--font-body); padding: 6px 8px; border: 1px solid var(--border-color); border-radius: var(--radius); }
+.views-log li { display: block; font-size: 12px; }

@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views_spine.js", "views_saved.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -126,7 +126,7 @@ def test_trace_flags_only_the_current_lane():
                                          "min_count": 1, "count": 0, "missing": True, "items": [], "chip": None}]}
     out = _run_node("""
         const box = document.createElement('div');
-        const page = {typeLabel: (t) => t, overrides: {}, openDossier() {}, openTraceItems() {}, center() {}};
+        const page = {typeLabel: (t) => t, overrides: {}, isHidden: () => false, openDossier() {}, openTraceItems() {}, center() {}};
         window.ViewsProcess.renderTrace(box, {instance: {id: 'x', name: 'X', key: 'K'}, process: {name: 'P'},
             current: {step: 'b', since: '2026-10-20', days: 7}, missing: [{}], unmet: [], context: [],
             lanes: [LANE_A, LANE_B]}, page);
@@ -138,3 +138,23 @@ def test_trace_flags_only_the_current_lane():
     """.replace("LANE_A", __import__("json").dumps(lane("done"))).replace("LANE_B", __import__("json").dumps(lane("current"))),
         [JS / "views_core.js", JS / "views_process.js"])
     assert out == 1
+
+
+@needs_node
+def test_matrix_draws_one_cell_per_pair_and_marks_links():
+    out = _run_node("""
+        const box = document.createElement('div');
+        const page = {overrides: {}, openDossier() {}};
+        window.ViewsSpine.renderMatrix(box, {spine: {name: 'S'}, rows_level: {name: 'R'}, cols_level: {name: 'C'},
+            rows: [{id: 'r1', name: 'R1', key: 'CAP-01', status: 'live'}, {id: 'r2', name: 'R2', key: 'CAP-02', status: null}],
+            cols: [{id: 'c1', name: 'C1', key: 'L2-A'}, {id: 'c2', name: 'C2', key: 'L2-B'}, {id: 'c3', name: 'C3', key: 'L2-C'}],
+            cells: [[{linked: true, status: 'live'}, {linked: false}, {linked: true, status: 'live'}],
+                    [{linked: false}, {linked: false}, {linked: false}]],
+            unlinked_rows: ['r2']}, page);
+        const cells = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (!c) return;
+            if (c.tagName === 'TD') cells.push(String(c.className)); walk(c); });
+        walk(box);
+        out(cells);
+    """, [JS / "views_core.js", JS / "views_spine.js"])
+    assert len(out) == 6 and out.count("views-matrix-on") == 2
