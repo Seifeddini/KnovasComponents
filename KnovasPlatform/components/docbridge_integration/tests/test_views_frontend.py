@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views_spine.js", "views_saved.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views_spine.js", "views_discover.js", "views_saved.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -158,3 +158,55 @@ def test_matrix_draws_one_cell_per_pair_and_marks_links():
         out(cells);
     """, [JS / "views_core.js", JS / "views_spine.js"])
     assert len(out) == 6 and out.count("views-matrix-on") == 2
+
+
+def _walk_js():
+    return """
+        const found = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (!c) { found.push('NULL'); return; }
+            if (c.tagName) found.push(c.tagName + ':' + encodeURIComponent(c.textContent || '')); walk(c); });
+    """
+
+
+@needs_node
+def test_list_rows_offer_the_actions_that_apply():
+    out = _run_node(_walk_js() + """
+        const box = document.createElement('div');
+        const page = {state: {listFilters: {owner: '', status: '', step: ''}, node: 'b'}, overrides: {},
+                      select() {}, openDossier() {}, reload() {}};
+        window.ViewsDiscover.renderList(box, {type: {label: 'Feature-Plan', description: ''}, total: 2, page: 0, pages: 1,
+            complete_facts: true, in_spine: false, filters: {owners: ['Siran'], statuses: [], steps: []},
+            rows: [{id: 'a', key: 'FEAT-1', name: 'Eins', status: 'approved', owner: 'Siran', process: 'PROC-x', step: 'approved', degree: 3},
+                   {id: 'b', key: 'FEAT-2', name: 'Zwei', status: null, owner: null, process: null, step: null, degree: 0}]}, page);
+        walk(box);
+        out(found);
+    """, [JS / "views_core.js", JS / "views_discover.js"])
+    from urllib.parse import unquote
+    buttons = [unquote(x.split(":", 1)[1]) for x in out if x.startswith("BUTTON:")]
+    assert "NULL" not in out
+    assert buttons.count("Ablauf") == 1 and buttons.count("Graph") == 2 and "Baum" not in buttons
+
+
+@needs_node
+def test_start_panel_draws_one_tile_per_type():
+    out = _run_node(_walk_js() + """
+        const box = document.createElement('div');
+        const page = {overrides: {}, openList() {}, select() {}};
+        window.ViewsDiscover.renderStart(box, {groups: [{spine: 'SPINE-product', name: 'Product spine',
+            tiles: [{name: 'Product', label: 'Produkt', count: 2, description: 'x'}, {name: 'Capability', label: 'Fähigkeit', count: 13}]}]},
+            {groups: [{id: 'mine', label: 'Meine offenen Pläne', items: []}]}, page);
+        walk(box);
+        out(found.filter((x) => x.startsWith('BUTTON:')).length);
+    """, [JS / "views_core.js", JS / "views_discover.js"])
+    assert out == 2
+
+
+def test_every_method_the_controller_calls_is_defined():
+    """A removed block once took bindSpineControls with it and the page never initialised."""
+    import re
+
+    source = (JS / "views.js").read_text(encoding="utf-8")
+    called = set(re.findall(r"\bthis\.([a-zA-Z_]\w*)\(", source))
+    defined = set(re.findall(r"^\s{8}(?:async\s+)?([a-zA-Z_]\w*)\s*\([^)]*\)\s*\{", source, re.M))
+    builtins = {"$"}
+    assert called - defined - builtins == set()

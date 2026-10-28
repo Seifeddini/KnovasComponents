@@ -70,7 +70,7 @@
             if (filters.cols) s.cols = filters.cols;
             s.meta = !!filters.meta;
             if (settings.threshold) s.threshold = settings.threshold;
-            if (v.render_kind === 'trace') s.instance = settings.default_root || s.instance;
+            if (v.render_kind === 'trace') s.node = settings.default_root || s.node;
             s.expand = v.render_kind === 'tree' && settings.default_root ? settings.default_root.split(',') : [];
             s.sections = settings.sections || [];
             this.page.viewSettings = { hidden: new Set(settings.hidden_types || []), sorting: settings.sorting || '' };
@@ -90,7 +90,7 @@
             if (kind === 'matrix') { filters.rows = s.rows; filters.cols = s.cols; }
             if (kind === 'trace' && s.meta) filters.meta = true;
             const settings = { filters, threshold: s.threshold };
-            if (kind === 'trace' && s.instance) settings.default_root = s.instance;
+            if (kind === 'trace' && s.node) settings.default_root = s.node;
             if (kind === 'tree' && s.expand && s.expand.length) settings.default_root = s.expand.join(',');
             if (kind === 'trace' && s.sections && s.sections.length) settings.sections = s.sections;
             const vs = this.page.viewSettings || {};

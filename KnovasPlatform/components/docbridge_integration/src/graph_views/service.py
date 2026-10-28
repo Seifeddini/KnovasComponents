@@ -75,8 +75,9 @@ class ViewService:
         if refresh and key is not None:
             self.schemas.drop(lambda k: isinstance(k, tuple) and k[0] == key)
         schemas = TypeSchemas(self.schemas, key, reader, state.index)
+        decisions = self.schemas.get((key, "__meta__"), dict) if key is not None else None
         meta = MetaClassifier(state, reader, schemas=schemas, markers=self._markers(),
-                              exact_max=self.settings.meta_exact_max)
+                              exact_max=self.settings.meta_exact_max, decisions=decisions)
         return ViewContext(state, reader, meta, schemas, key, self.settings, started=started)
 
     def definitions(self, ctx: ViewContext, refresh: bool = False):

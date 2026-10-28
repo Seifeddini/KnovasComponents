@@ -63,8 +63,12 @@ class TypeSchemas:
 
 class MetaClassifier:
     def __init__(self, state: SubjectState, reader: GraphReader, *,
-                 schemas: TypeSchemas, markers: Set[str], exact_max: int):
+                 schemas: TypeSchemas, markers: Set[str], exact_max: int,
+                 decisions: Optional[Dict[str, bool]] = None):
         self._state = state
+        # Per-node decisions outlive the 60 s index (they change only when the
+        # loader runs): the service hands in a dict cached for the definitions TTL.
+        self._decided = decisions if decisions is not None else state.meta
         self._reader = reader
         self._schemas = schemas
         self._exact_max = exact_max
@@ -106,7 +110,7 @@ class MetaClassifier:
                 out[nid] = True
             elif t in self.exact:
                 with self._state.lock:
-                    known = self._state.meta.get(nid)
+                    known = self._decided.get(nid)
                 if known is None:
                     exact_ids.append(nid)
                 else:
@@ -118,7 +122,7 @@ class MetaClassifier:
             with self._state.lock:
                 for nid in exact_ids:
                     decided = fact_values(facts.get(nid)).get("meta", "").strip().lower() == "yes"
-                    self._state.meta[nid] = decided
+                    self._decided[nid] = decided
                     out[nid] = decided
         return out
 

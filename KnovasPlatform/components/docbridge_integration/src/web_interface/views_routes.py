@@ -37,7 +37,8 @@ def _int(name: str, default: Optional[int] = None) -> Optional[int]:
 def create_views_blueprint(gate: Any, service: views.ViewService, *,
                            graph_mode: Callable[[], bool],
                            page_context: Optional[Callable[[], dict]] = None,
-                           view_store: Optional[Callable[[], Any]] = None) -> Blueprint:
+                           view_store: Optional[Callable[[], Any]] = None,
+                           view_prefs: Any = None) -> Blueprint:
     """Build the blueprint.
 
     Args:
@@ -106,8 +107,10 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     @bp.route("/api/views/search")
     @guarded
     def search():
-        return jsonify(views.search(ctx(), str(request.args.get("q", "") or ""),
-                                    show_meta=_flag("meta")))
+        from graph_views import discovery
+
+        return jsonify(discovery.search(ctx(), service.schemas, str(request.args.get("q", "") or ""),
+                                        show_meta=_flag("meta"), key_index_max=service.settings.key_index_max))
 
     def is_admin() -> bool:
         # Identity off: the one shared login is the operator of this deployment.
@@ -295,6 +298,76 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             r["occurred_at"] = when.isoformat(timespec="seconds") if hasattr(when, "isoformat") else when
             r["actor_user_id"] = str(r["actor_user_id"]) if r.get("actor_user_id") else None
         return jsonify({"success": True, "entries": rows[:50]})
+
+    # -- discovery (Step 6b): start tiles, suggestions, lists, locating a node ---
+
+    from graph_views import discovery
+
+    def _prefs_user():
+        if gate is None or view_prefs is None:
+            return None
+        return gate.current_user()
+
+    @bp.route("/api/views/start")
+    @guarded
+    def views_start():
+        context, d = _process_context()
+        return jsonify(discovery.start(context, d, show_meta=_flag("meta")))
+
+    @bp.route("/api/views/suggestions")
+    @guarded
+    def views_suggestions():
+        context, d = _process_context()
+        user = _prefs_user()
+        recent = view_prefs.get(gate.connection(), user)["recent"] if user is not None else []
+        return jsonify(discovery.suggestions(context, d, service.schemas, user=user, recent=recent))
+
+    @bp.route("/api/views/list")
+    @guarded
+    def views_list():
+        context, d = _process_context()
+        if not _arg("type"):
+            return jsonify({"success": False, "error": "Typ angeben."}), 400
+        if _arg("type") not in context.index.by_type:
+            return jsonify({"success": False, "error": "Typ unbekannt oder nicht sichtbar."}), 404
+        return jsonify(discovery.list_view(
+            context, d, service.schemas, _arg("type"), q=_arg("q"), sort=_arg("sort") or "name",
+            desc=_flag("desc"), page=_int("page", 0) or 0, owner=_arg("owner"), status=_arg("status"),
+            step=_arg("step"), show_meta=_flag("meta"), full_max=service.settings.key_index_max))
+
+    @bp.route("/api/views/locate/<node_id>")
+    @guarded
+    def views_locate(node_id: str):
+        """Where a node can be shown: its process (Ablauf) and its place on a spine (Baum)."""
+        context, d = _process_context()
+        context.index.ensure([node_id])
+        if node_id not in context.index.nodes:
+            return jsonify({"success": False, "error": "Knoten nicht gefunden oder nicht sichtbar."}), 404
+        keys = discovery.key_index(context, service.schemas, [context.index.type_of(node_id)],
+                                   service.settings.key_index_max)
+        return jsonify(context.envelope(node=discovery.header(context, keys, node_id),
+                                        process=discovery.process_of(context, d, node_id),
+                                        tree=discovery.tree_path(context, d, node_id)))
+
+    @bp.route("/api/views/selection", methods=["GET"])
+    @guarded
+    def views_selection_get():
+        user = _prefs_user()
+        return jsonify({"success": True, **(view_prefs.get(gate.connection(), user) if user is not None
+                                            else {"selection": None, "kind": None, "recent": []})})
+
+    @bp.route("/api/views/selection", methods=["PUT"])
+    @guarded
+    def views_selection_put():
+        user = _prefs_user()
+        if user is None:
+            return jsonify({"success": True, "stored": False})
+        body = request.get_json(silent=True) or {}
+        try:
+            value = view_prefs.remember(gate.connection(), user, str(body.get("node") or ""), str(body.get("kind") or ""))
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        return jsonify({"success": True, "stored": True, **value})
 
     bp.guarded = guarded
     bp.is_admin = is_admin

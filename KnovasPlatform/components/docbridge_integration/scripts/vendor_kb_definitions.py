@@ -26,6 +26,7 @@ FILES = {
     "spine-definition.schema.json": f"{ROOT}/ontology/schema/spine-definition.schema.json",
     "descriptions.yaml": f"{ROOT}/ontology/descriptions.yaml",
     "relations.yaml": f"{ROOT}/ontology/relations.yaml",
+    "terms.yaml": f"{ROOT}/ontology/terms.yaml",
     "process-completeness.json": f"{ROOT}/reports/process-completeness.json",
 }
 TARGET = Path(__file__).resolve().parents[1] / "src" / "graph_views" / "definitions"
