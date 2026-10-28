@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/client-zero/edit-map.schema.json",
+  "title": "Client Zero edit map",
+  "description": "The file generated/edit-map.json: for every node type, relation and fact the process and spine definitions use, whether a person edits it and where (DEC-0022). The Platform links a missing or wrong item to its source; it never edits the brain directly, because the loader would undo it.",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "items"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "editable",
+        "source",
+        "key_path",
+        "format"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "type",
+            "relation",
+            "fact"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "description": "A type name, '<From> <relation> <To>' (the edge as stored, from = node_lo) or '<Type>.<fact>'."
+        },
+        "from_type": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "to_type": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "fact": {
+          "type": "string"
+        },
+        "editable": {
+          "type": "boolean",
+          "description": "true: a person changes it at the source; false: it follows from something else."
+        },
+        "source": {
+          "type": "string",
+          "description": "File glob or system that owns it.",
+          "minLength": 1
+        },
+        "key_path": {
+          "type": "string",
+          "description": "Where in the source: front-matter field, table row, YAML key.",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "from git",
+            "from CI",
+            "derived by loader",
+            "written by script"
+          ]
+        },
+        "fix_at": {
+          "type": "string",
+          "description": "For a non-editable item: what to change instead."
+        },
+        "format": {
+          "type": "string",
+          "description": "Datatype of a fact (enum, text, date, …), or how a node or edge is written."
+        },
+        "allowed_values": {
+          "description": "Enum values of a fact, the key patterns of a type, or the domain and range of a relation; null when free."
+        }
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "editable": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "reason",
+          "fix_at"
+        ]
+      }
+    }
+  }
+}

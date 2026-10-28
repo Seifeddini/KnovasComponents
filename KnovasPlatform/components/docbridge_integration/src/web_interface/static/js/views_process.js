@@ -17,7 +17,44 @@
             item.status ? el('span', { className: 'views-status', dataset: { status: item.status }, text: item.status }) : null]);
     }
 
-    function artefactBlock(page, a, where, position, flagged) {
+    /** What the user can do with one item of an editable artefact ("falsch / entfernen", "ersetzen"). */
+    function itemActions(page, fix, a, where, position, item) {
+        const C = root.ViewsChange;
+        if (!fix || !C || !a.edit || !a.edit.routable) return null;
+        const ctx = { process: fix.process, node: fix.node, where, position, artefact: a, targetNode: item.id, targetName: item.name };
+        return el('span', { className: 'views-item-actions' }, [
+            el('button', { type: 'button', className: 'views-button views-button-small', text: 'falsch / entfernen',
+                onclick: () => C.askRemove(page, ctx) }),
+            a.edit.can_add ? el('button', { type: 'button', className: 'views-button views-button-small', text: 'ersetzen',
+                onclick: () => new C.Picker(page, Object.assign({ mode: 'replace' }, ctx)).open() }) : null,
+        ]);
+    }
+
+    /** Lock, "+ hinzufügen", and markers for changes in the set or in a pull request. */
+    function fixLine(page, fix, a, where, position) {
+        const C = root.ViewsChange;
+        if (!fix || !C || !a.edit) return null;
+        const line = el('div', { className: 'views-art-fix' });
+        if (!a.edit.routable) {
+            line.appendChild(el('span', { className: 'views-lock', title: a.edit.key_path || '', text: `🔒 ${C.lockText(a.edit)}` }));
+            return line;
+        }
+        if (a.edit.can_add) {
+            line.appendChild(el('button', { type: 'button', className: 'views-button views-button-small', text: '+ hinzufügen',
+                onclick: () => new C.Picker(page, { process: fix.process, node: fix.node, where, position, artefact: a, mode: 'add' }).open() }));
+        }
+        const queued = page.changes ? page.changes.pendingIn(fix.node, a.edit.id) : [];
+        if (queued.length) line.appendChild(el('span', { className: 'views-badge views-badge-queued', text: `im Änderungssatz (${queued.length})` }));
+        (fix.pending || []).forEach((p) => {
+            if (p.ops.some((o) => o.edit_id === a.edit.id)) {
+                line.appendChild(el('a', { className: 'views-badge views-badge-pending', href: p.pr_url || '#', target: '_blank', rel: 'noopener noreferrer',
+                    text: `Änderung ausstehend: PR #${p.pr_number}` }));
+            }
+        });
+        return line;
+    }
+
+    function artefactBlock(page, a, where, position, flagged, fix) {
         const missing = flagged && a.missing;
         const head = el('div', { className: 'views-art-head' }, [
             el('strong', { text: page.typeLabel(a.type) }),
@@ -33,11 +70,14 @@
             box.appendChild(el('button', { type: 'button', className: 'views-chip', onclick: () => page.openTraceItems(where, position, a) },
                 [swatch(a.type, page.overrides), el('span', { text: chipLabel({ count: a.chip.count, breakdown: a.chip.breakdown, type: a.type }, page.typeLabel(a.type)) })]));
         } else if (a.items && a.items.length) {
-            box.appendChild(el('ul', { className: 'views-list' }, a.items.map((i) => el('li', {}, [itemButton(page, i)]))));
+            box.appendChild(el('ul', { className: 'views-list' }, a.items.map((i) => el('li', {}, [itemButton(page, i),
+                itemActions(page, fix, a, where, position, i)]))));
         } else if (!missing) {
             box.appendChild(el('p', { className: 'views-muted', text: a.verified === false ? 'noch keine Kante dieser Form im Wissensnetz' : '—' }));
         }
         if (a.truncated) box.appendChild(el('p', { className: 'views-muted', text: 'gekürzt (Obergrenze erreicht)' }));
+        const line = fixLine(page, fix, a, where, position);
+        if (line) box.appendChild(line);
         return box;
     }
 
@@ -60,8 +100,15 @@
                 d.instance.owner ? `verantwortlich ${d.instance.owner}` : null,
                 d.current.step ? `seit ${d.current.since || '?'} in „${d.current.step}“ (${d.current.days ?? '?'} Tage)` : 'kein aktueller Schritt'].filter(Boolean).join(' · ') }),
             el('button', { type: 'button', className: 'views-button', text: 'Im Graph zeigen', onclick: () => page.center(d.instance.id) }),
+            d.changeable && root.ViewsChange ? el('button', { type: 'button', className: 'views-button', text: 'Bearbeiten',
+                onclick: () => new root.ViewsChange.PlanForm(page, d.instance.id, d.process.key).open() }) : null,
+            ...(d.pending || []).map((p) => el('a', { className: 'views-badge views-badge-pending', href: p.pr_url || '#', target: '_blank',
+                rel: 'noopener noreferrer', text: `Änderung ausstehend: PR #${p.pr_number}${p.state === 'merged' ? ' (gemergt, wartet auf den Loader)' : ''}` })),
         ]);
         box.appendChild(head);
+        // Fixing in place needs accounts and a KnowledgeBase repository (d.changeable).
+        const fix = d.changeable ? { process: d.process.key, node: d.instance.id, pending: d.pending || [] } : null;
+        page.lastFix = fix;
         if (d.missing.length || d.unmet.length) {
             const parts = [];
             if (d.missing.length) parts.push(d.missing.length === 1 ? '1 Pflicht-Artefakt fehlt' : `${d.missing.length} Pflicht-Artefakte fehlen`);
@@ -70,7 +117,7 @@
         }
         const ctx = el('section', { className: 'views-context' }, [el('h3', { text: 'Kontext' })]);
         const ctxRow = el('div', { className: 'views-context-row' });
-        d.context.forEach((a, i) => { if (!page.isHidden(a.type)) ctxRow.appendChild(artefactBlock(page, a, 'context', i, false)); });
+        d.context.forEach((a, i) => { if (!page.isHidden(a.type)) ctxRow.appendChild(artefactBlock(page, a, 'context', i, false, fix)); });
         ctx.appendChild(ctxRow);
         box.appendChild(ctx);
 
@@ -87,7 +134,7 @@
                     lane.entered ? el('div', { className: 'views-tech', text: `betreten ${lane.entered}` }) : null,
                 ]),
                 lane.description ? el('p', { className: 'views-lane-desc', text: lane.description }) : null,
-                ...lane.artefacts.map((a, i) => (page.isHidden(a.type) ? null : artefactBlock(page, a, lane.id, i, flagged))),
+                ...lane.artefacts.map((a, i) => (page.isHidden(a.type) ? null : artefactBlock(page, a, lane.id, i, flagged, fix))),
                 exitList(lane),
             ]));
         });

@@ -8,7 +8,7 @@ version: 1
 relations:
   # structure
   - {name: part_of,        family: Structure,    sedm_iri: int:partOf,        domain: [Component, BoundedContext, ProcessStep, Goal, PlatformTier, ApiServiceGroup, Function, Process, SourceFile], range: [BoundedContext, Product, Process, Goal, PlatformTier, Component, Company, ValueStream], inverse: contains, reason: "SeDM partOf."}
-  - {name: member_of,      family: Structure,    sedm_iri: int:memberOf,      domain: [Persona, Role, Person], range: [Segment, Function, Function], reason: "SeDM memberOf."}
+  - {name: member_of,      family: Structure,    sedm_iri: int:memberOf,      domain: [Persona, Role, Person], range: [Segment, Function], reason: "SeDM memberOf."}
   # realisation
   - {name: realises,       family: Realisation,  sedm_iri: int:realizes,      domain: [Component, BoundedContext], range: [Capability], reason: "SeDM realizes: engineering links a component to a capability."}
   - {name: offers,         family: Realisation,  sedm_iri: null,              domain: [PlatformTier, ApiServiceGroup], range: [Capability], reason: "candidate: management links a tier or API group to the capabilities it sells."}
@@ -23,7 +23,7 @@ relations:
   - {name: defines,        family: Structure,    sedm_iri: int:partOf,        domain: [SourceFile], range: [Symbol], reason: "SeDM partOf read inversely: a file defines its symbols."}
   - {name: measures,       family: Verification, sedm_iri: null,              domain: [Metric, MetricSample, KeyResult, Tripwire], range: [Capability, Process, Goal, Metric], reason: "candidate: a metric measures a thing; a key result or tripwire measures a metric."}
   - {name: evidenced_by,   family: Verification, sedm_iri: int:supports,      domain: [Hypothesis, Record, Risk, Release, Decision], range: [EvidenceRecord, SourceFile, Result, Commit], reason: "SeDM supports, read from the claim's side; a release is evidenced by its commits, a campaign decision by its result."}
-  - {name: keeps,          family: Verification, sedm_iri: null,              domain: [Component], range: [Invariant], reason: "candidate: the component the invariant constrains (manifest golden_invariants)."}
+  - {name: keeps,          family: Verification, sedm_iri: null,              domain: [Component, FeaturePlan], range: [Invariant, ComponentContract], reason: "candidate: the component the invariant constrains (manifest golden_invariants); a plan's own Golden Invariants and contract deltas (DEC-0023)."}
   # dependency
   - {name: depends_on,     family: Dependency,   sedm_iri: int:dependsOn,     domain: [Component, FeaturePlan, Phase], range: [Component, FeaturePlan, Phase], reason: "SeDM dependsOn."}
   - {name: blocked_by,     family: Dependency,   sedm_iri: int:blockedBy,     domain: [FeaturePlan, Phase, Decision], range: [Decision, Risk, Gate], reason: "SeDM blockedBy."}
@@ -41,16 +41,17 @@ relations:
   - {name: raised_in,      family: Risk,         sedm_iri: int:derivedFrom,   domain: [Risk, Tripwire], range: [PreMortem], reason: "SeDM derivedFrom."}
   # ownership
   - {name: owned_by,       family: Ownership,    sedm_iri: int:ownedBy,       domain: [Risk, Goal, FeaturePlan, Decision, Process, PlatformTier, Capability, Metric, Campaign, Opportunity, Customer, Release], range: [Role, Person], reason: "SeDM ownedBy."}
-  - {name: performed_by,   family: Ownership,    sedm_iri: int:performedBy,   domain: [Event, Experiment, TestRun], range: [Role, Person, Agent], reason: "SeDM performedBy."}
+  - {name: performed_by,   family: Ownership,    sedm_iri: int:performedBy,   domain: [Event, RunEvent, Experiment, TestRun], range: [Role, Person, Agent], reason: "SeDM performedBy."}
   - {name: held_by,        family: Ownership,    sedm_iri: int:roleOf,        domain: [Role], range: [Person], reason: "SeDM roleOf."}
   # process
   - {name: has_level,      family: Structure,    sedm_iri: null,              domain: [Spine], range: [SpineLevel], reason: "candidate: a spine definition → its levels, in order."}
   - {name: has_step,       family: Process,      sedm_iri: null,              domain: [Process], range: [ProcessStep], reason: "candidate: process definition → its states."}
-  - {name: transitions_to, family: Process,      sedm_iri: int:precedes,      domain: [ProcessStep], range: [ProcessStep], reason: "SeDM precedes between steps."}
+  - {name: transitions_to, family: Process,      sedm_iri: int:precedes,      domain: [ProcessStep], range: [ProcessStep], reason: "SeDM precedes between steps (forward transitions)."}
+  - {name: reworks_to,     family: Process,      sedm_iri: null,              domain: [ProcessStep], range: [ProcessStep], reason: "candidate: a rework transition back to an earlier step (processes.yaml `[from, to, rework]`); its own relation because the engine keys an edge by its unordered node pair, so the reverse of a transitions_to edge would be dropped (F8, P8)."}
   - {name: instance_of,    family: Process,      sedm_iri: int:conformsTo,    domain: [ProcessInstance, FeaturePlan, Opportunity, Experiment, Decision, Risk, Campaign, Release, Customer, Lead], range: [Process], reason: "SeDM conformsTo."}
   - {name: in_state,       family: Process,      sedm_iri: null,              domain: [ProcessInstance, FeaturePlan, Opportunity, Experiment, Decision, Risk, Campaign, Release, Customer, Lead], range: [ProcessStep], reason: "candidate; current step also kept as a fact for history."}
   - {name: advanced_by,    family: Process,      sedm_iri: int:triggeredBy,   domain: [ProcessInstance], range: [Event], reason: "SeDM triggeredBy."}
-  - {name: touches,        family: Process,      sedm_iri: int:concerns,      domain: [Event], range: [Component, FeaturePlan, Decision, Risk, Opportunity, Process], reason: "SeDM concerns (object-centric event); a review touches the process it reviews."}
+  - {name: touches,        family: Process,      sedm_iri: int:concerns,      domain: [Event, RunEvent], range: [Component, FeaturePlan, Decision, Risk, Opportunity, Process], reason: "SeDM concerns (object-centric event); a review touches the process it reviews."}
   # market
   - {name: justified_by,   family: Market,       sedm_iri: null,              domain: [FeaturePlan, Capability], range: [Hypothesis], reason: "candidate: pre-requirement traceability."}
   - {name: targets,        family: Market,       sedm_iri: null,              domain: [Campaign, MarketingAsset, Opportunity, Hypothesis], range: [Segment, Persona], reason: "candidate."}

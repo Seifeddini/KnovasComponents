@@ -1,40 +1,64 @@
 {
  "files": {
   "descriptions.yaml": {
-   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
    "path": "docs/ModernDocs/client-zero/ontology/descriptions.yaml",
-   "sha256": "77a670ccc6f167a4635ae0ef4986223e5c3c241655f75333d77d1a7070c8d693"
+   "sha256": "5280f6ac80962d56aefc8e89da085ea6b9b68dbd119c19299eaa8a1095c2f09b"
+  },
+  "edit-map.json": {
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
+   "path": "docs/ModernDocs/client-zero/ontology/generated/edit-map.json",
+   "sha256": "7eb52e44b6507e8e9f64467824b040f3c41155c52a77deb45be66081c07e7350"
+  },
+  "edit-map.schema.json": {
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
+   "path": "docs/ModernDocs/client-zero/ontology/schema/edit-map.schema.json",
+   "sha256": "5822182317e16691ec6323b66b972aa6c22be62fd988c0ffcb61bd77897a340d"
+  },
+  "owners.yaml": {
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
+   "path": "docs/ModernDocs/client-zero/ontology/owners.yaml",
+   "sha256": "549bf29a064fa66e8b1a6e62438843f19038b7afad656965fa65883cabcf680e"
   },
   "process-completeness.json": {
-   "commit": null,
-   "note": "untracked in the KnowledgeBase working tree at 85cb865a58b3f96fcfcc562e44be5c4c668d0908 (client-zero/phase-p); generated_at 2026-10-27 20:12. KnowledgeBase should commit the report so it can be pinned.",
-   "path": "docs/ModernDocs/client-zero/reports/process-completeness.json",
-   "sha256": "5cf908abee778c477035b12b9e5a8f3f2e84b24c08df54bf26aae8a3924a54af"
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
+   "path": "docs/ModernDocs/client-zero/ontology/generated/process-completeness.json",
+   "sha256": "bfd721704aba555b065664a5708f8d34bb9028129b69aa68cdc5ad41940a97ad"
   },
   "process-definition.schema.json": {
-   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
    "path": "docs/ModernDocs/client-zero/ontology/schema/process-definition.schema.json",
-   "sha256": "3f2ed4840a2f59212c5c91903239271ebc9cabfa64dfe64a79c8f56408c3e876"
+   "sha256": "454f906d1a066ac1f0ebbb5ecd76d0c6bb7718d578ddccbbbfb91ae654c3c931"
   },
   "process-definitions.json": {
-   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
    "path": "docs/ModernDocs/client-zero/ontology/generated/process-definitions.json",
-   "sha256": "c3720b7a9dce1b5647273776fe8b600da17fd6a8f3d888da00a0e2ad6f3dec7d"
+   "sha256": "74002a925e6cfb5c32f44bb935c6c564a8ebe0278809b9b6e51b4e32a5c104f1"
   },
   "relations.yaml": {
-   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
    "path": "docs/ModernDocs/client-zero/ontology/relations.yaml",
-   "sha256": "4727e9b3be4ddd321f9e3603cbd82425825384ffb95e13cc9413f02b7808498f"
+   "sha256": "df9caa625628a07d96445ca875384aea6eeff6334805ea28153104ffe2ea2d14"
   },
   "spine-definition.schema.json": {
-   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
    "path": "docs/ModernDocs/client-zero/ontology/schema/spine-definition.schema.json",
    "sha256": "1b2f2a7fb02572b257aca14c1cc7e11ae8ac22660bea6493cd74cad1d64d7135"
   },
   "spine-definitions.json": {
-   "commit": "06f2974ee7467a3c13843c11315c7eeaa2653a3c",
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
    "path": "docs/ModernDocs/client-zero/ontology/generated/spine-definitions.json",
-   "sha256": "d71b8f29d90b3eeef7e0ebb3c6a2d3f577b2b3ec6c07c074b51c114ed3a63fd1"
+   "sha256": "8fb044ee16bcf8b1eb914463062ce9d77c9e990155d7c6e7c6462d54c8670e90"
+  },
+  "suggestions.json": {
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
+   "path": "docs/ModernDocs/client-zero/ontology/generated/suggestions.json",
+   "sha256": "fa1abbe0b0521d663cf190acbdcf538bdcdf3a0a29143c316cd59a36792fe87d"
+  },
+  "terms.yaml": {
+   "commit": "45fc86b5d78463c1e3703cfdc4df90e3e33c4941",
+   "path": "docs/ModernDocs/client-zero/ontology/terms.yaml",
+   "sha256": "bfa619274c4888cf1919e91a764953f4c2909bee4e0070bdf2102daf499709e1"
   }
  },
  "repository": "Seifeddini/KnowledgeBase"

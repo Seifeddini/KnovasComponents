@@ -2969,13 +2969,39 @@ def create_app(config_path: Optional[str] = None):
 
     view_service = ViewService(lambda: api_client, ViewSettings.from_config(config))
     app.extensions['views'] = view_service
+    from identity import view_prefs
+    from identity.change_sets import ChangeSetStore
+    from identity.node_grants import NodeGrantStore as _ViewsGrantStore
     from identity.saved_views import SavedViewStore
+
+    def _change_repo():
+        """KnowledgeBase for change requests: GitHub with a least-privilege token
+        (contents + pull requests on KnowledgeBase only), else a read-only local
+        checkout for previews, else None (the form says it is not configured)."""
+        from graph_views.change_requests import LocalRepo
+        from graph_views.github_repo import GitHubRepo
+
+        token = (os.getenv('KB_GITHUB_TOKEN') or '').strip()
+        token_file = str(config.get('views.change_requests.github_token_file', '') or '').strip()
+        if not token and token_file and os.path.isfile(token_file):
+            with open(token_file, encoding='utf-8') as fh:
+                token = fh.read().strip()
+        repo = str(config.get('views.change_requests.github_repo', '') or '').strip()
+        if token and repo:
+            return GitHubRepo(repo, token)
+        local = str(config.get('views.change_requests.local_repo', '') or '').strip()
+        return LocalRepo(local) if local and os.path.isdir(local) else None
 
     app.register_blueprint(create_views_blueprint(
         identity_gate, view_service,
         graph_mode=_ontology_source_is_graph,
         # Built per request: identity_gate.connection() is request-scoped.
         view_store=(lambda: SavedViewStore(identity_gate.connection())) if identity_gate is not None else None,
+        view_prefs=view_prefs if identity_gate is not None else None,
+        change_repo=_change_repo,
+        change_store=(lambda: ChangeSetStore(identity_gate.connection())) if identity_gate is not None else None,
+        node_grants=(lambda: _ViewsGrantStore(identity_gate.connection())) if identity_gate is not None else None,
+        change_base=str(config.get('views.change_requests.base_branch', 'master') or 'master'),
         page_context=lambda: {
             **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
             'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version(),

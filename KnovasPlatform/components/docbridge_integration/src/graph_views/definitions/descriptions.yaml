@@ -10,64 +10,65 @@
 version: 1
 
 types:
-  Product:          {de: Produkt, en: Product, text: "Something Knovas sells as a whole: the Platform for end users or the API for software vendors.", example: "PROD-PLATFORM, the Knovas Platform.", confuse: "A platform tier (Core, Cortex, Nexus) is a level within the Platform product, not a product of its own."}
-  PlatformTier:     {de: Plattform-Stufe, en: Platform tier, text: "One of the three cumulative levels of the Platform that a customer buys: Core, Cortex or Nexus. Each includes the one before it.", example: "TIER-CORTEX, Core plus a simple brain, CHF 59.90 per user and month.", confuse: "An API service group groups the same capabilities for software vendors; it is not a tier."}
-  ApiServiceGroup:  {de: API-Dienstgruppe, en: API service group, text: "A grouping of the Knovas API as software vendors and partners see it (Ingest, Search, Graph, …). A proposal in Phase 0.", example: "API-SEARCH, everything about searching with cited passages.", confuse: "A platform tier is what end users buy; a service group is what developers integrate."}
-  Capability:       {de: Fähigkeit, en: Capability, text: "One thing a customer can do with Knovas, in plain words. It is the meeting point between what management sells and what engineering builds.", example: "CAP-06, file a document to the right client and matter.", confuse: "A component is a part of the software; a capability says what the customer gets, not how it is built."}
-  BoundedContext:   {de: Software-Bereich (L1), en: Software area (L1), text: "One of the nine large areas the Knovas software is divided into; each has its own responsibility and vocabulary and contains several components (L2).", example: "L1-RETRIEVE, everything about search and retrieval.", confuse: "A capability describes what a customer can do, not how the software is split."}
-  Component:        {de: Software-Komponente (L2/L3), en: Software component (L2/L3), text: "A part of the Knovas software with a clear responsibility, its own documentation and tests, inside one software area.", example: "L2-KNOWLEDGE-GRAPH, the knowledge graph the brain is built on.", confuse: "A source file is a single code file; a component is the unit engineers own and document."}
-  ComponentContract: {de: Komponentenvertrag, en: Component contract, text: "A promise a component makes: what must be true before it runs (precondition), what is true afterwards (postcondition), or what it is responsible for.", example: "L2-KNOWLEDGE-GRAPH/POST-P0-01, new chunks carry the access scope of their document from the moment they exist.", confuse: "An invariant holds for the whole system; a contract belongs to one component."}
-  Invariant:        {de: Goldene Invariante, en: Golden invariant, text: "A rule the whole system must keep at all times, written down with an id, verified by tests and formal checks.", example: "GI-GRAPH-13, document sorting only ever proposes; the client decides.", confuse: "A component contract is local to one part; an invariant is system-wide."}
-  FeaturePlan:      {de: Feature-Plan, en: Feature plan, text: "The written plan for a piece of work: what problem it solves, which components it changes, which contracts and invariants apply, and its status from draft to released.", example: "FEAT-2026-10-25-client-zero-phase-0, the plan for Phase 0 of Client Zero.", confuse: "A decision is one choice inside or around a plan; a plan is the whole piece of work."}
-  Phase:            {de: Phase, en: Phase, text: "A dated stretch of a plan that ends at a gate.", example: "Phase 1 of Client Zero, ground truth, ended with gate G1 on 25 Oct 2026."}
-  Gate:             {de: Gate (Prüfpunkt), en: Gate, text: "A checkpoint at the end of a phase with a pass criterion the brain itself can check; the next phase starts only when it passes.", example: "G1, every component, plan and invariant exists as a node and one feature is traced to its commits.", confuse: "A milestone is a date something is due; a gate is a test that must pass."}
-  Milestone:        {de: Meilenstein, en: Milestone, text: "A dated point in a plan, such as a launch or a contract, by which something must be done.", example: "MS-CORTEX-DEFAULT, Cortex is the default module in every law-firm deal."}
-  Goal:             {de: Ziel, en: Goal, text: "What must change by the end of a month or a quarter, owned by a role, measured by key results.", example: "GOAL-2026-Q4-client-zero-foundation, Knovas steers itself from its own brain by G1.", confuse: "A key result is the number that shows the goal moved; a goal is the outcome."}
-  KeyResult:        {de: Schlüsselergebnis, en: Key result, text: "A measurable target on one metric that shows whether a goal was reached: baseline, target and actual value.", example: "KR-plan-coverage-g1, approved plans that satisfy rule 1, from 0 % to 90 %."}
-  Metric:           {de: Kennzahl, en: Metric, text: "A named, computable measure with a unit and a direction (up or down is better).", example: "MET-staleness, the share of canonical records flagged stale.", confuse: "A metric sample is one measured value at a time; the metric is the definition."}
-  MetricSample:     {de: Messwert, en: Metric sample, text: "One measured value of a metric at a point in time, computed by a script, never typed by hand.", example: "Staleness 4 % measured on 25 Oct 2026."}
-  Decision:         {de: Entscheidung, en: Decision, text: "A recorded choice with its date, who made it, what it affects and what it replaces, moving from proposed to decided.", example: "DEC-0001, Client Zero runs on tenant af639810.", confuse: "A goal says where to go; a decision says which way was chosen."}
-  Risk:             {de: Risiko, en: Risk, text: "Something that could go wrong, with an owner, a review date and either a mitigation or an explicit acceptance.", example: "RISK-01, capacity: two founders plus thesis and research probe.", confuse: "A tripwire is the threshold that triggers action; a risk is what might happen."}
-  Hypothesis:       {de: Hypothese, en: Hypothesis, text: "A belief about customers or the product that has not been proven yet, with a status from asserted to validated or refuted.", example: "P-02.H01, an associate loses at least one hour per day searching for prior work.", confuse: "An experiment is the test; a hypothesis is the claim being tested."}
-  Experiment:       {de: Experiment, en: Experiment, text: "A registered test of a hypothesis with keep and kill thresholds set before it starts and an end date.", example: "EXP-stage-0-probe, does concept membership beat the cheap null on German legal text?"}
-  Result:           {de: Ergebnis, en: Result, text: "The measured outcome of an experiment or campaign, with the verdict the evaluation proposes.", example: "RES-cmp-2026-11-icp01-2026-12-05: reply rate 12 % (8 of 66), keep."}
-  PreMortem:        {de: Pre-Mortem, en: Pre-mortem, text: "A session before a big plan or decision in which the team assumes it already failed and writes down why; it produces risks and tripwires.", example: "PM-client-zero-2026-10-24, eight ways Client Zero could fail by March 2027."}
-  Tripwire:         {de: Auslöseschwelle, en: Tripwire, text: "A threshold on a metric that forces a decision when it fires.", example: "TW-g1-no-trace, no feature traceable end to end at G1 means fix ingestion first."}
-  Process:          {de: Prozess (Definition), en: Process (definition), text: "How a kind of work moves: its steps and the allowed transitions, with an owner.", example: "PROC-decision, proposed, reviewed, decided or rejected, superseded.", confuse: "A process instance is one run of it; the process is the definition."}
-  ProcessStep:      {de: Prozessschritt, en: Process step, text: "One named state of a process.", example: "STEP-decision-decided."}
-  ProcessInstance:  {de: Prozessinstanz, en: Process instance, text: "One running case of a process, such as one feature moving through the feature lifecycle.", example: "The Client Zero Phase 0 plan as an instance of the feature lifecycle, currently approved."}
-  Event:            {de: Ereignis, en: Event, text: "Something that happened at a time, done by a person or an agent, touching one or more things in the brain.", example: "EVT-agent-2026-10-25-readme-counts, an agent corrected the component counts in a README."}
-  Function:         {de: Unternehmensfunktion, en: Function, text: "A part of the company such as research, engineering, sales or finance.", example: "FN-ENGINEERING."}
-  Role:             {de: Rolle, en: Role, text: "A hat a person wears, such as ontology steward or engine owner; roles own things, people hold roles.", example: "ROLE-ONTOLOGY-STEWARD, held by Siran.", confuse: "A persona is a customer archetype used in sales, not a role at Knovas."}
-  Person:           {de: Person, en: Person, text: "A named person at Knovas (no private data beyond the name).", example: "PERS-siran."}
-  Agent:            {de: KI-Agent, en: Agent, text: "An automated actor such as a Claude Code session or a scheduled job that reads and proposes in the brain.", example: "AGENT-claude-code."}
-  Market:           {de: Markt, en: Market, text: "A region and offering Knovas sells into.", example: "MKT-01, DACH, the True Graph company brain."}
-  Segment:          {de: Kundensegment (ICP), en: Customer segment (ICP), text: "A kind of customer Knovas targets, the ideal customer profile.", example: "ICP-03, law firms in Switzerland and Germany.", confuse: "A persona is a person inside such a customer; a segment is the company type."}
-  Persona:          {de: Persona, en: Persona, text: "An archetype of a person in the buying centre of a customer, with pains, goals and a role in the deal.", example: "P-10, the senior lawyer who is the practice group's memory."}
-  EvidenceRecord:   {de: Evidenzeintrag, en: Evidence record, text: "A piece of evidence for or against a hypothesis: an interview, a statistic, a source.", example: "EV-0001, Explorium data on DACH software vendors."}
-  Channel:          {de: Vertriebskanal, en: Channel, text: "How a segment is reached: direct, resellers, software vendors, events, content.", example: "CH-RESELLERS."}
-  Campaign:         {de: Kampagne, en: Campaign, text: "A marketing effort aimed at a segment and its personas, run as a registered experiment: it tests a persona hypothesis with a metric, a minimum sample and keep and kill thresholds set before it starts.", example: "CMP-2026-11-icp01-head-of-dev, a call campaign to 40 ICP-01 heads of development.", confuse: "An experiment is the general type; a campaign is the marketing kind of it and appears on the same board."}
-  MarketingAsset:   {de: Marketing-Material, en: Marketing asset, text: "A one-pager, deck, demo or case study written for a persona.", example: "The reseller intro deck."}
-  Lead:             {de: Lead, en: Lead, text: "A company that showed interest in a campaign, stored as the account plus the buying-centre role mapped to a persona, never as a name or contact detail (privacy rule).", example: "LEAD-cmp-2026-11-icp01-acc-0007, economic buyer (P-03) at account ACC-0007.", confuse: "An opportunity is a qualified deal with a stage; a lead is the first reply."}
-  Account:          {de: Kunde (Organisation), en: Account, text: "A prospect or customer organisation.", example: "Olymp AG."}
-  Opportunity:      {de: Verkaufschance, en: Opportunity, text: "A deal in the sales pipeline with its stage and its MEDDPICC qualification.", example: "A proof of concept with a Treuhand firm, stage quote."}
-  Quote:            {de: Angebot, en: Quote, text: "A priced offer: articles, seats, API buckets.", example: "20 Cortex seats for a law firm."}
-  Contract:         {de: Vertrag, en: Contract, text: "A signed agreement with a customer or partner.", example: "A reseller contract with a 25 % margin."}
-  Customer:         {de: Kunde (Beziehung), en: Customer, text: "An account that signed, from onboarding through renewal, expansion or churn.", example: "A pilot law firm in its first 90 days."}
-  Record:           {de: Dokument (Beschreibung), en: Record, text: "A human-written description of how things are: a README, a spec, a glossary page, a runbook. It must point at the ground truth it describes and is flagged stale when that changes.", example: "The README of L2-KNOWLEDGE-GRAPH.", confuse: "A source file is the code itself; a record describes it."}
-  Repository:       {de: Code-Repository, en: Repository, text: "A git repository holding code or documents.", example: "KnowledgeBase."}
-  SourceFile:       {de: Quelldatei, en: Source file, text: "One code or model file in a repository, with a content hash so changes are noticed.", example: "knovas-software/app/src/api/graph_api.py."}
-  Symbol:           {de: Code-Symbol, en: Symbol, text: "A class, function or method inside a source file.", example: "graph_api.py#create_node."}
-  Commit:           {de: Commit, en: Commit, text: "One recorded change to a repository, linked to the plan it implements and the components it touched.", example: "COMMIT-215b05af5f77, the merge of Client Zero Phase 0."}
-  TestRun:          {de: Testlauf, en: Test run, text: "The result of running one test module on a date: passed or failed, how many tests.", example: "tests/test_document_sorter.py on 25 Oct 2026, passed."}
-  AlloyCheck:       {de: Alloy-Prüfung, en: Alloy check, text: "One formal check of a system model (Alloy) recorded in the lockfile; it verifies a component or an invariant.", example: "core/identity.als#no_non_uuid_tenant.", confuse: "A test run executes code; an Alloy check proves a property of a model."}
-  Release:          {de: Release (Version), en: Release, text: "A versioned release of the software moving from candidate through verified and deployed to announced; recorded by the engine owner in releases.yaml because no git tag or deploy flow marks releases today.", example: "REL-2026.10-brain-mvp, the brain MVP on cloudscale prod, 24 Oct 2026.", confuse: "A deployment is one rollout to one environment; a release is the versioned whole that may be deployed to dev and then prod."}
-  Deployment:       {de: Deployment, en: Deployment, text: "A release of the software to an environment on a date.", example: "The brain MVP on cloudscale prod, 24 Oct 2026."}
-  Spine:            {de: Strukturachse, en: Spine, text: "An ordered list of levels — a type at each level and the relation that links it to the level above — along which the company's things hang: product, organisation, process, market. The Platform draws trees and matrices from it.", example: "SPINE-product: product → tier → capability → software area → component → sub-part.", confuse: "A process says how work moves through steps; a spine says how things are arranged under each other."}
-  SpineLevel:       {de: Ebene einer Strukturachse, en: Spine level, text: "One level of a spine: the node types allowed there and the relation to the parent level.", example: "SPINE-product/L3, the capability level, linked to its tier by offers."}
-  Company:          {de: Unternehmen, en: Company, text: "The company itself, root of the organisation spine.", example: "COMP-knovas, Knovas GmbH.", confuse: "An account is a customer company; the company is Knovas."}
-  ValueStream:      {de: Wertstrom, en: Value stream, text: "A group of processes that together deliver one kind of value, root of the process spine.", example: "VS-build: feature lifecycle, decision, risk review, release.", confuse: "A process is one flow of steps; a value stream groups several."}
-  GlossaryTerm:     {de: Glossarbegriff, en: Glossary term, text: "One entry of this glossary inside the brain: a type, attribute, relation or value with its plain-language description.", example: "The entry for BoundedContext."}
+  Product:          {de: Produkt, en: Product, text: "Something Knovas sells as a whole: the Platform for end users or the API for software vendors.", example: "PROD-PLATFORM, the Knovas Platform.", confuse: "A platform tier (Core, Cortex, Nexus) is a level within the Platform product, not a product of its own.", meta: false}
+  PlatformTier:     {de: Plattform-Stufe, en: Platform tier, text: "One of the three cumulative levels of the Platform that a customer buys: Core, Cortex or Nexus. Each includes the one before it.", example: "TIER-CORTEX, Core plus a simple brain, CHF 59.90 per user and month.", confuse: "An API service group groups the same capabilities for software vendors; it is not a tier.", meta: false}
+  ApiServiceGroup:  {de: API-Dienstgruppe, en: API service group, text: "A grouping of the Knovas API as software vendors and partners see it (Ingest, Search, Graph, …). A proposal in Phase 0.", example: "API-SEARCH, everything about searching with cited passages.", confuse: "A platform tier is what end users buy; a service group is what developers integrate.", meta: false}
+  Capability:       {de: Fähigkeit, en: Capability, text: "One thing a customer can do with Knovas, in plain words. It is the meeting point between what management sells and what engineering builds.", example: "CAP-06, file a document to the right client and matter.", confuse: "A component is a part of the software; a capability says what the customer gets, not how it is built.", meta: false}
+  BoundedContext:   {de: Software-Bereich (L1), en: Software area (L1), text: "One of the nine large areas the Knovas software is divided into; each has its own responsibility and vocabulary and contains several components (L2).", example: "L1-RETRIEVE, everything about search and retrieval.", confuse: "A capability describes what a customer can do, not how the software is split.", meta: false}
+  Component:        {de: Software-Komponente (L2/L3), en: Software component (L2/L3), text: "A part of the Knovas software with a clear responsibility, its own documentation and tests, inside one software area.", example: "L2-KNOWLEDGE-GRAPH, the knowledge graph the brain is built on.", confuse: "A source file is a single code file; a component is the unit engineers own and document.", meta: false}
+  ComponentContract: {de: Komponentenvertrag, en: Component contract, text: "A promise a component makes: what must be true before it runs (precondition), what is true afterwards (postcondition), or what it is responsible for.", example: "L2-KNOWLEDGE-GRAPH/POST-P0-01, new chunks carry the access scope of their document from the moment they exist.", confuse: "An invariant holds for the whole system; a contract belongs to one component.", meta: false}
+  Invariant:        {de: Goldene Invariante, en: Golden invariant, text: "A rule the whole system must keep at all times, written down with an id, verified by tests and formal checks.", example: "GI-GRAPH-13, document sorting only ever proposes; the client decides.", confuse: "A component contract is local to one part; an invariant is system-wide.", meta: false}
+  FeaturePlan:      {de: Feature-Plan, en: Feature plan, text: "The written plan for a piece of work: what problem it solves, which components it changes, which contracts and invariants apply, and its status from draft to released.", example: "FEAT-2026-10-25-client-zero-phase-0, the plan for Phase 0 of Client Zero.", confuse: "A decision is one choice inside or around a plan; a plan is the whole piece of work.", meta: false}
+  Phase:            {de: Phase, en: Phase, text: "A dated stretch of a plan that ends at a gate.", example: "Phase 1 of Client Zero, ground truth, ended with gate G1 on 25 Oct 2026.", meta: true}
+  Gate:             {de: Gate (Prüfpunkt), en: Gate, text: "A checkpoint at the end of a phase with a pass criterion the brain itself can check; the next phase starts only when it passes.", example: "G1, every component, plan and invariant exists as a node and one feature is traced to its commits.", confuse: "A milestone is a date something is due; a gate is a test that must pass.", meta: true}
+  Milestone:        {de: Meilenstein, en: Milestone, text: "A dated point in a plan, such as a launch or a contract, by which something must be done.", example: "MS-CORTEX-DEFAULT, Cortex is the default module in every law-firm deal.", meta: false}
+  Goal:             {de: Ziel, en: Goal, text: "What must change by the end of a month or a quarter, owned by a role, measured by key results.", example: "GOAL-2026-Q4-client-zero-foundation, Knovas steers itself from its own brain by G1.", confuse: "A key result is the number that shows the goal moved; a goal is the outcome.", meta: false}
+  KeyResult:        {de: Schlüsselergebnis, en: Key result, text: "A measurable target on one metric that shows whether a goal was reached: baseline, target and actual value.", example: "KR-plan-coverage-g1, approved plans that satisfy rule 1, from 0 % to 90 %.", meta: false}
+  Metric:           {de: Kennzahl, en: Metric, text: "A named, computable measure with a unit and a direction (up or down is better).", example: "MET-staleness, the share of canonical records flagged stale.", confuse: "A metric sample is one measured value at a time; the metric is the definition.", meta: false}
+  MetricSample:     {de: Messwert, en: Metric sample, text: "One measured value of a metric at a point in time, computed by a script, never typed by hand.", example: "Staleness 4 % measured on 25 Oct 2026.", meta: false}
+  Decision:         {de: Entscheidung, en: Decision, text: "A recorded choice with its date, who made it, what it affects and what it replaces, moving from proposed to decided.", example: "DEC-0001, Client Zero runs on tenant af639810.", confuse: "A goal says where to go; a decision says which way was chosen.", meta: false}
+  Risk:             {de: Risiko, en: Risk, text: "Something that could go wrong, with an owner, a review date and either a mitigation or an explicit acceptance.", example: "RISK-01, capacity: two founders plus thesis and research probe.", confuse: "A tripwire is the threshold that triggers action; a risk is what might happen.", meta: false}
+  Hypothesis:       {de: Hypothese, en: Hypothesis, text: "A belief about customers or the product that has not been proven yet, with a status from asserted to validated or refuted.", example: "P-02.H01, an associate loses at least one hour per day searching for prior work.", confuse: "An experiment is the test; a hypothesis is the claim being tested.", meta: false}
+  Experiment:       {de: Experiment, en: Experiment, text: "A registered test of a hypothesis with keep and kill thresholds set before it starts and an end date.", example: "EXP-stage-0-probe, does concept membership beat the cheap null on German legal text?", meta: false}
+  Result:           {de: Ergebnis, en: Result, text: "The measured outcome of an experiment or campaign, with the verdict the evaluation proposes.", example: "RES-cmp-2026-11-icp01-2026-12-05: reply rate 12 % (8 of 66), keep.", meta: false}
+  PreMortem:        {de: Pre-Mortem, en: Pre-mortem, text: "A session before a big plan or decision in which the team assumes it already failed and writes down why; it produces risks and tripwires.", example: "PM-client-zero-2026-10-24, eight ways Client Zero could fail by March 2027.", meta: false}
+  Tripwire:         {de: Auslöseschwelle, en: Tripwire, text: "A threshold on a metric that forces a decision when it fires.", example: "TW-g1-no-trace, no feature traceable end to end at G1 means fix ingestion first.", meta: false}
+  Process:          {de: Prozess (Definition), en: Process (definition), text: "How a kind of work moves: its steps and the allowed transitions, with an owner.", example: "PROC-decision, proposed, reviewed, decided or rejected, superseded.", confuse: "A process instance is one run of it; the process is the definition.", meta: true}
+  ProcessStep:      {de: Prozessschritt, en: Process step, text: "One named state of a process.", example: "STEP-decision-decided.", meta: true}
+  ProcessInstance:  {de: Prozessinstanz, en: Process instance, text: "One running case of a process, such as one feature moving through the feature lifecycle.", example: "The Client Zero Phase 0 plan as an instance of the feature lifecycle, currently approved.", meta: false}
+  Event:            {de: Ereignis, en: Event, text: "Something that happened in the business at a time, done by a person, touching one or more things in the brain: a decision review held, a step entered, a campaign ended.", example: "A decision review that touches PROC-decision (the G2 ritual).", confuse: "A run event only records that the loader, CI or an agent ran; it is bookkeeping, not business.", meta: false}
+  RunEvent:         {de: Laufereignis, en: Run event, text: "A bookkeeping record of one loader, CI or agent run: when it ran, who ran it and which plans, decisions, risks and components it changed. Instance views hide run events as a whole.", example: "EVT-loader-2026-10-27-195507-646946, a loader run that moved four plans.", confuse: "An event is a business fact such as a decision taken or a step entered; a run event only records that a script or agent ran.", meta: true}
+  Function:         {de: Unternehmensfunktion, en: Function, text: "A part of the company such as research, engineering, sales or finance.", example: "FN-ENGINEERING.", meta: false}
+  Role:             {de: Rolle, en: Role, text: "A hat a person wears, such as ontology steward or engine owner; roles own things, people hold roles.", example: "ROLE-ONTOLOGY-STEWARD, held by Siran.", confuse: "A persona is a customer archetype used in sales, not a role at Knovas.", meta: false}
+  Person:           {de: Person, en: Person, text: "A named person at Knovas (no private data beyond the name).", example: "PERS-siran.", meta: false}
+  Agent:            {de: KI-Agent, en: Agent, text: "An automated actor such as a Claude Code session or a scheduled job that reads and proposes in the brain.", example: "AGENT-claude-code.", meta: false}
+  Market:           {de: Markt, en: Market, text: "A region and offering Knovas sells into.", example: "MKT-01, DACH, the True Graph company brain.", meta: false}
+  Segment:          {de: Kundensegment (ICP), en: Customer segment (ICP), text: "A kind of customer Knovas targets, the ideal customer profile.", example: "ICP-03, law firms in Switzerland and Germany.", confuse: "A persona is a person inside such a customer; a segment is the company type.", meta: false}
+  Persona:          {de: Persona, en: Persona, text: "An archetype of a person in the buying centre of a customer, with pains, goals and a role in the deal.", example: "P-10, the senior lawyer who is the practice group's memory.", meta: false}
+  EvidenceRecord:   {de: Evidenzeintrag, en: Evidence record, text: "A piece of evidence for or against a hypothesis: an interview, a statistic, a source.", example: "EV-0001, Explorium data on DACH software vendors.", meta: false}
+  Channel:          {de: Vertriebskanal, en: Channel, text: "How a segment is reached: direct, resellers, software vendors, events, content.", example: "CH-RESELLERS.", meta: false}
+  Campaign:         {de: Kampagne, en: Campaign, text: "A marketing effort aimed at a segment and its personas, run as a registered experiment: it tests a persona hypothesis with a metric, a minimum sample and keep and kill thresholds set before it starts.", example: "CMP-2026-11-icp01-head-of-dev, a call campaign to 40 ICP-01 heads of development.", confuse: "An experiment is the general type; a campaign is the marketing kind of it and appears on the same board.", meta: false}
+  MarketingAsset:   {de: Marketing-Material, en: Marketing asset, text: "A one-pager, deck, demo or case study written for a persona.", example: "The reseller intro deck.", meta: false}
+  Lead:             {de: Lead, en: Lead, text: "A company that showed interest in a campaign, stored as the account plus the buying-centre role mapped to a persona, never as a name or contact detail (privacy rule).", example: "LEAD-cmp-2026-11-icp01-acc-0007, economic buyer (P-03) at account ACC-0007.", confuse: "An opportunity is a qualified deal with a stage; a lead is the first reply.", meta: false}
+  Account:          {de: Kunde (Organisation), en: Account, text: "A prospect or customer organisation.", example: "Olymp AG.", meta: false}
+  Opportunity:      {de: Verkaufschance, en: Opportunity, text: "A deal in the sales pipeline with its stage and its MEDDPICC qualification.", example: "A proof of concept with a Treuhand firm, stage quote.", meta: false}
+  Quote:            {de: Angebot, en: Quote, text: "A priced offer: articles, seats, API buckets.", example: "20 Cortex seats for a law firm.", meta: false}
+  Contract:         {de: Vertrag, en: Contract, text: "A signed agreement with a customer or partner.", example: "A reseller contract with a 25 % margin.", meta: false}
+  Customer:         {de: Kunde (Beziehung), en: Customer, text: "An account that signed, from onboarding through renewal, expansion or churn.", example: "A pilot law firm in its first 90 days.", meta: false}
+  Record:           {de: Dokument (Beschreibung), en: Record, text: "A human-written description of how things are: a README, a spec, a glossary page, a runbook. It must point at the ground truth it describes and is flagged stale when that changes.", example: "The README of L2-KNOWLEDGE-GRAPH.", confuse: "A source file is the code itself; a record describes it.", meta: false}
+  Repository:       {de: Code-Repository, en: Repository, text: "A git repository holding code or documents.", example: "KnowledgeBase.", meta: false}
+  SourceFile:       {de: Quelldatei, en: Source file, text: "One code or model file in a repository, with a content hash so changes are noticed.", example: "knovas-software/app/src/api/graph_api.py.", meta: false}
+  Symbol:           {de: Code-Symbol, en: Symbol, text: "A class, function or method inside a source file.", example: "graph_api.py#create_node.", meta: false}
+  Commit:           {de: Commit, en: Commit, text: "One recorded change to a repository, linked to the plan it implements and the components it touched.", example: "COMMIT-215b05af5f77, the merge of Client Zero Phase 0.", meta: false}
+  TestRun:          {de: Testlauf, en: Test run, text: "The result of running one test module on a date: passed or failed, how many tests.", example: "tests/test_document_sorter.py on 25 Oct 2026, passed.", meta: false}
+  AlloyCheck:       {de: Alloy-Prüfung, en: Alloy check, text: "One formal check of a system model (Alloy) recorded in the lockfile; it verifies a component or an invariant.", example: "core/identity.als#no_non_uuid_tenant.", confuse: "A test run executes code; an Alloy check proves a property of a model.", meta: false}
+  Release:          {de: Release (Version), en: Release, text: "A versioned release of the software moving from candidate through verified and deployed to announced; recorded by the engine owner in releases.yaml because no git tag or deploy flow marks releases today.", example: "REL-2026.10-brain-mvp, the brain MVP on cloudscale prod, 24 Oct 2026.", confuse: "A deployment is one rollout to one environment; a release is the versioned whole that may be deployed to dev and then prod.", meta: false}
+  Deployment:       {de: Deployment, en: Deployment, text: "A release of the software to an environment on a date.", example: "The brain MVP on cloudscale prod, 24 Oct 2026.", meta: false}
+  Spine:            {de: Strukturachse, en: Spine, text: "An ordered list of levels — a type at each level and the relation that links it to the level above — along which the company's things hang: product, organisation, process, market. The Platform draws trees and matrices from it.", example: "SPINE-product: product → tier → capability → software area → component → sub-part.", confuse: "A process says how work moves through steps; a spine says how things are arranged under each other.", meta: true}
+  SpineLevel:       {de: Ebene einer Strukturachse, en: Spine level, text: "One level of a spine: the node types allowed there and the relation to the parent level.", example: "SPINE-product/L3, the capability level, linked to its tier by offers.", meta: true}
+  Company:          {de: Unternehmen, en: Company, text: "The company itself, root of the organisation spine.", example: "COMP-knovas, Knovas GmbH.", confuse: "An account is a customer company; the company is Knovas.", meta: false}
+  ValueStream:      {de: Wertstrom, en: Value stream, text: "A group of processes that together deliver one kind of value, root of the process spine.", example: "VS-build: feature lifecycle, decision, risk review, release.", confuse: "A process is one flow of steps; a value stream groups several.", meta: false}
+  GlossaryTerm:     {de: Glossarbegriff, en: Glossary term, text: "One entry of this glossary inside the brain: a type, attribute, relation or value with its plain-language description.", example: "The entry for BoundedContext.", meta: true}
 
 relations:
   part_of:        {de: ist Teil von, en: is part of, sentence: "Component is part of Software area — the component belongs to this area; a tier is part of the product, a function of the company, a process of its value stream."}
@@ -98,6 +99,7 @@ relations:
   has_level:      {de: hat Ebene, en: has level, sentence: "Spine has level Spine level — this level belongs to the spine, in order."}
   has_step:       {de: hat Schritt, en: has step, sentence: "Process has step Process step — this state belongs to the process."}
   transitions_to: {de: geht über in, en: transitions to, sentence: "Process step transitions to Process step — the allowed next state."}
+  reworks_to:     {de: geht zurück zu, en: reworks to, sentence: "Process step reworks to an earlier Process step — the instance goes back for rework, e.g. an approved plan back to its brief."}
   instance_of:    {de: ist Instanz von, en: is an instance of, sentence: "Feature plan is an instance of Process — this plan runs through this process."}
   in_state:       {de: befindet sich in, en: is in state, sentence: "Decision is in state Process step — where the case stands today."}
   advanced_by:    {de: vorangebracht durch, en: advanced by, sentence: "Process instance was advanced by Event — this event moved it to the next step."}
@@ -127,7 +129,8 @@ attributes:
   _common:
     key:          {de: Schlüssel, en: Key, text: "The stable id of the thing, as it is written in the repository (FEAT-…, L2-…, CAP-…)."}
     source:       {de: Quelle, en: Source, text: "The file, document or system the node was loaded from."}
-    owner:        {de: Verantwortlich, en: Owner, text: "The person or role responsible for this thing."}
+    owner:        {de: Verantwortlich, en: Owner, text: "The role or person responsible for this thing, as its key (ROLE-…, PERS-…)."}
+    owner_text:   {de: Verantwortlich (Freitext), en: Owner as written, text: "What the source wrote as owner when it names no role or person; the thing has no owner until someone assigns one."}
     last_confirmed: {de: Zuletzt bestätigt, en: Last confirmed, text: "When a person last checked that this is still true."}
   Product:
     audience:     {de: Zielgruppe, en: Audience, text: "Who the product is for."}
@@ -148,18 +151,18 @@ attributes:
     catalog_status: {de: Katalogstatus, en: Catalog status, text: "Coverage as the catalog page states it (pytest, Alloy, planned)."}
     area:         {de: Bereich, en: Area, text: "The area of the system the invariant belongs to."}
   FeaturePlan:
+    substantive_change: {de: Wesentliche Änderung, en: Substantive change, text: "What changed in the plan's components, invariants, contracts or Alloy models since it was approved; the plan should go back to its brief."}
     status:       {de: Status, en: Status, text: "Where the plan stands, from draft to released or killed."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     owner:        {de: Verantwortlich, en: Owner, text: "Who owns the plan."}
     date:         {de: Datum, en: Date, text: "When the plan was written."}
     size_points:  {de: Grösse (Story Points), en: Size (story points), text: "Estimated size; above the threshold a pre-mortem is required."}
   Phase:
-    meta:         {de: Buchhaltungsknoten, en: Bookkeeping node, text: "Marks a definition or bookkeeping node; instance views hide it."}
     starts_on:    {de: Beginn, en: Starts on, text: "First day of the phase."}
     ends_on:      {de: Ende, en: Ends on, text: "Last day of the phase."}
     effort:       {de: Aufwand, en: Effort, text: "Estimated effort in person-days."}
   Gate:
-    meta:         {de: Buchhaltungsknoten, en: Bookkeeping node, text: "Marks a definition or bookkeeping node; instance views hide it."}
     passes_when:  {de: Besteht wenn, en: Passes when, text: "The criterion the brain checks."}
     due:          {de: Fällig am, en: Due, text: "The date the gate is planned for."}
     status:       {de: Status, en: Status, text: "Open, passed, failed or cut-scope."}
@@ -188,13 +191,15 @@ attributes:
     variant:      {de: Variante, en: Variant, text: "The campaign variant the sample belongs to, if any."}
   Decision:
     status:       {de: Status, en: Status, text: "Proposed, reviewed, decided, rejected or superseded."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     decided_on:   {de: Entschieden am, en: Decided on, text: "The date of the decision."}
     owner:        {de: Entschieden von, en: Decided by, text: "Who made or owns the decision."}
     reversibility: {de: Umkehrbarkeit, en: Reversibility, text: "Easy, hard or one-way; hard and one-way decisions need a pre-mortem."}
   Risk:
     likelihood:   {de: Wahrscheinlichkeit, en: Likelihood, text: "Low, medium or high."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     impact:       {de: Auswirkung, en: Impact, text: "Low, medium or high."}
     status:       {de: Status, en: Status, text: "From identified through owned and mitigating to accepted or closed."}
     owner:        {de: Verantwortlich, en: Owner, text: "Who owns the risk."}
@@ -208,7 +213,8 @@ attributes:
     how_we_know:  {de: Woran wir es erkennen, en: How we will know, text: "The observation that would confirm or refute it."}
   Experiment:
     status:       {de: Status, en: Status, text: "Registered, running, decided (keep, kill, iterate) or exploration."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     keep_threshold: {de: Behalten-Schwelle, en: Keep threshold, text: "The result at which we keep the change."}
     kill_threshold: {de: Abbruch-Schwelle, en: Kill threshold, text: "The result at which we stop."}
     ends_on:      {de: Endet am, en: Ends on, text: "The planned end date."}
@@ -225,36 +231,40 @@ attributes:
     threshold:    {de: Schwelle, en: Threshold, text: "The value that fires it."}
     action:       {de: Massnahme, en: Action, text: "What happens when it fires."}
   Process:
+    governing_fact: {de: Steuerndes Merkmal, en: Governing fact, text: "The fact whose value tells an instance's step, e.g. status for a plan or stage for a deal."}
+    status_map:   {de: Status-Zuordnung, en: Status map, text: "Which step each value of the governing fact stands for, per instance type, as JSON."}
+    transitions:  {de: Übergänge, en: Transitions, text: "The allowed moves between steps as JSON, each marked whether it is rework (a move back)."}
+    rules:        {de: Prozessregeln, en: Process rules, text: "The P-rules the steps of this process use as exit criteria, with their checks, as JSON."}
     owner_role:   {de: Prozessverantwortliche Rolle, en: Owner role, text: "The role that defines the process."}
     instance_types: {de: Instanztypen, en: Instance types, text: "The node types that run through this process."}
     exists_today: {de: Besteht heute als, en: Exists today as, text: "Where the process is written down today."}
     pack:         {de: Paket, en: Pack, text: "The pack candidate the concrete process belongs to (engineering, sales and marketing); the generic Process type itself is an EUO candidate."}
     context:      {de: Kontext, en: Context, text: "What is shown across all steps of a trace: decisions, risks, events that concern the instance (paths as JSON)."}
-    meta:         {de: Definitionsknoten, en: Definition node, text: "Marks a definition or bookkeeping node; instance views hide it."}
   Spine:
     levels:       {de: Ebenen, en: Levels, text: "The levels as JSON: id, name, types, link to the parent level, verified."}
     branches:     {de: Zweige, en: Branches, text: "The spine's branches as JSON (e.g. the sales branch of the market spine)."}
-    meta:         {de: Definitionsknoten, en: Definition node, text: "Marks a definition node; instance views hide it."}
   SpineLevel:
     order:        {de: Reihenfolge, en: Order, text: "Position of the level, top down."}
     types:        {de: Typen, en: Types, text: "The node types allowed at this level."}
     link_to_parent: {de: Verbindung zur Elternebene, en: Link to parent, text: "The relation and direction that link a node here to its parent level."}
     branch:       {de: Zweig, en: Branch, text: "main, or the branch the level belongs to."}
     verified:     {de: Geprüft, en: Verified, text: "Whether an edge of this shape exists on the tenant yet."}
-    meta:         {de: Definitionsknoten, en: Definition node, text: "Marks a definition node; instance views hide it."}
   ProcessStep:
+    owner_role:   {de: Verantwortliche Rolle, en: Owner role, text: "The role that moves an instance out of this step."}
     order:        {de: Reihenfolge, en: Order, text: "Position of the step in the process."}
     resting:      {de: Ruhezustand, en: Resting, text: "Work rests here (decided, released, won …): never reported as stuck."}
     produces:     {de: Erzeugt, en: Produces, text: "The artefacts this step produces, as paths from the instance (JSON); required ones block leaving the step."}
     requires:     {de: Benötigt, en: Requires, text: "What must exist before the step can start, as paths from the instance (JSON)."}
     exit_criteria: {de: Austrittskriterien, en: Exit criteria, text: "Rule ids that must be clean to leave the step (R1–R8 of the rules report, P-rules of the process file)."}
-    meta:         {de: Definitionsknoten, en: Definition node, text: "Marks a definition node; instance views hide it."}
   ProcessInstance:
     current_step: {de: Aktueller Schritt, en: Current step, text: "Where the case stands."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the case went through with its start and end day, kept by the loader."}
   Event:
-    meta:         {de: Buchhaltungsknoten, en: Bookkeeping node, text: "Marks a definition or bookkeeping node; instance views hide it."}
     occurred_at:  {de: Zeitpunkt, en: Occurred at, text: "When it happened."}
     actor:        {de: Akteur, en: Actor, text: "Who or what did it."}
+  RunEvent:
+    occurred_at:  {de: Zeitpunkt, en: Occurred at, text: "The day the run happened."}
+    actor:        {de: Akteur, en: Actor, text: "The agent that ran: the loader, the CI job or an AI agent session."}
   Role:
     holder:       {de: Inhaber, en: Holder, text: "The person currently holding the role."}
   Agent:
@@ -269,7 +279,8 @@ attributes:
     recorded_on:  {de: Erfasst am, en: Recorded on, text: "When the evidence was recorded."}
   Campaign:
     status:       {de: Status, en: Status, text: "Planned, running, done, or exploration when the thresholds were not set before the start."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     metric_key:   {de: Kennzahl, en: Metric, text: "The metric the keep and kill thresholds are set on (reply rate, meeting rate, …)."}
     minimum_sample: {de: Mindeststichprobe, en: Minimum sample, text: "How many sent before a result counts."}
     keep_threshold: {de: Behalten-Schwelle, en: Keep threshold, text: "The rate at which we keep the approach."}
@@ -279,13 +290,15 @@ attributes:
     ends_on:      {de: Ende, en: Ends on, text: "Planned end date; the evaluation runs after it."}
   Release:
     version:      {de: Version, en: Version, text: "The version label of the release."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     environment:  {de: Umgebung, en: Environment, text: "Dev or prod."}
     released_on:  {de: Freigegeben am, en: Released on, text: "The date it reached the environment."}
     status:       {de: Status, en: Status, text: "Candidate, verified, deployed or announced."}
   Lead:
     segment_key:  {de: Segment, en: Segment, text: "The segment the lead belongs to."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     account_key:  {de: Kunde, en: Account, text: "The account (company) the lead belongs to."}
     persona_key:  {de: Persona, en: Persona, text: "The persona the contact's role maps to."}
     role_in_deal: {de: Rolle im Verkauf, en: Role in the deal, text: "Economic buyer, champion, user, … (never a name)."}
@@ -295,7 +308,8 @@ attributes:
   Opportunity:
     stage:        {de: Phase, en: Stage, text: "Where the deal stands in the pipeline."}
     account_key:  {de: Kunde (Organisation), en: Account, text: "The company the deal is with."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     value:        {de: Wert, en: Value, text: "The deal value, as text with currency and period."}
     next_step:    {de: Nächster Schritt, en: Next step, text: "What happens next in the deal."}
     next_step_on: {de: Nächster Schritt am, en: Next step on, text: "When the next step is due."}
@@ -316,7 +330,8 @@ attributes:
     value_per_year: {de: Jahreswert, en: Value per year, text: "Recurring value per year."}
   Customer:
     status:       {de: Status, en: Status, text: "Onboarding, active, renewal due, expanded or churned."}
-    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader, its dated history feeds the flow view."}
+    current_step: {de: Aktueller Prozessschritt, en: Current step, text: "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."}
+    step_history: {de: Schrittverlauf, en: Step history, text: "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."}
     account_key:  {de: Kunde (Organisation), en: Account, text: "The account that became this customer."}
     onboarding_state: {de: Onboarding-Schritt, en: Onboarding step, text: "Where the onboarding stands: organisation created, client created, certificate issued, first query."}
     tier:         {de: Plattform-Stufe, en: Tier, text: "The tier bought."}
@@ -352,7 +367,6 @@ attributes:
     environment:  {de: Umgebung, en: Environment, text: "Dev or prod."}
     deployed_on:  {de: Ausgerollt am, en: Deployed on, text: "The deployment date."}
   GlossaryTerm:
-    meta:         {de: Buchhaltungsknoten, en: Bookkeeping node, text: "Marks a definition or bookkeeping node; instance views hide it."}
     term_kind:    {de: Art des Begriffs, en: Kind of term, text: "Type, attribute, relation or value."}
     technical_name: {de: Technischer Name, en: Technical name, text: "The name as it appears in the ontology files."}
     display_de:   {de: Anzeigename (DE), en: Display name (DE), text: "The German plain name."}
@@ -368,7 +382,6 @@ enums:
   FeaturePlan:
     status: {draft: {de: Entwurf, en: draft, text: "Being written."}, review: {de: in Prüfung, en: review, text: "Under review."}, approved: {de: genehmigt, en: approved, text: "Approved, not started."}, implementing: {de: in Umsetzung, en: implementing, text: "Being built."}, verified: {de: verifiziert, en: verified, text: "Built and verified by tests."}, implemented: {de: umgesetzt, en: implemented, text: "Done, with evidence."}, released: {de: ausgeliefert, en: released, text: "In production."}, killed: {de: eingestellt, en: killed, text: "Stopped on purpose."}}
   Gate:
-    meta: {"yes": {de: ja, en: "yes", text: "Plan bookkeeping."}}
     status: {open: {de: offen, en: open, text: "Not yet checked."}, passed: {de: bestanden, en: passed, text: "The criterion holds."}, failed: {de: nicht bestanden, en: failed, text: "The criterion does not hold."}, cut-scope: {de: Umfang gekürzt, en: cut scope, text: "A tripwire fired and scope was cut."}}
   Goal:
     period: {month: {de: Monat, en: month, text: "A monthly goal."}, quarter: {de: Quartal, en: quarter, text: "A quarterly goal."}, year: {de: Jahr, en: year, text: "A yearly goal."}}
@@ -424,18 +437,7 @@ enums:
     environment: {dev: {de: Entwicklung, en: dev, text: "The development cluster."}, prod: {de: Produktion, en: prod, text: "Production."}}
   ProcessStep:
     resting: {"yes": {de: ja, en: "yes", text: "Work rests here."}, "no": {de: nein, en: "no", text: "Work moves on from here."}}
-    meta: {"yes": {de: ja, en: "yes", text: "A definition node."}}
-  Process:
-    meta: {"yes": {de: ja, en: "yes", text: "A definition node."}}
-  Spine:
-    meta: {"yes": {de: ja, en: "yes", text: "A definition node."}}
   SpineLevel:
-    meta: {"yes": {de: ja, en: "yes", text: "A definition node."}}
     verified: {"yes": {de: ja, en: "yes", text: "Edges of this shape exist."}, "no": {de: nein, en: "no", text: "No edge of this shape yet; expect it empty."}}
-  Event:
-    meta: {"yes": {de: ja, en: "yes", text: "A bookkeeping event (loader run)."}}
-  Phase:
-    meta: {"yes": {de: ja, en: "yes", text: "Plan bookkeeping."}}
   GlossaryTerm:
-    meta: {"yes": {de: ja, en: "yes", text: "A glossary entry."}}
     term_kind: {type: {de: Typ, en: type, text: "A node type."}, attribute: {de: Attribut, en: attribute, text: "An attribute of a type."}, relation: {de: Relation, en: relation, text: "A relation name."}, value: {de: Wert, en: value, text: "An allowed value of an enum attribute."}}

@@ -123,12 +123,12 @@ class TestMissing:
             ("Component", "→affects→ Component"),
             ("Capability", "→serves→ Capability"),
             ("Goal", "→motivated_by→ Goal"),
-            ("Invariant", "→affects→ Component →keeps→ Invariant"),
-            ("AlloyCheck", "→affects→ Component ←verifies– AlloyCheck"),
+            ("Invariant", "→keeps→ Invariant"),            # what the plan declares itself (DEC-0023)
+            ("AlloyCheck", "←verifies– AlloyCheck"),
         ]
         goal = next(m for m in missing if m["type"] == "Goal")
         assert goal["alternative"] == "Hypothesis →justified_by→ Hypothesis"
-        assert next(m for m in missing if m["type"] == "Invariant")["note"] == "contracts-and-invariants step"
+        assert next(m for m in missing if m["type"] == "Invariant")["note"].startswith("contracts-and-invariants step")
 
     def test_the_alternative_satisfies_the_artefact(self, graph):
         ctx, d, _ = _ctx(graph)
@@ -206,14 +206,15 @@ class TestTrace:
         assert owner["met"] is False and owner["source"] == "platform"
 
     def test_meta_events_stay_out_of_the_context_lane(self, graph):
-        ctx, d, _ = _ctx(graph)
         plan = graph.by_key["FEAT-2026-09-08-adaptive-rate-limits"]
-        run = graph.node("Event", "Loader run 2", key="EVT-run-2", meta="yes")
-        graph.edge(run, "touches", plan)
+        for i in (2, 3):
+            graph.edge(graph.node("RunEvent", f"Loader run {i}", key=f"EVT-run-{i}", meta="yes"), "touches", plan)
         ctx, d, _ = _ctx(graph)
         t = pv.trace(ctx, d, PROC, plan, today=TODAY)
-        events = next(a for a in t["context"] if a["type"] == "Event")
-        assert [i["name"] for i in events["items"]] == ["Plan review"]
+        runs = next(a for a in t["context"] if a["type"] == "RunEvent")
+        assert runs["count"] == 0 and runs["items"] == []
+        # the business event is not a declared context path any more (RunEvent split, DEC-0019)
+        assert not any(a["type"] == "Event" for a in t["context"])
 
     def test_an_instance_of_another_type_is_refused(self, graph):
         ctx, d, _ = _ctx(graph)

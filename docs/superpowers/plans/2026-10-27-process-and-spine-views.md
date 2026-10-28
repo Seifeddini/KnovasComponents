@@ -62,6 +62,14 @@ Decisions are cached with the index under the same key and TTL. The final report
 - The loader reassembles the JSON shape and validates it against the schemas. Definitions are cached 10 min per subject, since 76 fact reads must not run per request.
 - **Fallback:** a vendored copy under `src/graph_views/definitions/`, pinned to the KnowledgeBase commit in `SOURCE.json` (path, commit, sha256 per file). A test fails when a file's hash and the recorded hash diverge. Once Phase P merges to KnowledgeBase master (gate GP), the pin moves to master.
 
+**D6 — Fix and change through KnowledgeBase (Step 7, 2026-10-28).**
+- **Never a brain write.** A fix or edit becomes an operation in the user's change set (Platform database); one submit opens ONE pull request on KnowledgeBase; the loader updates the tenant after the merge.
+- **Routing** comes only from KnowledgeBase's edit map (DEC-0022). Each Platform writer records the source and key path it implements and refuses when the pinned edit map names another place; locked entries show the edit map's reason and fix-at text.
+- **Classes** come from the process definition (DEC-0024), for the instance's own process (its `instance_of` edge), never the request's. A substantive change at or past `on_substantive.from` adds the rollback (first status that `status_map` maps to the rework step) and a DEC record with the user's reason.
+- **Suggestions** come from `suggestions.json` (DEC-0025), shown with rule, score and reason; the Platform does not invent candidates.
+- **Permissions** reuse `node_grants`: minor for owner, editor or admin; substantive for the owner or an admin.
+- **Conflicts.** Operations are semantic, so a moved master is a rebase: re-apply on the new head and name what no longer applies.
+
 ### Components
 
 | File | Responsibility |
@@ -134,6 +142,8 @@ Views carry no access rights: what a view shows is still filtered by the brain p
 - [x] **Step 4 — TREE and MATRIX.** Done when the product spine renders as a tree (level expansion < 1 s) and Capability × Component renders within budget.
 - [x] **Step 5 — Saved views.** Done when a user can save, reopen and share a view, and the audit log shows the change.
 - [x] **Step 6 — Default shared views.** Development cycle, Development board, Management trace, Decisions & risks, Market. Done when all five open from the picker on the tenant within budget.
+- [x] **Step 6b — Discovery.** Start tiles in spine order, "Liste", typeahead, one selection for every tab (fixes the sparse ego graph).
+- [x] **Step 7 — Fix and change (D6).** TRACE fixes with locks, picker with suggestions, "Lücken", "Bearbeiten", change-set review with diffs, rollback and DEC, conflicts and rebase, one PR, audit. Done when a change set builds against the real plan files and every writer round-trips all plans under KnowledgeBase's parser (815 round trips, 0 differences); a real PR needs the token.
 
 ## Related
 

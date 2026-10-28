@@ -176,7 +176,7 @@ class TestMeta:
 
     def test_a_type_level_marker_wins_and_reads_no_fact(self, client, graph):
         svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(),
-                                markers=lambda: {"Event"})
+                                markers=lambda: {"Event", "RunEvent"})
         ctx = svc.context()
         views.ego_graph(ctx, graph.by_key["L2-KNOWLEDGE-GRAPH"])
         for key in ("EVT-run-1", "EVT-review-1"):
@@ -272,7 +272,7 @@ class TestSchemasAreReadLazily:
         views.ego_graph(ctx, graph.by_key["FEAT-2026-09-08-adaptive-rate-limits"])
         read = {c.split("/")[2] for c in client.calls if c.endswith("/schema")}
         assert graph.types["Component"] in read
-        assert graph.types["AlloyCheck"] not in read      # not a neighbour of the plan
+        assert graph.types["GlossaryTerm"] not in read    # not a neighbour of the plan
 
     def test_a_type_without_a_state_attribute_costs_no_fact_reads(self, client, graph):
         comp = graph.by_key["L2-KNOWLEDGE-GRAPH"]

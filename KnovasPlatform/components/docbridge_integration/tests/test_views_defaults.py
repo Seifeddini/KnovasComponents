@@ -81,15 +81,18 @@ class TestEachDefaultRenders:
     def test_decisions_and_risks_for_a_plan(self, graph):
         ctx, d = _ctx(graph)
         t = pv.context_only(ctx, d, "PROC-feature-lifecycle", graph.by_key["FEAT-2026-09-08-adaptive-rate-limits"])
-        assert t["lanes"] == [] and t["skipped"] == [] and len(t["context"]) == 4
+        # Decision, Risk (affects, mitigated_by), RunEvent, and three "via component (all)" paths (DEC-0023)
+        assert t["lanes"] == [] and t["skipped"] == [] and len(t["context"]) == 7
 
     def test_decisions_and_risks_for_a_component(self, graph):
         ctx, d = _ctx(graph)
         t = pv.context_only(ctx, d, "PROC-feature-lifecycle", graph.by_key["L2-KNOWLEDGE-GRAPH"])
         found = {a["type"]: [i["name"] for i in a["items"]] for a in t["context"] if a["path"] == "←affects– " + a["type"]}
         assert found == {"Decision": ["DEC-0099 — keep the graph store"], "Risk": ["RISK-20 — hub nodes"]}
-        # mitigated_by never ends at a Component (relations.yaml): left out, and said so.
-        assert [s["path"] for s in t["skipped"]] == ["←mitigated_by– Risk"]
+        # mitigated_by never ends at a Component, and the "via component" paths start with the plan's
+        # affects (relations.yaml): left out, and said so.
+        assert [s["path"] for s in t["skipped"]][0] == "←mitigated_by– Risk"
+        assert all(s["path"].startswith(("←mitigated_by", "→affects→ Component")) for s in t["skipped"])
 
     def test_market_tree(self, graph):
         ctx, d = _ctx(graph)
