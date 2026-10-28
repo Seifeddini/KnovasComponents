@@ -2970,7 +2970,7 @@ def create_app(config_path: Optional[str] = None):
     view_service = ViewService(lambda: api_client, ViewSettings.from_config(config))
     app.extensions['views'] = view_service
     from identity import view_prefs
-    from identity.change_requests import ChangeRequestStore
+    from identity.change_sets import ChangeSetStore
     from identity.node_grants import NodeGrantStore as _ViewsGrantStore
     from identity.saved_views import SavedViewStore
 
@@ -2999,7 +2999,7 @@ def create_app(config_path: Optional[str] = None):
         view_store=(lambda: SavedViewStore(identity_gate.connection())) if identity_gate is not None else None,
         view_prefs=view_prefs if identity_gate is not None else None,
         change_repo=_change_repo,
-        change_store=(lambda: ChangeRequestStore(identity_gate.connection())) if identity_gate is not None else None,
+        change_store=(lambda: ChangeSetStore(identity_gate.connection())) if identity_gate is not None else None,
         node_grants=(lambda: _ViewsGrantStore(identity_gate.connection())) if identity_gate is not None else None,
         change_base=str(config.get('views.change_requests.base_branch', 'master') or 'master'),
         page_context=lambda: {
