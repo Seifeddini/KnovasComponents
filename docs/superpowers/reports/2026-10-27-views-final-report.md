@@ -129,4 +129,4 @@ The start page's first-time cost is a schema per type plus the meta fact of the 
 **For KnowledgeBase (data):**
 - Plan-table decisions are named `D-10: …`, but their keys (`FEAT-…/D-10`) are not in their names.
 - A plan's Author row reads "Drafted by Claude Code for owner review", which becomes its owner.
-- The `curation_status` of facts is never `confirmed` on the tenant, so "Zuletzt bestätigt" stays empty everywhere.
+- Every fact read in these checks had `curation_status: manual`, none `confirmed`, so "Zuletzt bestätigt" stays empty. Confirmation is not part of the loader's flow yet.
