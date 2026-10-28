@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 _ids = itertools.count(1)
@@ -32,7 +33,8 @@ class FixtureGraph:
 
     def node(self, type_name: str, name: str, key: Optional[str] = None,
              description: str = "", **facts: Any) -> str:
-        nid = f"n{next(_ids):04d}"
+        # Node ids are UUIDs on the tenant, and node_grants refuses anything else.
+        nid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"views-fixture/{next(_ids)}"))
         self.nodes[nid] = {"id": nid, "name": name, "node_type_id": self.type(type_name),
                            "description": description}
         rows = []
