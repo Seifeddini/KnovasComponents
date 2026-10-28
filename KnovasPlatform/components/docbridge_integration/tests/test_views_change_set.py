@@ -520,6 +520,9 @@ class TestFixes:
         assert impl["SourceFile"]["indirect"] is True
         ctxs = {(a["type"], a["path"]): a["edit"] for a in body["context"]}
         assert ctxs[("Risk", "←affects– Risk")]["can_add"] is False         # a new risk needs text
+        assert brief["Capability"]["class"] == "substantive"
+        # routable by the edit map, but the feature lifecycle gives it no change class: not offered
+        assert brief["PreMortem"]["routable"] is False and "keine Änderungsklasse" in brief["PreMortem"]["why"]
 
     def test_the_picker_puts_suggestions_with_their_reason_on_top(self, graph):
         ctx, d, svc = _ctx(graph)

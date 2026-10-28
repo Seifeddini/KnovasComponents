@@ -453,11 +453,16 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         if body.get("where") is not None and body.get("position") is not None:
             edit_id = fixes.edit_id_at(d, process, context.index.type_of(node), str(body["where"]), int(body["position"]))
         target = str(body.get("target") or "")
-        if not target and body.get("target_node"):
-            try:
+        new_target = str(body.get("new_target") or "")
+        try:
+            # a shown node is named by its key: the server reads it, the browser does not invent one
+            if not target and body.get("target_node"):
                 target = fixes.target_key(context, str(body["target_node"]))
-            except ValueError as exc:
-                raise cr.ChangeError(str(exc)) from exc
+            if not new_target and body.get("new_target_node"):
+                new_target = fixes.target_key(context, str(body["new_target_node"]))
+        except ValueError as exc:
+            raise cr.ChangeError(str(exc)) from exc
+        body = {**body, "new_target": new_target}
         if kind in ("add", "replace") and body.get("where") is not None:
             key = cr.plan_of(context, node)["key"]
             chosen = str(body.get("new_target") or target) if kind == "replace" else target
