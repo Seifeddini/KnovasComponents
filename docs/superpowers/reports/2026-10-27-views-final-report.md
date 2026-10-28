@@ -131,66 +131,103 @@ The start page's first-time cost is a schema per type plus the meta fact of the 
 - A plan's Author row reads "Drafted by Claude Code for owner review", which becomes its owner.
 - Every fact read in these checks had `curation_status: manual`, none `confirmed`, so "Zuletzt bestätigt" stays empty. Confirmation is not part of the loader's flow yet.
 
-## Step 7 — change requests from TRACE (2026-10-28)
+## Step 7 — fix and change from the Platform (2026-10-28)
 
-**What it does.** "Änderung vorschlagen" in the Ablauf view opens a form beside the trace. The form offers only the fields the plan file holds, prefilled from KnowledgeBase master. "Vorschau" shows the class of the change, its impact and the exact diffs. "Pull Request erstellen" opens a pull request on KnowledgeBase. The brain is never written: the change reaches the graph through the loader after the merge.
+**What it does.** Users fix missing or wrong links and change plans from the views. KnowledgeBase stays the source of truth, and nothing writes the brain. The Platform reads three KnowledgeBase files:
+- the edit map (DEC-0022): where each relation and fact is edited;
+- the suggestions (DEC-0025): ranked candidates for each gap;
+- the change classes in the process definitions (DEC-0024).
 
-**One branch and one pull request per change** (`platform/change-<plan>-<timestamp>`). The change touches:
-- the plan file `docs/ModernDocs/plans/<plan>.md`: the plan-table row or the template section, and the front matter;
-- its `.ai.yaml`, kept in step with the plan;
-- `client-zero/ontology/plan-links.yaml` for capability and goal; untouched lines stay in place;
-- for a substantive change only, a new `client-zero/ontology/decisions/DEC-nnnn-…md` in the existing DEC format (number = highest + 1, justification = the form's "Begründung").
+All three are vendored and pinned to KnowledgeBase master 45fc86b5, which merged `client-zero/edit-map`.
 
-**Change classes** (PROC-feature-lifecycle; Platform config `src/graph_views/change_classes.yaml` until KB carries them):
-- **Minor** (title, description, owner, sources): pull request only; the step does not change.
-- **Substantive** (affected components, capability, goal, requirements, risks): the pull request also sets the status back to `review` (step brief) when the plan is at approved or later. It adds the DEC record and names the rules that must hold again (R1, and R7 at 50 sp).
+**Where a user acts:**
+- **TRACE.** Every one-hop artefact is one of three things:
+  - fixable here: "+ hinzufügen" opens a picker with the suggestions (rule, score and reason) on top, then a search; every shown link has "falsch / entfernen" (one-line reason required) and "ersetzen";
+  - locked, with the edit map's reason and its "fix at source" text;
+  - indirect: the path runs through another node, so it is changed there.
+- **"Bearbeiten"** opens exactly the template's fields, each with its class. Fields without a route say why.
+- **"Lücken"** lists one row per missing artefact or failed KB rule across all instances:
+  - the top suggestion is preselected and can be changed (including "andere…");
+  - rows are accepted one at a time or many at once;
+  - filters by process, step, type and owner.
 
-**Safeguards:**
-- **Permissions:** the existing `node_grants` decide; the class needs the matching right, otherwise 403.
-- **Concurrency:** the form remembers the blob SHAs it was built from. If the plan, `.ai.yaml` or `plan-links.yaml` moved on master, the server answers 409 with the diff of what changed and a fresh form, so the change is re-applied on the new version (rebase), never written over it.
-- **Audit:** every proposal is recorded (`plan.change.proposed`) and stored in `change_requests` (migration 0006). The trace shows "Änderung offen: PR #n" until the merge; the badge disappears when the expected facts are on the tenant.
-- **GitHub token:** read from `KB_GITHUB_TOKEN` or `views.change_requests.github_token_file`; never logged or sent to the browser. It needs only contents and pull-request write access on KnowledgeBase. Without a token the page still previews (from a read-only local checkout, `local_repo`) and says "nur Vorschau möglich".
+**The change set:**
+- **Collecting.** All fixes and edits collect in a change set, one per user, kept in the Platform database (badge with count).
+- **Operations.** Each is one change ("add CAP-02 to what FEAT-… serves"), not a text patch. It is checked when added:
+  - routed by the edit map;
+  - classified by the instance's own process (taken from its `instance_of` edge, never from the request);
+  - permitted;
+  - a key of the right form.
+- **"Änderungen" (review)** applies every operation to the owning files at one base commit. It shows:
+  - each file's diff, grouped by owning file;
+  - each operation's class, reason and suggestion;
+  - for a substantive change on an instance at or past `on_substantive.from`: the status rollback (approved → `draft` per `status_map`), a decision record with the user's reason, and the rules to pass again;
+  - the impact from the edge index.
+- **Conflicts.** A file that moved on master since the base shows its diff; "Neu aufsetzen" re-applies the operations on the new head and names any that no longer apply.
+- **Submit** opens ONE pull request:
+  - a branch at the base, each file written over its base blob;
+  - title and body from the change set;
+  - an audit entry `plan.changeset.submitted` with who, files, classes, instances and the PR link.
+  The affected items then show "Änderung ausstehend: PR #n" until the tenant shows the merged links.
+- **Permissions.** `node_grants` as before: minor changes for owner, editor or admin; substantive changes for the instance's owner or an admin.
 
-**Measured** (live tenant, preview against a local KnowledgeBase master checkout):
+**Writers and how they were checked.** One writer per edit-map id. Each records the source and key path it was written for. When the pinned edit map names another place, the writer refuses; a test fails on re-vendoring.
+
+Every edit is read back with a port of KnowledgeBase's plan parser and refused unless exactly the target changed. Against all 32 plans, with KnowledgeBase's own parser as the judge: 815 add/remove round trips, 0 differences.
+
+**Measured** (live tenant, preview against a read-only KnowledgeBase checkout; times as cold → warm):
 
 | Action | Time |
 |---|---|
-| Opening the form for FEAT-2026-10-05-graph-native-brain | 1.0 s |
-| Preview, minor change (owner) | 146 ms |
-| Preview, substantive change (capability) | 156 ms |
+| Definitions (first load per user, 76 paced fact reads) | 3.9–6.2 s, then cached 10 min |
+| TRACE right after that | 3.2–4.1 s → 25–33 ms |
+| Lücken, feature lifecycle (72 rows) | 0.34 s → 25 ms |
+| Lücken, all seven processes (81 rows) | 0.17 s → 22 ms (was 32.7 s when it reused the board) |
+| Picker (suggestions and search) | 0.19 s → 20 ms |
+| Adding an operation | 27–102 ms |
+| "Bearbeiten" form | 120–142 ms |
+| Review (4 operations, 4 files, rollback, DEC) | 0.2 s |
 
-The substantive preview for capability CAP-11 → CAP-11, CAP-02 reported:
-- status `review` in the front matter, the plan table and `.ai.yaml`;
-- DEC-0018 and the `plan-links.yaml` edit;
-- R1, and the note that size is unknown, so R7 cannot be checked;
-- impact: 11 components, 49 invariants, 24 risks and 51 decisions, from the edge index.
+The cold TRACE is over the 2 s budget only right after the definitions load, because that load drains the rate-limit bucket. This is the bulk-read limit already listed (A7).
 
-No pull request was created: that needs a token and your decision.
+**Live run** (tenant af639810). Four operations:
+- add a Goal suggestion to the roadmap plan (in brief: substantive, but before the rework point);
+- add CAP-02 to graph-native-brain;
+- remove one Alloy model (picked as a check);
+- set the owner to `PERS-siran`.
 
-**Fixed during the live check:** the form sends `""` or `[]` for sections the plan lacks, and those counted as changes, so a capability edit was listed as "description, capability, requirements, sources". Empty now equals absent (regression test `test_an_empty_field_absent_from_the_file_is_not_a_change`).
+The review gave:
+- the rollback to `draft`;
+- `DEC-0026-2026-10-05-graph-native-brain-change.md`;
+- rules R1, R7, P-owner and P-source to pass again;
+- impact: 11 components, 49 invariants, 24 risks and 51 decisions;
+- four files: the DEC, `plan-links.yaml`, the plan and its `.ai.yaml`.
 
-Screenshots: `step7-trace-button.png`, `step7-form.png`, `step7-preview-substantive.png`.
+Submit answered "nur Vorschau", since no token is configured. No pull request was created.
 
-### Fields that do not map cleanly
+Screenshots: `step7-trace-fixes.png`, `step7-trace-locks.png`, `step7-picker.png`, `step7-gaps.png`, `step7-review.png`, `step7-review-diff.png`, `step7-plan-form.png`.
 
-| Field | Where it lives | Issue |
+**Security review findings, fixed:**
+- a revision from the browser could reach `git show` as an option;
+- the process (and with it the class and the permission) was taken from the request.
+
+### What could not be routed, and edit-map gaps for KnowledgeBase
+
+| Item | What happens in the Platform | What KnowledgeBase could do |
 |---|---|---|
-| Target date | nowhere | The template has no target date; `**Date**` is the creation date. Offered read-only, marked "unmapped". |
-| Capability, goal | `plan-links.yaml`, not the plan | A plan change touches a second file, and `plan-links.yaml` is shared by every plan (merge conflicts between concurrent changes). |
-| Owner | the plan table's Author row | Values are free text ("Platform (drafted with an AI agent)", "Drafted by Claude Code for owner review"), not a person or team key. |
-| Description, requirements, sources | template sections Problem, Component contract deltas, References | The graph-native-brain plan has none of them; an edit inserts the section where the template puts it. |
-| Status | front matter, plan table and `.ai.yaml` | Three copies, all edited together. |
-| Title | H1 and `.ai.yaml` | They differ on graph-native-brain ("Feature: Graph-native company brain" vs "Graph-native company brain"); the form edits both. |
+| `Decision affects FeaturePlan` | Locked. The edit map routes it to the plan's D-/OD- rows, which define the plan's own decisions, so an existing DEC cannot be linked there. The DEC loader still ignores `affects:` and links every DEC record to FEAT-2026-10-25-client-zero-phase-0. | Read `affects:` from DEC front matter and add it to the edit map as the route for linking a DEC to a plan. |
+| `PreMortem examines FeaturePlan`, `Risk mitigated_by FeaturePlan` | Routable (sample.yaml), but PROC-feature-lifecycle gives them no change class, so they are not offered. PreMortem is a brief artefact. | Add both to `change_classes` (or say they are fixed elsewhere). |
+| References section, target date | No edit-map entry, no template field. Shown locked with the reason. | Add References to the edit map and a change class; add a target date to the template if plans should have one. |
+| Plan edges in `sample.yaml` | FEAT-2026-07-30-company-brain-foundation's serves, motivated_by, justified_by and affects, and FEAT-2026-10-25-client-zero-phase-0's affects and motivated_by, live in sample.yaml. The edit map routes these relations to `plan-links.yaml` and the Affected L2 row, so "entfernen" refuses: the edge is not where the edit map says. | Move them to their routed sources, or list sample.yaml as a second source. |
+| `change_classes` on the tenant | The loader writes status_map, transitions, governing_fact and the P-rules as Process facts, but not change_classes, and not the step descriptions. Both come from the pinned copy, listed as gaps. | Write `change_classes` (and the descriptions) as Process and ProcessStep facts. |
+| Rules to pass again | Not declared. The Platform takes the exit criteria from the rework step up to the instance's step. | Declare them in `on_substantive`, if they differ. |
+| Edit-map sources | Written two ways: `client-zero/…` and `docs/ModernDocs/…`. `key_path` is prose, so the Platform pins its writers to the exact strings. | One path form; a machine-readable key path next to the prose. |
+| Alloy model paths | Matched exactly after stripping a `models/alloy/` prefix. Markdown links (`../../KnowledgeBase/…/x.als`) and bare names (`doc_field_commit.als` in graph-native-brain) never link to a check. | Normalise `../` prefixes and resolve bare names in `providers/alloy.py`. |
+| Invalid sidecar | `2026-09-06-billing-non-repudiation.ai.yaml` is not valid YAML (`{dev,prod}` in a flow mapping), so the loader silently skips its golden_invariants. | Quote the value; fail the loader on an unreadable sidecar. |
+| Owner keys vs accounts | Owners are now `ROLE-*` / `PERS-*` keys (DEC-0020), but no Platform account carries one. "Instance owner" in the permissions therefore means the `node_grants` owner. | A person key on the Platform user, or role holders, so the brain's owner can be the one who may make substantive changes. |
+| DEC numbers | The next number is computed from master at the base (DEC-0026 now), so a KnowledgeBase branch open at the same time can take the same number. | Allocate at merge, or check for duplicates in CI. |
+| Other processes | Writers exist for the feature lifecycle only: plan file, sidecar, plan-links.yaml and sample.yaml edges. seed.yaml, experiments.yaml, campaigns, sales, releases and DEC/ADR front matter are listed by `writers.unroutable_report()` (59 entries) and shown locked. | (Platform: next writers, feature plans first as asked.) |
 
-### What KnowledgeBase should add, so the Platform config can go
-
-1. **`change_classes` per process in `processes.yaml`**, carried into `generated/process-definitions.json`: minor and substantive field lists, the rework step, and the rules that must hold again. The Platform already reads them from the definition when present and ignores `change_classes.yaml` for that process.
-2. **`status_map` in the generated JSON** (status → step; today only in `processes.yaml`), so the rework status is not configured twice.
-3. **A target date in `feature-plan.template.md`**, if plans should carry one.
-4. **Capability and goal in the plan's front matter** (or `.ai.yaml`), with `plan-links.yaml` generated from them, so one change is one file.
-5. **The DEC loader should read `affects:` from the record's front matter.** Today it links every DEC record to FEAT-2026-10-25-client-zero-phase-0, so a DEC from a change request would hang on the wrong plan.
-6. **Data:**
-   - `size_points` on every plan, so R7 can be checked;
-   - the same title in the H1 and `.ai.yaml`;
-   - owners as keys;
-   - the rework transitions loaded on the tenant (they are missing; probably the loader's dedupe).
+**For the user:**
+- **Token.** A real pull request needs a least-privilege token (contents and pull requests on KnowledgeBase only), set as `KB_GITHUB_TOKEN` or `views.change_requests.github_token_file`.
+- **Accounts.** The views need accounts (identity on).
