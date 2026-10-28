@@ -30,6 +30,8 @@
                 expand: (params.get('expand') || '').split(',').filter(Boolean),
                 view: params.get('view') || '',
                 sections: params.get('sections') === 'context' ? ['context'] : [],
+                // "Lücken": feature plans first
+                gapProcess: params.get('gaps') || 'PROC-feature-lifecycle', gapStep: '', gapType: '', gapOwner: '',
             };
             this.typeLabels = {};
             this.viewSettings = { hidden: new Set(), sorting: '' };
@@ -61,6 +63,10 @@
             document.querySelectorAll('#viewsKinds button[data-kind]').forEach((b) => {
                 b.addEventListener('click', () => this.setKind(b.dataset.kind));
             });
+            if (root.ViewsChange) {
+                this.changes = new root.ViewsChange.ChangeSet(this);
+                this.changes.refresh();
+            }
             this.restoreSelection().then(() => this.setKind(this.state.kind, true));
             if (root.SavedViews) {
                 this.saved = new root.SavedViews(this);
@@ -100,6 +106,14 @@
                     path: (s) => ['/api/views/board', { process: s.process, owner: s.owner, capability: s.capability, status: s.status }],
                     render: (box, body, page) => { page.fillFilters(body.filters, body.applied); root.ViewsProcess.renderBoard(box, body, page); },
                 },
+                gaps: {
+                    path: (s) => ['/api/views/gaps', { process: s.gapProcess, step: s.gapStep, type: s.gapType, owner: s.gapOwner }],
+                    render: (box, body, page) => root.ViewsGaps.render(box, body, page),
+                },
+                changes: {
+                    path: () => ['/api/views/changeset', {}],
+                    render: (box, body, page) => root.ViewsChange.renderReview(box, body, page),
+                },
             };
         }
 
@@ -124,14 +138,14 @@
         syncUrl() {
             // Keep parameters this controller does not own (?open= of the definitions).
             const params = new URLSearchParams(root.location.search);
-            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand', 'sections', 'type'].forEach((k) => params.delete(k));
+            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand', 'sections', 'type', 'gaps'].forEach((k) => params.delete(k));
             params.set('kind', this.state.kind);
             if (this.state.view) params.set('view', this.state.view); else params.delete('view');
-            const own = { sections: ['trace'], process: ['trace', 'board'], listType: ['list'], owner: ['board'], capability: ['board'], status: ['board'],
+            const own = { sections: ['trace'], process: ['trace', 'board'], gapProcess: ['gaps'], listType: ['list'], owner: ['board'], capability: ['board'], status: ['board'],
                 spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'] };
             Object.entries(own).forEach(([k, kinds]) => {
                 const v = Array.isArray(this.state[k]) ? this.state[k].join(',') : this.state[k];
-                if (v && kinds.includes(this.state.kind)) params.set(k === 'listType' ? 'type' : k, v);
+                if (v && kinds.includes(this.state.kind)) params.set({ listType: 'type', gapProcess: 'gaps' }[k] || k, v);
             });
             if (this.state.node) params.set('node', this.state.node);
             if (this.state.meta) params.set('meta', '1');
@@ -375,8 +389,12 @@
                 try {
                     const d = await api('/api/views/trace/items', { process: this.state.process, instance: this.state.node, where, position, page: pageNo });
                     body.appendChild(el('p', { className: 'views-muted', text: d.path + ' · Seite ' + (d.page + 1) + ' von ' + d.pages }));
+                    const fix = this.lastFix && artefact.edit && artefact.edit.routable && root.ViewsChange;
                     body.appendChild(el('ul', { className: 'views-list' }, d.members.map((m) => el('li', {}, [
-                        this.nodeLink(m), m.status ? el('span', { className: 'views-status', dataset: { status: m.status }, text: m.status }) : null]))));
+                        this.nodeLink(m), m.status ? el('span', { className: 'views-status', dataset: { status: m.status }, text: m.status }) : null,
+                        fix ? el('button', { type: 'button', className: 'views-button views-button-small', text: 'falsch / entfernen',
+                            onclick: () => root.ViewsChange.askRemove(this, { process: this.lastFix.process, node: this.lastFix.node, where, position,
+                                artefact, targetNode: m.id, targetName: m.name }) }) : null]))));
                     const nav = el('div', { className: 'views-pager' });
                     if (d.page > 0) nav.appendChild(el('button', { type: 'button', className: 'views-button', text: '‹ Zurück', onclick: () => load(d.page - 1) }));
                     if (d.page + 1 < d.pages) nav.appendChild(el('button', { type: 'button', className: 'views-button', text: 'Weiter ›', onclick: () => load(d.page + 1) }));

@@ -120,7 +120,10 @@
         let body = null;
         try { body = await response.json(); } catch (err) { body = null; }
         if (!response.ok || !body || body.success === false) {
-            throw new Error((body && body.error) || `Fehler ${response.status}`);
+            const err = new Error((body && body.error) || `Fehler ${response.status}`);
+            err.status = response.status;
+            err.body = body;
+            throw err;
         }
         return body;
     }

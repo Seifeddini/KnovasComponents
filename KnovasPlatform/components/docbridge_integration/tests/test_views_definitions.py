@@ -77,10 +77,13 @@ class TestFromTenant:
 
     def test_what_the_tenant_does_not_hold_is_named_as_a_gap(self):
         _, ctx, _ = _ctx(_graph_with())
-        gaps = defs.load(ctx).gaps
-        assert "P-Regeln nicht auf dem Mandanten (aus der Kopie)" in gaps
-        line = next(g for g in gaps if g.startswith("governing_fact"))
+        d = defs.load(ctx)
+        # since Phase P8 the loader writes status_map, transitions, governing_fact and the used P-rules;
+        # change classes (DEC-0024) are not on the tenant yet
+        assert not any(g.startswith(("P-Regeln", "governing_fact", "status_map", "rework")) for g in d.gaps), d.gaps
+        line = next(g for g in d.gaps if g.startswith("change_classes"))
         assert "PROC-feature-lifecycle" in line and "PROC-decision" in line
+        assert d.process("PROC-feature-lifecycle")["change_classes"]["on_substantive"] == {"from": "approved", "to": "brief"}
 
     def test_a_broken_definition_on_the_tenant_falls_back_with_a_readable_error(self):
         proc, _ = defs.vendored()

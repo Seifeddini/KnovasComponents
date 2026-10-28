@@ -7,7 +7,7 @@ tests/test_views_definitions.py fails when a copy and its pin diverge.
 
     py -3 scripts/vendor_kb_definitions.py --kb E:/Knovas/KnowledgeBase --commit <sha>
 
-Once Phase P is merged (gate GP), run it against KnowledgeBase master.
+Pinned to KnowledgeBase master; re-run it after a KnowledgeBase merge that changes these files.
 """
 from __future__ import annotations
 
@@ -27,7 +27,13 @@ FILES = {
     "descriptions.yaml": f"{ROOT}/ontology/descriptions.yaml",
     "relations.yaml": f"{ROOT}/ontology/relations.yaml",
     "terms.yaml": f"{ROOT}/ontology/terms.yaml",
-    "process-completeness.json": f"{ROOT}/reports/process-completeness.json",
+    "owners.yaml": f"{ROOT}/ontology/owners.yaml",
+    # Step 7: where a person edits what the definitions use (DEC-0022), and ranked candidates for what is
+    # missing (DEC-0025). Since DEC-0025 the completeness report lives under generated/.
+    "edit-map.json": f"{ROOT}/ontology/generated/edit-map.json",
+    "edit-map.schema.json": f"{ROOT}/ontology/schema/edit-map.schema.json",
+    "suggestions.json": f"{ROOT}/ontology/generated/suggestions.json",
+    "process-completeness.json": f"{ROOT}/ontology/generated/process-completeness.json",
 }
 TARGET = Path(__file__).resolve().parents[1] / "src" / "graph_views" / "definitions"
 
