@@ -339,6 +339,8 @@ views:
   # Fan-out grouping: more neighbours than this of one type and relation become a chip.
   fanout_threshold: "${VIEWS_FANOUT_THRESHOLD:-5}"
   chip_status_max: "${VIEWS_CHIP_STATUS_MAX:-60}"
+  # States (status, outcome, ...) a TRACE reads at most: current step and context first.
+  trace_fact_budget: "${VIEWS_TRACE_FACT_BUDGET:-48}"
   page_size: "${VIEWS_PAGE_SIZE:-50}"
   max_hops: "${VIEWS_MAX_HOPS:-4}"
   max_nodes_per_hop: "${VIEWS_MAX_NODES_PER_HOP:-2000}"

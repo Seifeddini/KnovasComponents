@@ -15,7 +15,21 @@
                 node: params.get('node') || '',
                 meta: params.get('meta') === '1',
                 threshold: parseInt(params.get('n') || '5', 10) || 5,
+                process: params.get('process') || 'PROC-feature-lifecycle',
+                instance: params.get('instance') || '',
+                owner: params.get('owner') || '',
+                capability: params.get('capability') || '',
+                status: params.get('status') || '',
+                spine: params.get('spine') || 'SPINE-product',
+                branch: params.get('branch') || '',
+                rows: params.get('rows') || 'L3',
+                cols: params.get('cols') || 'L5',
+                expand: (params.get('expand') || '').split(',').filter(Boolean),
+                view: params.get('view') || '',
+                sections: params.get('sections') === 'context' ? ['context'] : [],
             };
+            this.typeLabels = {};
+            this.viewSettings = { hidden: new Set(), sorting: '' };
             this.overrides = {};
             this.legend = {};
             this.cy = null;
@@ -37,16 +51,44 @@
             this.$('viewsRefresh').addEventListener('click', () => this.reload(true));
             this.$('viewsPanelClose').addEventListener('click', () => this.closePanel());
             this.bindSearch();
+            this.bindProcessControls();
+            this.bindSpineControls();
             document.querySelectorAll('#viewsKinds button[data-kind]').forEach((b) => {
                 b.addEventListener('click', () => this.setKind(b.dataset.kind));
             });
             this.setKind(this.state.kind, true);
+            if (root.SavedViews) {
+                this.saved = new root.SavedViews(this);
+                this.saved.init();
+            }
+        }
+
+        isHidden(type) {
+            return !!(this.viewSettings && this.viewSettings.hidden && this.viewSettings.hidden.has(type));
         }
 
         /** Render kinds drawn as DOM (everything but the graph), by name. */
         static get DOM_KINDS() {
             return {
                 definitions: { path: () => ['/api/views/definitions', {}], render: (box, body) => root.ViewsDefinitions.render(box, body, this) },
+                trace: {
+                    path: (s) => (s.instance ? ['/api/views/trace', { process: s.process, instance: s.instance, meta: s.meta,
+                        sections: s.sections.join(',') === 'context' ? 'context' : '' }] : null),
+                    empty: 'Eine Instanz suchen (Schlüssel oder Name), um ihren Ablauf zu sehen.',
+                    render: (box, body, page) => { page.learnLabels(body.legend); root.ViewsProcess.renderTrace(box, body, page); },
+                },
+                tree: {
+                    path: (s) => ['/api/views/tree', { spine: s.spine, branch: s.branch }],
+                    render: (box, body, page) => root.ViewsSpine.renderTree(box, body, page),
+                },
+                matrix: {
+                    path: (s) => ['/api/views/matrix', { spine: s.spine, branch: s.branch, rows: s.rows, cols: s.cols }],
+                    render: (box, body, page) => root.ViewsSpine.renderMatrix(box, body, page),
+                },
+                board: {
+                    path: (s) => ['/api/views/board', { process: s.process, owner: s.owner, capability: s.capability, status: s.status }],
+                    render: (box, body, page) => { page.fillFilters(body.filters, body.applied); root.ViewsProcess.renderBoard(box, body, page); },
+                },
             };
         }
 
@@ -64,14 +106,22 @@
             this.$('viewsDoc').hidden = isGraph;
             this.$('viewsLegend').hidden = !isGraph;
             if (!initial) this.closePanel();
+            if (['trace', 'board', 'tree', 'matrix'].includes(this.state.kind)) this.loadProcesses();
             this.reload();
         }
 
         syncUrl() {
             // Keep parameters this controller does not own (?open= of the definitions).
             const params = new URLSearchParams(root.location.search);
-            ['node', 'meta', 'n'].forEach((k) => params.delete(k));
+            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand', 'sections'].forEach((k) => params.delete(k));
             params.set('kind', this.state.kind);
+            if (this.state.view) params.set('view', this.state.view); else params.delete('view');
+            const own = { sections: ['trace'], process: ['trace', 'board'], instance: ['trace'], owner: ['board'], capability: ['board'], status: ['board'],
+                spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'] };
+            Object.entries(own).forEach(([k, kinds]) => {
+                const v = Array.isArray(this.state[k]) ? this.state[k].join(',') : this.state[k];
+                if (v && kinds.includes(this.state.kind)) params.set(k, v);
+            });
             if (this.state.node) params.set('node', this.state.node);
             if (this.state.meta) params.set('meta', '1');
             if (this.state.threshold !== 5) params.set('n', String(this.state.threshold));
@@ -120,11 +170,17 @@
             const box = clear(this.$('viewsDoc'));
             box.appendChild(el('p', { className: 'views-muted', text: 'Lädt…' }));
             try {
-                const [path, params] = kind.path(this.state);
+                const target = kind.path(this.state);
+                if (!target) {
+                    clear(box);
+                    box.appendChild(el('p', { className: 'views-muted', text: kind.empty || '' }));
+                    return;
+                }
+                const [path, params] = target;
                 const body = await api(path, Object.assign({}, params, { refresh: !!refresh }));
                 clear(box);
                 this.showAnswerMeta(body);
-                kind.render(box, body);
+                kind.render(box, body, this);
             } catch (err) {
                 clear(box);
                 box.appendChild(el('p', { className: 'views-error', text: err.message }));
@@ -146,7 +202,144 @@
         center(id) {
             this.state.node = id;
             this.closePanel();
-            this.reload();
+            if (this.state.kind !== 'graph') this.setKind('graph');
+            else this.reload();
+        }
+
+        openTrace(id) {
+            this.state.instance = id;
+            this.setKind('trace');
+        }
+
+        learnLabels(legend) {
+            (legend || []).forEach((t) => { this.typeLabels[t.name] = t.label; this.legend[t.name] = t; });
+        }
+
+        typeLabel(type) {
+            return this.typeLabels[type] || type;
+        }
+
+        async loadProcesses() {
+            if (this.processesLoaded) return;
+            this.processesLoaded = true;
+            const select = this.$('viewsProcess');
+            try {
+                const d = await api('/api/views/definitions');
+                clear(select);
+                d.processes.forEach((p) => select.appendChild(el('option', { value: p.key, text: p.name, selected: p.key === this.state.process })));
+                this.spines = d.spines;
+                this.fillSpineControls();
+            } catch (err) {
+                this.processesLoaded = false;
+            }
+        }
+
+        bindProcessControls() {
+            const select = this.$('viewsProcess');
+            select.appendChild(el('option', { value: this.state.process, text: this.state.process }));
+            select.addEventListener('change', () => {
+                this.state.process = select.value;
+                this.state.instance = '';
+                this.state.owner = '';
+                this.state.capability = '';
+                this.state.status = '';
+                this.reload();
+            });
+            [['owner', 'viewsFilterOwner'], ['capability', 'viewsFilterCapability'], ['status', 'viewsFilterStatus']].forEach(([k, id]) => {
+                this.$(id).addEventListener('change', (e) => { this.state[k] = e.target.value; this.reload(); });
+            });
+            const input = this.$('viewsInstanceInput');
+            const list = this.$('viewsInstanceResults');
+            let timer = null;
+            const run = async () => {
+                try {
+                    // Context only: any plan or component; otherwise instances of the process.
+                    const contextOnly = this.state.sections.join(',') === 'context';
+                    if (contextOnly && input.value.trim().length < 2) { list.hidden = true; return; }
+                    const d = contextOnly
+                        ? await api('/api/views/search', { q: input.value.trim() })
+                        : await api('/api/views/instances', { process: this.state.process, q: input.value.trim() });
+                    clear(list);
+                    d.results.forEach((r) => list.appendChild(el('li', { role: 'option' }, [
+                        el('button', { type: 'button', onclick: () => { list.hidden = true; input.value = ''; this.openTrace(r.id); } },
+                            [el('span', { className: 'views-tech', text: r.key || r.type || '' }), el('span', { text: r.name }),
+                                r.step ? el('span', { className: 'views-badge views-badge-muted', text: r.step }) : null]),
+                    ])));
+                    if (!d.results.length) list.appendChild(el('li', { className: 'views-muted', text: 'Nichts gefunden.' }));
+                    list.hidden = false;
+                } catch (err) {
+                    this.notice(err.message);
+                }
+            };
+            input.addEventListener('focus', run);
+            input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 250); });
+        }
+
+        fillSpineControls() {
+            const spines = this.spines || [];
+            const spineSel = clear(this.$('viewsSpine'));
+            spines.forEach((s) => spineSel.appendChild(el('option', { value: s.key, text: s.name, selected: s.key === this.state.spine })));
+            const spine = spines.find((s) => s.key === this.state.spine) || spines[0];
+            if (!spine) return;
+            const branchSel = clear(this.$('viewsBranch'));
+            branchSel.appendChild(el('option', { value: '', text: 'Hauptachse' }));
+            (spine.branches || []).forEach((b) => branchSel.appendChild(el('option', { value: b.key, text: b.name, selected: b.key === this.state.branch })));
+            this.$('viewsBranch').parentNode.hidden = !(spine.branches || []).length || !['tree', 'matrix'].includes(this.state.kind);
+            const chain = this.state.branch ? ((spine.branches || []).find((b) => b.key === this.state.branch) || spine) : spine;
+            ['viewsRows', 'viewsCols'].forEach((id) => {
+                const key = id === 'viewsRows' ? 'rows' : 'cols';
+                const sel = clear(this.$(id));
+                chain.levels.forEach((l) => sel.appendChild(el('option', { value: l.id, text: `${l.id} ${l.name}`, selected: l.id === this.state[key] })));
+            });
+        }
+
+        bindSpineControls() {
+            this.$('viewsSpine').addEventListener('change', (e) => {
+                this.state.spine = e.target.value;
+                this.state.branch = '';
+                const spine = (this.spines || []).find((s) => s.key === this.state.spine);
+                if (spine && spine.levels.length > 2) { this.state.rows = spine.levels[0].id; this.state.cols = spine.levels[spine.levels.length - 1].id; }
+                this.fillSpineControls();
+                this.reload();
+            });
+            this.$('viewsBranch').addEventListener('change', (e) => { this.state.branch = e.target.value; this.fillSpineControls(); this.reload(); });
+            this.$('viewsRows').addEventListener('change', (e) => { this.state.rows = e.target.value; this.reload(); });
+            this.$('viewsCols').addEventListener('change', (e) => { this.state.cols = e.target.value; this.reload(); });
+        }
+
+        fillFilters(filters, applied) {
+            const fill = (id, values, current, label) => {
+                const select = clear(this.$(id));
+                select.appendChild(el('option', { value: '', text: label }));
+                values.forEach((v) => {
+                    const value = typeof v === 'string' ? v : v.id;
+                    const text = typeof v === 'string' ? v : v.name;
+                    select.appendChild(el('option', { value, text, selected: value === current }));
+                });
+            };
+            fill('viewsFilterOwner', filters.owners, applied.owner, 'alle Verantwortlichen');
+            fill('viewsFilterCapability', filters.capabilities, applied.capability, 'alle Fähigkeiten');
+            fill('viewsFilterStatus', filters.statuses, applied.status, 'alle Status');
+        }
+
+        async openTraceItems(where, position, artefact) {
+            const body = this.openPanel(artefact.count + ' × ' + this.typeLabel(artefact.type));
+            const load = async (pageNo) => {
+                clear(body);
+                try {
+                    const d = await api('/api/views/trace/items', { process: this.state.process, instance: this.state.instance, where, position, page: pageNo });
+                    body.appendChild(el('p', { className: 'views-muted', text: d.path + ' · Seite ' + (d.page + 1) + ' von ' + d.pages }));
+                    body.appendChild(el('ul', { className: 'views-list' }, d.members.map((m) => el('li', {}, [
+                        this.nodeLink(m), m.status ? el('span', { className: 'views-status', dataset: { status: m.status }, text: m.status }) : null]))));
+                    const nav = el('div', { className: 'views-pager' });
+                    if (d.page > 0) nav.appendChild(el('button', { type: 'button', className: 'views-button', text: '‹ Zurück', onclick: () => load(d.page - 1) }));
+                    if (d.page + 1 < d.pages) nav.appendChild(el('button', { type: 'button', className: 'views-button', text: 'Weiter ›', onclick: () => load(d.page + 1) }));
+                    body.appendChild(nav);
+                } catch (err) {
+                    body.appendChild(el('p', { className: 'views-error', text: err.message }));
+                }
+            };
+            load(0);
         }
 
         renderLegend(types) {

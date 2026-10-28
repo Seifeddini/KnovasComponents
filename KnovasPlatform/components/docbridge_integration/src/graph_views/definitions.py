@@ -39,6 +39,10 @@ class Definitions:
     gaps: List[str] = field(default_factory=list)
     differences: List[str] = field(default_factory=list)
     pinned: Dict[str, Any] = field(default_factory=dict)
+    #: tenant node id -> process key, and -> (process key, step id); empty
+    #: when the tenant could not be read (instances cannot be placed then)
+    process_nodes: Dict[str, str] = field(default_factory=dict)
+    step_nodes: Dict[str, Tuple[str, str]] = field(default_factory=dict)
 
     def process(self, key: str) -> Optional[Dict[str, Any]]:
         return next((p for p in self.processes if p.get("key") == key), None)
@@ -107,8 +111,8 @@ def _json(value: Optional[str], what: str, errors: List[str]) -> Any:
         return None
 
 
-def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], List[str]]:
-    """(process doc, spine doc, gaps, parse errors) assembled from definition nodes."""
+def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], List[str], Dict[str, Dict]]:
+    """(process doc, spine doc, gaps, parse errors, node maps) from definition nodes."""
     index = ctx.index
     proc_ids = list(index.by_type.get("Process", ()))
     step_ids = list(index.by_type.get("ProcessStep", ()))
@@ -120,6 +124,7 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
     gaps: List[Tuple[str, str]] = []
     ref_proc, ref_spine = vendored()
     ref_by_key = {p["key"]: p for p in ref_proc["processes"]}
+    nodes: Dict[str, Dict[str, Any]] = {"process": {}, "step": {}}
 
     processes = []
     for pid in proc_ids:
@@ -129,6 +134,7 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
             errors.append(f"Prozessknoten {index.nodes[pid]['name']!r}: Fakt key fehlt")
             continue
         slug = key[len("PROC-"):] if key.startswith("PROC-") else key
+        nodes["process"][pid] = key
         ref = ref_by_key.get(key, {})
         proc: Dict[str, Any] = {"key": key, "name": index.nodes[pid]["name"] or key,
                                 "description": index.nodes[pid]["description"],
@@ -156,6 +162,7 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
                 continue
             step_id = skey[len(prefix):]
             step_key_to_id[sid] = step_id
+            nodes["step"][sid] = (key, step_id)
             try:
                 order = int(sv.get("order", ""))
             except ValueError:
@@ -216,7 +223,7 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
         spines.append(spine)
     spine_doc = {"version": ref_spine.get("version", 1), "generated_at": "Mandant",
                  "source": "tenant definition nodes", "spines": sorted(spines, key=lambda s: s["key"])}
-    return proc_doc, spine_doc, _gap_lines(gaps), errors
+    return proc_doc, spine_doc, _gap_lines(gaps), errors, nodes
 
 
 def _gap_lines(gaps: List[Tuple[str, str]]) -> List[str]:
@@ -268,7 +275,7 @@ def load(ctx: Any) -> Definitions:
     copy_errors = validate(ref_proc, "process-definition.schema.json") + \
         validate(ref_spine, "spine-definition.schema.json")
     try:
-        proc_doc, spine_doc, gaps, parse_errors = from_tenant(ctx)
+        proc_doc, spine_doc, gaps, parse_errors, nodes = from_tenant(ctx)
     except Exception as exc:  # noqa: BLE001 - any failure here means "use the copy"
         return Definitions(ref_proc["processes"], ref_spine["spines"], ref_proc.get("rules", []),
                            "vendored", errors=[f"Mandant nicht lesbar ({type(exc).__name__}); Kopie verwendet"] + copy_errors,
@@ -280,6 +287,8 @@ def load(ctx: Any) -> Definitions:
         why = errors or ["keine Prozessdefinitionen auf dem Mandanten"]
         return Definitions(ref_proc["processes"], ref_spine["spines"], ref_proc.get("rules", []),
                            "vendored", errors=[f"Mandant: {e}" for e in why] + copy_errors,
-                           gaps=gaps, differences=diffs, pinned=pin())
+                           gaps=gaps, differences=diffs, pinned=pin(),
+                           process_nodes=nodes["process"], step_nodes=nodes["step"])
     return Definitions(proc_doc["processes"], spine_doc["spines"], proc_doc["rules"], "tenant",
-                       errors=copy_errors, gaps=gaps, differences=diffs, pinned=pin())
+                       errors=copy_errors, gaps=gaps, differences=diffs, pinned=pin(),
+                       process_nodes=nodes["process"], step_nodes=nodes["step"])
