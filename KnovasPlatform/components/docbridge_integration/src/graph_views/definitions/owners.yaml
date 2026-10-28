@@ -1,0 +1,28 @@
+# Owner text in the sources → the Role or Person key it means (P8, Platform views report issue 9; DEC-0020).
+# The loader writes `owner` only as a ROLE-* or PERS-* key. Text that names no role or person is kept as
+# `owner_text` and the node has no `owner` fact, so rule P-owner (and R1, R3, R4) report it instead of
+# "unknown" silently passing. Matching ignores case and anything in parentheses: "Siran Seifeddini (engine
+# owner)" is PERS-siran. A value that already starts with a ROLE-/PERS- key is that key.
+
+version: 1
+
+aliases:
+  siran: PERS-siran
+  siran seifeddini: PERS-siran
+  jiannis: PERS-jiannis
+  jiannis sarlos: PERS-jiannis
+  # "Platform" as author or risk owner in the KnowledgeBase plans (graph-native brain, adaptive rate limits, their
+  # risks) means the Knovas platform engineering, which the engine owner holds. Proposed in DEC-0020; the founders
+  # confirm or change it.
+  platform: ROLE-ENGINE-OWNER
+
+# Resolved from another node, not from the text itself.
+derived:
+  plan author: "the owner of the plan the decision row comes from (the key before the first /)"
+
+# Texts known to name no owner; listed so the report can tell a placeholder from a typo. The founders assign
+# these (reports/phase-P-inventory.md, "Owner values").
+placeholders:
+  - unknown
+  - component owner
+  - drafted by claude code for owner review

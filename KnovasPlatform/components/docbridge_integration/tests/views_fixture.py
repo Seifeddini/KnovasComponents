@@ -140,6 +140,16 @@ def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, An
         facts = {"meta": "yes", "owner_role": p["owner_role"], "instance_types": ", ".join(p["instance_types"]),
                  "context": _json.dumps(p.get("context", []), separators=(",", ":")),
                  "source": "docs/ModernDocs/client-zero/ontology/processes.yaml"}
+        # since Phase P8 (providers/definitions.py); change_classes are not written
+        for fld in ("status_map", "transitions"):
+            if fld in p:
+                facts[fld] = _json.dumps(p[fld], separators=(",", ":"), ensure_ascii=False)
+        if p.get("governing_fact"):
+            facts["governing_fact"] = p["governing_fact"]
+        rules = {r["id"]: r for r in proc_doc.get("rules", [])}
+        used = sorted({c for s in p["steps"] for c in s.get("exit_criteria", []) if c in rules})
+        if used:
+            facts["rules"] = _json.dumps([rules[c] for c in used], separators=(",", ":"), ensure_ascii=False)
         for opt in ("exists_today", "pack"):
             if p.get(opt):
                 facts[opt] = p[opt]
@@ -158,6 +168,8 @@ def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, An
                     sf[fld] = _json.dumps(s[fld], separators=(",", ":"))
             if s.get("exit_criteria"):
                 sf["exit_criteria"] = ", ".join(s["exit_criteria"])
+            if s.get("owner_role"):
+                sf["owner_role"] = s["owner_role"]
             sid = g.node("ProcessStep", f"{p['name']}: {s.get('name', s['id'])}", key=s["key"],
                          description=f"Step {s['order']} of {len(p['steps'])} in the {p['name']} process.", **sf)
             ids[s["key"]] = sid
@@ -176,7 +188,7 @@ def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, An
 def client_zero_graph() -> FixtureGraph:
     """Enough of tenant af639810 to exercise every view (grown per step)."""
     g = FixtureGraph()
-    for t in ("Process", "ProcessStep", "Spine", "SpineLevel", "GlossaryTerm", "Event", "Phase", "Gate"):
+    for t in ("Process", "ProcessStep", "Spine", "SpineLevel", "GlossaryTerm", "Event", "RunEvent", "Phase", "Gate"):
         g.type(t, meta_capable=True)
 
     defs_ids = load_definitions_into(g)
@@ -192,17 +204,22 @@ def client_zero_graph() -> FixtureGraph:
     g.edge(plan, "instance_of", proc)
     g.edge(plan, "in_state", steps["implementing"])
     g.edge(plan, "affects", comp)
+    # What the plan declares itself (DEC-0023): its invariants and Alloy checks are direct
+    # relations; the component carries them too (the "via component (all)" context).
     for i in range(22):
         check = g.node("AlloyCheck", f"ALLOY-check-{i:02d}", key=f"ALLOY-{i:02d}",
-                       outcome="failed" if i in (3, 7) else "passed")
+                       outcome="failed" if i in (3, 7) else "passed", file="data_plane/rate_limits.als")
         g.edge(check, "verifies", comp)
+        g.edge(check, "verifies", plan)
     for i in range(3):
         inv = g.node("Invariant", f"GI-GRAPH-{i:02d}", key=f"GI-GRAPH-{i:02d}")
         g.edge(comp, "keeps", inv)
+        g.edge(plan, "keeps", inv)
     for i in range(60):                       # above meta_exact_max: hidden by type
         term = g.node("GlossaryTerm", f"Term {i}", key=f"TERM-{i}", meta="yes")
         g.edge(term, "describes", comp)
-    run = g.node("Event", "Loader run 2026-10-27", key="EVT-run-1", meta="yes")
+    # a run event is meta by type (descriptions.yaml marker, DEC-0019); business events are not
+    run = g.node("RunEvent", "Loader run 2026-10-27", key="EVT-run-1", meta="yes")
     review = g.node("Event", "Plan review", key="EVT-review-1", occurred_at="2026-10-21")
     g.edge(run, "touches", comp)
     g.edge(review, "touches", comp)
