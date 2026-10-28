@@ -231,3 +231,69 @@ Screenshots: `step7-trace-fixes.png`, `step7-trace-locks.png`, `step7-picker.png
 **For the user:**
 - **Token.** A real pull request needs a least-privilege token (contents and pull requests on KnowledgeBase only), set as `KB_GITHUB_TOKEN` or `views.change_requests.github_token_file`.
 - **Accounts.** The views need accounts (identity on).
+
+## Step 8 — software documentation ("Dokumentation", 2026-10-28)
+
+**What it does.** A tab "Dokumentation" on /views, and a stable address per page: `/views/doc/<key>`, for example `/views/doc/L2-KNOWLEDGE-GRAPH`. That address is usable from AGENTS.md and agents' context packs; `/api/views/doc/export?key=<key>` returns the same page as Markdown.
+
+- **Tree.** System → software areas → L2 → L3, with the Step 6b search and a marker per node: a required section empty, or stale per the KB report.
+  - System → areas is the System page's own `areas` path.
+  - Below that it follows the product spine's software levels (L4–L6).
+  - No spine starts at the System.
+- **Pages** are drawn from `page-definitions.json` (DEC-0028), pinned to KnowledgeBase master c325397d. Each section shows:
+  - its render hint (text, list, table, status list, diagram);
+  - "Quelle · Stand", where Quelle is the edit map's source for the section's first hop;
+  - stale flags from `docs-completeness.json` (DEC-0029, labelled with its time);
+  - "fehlt" with the edit map's fix hint for required-but-empty sections.
+  Explanation documents open their source file on GitHub in a new tab.
+- **Level diagrams** for the System and each area: children as boxes (name, one-line description) and arrows labelled with the relation.
+  - An area draws `calls` / `calls_back` between its components, as its interactions section declares.
+  - The System counts the calls between the components of two areas (declared hops only).
+  - The layout is deterministic: layered by calls; a near-chain becomes a grid in call order instead of one tall column. No force layout.
+  - A click opens the child's page.
+- **Export:** the page or its subtree as Markdown, with a Mermaid diagram, stamped "Stand <time>, KnowledgeBase <commit>". The Platform has no PDF path, so "Drucken / PDF" uses the browser with a print layout.
+- **Default view:** "Software-Dokumentation" (product spine, render kind `doc`) opens the System page. Migration 0007 lets saved views use the kind.
+
+**Cost.** Each page has a fact budget (`views.doc_fact_budget`, 24 reads), spent in this order:
+1. the explanation (its links);
+2. the other required sections, cheapest first;
+3. the optional sections.
+
+A section the budget does not cover lists its items and loads its columns and states on click ("Laden (n Lesezugriffe)"). A rendered page is cached per user and topology load, so a reload reads nothing and never loads more on its own.
+
+**Measured** (live tenant af639810, after a fresh start):
+
+| Action | Time |
+|---|---|
+| First request (topology read, shared by all views) | 1.0–1.6 s |
+| System page | 176 ms cold, 3 ms warm |
+| L1 area pages | 145–163 ms cold, 3 ms warm |
+| L2-KNOWLEDGE-GRAPH | 222 ms cold (21 reads), 3 ms warm |
+| Other L2 pages | 1.1–1.2 s cold (20–22 reads, API latency), 3–5 ms warm |
+| L3 page | 39 ms cold |
+| Deferred section on click | 152 ms (invariants, 14 reads) to 1.6 s (commits, 48 reads) |
+| Export: page / L1 subtree / whole System | 3 ms / 31 ms / 267 ms (347 KB) |
+
+Every page renders under the 2 s cold and 200 ms warm budgets once the topology is loaded. The first request after a server start adds the topology read. One earlier run showed a single page at 2.2 s for 21 reads; the API answered slowly then (no 429 was logged).
+
+**Tests:** 27 in `tests/test_views_docs.py` and 3 frontend tests. They cover:
+- page selection and section order from the definitions;
+- missing, stale and broken-description flags; fix hints;
+- the budget order and on-click loading; the page cache;
+- invariant status from Alloy checks; ordering and limits;
+- GitHub links; both diagram kinds and the deterministic layout;
+- tree, locate, Markdown export and routes; the default view.
+
+Screenshots: `step8-system.png`, `step8-area-retrieve.png`, `step8-knowledge-graph.png`, `step8-knowledge-graph-sections.png`.
+
+### For KnowledgeBase
+
+| Finding | What KnowledgeBase could do |
+|---|---|
+| L2-DOC-ACL's description is `*AI-extensive spec: [spec.ai.yaml](./spec.ai.yaml)*` without the leading `---`. `BROKEN_DESC` does not match it, so the completeness report counts it as filled. The page shows it as text, following KB's own rule. | Widen `BROKEN_DESC`, or replace the text from the README. |
+| Every Record's description is `---` (the front-matter fence). | Take the first paragraph after the front matter. |
+| No spine starts at the System. The tree is the System page's areas path plus the product spine's software levels. | A software spine (System → software area → L2 → L3) as a definition. |
+| The brain does not say which KnowledgeBase commit it was loaded from. The export stamps the commit the page definitions are pinned to. | A `loaded_from_commit` fact on the System node (or the run event), so a page can name the exact commit of its data. |
+| Ordering commits needs every commit's `committed_on` (48 reads for L2-KNOWLEDGE-GRAPH): the date is in neither name nor description. | Put the date in the commit node's name or description; A7 (bulk fact reads) would remove the cost too. |
+| The completeness report covers L2 components only (`page: PAGE-component`), so the System, areas and L3 pages have no stale flags. | Evaluate the other page definitions too. |
+| Every lockfile Alloy check has `outcome: passed`, so an invariant's status says only whether a check exists. | Write the check's real outcome (or `expected`) as the state the page reads. |
