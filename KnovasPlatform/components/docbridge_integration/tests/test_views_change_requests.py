@@ -8,6 +8,8 @@ against an in-memory repository (no network).
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -90,17 +92,21 @@ edges:
 """
 
 
+def _sha(text):
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
 class FakeRepo:
     """Commits as dicts of files; one branch 'master'; records writes and PRs."""
 
     def __init__(self, files):
-        self.commits = {"c1": dict(files)}
-        self.head = "c1"
+        self.commits = {_sha("c1"): dict(files)}
+        self.head = _sha("c1")
         self.created, self.puts, self.prs = [], [], []
         self.pulls = {}
 
     def advance(self, path, text):
-        new = f"c{len(self.commits) + 1}"
+        new = _sha(f"c{len(self.commits) + 1}")
         self.commits[new] = {**self.commits[self.head], path: text}
         self.head = new
 
@@ -108,15 +114,11 @@ class FakeRepo:
         return self.head
 
     def get_file(self, path, ref):
-        files = self.commits.get(ref)
-        if files is None:      # a blob sha was given as ref (old version lookup)
-            for c in self.commits.values():
-                for p, t in c.items():
-                    if f"blob-{hash(t) & 0xffffff}" == ref:
-                        return t, ref
+        files = self.commits.get(ref)       # refs are commits only, as on GitHub
+        if files is None:
             return None
         text = files.get(path)
-        return None if text is None else (text, f"blob-{hash(text) & 0xffffff}")
+        return None if text is None else (text, _sha(text))
 
     def list_dir(self, path, ref):
         return sorted(p.rsplit("/", 1)[1] for p in self.commits[ref] if p.startswith(path + "/"))
@@ -365,8 +367,41 @@ class TestPrepare:
         with pytest.raises(cr.ChangeConflict) as exc:
             cr.prepare(ctx, d, "PROC-feature-lifecycle", graph.by_key[KEY], repo, "master",
                        {**f["values"], "owner": "Siran"}, base_shas=f["base"], why="", actor="x", today=TODAY)
+        assert "-The brain stores its graph in PostgreSQL tables; walks are slow." in exc.value.diff
         assert "+The brain stores its graph in PostgreSQL tables; walks are slow and costly." in exc.value.diff
         assert exc.value.current["base"]["commit"] == repo.head
+
+    @pytest.mark.parametrize("bad", ["--output=/tmp/x", "HEAD", "-c1", "../x", 7])
+    def test_a_base_that_is_not_an_object_id_is_refused(self, graph, bad):
+        repo = _repo()
+        ctx, d, f = self._form(graph, repo)
+        with pytest.raises(cr.ChangeError, match="Ungültige Basis"):
+            cr.prepare(ctx, d, "PROC-feature-lifecycle", graph.by_key[KEY], repo, "master",
+                       {**f["values"], "owner": "Siran"}, base_shas={**f["base"], "commit": bad},
+                       why="", actor="x", today=TODAY)
+
+
+def test_local_repo_never_passes_a_revision_as_an_option(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    repo = cr.LocalRepo(str(tmp_path))
+    with pytest.raises(cr.ChangeError, match="Revision"):
+        repo.get_file("x.md", "--output=" + str(tmp_path / "pwned"))
+    assert not (tmp_path / "pwned").exists()
+    # and a revision that is not one is a missing file, not an error
+    assert repo.get_file("x.md", "deadbeef") is None
+
+
+@pytest.mark.parametrize("source", ["docs/ModernDocs/plans/../../secrets.md", "x/docs/ModernDocs/plans/a.md",
+                                    "-docs/ModernDocs/plans/a.md", "docs\\ModernDocs\\plans\\a.md"])
+def test_a_plan_path_outside_the_plans_folder_is_refused(source, monkeypatch):
+    class Ctx:
+        class index:
+            nodes = {"n": {"name": "N"}}
+        state = reader = None
+    monkeypatch.setattr(cr, "read_facts", lambda state, reader, ids: {"n": None})
+    monkeypatch.setattr(cr, "fact_values", lambda facts: {"source": source})
+    with pytest.raises(cr.ChangeError, match="Plan-Datei"):
+        cr.plan_of(Ctx, "n")
 
     def test_r7_unknown_size_is_said(self, graph):
         ctx, _, _ = _ctx(graph)
@@ -382,7 +417,7 @@ class TestPrepare:
                        base_shas=f["base"], why="A hypothesis justifies it too.", actor="Siran", today=TODAY)
         pr = cr.submit(p, repo, "master", actor="Siran", why="A hypothesis justifies it too.",
                        now=dt.datetime(2026, 10, 28, 9, 0, 0))
-        assert repo.created == [("platform/change-2026-10-05-graph-native-brain-20261028090000", "c1")]
+        assert repo.created == [("platform/change-2026-10-05-graph-native-brain-20261028090000", _sha("c1"))]
         assert {x["path"] for x in repo.puts} == set(p["files"])
         links = next(x["text"] for x in repo.puts if x["path"] == plan_file.PLAN_LINKS_PATH)
         assert f"relation: justified_by, to: P-02.H01" in links
