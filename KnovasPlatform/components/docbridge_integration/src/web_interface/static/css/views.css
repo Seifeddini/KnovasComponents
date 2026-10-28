@@ -283,3 +283,10 @@
 .views-matrix-unlinked .views-matrix-row { color: var(--text-secondary); }
 
 .views-tree-row .views-status { margin-left: 0; }
+
+/* Saved views */
+.views-picker { display: flex; align-items: center; gap: 6px; }
+.views-picker select { font: 13px var(--font-body); padding: 4px 6px; max-width: 240px; }
+.views-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.views-form input { font: 13px var(--font-body); padding: 6px 8px; border: 1px solid var(--border-color); border-radius: var(--radius); }
+.views-log li { display: block; font-size: 12px; }

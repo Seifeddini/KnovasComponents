@@ -2969,9 +2969,13 @@ def create_app(config_path: Optional[str] = None):
 
     view_service = ViewService(lambda: api_client, ViewSettings.from_config(config))
     app.extensions['views'] = view_service
+    from identity.saved_views import SavedViewStore
+
     app.register_blueprint(create_views_blueprint(
         identity_gate, view_service,
         graph_mode=_ontology_source_is_graph,
+        # Built per request: identity_gate.connection() is request-scoped.
+        view_store=(lambda: SavedViewStore(identity_gate.connection())) if identity_gate is not None else None,
         page_context=lambda: {
             **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
             'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version(),

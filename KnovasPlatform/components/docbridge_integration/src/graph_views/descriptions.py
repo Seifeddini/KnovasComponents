@@ -25,6 +25,30 @@ def load(path: Optional[str] = None) -> Dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+@functools.lru_cache(maxsize=1)
+def relations() -> Dict[str, Dict[str, Any]]:
+    """relations.yaml (pinned copy): name -> {domain, range}."""
+    try:
+        data = yaml.safe_load((DEFINITIONS_DIR / "relations.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return {r["name"]: r for r in data.get("relations") or [] if isinstance(r, dict) and r.get("name")}
+
+
+def hop_fits(type_name: str, hop: Dict[str, str]) -> bool:
+    """May a hop start at a node of ``type_name``, by relations.yaml?
+
+    ``out``: the start node is the edge's node_lo, so its type must be in the
+    relation's domain; ``in``: it is node_hi, so in the range. Unknown
+    relations fit nothing.
+    """
+    rel = relations().get(hop.get("relation", ""))
+    if not rel:
+        return False
+    side = rel.get("domain") if hop.get("direction") == "out" else rel.get("range")
+    return type_name in (side or [])
+
+
 def type_entry(name: str, doc: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     entry = ((doc if doc is not None else load()).get("types") or {}).get(name) or {}
     return {"name": name,

@@ -42,7 +42,8 @@
                 clear(children);
                 page.showAnswerMeta(d);
                 children.appendChild(el('li', { className: 'views-tree-level' }, [el('span', { className: 'views-tech', text: d.level.name }), statusLegend(d.states)]));
-                d.nodes.forEach((c) => children.appendChild(nodeRow(page, spine, branch, d.level, d.next_level, c)));
+                d.nodes.filter((c) => !page.isHidden || !page.isHidden(c.type))
+                    .forEach((c) => children.appendChild(nodeRow(page, spine, branch, d.level, d.next_level, c)));
                 if (!d.nodes.length) children.appendChild(el('li', { className: 'views-muted', text: 'keine' }));
             } catch (err) {
                 clear(children);
@@ -71,7 +72,8 @@
         box.appendChild(el('p', { className: 'views-tech', text: d.levels.map((l) => l.name).join(' → ') }));
         box.appendChild(statusLegend(d.states) || el('span'));
         const list = el('ul', { className: 'views-tree views-tree-root' });
-        d.nodes.forEach((n) => list.appendChild(nodeRow(page, d.spine.key, d.branch, d.level, d.next_level, n)));
+        d.nodes.filter((n) => !page.isHidden || !page.isHidden(n.type))
+            .forEach((n) => list.appendChild(nodeRow(page, d.spine.key, d.branch, d.level, d.next_level, n)));
         if (!d.nodes.length) list.appendChild(el('li', { className: 'views-muted', text: `Keine Knoten auf der Ebene ${d.level.name}.` }));
         box.appendChild(list);
         expandPath(list, (page.state && page.state.expand) || []);
@@ -88,6 +90,15 @@
     }
 
     function renderMatrix(box, d, page) {
+        if (page.isHidden) {
+            const keepRows = d.rows.map((r) => !page.isHidden(r.type));
+            const keepCols = d.cols.map((c) => !page.isHidden(c.type));
+            d = Object.assign({}, d, {
+                rows: d.rows.filter((r, i) => keepRows[i]),
+                cols: d.cols.filter((c, j) => keepCols[j]),
+                cells: d.cells.filter((r, i) => keepRows[i]).map((line) => line.filter((c, j) => keepCols[j])),
+            });
+        }
         box.appendChild(el('h2', { text: `${d.spine.name}: ${d.rows_level.name} × ${d.cols_level.name}` }));
         box.appendChild(el('p', { className: 'views-muted', text:
             `${d.rows.length} × ${d.cols.length}; ${d.unlinked_rows.length} Zeile(n) ohne Verbindung.` }));
