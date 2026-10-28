@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views_spine.js", "views_discover.js", "views_saved.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_change.js", "views_process.js", "views_spine.js", "views_discover.js", "views_saved.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -210,3 +210,16 @@ def test_every_method_the_controller_calls_is_defined():
     defined = set(re.findall(r"^\s{8}(?:async\s+)?([a-zA-Z_]\w*)\s*\([^)]*\)\s*\{", source, re.M))
     builtins = {"$"}
     assert called - defined - builtins == set()
+
+
+@needs_node
+def test_change_form_round_trips_keys_and_risks():
+    out = _run_node("""
+        const C = window.ViewsChange;
+        const keys = {kind: 'keys'}, risks = {kind: 'risks'};
+        out([C.fromText(keys, C.toText(keys, ['CAP-05', 'GOAL-2026-Q4-x'])),
+             C.fromText(risks, C.toText(risks, [{id: 'RISK-01', risk: 'Edges lost', mitigation: 'dual write'}])),
+             C.fromText(keys, 'L2-A,  L2-B L2-C')]);
+    """, [JS / "views_core.js", JS / "views_change.js"])
+    assert out == [["CAP-05", "GOAL-2026-Q4-x"], [{"id": "RISK-01", "risk": "Edges lost", "mitigation": "dual write"}],
+                   ["L2-A", "L2-B", "L2-C"]]

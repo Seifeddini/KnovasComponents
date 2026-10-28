@@ -60,8 +60,11 @@
                 d.instance.owner ? `verantwortlich ${d.instance.owner}` : null,
                 d.current.step ? `seit ${d.current.since || '?'} in „${d.current.step}“ (${d.current.days ?? '?'} Tage)` : 'kein aktueller Schritt'].filter(Boolean).join(' · ') }),
             el('button', { type: 'button', className: 'views-button', text: 'Im Graph zeigen', onclick: () => page.center(d.instance.id) }),
+            d.changeable && root.ViewsChange ? el('button', { type: 'button', className: 'views-button', text: 'Änderung vorschlagen',
+                onclick: () => new root.ViewsChange.ChangeForm(page, d.instance.id, d.process.key).open() }) : null,
         ]);
         box.appendChild(head);
+        if (d.changeable && root.ViewsChange) root.ViewsChange.pendingBadge(head, d.instance.id);
         if (d.missing.length || d.unmet.length) {
             const parts = [];
             if (d.missing.length) parts.push(d.missing.length === 1 ? '1 Pflicht-Artefakt fehlt' : `${d.missing.length} Pflicht-Artefakte fehlen`);

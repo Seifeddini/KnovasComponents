@@ -38,7 +38,11 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
                            graph_mode: Callable[[], bool],
                            page_context: Optional[Callable[[], dict]] = None,
                            view_store: Optional[Callable[[], Any]] = None,
-                           view_prefs: Any = None) -> Blueprint:
+                           view_prefs: Any = None,
+                           change_repo: Optional[Callable[[], Any]] = None,
+                           change_store: Optional[Callable[[], Any]] = None,
+                           node_grants: Optional[Callable[[], Any]] = None,
+                           change_base: str = "master") -> Blueprint:
     """Build the blueprint.
 
     Args:
@@ -166,8 +170,14 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         if _arg("sections") == "context":
             return _placeable(lambda: jsonify(process_views.context_only(
                 context, d, _arg("process"), instance, show_meta=_flag("meta"))))
-        return _placeable(lambda: jsonify(process_views.trace(
-            context, d, _arg("process"), instance, show_meta=_flag("meta"))))
+        def traced():
+            body = process_views.trace(context, d, _arg("process"), instance, show_meta=_flag("meta"))
+            classes = cr.change_classes(d, _arg("process"))
+            body["changeable"] = bool(classes and classes.get("instance_type") == body["instance"]["type"]
+                                      and gate is not None and change_store is not None)
+            return jsonify(body)
+
+        return _placeable(traced)
 
     @bp.route("/api/views/trace/items")
     @guarded
@@ -368,6 +378,115 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
         return jsonify({"success": True, "stored": True, **value})
+
+    # -- change requests (Step 7): pull requests on the plan file, never brain writes --
+
+    from graph_views import change_requests as cr
+
+    def change_ready(view):
+        @functools.wraps(view)
+        def wrapped(*args, **kwargs):
+            if gate is None or change_store is None or node_grants is None:
+                return jsonify({"success": False,
+                                "error": "Änderungsanträge brauchen Benutzerkonten (identity.enabled)."}), 409
+            repo = change_repo() if change_repo else None
+            if repo is None:
+                return jsonify({"success": False, "error": "Kein Zugang zum KnowledgeBase-Repository konfiguriert "
+                                                           "(views.change_requests)."}), 409
+            try:
+                return view(repo, *args, **kwargs)
+            except cr.ChangeConflict as exc:
+                return jsonify({"success": False, "error": str(exc), "conflict": True, "diff": exc.diff,
+                                "current": exc.current, "base": exc.base}), 409
+            except cr.ChangeError as exc:
+                return jsonify({"success": False, "error": str(exc)}), exc.status
+            except Exception as exc:  # GitHub failures carry status, never the token
+                from graph_views.github_repo import GitHubError
+
+                if isinstance(exc, GitHubError):
+                    logger.warning("views: %s", exc)
+                    return jsonify({"success": False, "error": str(exc)}), 502
+                raise
+        return wrapped
+
+    def _permissions(node_id: str) -> dict:
+        user = gate.current_user()
+        grants = node_grants()
+        return {c: cr.may_propose(c, user, node_id, grants) for c in ("minor", "substantive")}
+
+    def _actor() -> str:
+        user = gate.current_user()
+        return str(getattr(user, "display_name", "") or getattr(user, "email", "") or "unknown")
+
+    @bp.route("/api/views/change")
+    @guarded
+    @change_ready
+    def change_form(repo):
+        context, d = _process_context()
+        node = _arg("node")
+        body = cr.form(context, d, _arg("process"), node, repo, change_base)
+        body["permissions"] = _permissions(node)
+        body["can_write"] = hasattr(repo, "create_pull")
+        return jsonify(context.envelope(**body))
+
+    def _prepare(repo):
+        context, d = _process_context()
+        body = request.get_json(silent=True) or {}
+        node = str(body.get("node") or "")
+        prepared = cr.prepare(context, d, str(body.get("process") or ""), node, repo, change_base,
+                              body.get("values") or {}, base_shas=body.get("base") or {},
+                              why=str(body.get("why") or ""), actor=_actor())
+        return context, node, prepared
+
+    @bp.route("/api/views/change/preview", methods=["POST"])
+    @guarded
+    @change_ready
+    def change_preview(repo):
+        context, node, p = _prepare(repo)
+        return jsonify(context.envelope(**{k: v for k, v in p.items() if k != "files"},
+                                        files=sorted(p["files"]), permitted=_permissions(node)[p["class"]],
+                                        can_write=hasattr(repo, "create_pull")))
+
+    @bp.route("/api/views/change", methods=["POST"])
+    @guarded
+    @change_ready
+    def change_submit(repo):
+        context, node, p = _prepare(repo)
+        user = gate.current_user()
+        if not cr.may_propose(p["class"], user, node, node_grants()):
+            who = "Nur die Plan-Verantwortlichen (node_grants owner) und Administratoren" if p["class"] == "substantive"                 else "Nur wer den Plan bearbeiten darf (owner, editor) und Administratoren"
+            return jsonify({"success": False, "error": f"{who} können diese Änderung beantragen."}), 403
+        why = str((request.get_json(silent=True) or {}).get("why") or "")
+        pr = cr.submit(p, repo, change_base, actor=_actor(), why=why)
+        store = change_store()
+        row = store.record(node_id=node, process_key=str((request.get_json(silent=True) or {}).get("process") or ""),
+                           instance_key=p["plan"], plan_path=p["path"], change_class=p["class"], fields=p["fields"],
+                           expected=p["expected"], pr_number=pr.get("number"), pr_url=pr.get("url"),
+                           branch=pr["branch"], user=user)
+        from identity import audit
+
+        audit.record(gate.connection(), action="plan.change.proposed", actor=user, target_type="feature_plan",
+                     target_id=p["plan"], detail={"node_id": node, "fields": p["fields"], "class": p["class"],
+                                                  "new_status": p["new_status"], "pr_number": pr.get("number"),
+                                                  "pr_url": pr.get("url"), "files": sorted(p["files"])})
+        return jsonify({"success": True, "pr": pr, "request": row}), 201
+
+    @bp.route("/api/views/change/pending")
+    @guarded
+    def change_pending():
+        if gate is None or change_store is None:
+            return jsonify({"success": True, "pending": []})
+        node = _arg("node")
+        context = ctx()
+        from graph_views.facts import fact_values, read_facts
+        from identity.change_requests import refresh
+
+        store = change_store()
+        rows = store.unfinished(node)
+        if rows:
+            facts = fact_values(read_facts(context.state, context.reader, [node]).get(node))
+            rows = refresh(rows, store, change_repo() if change_repo else None, facts)
+        return jsonify({"success": True, "pending": rows})
 
     bp.guarded = guarded
     bp.is_admin = is_admin

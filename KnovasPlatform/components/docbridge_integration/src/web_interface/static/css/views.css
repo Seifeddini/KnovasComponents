@@ -321,3 +321,14 @@
 .views-row-actions .views-button { padding: 2px 8px; font-size: 12px; margin-right: 4px; }
 .views-row-selected { background: var(--highlight); }
 .views-list-table td:nth-child(5), .views-list-table td:nth-child(3) { white-space: nowrap; }
+
+/* Change requests (Step 7) */
+.views-panel:has(.views-change-form) { width: 560px; }
+.views-change-field { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; font-size: 12px; }
+.views-change-field > span:first-child { font-weight: 500; display: flex; gap: 6px; align-items: center; }
+.views-change-field textarea, .views-change-field input { font: 12px var(--font-body); padding: 5px 7px;
+    border: 1px solid var(--border-color); border-radius: var(--radius); }
+.views-diff { max-height: 300px; overflow: auto; font: 11px var(--font-heading); background: var(--surface-sunken);
+    padding: 8px; border-radius: var(--radius); white-space: pre; }
+.views-badge-pending { background: #fff4d6; color: #7a4b00; text-decoration: none; }
+.views-change-result h3 { margin: 12px 0 6px; }

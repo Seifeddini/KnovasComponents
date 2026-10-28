@@ -343,6 +343,15 @@ views:
   trace_fact_budget: "${VIEWS_TRACE_FACT_BUDGET:-48}"
   # Search, lists: keys and facts are read for a whole type up to this size.
   key_index_max: "${VIEWS_KEY_INDEX_MAX:-60}"
+  # Change requests from the TRACE (Step 7): a pull request on the plan file in
+  # KnowledgeBase, never a brain write. The token needs Contents + Pull requests
+  # (read/write) on that repository only; KB_GITHUB_TOKEN wins over the file.
+  # Without a token, local_repo (a KnowledgeBase checkout) allows previews only.
+  change_requests:
+    github_repo: "${VIEWS_KB_GITHUB_REPO:-Seifeddini/KnowledgeBase}"
+    base_branch: "${VIEWS_KB_BASE_BRANCH:-master}"
+    github_token_file: "${VIEWS_KB_GITHUB_TOKEN_FILE:-/app/secrets/kb_github_token}"
+    local_repo: "${VIEWS_KB_LOCAL_REPO:-}"
   page_size: "${VIEWS_PAGE_SIZE:-50}"
   max_hops: "${VIEWS_MAX_HOPS:-4}"
   max_nodes_per_hop: "${VIEWS_MAX_NODES_PER_HOP:-2000}"

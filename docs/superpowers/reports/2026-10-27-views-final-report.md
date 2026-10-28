@@ -130,3 +130,67 @@ The start page's first-time cost is a schema per type plus the meta fact of the 
 - Plan-table decisions are named `D-10: …`, but their keys (`FEAT-…/D-10`) are not in their names.
 - A plan's Author row reads "Drafted by Claude Code for owner review", which becomes its owner.
 - Every fact read in these checks had `curation_status: manual`, none `confirmed`, so "Zuletzt bestätigt" stays empty. Confirmation is not part of the loader's flow yet.
+
+## Step 7 — change requests from TRACE (2026-10-28)
+
+**What it does.** "Änderung vorschlagen" in the Ablauf view opens a form beside the trace. The form offers only the fields the plan file holds, prefilled from KnowledgeBase master. "Vorschau" shows the class of the change, its impact and the exact diffs. "Pull Request erstellen" opens a pull request on KnowledgeBase. The brain is never written: the change reaches the graph through the loader after the merge.
+
+**One branch and one pull request per change** (`platform/change-<plan>-<timestamp>`). The change touches:
+- the plan file `docs/ModernDocs/plans/<plan>.md`: the plan-table row or the template section, and the front matter;
+- its `.ai.yaml`, kept in step with the plan;
+- `client-zero/ontology/plan-links.yaml` for capability and goal; untouched lines stay in place;
+- for a substantive change only, a new `client-zero/ontology/decisions/DEC-nnnn-…md` in the existing DEC format (number = highest + 1, justification = the form's "Begründung").
+
+**Change classes** (PROC-feature-lifecycle; Platform config `src/graph_views/change_classes.yaml` until KB carries them):
+- **Minor** (title, description, owner, sources): pull request only; the step does not change.
+- **Substantive** (affected components, capability, goal, requirements, risks): the pull request also sets the status back to `review` (step brief) when the plan is at approved or later. It adds the DEC record and names the rules that must hold again (R1, and R7 at 50 sp).
+
+**Safeguards:**
+- **Permissions:** the existing `node_grants` decide; the class needs the matching right, otherwise 403.
+- **Concurrency:** the form remembers the blob SHAs it was built from. If the plan, `.ai.yaml` or `plan-links.yaml` moved on master, the server answers 409 with the diff of what changed and a fresh form, so the change is re-applied on the new version (rebase), never written over it.
+- **Audit:** every proposal is recorded (`plan.change.proposed`) and stored in `change_requests` (migration 0006). The trace shows "Änderung offen: PR #n" until the merge; the badge disappears when the expected facts are on the tenant.
+- **GitHub token:** read from `KB_GITHUB_TOKEN` or `views.change_requests.github_token_file`; never logged or sent to the browser. It needs only contents and pull-request write access on KnowledgeBase. Without a token the page still previews (from a read-only local checkout, `local_repo`) and says "nur Vorschau möglich".
+
+**Measured** (live tenant, preview against a local KnowledgeBase master checkout):
+
+| Action | Time |
+|---|---|
+| Opening the form for FEAT-2026-10-05-graph-native-brain | 1.0 s |
+| Preview, minor change (owner) | 146 ms |
+| Preview, substantive change (capability) | 156 ms |
+
+The substantive preview for capability CAP-11 → CAP-11, CAP-02 reported:
+- status `review` in the front matter, the plan table and `.ai.yaml`;
+- DEC-0018 and the `plan-links.yaml` edit;
+- R1, and the note that size is unknown, so R7 cannot be checked;
+- impact: 11 components, 49 invariants, 24 risks and 51 decisions, from the edge index.
+
+No pull request was created: that needs a token and your decision.
+
+**Fixed during the live check:** the form sends `""` or `[]` for sections the plan lacks, and those counted as changes, so a capability edit was listed as "description, capability, requirements, sources". Empty now equals absent (regression test `test_an_empty_field_absent_from_the_file_is_not_a_change`).
+
+Screenshots: `step7-trace-button.png`, `step7-form.png`, `step7-preview-substantive.png`.
+
+### Fields that do not map cleanly
+
+| Field | Where it lives | Issue |
+|---|---|---|
+| Target date | nowhere | The template has no target date; `**Date**` is the creation date. Offered read-only, marked "unmapped". |
+| Capability, goal | `plan-links.yaml`, not the plan | A plan change touches a second file, and `plan-links.yaml` is shared by every plan (merge conflicts between concurrent changes). |
+| Owner | the plan table's Author row | Values are free text ("Platform (drafted with an AI agent)", "Drafted by Claude Code for owner review"), not a person or team key. |
+| Description, requirements, sources | template sections Problem, Component contract deltas, References | The graph-native-brain plan has none of them; an edit inserts the section where the template puts it. |
+| Status | front matter, plan table and `.ai.yaml` | Three copies, all edited together. |
+| Title | H1 and `.ai.yaml` | They differ on graph-native-brain ("Feature: Graph-native company brain" vs "Graph-native company brain"); the form edits both. |
+
+### What KnowledgeBase should add, so the Platform config can go
+
+1. **`change_classes` per process in `processes.yaml`**, carried into `generated/process-definitions.json`: minor and substantive field lists, the rework step, and the rules that must hold again. The Platform already reads them from the definition when present and ignores `change_classes.yaml` for that process.
+2. **`status_map` in the generated JSON** (status → step; today only in `processes.yaml`), so the rework status is not configured twice.
+3. **A target date in `feature-plan.template.md`**, if plans should carry one.
+4. **Capability and goal in the plan's front matter** (or `.ai.yaml`), with `plan-links.yaml` generated from them, so one change is one file.
+5. **The DEC loader should read `affects:` from the record's front matter.** Today it links every DEC record to FEAT-2026-10-25-client-zero-phase-0, so a DEC from a change request would hang on the wrong plan.
+6. **Data:**
+   - `size_points` on every plan, so R7 can be checked;
+   - the same title in the H1 and `.ai.yaml`;
+   - owners as keys;
+   - the rework transitions loaded on the tenant (they are missing; probably the loader's dedupe).
