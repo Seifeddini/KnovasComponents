@@ -7,7 +7,7 @@ tests/test_views_definitions.py fails when a copy and its pin diverge.
 
     py -3 scripts/vendor_kb_definitions.py --kb E:/Knovas/KnowledgeBase --commit <sha>
 
-Once Phase P is merged (gate GP), run it against KnowledgeBase master.
+Pinned to KnowledgeBase master; re-run it after a KnowledgeBase merge that changes these files.
 """
 from __future__ import annotations
 
