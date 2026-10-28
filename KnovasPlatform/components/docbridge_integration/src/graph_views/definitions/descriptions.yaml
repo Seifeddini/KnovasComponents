@@ -15,6 +15,9 @@ types:
   ApiServiceGroup:  {de: API-Dienstgruppe, en: API service group, text: "A grouping of the Knovas API as software vendors and partners see it (Ingest, Search, Graph, …). A proposal in Phase 0.", example: "API-SEARCH, everything about searching with cited passages.", confuse: "A platform tier is what end users buy; a service group is what developers integrate.", meta: false}
   Capability:       {de: Fähigkeit, en: Capability, text: "One thing a customer can do with Knovas, in plain words. It is the meeting point between what management sells and what engineering builds.", example: "CAP-06, file a document to the right client and matter.", confuse: "A component is a part of the software; a capability says what the customer gets, not how it is built.", meta: false}
   BoundedContext:   {de: Software-Bereich (L1), en: Software area (L1), text: "One of the nine large areas the Knovas software is divided into; each has its own responsibility and vocabulary and contains several components (L2).", example: "L1-RETRIEVE, everything about search and retrieval.", confuse: "A capability describes what a customer can do, not how the software is split.", meta: false}
+  System:           {de: System, en: System, text: "The Knovas software as a whole; its software areas are part of it, and its reference documentation starts here.", example: "SYS-KNOVAS-SEMANTIX, the Knovas Semantix platform.", confuse: "A product is what Knovas sells; the system is the software that runs it.", meta: false}
+  Interface:        {de: Schnittstelle, en: Interface, text: "An HTTP route a software component serves, with its methods and the page that documents it; read from the code.", example: "IF-secure_api:/secured/query, the search route of the Secure API.", confuse: "A capability is what a customer can do; an interface is one technical entry point.", meta: false}
+  Interaction:      {de: Komponentenaufruf, en: Interaction, text: "One software component calling another: which methods, over which protocol, under which contract.", example: "IX-L2-SECURE-API--L2-QUERY-2STAGE, the Secure API passing a search to the two-stage query engine.", confuse: "An interface is the entry point; an interaction is who calls whom through it.", meta: false}
   Component:        {de: Software-Komponente (L2/L3), en: Software component (L2/L3), text: "A part of the Knovas software with a clear responsibility, its own documentation and tests, inside one software area.", example: "L2-KNOWLEDGE-GRAPH, the knowledge graph the brain is built on.", confuse: "A source file is a single code file; a component is the unit engineers own and document.", meta: false}
   ComponentContract: {de: Komponentenvertrag, en: Component contract, text: "A promise a component makes: what must be true before it runs (precondition), what is true afterwards (postcondition), or what it is responsible for.", example: "L2-KNOWLEDGE-GRAPH/POST-P0-01, new chunks carry the access scope of their document from the moment they exist.", confuse: "An invariant holds for the whole system; a contract belongs to one component.", meta: false}
   Invariant:        {de: Goldene Invariante, en: Golden invariant, text: "A rule the whole system must keep at all times, written down with an id, verified by tests and formal checks.", example: "GI-GRAPH-13, document sorting only ever proposes; the client decides.", confuse: "A component contract is local to one part; an invariant is system-wide.", meta: false}
@@ -74,6 +77,11 @@ relations:
   part_of:        {de: ist Teil von, en: is part of, sentence: "Component is part of Software area — the component belongs to this area; a tier is part of the product, a function of the company, a process of its value stream."}
   member_of:      {de: gehört zu, en: belongs to, sentence: "Persona belongs to Segment — this persona works at this kind of customer; a role belongs to a function."}
   realises:       {de: realisiert, en: realises, sentence: "Component realises Capability — engineering says this part of the software delivers this capability."}
+  calls:          {de: ruft auf, en: calls, sentence: "Component calls Component — the first invokes the second; read backwards it is called-by."}
+  calls_back:     {de: ruft zurück auf, en: calls back, sentence: "Component calls back Component — it calls a component that also calls it; read like calls."}
+  exposes:        {de: stellt bereit, en: exposes, sentence: "Component exposes Interface — the component serves this route."}
+  initiated_by:   {de: ausgelöst von, en: initiated by, sentence: "Interaction is initiated by Component — the calling side."}
+  received_by:    {de: empfangen von, en: received by, sentence: "Interaction is received by Component — the called side."}
   offers:         {de: bietet an, en: offers, sentence: "Tier offers Capability — management says this tier (or API group) sells this capability."}
   implements:     {de: implementiert, en: implements, sentence: "Commit implements Feature plan — this change is part of carrying out the plan."}
   serves:         {de: dient, en: serves, sentence: "Feature plan serves Capability — the plan exists to deliver or improve this capability."}
@@ -141,10 +149,23 @@ attributes:
     status:       {de: Status, en: Status, text: "How far the capability is: live, on request, built but off, not activated, research or planned."}
     tier:         {de: Plattform-Stufe, en: Platform tier, text: "The tier the capability belongs to, or 'to be decided'."}
   Component:
+    interactions_source: {de: Quelle der Aufrufe, en: Interactions source, text: "Where the component's calls to other components are declared, or that no source declares any."}
+    design_pattern: {de: Entwurfsmuster, en: Design pattern, text: "The design pattern the component follows, from its spec (e.g. Facade with Decorator)."}
     alloy_status: {de: Alloy-Status, en: Alloy status, text: "Whether the component's formal models cover it, as the manifest says."}
     docs_status:  {de: Dokumentationsstatus, en: Documentation status, text: "Whether a component folder with README and spec exists."}
     source_paths: {de: Code-Pfade, en: Code paths, text: "Where the component's code lives, from the manifest."}
     display_name: {de: Anzeigename, en: Display name, text: "The component's human name from the manifest."}
+  Interface:
+    path:          {de: Pfad, en: Path, text: "The route path, e.g. /secured/query."}
+    methods:       {de: Methoden, en: Methods, text: "The HTTP methods the route accepts."}
+    source_module: {de: Quellmodul, en: Source module, text: "The code file that registers the route."}
+    documented_in: {de: Dokumentiert in, en: Documented in, text: "The contract page that describes the route."}
+    infrastructure: {de: Betriebsroute, en: Infrastructure route, text: "Whether the route is operational (health, metrics) rather than a product function."}
+  Interaction:
+    methods:       {de: Aufrufe, en: Calls, text: "What the calling component invokes on the other."}
+    protocol:      {de: Protokoll, en: Protocol, text: "How the call travels: in-process, HTTP, a queue, …"}
+    contract:      {de: Vertrag, en: Contract, text: "What the call guarantees, as the interaction catalogue describes it."}
+    declared_in:   {de: Quelle, en: Declared in, text: "Which documents declare the interaction."}
   ComponentContract:
     kind:         {de: Art, en: Kind, text: "Precondition, postcondition or responsibility."}
   Invariant:
@@ -375,6 +396,8 @@ attributes:
     not_to_confuse: {de: Nicht zu verwechseln mit, en: Not to be confused with, text: "The neighbouring term people mix it up with."}
 
 enums:
+  Interface:
+    infrastructure: {"yes": {de: ja, en: "yes", text: "An operational route such as /health or /metrics."}, "no": {de: nein, en: "no", text: "A route that offers a product function."}}
   Capability:
     status: {live: {de: live, en: live, text: "In production and usable."}, live-on-request: {de: live auf Anfrage, en: live on request, text: "In production, switched on per request."}, built-not-activated: {de: gebaut, nicht aktiv, en: built, not activated, text: "Code exists, not switched on."}, not-activated: {de: nicht aktiviert, en: not activated, text: "Planned mechanism, nothing runs."}, research: {de: Forschung, en: research, text: "Being researched, may be killed."}, planned: {de: geplant, en: planned, text: "Planned, no code yet."}}
   ComponentContract:

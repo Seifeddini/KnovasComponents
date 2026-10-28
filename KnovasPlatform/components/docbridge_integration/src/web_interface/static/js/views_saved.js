@@ -8,7 +8,7 @@
     'use strict';
     const { el, clear, api } = root.ViewsCore;
 
-    const KIND_SOURCE = { trace: 'process', board: 'process', tree: 'spine', matrix: 'spine' };
+    const KIND_SOURCE = { trace: 'process', board: 'process', tree: 'spine', matrix: 'spine', doc: 'spine' };
 
     class SavedViews {
         constructor(page) {
@@ -71,6 +71,7 @@
             s.meta = !!filters.meta;
             if (settings.threshold) s.threshold = settings.threshold;
             if (v.render_kind === 'trace') s.node = settings.default_root || s.node;
+            if (v.render_kind === 'doc') s.docKey = '';           // opens the System page
             s.expand = v.render_kind === 'tree' && settings.default_root ? settings.default_root.split(',') : [];
             s.sections = settings.sections || [];
             this.page.viewSettings = { hidden: new Set(settings.hidden_types || []), sorting: settings.sorting || '' };

@@ -217,6 +217,30 @@
   },
   {
    "kind": "type",
+   "id": "Interaction",
+   "editable": true,
+   "source": "docs/ModernDocs/components/L1-*/L2-*/spec.ai.yaml; docs/ModernDocs/hierarchy/interactions.md",
+   "key_path": "interactions.inbound/outbound {from|to, method, protocol}; | Step | From | To | Contract | rows (DEC-0026)",
+   "format": "node keyed by the `key` fact",
+   "allowed_values": [
+    "^IX-L[23]-[A-Z0-9-]+--L[23]-[A-Z0-9-]+$"
+   ]
+  },
+  {
+   "kind": "type",
+   "id": "Interface",
+   "editable": false,
+   "source": "knovas-software/app/src/api/*.py",
+   "key_path": "route decorators (@bp.route, add_url_rule)",
+   "reason": "derived by loader",
+   "fix_at": "the route in the code; its contract page is set in scripts/check_api_doc_coverage.py OWNERS (DEC-0027)",
+   "format": "node keyed by the `key` fact",
+   "allowed_values": [
+    "^IF-[a-z0-9_]+:/.*$"
+   ]
+  },
+  {
+   "kind": "type",
    "id": "Invariant",
    "editable": true,
    "source": "docs/ModernDocs/golden_invariants/GI-*.md",
@@ -439,6 +463,17 @@
   },
   {
    "kind": "type",
+   "id": "System",
+   "editable": true,
+   "source": "docs/ModernDocs/client-zero/ontology/seed.yaml",
+   "key_path": "nodes[type=System]",
+   "format": "node keyed by the `key` fact",
+   "allowed_values": [
+    "^SYS-[A-Z0-9-]+$"
+   ]
+  },
+  {
+   "kind": "type",
    "id": "TestRun",
    "editable": false,
    "source": "JUnit XML from CI (`load_ontology.py --only tests`)",
@@ -511,6 +546,29 @@
   },
   {
    "kind": "relation",
+   "id": "AlloyCheck verifies Invariant",
+   "from_type": "AlloyCheck",
+   "relation": "verifies",
+   "to_type": "Invariant",
+   "editable": true,
+   "source": "docs/ModernDocs/golden_invariants/GI-*.md",
+   "key_path": "the .als model path named on the invariant's catalog page; the outcome comes from the CI lockfile",
+   "format": "edge AlloyCheck → Invariant (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "AlloyCheck",
+     "TestRun"
+    ],
+    "range": [
+     "Invariant",
+     "ComponentContract",
+     "FeaturePlan",
+     "Component"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
    "id": "ApiServiceGroup offers Capability",
    "from_type": "ApiServiceGroup",
    "relation": "offers",
@@ -559,7 +617,43 @@
      "PlatformTier",
      "Component",
      "Company",
-     "ValueStream"
+     "ValueStream",
+     "System"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "BoundedContext part_of System",
+   "from_type": "BoundedContext",
+   "relation": "part_of",
+   "to_type": "System",
+   "editable": true,
+   "source": "client-zero/ontology/seed.yaml",
+   "key_path": "edges[relation=part_of, to=SYS-…]",
+   "format": "edge BoundedContext → System (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Component",
+     "BoundedContext",
+     "ProcessStep",
+     "Goal",
+     "PlatformTier",
+     "ApiServiceGroup",
+     "Function",
+     "Process",
+     "SourceFile"
+    ],
+    "range": [
+     "BoundedContext",
+     "Product",
+     "Process",
+     "Goal",
+     "PlatformTier",
+     "Component",
+     "Company",
+     "ValueStream",
+     "System"
     ]
    }
   },
@@ -693,6 +787,29 @@
   },
   {
    "kind": "relation",
+   "id": "Commit changes Component",
+   "from_type": "Commit",
+   "relation": "changes",
+   "to_type": "Component",
+   "editable": false,
+   "source": "git log + component-manifest.yaml",
+   "key_path": "files the commit touched under the component's source_paths",
+   "reason": "from git",
+   "fix_at": "source_paths of the component in docs/ModernDocs/alloy/component-manifest.yaml",
+   "format": "edge Commit → Component (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Commit",
+     "Release"
+    ],
+    "range": [
+     "Component",
+     "SourceFile"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
    "id": "Commit implements FeaturePlan",
    "from_type": "Commit",
    "relation": "implements",
@@ -712,6 +829,65 @@
     "range": [
      "FeaturePlan",
      "ComponentContract"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Component calls Component",
+   "from_type": "Component",
+   "relation": "calls",
+   "to_type": "Component",
+   "editable": true,
+   "source": "docs/ModernDocs/components/L1-*/L2-*/spec.ai.yaml; docs/ModernDocs/hierarchy/interactions.md",
+   "key_path": "interactions.outbound[].to (caller's spec), interactions.inbound[].from (callee's spec), or a | From | To | row",
+   "format": "edge Component → Component (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Component"
+    ],
+    "range": [
+     "Component"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Component calls_back Component",
+   "from_type": "Component",
+   "relation": "calls_back",
+   "to_type": "Component",
+   "editable": true,
+   "source": "docs/ModernDocs/components/L1-*/L2-*/spec.ai.yaml; docs/ModernDocs/hierarchy/interactions.md",
+   "key_path": "as calls: the second direction of a mutual pair",
+   "format": "edge Component → Component (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Component"
+    ],
+    "range": [
+     "Component"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Component exposes Interface",
+   "from_type": "Component",
+   "relation": "exposes",
+   "to_type": "Interface",
+   "editable": false,
+   "source": "knovas-software/app/src/api/*.py + component-manifest.yaml",
+   "key_path": "the module that registers the route, owned by the component whose source_paths hold it (an L3 spec's routes win)",
+   "reason": "derived by loader",
+   "fix_at": "source_paths in docs/ModernDocs/alloy/component-manifest.yaml, or routes in the L3 spec.ai.yaml",
+   "format": "edge Component → Interface (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Component"
+    ],
+    "range": [
+     "Interface"
     ]
    }
   },
@@ -766,7 +942,8 @@
      "PlatformTier",
      "Component",
      "Company",
-     "ValueStream"
+     "ValueStream",
+     "System"
     ]
    }
   },
@@ -800,7 +977,28 @@
      "PlatformTier",
      "Component",
      "Company",
-     "ValueStream"
+     "ValueStream",
+     "System"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Component realises Capability",
+   "from_type": "Component",
+   "relation": "realises",
+   "to_type": "Capability",
+   "editable": true,
+   "source": "client-zero/ontology/seed.yaml",
+   "key_path": "edges[relation=realises]",
+   "format": "edge Component → Capability (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Component",
+     "BoundedContext"
+    ],
+    "range": [
+     "Capability"
     ]
    }
   },
@@ -1343,7 +1541,8 @@
      "PlatformTier",
      "Component",
      "Company",
-     "ValueStream"
+     "ValueStream",
+     "System"
     ]
    }
   },
@@ -1367,6 +1566,44 @@
     "range": [
      "Segment",
      "Persona"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Interaction initiated_by Component",
+   "from_type": "Interaction",
+   "relation": "initiated_by",
+   "to_type": "Component",
+   "editable": true,
+   "source": "spec.ai.yaml interactions; hierarchy/interactions.md",
+   "key_path": "the calling side of the interaction",
+   "format": "edge Interaction → Component (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Interaction"
+    ],
+    "range": [
+     "Component"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Interaction received_by Component",
+   "from_type": "Interaction",
+   "relation": "received_by",
+   "to_type": "Component",
+   "editable": true,
+   "source": "spec.ai.yaml interactions; hierarchy/interactions.md",
+   "key_path": "the called side of the interaction",
+   "format": "edge Interaction → Component (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Interaction"
+    ],
+    "range": [
+     "Component"
     ]
    }
   },
@@ -1575,7 +1812,8 @@
      "PlatformTier",
      "Component",
      "Company",
-     "ValueStream"
+     "ValueStream",
+     "System"
     ]
    }
   },
@@ -1649,7 +1887,58 @@
      "PlatformTier",
      "Component",
      "Company",
-     "ValueStream"
+     "ValueStream",
+     "System"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Record describes BoundedContext",
+   "from_type": "Record",
+   "relation": "describes",
+   "to_type": "BoundedContext",
+   "editable": false,
+   "source": "docs/ModernDocs/**/*.md",
+   "key_path": "the L1 page and documents that name the area",
+   "reason": "derived by loader",
+   "fix_at": "the document itself",
+   "format": "edge Record → BoundedContext (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Record"
+    ],
+    "range": [
+     "Component",
+     "BoundedContext",
+     "FeaturePlan",
+     "Invariant",
+     "Process"
+    ]
+   }
+  },
+  {
+   "kind": "relation",
+   "id": "Record describes Component",
+   "from_type": "Record",
+   "relation": "describes",
+   "to_type": "Component",
+   "editable": false,
+   "source": "docs/ModernDocs/**/*.md",
+   "key_path": "the component's README, spec and the pages that name it",
+   "reason": "derived by loader",
+   "fix_at": "the document itself, or the component README in docs/ModernDocs/components/",
+   "format": "edge Record → Component (node_lo → node_hi)",
+   "allowed_values": {
+    "domain": [
+     "Record"
+    ],
+    "range": [
+     "Component",
+     "BoundedContext",
+     "FeaturePlan",
+     "Invariant",
+     "Process"
     ]
    }
   },
@@ -1958,7 +2247,8 @@
      "PlatformTier",
      "Component",
      "Company",
-     "ValueStream"
+     "ValueStream",
+     "System"
     ]
    }
   },
@@ -2091,6 +2381,69 @@
   },
   {
    "kind": "fact",
+   "id": "Commit.author",
+   "type": "Commit",
+   "fact": "author",
+   "editable": false,
+   "source": "git log",
+   "key_path": "%an of the commit",
+   "reason": "from git",
+   "fix_at": "nothing: the git author",
+   "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Commit.committed_on",
+   "type": "Commit",
+   "fact": "committed_on",
+   "editable": false,
+   "source": "git log",
+   "key_path": "%ad of the commit (--date=short, the author date)",
+   "reason": "from git",
+   "fix_at": "nothing: the commit date",
+   "format": "date",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Component.alloy_status",
+   "type": "Component",
+   "fact": "alloy_status",
+   "editable": true,
+   "source": "docs/ModernDocs/alloy/component-manifest.yaml",
+   "key_path": "components.<L2>.status",
+   "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Component.design_pattern",
+   "type": "Component",
+   "fact": "design_pattern",
+   "editable": true,
+   "source": "docs/ModernDocs/components/L1-*/L2-*/spec.ai.yaml",
+   "key_path": "gof.primary_pattern, gof.secondary_patterns",
+   "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "ComponentContract.kind",
+   "type": "ComponentContract",
+   "fact": "kind",
+   "editable": true,
+   "source": "docs/ModernDocs/components/L1-*/L2-*/(L3-*/)spec.ai.yaml",
+   "key_path": "preconditions[] / postconditions[] / responsibilities[]",
+   "format": "enum",
+   "allowed_values": [
+    "precondition",
+    "postcondition",
+    "responsibility"
+   ]
+  },
+  {
+   "kind": "fact",
    "id": "Customer.current_step",
    "type": "Customer",
    "fact": "current_step",
@@ -2153,6 +2506,17 @@
    "reason": "derived by loader",
    "fix_at": "the governing fact at its source (status, stage, onboarding_state)",
    "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Decision.decided_on",
+   "type": "Decision",
+   "fact": "decided_on",
+   "editable": true,
+   "source": "DEC/ADR front matter; plan D- rows; spec design_decisions",
+   "key_path": "date (front matter) or the row's date",
+   "format": "date",
    "allowed_values": null
   },
   {
@@ -2369,6 +2733,70 @@
   },
   {
    "kind": "fact",
+   "id": "Interface.documented_in",
+   "type": "Interface",
+   "fact": "documented_in",
+   "editable": true,
+   "source": "scripts/check_api_doc_coverage.py",
+   "key_path": "OWNERS[<module>] (the contract page)",
+   "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Interface.infrastructure",
+   "type": "Interface",
+   "fact": "infrastructure",
+   "editable": true,
+   "source": "scripts/check_api_doc_coverage.py",
+   "key_path": "INFRASTRUCTURE (operational routes)",
+   "format": "enum",
+   "allowed_values": [
+    "yes",
+    "no"
+   ]
+  },
+  {
+   "kind": "fact",
+   "id": "Interface.methods",
+   "type": "Interface",
+   "fact": "methods",
+   "editable": false,
+   "source": "knovas-software/app/src/api/*.py",
+   "key_path": "methods=[…] of the decorator",
+   "reason": "derived by loader",
+   "fix_at": "the route in the code",
+   "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Interface.path",
+   "type": "Interface",
+   "fact": "path",
+   "editable": false,
+   "source": "knovas-software/app/src/api/*.py",
+   "key_path": "the route decorator",
+   "reason": "derived by loader",
+   "fix_at": "the route in the code",
+   "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Interface.source_module",
+   "type": "Interface",
+   "fact": "source_module",
+   "editable": false,
+   "source": "knovas-software/app/src/api/*.py",
+   "key_path": "the module path",
+   "reason": "derived by loader",
+   "fix_at": "nothing",
+   "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
    "id": "Opportunity.current_step",
    "type": "Opportunity",
    "fact": "current_step",
@@ -2422,6 +2850,37 @@
    "reason": "derived by loader",
    "fix_at": "the governing fact at its source; plans: commit the status change",
    "format": "text",
+   "allowed_values": null
+  },
+  {
+   "kind": "fact",
+   "id": "Record.kind",
+   "type": "Record",
+   "fact": "kind",
+   "editable": false,
+   "source": "scripts/client_zero/providers/moderndocs.py",
+   "key_path": "fixed per document family (component pages reference, plans explanation, …)",
+   "reason": "derived by loader",
+   "fix_at": "the document's place in docs/ModernDocs (the provider maps each family to its kind)",
+   "format": "enum",
+   "allowed_values": [
+    "tutorial",
+    "how-to",
+    "reference",
+    "explanation"
+   ]
+  },
+  {
+   "kind": "fact",
+   "id": "Record.updated_on",
+   "type": "Record",
+   "fact": "updated_on",
+   "editable": false,
+   "source": "git log",
+   "key_path": "last commit that changed the document",
+   "reason": "from git",
+   "fix_at": "update the document itself",
+   "format": "date",
    "allowed_values": null
   },
   {

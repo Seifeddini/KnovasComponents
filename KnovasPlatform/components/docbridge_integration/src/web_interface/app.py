@@ -889,6 +889,7 @@ def create_app(config_path: Optional[str] = None):
         path = request.path or ''
         if (
             path in ('/', '/login', '/ontology', '/views')
+            or path.startswith('/views/doc/')
             or path == '/experiments'
             or path.startswith('/experiments/')
             or path.endswith('.js')
@@ -1785,7 +1786,7 @@ def create_app(config_path: Optional[str] = None):
             return None
         path = request.path or ''
         if (path in ('/ontology', '/views') or path.startswith('/api/ontology')
-                or path.startswith('/api/views')):
+                or path.startswith('/api/views') or path.startswith('/views/')):
             if path.startswith('/api/'):
                 return jsonify({'success': False, 'error': 'Cortex ist deaktiviert.'}), 404
             return redirect(url_for('index'))
@@ -3002,6 +3003,8 @@ def create_app(config_path: Optional[str] = None):
         change_store=(lambda: ChangeSetStore(identity_gate.connection())) if identity_gate is not None else None,
         node_grants=(lambda: _ViewsGrantStore(identity_gate.connection())) if identity_gate is not None else None,
         change_base=str(config.get('views.change_requests.base_branch', 'master') or 'master'),
+        # Documentation pages link explanation documents to their source on GitHub (Step 8).
+        doc_repo=str(config.get('views.change_requests.github_repo', '') or '').strip() or None,
         page_context=lambda: {
             **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
             'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version(),

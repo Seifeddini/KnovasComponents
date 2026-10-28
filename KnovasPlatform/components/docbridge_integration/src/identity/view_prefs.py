@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 RECENT_MAX = 12
 _ID = re.compile(r"^[0-9a-fA-F-]{36}$")
-KINDS = ("graph", "trace", "board", "tree", "matrix", "list", "definitions")
+KINDS = ("graph", "trace", "board", "tree", "matrix", "list", "definitions", "gaps", "changes", "doc")
 
 
 def _key(user: Any) -> str:

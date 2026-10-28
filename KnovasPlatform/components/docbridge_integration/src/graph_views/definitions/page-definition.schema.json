@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/client-zero/page-definition.schema.json",
+  "title": "Client Zero documentation page definitions",
+  "description": "The file generated/page-definitions.json: per node type, the ordered sections of its reference documentation page, each with its title, render hint, whether it is required and where its content comes from (DEC-0028). The Platform renders pages from it; it never invents a path of its own.",
+  "type": "object",
+  "required": ["version", "generated_at", "pages"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "generated_at": {"type": "string"},
+    "source": {"type": "string"},
+    "pages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/page"}}
+  },
+  "$defs": {
+    "hop": {
+      "type": "object",
+      "required": ["relation", "direction", "to_type"],
+      "properties": {
+        "relation": {"type": "string"},
+        "direction": {"type": "string", "enum": ["out", "in"]},
+        "to_type": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "title": {
+      "type": "object",
+      "required": ["de", "en"],
+      "properties": {"de": {"type": "string", "minLength": 1}, "en": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    },
+    "where": {
+      "type": "object",
+      "required": ["fact"],
+      "properties": {
+        "fact": {"type": "string"},
+        "equals": {"type": "string"},
+        "in": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "not_in": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+      },
+      "additionalProperties": false,
+      "oneOf": [{"required": ["equals"]}, {"required": ["in"]}, {"required": ["not_in"]}]
+    },
+    "source_path": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hop"}},
+        "label": {"type": "string"},
+        "where": {"$ref": "#/$defs/where"}
+      },
+      "additionalProperties": false
+    },
+    "section": {
+      "type": "object",
+      "required": ["id", "title", "render", "required"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "title": {"$ref": "#/$defs/title"},
+        "render": {"type": "string", "enum": ["text", "list", "table", "status-list", "diagram"]},
+        "required": {"type": "boolean"},
+        "field": {"type": "string", "enum": ["description", "name"]},
+        "facts": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "paths": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source_path"}},
+        "columns": {"type": "array", "items": {"type": "string"}},
+        "status": {
+          "type": "object",
+          "required": ["path", "fact", "passing"],
+          "properties": {
+            "path": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hop"}},
+            "fact": {"type": "string"},
+            "passing": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "order_by": {
+          "type": "object",
+          "required": ["fact", "direction"],
+          "properties": {"fact": {"type": "string"}, "direction": {"type": "string", "enum": ["asc", "desc"]}},
+          "additionalProperties": false
+        },
+        "limit": {"type": "integer", "minimum": 1},
+        "stale": {
+          "type": "object",
+          "required": ["rule"],
+          "properties": {"rule": {"type": "string", "enum": ["record_older_than_commits"]}, "days": {"type": "integer", "minimum": 0}},
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [{"required": ["field"]}, {"required": ["facts"]}, {"required": ["paths"]}]
+    },
+    "page": {
+      "type": "object",
+      "required": ["key", "type", "name", "sections"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^PAGE-[a-z0-9-]+$"},
+        "type": {"type": "string"},
+        "filter": {"type": "object", "properties": {"key_prefix": {"type": "string"}}, "additionalProperties": false},
+        "name": {"$ref": "#/$defs/title"},
+        "sections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/section"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

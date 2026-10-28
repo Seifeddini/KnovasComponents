@@ -7,10 +7,15 @@
 version: 1
 relations:
   # structure
-  - {name: part_of,        family: Structure,    sedm_iri: int:partOf,        domain: [Component, BoundedContext, ProcessStep, Goal, PlatformTier, ApiServiceGroup, Function, Process, SourceFile], range: [BoundedContext, Product, Process, Goal, PlatformTier, Component, Company, ValueStream], inverse: contains, reason: "SeDM partOf."}
+  - {name: part_of,        family: Structure,    sedm_iri: int:partOf,        domain: [Component, BoundedContext, ProcessStep, Goal, PlatformTier, ApiServiceGroup, Function, Process, SourceFile], range: [BoundedContext, Product, Process, Goal, PlatformTier, Component, Company, ValueStream, System], inverse: contains, reason: "SeDM partOf."}
   - {name: member_of,      family: Structure,    sedm_iri: int:memberOf,      domain: [Persona, Role, Person], range: [Segment, Function], reason: "SeDM memberOf."}
   # realisation
   - {name: realises,       family: Realisation,  sedm_iri: int:realizes,      domain: [Component, BoundedContext], range: [Capability], reason: "SeDM realizes: engineering links a component to a capability."}
+  - {name: calls,          family: Realisation,  sedm_iri: null,              domain: [Component], range: [Component], reason: "candidate: one component invokes another (spec.ai.yaml interactions, hierarchy/interactions.md); read in the other direction it is called-by (DEC-0026)."}
+  - {name: calls_back,     family: Realisation,  sedm_iri: null,              domain: [Component], range: [Component], reason: "candidate: the second direction of two components that call each other; its own relation because the engine keys an edge by its unordered node pair (F8, DEC-0026)."}
+  - {name: exposes,        family: Realisation,  sedm_iri: null,              domain: [Component], range: [Interface], reason: "candidate: the component serves this route (DEC-0027)."}
+  - {name: initiated_by,   family: Realisation,  sedm_iri: null,              domain: [Interaction], range: [Component], reason: "candidate: the calling side of an Interaction (DEC-0026)."}
+  - {name: received_by,    family: Realisation,  sedm_iri: null,              domain: [Interaction], range: [Component], reason: "candidate: the called side of an Interaction (DEC-0026)."}
   - {name: offers,         family: Realisation,  sedm_iri: null,              domain: [PlatformTier, ApiServiceGroup], range: [Capability], reason: "candidate: management links a tier or API group to the capabilities it sells."}
   - {name: implements,     family: Realisation,  sedm_iri: int:implements,    domain: [SourceFile, Commit, Component], range: [FeaturePlan, ComponentContract], reason: "SeDM implements."}
   - {name: serves,         family: Realisation,  sedm_iri: null,              domain: [FeaturePlan], range: [Capability], reason: "candidate: rule 1 requires an approved plan to name its capability."}
