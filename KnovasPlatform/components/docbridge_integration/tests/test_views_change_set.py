@@ -349,6 +349,25 @@ class TestOperations:
         _op(graph, ctx, d, user=owner, grants=Grants(owner=owner.id), kind="add",
             edit_id="FeaturePlan serves Capability", target="CAP-02")
 
+    def test_the_process_is_the_instances_own_not_the_requests(self, graph):
+        """The class decides the permission, and the class depends on the process: a request naming
+        another process (where the same id might be minor) is refused."""
+        ctx, d, _ = _ctx(graph)
+        with pytest.raises(cr.ChangeError, match="kein Instanztyp"):
+            _op(graph, ctx, d, process="PROC-decision", kind="add", edit_id="FeaturePlan serves Capability", target="CAP-02")
+        stray = graph.node("FeaturePlan", "A plan of no process", key="FEAT-2026-01-01-stray", source="docs/ModernDocs/plans/x.md")
+        ctx, d, _ = _ctx(graph)
+        with pytest.raises(cr.ChangeError, match="nicht zu"):
+            _op(graph, ctx, d, node=stray, kind="field", field="owner", value="x")
+
+    def test_a_decision_row_of_a_plan_is_not_a_plan(self, graph):
+        """Plan-table decisions carry the plan file as their source; they must not reach the plan writers."""
+        dec = graph.node("Decision", "D-10: keep it", key=f"{KEY}/D-10", source=PLAN_PATH, status="decided")
+        graph.edge(dec, "instance_of", graph.by_key["PROC-feature-lifecycle"])
+        ctx, d, _ = _ctx(graph)
+        with pytest.raises(cr.ChangeError, match="kein Instanztyp"):
+            _op(graph, ctx, d, node=dec, kind="field", field="owner", value="x")
+
     @pytest.mark.parametrize("fld", ["sources", "target_date"])
     def test_fields_without_a_route_are_refused(self, graph, fld):
         ctx, d, _ = _ctx(graph)
