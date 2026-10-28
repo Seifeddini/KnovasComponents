@@ -24,7 +24,7 @@ import psycopg
 from identity import audit
 
 AUDIENCES = ("personal", "shared")
-RENDER_KINDS = {"process": ("trace", "board"), "spine": ("tree", "matrix")}
+RENDER_KINDS = {"process": ("trace", "board"), "spine": ("tree", "matrix", "doc")}
 SORTINGS = ("key", "name", "days", "missing", "risks")
 FILTER_KEYS = ("owner", "capability", "status", "branch", "rows", "cols", "meta")
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")

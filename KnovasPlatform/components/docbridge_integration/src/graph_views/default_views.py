@@ -25,6 +25,10 @@ KNOVAS: List[Dict[str, Any]] = [
     {"name": "Markt",
      "description": "Markt-, Vertriebs- und Marketingachse: Segment, Persona, Hypothese, Kampagne, Ergebnis.",
      "source": {"spine": "SPINE-market"}, "render_kind": "tree", "settings": {}},
+    {"name": "Software-Dokumentation",
+     "description": "Die Software als Dokumentation: System, Software-Bereiche, Komponenten, aus den Seitendefinitionen; "
+                    "öffnet die System-Seite.",
+     "source": {"spine": "SPINE-product"}, "render_kind": "doc", "settings": {}},
 ]
 
 SETS = {"knovas": KNOVAS}

@@ -1,0 +1,4940 @@
+{
+ "version": 1,
+ "generated_at": "2026-10-28T13:25:11Z",
+ "page": "PAGE-component",
+ "summary": {
+  "components": 52,
+  "complete": 14,
+  "with_empty_required": 22,
+  "empty_required_sections": 57,
+  "with_stale": 21
+ },
+ "components": [
+  {
+   "component": "L2-ALLOY-DOMAIN",
+   "name": "L2-ALLOY-DOMAIN — Alloy domain layer (shared single-definition sigs)",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "invariants",
+    "calls",
+    "source_files",
+    "explanation"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 0,
+     "empty": true
+    }
+   ]
+  },
+  {
+   "component": "L2-ALLOY-MECHANISMS",
+   "name": "L2-ALLOY-MECHANISMS — Alloy mechanism layer (enforcement preds mirrored from code)",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "invariants",
+    "calls",
+    "source_files",
+    "explanation"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 0,
+     "empty": true
+    }
+   ]
+  },
+  {
+   "component": "L2-REGISTRATION-KEYS",
+   "name": "L2-REGISTRATION-KEYS — Registration key + onboarding bootstrap lifecycle",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "invariants",
+    "calls",
+    "source_files",
+    "explanation"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 0,
+     "empty": true
+    }
+   ]
+  },
+  {
+   "component": "L2-SWEEP-PHASE3",
+   "name": "L2-SWEEP-PHASE3 — System-surface sweep invariants (billing, quotas, windows, audit, secrets, purge, feedback)",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "invariants",
+    "calls",
+    "source_files",
+    "explanation"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 0,
+     "empty": true
+    }
+   ]
+  },
+  {
+   "component": "L2-CLIENT-EXTRACT",
+   "name": "L2-CLIENT-EXTRACT — Client extraction pipeline (knovas-extract + RC upload)",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "calls",
+    "source_files",
+    "explanation"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 0,
+     "empty": true
+    }
+   ]
+  },
+  {
+   "component": "L2-BRAIN-GRAPH-STORE",
+   "name": "L2-BRAIN-GRAPH-STORE — Graph-native brain store",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "calls",
+    "explanation"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 32,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 0,
+     "empty": true
+    }
+   ]
+  },
+  {
+   "component": "L2-COMPANY-BRAIN",
+   "name": "L2-COMPANY-BRAIN — Company Brain",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "calls",
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 9,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-RELEVANCE-GATE",
+   "name": "L2-RELEVANCE-GATE — Relevance Gate",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "calls",
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 5,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-DATA-LAKE",
+   "name": "L2-DATA-LAKE — Data Lake",
+   "empty_required": [
+    "invariants",
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 11,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 2,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-DEV-KIT",
+   "name": "L2-DEV-KIT — Developer Kit Contracts",
+   "empty_required": [
+    "invariants"
+   ],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 32,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 5,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-03 (64 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-IAC",
+   "name": "L2-IAC — Infrastructure as Code",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 2,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-23 (84 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-K8S-GITOPS",
+   "name": "L2-K8S-GITOPS — Kubernetes GitOps",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 2,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-LLM",
+   "name": "L2-LLM — LLM Service",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-TABLE-SER",
+   "name": "L2-TABLE-SER — Table Serializer",
+   "empty_required": [
+    "invariants",
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-WEBSITE",
+   "name": "L2-WEBSITE — Public Website",
+   "empty_required": [
+    "invariants"
+   ],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-17 (78 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-ANALYTICS",
+   "name": "L2-ANALYTICS — Analytics Events",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-22 (83 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-CERT-LIFECYCLE",
+   "name": "L2-CERT-LIFECYCLE — Certificate Lifecycle Manager",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-CHUNKER",
+   "name": "L2-CHUNKER — Document Chunker",
+   "empty_required": [
+    "invariants"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-COLBERT",
+   "name": "L2-COLBERT — ColBERT Reranker",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-DOC-ACL",
+   "name": "L2-DOC-ACL — Document ACL Filter",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-EMBEDDER",
+   "name": "L2-EMBEDDER — ML Embedder Service",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-ENTITY-REG",
+   "name": "L2-ENTITY-REG — Entity Registry",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 12,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 9,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 16,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 5,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-22 (83 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-INTERNAL-API",
+   "name": "L2-INTERNAL-API — Internal API",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 52,
+     "empty": false
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 20,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 9,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 6,
+     "empty": false,
+     "stale": "newest explanation 2026-09-08, newest commit 2026-10-22 (44 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-IO-MANAGER",
+   "name": "L2-IO-MANAGER — IOManager",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 16,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 9,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 6,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-22 (83 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-KNOWLEDGE-GRAPH",
+   "name": "L2-KNOWLEDGE-GRAPH — Knowledge Graph",
+   "empty_required": [
+    "responsibilities"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 23,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 63,
+     "empty": false
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 133,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 48,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 12,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 27,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 17,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-LOCAL-DEV",
+   "name": "L2-LOCAL-DEV — Local Dev Environment",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-09-24 (55 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-MTLS-SVC",
+   "name": "L2-MTLS-SVC — mTLS Tenant Resolver",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 12,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 6,
+     "empty": false,
+     "stale": "newest explanation 2026-09-14, newest commit 2026-10-22 (38 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-NGINX-GW",
+   "name": "L2-NGINX-GW — NGINX Gateway",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 18,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-23 (84 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-PG-FACADE",
+   "name": "L2-PG-FACADE — PostgreSQL Facade",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 22,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 11,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-22 (83 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-PREFECT",
+   "name": "L2-PREFECT — Prefect Flows",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 33,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 2,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-QUERY-EMBED",
+   "name": "L2-QUERY-EMBED — Query Embedding Store",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-REDIS",
+   "name": "L2-REDIS — Redis Queue/Buffer",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-REMOTE-CTRL",
+   "name": "L2-REMOTE-CTRL — Remote Controller Client",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-SNIPPET-BUF",
+   "name": "L2-SNIPPET-BUF — Snippet Buffer",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-09-24 (55 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-TRANSMISSION",
+   "name": "L2-TRANSMISSION — Transmission State Machine",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-TRUST-BOUNDARY",
+   "name": "L2-TRUST-BOUNDARY — Trust Boundary Enforcer",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-09-24 (55 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-WV-MANAGER",
+   "name": "L2-WV-MANAGER — Weaviate Manager",
+   "empty_required": [],
+   "stale": [
+    "explanation"
+   ],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false,
+     "stale": "newest explanation 2026-07-31, newest commit 2026-10-19 (80 days later)"
+    }
+   ]
+  },
+  {
+   "component": "L2-WV-SERVICE",
+   "name": "L2-WV-SERVICE — Weaviate Service",
+   "empty_required": [
+    "source_files"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 15,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 5,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-CERT-CA",
+   "name": "L2-CERT-CA — Certificate Authority",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-DEDUP",
+   "name": "L2-DEDUP — Content Hash Dedup",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 17,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-EMBED-CLIENT",
+   "name": "L2-EMBED-CLIENT — Embedding Provider Client",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-INGEST-WORKER",
+   "name": "L2-INGEST-WORKER — Ingestion Worker",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 4,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-IO-RECEIVER",
+   "name": "L2-IO-RECEIVER — IOReceiver",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 9,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 12,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 12,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 5,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-JWT-SVC",
+   "name": "L2-JWT-SVC — JWT Session Service",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 2,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-OBSERVABILITY",
+   "name": "L2-OBSERVABILITY — Observability Stack",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 15,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 2,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-QUERY-2STAGE",
+   "name": "L2-QUERY-2STAGE — Two-Stage Query Engine",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 16,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 6,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-RATE-LIMIT-POLICY",
+   "name": "L2-RATE-LIMIT-POLICY — Rate-limit policy, admission and calibration",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 16,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 9,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-RBAC",
+   "name": "L2-RBAC — Access Policy Evaluator",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 9,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 16,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 3,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-REQUEST-SIGNATURE",
+   "name": "L2-REQUEST-SIGNATURE — Request Signature Gate",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 5,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-SECURE-API",
+   "name": "L2-SECURE-API — Secure API",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 7,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 27,
+     "empty": false
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 28,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 29,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 15,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 24,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 11,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-USAGE-LEDGER",
+   "name": "L2-USAGE-LEDGER — Usage Ledger Visibility",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 12,
+     "empty": false
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 8,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-USAGE-METER",
+   "name": "L2-USAGE-METER — Usage Metering",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 8,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 13,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 6,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 10,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 4,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 9,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 5,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 9,
+     "empty": false
+    }
+   ]
+  }
+ ]
+}

@@ -70,6 +70,13 @@ Decisions are cached with the index under the same key and TTL. The final report
 - **Permissions** reuse `node_grants`: minor for owner, editor or admin; substantive for the owner or an admin.
 - **Conflicts.** Operations are semantic, so a moved master is a rebase: re-apply on the new head and name what no longer applies.
 
+**D7 — Documentation pages from KnowledgeBase's page definitions (Step 8, 2026-10-28).**
+- **Definitions.** Pages, sections, render hints and paths come only from `page-definitions.json` (DEC-0028); stale flags only from the docs completeness report (DEC-0029); where a missing section is filled, from the edit map.
+- **Cost.** A page spends a fact budget: the explanation first, then the cheapest required sections, then the optional ones. The rest loads on click.
+- **Cache.** Pages are cached per subject and topology load.
+- **Tree.** The System page's areas path, then the product spine's software levels.
+- **Diagrams.** Laid out deterministically, never by force.
+
 ### Components
 
 | File | Responsibility |
@@ -144,6 +151,7 @@ Views carry no access rights: what a view shows is still filtered by the brain p
 - [x] **Step 6 — Default shared views.** Development cycle, Development board, Management trace, Decisions & risks, Market. Done when all five open from the picker on the tenant within budget.
 - [x] **Step 6b — Discovery.** Start tiles in spine order, "Liste", typeahead, one selection for every tab (fixes the sparse ego graph).
 - [x] **Step 7 — Fix and change (D6).** TRACE fixes with locks, picker with suggestions, "Lücken", "Bearbeiten", change-set review with diffs, rollback and DEC, conflicts and rebase, one PR, audit. Done when a change set builds against the real plan files and every writer round-trips all plans under KnowledgeBase's parser (815 round trips, 0 differences); a real PR needs the token.
+- [x] **Step 8 — Software documentation (D7).** "Dokumentation" tab, `/views/doc/<key>`, tree, pages from page definitions, level diagrams, Markdown export, default view "Software-Dokumentation". Done when the System, an area and L2-KNOWLEDGE-GRAPH render within 2 s cold / 200 ms warm on the tenant.
 
 ## Related
 

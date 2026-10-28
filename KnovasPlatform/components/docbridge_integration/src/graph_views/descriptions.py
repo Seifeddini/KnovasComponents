@@ -59,6 +59,13 @@ def type_entry(name: str, doc: Optional[Dict[str, Any]] = None) -> Dict[str, str
             "confuse": str(entry.get("confuse") or "")}
 
 
+def attribute_label(type_name: str, attribute: str, doc: Optional[Dict[str, Any]] = None) -> str:
+    """The German display name of an attribute (attributes.<Type>.<attr>, else attributes._common)."""
+    attrs = (doc if doc is not None else load()).get("attributes") or {}
+    entry = (attrs.get(type_name) or {}).get(attribute) or (attrs.get("_common") or {}).get(attribute) or {}
+    return str(entry.get("de") or attribute) if isinstance(entry, dict) else attribute
+
+
 def relation_entry(name: str, doc: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     entry = ((doc if doc is not None else load()).get("relations") or {}).get(name) or {}
     return {"name": name,

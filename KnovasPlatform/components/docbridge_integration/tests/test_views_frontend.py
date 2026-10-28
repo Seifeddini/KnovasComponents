@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_change.js", "views_process.js", "views_spine.js", "views_discover.js", "views_gaps.js", "views_saved.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_change.js", "views_process.js", "views_spine.js", "views_discover.js", "views_gaps.js", "views_docs.js", "views_saved.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -353,3 +353,75 @@ def test_the_review_names_conflicts_rollback_and_why_submit_waits():
     assert any(t.startswith("Vorschlag realised-by-affected (Punkte 3)") for t in texts)
     assert any("Begründung fehlt für FEAT-1" in t and "kein GitHub-Zugang" in t for t in texts)
     assert "Pull Request erstellen" in buttons
+
+
+# -- Step 8: documentation pages --------------------------------------------------------------------
+
+_DIAGRAM = {"kind": "level", "width": 550, "height": 230, "box_w": 230, "box_h": 72, "note": "n",
+            "boxes": [{"id": "a", "key": "L2-A", "name": "Alpha", "type": "Component", "description": "Does alpha things.",
+                       "x": 0, "y": 0, "incomplete": ["responsibilities"], "stale": []},
+                      {"id": "b", "key": "L2-B", "name": "Beta", "type": "Component", "description": "", "x": 320, "y": 150,
+                       "incomplete": [], "stale": ["explanation"]}],
+            "edges": [{"from": "a", "to": "b", "relation": "calls", "label": "calls"},
+                      {"from": "b", "to": "a", "relation": "calls_back", "label": "calls_back"}]}
+
+
+@needs_node
+def test_the_diagram_draws_boxes_arrows_and_labels():
+    import json
+
+    out = _run_node("""
+        const box = window.ViewsDocs.drawDiagram(DIAGRAM, () => {});
+        const svg = box.children[0];
+        const kinds = svg.children.map((c) => c.tagName + ':' + (c.className || ''));
+        const texts = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (String(c.tagName).toLowerCase() === "text") texts.push(c.textContent); walk(c); });
+        walk(svg);
+        out({kinds, texts});
+    """.replace("DIAGRAM", json.dumps(_DIAGRAM)), [JS / "views_core.js", JS / "views_docs.js"])
+    kinds = out["kinds"]
+    assert kinds.count("PATH:views-docs-edge") == 2
+    assert "G:views-docs-box views-docs-box-incomplete" in kinds and "G:views-docs-box views-docs-box-stale" in kinds
+    assert {"L2-A", "Alpha", "Does alpha things.", "calls", "calls_back"} <= set(out["texts"])
+
+
+@needs_node
+def test_the_wrap_never_doubles_an_ellipsis():
+    out = _run_node("""
+        out(window.ViewsDocs.wrap('Data: PostgreSQL, Weaviate, the knowledge graph store and their schemas…', 30));
+    """, [JS / "views_core.js", JS / "views_docs.js"])
+    assert len(out) == 2 and out[1].endswith("…") and not out[1].endswith("……")
+
+
+@needs_node
+def test_a_section_shows_missing_stale_deferred_and_source_links():
+    import json
+
+    sections = [
+        {"id": "responsibilities", "title": "Verantwortlichkeiten", "render": "list", "required": True, "columns": [],
+         "column_labels": [], "source": "spec.ai.yaml", "as_of": "2026-10-28T21:00:00", "empty": True, "count": 0,
+         "missing": "Eintragen in spec.ai.yaml · responsibilities[]", "items": []},
+        {"id": "explanation", "title": "Erläuterung", "render": "list", "required": True, "columns": ["kind"],
+         "column_labels": ["Art"], "source": "the document", "as_of": "2026-10-28T21:00:00", "empty": False, "count": 1,
+         "stale": {"source": "KB-Bericht docs-completeness", "as_of": "2026-10-28T13:25:11Z"}, "deferred": False,
+         "items": [{"id": "r", "name": "README.md", "type": "Record", "cells": {"kind": "explanation"},
+                    "url": "https://github.com/x/blob/master/README.md", "path": "README.md"}]},
+        {"id": "commits", "title": "Letzte Commits", "render": "table", "required": False, "columns": ["committed_on"],
+         "column_labels": ["Datum"], "source": "git", "as_of": "2026-10-28T21:00:00", "empty": False, "count": 10, "total": 48,
+         "deferred": True, "deferred_reads": 48, "items": [{"id": "c", "name": "abc", "type": "Commit", "cells": {}}]},
+    ]
+    out = _run_node(_walk_js() + """
+        const docs = new window.ViewsDocs.Docs({openDossier() {}, center() {}});
+        const box = document.createElement('div');
+        SECTIONS.forEach((s) => box.appendChild(docs.drawSection(s, {node: {id: 'n'}})));
+        walk(box);
+        const links = [];
+        const findA = (n) => (n.children || []).forEach((c) => { if (c.tagName === 'A' || c.tagName === 'a') links.push([c.attrs.href, c.attrs.target]); findA(c); });
+        findA(box);
+        out({found, links});
+    """.replace("SECTIONS", json.dumps(sections)), [JS / "views_core.js", JS / "views_docs.js"])
+    texts = _texts(out["found"])
+    assert any(t.startswith("fehlt — Eintragen in spec.ai.yaml") for t in texts)
+    assert "veraltet" in texts and any("veraltet laut KB-Bericht vom 2026-10-28T13:25:11Z" in t for t in texts)
+    assert "Laden (48 Lesezugriffe)" in _buttons(out["found"])
+    assert ["https://github.com/x/blob/master/README.md", "_blank"] in out["links"]

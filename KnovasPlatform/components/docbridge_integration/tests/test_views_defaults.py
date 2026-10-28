@@ -49,9 +49,10 @@ def _ctx(graph):
     return ctx, svc.definitions(ctx)
 
 
-def test_five_default_views_and_all_are_valid():
+def test_six_default_views_and_all_are_valid():
     assert [v["name"] for v in default_views.KNOVAS] == [
-        "Entwicklungszyklus", "Entwicklungs-Board", "Management-Sicht", "Entscheidungen & Risiken", "Markt"]
+        "Entwicklungszyklus", "Entwicklungs-Board", "Management-Sicht", "Entscheidungen & Risiken", "Markt",
+        "Software-Dokumentation"]
     for v in default_views.KNOVAS:
         clean_view(v)
 
@@ -131,11 +132,11 @@ class TestSeed:
 
         store, admin = SavedViewStore(platform_db), self._admin(identity_repo)
         first = default_views.seed(store, admin)
-        assert len(first["created"]) == 5 and first["kept"] == []
+        assert len(first["created"]) == 6 and first["kept"] == []
         again = default_views.seed(store, admin)
         assert again == {"created": [], "kept": [v["name"] for v in default_views.KNOVAS]}
         created = audit.recent(platform_db, action="view.shared.created")
-        assert len(created) == 5 and {r["actor_email"] for r in created} == {"admin@kanzlei.ch"}
+        assert len(created) == 6 and {r["actor_email"] for r in created} == {"admin@kanzlei.ch"}
 
     def test_everyone_sees_the_defaults_but_only_admins_seed(self, platform_db, identity_repo):
         from pathlib import Path

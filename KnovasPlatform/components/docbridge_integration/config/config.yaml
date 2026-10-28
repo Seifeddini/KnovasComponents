@@ -343,6 +343,10 @@ views:
   trace_fact_budget: "${VIEWS_TRACE_FACT_BUDGET:-48}"
   # Search, lists: keys and facts are read for a whole type up to this size.
   key_index_max: "${VIEWS_KEY_INDEX_MAX:-60}"
+  # Documentation pages (Step 8): facts read per page before a section loads on demand,
+  # and items a section draws before "weitere".
+  doc_fact_budget: "${VIEWS_DOC_FACT_BUDGET:-24}"
+  doc_page_items: "${VIEWS_DOC_PAGE_ITEMS:-25}"
   # Change requests from the TRACE (Step 7): a pull request on the plan file in
   # KnowledgeBase, never a brain write. The token needs Contents + Pull requests
   # (read/write) on that repository only; KB_GITHUB_TOKEN wins over the file.
