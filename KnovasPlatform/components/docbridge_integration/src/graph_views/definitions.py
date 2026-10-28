@@ -147,9 +147,21 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
         streams = [m for r, d, m in index.neighbours(pid, "part_of", "out") if index.type_of(m) == "ValueStream"]
         if streams:
             proc["value_stream"] = (values.get(streams[0]) or {}).get("key") or index.nodes[streams[0]]["name"]
-        if "governing_fact" in ref:
+        if v.get("governing_fact"):
+            proc["governing_fact"] = v["governing_fact"]
+        elif "governing_fact" in ref:
             proc["governing_fact"] = ref["governing_fact"]
             gaps.append(("governing_fact", key))
+        status_map = _json(v.get("status_map"), f"{key}.status_map", errors)
+        if status_map is not None:
+            proc["status_map"] = status_map
+        elif "status_map" in ref:
+            proc["status_map"] = ref["status_map"]
+            gaps.append(("status_map", key))
+        # The loader does not write change classes (DEC-0024) to the tenant yet.
+        if "change_classes" in ref:
+            proc["change_classes"] = ref["change_classes"]
+            gaps.append(("change_classes", key))
 
         ref_steps = {s["id"]: s for s in ref.get("steps", [])}
         steps, step_key_to_id = [], {}
@@ -175,33 +187,48 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
                     "produces": _json(sv.get("produces"), f"{skey}.produces", errors) or [],
                     "exit_criteria": _split(sv.get("exit_criteria"))}
             rs = ref_steps.get(step_id, {})
-            for opt in ("owner_role", "description"):
-                if rs.get(opt):
-                    step[opt] = rs[opt]
+            if sv.get("owner_role"):
+                step["owner_role"] = sv["owner_role"]
+            elif rs.get("owner_role"):
+                step["owner_role"] = rs["owner_role"]
+                gaps.append(("owner_role der Schritte", key))
+            if rs.get("description"):           # the node's description is a generated summary
+                step["description"] = rs["description"]
+                gaps.append(("Schrittbeschreibungen", key))
             steps.append(step)
         steps.sort(key=lambda s: s["order"])
-        if steps and ref_steps and any(rs.get("description") for rs in ref_steps.values()):
-            gaps.append(("Schrittbeschreibungen und owner_role der Schritte", key))
         proc["steps"] = steps
 
-        ref_rework = {(t["from"], t["to"]): t.get("rework") for t in ref.get("transitions", [])}
-        transitions = []
-        for sid, step_id in step_key_to_id.items():
-            for r, d, m in index.neighbours(sid, "transitions_to", "out"):
-                if m in step_key_to_id:
-                    t = {"from": step_id, "to": step_key_to_id[m]}
-                    if ref_rework.get((t["from"], t["to"])):
-                        t["rework"] = True
-                    transitions.append(t)
+        # Transitions with their rework flags are a Process fact since Phase P8; the
+        # transitions_to edges are the fallback, with the flags from the copy.
+        declared = _json(v.get("transitions"), f"{key}.transitions", errors)
+        if declared is not None:
+            transitions = [dict(t) for t in declared]
+        else:
+            ref_rework = {(t["from"], t["to"]): t.get("rework") for t in ref.get("transitions", [])}
+            transitions = []
+            for sid, step_id in step_key_to_id.items():
+                for r, d, m in index.neighbours(sid, "transitions_to", "out"):
+                    if m in step_key_to_id:
+                        t = {"from": step_id, "to": step_key_to_id[m], "rework": bool(ref_rework.get((step_id, step_key_to_id[m])))}
+                        transitions.append(t)
+            if any(ref_rework.values()):
+                gaps.append(("rework-Kennzeichen der Übergänge", key))
         transitions.sort(key=lambda t: (t["from"], t["to"]))
-        if any(ref_rework.values()):
-            gaps.append(("rework-Kennzeichen der Übergänge", key))
         proc["transitions"] = transitions
         proc["final"] = [s["id"] for s in steps if s["resting"]]
         processes.append(proc)
 
-    rules = ref_proc.get("rules", [])
-    if rules:
+    # Each Process node carries the P-rules its steps use (fact `rules`, Phase P8).
+    rules_by_id: Dict[str, Dict[str, Any]] = {}
+    for pid in nodes["process"]:
+        for r in _json((values.get(pid) or {}).get("rules"), f"{nodes['process'][pid]}.rules", errors) or []:
+            rules_by_id.setdefault(r["id"], r)
+    used = {c for p in processes for s in p["steps"] for c in s["exit_criteria"]}
+    ref_rules = ref_proc.get("rules", [])
+    rules = [rules_by_id[r["id"]] if r["id"] in rules_by_id else r for r in ref_rules]
+    rules += [r for rid, r in sorted(rules_by_id.items()) if rid not in {x["id"] for x in ref_rules}]
+    if any(r["id"] in used and r["id"] not in rules_by_id for r in ref_rules):
         gaps.append(("P-Regeln", ""))
     proc_doc = {"version": ref_proc.get("version", 2), "generated_at": "Mandant",
                 "source": "tenant definition nodes", "rules": rules,

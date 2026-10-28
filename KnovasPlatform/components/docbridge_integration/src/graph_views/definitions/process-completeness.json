@@ -1,11 +1,17 @@
 {
- "generated_at": "2026-10-27 20:12",
+ "version": 1,
+ "generated_at": "2026-10-28T10:22:50Z",
+ "definitions_generated_at": "2026-10-28",
+ "excluded_evidence": "test runs and Alloy checks with source `local` (a developer machine) are not evidence",
+ "type_level_rules": [
+  "R8"
+ ],
  "summary": {
   "PROC-decision": {
-   "open": 75,
+   "open": 79,
    "with_missing": 0,
    "missing_items": 0,
-   "with_unmet": 0
+   "with_unmet": 1
   },
   "PROC-experiment": {
    "open": 3,
@@ -16,8 +22,8 @@
   "PROC-feature-lifecycle": {
    "open": 24,
    "with_missing": 18,
-   "missing_items": 49,
-   "with_unmet": 20
+   "missing_items": 59,
+   "with_unmet": 21
   },
   "PROC-release": {
    "open": 1,
@@ -40,9 +46,50 @@
    "name": "DEC-0007 — MEDDPICC elements are qualification attributes of an Opportunity, not pipeline stages",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
-   "unmet": [],
+   "unmet": [
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": false,
+     "why": [
+      "decision without owner"
+     ]
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -53,9 +100,41 @@
    "name": "DEC-0015 — Feature-lifecycle steps follow the plan's status; the fine steps are artefacts of the brief step",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -66,9 +145,41 @@
    "name": "DEC-0016 — Process and spine definitions live as YAML, as generated JSON and as meta-tagged definition nodes",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -79,9 +190,221 @@
    "name": "DEC-0017 — How definitions are validated",
    "step": "proposed",
    "step_since": "2026-10-27",
+   "days_in_step": 1,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-decision",
+   "instance": "DEC-0018",
+   "type": "Decision",
+   "name": "DEC-0018 — Step dates come from the source history",
+   "step": "proposed",
+   "step_since": "2026-10-28",
    "days_in_step": 0,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-decision",
+   "instance": "DEC-0019",
+   "type": "Decision",
+   "name": "DEC-0019 — Meta is a type property",
+   "step": "proposed",
+   "step_since": "2026-10-28",
+   "days_in_step": 0,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-decision",
+   "instance": "DEC-0020",
+   "type": "Decision",
+   "name": "DEC-0020 — An owner is a role or person key",
+   "step": "proposed",
+   "step_since": "2026-10-28",
+   "days_in_step": 0,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-decision",
+   "instance": "DEC-0021",
+   "type": "Decision",
+   "name": "DEC-0021 — Three data rules from the Platform views report",
+   "step": "proposed",
+   "step_since": "2026-10-28",
+   "days_in_step": 0,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -92,9 +415,41 @@
    "name": "OD-FACT-01: Fact value storage",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -105,9 +460,41 @@
    "name": "OD-FACT-02: `entity_ref` edge materialization",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -118,9 +505,41 @@
    "name": "OD-FACT-03: Schema version migration",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -131,9 +550,41 @@
    "name": "OD-FACT-04: Contradiction \"comparable standing\"",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -144,9 +595,41 @@
    "name": "OD-FILT-01: SystemEdge on filter delete",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -157,9 +640,41 @@
    "name": "OD-FILT-02: Recursion (filters on derived children)",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -170,9 +685,41 @@
    "name": "OD-FILT-03: Parent-scope expansion",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -183,9 +730,41 @@
    "name": "OD-RBAC-02: A fact with no evidence is unrestricted.",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -196,9 +775,41 @@
    "name": "OD-RBAC-03: Filter apply runs as the system, over the whole tenant corpus, not narrowed by the caller's groups.",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -209,9 +820,41 @@
    "name": "OD-RBAC-04: Fact history is redacted, not filtered.",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -222,9 +865,41 @@
    "name": "OD-RBAC-05: Denied targets answer 404, never 403 — on reads and on writes.",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -235,9 +910,41 @@
    "name": "OD-REL-01: k in mean + k·σ floor",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -248,9 +955,41 @@
    "name": "OD-REL-02: Top-1-relative floor fraction",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -261,9 +1000,41 @@
    "name": "OD-REL-03: Autocut × two-stage aggregation interplay",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -274,9 +1045,41 @@
    "name": "OD-REL-04: Calibration constant storage",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -287,9 +1090,41 @@
    "name": "OD-REL-05: Tier boundary (`strong`/`borderline`)",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -300,9 +1135,41 @@
    "name": "OD-FACTC-01: Trust rollup ownership",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -313,9 +1180,41 @@
    "name": "OD-FACTC-02: Free-form fact identity (`value_identity_hash` for non-schema facts)",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -326,9 +1225,41 @@
    "name": "OD-FACTC-03: F2 deterministic extractor scope",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -339,9 +1270,41 @@
    "name": "OD-FACTC-04: OD-FACT-04 (source standing) resolution",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -352,9 +1315,41 @@
    "name": "OD-FACTC-05: Track M model + serving choice",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -365,9 +1360,41 @@
    "name": "OD-FACTC-06: Fact↔node cardinality (§18 friction 1)",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -378,9 +1405,41 @@
    "name": "OD-FACTC-07: Contradiction comparison scope (§18 friction 2)",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -391,9 +1450,41 @@
    "name": "OD-GL-01: Does the L1-only subset of Track L (C1) remain V3 by the rev-3 ruling, or may it ship once EPIC-0 clears?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -404,9 +1495,41 @@
    "name": "OD-GL-02: May a user-initiated \"dead end\" store the question text as tenant data?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -417,9 +1540,41 @@
    "name": "OD-GL-03: Where do F2 parsers run — server-side over chunks, or client-side in `knovas-extract` as structured spans?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -430,9 +1585,41 @@
    "name": "OD-GL-04: Community half-life and Leiden resolution per tenant",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -443,9 +1630,41 @@
    "name": "OD-GL-05: Overlay half-life",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -456,9 +1675,41 @@
    "name": "OD-GL-06: Generic `kg_proposal` for new kinds only vs. migrating the three shipped loops",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -469,9 +1720,41 @@
    "name": "OD-GL-07: `networkx` (pure Python) vs. `graspologic-native` (Rust Leiden) as the community dependency",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -482,9 +1765,41 @@
    "name": "OD-GL-01: C-T4",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -495,9 +1810,41 @@
    "name": "OD-GL-02: C-T1",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -508,9 +1855,41 @@
    "name": "OD-GL-03: B-T9",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -521,9 +1900,41 @@
    "name": "OD-GL-04: B-T7",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -534,9 +1945,41 @@
    "name": "OD-GL-05: C-T2",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -547,9 +1990,41 @@
    "name": "OD-GL-06: B-T3",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -560,9 +2035,41 @@
    "name": "OD-GL-07: B-T7",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -573,9 +2080,41 @@
    "name": "OD-GL-01: May the in-tenant learning overlay ship before V3?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -586,9 +2125,41 @@
    "name": "OD-GL-02: May a \"dead end\" store the question text?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -599,9 +2170,41 @@
    "name": "OD-GL-03: Where do legal parsers run?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -612,9 +2215,41 @@
    "name": "OD-GL-04: Leiden settings per tenant or fixed?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -625,9 +2260,41 @@
    "name": "OD-GL-05: Overlay half-life",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -638,9 +2305,41 @@
    "name": "OD-GL-06: Migrate the three old review tables into `kg_proposal`?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -651,9 +2350,41 @@
    "name": "OD-GL-07: `networkx` or native Leiden first?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -664,9 +2395,41 @@
    "name": "OD-GNB-02: Extensions in the fork repository or in a separate `knovas-graph-extensions` repository?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -677,9 +2440,41 @@
    "name": "OD-GNB-04: Enable PostgreSQL HA and 35-day backups before the brain control tables depend on them? Since ADR-0009 (develop, tenant data plane on cloudscale) the database is the CloudNativePG cluster `knovas-postgres` on the cloudscale GPU node (one instance, 14-day Barman backups to the LPG bucket `knovas-prod-postgres-backups`, no copy outside LPG), so the answer also says where a standby runs and whether t",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -690,9 +2485,41 @@
    "name": "OD-GNB-05: Algorithms in an engine plugin (JGraphT) or a Python worker (networkx / graspologic)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -703,9 +2530,41 @@
    "name": "OD-GNB-06: Billing unit for deep paths and GraphRAG: `graph_read` with weighted units, or a new usage type?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -716,9 +2575,41 @@
    "name": "OD-GNB-07: Do `kg_doc_job` and `kg_sort_outbox` stay in PostgreSQL or move to the graph?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -729,9 +2620,41 @@
    "name": "OD-GNB-08: Node size and disk class for the engine pool",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -742,9 +2665,41 @@
    "name": "OD-GNB-09: May a stored decision record (the paper's step 5) keep the user's question text?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -755,9 +2710,41 @@
    "name": "OD-GNB-10: Which public vocabularies may `atlas` load for the terminology layer (licence and public-source check per vocabulary)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -768,9 +2755,41 @@
    "name": "OD-GNB-11: Which domain packs does a new tenant get by default?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -781,9 +2800,41 @@
    "name": "OD-GNB-12: When two nodes share an identity key (`owl:hasKey`, such as a UID), does the brain propose `SAME_AS` or only report it?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -794,9 +2845,41 @@
    "name": "OD-GNB-16: How are the brain namespaces, cluster-scoped objects and brain-node agents deployed without Azure-held credentials (§4.4)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -807,9 +2890,41 @@
    "name": "OD-GNB-17: Where does the dev brain run (no cloudscale dev cluster exists)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -820,9 +2935,41 @@
    "name": "OD-GNB-18: Which session registers a purpose's first login verifier, before that purpose has a session (§4.6 point 1)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -833,9 +2980,41 @@
    "name": "OD-GNB-20: Where do today's tenant node types (created with no parent by `/secured/graph/node-types`) sit in the semantic model, and does that route keep its contract?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -846,9 +3025,41 @@
    "name": "OD-GNB-22: Since ADR-0009 the brain's read path (secure-api → engine) no longer crosses the IPsec link, but every `/secured/` request does (AKS relays `api.knovas.ch:8443` to cloudscale), as do internal-api's and the AKS CronJobs' PostgreSQL connections. Does the second tunnel endpoint (§4.4, RISK-17) stay P7's first task and a precondition for `graph_reads`, or move to ADR-0009's follow-ups? (added 2026-10-",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -859,9 +3070,41 @@
    "name": "OD-GL-02: No user question text is stored. Example questions are tenant-written configuration (OD-SA-03)",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -872,9 +3115,41 @@
    "name": "OD-SA-01: May a caller outside the aggregate closure get totals over what they may read (`basis: \"visible\"`, §4.5)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -885,9 +3160,41 @@
    "name": "OD-SA-02: Over what is the closure for complete-basis results taken?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -898,9 +3205,41 @@
    "name": "OD-SA-03: May a tenant store example questions for SA7?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -911,9 +3250,41 @@
    "name": "OD-SA-04: Tables: restore `table_whole` chunks, or carry `tables[]` for value extraction only?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -924,9 +3295,41 @@
    "name": "OD-SA-06: Currency conversion?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -937,9 +3340,41 @@
    "name": "OD-SA-07: Billing for analyses?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -950,9 +3385,41 @@
    "name": "OD-SA-08: Who may define measures?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -963,9 +3430,41 @@
    "name": "OD-SA-09: Tenant-defined measures before `graph_only`?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -976,9 +3475,41 @@
    "name": "OD-SA-10: AHV numbers: refuse everywhere (Document Fields) or keep `fid:ahvNumber` (SeDM)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -989,9 +3520,41 @@
    "name": "OD-SA-11: Scoped search in production (§1.4, finding 13)",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -1002,9 +3565,41 @@
    "name": "OD-SA-12: How do SA's tables and reads enter the graph plan's artefacts: schema v1, the table registry, the port inventory of 171 (§4.7)?",
    "step": "proposed",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -1015,7 +3610,7 @@
    "name": "Do pre-mortems pay off? Share of pre-mortem risks that later happened, tripwires fired, measures that held",
    "step": "measure",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [
     {
      "kind": "produces",
@@ -1040,6 +3635,22 @@
      "why": "Registered before the start: thresholds and the minimum sample are set (goal rule 3); an `exploration` instance fails this on purpose."
     }
    ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-thresholds",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "Registered before the start: thresholds and the minimum sample are set (goal rule 3); an `exploration` instance fails this on purpose."
+     ]
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -1050,7 +3661,7 @@
    "name": "Agent context pack: none vs. ~4k, 8k, 16k tokens on 20 tasks",
    "step": "design",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [
     {
@@ -1060,6 +3671,30 @@
     {
      "id": "P-owner",
      "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-thresholds",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "Registered before the start: thresholds and the minimum sample are set (goal rule 3); an `exploration` instance fails this on purpose."
+     ]
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
     }
    ],
    "open_risks": [],
@@ -1072,7 +3707,7 @@
    "name": "Stage 0 probe — concept membership vs. the cheap null (research directions, SS-491)",
    "step": "design",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [
     {
@@ -1084,6 +3719,30 @@
      "why": "The instance carries an `owner` fact (a role or person)."
     }
    ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-thresholds",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "Registered before the start: thresholds and the minimum sample are set (goal rule 3); an `exploration` instance fails this on purpose."
+     ]
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -1093,8 +3752,8 @@
    "type": "FeaturePlan",
    "name": "Company Brain — epics and requirements to make the vision real",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-08-02",
+   "days_in_step": 87,
    "missing": [
     {
      "kind": "produces",
@@ -1121,81 +3780,68 @@
     {
      "kind": "produces",
      "type": "Invariant",
-     "path": "→affects→ Component →keeps→ Invariant",
+     "path": "→keeps→ Invariant",
      "found": 0,
      "min_count": 1,
-     "note": "contracts-and-invariants step"
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
     },
     {
      "kind": "produces",
      "type": "AlloyCheck",
-     "path": "→affects→ Component ←verifies– AlloyCheck",
+     "path": "←verifies– AlloyCheck",
      "found": 0,
      "min_count": 1,
-     "note": "alloy-model step"
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
-     "why": "R1: no component, capability, goal or hypothesis"
+     "why": "R1: no owner, component, capability, goal or hypothesis"
+    },
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
     }
    ],
-   "open_risks": [],
-   "recent_decisions": []
-  },
-  {
-   "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-08-19-knovas-admin-console",
-   "type": "FeaturePlan",
-   "name": "Knovas Admin Console — Plan",
-   "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
-   "missing": [
+   "rule_results": [
     {
-     "kind": "produces",
-     "type": "Component",
-     "path": "→affects→ Component",
-     "found": 0,
-     "min_count": 1
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
     },
-    {
-     "kind": "produces",
-     "type": "Capability",
-     "path": "→serves→ Capability",
-     "found": 0,
-     "min_count": 1
-    },
-    {
-     "kind": "produces",
-     "type": "Goal",
-     "path": "→motivated_by→ Goal",
-     "found": 0,
-     "min_count": 1,
-     "alternative": "Hypothesis →justified_by→ Hypothesis"
-    },
-    {
-     "kind": "produces",
-     "type": "Invariant",
-     "path": "→affects→ Component →keeps→ Invariant",
-     "found": 0,
-     "min_count": 1,
-     "note": "contracts-and-invariants step"
-    },
-    {
-     "kind": "produces",
-     "type": "AlloyCheck",
-     "path": "→affects→ Component ←verifies– AlloyCheck",
-     "found": 0,
-     "min_count": 1,
-     "note": "alloy-model step"
-    }
-   ],
-   "unmet": [
     {
      "id": "R1",
-     "why": "R1: no component, capability, goal or hypothesis"
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1207,8 +3853,8 @@
    "type": "FeaturePlan",
    "name": "Fulfill-Evidence P0–P3 Build Plan",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-09-01",
+   "days_in_step": 57,
    "missing": [
     {
      "kind": "produces",
@@ -1235,24 +3881,68 @@
     {
      "kind": "produces",
      "type": "Invariant",
-     "path": "→affects→ Component →keeps→ Invariant",
+     "path": "→keeps→ Invariant",
      "found": 0,
      "min_count": 1,
-     "note": "contracts-and-invariants step"
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
     },
     {
      "kind": "produces",
      "type": "AlloyCheck",
-     "path": "→affects→ Component ←verifies– AlloyCheck",
+     "path": "←verifies– AlloyCheck",
      "found": 0,
      "min_count": 1,
-     "note": "alloy-model step"
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
-     "why": "R1: no component, capability, goal or hypothesis"
+     "why": "R1: no owner, component, capability, goal or hypothesis"
+    },
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1264,8 +3954,8 @@
    "type": "FeaturePlan",
    "name": "Graph-native brain — roadmap with story points",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-05",
+   "days_in_step": 23,
    "missing": [
     {
      "kind": "produces",
@@ -1292,24 +3982,68 @@
     {
      "kind": "produces",
      "type": "Invariant",
-     "path": "→affects→ Component →keeps→ Invariant",
+     "path": "→keeps→ Invariant",
      "found": 0,
      "min_count": 1,
-     "note": "contracts-and-invariants step"
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
     },
     {
      "kind": "produces",
      "type": "AlloyCheck",
-     "path": "→affects→ Component ←verifies– AlloyCheck",
+     "path": "←verifies– AlloyCheck",
      "found": 0,
      "min_count": 1,
-     "note": "alloy-model step"
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
-     "why": "R1: no component, capability, goal or hypothesis"
+     "why": "R1: no owner, component, capability, goal or hypothesis"
+    },
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1321,8 +4055,8 @@
    "type": "FeaturePlan",
    "name": "Research directions — where 2025–26 papers can improve Search, Brain, Synapse and Knovas models",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-17",
+   "days_in_step": 11,
    "missing": [
     {
      "kind": "produces",
@@ -1349,100 +4083,68 @@
     {
      "kind": "produces",
      "type": "Invariant",
-     "path": "→affects→ Component →keeps→ Invariant",
+     "path": "→keeps→ Invariant",
      "found": 0,
      "min_count": 1,
-     "note": "contracts-and-invariants step"
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
     },
     {
      "kind": "produces",
      "type": "AlloyCheck",
-     "path": "→affects→ Component ←verifies– AlloyCheck",
+     "path": "←verifies– AlloyCheck",
      "found": 0,
      "min_count": 1,
-     "note": "alloy-model step"
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
-     "why": "R1: no component, capability, goal or hypothesis"
-    }
-   ],
-   "open_risks": [],
-   "recent_decisions": []
-  },
-  {
-   "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-08-01-atomic-fact-consolidation",
-   "type": "FeaturePlan",
-   "name": "Feature Plan: Atomic Fact Consolidation — evidenced facts with measurable trust",
-   "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
-   "missing": [
-    {
-     "kind": "produces",
-     "type": "Capability",
-     "path": "→serves→ Capability",
-     "found": 0,
-     "min_count": 1
+     "why": "R1: no owner, component, capability, goal or hypothesis"
     },
     {
-     "kind": "produces",
-     "type": "Goal",
-     "path": "→motivated_by→ Goal",
-     "found": 0,
-     "min_count": 1,
-     "alternative": "Hypothesis →justified_by→ Hypothesis"
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
     }
    ],
-   "unmet": [
+   "rule_results": [
     {
-     "id": "R1",
-     "why": "R1: no capability, goal or hypothesis"
-    }
-   ],
-   "open_risks": [],
-   "recent_decisions": [
-    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-01",
-    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-02",
-    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-03",
-    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-04",
-    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-05",
-    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-06",
-    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-07"
-   ]
-  },
-  {
-   "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-08-01-safe-learning-loop",
-   "type": "FeaturePlan",
-   "name": "Feature Plan: Safe Learning Loop (Track L) — consent-gated product improvement",
-   "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
-   "missing": [
-    {
-     "kind": "produces",
-     "type": "Capability",
-     "path": "→serves→ Capability",
-     "found": 0,
-     "min_count": 1
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
     },
     {
-     "kind": "produces",
-     "type": "Goal",
-     "path": "→motivated_by→ Goal",
-     "found": 0,
-     "min_count": 1,
-     "alternative": "Hypothesis →justified_by→ Hypothesis"
-    }
-   ],
-   "unmet": [
-    {
      "id": "R1",
-     "why": "R1: no capability, goal or hypothesis"
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1454,8 +4156,8 @@
    "type": "FeaturePlan",
    "name": "Node Identifiers & Document Sort Proposals",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-08-04",
+   "days_in_step": 85,
    "missing": [
     {
      "kind": "produces",
@@ -1471,12 +4173,261 @@
      "found": 0,
      "min_count": 1,
      "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "Invariant",
+     "path": "→keeps→ Invariant",
+     "found": 0,
+     "min_count": 1,
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
+    },
+    {
+     "kind": "produces",
+     "type": "AlloyCheck",
+     "path": "←verifies– AlloyCheck",
+     "found": 0,
+     "min_count": 1,
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
-     "why": "R1: no capability, goal or hypothesis"
+     "why": "R1: no owner, capability, goal or hypothesis"
+    },
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-08-19-knovas-admin-console",
+   "type": "FeaturePlan",
+   "name": "Knovas Admin Console — Plan",
+   "step": "brief",
+   "step_since": "2026-08-19",
+   "days_in_step": 70,
+   "missing": [
+    {
+     "kind": "produces",
+     "type": "Component",
+     "path": "→affects→ Component",
+     "found": 0,
+     "min_count": 1
+    },
+    {
+     "kind": "produces",
+     "type": "Capability",
+     "path": "→serves→ Capability",
+     "found": 0,
+     "min_count": 1
+    },
+    {
+     "kind": "produces",
+     "type": "Goal",
+     "path": "→motivated_by→ Goal",
+     "found": 0,
+     "min_count": 1,
+     "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "Invariant",
+     "path": "→keeps→ Invariant",
+     "found": 0,
+     "min_count": 1,
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
+    },
+    {
+     "kind": "produces",
+     "type": "AlloyCheck",
+     "path": "←verifies– AlloyCheck",
+     "found": 0,
+     "min_count": 1,
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
+    }
+   ],
+   "unmet": [
+    {
+     "id": "R1",
+     "why": "R1: no component, capability, goal or hypothesis"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-09-24-bill-gap-01-document-row-crash-window",
+   "type": "FeaturePlan",
+   "name": "BILL-GAP-01 — a stored document can end up without its usage row (worker crash window)",
+   "step": "brief",
+   "step_since": "2026-09-24",
+   "days_in_step": 34,
+   "missing": [
+    {
+     "kind": "produces",
+     "type": "Capability",
+     "path": "→serves→ Capability",
+     "found": 0,
+     "min_count": 1
+    },
+    {
+     "kind": "produces",
+     "type": "Goal",
+     "path": "→motivated_by→ Goal",
+     "found": 0,
+     "min_count": 1,
+     "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "Invariant",
+     "path": "→keeps→ Invariant",
+     "found": 0,
+     "min_count": 1,
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
+    },
+    {
+     "kind": "produces",
+     "type": "AlloyCheck",
+     "path": "←verifies– AlloyCheck",
+     "found": 0,
+     "min_count": 1,
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
+    }
+   ],
+   "unmet": [
+    {
+     "id": "R1",
+     "why": "R1: no owner, capability, goal or hypothesis"
+    },
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1488,8 +4439,8 @@
    "type": "FeaturePlan",
    "name": "Graphify lessons for Knovas search and brain — analysis and prioritized proposals",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-09-02",
+   "days_in_step": 56,
    "missing": [
     {
      "kind": "produces",
@@ -1505,12 +4456,66 @@
      "found": 0,
      "min_count": 1,
      "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "Invariant",
+     "path": "→keeps→ Invariant",
+     "found": 0,
+     "min_count": 1,
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
+    },
+    {
+     "kind": "produces",
+     "type": "AlloyCheck",
+     "path": "←verifies– AlloyCheck",
+     "found": 0,
+     "min_count": 1,
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
      "why": "R1: no capability, goal or hypothesis"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1526,48 +4531,12 @@
   },
   {
    "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-09-06-billing-non-repudiation",
-   "type": "FeaturePlan",
-   "name": "Feature Plan: Waterproof Usage Recording and Client Non-Repudiation",
-   "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
-   "missing": [
-    {
-     "kind": "produces",
-     "type": "Capability",
-     "path": "→serves→ Capability",
-     "found": 0,
-     "min_count": 1
-    },
-    {
-     "kind": "produces",
-     "type": "Goal",
-     "path": "→motivated_by→ Goal",
-     "found": 0,
-     "min_count": 1,
-     "alternative": "Hypothesis →justified_by→ Hypothesis"
-    }
-   ],
-   "unmet": [
-    {
-     "id": "R1",
-     "why": "R1: no capability, goal or hypothesis"
-    }
-   ],
-   "open_risks": [],
-   "recent_decisions": [
-    "FEAT-2026-09-06-billing-non-repudiation/D-19"
-   ]
-  },
-  {
-   "process": "PROC-feature-lifecycle",
    "instance": "FEAT-2026-09-07-billing-non-repudiation-staged-review",
    "type": "FeaturePlan",
    "name": "Usage Recording and Non-Repudiation — The Plan, Stage by Stage",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-09-07",
+   "days_in_step": 51,
    "missing": [
     {
      "kind": "produces",
@@ -1583,12 +4552,144 @@
      "found": 0,
      "min_count": 1,
      "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "Invariant",
+     "path": "→keeps→ Invariant",
+     "found": 0,
+     "min_count": 1,
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
+    }
+   ],
+   "unmet": [
+    {
+     "id": "R1",
+     "why": "R1: no owner, capability, goal or hypothesis"
+    },
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-08-01-safe-learning-loop",
+   "type": "FeaturePlan",
+   "name": "Feature Plan: Safe Learning Loop (Track L) — consent-gated product improvement",
+   "step": "brief",
+   "step_since": "2026-08-01",
+   "days_in_step": 88,
+   "missing": [
+    {
+     "kind": "produces",
+     "type": "Capability",
+     "path": "→serves→ Capability",
+     "found": 0,
+     "min_count": 1
+    },
+    {
+     "kind": "produces",
+     "type": "Goal",
+     "path": "→motivated_by→ Goal",
+     "found": 0,
+     "min_count": 1,
+     "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "AlloyCheck",
+     "path": "←verifies– AlloyCheck",
+     "found": 0,
+     "min_count": 1,
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
      "why": "R1: no capability, goal or hypothesis"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1600,8 +4701,8 @@
    "type": "FeaturePlan",
    "name": "Graphify lessons — implementation plans A–E",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-09-08",
+   "days_in_step": 50,
    "missing": [
     {
      "kind": "produces",
@@ -1617,12 +4718,58 @@
      "found": 0,
      "min_count": 1,
      "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "AlloyCheck",
+     "path": "←verifies– AlloyCheck",
+     "found": 0,
+     "min_count": 1,
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
      "why": "R1: no capability, goal or hypothesis"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1642,8 +4789,8 @@
    "type": "FeaturePlan",
    "name": "Graphify lessons — phased implementation plan",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-09-11",
+   "days_in_step": 47,
    "missing": [
     {
      "kind": "produces",
@@ -1659,12 +4806,58 @@
      "found": 0,
      "min_count": 1,
      "alternative": "Hypothesis →justified_by→ Hypothesis"
+    },
+    {
+     "kind": "produces",
+     "type": "Invariant",
+     "path": "→keeps→ Invariant",
+     "found": 0,
+     "min_count": 1,
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
     }
    ],
    "unmet": [
     {
      "id": "R1",
      "why": "R1: no capability, goal or hypothesis"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1680,12 +4873,12 @@
   },
   {
    "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-09-24-bill-gap-01-document-row-crash-window",
+   "instance": "FEAT-2026-10-01-document-fields",
    "type": "FeaturePlan",
-   "name": "BILL-GAP-01 — a stored document can end up without its usage row (worker crash window)",
+   "name": "Feature Plan: Document Fields — typed, searchable per-document metadata on the knowledge graph",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-01",
+   "days_in_step": 27,
    "missing": [
     {
      "kind": "produces",
@@ -1706,7 +4899,51 @@
    "unmet": [
     {
      "id": "R1",
-     "why": "R1: no capability, goal or hypothesis"
+     "why": "R1: no owner, capability, goal or hypothesis"
+    },
+    {
+     "id": "P-owner",
+     "why": "The instance carries an `owner` fact (a role or person)."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The instance carries an `owner` fact (a role or person)."
+     ]
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1714,12 +4951,12 @@
   },
   {
    "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-10-01-document-fields",
+   "instance": "FEAT-2026-08-01-atomic-fact-consolidation",
    "type": "FeaturePlan",
-   "name": "Feature Plan: Document Fields — typed, searchable per-document metadata on the knowledge graph",
+   "name": "Feature Plan: Atomic Fact Consolidation — evidenced facts with measurable trust",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-08-01",
+   "days_in_step": 88,
    "missing": [
     {
      "kind": "produces",
@@ -1743,8 +4980,128 @@
      "why": "R1: no capability, goal or hypothesis"
     }
    ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
-   "recent_decisions": []
+   "recent_decisions": [
+    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-01",
+    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-02",
+    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-03",
+    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-04",
+    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-05",
+    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-06",
+    "FEAT-2026-08-01-atomic-fact-consolidation/OD-FACTC-07"
+   ]
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-09-06-billing-non-repudiation",
+   "type": "FeaturePlan",
+   "name": "Feature Plan: Waterproof Usage Recording and Client Non-Repudiation",
+   "step": "brief",
+   "step_since": "2026-09-06",
+   "days_in_step": 52,
+   "missing": [
+    {
+     "kind": "produces",
+     "type": "Capability",
+     "path": "→serves→ Capability",
+     "found": 0,
+     "min_count": 1
+    },
+    {
+     "kind": "produces",
+     "type": "Goal",
+     "path": "→motivated_by→ Goal",
+     "found": 0,
+     "min_count": 1,
+     "alternative": "Hypothesis →justified_by→ Hypothesis"
+    }
+   ],
+   "unmet": [
+    {
+     "id": "R1",
+     "why": "R1: no capability, goal or hypothesis"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": [
+    "FEAT-2026-09-06-billing-non-repudiation/D-19"
+   ]
   },
   {
    "process": "PROC-feature-lifecycle",
@@ -1752,8 +5109,8 @@
    "type": "FeaturePlan",
    "name": "Feature: Structured data and KPI analytics on the company brain",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-19",
+   "days_in_step": 9,
    "missing": [
     {
      "kind": "produces",
@@ -1775,6 +5132,44 @@
     {
      "id": "R1",
      "why": "R1: no capability, goal or hypothesis"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1810,8 +5205,8 @@
    "type": "FeaturePlan",
    "name": "Adaptive Rate Limits — Phased Implementation Plan",
    "step": "implemented",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-09-24",
+   "days_in_step": 34,
    "missing": [
     {
      "kind": "requires",
@@ -1825,6 +5220,34 @@
     {
      "id": "R2",
      "why": "R2: no linked commit"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": false,
+     "why": [
+      "implemented plan without a linked commit (status says done, evidence says no)"
+     ]
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1836,8 +5259,8 @@
    "type": "FeaturePlan",
    "name": "KG ingest integrity — Phase 0 fix-list (as built)",
    "step": "implemented",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-01",
+   "days_in_step": 27,
    "missing": [
     {
      "kind": "requires",
@@ -1850,7 +5273,38 @@
    "unmet": [
     {
      "id": "R2",
-     "why": "R2: no linked commit"
+     "why": "R2: no linked commit and no passing test run or Alloy check"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": false,
+     "why": [
+      "approved plan without owner"
+     ]
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": false,
+     "why": [
+      "implemented plan without a linked commit (status says done, evidence says no)",
+      "implemented plan without a passing test run or Alloy check (`verifies`)"
+     ]
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1862,13 +5316,51 @@
    "type": "FeaturePlan",
    "name": "Feature Plan: Company Brain Foundation — Knowledge Graph v1 + Phase 0 Brain",
    "step": "brief",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-07-30",
+   "days_in_step": 90,
    "missing": [],
    "unmet": [
     {
      "id": "R7",
      "why": "R7: needs a pre-mortem (none examines it)"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
     }
    ],
    "open_risks": [],
@@ -1897,8 +5389,8 @@
    "type": "FeaturePlan",
    "name": "Document inventory at 10M documents — bounded windows over the object-id cursor",
    "step": "implemented",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-09-23",
+   "days_in_step": 35,
    "missing": [],
    "unmet": [
     {
@@ -1906,32 +5398,34 @@
      "why": "R2: no passing test run or Alloy check"
     }
    ],
-   "open_risks": [],
-   "recent_decisions": []
-  },
-  {
-   "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-07-27-client-rbac-access-groups",
-   "type": "FeaturePlan",
-   "name": "Feature Plan: Client RBAC — Access Groups & Document ACL",
-   "step": "approved",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
-   "missing": [],
-   "unmet": [],
-   "open_risks": [],
-   "recent_decisions": []
-  },
-  {
-   "process": "PROC-feature-lifecycle",
-   "instance": "FEAT-2026-09-06-adaptive-rate-limits",
-   "type": "FeaturePlan",
-   "name": "Feature Plan: Adaptive Rate Limits — schedule-aware per-client limits, cluster-wide enforcement, and a learning loop that enforcement cannot blind",
-   "step": "implemented",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
-   "missing": [],
-   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": false,
+     "why": [
+      "implemented plan without a passing test run or Alloy check (`verifies`)"
+     ]
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -1941,10 +5435,55 @@
    "type": "FeaturePlan",
    "name": "Feature: Graph-native company brain",
    "step": "approved",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-17",
+   "days_in_step": 11,
    "missing": [],
-   "unmet": [],
+   "unmet": [
+    {
+     "id": "change-class",
+     "why": "substantive change: since approved on 2026-10-17: alloy_models +data_plane/gstore_write_atomicity.als +data_plane/kg_traversal_bounds.als +doc_field_commit.als +doc_field_layers.als +kg_fact_visibility.als +lifecycles/gstore_doc_commit.als +lifecycles/gstore_trust_handoff.als +mechanisms/kg_walk.als -mechanisms/acl_policy.als (rework approved → brief)"
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-dated",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": false,
+     "why": [
+      "since approved on 2026-10-17: alloy_models +data_plane/gstore_write_atomicity.als +data_plane/kg_traversal_bounds.als +doc_field_commit.als +doc_field_layers.als +kg_fact_visibility.als +lifecycles/gstore_doc_commit.als +lifecycles/gstore_trust_handoff.als +mechanisms/kg_walk.als -mechanisms/acl_policy.als (rework approved → brief)"
+     ]
+    }
+   ],
    "open_risks": [
     "FEAT-2026-10-05-graph-native-brain/RISK-01",
     "FEAT-2026-10-05-graph-native-brain/RISK-02",
@@ -2027,14 +5566,142 @@
   },
   {
    "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-07-27-client-rbac-access-groups",
+   "type": "FeaturePlan",
+   "name": "Feature Plan: Client RBAC — Access Groups & Document ACL",
+   "step": "approved",
+   "step_since": "2026-07-31",
+   "days_in_step": 89,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-dated",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-09-06-adaptive-rate-limits",
+   "type": "FeaturePlan",
+   "name": "Feature Plan: Adaptive Rate Limits — schedule-aware per-client limits, cluster-wide enforcement, and a learning loop that enforcement cannot blind",
+   "step": "implemented",
+   "step_since": "2026-09-24",
+   "days_in_step": 34,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
    "instance": "FEAT-2026-10-25-client-zero-phase-0",
    "type": "FeaturePlan",
    "name": "Feature Plan: Client Zero Phase 0 — Brain v0 on today's API",
    "step": "approved",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-25",
+   "days_in_step": 3,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-dated",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [
     "FEAT-2026-10-25-client-zero-phase-0/RISK-01",
     "FEAT-2026-10-25-client-zero-phase-0/RISK-02",
@@ -2058,7 +5725,11 @@
     "DEC-0014",
     "DEC-0015",
     "DEC-0016",
-    "DEC-0017"
+    "DEC-0017",
+    "DEC-0018",
+    "DEC-0019",
+    "DEC-0020",
+    "DEC-0021"
    ]
   },
   {
@@ -2067,10 +5738,24 @@
    "type": "Release",
    "name": "Brain MVP on the graph store (cloudscale prod)",
    "step": "deployed",
-   "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "step_since": "2026-10-24",
+   "days_in_step": 4,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-dated",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2081,9 +5766,35 @@
    "name": "RISK-01 (graph-native-brain): ArcadeDB high availability is young (Raft only since v26.4.1), and with no bake-off (D-GNB-22) its gates are proved only once P3 and P4 are under way",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2094,9 +5805,35 @@
    "name": "RISK-02 (graph-native-brain): A small team owns a database fork",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2107,9 +5844,35 @@
    "name": "RISK-03 (graph-native-brain): The migration loses or corrupts data",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2120,9 +5883,35 @@
    "name": "RISK-04 (graph-native-brain): ACL semantics drift between Python and the engine",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2133,9 +5922,35 @@
    "name": "RISK-05 (graph-native-brain): Upstream relicensing",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2146,9 +5961,35 @@
    "name": "RISK-06 (graph-native-brain): (Extended implementation, E1) Cost of 3 memory-heavy cloudscale servers, one per physical host",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2159,9 +6000,35 @@
    "name": "RISK-07 (graph-native-brain): Hot-path latency for `/secured/query` scope expansion and overlay reads",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2172,9 +6039,35 @@
    "name": "RISK-08 (graph-native-brain): Cluster-first and other brain work land new tables mid-migration",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2185,9 +6078,35 @@
    "name": "RISK-09 (graph-native-brain): The geometry thesis fails",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2198,9 +6117,35 @@
    "name": "RISK-10 (graph-native-brain): PostgreSQL control tables become critical while PostgreSQL HA is off",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2211,9 +6156,35 @@
    "name": "RISK-11 (graph-native-brain): The validity check and subclass matching slow every read",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2224,9 +6195,35 @@
    "name": "RISK-12 (graph-native-brain): The ontology grows into a modelling project tenants can't maintain",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2237,9 +6234,35 @@
    "name": "RISK-13 (graph-native-brain): Profile caches grow with the number of tenants",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2250,9 +6273,35 @@
    "name": "RISK-14 (graph-native-brain): The SeDM folder and the app build drift apart",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2263,9 +6312,35 @@
    "name": "RISK-15 (graph-native-brain): A tenant marks a high-fan-out relation (many edges per node) transitive or symmetric and slows its own walks",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2276,9 +6351,35 @@
    "name": "RISK-16 (graph-native-brain): OpenBao stays sealed after a restart (no HSM): new pods, volume unlocks and DEK unwraps wait for operators",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2289,9 +6390,35 @@
    "name": "RISK-17 (graph-native-brain): The IPsec link is a single point of failure for the brain's read path until a second tunnel endpoint exists. Since ADR-0009 (develop, tenant data plane on cloudscale) the brain's read path stays inside cloudscale, and the link is that single point for every relayed `/secured/` request and the AKS-si",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2302,9 +6429,35 @@
    "name": "RISK-18 (graph-native-brain): The brain shares its Kubernetes control plane with the GPU nodes that run the LLM over untrusted documents",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2315,9 +6468,35 @@
    "name": "RISK-19 (graph-native-brain): All brain compute runs in one cloudscale region (LPG); losing it means restoring every tenant into a cluster rebuilt in RMA",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2328,9 +6507,35 @@
    "name": "RISK-20 (graph-native-brain): The strict chain (§11.1) lengthens the calendar: the waves pass each cut-over stage in turn (P8 flips only once every wave reads from the graph), P10–P12 follow P9 instead of filling the cut-over soaks, and 24 owner checkpoints are waits",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2341,9 +6546,35 @@
    "name": "RISK-21 (graph-native-brain): Overlap (D-GNB-25) splits the team's attention: features are built while tenants move through the cut-over",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2354,9 +6585,35 @@
    "name": "RISK-22 (graph-native-brain): In the basis the engine and an unsealed OpenBao share the CPU node with production Weaviate, the k3s server and the strongSwan endpoint (D-GNB-27)",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2367,9 +6624,35 @@
    "name": "RISK-23 (graph-native-brain): In the basis there is no failover: an engine, OpenBao or node failure stops the brain routes until a restart or restore; from `graph_primary` on they answer 503 meanwhile",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2380,9 +6663,35 @@
    "name": "RISK-24 (graph-native-brain): No independent security review of the isolation plugins in the basis; one person signs architecture and security, and as sole code owner merges their own pull requests by admin bypass",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2393,9 +6702,35 @@
    "name": "RISK-01 (client-zero-phase-0): Capacity: founders plus thesis and probe",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2406,9 +6741,35 @@
    "name": "RISK-02 (client-zero-phase-0): API gaps make the workarounds costly (free-text relations, flat types, text numbers)",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2419,9 +6780,35 @@
    "name": "RISK-03 (client-zero-phase-0): Term sort is wrong",
    "step": "mitigating",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   },
@@ -2432,9 +6819,35 @@
    "name": "Capacity — two founders plus thesis and Stage 0 probe; founding engineer not yet started",
    "step": "owned",
    "step_since": "2026-10-27",
-   "days_in_step": 0,
+   "days_in_step": 1,
    "missing": [],
    "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
    "open_risks": [],
    "recent_decisions": []
   }

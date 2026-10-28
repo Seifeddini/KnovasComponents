@@ -27,7 +27,13 @@ FILES = {
     "descriptions.yaml": f"{ROOT}/ontology/descriptions.yaml",
     "relations.yaml": f"{ROOT}/ontology/relations.yaml",
     "terms.yaml": f"{ROOT}/ontology/terms.yaml",
-    "process-completeness.json": f"{ROOT}/reports/process-completeness.json",
+    "owners.yaml": f"{ROOT}/ontology/owners.yaml",
+    # Step 7: where a person edits what the definitions use (DEC-0022), and ranked candidates for what is
+    # missing (DEC-0025). Since DEC-0025 the completeness report lives under generated/.
+    "edit-map.json": f"{ROOT}/ontology/generated/edit-map.json",
+    "edit-map.schema.json": f"{ROOT}/ontology/schema/edit-map.schema.json",
+    "suggestions.json": f"{ROOT}/ontology/generated/suggestions.json",
+    "process-completeness.json": f"{ROOT}/ontology/generated/process-completeness.json",
 }
 TARGET = Path(__file__).resolve().parents[1] / "src" / "graph_views" / "definitions"
 

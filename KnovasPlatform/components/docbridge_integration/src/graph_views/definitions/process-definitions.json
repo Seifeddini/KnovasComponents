@@ -1,6 +1,6 @@
 {
  "version": 2,
- "generated_at": "2026-10-27",
+ "generated_at": "2026-10-28",
  "source": "docs/ModernDocs/client-zero/ontology/processes.yaml",
  "rules": [
   {
@@ -43,6 +43,92 @@
    "description": "Registered before the start: thresholds and the minimum sample are set (goal rule 3); an `exploration` instance fails this on purpose."
   }
  ],
+ "report_rules": [
+  {
+   "id": "R0",
+   "name": "Conventions",
+   "applies_to": [
+    "*"
+   ],
+   "description": "Every node has a key fact; relations come from relations.yaml and respect domain and range; numbers are text with a unit; type descriptions carry the [level=…] header.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R1",
+   "name": "Approved plan is complete",
+   "applies_to": [
+    "FeaturePlan"
+   ],
+   "description": "An approved plan has an owner, affects at least one component, serves a capability and is motivated by a goal or justified by a hypothesis.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R2",
+   "name": "Done means evidenced",
+   "applies_to": [
+    "FeaturePlan"
+   ],
+   "description": "An implemented or released plan has at least one implementing commit and at least one passing test run or Alloy check from CI (local runs are not evidence).",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R3",
+   "name": "Decision is complete",
+   "applies_to": [
+    "Decision"
+   ],
+   "description": "A decision names what it affects, has an owner and, once decided, a date; a superseded one names its successor.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R4",
+   "name": "Risk is handled",
+   "applies_to": [
+    "Risk"
+   ],
+   "description": "A risk has an owner and a review date, and an open risk has a mitigation or an explicit acceptance.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R5",
+   "name": "Record is linked and fresh",
+   "applies_to": [
+    "Record"
+   ],
+   "description": "A record describes something or is evidence for it, and is not stale.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R6",
+   "name": "Ground truth resolves",
+   "applies_to": [
+    "Component",
+    "Invariant"
+   ],
+   "description": "An L2 component resolves to an existing source path; an invariant has a passing Alloy check from CI or a decided decision covering it.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R7",
+   "name": "Pre-mortem before big bets",
+   "applies_to": [
+    "FeaturePlan",
+    "Goal",
+    "Decision"
+   ],
+   "description": "A large plan (50 sp or more), a quarterly goal or a hard-to-reverse decision is examined by a pre-mortem that raised at least one risk and one tripwire.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  },
+  {
+   "id": "R8",
+   "name": "Plain-language descriptions",
+   "applies_to": [
+    "*"
+   ],
+   "description": "Every type, attribute, relation and enum value has a description in descriptions.yaml.",
+   "computed_by": "scripts/client_zero/rules_report.py"
+  }
+ ],
  "processes": [
   {
    "key": "PROC-feature-lifecycle",
@@ -52,6 +138,18 @@
     "FeaturePlan"
    ],
    "governing_fact": "status",
+   "status_map": {
+    "FeaturePlan": {
+     "draft": "brief",
+     "review": "brief",
+     "approved": "approved",
+     "implementing": "implementing",
+     "verified": "verified",
+     "implemented": "implemented",
+     "released": "released",
+     "killed": "killed"
+    }
+   },
    "owner_role": "ROLE-ENGINE-OWNER",
    "exists_today": "guides/planning-new-features.md, feature-plan template",
    "context": [
@@ -95,17 +193,74 @@
      "verified": true
     },
     {
-     "type": "Event",
+     "type": "RunEvent",
      "required": false,
      "min_count": 1,
      "path": [
       {
        "relation": "touches",
        "direction": "in",
-       "to_type": "Event"
+       "to_type": "RunEvent"
       }
      ],
      "verified": true
+    },
+    {
+     "type": "Invariant",
+     "required": false,
+     "min_count": 1,
+     "path": [
+      {
+       "relation": "affects",
+       "direction": "out",
+       "to_type": "Component"
+      },
+      {
+       "relation": "keeps",
+       "direction": "out",
+       "to_type": "Invariant"
+      }
+     ],
+     "verified": true,
+     "label": "via component (all)"
+    },
+    {
+     "type": "ComponentContract",
+     "required": false,
+     "min_count": 1,
+     "path": [
+      {
+       "relation": "affects",
+       "direction": "out",
+       "to_type": "Component"
+      },
+      {
+       "relation": "governs",
+       "direction": "in",
+       "to_type": "ComponentContract"
+      }
+     ],
+     "verified": true,
+     "label": "via component (all)"
+    },
+    {
+     "type": "AlloyCheck",
+     "required": false,
+     "min_count": 1,
+     "path": [
+      {
+       "relation": "affects",
+       "direction": "out",
+       "to_type": "Component"
+      },
+      {
+       "relation": "verifies",
+       "direction": "in",
+       "to_type": "AlloyCheck"
+      }
+     ],
+     "verified": true,
+     "label": "via component (all)"
     }
    ],
    "steps": [
@@ -200,18 +355,13 @@
        "min_count": 1,
        "path": [
         {
-         "relation": "affects",
-         "direction": "out",
-         "to_type": "Component"
-        },
-        {
          "relation": "keeps",
          "direction": "out",
          "to_type": "Invariant"
         }
        ],
        "verified": true,
-       "note": "contracts-and-invariants step"
+       "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
       },
       {
        "type": "ComponentContract",
@@ -219,18 +369,13 @@
        "min_count": 1,
        "path": [
         {
-         "relation": "affects",
+         "relation": "keeps",
          "direction": "out",
-         "to_type": "Component"
-        },
-        {
-         "relation": "governs",
-         "direction": "in",
          "to_type": "ComponentContract"
         }
        ],
        "verified": true,
-       "note": "contracts-and-invariants step"
+       "note": "contracts-and-invariants step: the plan's contract deltas that the component spec defines (DEC-0023)"
       },
       {
        "type": "AlloyCheck",
@@ -238,18 +383,13 @@
        "min_count": 1,
        "path": [
         {
-         "relation": "affects",
-         "direction": "out",
-         "to_type": "Component"
-        },
-        {
          "relation": "verifies",
          "direction": "in",
          "to_type": "AlloyCheck"
         }
        ],
        "verified": true,
-       "note": "alloy-model step"
+       "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
       },
       {
        "type": "PreMortem",
@@ -446,11 +586,6 @@
        "min_count": 1,
        "path": [
         {
-         "relation": "affects",
-         "direction": "out",
-         "to_type": "Component"
-        },
-        {
          "relation": "verifies",
          "direction": "in",
          "to_type": "AlloyCheck"
@@ -460,7 +595,8 @@
        "where": {
         "fact": "outcome",
         "equals": "passed"
-       }
+       },
+       "note": "a passing check of a model the plan names (DEC-0023)"
       }
      ],
      "exit_criteria": [
@@ -632,7 +768,29 @@
     "killed"
    ],
    "pack": "engineering",
-   "value_stream": "VS-build"
+   "value_stream": "VS-build",
+   "change_classes": {
+    "minor": [
+     "name",
+     "description",
+     "FeaturePlan.owner",
+     "Risk affects FeaturePlan",
+     "Decision affects FeaturePlan"
+    ],
+    "substantive": [
+     "FeaturePlan affects Component",
+     "FeaturePlan serves Capability",
+     "FeaturePlan motivated_by Goal",
+     "FeaturePlan justified_by Hypothesis",
+     "FeaturePlan keeps Invariant",
+     "FeaturePlan keeps ComponentContract",
+     "AlloyCheck verifies FeaturePlan"
+    ],
+    "on_substantive": {
+     "from": "approved",
+     "to": "brief"
+    }
+   }
   },
   {
    "key": "PROC-decision",
@@ -642,6 +800,15 @@
     "Decision"
    ],
    "governing_fact": "status",
+   "status_map": {
+    "Decision": {
+     "proposed": "proposed",
+     "reviewed": "reviewed",
+     "decided": "decided",
+     "rejected": "rejected",
+     "superseded": "superseded"
+    }
+   },
    "owner_role": "ROLE-DECISION-OWNER",
    "exists_today": "new — rows in plan tables; DEC-* records; campaign evaluations",
    "context": [
@@ -868,7 +1035,25 @@
     "superseded"
    ],
    "pack": "engineering",
-   "value_stream": "VS-build"
+   "value_stream": "VS-build",
+   "change_classes": {
+    "minor": [
+     "name",
+     "description",
+     "Decision.owner",
+     "Decision.source"
+    ],
+    "substantive": [
+     "Decision affects Component",
+     "Decision affects FeaturePlan",
+     "Decision affects Invariant",
+     "Decision supersedes Decision"
+    ],
+    "on_substantive": {
+     "from": "reviewed",
+     "to": "proposed"
+    }
+   }
   },
   {
    "key": "PROC-risk-review",
@@ -878,6 +1063,16 @@
     "Risk"
    ],
    "governing_fact": "status",
+   "status_map": {
+    "Risk": {
+     "identified": "identified",
+     "assessed": "assessed",
+     "owned": "owned",
+     "mitigating": "mitigating",
+     "accepted": "accepted",
+     "closed": "closed"
+    }
+   },
    "owner_role": "ROLE-DECISION-OWNER",
    "exists_today": "new — plan risk tables, pre-mortems, the risk register",
    "context": [
@@ -1086,7 +1281,25 @@
     "closed"
    ],
    "pack": "engineering",
-   "value_stream": "VS-build"
+   "value_stream": "VS-build",
+   "change_classes": {
+    "minor": [
+     "name",
+     "description",
+     "Risk.owner",
+     "Risk.source"
+    ],
+    "substantive": [
+     "Risk affects FeaturePlan",
+     "Risk threatens Goal",
+     "Risk mitigated_by FeaturePlan",
+     "Risk mitigated_by Decision"
+    ],
+    "on_substantive": {
+     "from": "mitigating",
+     "to": "owned"
+    }
+   }
   },
   {
    "key": "PROC-release",
@@ -1096,6 +1309,14 @@
     "Release"
    ],
    "governing_fact": "status",
+   "status_map": {
+    "Release": {
+     "candidate": "candidate",
+     "verified": "verified",
+     "deployed": "deployed",
+     "announced": "announced"
+    }
+   },
    "owner_role": "ROLE-ENGINE-OWNER",
    "exists_today": "ontology/releases.yaml (engine owner); deploy flows archived",
    "context": [
@@ -1219,7 +1440,21 @@
     "announced"
    ],
    "pack": "engineering",
-   "value_stream": "VS-build"
+   "value_stream": "VS-build",
+   "change_classes": {
+    "minor": [
+     "name",
+     "description"
+    ],
+    "substantive": [
+     "Release changes Component",
+     "Release evidenced_by Commit"
+    ],
+    "on_substantive": {
+     "from": "verified",
+     "to": "candidate"
+    }
+   }
   },
   {
    "key": "PROC-customer-onboarding",
@@ -1229,6 +1464,14 @@
     "Customer"
    ],
    "governing_fact": "onboarding_state",
+   "status_map": {
+    "Customer": {
+     "organisation-created": "organisation-created",
+     "client-created": "client-created",
+     "certificate-issued": "certificate-issued",
+     "first-query": "first-query"
+    }
+   },
    "owner_role": "ROLE-COMMERCIAL-OWNER",
    "exists_today": "Employee Kit provisioning funnel; sales/customers.yaml",
    "context": [
@@ -1346,7 +1589,18 @@
     "first-query"
    ],
    "pack": "sales-and-marketing",
-   "value_stream": "VS-sell"
+   "value_stream": "VS-sell",
+   "change_classes": {
+    "minor": [
+     "name",
+     "description",
+     "Customer.owner"
+    ],
+    "substantive": [
+     "Customer for_account Account"
+    ],
+    "on_substantive": null
+   }
   },
   {
    "key": "PROC-sales",
@@ -1356,6 +1610,18 @@
     "Opportunity"
    ],
    "governing_fact": "stage",
+   "status_map": {
+    "Opportunity": {
+     "lead": "lead",
+     "qualified": "qualified",
+     "demo": "demo",
+     "proof-of-concept": "proof-of-concept",
+     "quote": "quote",
+     "contract": "contract",
+     "won": "won",
+     "lost": "lost"
+    }
+   },
    "owner_role": "ROLE-COMMERCIAL-OWNER",
    "exists_today": "Persona kit, playbooks; sales/pipeline.yaml (no CRM until 2027)",
    "context": [
@@ -1581,7 +1847,19 @@
     "lost"
    ],
    "pack": "sales-and-marketing",
-   "value_stream": "VS-sell"
+   "value_stream": "VS-sell",
+   "change_classes": {
+    "minor": [
+     "name",
+     "description",
+     "Opportunity.owner"
+    ],
+    "substantive": [
+     "Opportunity for_account Account",
+     "Opportunity targets Persona"
+    ],
+    "on_substantive": null
+   }
   },
   {
    "key": "PROC-experiment",
@@ -1592,6 +1870,22 @@
     "Campaign"
    ],
    "governing_fact": "status",
+   "status_map": {
+    "Experiment": {
+     "registered": "design",
+     "exploration": "design",
+     "running": "measure",
+     "decided-keep": "keep",
+     "decided-kill": "kill",
+     "decided-iterate": "iterate"
+    },
+    "Campaign": {
+     "planned": "design",
+     "exploration": "design",
+     "running": "measure",
+     "done": null
+    }
+   },
    "owner_role": "ROLE-ONTOLOGY-STEWARD",
    "exists_today": "Research stages with kill criteria (Stage 0 probe); marketing/campaigns.yaml",
    "context": [
@@ -1823,7 +2117,29 @@
     "kill"
    ],
    "pack": "sales-and-marketing",
-   "value_stream": "VS-sell"
+   "value_stream": "VS-sell",
+   "change_classes": {
+    "minor": [
+     "name",
+     "description",
+     "Experiment.owner",
+     "Campaign.owner"
+    ],
+    "substantive": [
+     "Experiment.keep_threshold",
+     "Experiment.kill_threshold",
+     "Experiment.minimum_sample",
+     "Experiment tests Hypothesis",
+     "Campaign.keep_threshold",
+     "Campaign.kill_threshold",
+     "Campaign.minimum_sample",
+     "Campaign tests Hypothesis"
+    ],
+    "on_substantive": {
+     "from": "iterate",
+     "to": "design"
+    }
+   }
   }
  ]
 }

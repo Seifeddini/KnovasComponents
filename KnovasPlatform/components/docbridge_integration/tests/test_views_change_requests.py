@@ -265,7 +265,7 @@ class TestClassification:
         assert cr.rework_status(CLASSES, "minor", "approved") is None
 
     def test_classes_from_the_definition_win(self):
-        defs = type("D", (), {"process": lambda self, k: {"change_classes": {"minor": ["title"], "substantive": []}}})()
+        defs = type("D", (), {"process": lambda self, k: {"change_classes": {"minor": ["title"], "substantive": [], "rework": {}}}})()
         assert cr.change_classes(defs, "PROC-feature-lifecycle")["source"] == "definition"
 
     def test_decision_record_format_and_number(self):

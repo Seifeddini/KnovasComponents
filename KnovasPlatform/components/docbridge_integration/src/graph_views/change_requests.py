@@ -81,7 +81,9 @@ def _config() -> Dict[str, Any]:
 def change_classes(defs: Any, proc_key: str) -> Optional[Dict[str, Any]]:
     """The process definition's change_classes, else the Platform's stand-in."""
     proc = defs.process(proc_key) if defs is not None else None
-    if proc and isinstance(proc.get("change_classes"), dict):
+    # KnowledgeBase's classes (DEC-0024) name edit-map ids, not form fields; the change set
+    # (Step 7, in progress) reads them. Until then this form keeps its own config.
+    if proc and isinstance(proc.get("change_classes"), dict) and "rework" in proc["change_classes"]:
         return {**proc["change_classes"], "source": "definition"}
     cfg = _config().get(proc_key)
     return {**cfg, "source": "platform-config"} if cfg else None
