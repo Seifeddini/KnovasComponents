@@ -171,10 +171,14 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             return _placeable(lambda: jsonify(process_views.context_only(
                 context, d, _arg("process"), instance, show_meta=_flag("meta"))))
         def traced():
+            from graph_views import fixes
+
             body = process_views.trace(context, d, _arg("process"), instance, show_meta=_flag("meta"))
-            classes = cr.change_classes(d, _arg("process"))
-            body["changeable"] = bool(classes and classes.get("instance_type") == body["instance"]["type"]
-                                      and gate is not None and change_store is not None)
+            proc = d.process(_arg("process")) or {}
+            # Fixes and edits need accounts (who proposes, node_grants) and a KnowledgeBase repository.
+            body["changeable"] = bool(gate is not None and change_store is not None and change_repo
+                                      and change_repo() is not None and proc.get("change_classes"))
+            fixes.annotate_trace(d, _arg("process"), body, _pending_for(instance) if body["changeable"] else [])
             return jsonify(body)
 
         return _placeable(traced)
@@ -379,16 +383,18 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             return jsonify({"success": False, "error": str(exc)}), 400
         return jsonify({"success": True, "stored": True, **value})
 
-    # -- change requests (Step 7): pull requests on the plan file, never brain writes --
+    # -- change sets (Step 7): fixes and edits become ONE pull request on KnowledgeBase, never brain writes --
 
     from graph_views import change_requests as cr
+    from graph_views import change_set as cs
+    from graph_views import fixes
 
     def change_ready(view):
         @functools.wraps(view)
         def wrapped(*args, **kwargs):
             if gate is None or change_store is None or node_grants is None:
                 return jsonify({"success": False,
-                                "error": "Änderungsanträge brauchen Benutzerkonten (identity.enabled)."}), 409
+                                "error": "Änderungen brauchen Benutzerkonten (identity.enabled)."}), 409
             repo = change_repo() if change_repo else None
             if repo is None:
                 return jsonify({"success": False, "error": "Kein Zugang zum KnowledgeBase-Repository konfiguriert "
@@ -396,10 +402,11 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             try:
                 return view(repo, *args, **kwargs)
             except cr.ChangeConflict as exc:
-                return jsonify({"success": False, "error": str(exc), "conflict": True, "diff": exc.diff,
-                                "current": exc.current, "base": exc.base}), 409
+                return jsonify({"success": False, "error": str(exc), "conflict": True, "diff": exc.diff}), 409
             except cr.ChangeError as exc:
                 return jsonify({"success": False, "error": str(exc)}), exc.status
+            except process_views.NotPlaceable as exc:
+                return jsonify({"success": False, "error": str(exc)}), 404
             except Exception as exc:  # GitHub failures carry status, never the token
                 from graph_views.github_repo import GitHubError
 
@@ -409,84 +416,239 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
                 raise
         return wrapped
 
-    def _permissions(node_id: str) -> dict:
-        user = gate.current_user()
-        grants = node_grants()
-        return {c: cr.may_propose(c, user, node_id, grants) for c in ("minor", "substantive")}
-
     def _actor() -> str:
         user = gate.current_user()
         return str(getattr(user, "display_name", "") or getattr(user, "email", "") or "unknown")
+
+    def _open_set(repo, create: bool = False):
+        store = change_store()
+        user = gate.current_user()
+        found = store.open_for(user.id)
+        if found is None and create:
+            found = store.create(user.id, change_base, cs.check_sha(repo.branch_sha(change_base)))
+        return store, found
+
+    def _set_body(found, repo) -> dict:
+        if found is None:
+            return {"success": True, "change_set": None, "count": 0, "can_write": hasattr(repo, "create_pull")}
+        return {"success": True, "change_set": found, "count": len(found["ops"]), "can_write": hasattr(repo, "create_pull")}
+
+    @bp.route("/api/views/changeset")
+    @guarded
+    @change_ready
+    def changeset_get(repo):
+        _, found = _open_set(repo)
+        return jsonify(_set_body(found, repo))
+
+    def _op_from(body: dict, context, d) -> dict:
+        """One operation from a request: a fix (edit-map id from the artefact) or a plan field."""
+        node = str(body.get("node") or "")
+        process = str(body.get("process") or "")
+        kind = str(body.get("kind") or "")
+        context.index.ensure([node])
+        if node not in context.index.nodes:
+            raise cr.ChangeError("Instanz nicht gefunden oder nicht sichtbar.")
+        edit_id = str(body.get("edit_id") or "")
+        suggestion = None
+        if body.get("where") is not None and body.get("position") is not None:
+            edit_id = fixes.edit_id_at(d, process, context.index.type_of(node), str(body["where"]), int(body["position"]))
+        target = str(body.get("target") or "")
+        if not target and body.get("target_node"):
+            try:
+                target = fixes.target_key(context, str(body["target_node"]))
+            except ValueError as exc:
+                raise cr.ChangeError(str(exc)) from exc
+        if kind in ("add", "replace") and body.get("where") is not None:
+            key = cr.plan_of(context, node)["key"]
+            chosen = str(body.get("new_target") or target) if kind == "replace" else target
+            suggestion = fixes.suggestion_for(d, process, key, str(body["where"]), int(body["position"]), chosen)
+        return cs.new_op(context, d, gate.current_user(), node_grants(), process=process, node=node, kind=kind,
+                         edit_id=edit_id, target=target, new_target=str(body.get("new_target") or ""),
+                         field=str(body.get("field") or ""), value=body.get("value"),
+                         reason=str(body.get("reason") or ""), suggestion=suggestion)
+
+    @bp.route("/api/views/changeset/ops", methods=["POST"])
+    @guarded
+    @change_ready
+    def changeset_add(repo):
+        """Add one operation, or several (``ops``: the gaps worklist's "Vorschläge übernehmen"). Each is
+        checked on its own; refused ones come back with the reason and the others are kept."""
+        context, d = _process_context()
+        body = request.get_json(silent=True) or {}
+        items = body.get("ops") if isinstance(body.get("ops"), list) else [body]
+        store, found = _open_set(repo, create=True)
+        added, refused = [], []
+        for i, item in enumerate(items[:200]):
+            try:
+                op = _op_from(item, context, d)
+            except cr.ChangeError as exc:
+                refused.append({"index": i, "error": str(exc), "status": exc.status})
+                continue
+            if any(cs.same_change(op, o) for o in found["ops"]):
+                refused.append({"index": i, "error": "Diese Änderung ist schon im Änderungssatz.", "status": 409})
+                continue
+            found["ops"].append(op)
+            added.append(op)
+        if added:
+            found = store.save(found)
+        if refused and not added and len(items) == 1:
+            return jsonify({"success": False, "error": refused[0]["error"]}), refused[0]["status"]
+        return jsonify({**_set_body(found, repo), "added": added, "refused": refused}), (201 if added else 200)
+
+    @bp.route("/api/views/changeset/fields", methods=["POST"])
+    @guarded
+    @change_ready
+    def changeset_fields(repo):
+        """The plan form ("Bearbeiten"): every changed field becomes operations in the change set."""
+        context, d = _process_context()
+        body = request.get_json(silent=True) or {}
+        node, process = str(body.get("node") or ""), str(body.get("process") or "")
+        store, found = _open_set(repo, create=True)
+        current, _ = cr.read_plan(repo, found["base"]["commit"], cr.plan_of(context, node))
+        specs = cr.field_ops(current, body.get("values") or {})
+        if not specs:
+            return jsonify({"success": False, "error": "Keine Änderung gegenüber dem Plan."}), 400
+        ops = [_op_from({**s, "node": node, "process": process}, context, d) for s in specs]
+        found["ops"] += [o for o in ops if not any(cs.same_change(o, x) for x in found["ops"])]
+        found = store.save(found)
+        return jsonify({**_set_body(found, repo), "added": ops}), 201
+
+    @bp.route("/api/views/changeset/ops/<op_id>", methods=["DELETE"])
+    @guarded
+    @change_ready
+    def changeset_drop(repo, op_id: str):
+        store, found = _open_set(repo)
+        if found is None:
+            return jsonify({"success": False, "error": "Kein offener Änderungssatz."}), 404
+        found["ops"] = [o for o in found["ops"] if o["id"] != op_id]
+        return jsonify(_set_body(store.save(found), repo))
+
+    @bp.route("/api/views/changeset/discard", methods=["POST"])
+    @guarded
+    @change_ready
+    def changeset_discard(repo):
+        store, found = _open_set(repo)
+        if found is not None:
+            store.discard(found["id"])
+        return jsonify(_set_body(None, repo))
+
+    def _reasons(found) -> dict:
+        body = request.get_json(silent=True) or {}
+        reasons = {**(found.get("reasons") or {}), **{str(k): " ".join(str(v or "").split())
+                                                      for k, v in (body.get("reasons") or {}).items()}}
+        return reasons
+
+    def _review(repo, found, reasons):
+        context, d = _process_context()
+        review = cs.build(context, d, repo, {**found, "reasons": reasons}, actor=_actor(), reasons=reasons)
+        user, grants = gate.current_user(), node_grants()
+        for op in review["ops"]:
+            op["permitted"] = cr.may_propose(op["class"], user, op["instance"], grants)
+        review["permitted"] = all(op["permitted"] for op in review["ops"])
+        return review
+
+    @bp.route("/api/views/changeset/review", methods=["POST"])
+    @guarded
+    @change_ready
+    def changeset_review(repo):
+        store, found = _open_set(repo)
+        if found is None or not found["ops"]:
+            return jsonify({"success": False, "error": "Der Änderungssatz ist leer."}), 400
+        reasons = _reasons(found)
+        found = store.save({**found, "reasons": reasons})
+        review = _review(repo, found, reasons)
+        return jsonify({"success": True, **cs.public(review), "reasons": reasons,
+                        "can_write": hasattr(repo, "create_pull")})
+
+    @bp.route("/api/views/changeset/rebase", methods=["POST"])
+    @guarded
+    @change_ready
+    def changeset_rebase(repo):
+        store, found = _open_set(repo)
+        if found is None:
+            return jsonify({"success": False, "error": "Kein offener Änderungssatz."}), 404
+        found = store.save(cs.rebase(repo, found))
+        review = _review(repo, found, found.get("reasons") or {})
+        return jsonify({"success": True, **cs.public(review), "reasons": found.get("reasons") or {},
+                        "can_write": hasattr(repo, "create_pull")})
+
+    @bp.route("/api/views/changeset/submit", methods=["POST"])
+    @guarded
+    @change_ready
+    def changeset_submit(repo):
+        store, found = _open_set(repo)
+        if found is None or not found["ops"]:
+            return jsonify({"success": False, "error": "Der Änderungssatz ist leer."}), 400
+        reasons = _reasons(found)
+        review = _review(repo, found, reasons)
+        if not review["permitted"]:
+            return jsonify({"success": False, "error": "Nicht jede Änderung ist erlaubt: inhaltliche Änderungen nur für "
+                                                       "Verantwortliche (node_grants owner) und Administratoren."}), 403
+        pr = cs.submit(review, repo, actor=_actor(), reasons=reasons)
+        store.submitted(found["id"], pr_number=pr.get("number"), pr_url=pr.get("url"), branch=pr["branch"],
+                        reasons=reasons)
+        from identity import audit
+
+        audit.record(gate.connection(), action="plan.changeset.submitted", actor=gate.current_user(),
+                     target_type="change_set", target_id=found["id"],
+                     detail={"pr_number": pr.get("number"), "pr_url": pr.get("url"), "branch": pr["branch"],
+                             "files": [f["path"] for f in review["files"]],
+                             "classes": sorted({o["class"] for o in review["ops"] if o["ok"]}),
+                             "instances": [{"key": i["key"], "class": i["class"],
+                                            "rollback": i["rollback"], "decision": i.get("decision")}
+                                           for i in review["instances"]],
+                             "operations": [cs.describe(o) for o in review["ops"] if o["ok"]]})
+        return jsonify({"success": True, "pr": pr}), 201
 
     @bp.route("/api/views/change")
     @guarded
     @change_ready
     def change_form(repo):
+        """The plan's fields for "Bearbeiten", read at the change set's base (or master's head)."""
         context, d = _process_context()
-        node = _arg("node")
-        body = cr.form(context, d, _arg("process"), node, repo, change_base)
-        body["permissions"] = _permissions(node)
-        body["can_write"] = hasattr(repo, "create_pull")
-        return jsonify(context.envelope(**body))
+        _, found = _open_set(repo)
+        commit = found["base"]["commit"] if found else repo.branch_sha(change_base)
+        body = cr.form(context, d, _arg("process"), _arg("node"), repo, commit)
+        return jsonify(context.envelope(**body, can_write=hasattr(repo, "create_pull")))
 
-    def _prepare(repo):
-        context, d = _process_context()
-        body = request.get_json(silent=True) or {}
-        node = str(body.get("node") or "")
-        prepared = cr.prepare(context, d, str(body.get("process") or ""), node, repo, change_base,
-                              body.get("values") or {}, base_shas=body.get("base") or {},
-                              why=str(body.get("why") or ""), actor=_actor())
-        return context, node, prepared
-
-    @bp.route("/api/views/change/preview", methods=["POST"])
+    @bp.route("/api/views/pick")
     @guarded
     @change_ready
-    def change_preview(repo):
-        context, node, p = _prepare(repo)
-        return jsonify(context.envelope(**{k: v for k, v in p.items() if k != "files"},
-                                        files=sorted(p["files"]), permitted=_permissions(node)[p["class"]],
-                                        can_write=hasattr(repo, "create_pull")))
+    def pick(repo):
+        context, d = _process_context()
+        return jsonify(fixes.picker(context, d, service.schemas, process=_arg("process"), node=_arg("node"),
+                                    where=_arg("where"), position=_int("position", -1), q=_arg("q"),
+                                    key_index_max=service.settings.key_index_max))
 
-    @bp.route("/api/views/change", methods=["POST"])
+    @bp.route("/api/views/gaps")
     @guarded
-    @change_ready
-    def change_submit(repo):
-        context, node, p = _prepare(repo)
-        user = gate.current_user()
-        if not cr.may_propose(p["class"], user, node, node_grants()):
-            who = "Nur die Plan-Verantwortlichen (node_grants owner) und Administratoren" if p["class"] == "substantive"                 else "Nur wer den Plan bearbeiten darf (owner, editor) und Administratoren"
-            return jsonify({"success": False, "error": f"{who} können diese Änderung beantragen."}), 403
-        why = str((request.get_json(silent=True) or {}).get("why") or "")
-        pr = cr.submit(p, repo, change_base, actor=_actor(), why=why)
-        store = change_store()
-        row = store.record(node_id=node, process_key=str((request.get_json(silent=True) or {}).get("process") or ""),
-                           instance_key=p["plan"], plan_path=p["path"], change_class=p["class"], fields=p["fields"],
-                           expected=p["expected"], pr_number=pr.get("number"), pr_url=pr.get("url"),
-                           branch=pr["branch"], user=user)
-        from identity import audit
+    def gaps():
+        context, d = _process_context()
+        return jsonify(fixes.gaps(context, d, process=_arg("process"), step=_arg("step"),
+                                  type_name=_arg("type"), owner=_arg("owner")))
 
-        audit.record(gate.connection(), action="plan.change.proposed", actor=user, target_type="feature_plan",
-                     target_id=p["plan"], detail={"node_id": node, "fields": p["fields"], "class": p["class"],
-                                                  "new_status": p["new_status"], "pr_number": pr.get("number"),
-                                                  "pr_url": pr.get("url"), "files": sorted(p["files"])})
-        return jsonify({"success": True, "pr": pr, "request": row}), 201
-
-    @bp.route("/api/views/change/pending")
-    @guarded
-    def change_pending():
+    def _pending_for(node: str) -> list:
         if gate is None or change_store is None:
-            return jsonify({"success": True, "pending": []})
-        node = _arg("node")
-        context = ctx()
-        from graph_views.facts import fact_values, read_facts
-        from identity.change_requests import refresh
+            return []
+        from identity.change_sets import refresh
 
         store = change_store()
-        rows = store.unfinished(node)
-        if rows:
-            facts = fact_values(read_facts(context.state, context.reader, [node]).get(node))
-            rows = refresh(rows, store, change_repo() if change_repo else None, facts)
-        return jsonify({"success": True, "pending": rows})
+        rows = store.pending_for(node)
+        if not rows:
+            return []
+        context = ctx()
+
+        def applied(row) -> bool:
+            # A merged set is applied once the tenant shows every link change it made.
+            context.index.ensure(list({op["instance"] for op in row["ops"]}))
+            return all(fixes.op_applied(context, op) for op in row["ops"])
+
+        return refresh(rows, store, change_repo() if change_repo else None, applied)
+
+    @bp.route("/api/views/changeset/pending")
+    @guarded
+    def changeset_pending():
+        return jsonify({"success": True, "pending": _pending_for(_arg("node"))})
 
     bp.guarded = guarded
     bp.is_admin = is_admin
