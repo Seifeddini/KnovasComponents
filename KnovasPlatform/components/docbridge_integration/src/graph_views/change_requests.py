@@ -34,6 +34,7 @@ from graph_views.process_views import current_step
 from graph_views.traverse import follow
 
 CONFIG = Path(__file__).resolve().parent / "change_classes.yaml"
+PLANS_DIR = "docs/ModernDocs/plans/"
 DECISIONS_DIR = "docs/ModernDocs/client-zero/ontology/decisions"
 
 #: The form's fields, in order: label, input kind, where the value lives.
@@ -233,24 +234,29 @@ class LocalRepo:
         self.path = path
         self.repo = f"local:{path}"
 
-    def _git(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", self.path, *args], capture_output=True)
+    def _git(self, command: str, *options: str, rev: str) -> subprocess.CompletedProcess:
+        """One git command on one revision. The revision follows --end-of-options and may not
+        start with '-', so a value from a request can never be read as an option (--output=…)."""
+        if rev.startswith("-"):
+            raise ChangeError("Ungültige Revision.")
+        return subprocess.run(["git", "-C", self.path, command, *options, "--end-of-options", rev],
+                              capture_output=True)
 
     def branch_sha(self, branch: str) -> str:
-        r = self._git("rev-parse", f"origin/{branch}")
+        r = self._git("rev-parse", "--verify", rev=f"origin/{branch}")
         if r.returncode != 0:
-            r = self._git("rev-parse", branch)
+            r = self._git("rev-parse", "--verify", rev=branch)
         return r.stdout.decode().strip()
 
     def get_file(self, path: str, ref: str) -> Optional[Tuple[str, str]]:
-        r = self._git("show", f"{ref}:{path}")
+        r = self._git("show", rev=f"{ref}:{path}")
         if r.returncode != 0:
             return None
-        blob = self._git("rev-parse", f"{ref}:{path}").stdout.decode().strip()
+        blob = self._git("rev-parse", "--verify", rev=f"{ref}:{path}").stdout.decode().strip()
         return r.stdout.decode("utf-8"), blob
 
     def list_dir(self, path: str, ref: str) -> List[str]:
-        r = self._git("ls-tree", "--name-only", f"{ref}:{path}")
+        r = self._git("ls-tree", "--name-only", rev=f"{ref}:{path}")
         return r.stdout.decode().split() if r.returncode == 0 else []
 
 
@@ -280,7 +286,8 @@ def plan_of(ctx: Any, node_id: str) -> Dict[str, Any]:
     """Key, title and file path of a plan node, from what the node holds (source fact)."""
     facts = fact_values(read_facts(ctx.state, ctx.reader, [node_id]).get(node_id))
     source = facts.get("source", "")
-    if not source.endswith(".md") or "docs/ModernDocs/plans/" not in source:
+    if (not source.endswith(".md") or not source.startswith(PLANS_DIR)
+            or ".." in source.split("/") or "\\" in source):
         raise ChangeError("Der Knoten nennt keine Plan-Datei (Fakt source).")
     return {"key": facts.get("key") or "", "path": source, "title": ctx.index.nodes[node_id]["name"],
             "facts": facts}
@@ -336,6 +343,19 @@ def _apply_all(snap: Snapshot, plan: Dict[str, str], changes: Dict[str, Any], ne
     return out
 
 
+_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def _check_base(base_shas: Dict[str, Optional[str]]) -> None:
+    """The form's base comes back from the browser: only git object ids pass on to a repository."""
+    for key in ("commit", "md", "ai", "links"):
+        value = base_shas.get(key)
+        if value in (None, ""):
+            continue
+        if not isinstance(value, str) or not _SHA.fullmatch(value):
+            raise ChangeError("Ungültige Basis des Formulars; bitte neu öffnen.")
+
+
 def _diff(before: str, after: str, path: str) -> str:
     return "".join(difflib.unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
                                         fromfile=f"a/{path}", tofile=f"b/{path}", n=2))
@@ -346,6 +366,7 @@ def prepare(ctx: Any, defs: Any, proc_key: str, node_id: str, repo: Any, base: s
             actor: str, today: Optional[dt.date] = None) -> Dict[str, Any]:
     """Everything a submit needs, without writing anything: classify, check, build."""
     today = today or dt.date.today()
+    _check_base(base_shas)
     classes = change_classes(defs, proc_key)
     if classes is None:
         raise ChangeNotConfigured(f"Für {proc_key} sind keine Änderungsklassen festgelegt.")
@@ -354,7 +375,8 @@ def prepare(ctx: Any, defs: Any, proc_key: str, node_id: str, repo: Any, base: s
     current = {k: v for k, v in snap.shas().items()}
     moved = [k for k in ("md", "ai", "links") if base_shas.get(k) != current.get(k)]
     if moved:
-        old_md = repo.get_file(plan["path"], base_shas["md"]) if base_shas.get("md") else None
+        # the plan as the form saw it: read at the form's commit (a blob id is not a ref)
+        old_md = repo.get_file(plan["path"], base_shas["commit"]) if base_shas.get("commit") else None
         diff = _diff(old_md[0] if old_md else "", snap.md[0], plan["path"]) if "md" in moved else ""
         fresh = form(ctx, defs, proc_key, node_id, repo, base)
         raise ChangeConflict("Die Plan-Datei hat sich auf master geändert, seit das Formular geöffnet wurde.",
