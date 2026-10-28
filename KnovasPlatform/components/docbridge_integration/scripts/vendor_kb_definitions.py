@@ -34,6 +34,10 @@ FILES = {
     "edit-map.schema.json": f"{ROOT}/ontology/schema/edit-map.schema.json",
     "suggestions.json": f"{ROOT}/ontology/generated/suggestions.json",
     "process-completeness.json": f"{ROOT}/ontology/generated/process-completeness.json",
+    # Step 8: documentation pages (DEC-0028) and their completeness report (DEC-0029)
+    "page-definitions.json": f"{ROOT}/ontology/generated/page-definitions.json",
+    "page-definition.schema.json": f"{ROOT}/ontology/schema/page-definition.schema.json",
+    "docs-completeness.json": f"{ROOT}/ontology/generated/docs-completeness.json",
 }
 TARGET = Path(__file__).resolve().parents[1] / "src" / "graph_views" / "definitions"
 

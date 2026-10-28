@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/views.css') }}?v={{ asset_version }}">
 </head>
-<body class="views-page" data-admin="{{ 'true' if is_admin else 'false' }}">
+<body class="views-page" data-admin="{{ 'true' if is_admin else 'false' }}" data-doc-key="{{ doc_key or '' }}">
     <header class="views-header">
         <a class="views-brand" href="{{ url_for('ontology_page') }}" aria-label="Zurück zum Cortex">
             <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}" alt="Knovas" width="96" height="13">
@@ -28,6 +28,7 @@
             <button type="button" data-kind="matrix" aria-pressed="false">Matrix</button>
             <button type="button" data-kind="list" aria-pressed="false">Liste</button>
             <button type="button" data-kind="gaps" aria-pressed="false">Lücken</button>
+            <button type="button" data-kind="doc" aria-pressed="false">Dokumentation</button>
             <button type="button" data-kind="definitions" aria-pressed="false">Definitionen</button>
             <button type="button" data-kind="changes" aria-pressed="false" title="Änderungssatz prüfen und als Pull Request einreichen">Änderungen
                 <span class="views-count" id="viewsChangeCount" hidden></span></button>
@@ -99,6 +100,7 @@
     <script src="{{ url_for('static', filename='js/views_spine.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_discover.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_gaps.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_docs.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_saved.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views.js') }}?v={{ asset_version }}"></script>
 </body>

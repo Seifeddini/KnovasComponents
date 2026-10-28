@@ -109,6 +109,42 @@ node_types:
     id_prefixes: ["^L1-[A-Z]+$"]
     attributes: []
 
+  - name: System
+    level: pack
+    meta: false
+    sedm_iri: null
+    parent: euo:Software
+    reason: "candidate: engineering pack — the software system as a whole, the root of its documentation (software areas are part of it)."
+    id_prefixes: ["^SYS-[A-Z0-9-]+$"]
+    attributes: []
+
+  - name: Interface
+    level: pack
+    meta: false
+    sedm_iri: null
+    parent: euo:InformationContentEntity
+    reason: "candidate: engineering pack — an HTTP route a component exposes, read from the route decorators in the code (DEC-0027)."
+    id_prefixes: ["^IF-[a-z0-9_]+:/.*$"]
+    attributes:
+      - {name: path, datatype: text, description: "The route path as Flask writes it, e.g. /secured/graph/nodes/<node_id>."}
+      - {name: methods, datatype: text, description: "HTTP methods, comma-separated."}
+      - {name: source_module, datatype: text, description: "The API module that registers the route."}
+      - {name: documented_in, datatype: text, description: "The contract page that owns the route (check_api_doc_coverage.py OWNERS)."}
+      - {name: infrastructure, datatype: enum, enum_values: ["yes", "no"], description: "yes for /health, /metrics and similar operational routes."}
+
+  - name: Interaction
+    level: pack
+    meta: false
+    sedm_iri: null
+    parent: euo:Process
+    reason: "candidate: engineering pack — one component calling another, with the methods, protocol and contract; a node because the engine's edges carry no attributes (DEC-0026)."
+    id_prefixes: ["^IX-L[23]-[A-Z0-9-]+--L[23]-[A-Z0-9-]+$"]
+    attributes:
+      - {name: methods, datatype: text, description: "What the caller invokes (methods, endpoints), as the sources write it; '; '-separated."}
+      - {name: protocol, datatype: text, description: "in-process, HTTP, Redis, … as the spec writes it."}
+      - {name: contract, datatype: text, description: "The contract column of hierarchy/interactions.md, where the flow is described there."}
+      - {name: declared_in, datatype: text, description: "Which sources declare the interaction (caller spec, callee spec, interactions.md)."}
+
   - name: Component
     level: pack
     meta: false
@@ -118,6 +154,8 @@ node_types:
     reason: The engineering pack already defines Component (brake-caliper use case); a software component is the same type with CodeArtifact realisations.
     id_prefixes: ["^L2-[A-Z0-9-]+$", "^L3-[A-Z0-9-]+$"]
     attributes:
+      - {name: interactions_source, datatype: text, description: "Where the component's interactions come from, or that none are declared (DEC-0026)."}
+      - {name: design_pattern, datatype: text, description: "GoF pattern from spec.ai.yaml gof: primary (secondary, …)."}
       - {name: alloy_status, datatype: text, description: "Manifest status (Covered, Proposed, Foundation, Not modeled, Out of scope)."}
       - {name: docs_status, datatype: text, description: "'component folder present' or 'no component folder'."}
       - {name: source_paths, datatype: text, description: "Semicolon-separated source paths from the manifest."}

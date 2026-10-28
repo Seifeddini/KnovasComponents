@@ -42,7 +42,8 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
                            change_repo: Optional[Callable[[], Any]] = None,
                            change_store: Optional[Callable[[], Any]] = None,
                            node_grants: Optional[Callable[[], Any]] = None,
-                           change_base: str = "master") -> Blueprint:
+                           change_base: str = "master",
+                           doc_repo: Optional[str] = None) -> Blueprint:
     """Build the blueprint.
 
     Args:
@@ -80,6 +81,12 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     def views_page():
         extra = page_context() if page_context else {}
         return render_template("views.html", graph_mode=graph_mode(), **extra)
+
+    @bp.route("/views/doc/<path:key>")
+    def views_doc_page(key: str):
+        """A documentation page's stable address (Step 8): /views/doc/L2-KNOWLEDGE-GRAPH."""
+        extra = page_context() if page_context else {}
+        return render_template("views.html", graph_mode=graph_mode(), doc_key=key[:200], **extra)
 
     @bp.route("/api/views/graph")
     @guarded
@@ -654,6 +661,95 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     @guarded
     def changeset_pending():
         return jsonify({"success": True, "pending": _pending_for(_arg("node"))})
+
+    # -- documentation pages (Step 8): rendered from KnowledgeBase's page definitions ----------
+
+    from graph_views import doc_pages
+
+    def _documented(fn):
+        try:
+            return fn()
+        except doc_pages.NotDocumented as exc:
+            return jsonify({"success": False, "error": str(exc)}), 404
+
+    def _doc_node(context) -> Optional[str]:
+        node = _arg("node")
+        if node:
+            return node
+        key = _arg("key")
+        return doc_pages.locate(context, service.schemas, key, service.settings.key_index_max) if key else None
+
+    @bp.route("/api/views/doc/tree")
+    @guarded
+    def doc_tree():
+        context = ctx()
+        parent = _arg("parent")
+        if not parent:
+            rows = [doc_pages.header(context, n, k) for n, k in
+                    doc_pages.keys_of(context, service.schemas, doc_pages.roots(context),
+                                      service.settings.key_index_max).items()]
+        else:
+            context.index.ensure([parent])
+            if parent not in context.index.nodes:
+                return jsonify({"success": False, "error": "Knoten nicht gefunden."}), 404
+            key = doc_pages.keys_of(context, service.schemas, [parent], service.settings.key_index_max).get(parent)
+            rows = doc_pages.children(context, service.schemas, parent, key, service.settings.key_index_max)
+        rep = doc_pages.report()
+        return jsonify(context.envelope(nodes=rows, report_as_of=rep["generated_at"]))
+
+    @bp.route("/api/views/doc/page")
+    @guarded
+    def doc_page():
+        context = ctx()
+        node = _doc_node(context)
+        if not node:
+            return jsonify({"success": False, "error": "Keine Seite zu diesem Schlüssel."}), 404
+        return _documented(lambda: jsonify(doc_pages.render(context, service.schemas, node, repo=doc_repo)))
+
+    @bp.route("/api/views/doc/section")
+    @guarded
+    def doc_section():
+        """One section on demand, with its own fact budget (the page's ran out)."""
+        context = ctx()
+        node, section = _arg("node"), _arg("section")
+        if not node or not section:
+            return jsonify({"success": False, "error": "Knoten und Abschnitt angeben."}), 400
+        # A click asks for this section: up to the rate limit's burst, not the page's budget.
+        return _documented(lambda: jsonify(doc_pages.render(context, service.schemas, node, repo=doc_repo,
+                                                            only=section, budget=service.settings.fact_burst)))
+
+    @bp.route("/api/views/doc/locate")
+    @guarded
+    def doc_locate():
+        context = ctx()
+        node = _doc_node(context)
+        if not node:
+            return jsonify({"success": False, "error": "Keine Seite zu diesem Schlüssel."}), 404
+        return jsonify(context.envelope(node=node, path=doc_pages.path_to(context, service.schemas, node,
+                                                                          service.settings.key_index_max)))
+
+    @bp.route("/api/views/doc/export")
+    @guarded
+    def doc_export():
+        """The page or its subtree as Markdown, stamped with the brain's time and the KnowledgeBase commit."""
+        context = ctx()
+        node = _doc_node(context)
+        if not node:
+            return jsonify({"success": False, "error": "Keine Seite zu diesem Schlüssel."}), 404
+        scope = "subtree" if _arg("scope") == "subtree" else "page"
+
+        def exported():
+            import re as _re
+
+            from flask import Response
+
+            name, text = doc_pages.export(context, service.schemas, node, scope=scope, repo=doc_repo)
+            safe = _re.sub(r"[^A-Za-z0-9._-]+", "_", name)[:120] or "dokumentation.md"
+            disposition = "inline" if _flag("inline") else f'attachment; filename="{safe}"'
+            return Response(text, mimetype="text/markdown; charset=utf-8",
+                            headers={"Content-Disposition": disposition})
+
+        return _documented(exported)
 
     bp.guarded = guarded
     bp.is_admin = is_admin

@@ -32,7 +32,10 @@
                 sections: params.get('sections') === 'context' ? ['context'] : [],
                 // "Lücken": feature plans first
                 gapProcess: params.get('gaps') || 'PROC-feature-lifecycle', gapStep: '', gapType: '', gapOwner: '',
+                // "Dokumentation": /views/doc/<key> is a page's stable address
+                docKey: (document.body && document.body.dataset && document.body.dataset.docKey) || params.get('doc') || '',
             };
+            if (this.state.docKey && !params.get('kind')) this.state.kind = 'doc';
             this.typeLabels = {};
             this.viewSettings = { hidden: new Set(), sorting: '' };
             this.overrides = {};
@@ -114,6 +117,10 @@
                     path: () => ['/api/views/changeset', {}],
                     render: (box, body, page) => root.ViewsChange.renderReview(box, body, page),
                 },
+                doc: {
+                    path: () => ['/api/views/doc/tree', {}],
+                    render: (box, body, page) => { page.docs = new root.ViewsDocs.Docs(page); page.docs.mount(box, body); },
+                },
             };
         }
 
@@ -150,7 +157,13 @@
             if (this.state.node) params.set('node', this.state.node);
             if (this.state.meta) params.set('meta', '1');
             if (this.state.threshold !== 5) params.set('n', String(this.state.threshold));
-            root.history.replaceState(null, '', `${root.location.pathname}?${params}`);
+            if (this.state.kind === 'doc') {
+                // A documentation page's address is its key, so links in AGENTS.md and context packs stay valid.
+                const key = this.state.docKey;
+                root.history.replaceState(null, '', key ? `/views/doc/${encodeURIComponent(key)}` : '/views?kind=doc');
+                return;
+            }
+            root.history.replaceState(null, '', `/views?${params}`);
         }
 
         notice(text) {
