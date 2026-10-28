@@ -15,9 +15,18 @@
             <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}" alt="Knovas" width="96" height="13">
         </a>
         <h1 class="views-title">Ansichten</h1>
-        <div class="views-picker" id="viewsPicker" hidden></div>
+        <div class="views-picker" id="viewsPicker" hidden>
+            <label class="visually-hidden" for="viewsSaved">Gespeicherte Ansicht</label>
+            <select id="viewsSaved"></select>
+            <button type="button" class="views-button" id="viewsSavedMenu" title="Speichern, teilen, Protokoll">Ansichten …</button>
+        </div>
         <nav class="views-kinds" id="viewsKinds" aria-label="Darstellung">
             <button type="button" data-kind="graph" aria-pressed="true">Graph</button>
+            <button type="button" data-kind="trace" aria-pressed="false">Ablauf</button>
+            <button type="button" data-kind="board" aria-pressed="false">Board</button>
+            <button type="button" data-kind="tree" aria-pressed="false">Baum</button>
+            <button type="button" data-kind="matrix" aria-pressed="false">Matrix</button>
+            <button type="button" data-kind="definitions" aria-pressed="false">Definitionen</button>
         </nav>
         <div class="views-freshness">
             <span id="viewsAsOf" class="views-asof" aria-live="polite"></span>
@@ -32,15 +41,32 @@
     <main class="views-main"><p class="views-empty">Wissensnetz-Modus erforderlich</p></main>
     {% else %}
     <div class="views-toolbar" id="viewsToolbar">
-        <form class="views-search" id="viewsSearch" role="search" autocomplete="off">
+        <form class="views-search" id="viewsSearch" role="search" autocomplete="off" data-kinds="graph">
             <label class="visually-hidden" for="viewsSearchInput">Knoten suchen</label>
             <input id="viewsSearchInput" type="search" placeholder="Knoten suchen (Name)…" minlength="2">
             <ul class="views-search-results" id="viewsSearchResults" role="listbox" hidden></ul>
         </form>
-        <label class="views-toggle">
+        <label class="views-field" data-kinds="trace board">Prozess
+            <select id="viewsProcess"></select>
+        </label>
+        <div class="views-search" data-kinds="trace">
+            <label class="visually-hidden" for="viewsInstanceInput">Instanz suchen</label>
+            <input id="viewsInstanceInput" type="search" placeholder="Instanz suchen (Schlüssel oder Name)…" autocomplete="off">
+            <ul class="views-search-results" id="viewsInstanceResults" role="listbox" hidden></ul>
+        </div>
+        <label class="views-field" data-kinds="tree matrix">Achse
+            <select id="viewsSpine"></select>
+        </label>
+        <label class="views-field" data-kinds="tree matrix"><select id="viewsBranch" aria-label="Zweig"></select></label>
+        <label class="views-field" data-kinds="matrix">Zeilen <select id="viewsRows"></select></label>
+        <label class="views-field" data-kinds="matrix">Spalten <select id="viewsCols"></select></label>
+        <label class="views-field" data-kinds="board"><select id="viewsFilterOwner" aria-label="Verantwortlich"></select></label>
+        <label class="views-field" data-kinds="board"><select id="viewsFilterCapability" aria-label="Fähigkeit"></select></label>
+        <label class="views-field" data-kinds="board"><select id="viewsFilterStatus" aria-label="Status"></select></label>
+        <label class="views-toggle" data-kinds="graph trace">
             <input type="checkbox" id="viewsMeta"> Meta-Ebene zeigen
         </label>
-        <label class="views-threshold">
+        <label class="views-threshold" data-kinds="graph">
             Gruppieren ab <input type="number" id="viewsThreshold" min="1" max="50" value="5"> Nachbarn
         </label>
         <p class="views-notice" id="viewsNotice" hidden></p>
@@ -50,6 +76,7 @@
         <aside class="views-legend" id="viewsLegend" aria-label="Legende der Typen"></aside>
         <section class="views-stage" id="viewsStage" aria-live="polite">
             <div class="views-canvas" id="viewsCanvas"></div>
+            <div class="views-doc" id="viewsDoc" hidden></div>
             <p class="views-empty" id="viewsEmpty">Einen Knoten suchen, um seine Umgebung zu sehen.</p>
         </section>
         <aside class="views-panel" id="viewsPanel" aria-label="Dossier" hidden>
@@ -66,6 +93,10 @@
     <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_core.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views_graph.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_definitions.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_process.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_spine.js') }}?v={{ asset_version }}"></script>
+    <script src="{{ url_for('static', filename='js/views_saved.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/views.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

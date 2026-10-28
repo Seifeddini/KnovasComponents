@@ -10,7 +10,7 @@ import pytest
 
 from test_experiments_frontend import JS, NODE, TEMPLATES, _run_node, needs_node
 
-VIEW_JS = ("views_core.js", "views_graph.js", "views.js")
+VIEW_JS = ("views_core.js", "views_graph.js", "views_definitions.js", "views_process.js", "views_spine.js", "views_saved.js", "views.js")
 _MARKUP_SINKS = ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write")
 
 
@@ -94,3 +94,67 @@ def test_chip_label_names_nodes_without_a_status():
             breakdown: [{status: null, count: 8}]}, 'Commit')));
     """, [JS / "views_core.js"])
     assert unquote(out) == "8 × Commit"
+
+
+@needs_node
+def test_definitions_render_without_messages_appends_no_empty_node():
+    """An empty error list once appended null, which a real DOM refuses."""
+    out = _run_node("""
+        const box = document.createElement('div');
+        window.ViewsDefinitions.render(box, {source: 'tenant', errors: [], gaps: [], differences: [],
+            processes: [{key: 'PROC-x', name: 'X', instance_types: ['T'], context: [],
+                         steps: [{id: 'a', name: 'a', order: 1, requires: [], produces: [], exit_criteria: []}]}],
+            spines: [{key: 'SPINE-x', name: 'S', levels: [{id: 'L1', name: 'L', types: ['T']}]}]});
+        const nulls = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (!c) nulls.push(1); else walk(c); });
+        walk(box);
+        out([nulls.length, box.children[0].children.length]);
+    """, [JS / "views_core.js", JS / "views_definitions.js"])
+    assert out[0] == 0 and out[1] > 0
+
+
+def test_definitions_path_text_follows_direction():
+    source = (JS / "views_definitions.js").read_text(encoding="utf-8")
+    assert "h.direction === 'out'" in source
+
+
+@needs_node
+def test_trace_flags_only_the_current_lane():
+    lane = lambda state: {"id": state, "name": state, "order": 1, "state": state, "entered": None,
+                          "description": "", "exit_criteria": [],
+                          "artefacts": [{"type": "Commit", "path": "←implements– Commit", "required": True,
+                                         "min_count": 1, "count": 0, "missing": True, "items": [], "chip": None}]}
+    out = _run_node("""
+        const box = document.createElement('div');
+        const page = {typeLabel: (t) => t, overrides: {}, isHidden: () => false, openDossier() {}, openTraceItems() {}, center() {}};
+        window.ViewsProcess.renderTrace(box, {instance: {id: 'x', name: 'X', key: 'K'}, process: {name: 'P'},
+            current: {step: 'b', since: '2026-10-20', days: 7}, missing: [{}], unmet: [], context: [],
+            lanes: [LANE_A, LANE_B]}, page);
+        const flagged = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (c && c.className) {
+            if (String(c.className).includes('views-art-missing')) flagged.push(1); walk(c); } });
+        walk(box);
+        out(flagged.length);
+    """.replace("LANE_A", __import__("json").dumps(lane("done"))).replace("LANE_B", __import__("json").dumps(lane("current"))),
+        [JS / "views_core.js", JS / "views_process.js"])
+    assert out == 1
+
+
+@needs_node
+def test_matrix_draws_one_cell_per_pair_and_marks_links():
+    out = _run_node("""
+        const box = document.createElement('div');
+        const page = {overrides: {}, openDossier() {}};
+        window.ViewsSpine.renderMatrix(box, {spine: {name: 'S'}, rows_level: {name: 'R'}, cols_level: {name: 'C'},
+            rows: [{id: 'r1', name: 'R1', key: 'CAP-01', status: 'live'}, {id: 'r2', name: 'R2', key: 'CAP-02', status: null}],
+            cols: [{id: 'c1', name: 'C1', key: 'L2-A'}, {id: 'c2', name: 'C2', key: 'L2-B'}, {id: 'c3', name: 'C3', key: 'L2-C'}],
+            cells: [[{linked: true, status: 'live'}, {linked: false}, {linked: true, status: 'live'}],
+                    [{linked: false}, {linked: false}, {linked: false}]],
+            unlinked_rows: ['r2']}, page);
+        const cells = [];
+        const walk = (n) => (n.children || []).forEach((c) => { if (!c) return;
+            if (c.tagName === 'TD') cells.push(String(c.className)); walk(c); });
+        walk(box);
+        out(cells);
+    """, [JS / "views_core.js", JS / "views_spine.js"])
+    assert len(out) == 6 and out.count("views-matrix-on") == 2
