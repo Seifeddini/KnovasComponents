@@ -57,7 +57,8 @@ class ViewService:
                  now: Optional[Callable[[], float]] = None,
                  markers: Optional[Callable[[], Set[str]]] = None,
                  github: Optional[Callable[[str], Any]] = None,
-                 settings_provider: Optional[Callable[[], ViewSettings]] = None):
+                 settings_provider: Optional[Callable[[], ViewSettings]] = None,
+                 sync_path: Optional[Callable[[str], Optional[str]]] = None):
         self._client = client
         # settings_provider: the current settings (platform_settings.Resolver.view_settings), read on
         # every use and cheap (it caches), so a change on the settings page applies without a restart.
@@ -65,7 +66,9 @@ class ViewService:
         self._settings = settings or (settings_provider() if settings_provider else ViewSettings())
         self._bucket = bucket
         # github: repository name -> GitHubRepo with the change requests' token (or None)
-        self.bundles = bundles.BundleStore(self._settings.definitions_ttl_seconds, github=github, now=now)
+        # sync_path: tenant -> its last successful sync's bundle file (source "sync", KC-0.2)
+        self.bundles = bundles.BundleStore(self._settings.definitions_ttl_seconds, github=github, now=now,
+                                           sync_path=sync_path)
         self.cache = TopologyCache(self._settings, now=now)
         self.schemas = KeyedTTL(self._settings.definitions_ttl_seconds, now=now)
         self.defs = KeyedTTL(self._settings.definitions_ttl_seconds, now=now)

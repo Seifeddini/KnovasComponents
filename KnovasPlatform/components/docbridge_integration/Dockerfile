@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # DocBridge-Knovas Integration Dockerfile
 
 FROM python:3.11-slim
@@ -88,6 +89,18 @@ print(f"knovas-extract {got} ({'git ' + commit if commit else 'PyPI'})")
 if not ref and got != want:
     raise SystemExit(f"knovas-extract {got} installed, KNOVAS_EXTRACT_VERSION is {want}")
 PY
+
+# brain-runner (Sync von GitHub, WP KC-0.2): the knowledge base's mapping runner as a pinned release, installed
+# from its git tag's commit; the Platform imports the installed package, never code from the repository.
+# The repository is private: the build reads a read-only token from the BuildKit secret `kb_read_token` (a file
+# outside every checkout), through git's url rewrite, so it lands in no layer and no log:
+#   docker compose build --secret id=kb_read_token,src=/path/outside/the/checkout/kb_read_token docbridge-web
+# --no-deps: its dependencies are the Platform's (requirements.txt pins PyYAML, jsonschema and requests; jmespath
+# and defusedxml are pinned there at the package's versions). The package pins requests==2.34.2; the Platform
+# keeps 2.32.0 until both agree (a pin in a library is too strict; noted for KnowledgeBase).
+ARG BRAIN_RUNNER_VERSION=0.1.0.dev2
+ARG BRAIN_RUNNER_GIT_REF=1ff8491714c6ae06a6ea9064cc1dfbf6afee821a
+RUN --mount=type=secret,id=kb_read_token,required=false     if [ -s /run/secrets/kb_read_token ]; then       git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/"       && pip install --no-cache-dir --no-deps         "brain-runner @ git+https://github.com/Seifeddini/KnowledgeBase.git@${BRAIN_RUNNER_GIT_REF}#subdirectory=scripts/brain_runner"       && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf       && python -c "import brain_runner, os; assert brain_runner.__version__ == os.environ['BRAIN_RUNNER_VERSION'], brain_runner.__version__; print('brain-runner', brain_runner.__version__)";     else       echo "brain-runner not installed: no kb_read_token build secret (Sync von GitHub stays unavailable)";     fi
 
 # Copy application code
 COPY src/ ./src/

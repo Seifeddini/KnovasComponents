@@ -75,3 +75,6 @@ mypy==1.8.0
 # "Abrechnung" zu "abrechn" wird. Die beiden finden dann nicht zusammen, und
 # genau der Satz, um den es geht, faellt wieder heraus.
 snowballstemmer>=3.0,<4
+# brain-runner's own dependencies (Sync von GitHub, KC-0.2; the package itself is installed --no-deps in the Dockerfile)
+jmespath==1.1.0
+defusedxml==0.7.1

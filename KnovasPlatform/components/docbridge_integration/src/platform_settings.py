@@ -74,6 +74,26 @@ class Setting:
     fallback: Any = ""                       # when config.yaml has no default either
 
 
+_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_BRANCH = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
+
+
+def _repository(value: str) -> None:
+    if not _REPOSITORY.match(value):
+        raise SettingError(f"{value!r} ist kein Repository der Form <owner>/<name>.")
+
+
+def _branch(value: str) -> None:
+    if not _BRANCH.match(value) or ".." in value or value.startswith(("/", "-")) or value.endswith("/"):
+        raise SettingError(f"{value!r} ist kein gültiger Branch-, Tag- oder Commit-Name.")
+
+
+def _repo_path(value: str) -> None:
+    parts = value.replace("\\", "/").split("/")
+    if value.startswith("/") or ".." in parts or not value.endswith((".yaml", ".yml")):
+        raise SettingError(f"{value!r}: ein Pfad im Repository zur brain-config.yaml (relativ, ohne ..).")
+
+
 def _bundle_source(value: str) -> None:
     from graph_views.bundle import BundleError, parse_source
 
@@ -110,6 +130,19 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
     Setting("views.edge_budget_seconds", "Zeitbudget der Kantenliste (Sekunden)",
             "Wie lange das Lesen der Kantenliste höchstens dauern darf.",
             "number", "installation", env=("VIEWS_EDGE_BUDGET_SECONDS",), minimum=0.1, maximum=60, fallback=2.0),
+    Setting("brain_sync.repository", "Repository der Wissensbasis",
+            "Das GitHub-Repository, aus dem „Sync von GitHub“ die Konfiguration und die Quellen liest (<owner>/<name>).",
+            "text", "tenant", env=("BRAIN_SYNC_REPOSITORY",), check=_repository),
+    Setting("brain_sync.branch", "Branch",
+            "Der Branch (oder Tag), dessen neuester Stand geholt wird.",
+            "text", "tenant", env=("BRAIN_SYNC_BRANCH",), check=_branch),
+    Setting("brain_sync.config_path", "Pfad zur brain-config.yaml",
+            "Wo im Repository die Konfiguration des Mandanten liegt.",
+            "text", "tenant", env=("BRAIN_SYNC_CONFIG_PATH",), check=_repo_path),
+    Setting("brain_sync.github_token", "Lese-Token für den Sync (GitHub)",
+            "Nur Lesen: Contents (read) auf diesem Repository, sonst nichts. Geschrieben wird mit dem Zertifikat des "
+            "Mandanten. Wird nur geschrieben, nie angezeigt.",
+            "secret", "tenant", env=("BRAIN_SYNC_GITHUB_TOKEN",), file_key="brain_sync.github_token_file"),
     Setting("views.change_requests.github_token", "Token für die Wissensbasis (GitHub)",
             "Liest das Definitionsbündel und öffnet Änderungsanträge. Rechte: Contents und Pull requests auf "
             "dem Repository der Wissensbasis, sonst nichts. Wird nur geschrieben, nie angezeigt.",
@@ -311,7 +344,8 @@ class Resolver:
 
     def __init__(self, config: Any, *, tenant: str = "", store: Optional[Callable[[], Any]] = None,
                  box: Optional[SecretBox] = None, environ: Optional[Mapping[str, str]] = None, ttl: float = 5.0,
-                 now: Callable[[], float] = time.monotonic):
+                 now: Callable[[], float] = time.monotonic,
+                 defaults: Optional[Mapping[str, Callable[[], Any]]] = None):
         self._config = config
         self.tenant = str(tenant or "")
         self._store = store
@@ -322,6 +356,9 @@ class Resolver:
         self._lock = threading.Lock()
         self._cache: Dict[str, Tuple[float, Any]] = {}
         self._raw = self._read_raw()
+        # key -> callable giving a default that depends on the installation's state (e.g. "sync" once a sync
+        # exists); it applies when config.yaml's default is empty and returns something.
+        self._defaults = dict(defaults or {})
 
     # -- the three layers ----------------------------------------------------------------------------
 
@@ -334,6 +371,19 @@ class Resolver:
             return {}
 
     def _default(self, s: Setting) -> Any:
+        value = self._yaml_default(s)
+        hook = self._defaults.get(s.key)
+        if hook is not None and value in ("", None):
+            try:
+                found = hook()
+            except Exception as exc:  # noqa: BLE001 - a broken hook leaves config.yaml's default
+                logger.warning("platform settings: default for %s not computed (%s)", s.key, type(exc).__name__)
+                found = None
+            if found not in (None, ""):
+                return found
+        return value
+
+    def _yaml_default(self, s: Setting) -> Any:
         node: Any = self._raw
         for part in s.key.split("."):
             node = node.get(part) if isinstance(node, dict) else None
