@@ -83,6 +83,10 @@ class IdentityGate:
             g._identity_conn = conn
         return conn
 
+    def open_connection(self):
+        """A new connection, not bound to the request: the caller closes it (platform settings)."""
+        return self._connect()
+
     def close(self, _exc: BaseException | None = None) -> None:
         conn = getattr(g, "_identity_conn", None)
         if conn is not None:

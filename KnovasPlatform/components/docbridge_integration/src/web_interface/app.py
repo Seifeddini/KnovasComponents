@@ -1807,12 +1807,18 @@ def create_app(config_path: Optional[str] = None):
 
     @app.route('/settings')
     def settings_page():
-        """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
+        """Konto und System. Zeigt nur echte Werte, keine Attrappen.
+
+        Administrators also get "Ansichten und Wissensbasis" (KC-0.1): the registered platform
+        settings, filled by the page's script from /api/settings/platform.
+        """
         if identity_gate is not None:
             signed_in_as = identity_gate.current_user()
             display_name = f'{signed_in_as.display_name} ({signed_in_as.email})'
+            settings_admin = 'admin' in (getattr(signed_in_as, 'roles', ()) or ())
         else:
             display_name = config.get('web.login.username', '') or ''
+            settings_admin = True
         return render_template(
             'settings.html',
             active_nav='einstellungen',
@@ -1824,6 +1830,7 @@ def create_app(config_path: Optional[str] = None):
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
+            settings_admin=settings_admin,
         )
 
     if identity_gate is not None:
@@ -2965,17 +2972,23 @@ def create_app(config_path: Optional[str] = None):
     # definitions; read-only on the brain. One service per worker, because it
     # holds the per-subject topology caches (plan 2026-10-27, D1).
     from graph_views.service import ViewService
-    from graph_views.settings import ViewSettings
     from web_interface.views_routes import create_views_blueprint
 
+    # Settings an administrator changes on the settings page (KC-0.1): deployment pin, else the
+    # page's value, else config.yaml's default, read through a short cache so a change applies
+    # without a restart. Page values live in the platform database, so only with identity on.
+    import platform_settings as _psettings
+
+    settings_resolver = _psettings.Resolver(
+        config, tenant=str(config.get('api.customer_id', '') or '').strip(),
+        store=(lambda: _psettings.SettingStore(identity_gate.open_connection(), owned=True))
+        if identity_gate is not None else None)
+    app.extensions['platform_settings'] = settings_resolver
+
     def _kb_token() -> str:
-        """The change requests' least-privilege GitHub token (KB_GITHUB_TOKEN, else the token file); never logged."""
-        token = (os.getenv('KB_GITHUB_TOKEN') or '').strip()
-        token_file = str(config.get('views.change_requests.github_token_file', '') or '').strip()
-        if not token and token_file and os.path.isfile(token_file):
-            with open(token_file, encoding='utf-8') as fh:
-                token = fh.read().strip()
-        return token
+        """The change requests' least-privilege GitHub token (KB_GITHUB_TOKEN, the token file, else
+        the settings page); never logged."""
+        return settings_resolver.secret('views.change_requests.github_token') or ''
 
     def _bundle_github(repo: str):
         """GitHub for a github: definitions bundle (views.config_source), with the same token."""
@@ -2983,7 +2996,8 @@ def create_app(config_path: Optional[str] = None):
 
         return GitHubRepo(repo, _kb_token())
 
-    view_service = ViewService(lambda: api_client, ViewSettings.from_config(config), github=_bundle_github)
+    view_service = ViewService(lambda: api_client, github=_bundle_github,
+                               settings_provider=settings_resolver.view_settings)
     app.extensions['views'] = view_service
     from identity import view_prefs
     from identity.change_sets import ChangeSetStore
@@ -3003,6 +3017,38 @@ def create_app(config_path: Optional[str] = None):
             return GitHubRepo(repo, token)
         local = str(config.get('views.change_requests.local_repo', '') or '').strip()
         return LocalRepo(local) if local and os.path.isdir(local) else None
+
+    def _platform_roles():
+        """The Platform's role keys, from the role table (the built-in four when it cannot be read)."""
+        from web_interface.settings_routes import BUILTIN_ROLES
+
+        if identity_gate is None:
+            return list(BUILTIN_ROLES)
+        try:
+            return [r[0] for r in identity_gate.connection().execute('SELECT key FROM roles ORDER BY key').fetchall()]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('settings: roles not readable (%s)', type(exc).__name__)
+            return list(BUILTIN_ROLES)
+
+    def _bundle_profiles():
+        """The tenant's profiles, for the role-to-profile picker: [{id, audience}]."""
+        from graph_views.profiles import platform_profiles
+
+        found = view_service.bundle()
+        return [{'id': pid, 'audience': p.get('audience')} for pid, p in platform_profiles(found).items()]
+
+    def _github_repo(repo: str, token: str):
+        from graph_views.github_repo import GitHubRepo
+
+        return GitHubRepo(repo, token)
+
+    from web_interface.settings_routes import create_settings_blueprint
+
+    app.register_blueprint(create_settings_blueprint(
+        settings_resolver, gate=identity_gate, roles=_platform_roles, profiles=_bundle_profiles,
+        bundle_github=_bundle_github,
+        repository=lambda: str(config.get('views.change_requests.github_repo', '') or '').strip(),
+        make_repo=_github_repo))
 
     app.register_blueprint(create_views_blueprint(
         identity_gate, view_service,
