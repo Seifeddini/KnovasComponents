@@ -1,0 +1,123 @@
+{# The builder's frame: top bar with the workspace switcher, the stage rail,
+   and the main area each page fills.
+   Expects: brand, asset_version, platform_url, stages, stage (or None),
+   me, workspaces, current_workspace. #}
+{% from 'builder/_icons.html' import icon %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Builder{% endblock %} · {{ brand }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    {# Before the stylesheets, so a chosen theme is there on the first paint. #}
+    <script>
+    (function () {
+        try {
+            var t = localStorage.getItem('knovas.builder.theme');
+            if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) { /* storage blocked: follow the system */ }
+    })();
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/builder/tokens.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/builder/builder.css') }}?v={{ asset_version }}">
+</head>
+<body class="b-body">
+<a class="b-skip" href="#b-main">Zum Inhalt springen</a>
+<div class="b-shell" data-shell>
+    <header class="b-topbar">
+        <button type="button" class="b-button b-button--quiet b-button--icon b-menu-button"
+                data-drawer-toggle aria-controls="b-rail" aria-expanded="false" aria-label="Stufen anzeigen">
+            {{ icon('menu', 20) }}
+        </button>
+        <a class="b-brand" href="{{ url_for('builder.home') }}">
+            {# The mark inline, so it takes the theme's accent; the file's own
+               gradient is too dark to read on the dark theme. #}
+            <svg class="b-brand-mark" viewBox="0 0 129.6 109.4" width="20" height="17" role="img" aria-label="Knovas">
+                <path d="M0,.3h28.5v109.1H0V.3ZM32.6,51.8l17.6,16.1L119.3,0l-37.2.6-49.4,51.2h-.1ZM59.2,79.4l20.3-20.3,50.1,50.3h-40.3l-30.1-30.1s0,.1,0,.1Z"/>
+            </svg>
+            <span class="b-brand-word">Builder</span>
+        </a>
+        <span class="b-topbar-divider" aria-hidden="true"></span>
+
+        <div class="b-switcher">
+            <button type="button" class="b-switcher-button" data-popover-toggle
+                    aria-controls="b-workspace-menu" aria-expanded="false">
+                <span class="b-switcher-label">Arbeitsbereich</span>
+                {% if current_workspace %}
+                <span class="b-switcher-name">{{ current_workspace.name }}</span>
+                {% else %}
+                <span class="b-switcher-name is-empty">Keiner gewählt</span>
+                {% endif %}
+                {{ icon('chevron-down') }}
+            </button>
+            <div class="b-popover" id="b-workspace-menu" hidden>
+                <p class="b-popover-title">Arbeitsbereiche</p>
+                {% if workspaces %}
+                <ul class="b-popover-list">
+                    {% for ws in workspaces %}
+                    <li><a class="b-popover-item" href="{{ ws.url }}"
+                           {% if current_workspace and ws.id == current_workspace.id %}aria-current="true"{% endif %}>
+                        <span>{{ ws.name }}</span>
+                        {% if current_workspace and ws.id == current_workspace.id %}{{ icon('check') }}{% endif %}
+                    </a></li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="b-popover-empty">Noch keiner angelegt.</p>
+                {% endif %}
+                <hr class="b-popover-sep">
+                <a class="b-popover-item" href="{{ url_for('builder.stage', slug=stages[0].slug) }}">Alle Arbeitsbereiche</a>
+            </div>
+        </div>
+
+        <span class="b-topbar-spacer"></span>
+
+        {% if me %}
+        <span class="b-user">
+            <span class="b-avatar" aria-hidden="true">{{ (me.display_name or me.email or '?')[0] | upper }}</span>
+            <span class="b-user-name">{{ me.display_name or me.email }}</span>
+        </span>
+        {% endif %}
+    </header>
+
+    <nav class="b-rail" id="b-rail" aria-label="Stufen">
+        <p class="b-rail-title">Stufen</p>
+        <ol class="b-stages">
+            {% for s in stages %}
+            <li class="b-stage">
+                <a class="b-stage-link" href="{{ url_for('builder.stage', slug=s.slug) }}"
+                   {% if stage and s.slug == stage.slug %}aria-current="page"{% endif %}>
+                    <span class="b-stage-marker" aria-hidden="true">{{ loop.index }}</span>
+                    <span class="b-stage-text">
+                        <span class="b-stage-label">{{ s.label }}</span>
+                        <span class="b-stage-state">Offen</span>
+                    </span>
+                </a>
+            </li>
+            {% endfor %}
+        </ol>
+
+        <div class="b-rail-foot">
+            <div class="b-segmented" role="radiogroup" aria-label="Darstellung">
+                <label><input type="radio" name="b-theme" value="system" data-theme-choice checked><span>{{ icon('monitor', 14) }}System</span></label>
+                <label><input type="radio" name="b-theme" value="light" data-theme-choice><span>{{ icon('sun', 14) }}Hell</span></label>
+                <label><input type="radio" name="b-theme" value="dark" data-theme-choice><span>{{ icon('moon', 14) }}Dunkel</span></label>
+            </div>
+            <div class="b-rail-links">
+                <a href="{{ url_for('builder.styleguide') }}"
+                   {% if request.endpoint == 'builder.styleguide' %}aria-current="page"{% endif %}>{{ icon('swatch') }}Stilvorlage</a>
+                <a href="{{ platform_url }}">{{ icon('back') }}Zur Plattform</a>
+            </div>
+        </div>
+    </nav>
+    <div class="b-scrim" data-drawer-close></div>
+
+    <main class="b-main" id="b-main" tabindex="-1">
+        {% block main %}{% endblock %}
+    </main>
+</div>
+<div class="b-toast-region" id="b-toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='js/builder/builder.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

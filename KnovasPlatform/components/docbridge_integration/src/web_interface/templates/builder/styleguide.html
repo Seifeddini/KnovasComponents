@@ -1,0 +1,404 @@
+{# /builder/_styleguide: every component in every state, in both themes.
+   The showcase macro renders once per theme inside a data-theme container;
+   ids carry the theme as a suffix so both copies stay unique. Hover, focus
+   and pressed are shown with the is-* classes from builder.css. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}Stilvorlage{% endblock %}
+
+{% macro showcase(t, label) %}
+<section class="sg-theme" data-theme="{{ t }}" aria-labelledby="sg-{{ t }}">
+    <h2 class="b-h2 sg-theme-title" id="sg-{{ t }}">{{ icon('sun' if t == 'light' else 'moon', 20) }}{{ label }}</h2>
+
+    {# ---- Tokens ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Farben</h3>
+        <div class="sg-swatches">
+            {% for token in ['bg', 'surface', 'surface-sunken', 'border', 'border-strong', 'text', 'text-muted',
+                             'accent', 'accent-soft', 'focus', 'good', 'good-soft', 'warning', 'warning-soft',
+                             'critical', 'critical-soft', 'canvas'] %}
+            <div class="sg-swatch">
+                <span class="sg-swatch-chip" style="background: var(--color-{{ token }})"></span>
+                <span class="b-mono">{{ token }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="sg-section">
+        <h3 class="b-h3">Schrift</h3>
+        <div class="sg-type">
+            <div class="sg-type-row"><span class="sg-state-name">32 / 40</span><span style="font-size: var(--text-2xl); line-height: var(--leading-2xl); font-weight: var(--weight-semibold)">Ontologie</span></div>
+            <div class="sg-type-row"><span class="sg-state-name">24 / 32 Titel</span><span class="b-h1">Prüfen &amp; Veröffentlichen</span></div>
+            <div class="sg-type-row"><span class="sg-state-name">20 / 28</span><span class="b-h2">Typen und Beziehungen</span></div>
+            <div class="sg-type-row"><span class="sg-state-name">16 / 24</span><span class="b-h3">Attribute des Typs</span></div>
+            <div class="sg-type-row"><span class="sg-state-name">14 / 20 Grund</span><span>Jeder Begriff trägt eine Beschreibung, ein Beispiel und eine Abgrenzung.</span></div>
+            <div class="sg-type-row"><span class="sg-state-name">12 / 16</span><span class="b-small b-muted">Zuletzt geändert vor 4 Minuten</span></div>
+            <div class="sg-type-row"><span class="sg-state-name">Mono 12</span><span class="b-mono">ontology.types.vertrag.attributes.laufzeit</span></div>
+        </div>
+    </div>
+
+    <div class="sg-section">
+        <h3 class="b-h3">Abstände</h3>
+        <div class="sg-type">
+            {% for step, px in [('space-half', 4), ('space-1', 8), ('space-2', 16), ('space-3', 24), ('space-4', 32), ('space-6', 48), ('space-8', 64)] %}
+            <div class="sg-space-row"><span class="b-mono">{{ step }} · {{ px }}</span><span class="sg-space-bar" style="width: var(--{{ step }})"></span></div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# ---- Buttons ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Schaltflächen</h3>
+        {% for variant, text in [('primary', 'Veröffentlichen'), ('secondary', 'Exportieren'), ('quiet', 'Abbrechen'), ('danger', 'Typ löschen')] %}
+        <div class="sg-states">
+            <span class="sg-state-name">{{ variant | capitalize }}</span>
+            <div class="b-button-row">
+                <button type="button" class="b-button b-button--{{ variant }}">{{ text }}</button>
+                <button type="button" class="b-button b-button--{{ variant }} is-hover" tabindex="-1">Hover</button>
+                <button type="button" class="b-button b-button--{{ variant }} is-focus" tabindex="-1">Fokus</button>
+                <button type="button" class="b-button b-button--{{ variant }} is-hover is-active" tabindex="-1">Gedrückt</button>
+                <button type="button" class="b-button b-button--{{ variant }}" disabled>Deaktiviert</button>
+            </div>
+        </div>
+        {% endfor %}
+        <div class="sg-states">
+            <span class="sg-state-name">Mit Symbol, groß</span>
+            <div class="b-button-row">
+                <button type="button" class="b-button b-button--primary b-button--lg">{{ icon('plus') }}Typ anlegen</button>
+                <button type="button" class="b-button b-button--secondary b-button--icon" aria-label="Schließen">{{ icon('close') }}</button>
+                <button type="button" class="b-button b-button--danger b-button--icon" aria-label="Löschen">{{ icon('trash') }}</button>
+            </div>
+        </div>
+    </div>
+
+    {# ---- Fields ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Eingaben</h3>
+        <div class="sg-grid">
+            <div class="b-field">
+                <label class="b-label" for="sg-in1-{{ t }}">Name</label>
+                <input class="b-input" id="sg-in1-{{ t }}" placeholder="z. B. Vertrag">
+                <span class="b-hint">Leer, mit Platzhalter</span>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-in2-{{ t }}">Schlüssel</label>
+                <input class="b-input is-hover" id="sg-in2-{{ t }}" value="vertrag" tabindex="-1">
+                <span class="b-hint">Ausgefüllt, Hover</span>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-in3-{{ t }}">Beschreibung (de)</label>
+                <input class="b-input is-focus" id="sg-in3-{{ t }}" value="Eine Vereinbarung zwischen" tabindex="-1">
+                <span class="b-hint">Fokus</span>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-in4-{{ t }}">Schlüssel</label>
+                <input class="b-input" id="sg-in4-{{ t }}" value="Vertrag 2" aria-invalid="true" aria-describedby="sg-in4e-{{ t }}">
+                <span class="b-error" id="sg-in4e-{{ t }}">Nur Kleinbuchstaben, Ziffern und _ verwenden.</span>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-in5-{{ t }}">Ebene</label>
+                <input class="b-input" id="sg-in5-{{ t }}" value="Kern" disabled>
+                <span class="b-hint">Deaktiviert: Kerntypen sind schreibgeschützt</span>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-sel1-{{ t }}">Datentyp</label>
+                <select class="b-select" id="sg-sel1-{{ t }}">
+                    <option>Aufzählung</option><option>Text</option><option>Datum</option><option>Betrag</option><option>Verweis</option>
+                </select>
+                <span class="b-hint">Auswahl</span>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-sel2-{{ t }}">Elterntyp</label>
+                <select class="b-select" id="sg-sel2-{{ t }}" aria-invalid="true" aria-describedby="sg-sel2e-{{ t }}">
+                    <option>Bitte wählen</option>
+                </select>
+                <span class="b-error" id="sg-sel2e-{{ t }}">Jeder Typ braucht einen Elterntyp.</span>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-sel3-{{ t }}">Paket</label>
+                <select class="b-select" id="sg-sel3-{{ t }}" disabled><option>Recht</option></select>
+                <span class="b-hint">Deaktiviert</span>
+            </div>
+        </div>
+        <div class="sg-grid">
+            <div class="b-field">
+                <label class="b-label" for="sg-ta1-{{ t }}">Beispiel</label>
+                <textarea class="b-textarea" id="sg-ta1-{{ t }}" placeholder="Ein konkretes Beispiel für diesen Typ"></textarea>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-ta2-{{ t }}">Nicht verwechseln mit</label>
+                <textarea class="b-textarea is-focus" id="sg-ta2-{{ t }}" tabindex="-1">Ein Angebot ist noch kein Vertrag.</textarea>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="sg-ta3-{{ t }}">Beschreibung (en)</label>
+                <textarea class="b-textarea" id="sg-ta3-{{ t }}" aria-invalid="true" aria-describedby="sg-ta3e-{{ t }}"></textarea>
+                <span class="b-error" id="sg-ta3e-{{ t }}">Die englische Beschreibung fehlt.</span>
+            </div>
+        </div>
+    </div>
+
+    {# ---- Checkbox ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Kontrollkästchen</h3>
+        <div class="sg-grid">
+            <label class="b-check"><input type="checkbox">Pflichtfeld</label>
+            <label class="b-check"><input type="checkbox" checked>Meta-Typ</label>
+            <label class="b-check"><input type="checkbox" data-indeterminate>Alle Attribute (teilweise)</label>
+            <label class="b-check"><input type="checkbox" class="is-focus" tabindex="-1">Fokus</label>
+            <label class="b-check"><input type="checkbox" disabled>Deaktiviert</label>
+            <label class="b-check"><input type="checkbox" checked disabled>Deaktiviert, gewählt</label>
+        </div>
+    </div>
+
+    {# ---- Tags ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Markierungen</h3>
+        <div class="b-tag-row">
+            <span class="b-tag">Kern</span>
+            <span class="b-tag b-tag--accent">Paket</span>
+            <span class="b-tag b-tag--accent">Firma</span>
+            <span class="b-tag b-tag--good"><span class="b-tag-dot"></span>Veröffentlicht</span>
+            <span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>Entwurf</span>
+            <span class="b-tag b-tag--critical"><span class="b-tag-dot"></span>3 Probleme</span>
+            <span class="b-tag">12 Attribute</span>
+        </div>
+    </div>
+
+    {# ---- Cards ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Karten</h3>
+        <div class="sg-grid">
+            <div class="b-card">
+                <div class="b-card-head"><strong>Vertrag</strong><span class="b-tag b-tag--accent">Firma</span></div>
+                <span class="b-mono b-muted">vertrag</span>
+                <div class="b-card-meta"><span>6 Attribute</span><span>Unter Dokument</span></div>
+            </div>
+            <button type="button" class="b-card b-card--interactive is-hover" tabindex="-1">
+                <span class="b-card-head"><strong>Person</strong><span class="b-tag">Kern</span></span>
+                <span class="b-mono b-muted">person</span>
+                <span class="b-card-meta">Hover</span>
+            </button>
+            <button type="button" class="b-card b-card--interactive" aria-pressed="true">
+                <span class="b-card-head"><strong>Mandat</strong><span class="b-tag b-tag--accent">Paket</span></span>
+                <span class="b-mono b-muted">mandat</span>
+                <span class="b-card-meta">Gewählt</span>
+            </button>
+            <div class="b-card b-card--warning">
+                <div class="b-card-head"><strong>Rechnung</strong><span class="b-tag b-tag--warning">1 Hinweis</span></div>
+                <span class="b-mono b-muted">rechnung</span>
+                <div class="b-card-meta">Betrag kann das Brain noch nicht halten</div>
+            </div>
+            <div class="b-card b-card--critical">
+                <div class="b-card-head"><strong>Frist</strong><span class="b-tag b-tag--critical">2 Probleme</span></div>
+                <span class="b-mono b-muted">frist</span>
+                <div class="b-card-meta">Beschreibung fehlt</div>
+            </div>
+        </div>
+    </div>
+
+    {# ---- Tabs ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Reiter</h3>
+        <div data-tabs>
+            <div class="b-tablist" role="tablist" aria-label="Typ-Details">
+                <button type="button" class="b-tab" role="tab" id="sg-tab1-{{ t }}" aria-controls="sg-tp1-{{ t }}" aria-selected="true">Beschreibung</button>
+                <button type="button" class="b-tab" role="tab" id="sg-tab2-{{ t }}" aria-controls="sg-tp2-{{ t }}" aria-selected="false" tabindex="-1">Attribute<span class="b-tab-count">6</span></button>
+                <button type="button" class="b-tab" role="tab" id="sg-tab3-{{ t }}" aria-controls="sg-tp3-{{ t }}" aria-selected="false" tabindex="-1">Beziehungen<span class="b-tab-count">3</span></button>
+                <button type="button" class="b-tab" role="tab" aria-selected="false" tabindex="-1" disabled>Verlauf</button>
+            </div>
+            <div class="b-tabpanel" role="tabpanel" id="sg-tp1-{{ t }}" aria-labelledby="sg-tab1-{{ t }}">
+                <p>Eine Vereinbarung zwischen zwei oder mehr Parteien, die Rechte und Pflichten begründet.</p>
+            </div>
+            <div class="b-tabpanel" role="tabpanel" id="sg-tp2-{{ t }}" aria-labelledby="sg-tab2-{{ t }}" hidden>
+                <p>Laufzeit, Kündigungsfrist, Vertragsart, Status, Wert, Unterzeichnet am.</p>
+            </div>
+            <div class="b-tabpanel" role="tabpanel" id="sg-tp3-{{ t }}" aria-labelledby="sg-tab3-{{ t }}" hidden>
+                <p>Partei von, Gehört zu Mandat, Ersetzt.</p>
+            </div>
+        </div>
+    </div>
+
+    {# ---- Table ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Tabelle</h3>
+        <div class="b-table-wrap">
+            <table class="b-table">
+                <thead><tr><th scope="col">Attribut</th><th scope="col">Datentyp</th><th scope="col">Pflicht</th><th scope="col" class="is-num">Werte</th></tr></thead>
+                <tbody>
+                    <tr><td><span class="b-mono">vertragsart</span></td><td>Aufzählung</td><td>Ja</td><td class="is-num">5</td></tr>
+                    <tr class="is-hover"><td><span class="b-mono">laufzeit</span></td><td>Text <span class="b-tag b-tag--warning">Noch nicht im Brain</span></td><td>Nein</td><td class="is-num">–</td></tr>
+                    <tr aria-selected="true"><td><span class="b-mono">status</span></td><td>Aufzählung</td><td>Ja</td><td class="is-num">4</td></tr>
+                    <tr><td><span class="b-mono">unterzeichnet_am</span></td><td>Datum</td><td>Nein</td><td class="is-num">–</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="b-small b-muted">Zeile 2: Hover. Zeile 3: gewählt.</p>
+    </div>
+
+    {# ---- Toasts ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Meldungen</h3>
+        <div class="b-toast-stack">
+            {% for tone, title, text in [('info', 'Entwurf gespeichert', 'Die Änderungen liegen im Entwurf.'),
+                                         ('good', 'Veröffentlicht', 'Version 4 ist auf dem Mandanten.'),
+                                         ('warning', 'Probelauf mit Hinweisen', '2 Attribute kann das Brain noch nicht halten.'),
+                                         ('critical', 'Veröffentlichen fehlgeschlagen', 'Der Mandant hat nicht geantwortet. Erneut versuchen.')] %}
+            <div class="b-toast b-toast--{{ tone }}">
+                <div><p class="b-toast-title">{{ title }}</p><p class="b-muted">{{ text }}</p></div>
+                <button type="button" class="b-button b-button--quiet b-button--icon b-toast-close" aria-label="Meldung schließen" tabindex="-1">{{ icon('close') }}</button>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="b-button-row">
+            <button type="button" class="b-button b-button--secondary" data-toast-demo="good">Meldung zeigen</button>
+            <button type="button" class="b-button b-button--secondary" data-toast-demo="critical">Fehler zeigen</button>
+        </div>
+    </div>
+
+    {# ---- Empty state ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Leerer Zustand</h3>
+        <div class="b-empty">
+            <span class="b-empty-icon">{{ icon('prozesse', 24) }}</span>
+            <div class="b-empty-text">
+                <h4 class="b-h3">Noch keine Prozesse</h4>
+                <p class="b-muted">Ein Prozess legt fest, welche Schritte ein Vorgang durchläuft und wer ihn verantwortet.</p>
+            </div>
+            <button type="button" class="b-button b-button--primary">{{ icon('plus') }}Prozess anlegen</button>
+        </div>
+    </div>
+
+    {# ---- Diff ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Änderungen</h3>
+        <div class="b-diff" role="list">
+            <div class="b-diff-line b-diff-line--added" role="listitem">
+                <span class="b-diff-sign" aria-hidden="true">+</span>
+                <span class="b-diff-body"><span class="b-visually-hidden">Hinzugefügt:</span><span class="b-diff-path">types.vertrag.attributes</span><span class="b-diff-value">kuendigungsfrist</span></span>
+            </div>
+            <div class="b-diff-line b-diff-line--changed" role="listitem">
+                <span class="b-diff-sign" aria-hidden="true">~</span>
+                <span class="b-diff-body"><span class="b-visually-hidden">Geändert:</span><span class="b-diff-path">types.vertrag.description.de</span><del>Eine Vereinbarung</del><ins>Eine Vereinbarung zwischen Parteien</ins></span>
+            </div>
+            <div class="b-diff-line b-diff-line--removed" role="listitem">
+                <span class="b-diff-sign" aria-hidden="true">−</span>
+                <span class="b-diff-body"><span class="b-visually-hidden">Entfernt:</span><span class="b-diff-path">relations</span><span class="b-diff-value">vertrag_ersetzt_vertrag</span></span>
+            </div>
+        </div>
+    </div>
+
+    {# ---- Workspace switcher, open ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Arbeitsbereich-Auswahl</h3>
+        <div class="sg-popover-demo">
+            <div class="b-switcher">
+                <button type="button" class="b-switcher-button is-hover" tabindex="-1" aria-expanded="true">
+                    <span class="b-switcher-label">Arbeitsbereich</span>
+                    <span class="b-switcher-name">Beispiel AG</span>{{ icon('chevron-down') }}
+                </button>
+                <div class="b-popover">
+                    <p class="b-popover-title">Arbeitsbereiche</p>
+                    <ul class="b-popover-list">
+                        <li><a class="b-popover-item" href="#" aria-current="true" tabindex="-1"><span>Beispiel AG</span>{{ icon('check') }}</a></li>
+                        <li><a class="b-popover-item" href="#" tabindex="-1"><span>Muster Treuhand</span></a></li>
+                        <li><a class="b-popover-item" href="#" tabindex="-1"><span>Probe Software GmbH</span></a></li>
+                    </ul>
+                    <hr class="b-popover-sep">
+                    <a class="b-popover-item" href="#" tabindex="-1">Alle Arbeitsbereiche</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ---- Canvas, toolbar, side panel ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Arbeitsfläche mit Werkzeugleiste und Seitenleiste</h3>
+        <p class="b-muted">Die Seitenleiste schiebt sich über die Fläche. Am linken Rand ziehen oder mit den Pfeiltasten die Breite ändern.</p>
+        <div class="b-toolbar b-toolbar--static" role="toolbar" aria-label="Werkzeuge (Zustände)">
+            <button type="button" class="b-tool" aria-label="Auswählen" aria-pressed="true" tabindex="-1">{{ icon('pointer') }}</button>
+            <button type="button" class="b-tool is-hover" aria-label="Verschieben (Hover)" tabindex="-1">{{ icon('hand') }}</button>
+            <button type="button" class="b-tool is-focus" aria-label="Vergrößern (Fokus)" tabindex="-1">{{ icon('zoom-in') }}</button>
+            <button type="button" class="b-tool" aria-label="Verkleinern (deaktiviert)" disabled>{{ icon('zoom-out') }}</button>
+        </div>
+        <div class="b-canvas sg-canvas" data-canvas>
+            <div class="b-toolbar" role="toolbar" aria-label="Arbeitsfläche">
+                <span data-toggle-group style="display: contents">
+                    <button type="button" class="b-tool" aria-label="Auswählen" aria-pressed="true">{{ icon('pointer') }}</button>
+                    <button type="button" class="b-tool" aria-label="Verschieben" aria-pressed="false">{{ icon('hand') }}</button>
+                </span>
+                <span class="b-tool-sep" aria-hidden="true"></span>
+                <button type="button" class="b-tool" aria-label="Vergrößern">{{ icon('zoom-in') }}</button>
+                <button type="button" class="b-tool" aria-label="Verkleinern">{{ icon('zoom-out') }}</button>
+                <button type="button" class="b-tool" aria-label="Alles zeigen">{{ icon('fit') }}</button>
+                <span class="b-tool-sep" aria-hidden="true"></span>
+                <span data-toggle-group style="display: contents">
+                    <button type="button" class="b-tool b-tool-text" aria-pressed="true">Gruppiert</button>
+                    <button type="button" class="b-tool b-tool-text" aria-pressed="false">Frei</button>
+                </span>
+            </div>
+            <div class="b-canvas-items">
+                <button type="button" class="b-card b-card--interactive" data-panel-open="sg-panel-{{ t }}" aria-pressed="true">
+                    <span class="b-card-head"><strong>Vertrag</strong><span class="b-tag b-tag--accent">Firma</span></span>
+                    <span class="b-card-meta">6 Attribute</span>
+                </button>
+                <button type="button" class="b-card b-card--interactive" data-panel-open="sg-panel-{{ t }}">
+                    <span class="b-card-head"><strong>Person</strong><span class="b-tag">Kern</span></span>
+                    <span class="b-card-meta">4 Attribute</span>
+                </button>
+                <button type="button" class="b-card b-card--interactive b-card--warning" data-panel-open="sg-panel-{{ t }}">
+                    <span class="b-card-head"><strong>Rechnung</strong><span class="b-tag b-tag--accent">Paket</span></span>
+                    <span class="b-card-meta">1 Hinweis</span>
+                </button>
+            </div>
+            <aside class="b-panel" id="sg-panel-{{ t }}" aria-labelledby="sg-panel-title-{{ t }}" data-panel>
+                <button type="button" class="b-panel-resize" role="separator" aria-orientation="vertical"
+                        aria-label="Breite der Seitenleiste" aria-valuemin="320" aria-valuemax="720" aria-valuenow="400"
+                        data-panel-resize></button>
+                <div class="b-panel-head">
+                    <div>
+                        <h4 class="b-h3" id="sg-panel-title-{{ t }}">Vertrag</h4>
+                        <span class="b-mono b-muted">vertrag</span>
+                    </div>
+                    <button type="button" class="b-button b-button--quiet b-button--icon" data-panel-close aria-label="Seitenleiste schließen">{{ icon('close') }}</button>
+                </div>
+                <div class="b-panel-body">
+                    <div class="b-tag-row"><span class="b-tag b-tag--accent">Firma</span><span class="b-tag">6 Attribute</span></div>
+                    <dl class="b-dl">
+                        <dt>Elterntyp</dt><dd>Dokument</dd>
+                        <dt>Beispiel</dt><dd>Mietvertrag Büro, 2024</dd>
+                        <dt>Abgrenzung</dt><dd>Ein Angebot ist noch kein Vertrag.</dd>
+                    </dl>
+                    <div class="b-field">
+                        <label class="b-label" for="sg-panel-in-{{ t }}">Beschreibung (de)</label>
+                        <textarea class="b-textarea" id="sg-panel-in-{{ t }}">Eine Vereinbarung zwischen zwei oder mehr Parteien.</textarea>
+                    </div>
+                    <div class="b-button-row">
+                        <button type="button" class="b-button b-button--primary">Übernehmen</button>
+                        <button type="button" class="b-button b-button--quiet" data-panel-close>Abbrechen</button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+</section>
+{% endmacro %}
+
+{% block main %}
+<header class="b-page-head sg-intro">
+    <div>
+        <h1 class="b-h1">Stilvorlage</h1>
+        <p class="b-muted">Alle Bausteine des Builders in jedem Zustand, hell und dunkel.</p>
+    </div>
+    <div class="b-segmented" role="radiogroup" aria-label="Themen zeigen">
+        {% for value, text in [('beide', 'Beide'), ('hell', 'Hell'), ('dunkel', 'Dunkel')] %}
+        <label><input type="radio" name="sg-view" value="{{ value }}" data-sg-view {% if view == value %}checked{% endif %}><span>{{ text }}</span></label>
+        {% endfor %}
+    </div>
+</header>
+
+<div class="sg-themes" data-view="{{ view }}" data-sg-themes>
+    {{ showcase('light', 'Hell') }}
+    {{ showcase('dark', 'Dunkel') }}
+</div>
+{% endblock %}

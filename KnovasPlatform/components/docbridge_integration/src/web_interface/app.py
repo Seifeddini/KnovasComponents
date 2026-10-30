@@ -1734,6 +1734,20 @@ def create_app(config_path: Optional[str] = None):
             logger.warning('Experimente-Eintrag nicht ermittelbar: %s', exc)
             return False
 
+    def _builder_nav() -> bool:
+        """Whether the sidebar offers the Brain Builder: the signed-in person
+        holds a builder role. Presentation only -- the builder blueprint
+        refuses on its own -- so a failure hides the item."""
+        if identity_gate is None:
+            return False
+        try:
+            from web_interface.builder_routes import user_may_build
+
+            return user_may_build(identity_gate.current_user())
+        except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
+            logger.warning('Builder-Eintrag nicht ermittelbar: %s', exc)
+            return False
+
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
         return {
@@ -1742,6 +1756,7 @@ def create_app(config_path: Optional[str] = None):
             'console_url': _console_url(),
             'cortex_enabled': cortex_enabled,
             'experiments_nav': _experiments_nav(),
+            'builder_nav': _builder_nav(),
         }
 
     @app.route('/')
@@ -1837,6 +1852,20 @@ def create_app(config_path: Optional[str] = None):
                 'brand': web_brand,
                 'asset_version': _static_asset_version(),
                 'ingestion_enabled': rc_client is not None,
+            },
+        ))
+
+        from web_interface.builder_routes import create_builder_blueprint
+
+        # Only with per-user identity: the builder is gated on a role, and the
+        # legacy shared login has no roles to check.
+        app.register_blueprint(create_builder_blueprint(
+            identity_gate,
+            page_context=lambda: {
+                'app_title': web_app_title,
+                'brand': web_brand,
+                'asset_version': _static_asset_version(),
+                'platform_url': url_for('index'),
             },
         ))
 

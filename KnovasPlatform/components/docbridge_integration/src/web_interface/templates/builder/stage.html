@@ -1,0 +1,32 @@
+{# One stage of the builder. In B0 every stage shows its empty state; the
+   steps that follow replace the empty state with the stage's editor. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}{{ stage.label }}{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }}</p>
+    <h1 class="b-h1">{{ stage.label }}</h1>
+    <p class="b-muted">{{ stage.summary }}</p>
+</header>
+
+<section class="b-empty" aria-labelledby="b-empty-title">
+    <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
+    <div class="b-empty-text">
+        <h2 class="b-h3" id="b-empty-title">{{ stage.empty_title }}</h2>
+        <p class="b-muted">{{ stage.empty_text }}</p>
+    </div>
+    {% if not stage.needs_workspace %}
+    <div class="b-button-row">
+        <button type="button" class="b-button b-button--primary" aria-disabled="true"
+                aria-describedby="b-empty-hint">{{ icon('plus') }}Arbeitsbereich anlegen</button>
+        <button type="button" class="b-button b-button--secondary" aria-disabled="true"
+                aria-describedby="b-empty-hint">Paket importieren</button>
+    </div>
+    <p class="b-empty-hint" id="b-empty-hint">Anlegen und Importieren folgen mit der Arbeitsbereich-Verwaltung.</p>
+    {% elif not current_workspace %}
+    <p class="b-empty-hint">Dafür braucht es einen Arbeitsbereich.</p>
+    <a class="b-button b-button--secondary" href="{{ url_for('builder.stage', slug=stages[0].slug) }}">Arbeitsbereich wählen</a>
+    {% endif %}
+</section>
+{% endblock %}
