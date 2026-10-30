@@ -138,13 +138,16 @@ class FakeViewsClient:
 
 
 def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, Any]]] = None,
-                          spines: Optional[List[Dict[str, Any]]] = None) -> Dict[str, str]:
+                          spines: Optional[List[Dict[str, Any]]] = None, *,
+                          change_facts: bool = True) -> Dict[str, str]:
     """Write definition nodes the way KnowledgeBase's loader does (--only definitions).
 
     Facts as on tenant af639810 on 2026-10-27: JSON for context, requires,
     produces, levels and branches; comma lists for instance_types and
     exit_criteria; transitions as transitions_to edges; the value stream as a
-    part_of edge. Returns node ids by key.
+    part_of edge. ``change_facts`` adds what the loader writes since then:
+    ``change_classes`` on the process and the prose ``description`` on each
+    step; False is a tenant loaded before that. Returns node ids by key.
     """
     import json as _json
     from graph_views import definitions as defs
@@ -156,8 +159,8 @@ def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, An
         facts = {"meta": "yes", "owner_role": p["owner_role"], "instance_types": ", ".join(p["instance_types"]),
                  "context": _json.dumps(p.get("context", []), separators=(",", ":")),
                  "source": "docs/ModernDocs/client-zero/ontology/processes.yaml"}
-        # since Phase P8 (providers/definitions.py); change_classes are not written
-        for fld in ("status_map", "transitions"):
+        # since Phase P8 (providers/definitions.py); change_classes since the change-class fact
+        for fld in ("status_map", "transitions") + (("change_classes",) if change_facts else ()):
             if fld in p:
                 facts[fld] = _json.dumps(p[fld], separators=(",", ":"), ensure_ascii=False)
         if p.get("governing_fact"):
@@ -188,6 +191,8 @@ def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, An
                 sf["owner_role"] = s["owner_role"]
             sid = g.node("ProcessStep", f"{p['name']}: {s.get('name', s['id'])}", key=s["key"],
                          description=f"Step {s['order']} of {len(p['steps'])} in the {p['name']} process.", **sf)
+            if change_facts and s.get("description"):     # the prose; the node's description is the summary
+                g.add_fact(sid, "description", s["description"])
             ids[s["key"]] = sid
             by_step[s["id"]] = sid
             g.edge(pid, "has_step", sid)

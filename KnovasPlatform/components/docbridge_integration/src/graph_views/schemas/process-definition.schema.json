@@ -53,7 +53,10 @@
         "dimension": {"enum": ["accuracy", "completeness", "consistency", "timeliness", "uniqueness", "conformity"], "description": "The data-quality dimension the rule measures (DC-33; KnowledgeBase d1a18b1f)."},
         "severity": {"enum": ["warning", "violation"], "description": "The severity of a breach; the report may mark a single finding milder."},
         "warn_at": {"type": "integer", "minimum": 1, "description": "Findings on the tenant at which the rule's health turns amber."},
-        "error_at": {"type": "integer", "minimum": 1, "description": "Findings on the tenant at which the rule's health turns red; at least warn_at."}
+        "error_at": {"type": "integer", "minimum": 1, "description": "Findings on the tenant at which the rule's health turns red; at least warn_at."},
+        "checks": {"type": "array", "items": {"type": "object"}, "description": "The rule as configuration (KnowledgeBase KB-12, c03b1f3), evaluated by KnowledgeBase's brain_runner evaluate."},
+        "not_evaluable": {"type": "object", "required": ["unless_types", "message"], "properties": {"unless_types": {"type": "array", "items": {"type": "string"}}, "message": {"type": "string"}}, "additionalProperties": false,
+                          "description": "The rule cannot be evaluated while the tenant holds no node of these types (KB-12)."}
       },
       "additionalProperties": false
     },
