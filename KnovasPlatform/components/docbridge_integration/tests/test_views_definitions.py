@@ -50,7 +50,7 @@ class TestTheBundle:
         proc, _ = defs.from_bundle()
         doc = copy.deepcopy(proc)
         doc["report_rules"][0]["checks"] = [{"kind": "fact_present", "fact": "owner"}]
-        doc["report_rules"][0]["not_evaluable"] = {"unless_types": ["TestRun"], "message": "Keine Testläufe."}
+        doc["report_rules"][0]["not_evaluable"] = {"unless_types": ["TestRun"], "message": "No test runs yet."}
         assert defs.validate(doc, "process-definition.schema.json") == []
         doc["report_rules"][0]["not_evaluable"]["extra"] = 1
         assert len(defs.validate(doc, "process-definition.schema.json")) == 1
