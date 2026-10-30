@@ -12,18 +12,31 @@ Facts cost a read each under the tenant's rate limit (plan D3), so a page draws 
 from the topology and spends ``doc_fact_budget`` reads on columns, states and links: required sections
 first, in page order, then the others. A section the budget does not cover says so and loads on
 demand (``section``); a section draws ``doc_page_items`` items and counts the rest.
+
+Every type with a page definition has pages (WP KC-3); nothing here names a type or a key prefix.
+How pages form the tree comes from the definitions too:
+
+* a page's **children** are the items of one of its sections that have a page of their own: the
+  section the page names (``children``), else its first list or table whose paths are each one hop
+  in over a relation of the ``Structure`` family (relations ``family``);
+* the **roots** are the pages marked ``root``, else the pages with children that are nobody's
+  child, else every page;
+* a page with children draws them as a **level diagram**: with the edges its diagram section
+  declares between them, else with the edges of its children's pages counted between their parts;
+* items **link** to the repository file their fact names: the section's ``link.fact``, else a
+  ``path`` fact the item's type declares and the section does not show as a column.
+
+``children``, ``root`` and ``link`` are not in page definition format 1 yet (proposed for
+KnowledgeBase's page-definition schema); the fallbacks read the same structure from what is.
 """
 from __future__ import annotations
 
-import functools
-import json
 import math
 import re
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
-from graph_views import descriptions, discovery, edit_map
-from graph_views.definitions import DEFINITIONS_DIR, pin
+from graph_views import bundle, descriptions, discovery, edit_map
 from graph_views.facts import KeyedTTL, fact_values, read_facts
 from graph_views.traverse import follow
 
@@ -31,36 +44,87 @@ from graph_views.traverse import follow
 #: (scripts/client_zero/load_ontology.py BROKEN_DESC, used by docs_completeness.py), so the page and
 #: the completeness report agree.
 BROKEN_DESCRIPTION = re.compile(r"^-{3,}(\s+\*AI-extensive spec: \[spec\.ai\.yaml\]\(\./spec\.ai\.yaml\)\*)?\s*$")
-#: The tree: System → software areas → L2 → L3, the product spine's software levels under the System page.
-TREE_TYPES = ("System", "BoundedContext", "Component")
+#: The relation family whose one-hop "in" sections are a page's children while the page names none.
+STRUCTURE_FAMILY = "structure"
+#: Render hints a children section may have (an item list, not a text or a diagram).
+_LIST_RENDERS = ("list", "table", "status-list")
 
 
 class NotDocumented(Exception):
     """The node has no page definition, or is not visible."""
 
 
-@functools.lru_cache(maxsize=1)
-def _read(name: str) -> Dict[str, Any]:
-    try:
-        return json.loads((DEFINITIONS_DIR / name).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
 def definitions() -> List[Dict[str, Any]]:
-    return list(_read("page-definitions.json").get("pages") or [])
+    return list(bundle.current().pages.get("pages") or [])
+
+
+def documented_types() -> List[str]:
+    """Every type that has a page definition, in definition order."""
+    return list(dict.fromkeys(p["type"] for p in definitions() if p.get("type")))
+
+
+def _families() -> Dict[str, str]:
+    def build() -> Dict[str, str]:
+        rels = (bundle.current().relations or {}).get("relations") or []
+        return {r["name"]: str(r.get("family") or "").strip().lower() for r in rels if isinstance(r, dict) and r.get("name")}
+
+    return bundle.current().memo("relation_families", build)
+
+
+def children_section(page: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The section whose items (those with a page) are the page's children in the tree, or None."""
+    if not page:
+        return None
+    named = page.get("children")
+    if isinstance(named, dict):
+        named = named.get("section")
+    if named:
+        return next((x for x in page["sections"] if x["id"] == named), None)
+    families, typed = _families(), set(documented_types())
+    for x in page["sections"]:
+        paths = x.get("paths") or []
+        if x.get("render") in _LIST_RENDERS and paths and all(
+                len(sp["path"]) == 1 and not sp.get("where") and sp["path"][0]["direction"] == "in"
+                and families.get(sp["path"][0]["relation"]) == STRUCTURE_FAMILY and sp["path"][0]["to_type"] in typed
+                for sp in paths):
+            return x
+    return None
+
+
+def root_types() -> List[str]:
+    """The types whose nodes are the tree's roots."""
+    pages = definitions()
+    marked = [p["type"] for p in pages if p.get("root")]
+    if marked:
+        return list(dict.fromkeys(marked))
+    child_types = {sp["path"][-1]["to_type"] for p in pages for sp in (children_section(p) or {}).get("paths") or []}
+    found = [p["type"] for p in pages if children_section(p) and p["type"] not in child_types]
+    return list(dict.fromkeys(found)) or documented_types()
+
+
+def _link_fact(s: Dict[str, Any], item_type: str) -> Optional[str]:
+    """The fact naming the repository file an item of this section links to, if any."""
+    if isinstance(s.get("link"), dict) and s["link"].get("fact"):
+        return s["link"]["fact"]
+    declared = bundle.current().memo("declared_attributes", lambda: {
+        t["name"]: {a.get("name") for a in t.get("attributes") or [] if isinstance(a, dict)}
+        for t in bundle.current().types.get("node_types") or [] if isinstance(t, dict) and t.get("name")})
+    if "path" in declared.get(item_type, set()) and "path" not in (s.get("columns") or []):
+        return "path"
+    return None
 
 
 def report() -> Dict[str, Any]:
     """KnowledgeBase's documentation completeness report: rows by component key, and its time."""
-    data = _read("docs-completeness.json")
+    data = bundle.current().report("docs_completeness")
     return {"generated_at": data.get("generated_at"), "page": data.get("page"),
             "rows": {r["component"]: r for r in data.get("components") or []}}
 
 
 def kb_commit() -> Optional[str]:
-    """The KnowledgeBase commit the page definitions were copied from (SOURCE.json)."""
-    return ((pin().get("files") or {}).get("page-definitions.json") or {}).get("commit")
+    """The KnowledgeBase commit the bundle was built at (informative, KB-7), else its content hash."""
+    b = bundle.current()
+    return b.source_commit or b.content_hash
 
 
 def page_for(type_name: str, key: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -76,7 +140,7 @@ def page_for(type_name: str, key: Optional[str]) -> Optional[Dict[str, Any]]:
 # -- keys -------------------------------------------------------------------------------------
 
 def keys_of(ctx: Any, cache: KeyedTTL, ids: List[str], key_index_max: int) -> Dict[str, Optional[str]]:
-    """Keys for nodes: from names that carry them (Component), else read once per type and cached."""
+    """Keys for nodes: from names that carry them ("<KEY> — <name>"), else read once per type and cached."""
     if not ids:
         return {}
     types = sorted({ctx.index.type_of(n) for n in ids})
@@ -92,8 +156,8 @@ def locate(ctx: Any, cache: KeyedTTL, key: str, key_index_max: int) -> Optional[
             name = ctx.index.nodes[nid]["name"]
             if name == key or name.startswith(key + " "):
                 return nid
-    # Keys are read only for the types whose declared key pattern fits (terms.yaml id_prefixes):
-    # SYS- reads the System's key, L1- the areas', never every documented type.
+    # Keys are read only for the types whose declared key pattern fits (the bundle's id_prefixes),
+    # never for every documented type.
     from graph_views.keys import types_for_query
 
     fits = [t for t in types_for_query(key) if t in types and ctx.index.by_type.get(t)]
@@ -105,30 +169,25 @@ def locate(ctx: Any, cache: KeyedTTL, key: str, key_index_max: int) -> Optional[
 
 # -- the tree ---------------------------------------------------------------------------------
 
-def _children_path(type_name: str, key: Optional[str]) -> Tuple[Optional[List[Dict[str, str]]], Optional[str]]:
-    """(path to the children, key prefix they need) along the System page and the product spine."""
-    if type_name == "System":
-        page = page_for("System", key) or {}
-        areas = next((s for s in page.get("sections") or [] if s["id"] == "areas"), None)
-        return (areas["paths"][0]["path"] if areas else None), None
-    if type_name == "BoundedContext":
-        return [{"relation": "part_of", "direction": "in", "to_type": "Component"}], "L2-"
-    if type_name == "Component" and key and key.startswith("L2-"):
-        return [{"relation": "part_of", "direction": "in", "to_type": "Component"}], "L3-"
-    return None, None
+def _child_ids(ctx: Any, node: str, section: Optional[Dict[str, Any]]) -> List[str]:
+    if not section:
+        return []
+    return list(dict.fromkeys(m for sp in section["paths"] for m in follow(ctx.index, [node], sp["path"]).nodes
+                              if m != node))
 
 
 def roots(ctx: Any) -> List[str]:
-    return sorted(ctx.index.by_type.get("System", []), key=lambda n: ctx.index.nodes[n]["name"])
+    ids = [n for t in root_types() for n in ctx.index.by_type.get(t, [])]
+    return sorted(dict.fromkeys(ids), key=lambda n: ctx.index.nodes[n]["name"])
 
 
 def children(ctx: Any, cache: KeyedTTL, node: str, key: Optional[str], key_index_max: int) -> List[Dict[str, Any]]:
-    path, prefix = _children_path(ctx.index.type_of(node), key)
-    if not path:
+    """The node's children in the tree: the items of its page's children section that have a page."""
+    ids = _child_ids(ctx, node, children_section(page_for(ctx.index.type_of(node), key)))
+    if not ids:
         return []
-    ids = follow(ctx.index, [node], path).nodes
     keys = keys_of(ctx, cache, ids, key_index_max)
-    rows = [header(ctx, n, keys.get(n)) for n in ids if not prefix or (keys.get(n) or "").startswith(prefix)]
+    rows = [header(ctx, n, keys.get(n)) for n in ids if page_for(ctx.index.type_of(n), keys.get(n))]
     return sorted(rows, key=lambda r: (r["key"] or r["name"]))
 
 
@@ -136,10 +195,9 @@ def header(ctx: Any, node: str, key: Optional[str]) -> Dict[str, Any]:
     n = ctx.index.nodes[node]
     t = n["type"]
     page = page_for(t, key)
-    path, _ = _children_path(t, key)
     marker = topology_marker(ctx, node, key, page)
     return {"id": node, "key": key, "name": n["name"], "type": t, "page": page["key"] if page else None,
-            "has_children": bool(path and follow(ctx.index, [node], path).nodes), **marker}
+            "has_children": bool(_child_ids(ctx, node, children_section(page))), **marker}
 
 
 def one_line(text: Optional[str], limit: int = 140) -> str:
@@ -168,20 +226,29 @@ def topology_marker(ctx: Any, node: str, key: Optional[str], page: Optional[Dict
     return {"incomplete": empty, "stale": list((row or {}).get("stale") or [])}
 
 
+def _parent(ctx: Any, node: str) -> Optional[str]:
+    """The node's parent in the tree: a node whose page's children section reaches it in one hop back."""
+    t = ctx.index.type_of(node)
+    for page in definitions():
+        section = children_section(page)
+        for sp in (section or {}).get("paths") or []:
+            hop = sp["path"][0]
+            if hop["to_type"] != t:
+                continue
+            back = "out" if hop["direction"] == "in" else "in"
+            found = next((m for _, _, m in ctx.index.neighbours(node, hop["relation"], back)
+                          if ctx.index.type_of(m) == page["type"] and m != node), None)
+            if found:
+                return found
+    return None
+
+
 def path_to(ctx: Any, cache: KeyedTTL, node: str, key_index_max: int) -> List[str]:
-    """Ancestors from the System down to the node (for opening the tree at a deep link)."""
+    """Ancestors from a root down to the node (for opening the tree at a deep link)."""
     chain = [node]
     for _ in range(4):
-        cur = chain[0]
-        t = ctx.index.type_of(cur)
-        parent = None
-        if t == "Component":
-            parent = next((m for _, _, m in ctx.index.neighbours(cur, "part_of", "out")
-                           if ctx.index.type_of(m) in ("Component", "BoundedContext")), None)
-        elif t == "BoundedContext":
-            parent = next((m for _, _, m in ctx.index.neighbours(cur, "part_of", "out")
-                           if ctx.index.type_of(m) == "System"), None)
-        if parent is None:
+        parent = _parent(ctx, chain[0])
+        if parent is None or parent in chain:
             break
         chain.insert(0, parent)
     return chain
@@ -238,7 +305,7 @@ def _needs(ctx: Any, s: Dict[str, Any], shown: List[str], members: List[Tuple[st
     if s.get("order_by"):
         reads += [m for m, _, _ in members]                 # ordering needs every member's fact
     elif s.get("columns") or any(p.get("where") for p in s.get("paths") or []) \
-            or any(ctx.index.type_of(m) == "Record" for m in shown):
+            or any(_link_fact(s, ctx.index.type_of(m)) for m in shown):
         reads += shown
     status: List[str] = []
     if s.get("status"):
@@ -305,8 +372,9 @@ def render_section(ctx: Any, node: str, node_type: str, values: Dict[str, Any], 
             row = {"id": m, "name": n["name"], "type": n["type"], "label": label, "key": v.get("key"),
                    "description": "" if one_line(n.get("description"))[:40] in n["name"] else one_line(n.get("description")),
                    "cells": {c: v.get(c) for c in out["columns"]} if v else {}}
-            if n["type"] == "Record" and v:
-                row["path"] = v.get("path") or v.get("source")
+            link = _link_fact(s, n["type"]) if v else None
+            if link:
+                row["path"] = v.get(link) or v.get("source")
                 row["url"] = github_url(repo, row["path"])
             if s.get("status") and not out["deferred"]:
                 checks = follow(ctx.index, [m], s["status"]["path"]).nodes
@@ -405,59 +473,108 @@ def _canvas(boxes: List[Dict[str, Any]]) -> Dict[str, int]:
             "box_w": BOX_W, "box_h": BOX_H}
 
 
-def level_diagram(ctx: Any, cache: KeyedTTL, node: str, key: Optional[str], key_index_max: int) -> Optional[Dict[str, Any]]:
-    """System and software areas: the children as boxes and their calls between them (C4-style).
+def _edge_relations(page: Optional[Dict[str, Any]]) -> List[str]:
+    """Relations a page's diagram sections declare between its children: paths that take the children
+    section's hop and one more hop, outgoing, to the children's type."""
+    section = children_section(page)
+    if not section:
+        return []
+    hops = [sp["path"][0] for sp in section["paths"]]
+    out: List[str] = []
+    for x in page["sections"]:
+        if x.get("render") != "diagram":
+            continue
+        for sp in x.get("paths") or []:
+            path = sp["path"]
+            if len(path) == 2 and path[0] in hops and path[1]["direction"] == "out" \
+                    and path[1]["to_type"] == path[0]["to_type"] and path[1]["relation"] not in out:
+                out.append(path[1]["relation"])
+    return out
 
-    A software area draws its components and the ``calls`` / ``calls_back`` edges between them, as
-    its page's interactions section declares. The System draws its areas; an arrow between two areas
-    stands for the calls between their components, counted (area ←part_of– component –calls→
-    component –part_of→ area: declared hops only).
+
+def _descendants(ctx: Any, node: str, key: Optional[str], depth: int = 2) -> List[str]:
+    """The node's parts along the children sections, ``depth`` levels down (keys not read: types only)."""
+    found: List[str] = []
+    frontier = [(node, key)]
+    for _ in range(depth):
+        nxt = []
+        for n, k in frontier:
+            pages = [page_for(ctx.index.type_of(n), k)] if k else [p for p in definitions() if p["type"] == ctx.index.type_of(n)]
+            for page in pages:
+                for m in _child_ids(ctx, n, children_section(page)):
+                    if m not in found and m != node:
+                        found.append(m)
+                        nxt.append((m, None))
+        frontier = nxt
+    return found
+
+
+def level_diagram(ctx: Any, cache: KeyedTTL, node: str, key: Optional[str], key_index_max: int) -> Optional[Dict[str, Any]]:
+    """A page with children draws them as boxes and the edges between them (C4-style).
+
+    The edges are the relations the page's diagram section declares between its children
+    (``_edge_relations``). A page without such a section aggregates: an arrow between two children
+    counts the edges their own pages declare, between the parts of one and the parts of the other.
+    No children, or no declared edge on either level: no diagram.
     """
     t = ctx.index.type_of(node)
-    if t not in ("System", "BoundedContext"):
+    page = page_for(t, key)
+    section = children_section(page)
+    if not section:
         return None
     kids = children(ctx, cache, node, key, key_index_max)
     ids = [k["id"] for k in kids]
     order = {k["id"]: (k["key"] or k["name"]) for k in kids}
     keys = {k["id"]: k["key"] for k in kids}
-    rels = ("calls", "calls_back")
+    rels = _edge_relations(page)
+    aggregated = not rels
     counted: Dict[Tuple[str, str, str], int] = {}
-    if t == "BoundedContext":
+    if not aggregated:
         for a in ids:
             for rel in rels:
                 for _, _, b in ctx.index.neighbours(a, rel, "out"):
                     if b in order and b != a:
                         counted[(a, b, rel)] = counted.get((a, b, rel), 0) + 1
     else:
+        rels = list(dict.fromkeys(r for k in kids for r in _edge_relations(page_for(k["type"], k["key"]))))
+        if not rels:
+            return None
         owner: Dict[str, str] = {}
-        for area in ids:
-            for comp in follow(ctx.index, [area], [{"relation": "part_of", "direction": "in", "to_type": "Component"}]).nodes:
-                owner[comp] = area
-                for sub in follow(ctx.index, [comp], [{"relation": "part_of", "direction": "in", "to_type": "Component"}]).nodes:
-                    owner.setdefault(sub, area)
-        for comp, area in owner.items():
+        for k in kids:
+            for part in _descendants(ctx, k["id"], k["key"]):
+                owner.setdefault(part, k["id"])
+        for part, child in owner.items():
             for rel in rels:
-                for _, _, other in ctx.index.neighbours(comp, rel, "out"):
+                for _, _, other in ctx.index.neighbours(part, rel, "out"):
                     target = owner.get(other)
-                    if target and target != area:
-                        counted[(area, target, "calls")] = counted.get((area, target, "calls"), 0) + 1
+                    if target and target != child:
+                        counted[(child, target, rels[0])] = counted.get((child, target, rels[0]), 0) + 1
     pos = layout(ids, [(a, b) for a, b, _ in counted], order)
     boxes = [_box(ctx, n, keys.get(n), pos[n]) for n in ids]
     for b, k in zip(boxes, kids):
         b.update(incomplete=k["incomplete"], stale=k["stale"])
     edges = [{"from": a, "to": b, "relation": rel, "count": c,
-              "label": rel if t == "BoundedContext" else f"calls ({c})"} for (a, b, rel), c in sorted(counted.items(), key=lambda x: (order[x[0][0]], order[x[0][1]], x[0][2]))]
-    return {"kind": "level", "aggregated": t == "System", "boxes": boxes, "edges": edges, **_canvas(boxes),
-            "note": "Pfeile zwischen Bereichen zählen die Aufrufe zwischen ihren Komponenten." if t == "System" else
-                    "Aufrufe zwischen den Komponenten des Bereichs (calls, calls_back)."}
+              "label": f"{rel} ({c})" if aggregated else rel}
+             for (a, b, rel), c in sorted(counted.items(), key=lambda x: (order[x[0][0]], order[x[0][1]], x[0][2]))]
+    child_types = list(dict.fromkeys(sp["path"][-1]["to_type"] for sp in section["paths"]))
+    label = ", ".join(descriptions.type_entry(c)["label"] for c in child_types)
+    return {"kind": "level", "aggregated": aggregated, "boxes": boxes, "edges": edges, **_canvas(boxes),
+            "title": str((section.get("title") or {}).get("de") or label),
+            "note": (f"Ein Pfeil zählt die Verbindungen ({', '.join(rels)}) zwischen den Teilen zweier Einträge ({label})."
+                     if aggregated else f"Verbindungen ({', '.join(rels)}) zwischen den Einträgen ({label}).")}
 
 
 def call_diagram(ctx: Any, node: str, s: Dict[str, Any], members: List[Tuple[str, Optional[str], Dict[str, Any]]]) -> Dict[str, Any]:
-    """A component's calls section: callers above, the component, callees below; interactions as details."""
+    """A diagram section: callers above, the node, callees below; items of another type as details.
+
+    The boxes are the items of the type the section's first path ends at (a component's peers, an
+    area's components); the rest (interactions) are listed under the diagram.
+    """
+    boxed = s["paths"][0]["path"][-1]["to_type"]
     callers, callees, details = [], [], []
     for m, label, p in members:
         hop = p["path"][-1]
-        if hop["to_type"] != "Component":
+        if hop["to_type"] != boxed:
             details.append(m)
         elif hop["direction"] == "out":
             callees.append((m, hop["relation"]))
@@ -495,12 +612,12 @@ _PAGES_MAX = 256
 
 
 def _page_key(ctx: Any, node: str, repo: Optional[str]) -> Tuple[Any, ...]:
-    return (ctx.key, ctx.state.as_of, node, repo)
+    return (ctx.key, ctx.state.as_of, bundle.current().content_hash, node, repo)
 
 
 def render(ctx: Any, cache: KeyedTTL, node: str, *, repo: Optional[str] = None, only: Optional[str] = None,
            budget: Optional[int] = None, key: Optional[str] = None) -> Dict[str, Any]:
-    """One page: header, the level diagram (System, software areas) and the sections from its definition."""
+    """One page: header, the level diagram (a page with children) and the sections from its definition."""
     ctx.index.ensure([node])
     whole = only is None and budget is None
     pkey = _page_key(ctx, node, repo)

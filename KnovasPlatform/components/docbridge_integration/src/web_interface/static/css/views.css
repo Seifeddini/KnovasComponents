@@ -440,3 +440,7 @@
     .views-docs-diagram-box { overflow: visible; border: 0; }
 }
 .views-docs-table td:not(:first-child) { white-space: nowrap; }
+
+/* A profile map's colour signals (KC-2): one dot per signal, its name beside it. */
+.views-signals { display: inline-flex; gap: 8px; margin-left: 6px; }
+.views-signal { display: inline-flex; align-items: center; gap: 3px; }

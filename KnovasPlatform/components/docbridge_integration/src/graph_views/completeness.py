@@ -5,16 +5,14 @@ scripts/client_zero/process_completeness.py computes them: the step's
 ``requires`` and its ``produces`` with ``required: true``, followed along their
 declared paths, the alternative counted, ``min_count`` respected. R-rules are
 not re-implemented: their results are read from KnowledgeBase's
-process-completeness.json and labelled with its time.
+process-completeness report (named in the tenant's bundle) and labelled with its time.
 """
 from __future__ import annotations
 
 import datetime as dt
-import functools
-import json
 from typing import Any, Dict, List, Optional
 
-from graph_views.definitions import DEFINITIONS_DIR
+from graph_views import bundle
 from graph_views.traverse import follow, path_text
 
 
@@ -54,12 +52,8 @@ def p_rule_met(rule: Dict[str, Any], facts: Dict[str, str], today: dt.date) -> b
     return False
 
 
-@functools.lru_cache(maxsize=1)
 def _report() -> Dict[str, Any]:
-    try:
-        return json.loads((DEFINITIONS_DIR / "process-completeness.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return bundle.current().report("process_completeness")
 
 
 def kb_report() -> Dict[str, Any]:

@@ -15,6 +15,7 @@ from typing import Any, Callable, Optional
 from flask import Blueprint, jsonify, render_template, request
 
 from graph_views import service as views
+from graph_views.bundle import BundleError
 from graph_views.reader import ReadFailed
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,13 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             if not graph_mode():
                 return jsonify({"success": False, "error": _FIXTURE_MODE_ERROR}), 409
             try:
+                service.bundle()          # refused before any read; the view's context refreshes it
                 return view(*args, **kwargs)
+            except BundleError as exc:
+                # The tenant's definitions bundle is missing, unreadable or refused (wrong format
+                # version or hash): every view says why instead of drawing from nothing.
+                logger.warning("views: definitions bundle: %s", exc)
+                return jsonify({"success": False, "error": f"Definitionsbündel: {exc}", "bundle_error": True}), 503
             except PermissionError:
                 return jsonify({"success": False, "error": "Nicht angemeldet."}), 401
             except ReadFailed as exc:
@@ -75,18 +82,32 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         return wrapped
 
     def ctx():
+        # ``guarded`` read the bundle already (cached); a refresh reads it and the graph again.
         return service.context(refresh=_flag("refresh"))
+
+    def bundle_error() -> Optional[str]:
+        """Why the tenant's definitions bundle cannot be used, for the page; None when it can."""
+        if not graph_mode() or (gate is not None and gate.current_user() is None):
+            return None
+        try:
+            service.bundle()
+        except BundleError as exc:
+            return str(exc)
+        except Exception:  # noqa: BLE001 - the page still loads; the JSON routes say what failed
+            return None
+        return None
 
     @bp.route("/views")
     def views_page():
         extra = page_context() if page_context else {}
-        return render_template("views.html", graph_mode=graph_mode(), **extra)
+        return render_template("views.html", graph_mode=graph_mode(), bundle_error=bundle_error(), **extra)
 
     @bp.route("/views/doc/<path:key>")
     def views_doc_page(key: str):
         """A documentation page's stable address (Step 8): /views/doc/L2-KNOWLEDGE-GRAPH."""
         extra = page_context() if page_context else {}
-        return render_template("views.html", graph_mode=graph_mode(), doc_key=key[:200], **extra)
+        return render_template("views.html", graph_mode=graph_mode(), bundle_error=bundle_error(),
+                               doc_key=key[:200], **extra)
 
     @bp.route("/api/views/graph")
     @guarded
@@ -137,8 +158,9 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         d = service.definitions(context, refresh=_flag("refresh"))
         body = context.envelope(
             source=d.source, processes=d.processes, spines=d.spines, rules=d.rules,
-            pinned={name: {k: v for k, v in pin.items() if k in ("commit", "note")}
-                    for name, pin in (d.pinned.get("files") or {}).items()})
+            # The bundle's label, content hash and build commit; the source names a repository and
+            # ref only (never a token), so everyone may see it.
+            pinned=d.pinned)
         if is_admin():
             # Validation errors, gaps and differences are for the people who can
             # fix the ontology; everyone else sees the definitions themselves.
@@ -220,6 +242,20 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     @guarded
     def spine_tree():
         context, d = _process_context()
+        if _arg("view"):
+            # A profile's map (KC-2): the tree over the profile view's paths, coloured by its signals.
+            from graph_views import profiles
+
+            # Another profile's view answers like a missing one, as in the saved views.
+            user = gate.current_user() if gate is not None else None
+            mine = None if (user is None or is_admin()) else user_profiles(user)
+            if mine is not None and _arg("view").split("/", 1)[0] not in mine:
+                return jsonify({"success": False, "error": "Ansicht nicht gefunden."}), 404
+            try:
+                return _drawable(lambda: jsonify(spine_views.profile_map(
+                    context, _arg("view"), parent=_arg("parent"), level=_arg("level"))))
+            except profiles.NotAProfileView as exc:
+                return jsonify({"success": False, "error": str(exc)}), 404
         if not _arg("spine"):
             return jsonify({"success": False, "error": "Achse angeben."}), 400
         return _drawable(lambda: jsonify(spine_views.tree(
@@ -257,10 +293,45 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         body = request.get_json(silent=True)
         return body if isinstance(body, dict) else {}
 
+    def user_profiles(user) -> Optional[set]:
+        """Ids of the profiles the user's roles map to (views.profile_roles); None: every profile.
+
+        Without the tenant's bundle no profile view can be drawn, so none is listed.
+        """
+        from graph_views import profiles
+
+        try:
+            found = service.bundle()
+        except BundleError:
+            return set()
+        return profiles.profiles_for(getattr(user, "roles", ()) or (),
+                                     profiles.parse_roles(service.settings.profile_roles), found)
+
+    def with_profile(views_: list) -> list:
+        """Each profile view with its profile and how the page opens it (from the bundle)."""
+        from graph_views import profiles
+
+        for v in views_:
+            key = (v.get("source") or {}).get("profile")
+            if not key:
+                continue
+            try:
+                profile, pview = profiles.find(key, service.bundle())
+            except (BundleError, profiles.NotAProfileView) as exc:
+                v["open"] = {"kind": None, "unsupported": str(exc)}
+                continue
+            v["profile"] = {"id": profile["id"], "audience": profile.get("audience")}
+            v["open"] = profiles.open_spec(profile, pview)
+        return views_
+
     @bp.route("/api/views/saved", methods=["GET"])
     @saved
     def saved_list(store, user):
-        return jsonify({"success": True, "views": store.list_for(user), "is_admin": is_admin()})
+        # An admin may ask for every profile's views (?all=1) to look after them; the picker shows
+        # the user's own profiles.
+        mine = None if (_flag("all") and is_admin()) else user_profiles(user)
+        return jsonify({"success": True, "views": with_profile(store.list_for(user, mine)), "is_admin": is_admin(),
+                        "profiles": sorted(mine) if mine is not None else None})
 
     @bp.route("/api/views/saved", methods=["POST"])
     @saved
@@ -272,7 +343,8 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     @bp.route("/api/views/saved/<view_id>", methods=["GET"])
     @saved
     def saved_get(store, user, view_id):
-        return jsonify({"success": True, "view": store.get(view_id, user)})
+        mine = None if is_admin() else user_profiles(user)
+        return jsonify({"success": True, "view": with_profile([store.get(view_id, user, mine)])[0]})
 
     @bp.route("/api/views/saved/<view_id>", methods=["PATCH"])
     @saved
@@ -296,12 +368,14 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     def saved_defaults(store, user):
         if not is_admin():
             return jsonify({"success": False, "error": "Nur für Administratoren."}), 403
-        from graph_views import default_views
+        from graph_views import profiles
 
-        which = str(_body().get("set") or "knovas")
-        if which not in default_views.SETS:
-            return jsonify({"success": False, "error": f"Unbekannter Satz {which}."}), 400
-        return jsonify({"success": True, **default_views.seed(store, user, which)})
+        # The shared views come from the profiles in the tenant's bundle (KC-2), never from a list here.
+        try:
+            found = service.bundle()
+        except BundleError as exc:
+            return jsonify({"success": False, "error": f"Definitionsbündel: {exc}", "bundle_error": True}), 503
+        return jsonify({"success": True, **profiles.seed(store, user, found)})
 
     @bp.route("/api/views/saved/audit", methods=["GET"])
     @saved
@@ -695,7 +769,8 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             key = doc_pages.keys_of(context, service.schemas, [parent], service.settings.key_index_max).get(parent)
             rows = doc_pages.children(context, service.schemas, parent, key, service.settings.key_index_max)
         rep = doc_pages.report()
-        return jsonify(context.envelope(nodes=rows, report_as_of=rep["generated_at"]))
+        # The types with a page definition: their nodes open as pages, everything else as a dossier.
+        return jsonify(context.envelope(nodes=rows, report_as_of=rep["generated_at"], types=doc_pages.documented_types()))
 
     @bp.route("/api/views/doc/page")
     @guarded

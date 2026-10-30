@@ -13,6 +13,7 @@ import pytest
 from flask import Flask
 
 from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
+from views_fixture import KNOVAS_SOURCE
 
 pytestmark = [
     pytest.mark.skipif(not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}"),
@@ -192,7 +193,7 @@ def app(platform_db):
     gate = _Gate(platform_db)
     flask_app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"))
     flask_app.register_blueprint(create_views_blueprint(
-        gate, views.ViewService(lambda: None, ViewSettings()), graph_mode=lambda: True,
+        gate, views.ViewService(lambda: None, ViewSettings(config_source=KNOVAS_SOURCE)), graph_mode=lambda: True,
         view_store=lambda: SavedViewStore(platform_db)))
     flask_app.gate = gate
     return flask_app
@@ -238,7 +239,7 @@ class TestRoutes:
 
         flask_app = Flask(__name__)
         flask_app.register_blueprint(create_views_blueprint(
-            None, views.ViewService(lambda: None, ViewSettings()), graph_mode=lambda: True))
+            None, views.ViewService(lambda: None, ViewSettings(config_source=KNOVAS_SOURCE)), graph_mode=lambda: True))
         assert flask_app.test_client().get("/api/views/saved").status_code == 409
 
 

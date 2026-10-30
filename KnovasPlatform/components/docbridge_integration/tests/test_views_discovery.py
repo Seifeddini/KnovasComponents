@@ -12,7 +12,7 @@ from flask import Flask
 
 from graph_views import discovery, service as views
 from graph_views.settings import ViewSettings
-from views_fixture import FakeViewsClient, client_zero_graph
+from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
 from web_interface.views_routes import create_views_blueprint
 
 TODAY = dt.date(2026, 10, 28)
@@ -25,7 +25,7 @@ class _NoWait:
 
 def _svc(graph, **settings):
     client = FakeViewsClient(graph)
-    return views.ViewService(lambda: client, ViewSettings(**settings), bucket=_NoWait(), markers=lambda: set()), client
+    return views.ViewService(lambda: client, ViewSettings(**{"config_source": KNOVAS_SOURCE, **settings}), bucket=_NoWait(), markers=lambda: set()), client
 
 
 @pytest.fixture

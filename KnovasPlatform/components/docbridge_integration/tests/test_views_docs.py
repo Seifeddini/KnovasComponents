@@ -15,7 +15,7 @@ from flask import Flask
 
 from graph_views import doc_pages as dp, service as views
 from graph_views.settings import ViewSettings
-from views_fixture import FakeViewsClient, FixtureGraph
+from views_fixture import FakeViewsClient, FixtureGraph, KNOVAS_SOURCE
 from web_interface.views_routes import create_views_blueprint
 
 REPO = "Seifeddini/KnowledgeBase"
@@ -76,7 +76,7 @@ def graph():
 
 def _ctx(graph, **settings):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(**settings), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(**{"config_source": KNOVAS_SOURCE, **settings}), bucket=_NoWait(), markers=lambda: set())
     return svc.context(), svc, client
 
 
@@ -292,7 +292,7 @@ class TestTreeAndExport:
 
 def _app(graph):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"))
     app.add_url_rule("/ontology", "ontology_page", lambda: "")
     app.register_blueprint(create_views_blueprint(None, svc, graph_mode=lambda: True, doc_repo=REPO,
@@ -322,10 +322,3 @@ class TestRoutes:
         assert res.status_code == 200 and res.mimetype == "text/markdown"
         assert res.headers["Content-Disposition"] == 'attachment; filename="L1-RETRIEVE-teilbaum.md"'
         assert json.loads(json.dumps(res.get_data(as_text=True)))
-
-    def test_the_default_view_opens_the_documentation(self):
-        from graph_views import default_views
-        from identity.saved_views import clean_view
-
-        view = next(v for v in default_views.KNOVAS if v["name"] == "Software-Dokumentation")
-        assert clean_view(view)["render_kind"] == "doc" and view["source"] == {"spine": "SPINE-product"}

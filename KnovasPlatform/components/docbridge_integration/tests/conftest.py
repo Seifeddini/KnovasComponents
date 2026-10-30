@@ -730,3 +730,19 @@ def exp_member_client(experiments_app, member):
 @pytest.fixture
 def exp_admin_client(experiments_app, platform_admin):
     return _signed_in(experiments_app, platform_admin.email)
+
+
+# -- Ansichten: the definitions bundle ---------------------------------------------
+# The views' readers take the request's bundle (graph_views/bundle.py); a test that
+# calls them directly gets the Knovas fixture (tests/fixtures/knovas-bundle).
+
+
+@pytest.fixture(autouse=True)
+def _views_knovas_bundle():
+    from views_fixture import knovas_bundle
+
+    from graph_views import bundle
+
+    token = bundle.use(knovas_bundle())
+    yield
+    bundle.reset(token)

@@ -2968,7 +2968,22 @@ def create_app(config_path: Optional[str] = None):
     from graph_views.settings import ViewSettings
     from web_interface.views_routes import create_views_blueprint
 
-    view_service = ViewService(lambda: api_client, ViewSettings.from_config(config))
+    def _kb_token() -> str:
+        """The change requests' least-privilege GitHub token (KB_GITHUB_TOKEN, else the token file); never logged."""
+        token = (os.getenv('KB_GITHUB_TOKEN') or '').strip()
+        token_file = str(config.get('views.change_requests.github_token_file', '') or '').strip()
+        if not token and token_file and os.path.isfile(token_file):
+            with open(token_file, encoding='utf-8') as fh:
+                token = fh.read().strip()
+        return token
+
+    def _bundle_github(repo: str):
+        """GitHub for a github: definitions bundle (views.config_source), with the same token."""
+        from graph_views.github_repo import GitHubRepo
+
+        return GitHubRepo(repo, _kb_token())
+
+    view_service = ViewService(lambda: api_client, ViewSettings.from_config(config), github=_bundle_github)
     app.extensions['views'] = view_service
     from identity import view_prefs
     from identity.change_sets import ChangeSetStore
@@ -2982,11 +2997,7 @@ def create_app(config_path: Optional[str] = None):
         from graph_views.change_requests import LocalRepo
         from graph_views.github_repo import GitHubRepo
 
-        token = (os.getenv('KB_GITHUB_TOKEN') or '').strip()
-        token_file = str(config.get('views.change_requests.github_token_file', '') or '').strip()
-        if not token and token_file and os.path.isfile(token_file):
-            with open(token_file, encoding='utf-8') as fh:
-                token = fh.read().strip()
+        token = _kb_token()
         repo = str(config.get('views.change_requests.github_repo', '') or '').strip()
         if token and repo:
             return GitHubRepo(repo, token)

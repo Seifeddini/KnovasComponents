@@ -5,8 +5,9 @@
 Read-only: GET requests only. Prints wall-clock time per view (cold = after a
 refresh that bypasses the per-subject cache, warm = straight after), the
 server's own timing and call count, and checks the board's missing items
-against KnowledgeBase's process-completeness.json (the vendored copy, or
---report). Used for the times recorded in each PR of
+against KnowledgeBase's process-completeness.json (--report: the file the
+tenant's definitions bundle names, e.g. a KnowledgeBase checkout's
+docs/ModernDocs/client-zero/ontology/generated/process-completeness.json). Used for the times recorded in each PR of
 docs/superpowers/plans/2026-10-27-process-and-spine-views.md.
 """
 from __future__ import annotations
@@ -18,9 +19,6 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-
-REPORT = Path(__file__).resolve().parents[1] / "src" / "graph_views" / "definitions" / "process-completeness.json"
-
 
 def get(base: str, path: str, **params):
     url = f"{base}{path}?{urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, '')})}"
@@ -61,7 +59,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--base", default="http://127.0.0.1:5077")
     ap.add_argument("--process", default="PROC-feature-lifecycle")
-    ap.add_argument("--report", type=Path, default=REPORT)
+    ap.add_argument("--report", type=Path, required=True)
     args = ap.parse_args(argv)
     b = args.base
 
