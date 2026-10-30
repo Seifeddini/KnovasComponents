@@ -56,16 +56,36 @@ class ViewService:
                  *, bucket: Optional[TokenBucket] = None,
                  now: Optional[Callable[[], float]] = None,
                  markers: Optional[Callable[[], Set[str]]] = None,
-                 github: Optional[Callable[[str], Any]] = None):
+                 github: Optional[Callable[[str], Any]] = None,
+                 settings_provider: Optional[Callable[[], ViewSettings]] = None):
         self._client = client
-        self.settings = settings or ViewSettings()
+        # settings_provider: the current settings (platform_settings.Resolver.view_settings), read on
+        # every use and cheap (it caches), so a change on the settings page applies without a restart.
+        self._provider = settings_provider
+        self._settings = settings or (settings_provider() if settings_provider else ViewSettings())
         self._bucket = bucket
         # github: repository name -> GitHubRepo with the change requests' token (or None)
-        self.bundles = bundles.BundleStore(self.settings.definitions_ttl_seconds, github=github, now=now)
-        self.cache = TopologyCache(self.settings, now=now)
-        self.schemas = KeyedTTL(self.settings.definitions_ttl_seconds, now=now)
-        self.defs = KeyedTTL(self.settings.definitions_ttl_seconds, now=now)
+        self.bundles = bundles.BundleStore(self._settings.definitions_ttl_seconds, github=github, now=now)
+        self.cache = TopologyCache(self._settings, now=now)
+        self.schemas = KeyedTTL(self._settings.definitions_ttl_seconds, now=now)
+        self.defs = KeyedTTL(self._settings.definitions_ttl_seconds, now=now)
         self._markers = markers or _file_markers
+
+    @property
+    def settings(self) -> ViewSettings:
+        if self._provider is not None:
+            current = self._provider()
+            if current != self._settings:
+                self._apply(current)
+        return self._settings
+
+    def _apply(self, new: ViewSettings) -> None:
+        """New settings: the caches keep their entries and take the new lifetimes and limits."""
+        self._settings = new
+        self.cache._settings = new
+        self.bundles._ttl = new.definitions_ttl_seconds
+        self.schemas._ttl = new.definitions_ttl_seconds
+        self.defs._ttl = new.definitions_ttl_seconds
 
     def _acquire(self) -> None:
         bucket = self._bucket or shared_bucket(self.settings.fact_rate_per_minute,

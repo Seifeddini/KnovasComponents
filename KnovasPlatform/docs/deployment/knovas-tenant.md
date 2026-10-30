@@ -61,12 +61,12 @@ COMPOSE_PROFILES=                                   # no mock, no experiments
 ONTOLOGY_SOURCE=graph
 # CORTEX_ENABLED stays unset (true): /views belongs to Cortex and is refused when it is false.
 
-# The tenant's definitions bundle (see "The definitions bundle" below). Without it every view
-# answers "Definitionsbündel: Kein Definitionsbündel konfiguriert".
-VIEWS_CONFIG_SOURCE=github:Seifeddini/KnowledgeBase@master:docs/ModernDocs/client-zero/generated/bundle.json
-# Who sees which profile views: the CTO profile for admins, the engineer's for members
-# (component README, "Profile views").
-VIEWS_PROFILE_ROLES=admin=CTO; member=Engineer
+# Optional since KC-0.1: an admin sets these two on the settings page ("Settings on the settings
+# page" below). Set here, they pin the value and the page shows it read-only.
+#   The tenant's definitions bundle (see "The definitions bundle" below):
+# VIEWS_CONFIG_SOURCE=github:Seifeddini/KnowledgeBase@master:docs/ModernDocs/client-zero/generated/bundle.json
+#   Who sees which profile views (component README, "Profile views"):
+# VIEWS_PROFILE_ROLES=admin=CTO; member=Engineer
 
 # Plain HTTP on 127.0.0.1 only (no TLS in front): otherwise the session cookie is dropped.
 WEB_SESSION_COOKIE_SECURE=false
@@ -100,6 +100,55 @@ services:
     volumes:
       - /path/outside/the/checkout/kb_github_token:/app/secrets/kb_github_token:ro
 ```
+
+### Settings on the settings page (KC-0.1)
+
+An administrator changes the views' settings on **Einstellungen → Ansichten und Wissensbasis** (`/settings`),
+without editing `config.yaml` or the environment and without a restart. Only `admin` accounts see the
+section; the API behind it (`/api/settings/platform`) answers 403 to anyone else.
+
+| Setting | Key | Pinned by | For |
+|---|---|---|---|
+| Definitionsbündel | `views.config_source` | `VIEWS_CONFIG_SOURCE` | this tenant |
+| Rollen und Profile | `views.profile_roles` | `VIEWS_PROFILE_ROLES` | this tenant |
+| Token für die Wissensbasis (GitHub) | `views.change_requests.github_token` | `KB_GITHUB_TOKEN`, or the file `views.change_requests.github_token_file` when it exists | this tenant |
+| Lesebudget der Systemkarte | `views.map_fact_budget` | `VIEWS_MAP_FACT_BUDGET` | the installation |
+| Gültigkeit des Graph-Abbilds | `views.ttl_seconds` | `VIEWS_TTL_SECONDS` | the installation |
+| Gültigkeit der Definitionen | `views.definitions_ttl_seconds` | `VIEWS_DEFINITIONS_TTL_SECONDS` | the installation |
+| Kantengrenze | `views.edge_limit` | `VIEWS_EDGE_LIMIT` | the installation |
+| Zeitbudget der Kantenliste | `views.edge_budget_seconds` | `VIEWS_EDGE_BUDGET_SECONDS` | the installation |
+
+- **Where a value comes from, shown beside each setting:**
+  1. **Installation:** a non-empty environment variable pins the value. The page shows it read-only, with the variable's name. An empty variable does not pin. A token file that exists pins the token.
+  2. **Seite:** the value an admin saved, with who saved it and when.
+  3. **Standard:** `config.yaml`'s default.
+
+  To hand a setting back to the page, remove its variable from `knovas.env` and restart once.
+- **Tests:**
+  - "Test" beside the bundle source loads it as the views would. It shows the format version, content hash and counts (types, processes, profiles), or the exact error.
+  - "Test" beside the token checks read access to `views.change_requests.github_repo`.
+- **Rollen und Profile** is a picker: the Platform's roles against the profiles in the loaded bundle. Without a loaded bundle, the profile names are typed in.
+- **Every change is audited** (`settings.changed`: who, which key, old and new value). A token appears there only as "geändert".
+- **The token is write-only.** The page says "gesetzt" or "nicht gesetzt" and never shows it.
+
+  It is stored encrypted with **`PLATFORM_SETTINGS_KEY`**, a Fernet key the deployment provides. Without the key, a token cannot be saved and the page says so. Generate the key once and keep it outside every checkout:
+
+  ```bash
+  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  ```
+
+  Give it to the Platform as a file, not in `knovas.env` (which `setup.sh` copies into the world-readable `.env.generated`): mount it read-only and set `PLATFORM_SETTINGS_KEY_FILE` in the same local `docker-compose.override.yml`. A token saved on the page then replaces the token-file mount above.
+
+  ```yaml
+  services:
+    docbridge-web:
+      environment:
+        PLATFORM_SETTINGS_KEY_FILE: /app/secrets/platform_settings_key
+      volumes:
+        - /path/outside/the/checkout/platform_settings_key:/app/secrets/platform_settings_key:ro
+  ```
+
+  Losing or changing the key makes a saved token unreadable. The page then says "gesetzt, aber mit diesem Schlüssel nicht lesbar"; save the token again.
 
 ### Start
 

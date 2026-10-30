@@ -58,6 +58,14 @@ class GitHubRepo:
             return None
         return base64.b64decode(data.get("content") or "").decode("utf-8"), data["sha"]
 
+    def access(self) -> Dict[str, bool]:
+        """Whether the token reads (and may push to) the repository; GitHubError when it cannot see it."""
+        data = self._call("GET", "", "read repository")
+        if not data:
+            raise GitHubError("read repository", 404, "nicht gefunden oder kein Zugriff")
+        perms = data.get("permissions") or {}
+        return {"read": bool(perms.get("pull", True)), "write": bool(perms.get("push"))}
+
     def get_raw(self, path: str, ref: str) -> Optional[str]:
         """A file's text at a ref, or None; raw media type, so files over the 1 MB of ``get_file`` work too."""
         r = self._s.get(f"{self._api}/repos/{self.repo}/contents/{quote(path)}?ref={quote(ref)}",
