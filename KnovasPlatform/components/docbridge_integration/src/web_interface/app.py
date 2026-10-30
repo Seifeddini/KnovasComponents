@@ -888,8 +888,7 @@ def create_app(config_path: Optional[str] = None):
         """Avoid browsers serving cached HTML/JS after docker rebuild."""
         path = request.path or ''
         if (
-            path in ('/', '/login', '/ontology', '/views')
-            or path.startswith('/views/doc/')
+            path in ('/', '/login', '/ontology')
             or path == '/experiments'
             or path.startswith('/experiments/')
             or path.endswith('.js')
@@ -1640,11 +1639,6 @@ def create_app(config_path: Optional[str] = None):
         if not _csrf_token_is_valid(submitted_csrf):
             return jsonify({'success': False, 'error': 'CSRF token ungültig'}), 400
         if identity_gate is not None:
-            leaving = identity_gate.current_user()
-            if leaving is not None and 'views' in app.extensions:
-                # The views keep this person's topology and facts in memory;
-                # they leave with the session, not at the end of the TTL.
-                app.extensions['views'].forget_subject(str(leaving.id))
             identity_gate.sign_out()
         else:
             session.clear()
@@ -1785,8 +1779,7 @@ def create_app(config_path: Optional[str] = None):
         if cortex_enabled:
             return None
         path = request.path or ''
-        if (path in ('/ontology', '/views') or path.startswith('/api/ontology')
-                or path.startswith('/api/views') or path.startswith('/views/')):
+        if path == '/ontology' or path.startswith('/api/ontology'):
             if path.startswith('/api/'):
                 return jsonify({'success': False, 'error': 'Cortex ist deaktiviert.'}), 404
             return redirect(url_for('index'))
@@ -2960,69 +2953,6 @@ def create_app(config_path: Optional[str] = None):
                 state_path=(os.getenv('ONTOLOGY_FILTER_STATE_PATH') or '').strip() or None,
                 text_resolver=_document_text_resolver())
         return _cortex_text_resolver['filters']
-
-    # Ansichten (/views): process and spine views drawn from the ontology's
-    # definitions; read-only on the brain. One service per worker, because it
-    # holds the per-subject topology caches (plan 2026-10-27, D1).
-    from graph_views.service import ViewService
-    from graph_views.settings import ViewSettings
-    from web_interface.views_routes import create_views_blueprint
-
-    def _kb_token() -> str:
-        """The change requests' least-privilege GitHub token (KB_GITHUB_TOKEN, else the token file); never logged."""
-        token = (os.getenv('KB_GITHUB_TOKEN') or '').strip()
-        token_file = str(config.get('views.change_requests.github_token_file', '') or '').strip()
-        if not token and token_file and os.path.isfile(token_file):
-            with open(token_file, encoding='utf-8') as fh:
-                token = fh.read().strip()
-        return token
-
-    def _bundle_github(repo: str):
-        """GitHub for a github: definitions bundle (views.config_source), with the same token."""
-        from graph_views.github_repo import GitHubRepo
-
-        return GitHubRepo(repo, _kb_token())
-
-    view_service = ViewService(lambda: api_client, ViewSettings.from_config(config), github=_bundle_github)
-    app.extensions['views'] = view_service
-    from identity import view_prefs
-    from identity.change_sets import ChangeSetStore
-    from identity.node_grants import NodeGrantStore as _ViewsGrantStore
-    from identity.saved_views import SavedViewStore
-
-    def _change_repo():
-        """KnowledgeBase for change requests: GitHub with a least-privilege token
-        (contents + pull requests on KnowledgeBase only), else a read-only local
-        checkout for previews, else None (the form says it is not configured)."""
-        from graph_views.change_requests import LocalRepo
-        from graph_views.github_repo import GitHubRepo
-
-        token = _kb_token()
-        repo = str(config.get('views.change_requests.github_repo', '') or '').strip()
-        if token and repo:
-            return GitHubRepo(repo, token)
-        local = str(config.get('views.change_requests.local_repo', '') or '').strip()
-        return LocalRepo(local) if local and os.path.isdir(local) else None
-
-    app.register_blueprint(create_views_blueprint(
-        identity_gate, view_service,
-        graph_mode=_ontology_source_is_graph,
-        # Built per request: identity_gate.connection() is request-scoped.
-        view_store=(lambda: SavedViewStore(identity_gate.connection())) if identity_gate is not None else None,
-        view_prefs=view_prefs if identity_gate is not None else None,
-        change_repo=_change_repo,
-        change_store=(lambda: ChangeSetStore(identity_gate.connection())) if identity_gate is not None else None,
-        node_grants=(lambda: _ViewsGrantStore(identity_gate.connection())) if identity_gate is not None else None,
-        change_base=str(config.get('views.change_requests.base_branch', 'master') or 'master'),
-        # Documentation pages link explanation documents to their source on GitHub (Step 8).
-        doc_repo=str(config.get('views.change_requests.github_repo', '') or '').strip() or None,
-        page_context=lambda: {
-            **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
-            'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version(),
-            'is_admin': bool(identity_gate is not None and identity_gate.current_user() is not None
-                             and 'admin' in identity_gate.current_user().roles),
-        },
-    ))
 
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():

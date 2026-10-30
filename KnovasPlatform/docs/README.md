@@ -11,7 +11,6 @@
 | Deploy the platform | [setup.md](setup.md) |
 | HTTPS + internal DNS (host nginx) | [deployment/host-nginx-internal.md](deployment/host-nginx-internal.md) |
 | Host nginx deploy checklist | [deployment/checklist-host-nginx.md](deployment/checklist-host-nginx.md) |
-| Run it for the Knovas tenant; the views (Ansichten) and their addresses | [deployment/knovas-tenant.md](deployment/knovas-tenant.md) |
 | Stop web servers | [../../docs/stopping-web-servers.md](../../docs/stopping-web-servers.md) |
 | Try without a Knovas tenant | [demo.md](demo.md) |
 | Ubuntu host notes | [platforms/ubuntu.md](platforms/ubuntu.md) |
