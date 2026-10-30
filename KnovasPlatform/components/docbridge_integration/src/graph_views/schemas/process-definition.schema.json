@@ -6,12 +6,12 @@
   "type": "object",
   "required": ["version", "generated_at", "rules", "processes"],
   "properties": {
-    "version": {"type": "integer", "minimum": 2},
+    "version": {"type": "integer", "minimum": 1, "description": "Platform reader (KC-1): a company's own processes may be version 1, as in the bundle's empty form."},
     "generated_at": {"type": "string"},
     "source": {"type": "string"},
     "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}},
     "report_rules": {"type": "array", "items": {"$ref": "#/$defs/report_rule"}, "description": "R0–R8: computed by rules_report.py over the whole tenant; results per instance are in process-completeness.json."},
-    "processes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/process"}}
+    "processes": {"type": "array", "items": {"$ref": "#/$defs/process"}, "description": "Platform reader (KC-1): may be empty, as for a company without processes (KB-7)."}
   },
   "$defs": {
     "hop": {
@@ -43,13 +43,17 @@
     },
     "report_rule": {
       "type": "object",
-      "required": ["id", "name", "description", "applies_to", "computed_by"],
+      "required": ["id", "name", "description", "applies_to"],
       "properties": {
         "id": {"type": "string", "pattern": "^R[0-9]$"},
         "name": {"type": "string"},
         "description": {"type": "string"},
         "applies_to": {"type": "array", "items": {"type": "string"}, "description": "Node types the rule checks; * = every type."},
-        "computed_by": {"type": "string"}
+        "computed_by": {"type": "string", "description": "Not in a definitions bundle (KB-7: the bundle names no scripts)."},
+        "dimension": {"enum": ["accuracy", "completeness", "consistency", "timeliness", "uniqueness", "conformity"], "description": "The data-quality dimension the rule measures (DC-33; KnowledgeBase d1a18b1f)."},
+        "severity": {"enum": ["warning", "violation"], "description": "The severity of a breach; the report may mark a single finding milder."},
+        "warn_at": {"type": "integer", "minimum": 1, "description": "Findings on the tenant at which the rule's health turns amber."},
+        "error_at": {"type": "integer", "minimum": 1, "description": "Findings on the tenant at which the rule's health turns red; at least warn_at."}
       },
       "additionalProperties": false
     },

@@ -1,4 +1,4 @@
-"""Process and spine definitions (decision D5): from the tenant, else the pinned copy.
+"""Process and spine definitions (decision D5): from the tenant, else the tenant's definitions bundle.
 
 The tenant's definition nodes carry most of a definition as facts (Process:
 key, instance_types, owner_role, context; ProcessStep: key, order, resting,
@@ -9,9 +9,14 @@ validates the result against KnowledgeBase's schemas.
 
 What the tenant does not hold (on 2026-10-27: the P-rules, governing_fact,
 step owner_role and descriptions, transition rework flags) is taken from the
-pinned copy and listed as a gap, for KnowledgeBase to close — never invented.
-When the tenant cannot be read, or its definitions do not validate, the pinned
-copy is used whole and the page says so.
+bundle (``bundle.py``, KnowledgeBase KB-7) and listed as a gap, for KnowledgeBase
+to close — never invented. When the tenant cannot be read, or its definitions do
+not validate, the bundle is used whole and the page says so.
+
+The schemas under ``schemas/`` are KnowledgeBase's (c325397d) as the reader of
+bundle format version 1 needs them: a bundle's ``report_rules`` carry no
+``computed_by`` and may carry KnowledgeBase's data-quality fields (d1a18b1f), and
+a company's processes may be version 1 and its process or spine list empty.
 """
 from __future__ import annotations
 
@@ -24,9 +29,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from jsonschema import Draft202012Validator
 
+from graph_views import bundle
 from graph_views.facts import fact_values, read_facts
 
-DEFINITIONS_DIR = Path(__file__).resolve().parent / "definitions"
+SCHEMAS_DIR = Path(__file__).resolve().parent / "schemas"
 
 
 @dataclass
@@ -34,7 +40,7 @@ class Definitions:
     processes: List[Dict[str, Any]]
     spines: List[Dict[str, Any]]
     rules: List[Dict[str, Any]]
-    source: str                                   # "tenant" | "vendored"
+    source: str                                   # "tenant" | "bundle"
     errors: List[str] = field(default_factory=list)
     gaps: List[str] = field(default_factory=list)
     differences: List[str] = field(default_factory=list)
@@ -51,17 +57,20 @@ class Definitions:
         return next((s for s in self.spines if s.get("key") == key), None)
 
 
-@functools.lru_cache(maxsize=8)
-def _read_json(name: str) -> Any:
-    return json.loads((DEFINITIONS_DIR / name).read_text(encoding="utf-8"))
+@functools.lru_cache(maxsize=4)
+def _schema(name: str) -> Any:
+    return json.loads((SCHEMAS_DIR / name).read_text(encoding="utf-8"))
 
 
-def vendored() -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    return copy.deepcopy(_read_json("process-definitions.json")), copy.deepcopy(_read_json("spine-definitions.json"))
+def from_bundle() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """The bundle's process and spine documents, in the shape of the generated files they replace."""
+    b = bundle.current()
+    stamp = {"generated_at": "Definitionsbündel", "source": f"definitions bundle {b.content_hash}"}
+    return {**copy.deepcopy(b.processes), **stamp}, {**copy.deepcopy(b.spines), **stamp}
 
 
 def pin() -> Dict[str, Any]:
-    return _read_json("SOURCE.json")
+    return bundle.current().pin()
 
 
 def _where(path) -> str:
@@ -88,7 +97,7 @@ def _name_at(doc: Dict[str, Any], path) -> str:
 
 def validate(doc: Dict[str, Any], schema_name: str) -> List[str]:
     """Readable schema errors: where (by key), what, and the JSON path."""
-    validator = Draft202012Validator(_read_json(schema_name))
+    validator = Draft202012Validator(_schema(schema_name))
     out = []
     for err in sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path)):
         path = list(err.absolute_path)
@@ -122,7 +131,7 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
     values = {n: fact_values(facts.get(n)) for n in facts}
     errors: List[str] = []
     gaps: List[Tuple[str, str]] = []
-    ref_proc, ref_spine = vendored()
+    ref_proc, ref_spine = from_bundle()
     ref_by_key = {p["key"]: p for p in ref_proc["processes"]}
     nodes: Dict[str, Dict[str, Any]] = {"process": {}, "step": {}}
 
@@ -260,21 +269,21 @@ def _gap_lines(gaps: List[Tuple[str, str]]) -> List[str]:
         by_field.setdefault(fld, [])
         if key and key not in by_field[fld]:
             by_field[fld].append(key)
-    return [f"{fld} nicht auf dem Mandanten (aus der Kopie)" + (f": {', '.join(sorted(keys))}" if keys else "")
+    return [f"{fld} nicht auf dem Mandanten (aus dem Bündel)" + (f": {', '.join(sorted(keys))}" if keys else "")
             for fld, keys in by_field.items()]
 
 
 def differences(tenant: Dict[str, Any], copy_doc: Dict[str, Any], list_key: str) -> List[str]:
-    """Where the tenant and the pinned copy disagree, per definition and field."""
+    """Where the tenant and the bundle disagree, per definition and field."""
     out = []
     a = {d["key"]: d for d in tenant.get(list_key, [])}
     b = {d["key"]: d for d in copy_doc.get(list_key, [])}
     for key in sorted(set(a) | set(b)):
         if key not in a:
-            out.append(f"{key}: nur in der Kopie, nicht auf dem Mandanten")
+            out.append(f"{key}: nur im Bündel, nicht auf dem Mandanten")
             continue
         if key not in b:
-            out.append(f"{key}: nur auf dem Mandanten, nicht in der Kopie")
+            out.append(f"{key}: nur auf dem Mandanten, nicht im Bündel")
             continue
         for fld in ("instance_types", "owner_role", "context", "levels", "branches", "final"):
             if fld in a[key] or fld in b[key]:
@@ -297,15 +306,15 @@ def differences(tenant: Dict[str, Any], copy_doc: Dict[str, Any], list_key: str)
 
 
 def load(ctx: Any) -> Definitions:
-    """Tenant first; the pinned copy when the tenant is unreadable or invalid."""
-    ref_proc, ref_spine = vendored()
-    copy_errors = validate(ref_proc, "process-definition.schema.json") + \
+    """Tenant first; the bundle when the tenant is unreadable or invalid."""
+    ref_proc, ref_spine = from_bundle()
+    bundle_errors = validate(ref_proc, "process-definition.schema.json") + \
         validate(ref_spine, "spine-definition.schema.json")
     try:
         proc_doc, spine_doc, gaps, parse_errors, nodes = from_tenant(ctx)
-    except Exception as exc:  # noqa: BLE001 - any failure here means "use the copy"
+    except Exception as exc:  # noqa: BLE001 - any failure here means "use the bundle"
         return Definitions(ref_proc["processes"], ref_spine["spines"], ref_proc.get("rules", []),
-                           "vendored", errors=[f"Mandant nicht lesbar ({type(exc).__name__}); Kopie verwendet"] + copy_errors,
+                           "bundle", errors=[f"Mandant nicht lesbar ({type(exc).__name__}); Bündel verwendet"] + bundle_errors,
                            pinned=pin())
     errors = parse_errors + validate(proc_doc, "process-definition.schema.json") + \
         validate(spine_doc, "spine-definition.schema.json")
@@ -313,9 +322,9 @@ def load(ctx: Any) -> Definitions:
     if errors or not proc_doc["processes"]:
         why = errors or ["keine Prozessdefinitionen auf dem Mandanten"]
         return Definitions(ref_proc["processes"], ref_spine["spines"], ref_proc.get("rules", []),
-                           "vendored", errors=[f"Mandant: {e}" for e in why] + copy_errors,
+                           "bundle", errors=[f"Mandant: {e}" for e in why] + bundle_errors,
                            gaps=gaps, differences=diffs, pinned=pin(),
                            process_nodes=nodes["process"], step_nodes=nodes["step"])
     return Definitions(proc_doc["processes"], spine_doc["spines"], proc_doc["rules"], "tenant",
-                       errors=copy_errors, gaps=gaps, differences=diffs, pinned=pin(),
+                       errors=bundle_errors, gaps=gaps, differences=diffs, pinned=pin(),
                        process_nodes=nodes["process"], step_nodes=nodes["step"])

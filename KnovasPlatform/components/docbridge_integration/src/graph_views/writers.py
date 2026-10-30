@@ -2,13 +2,14 @@
 
 The edit map (graph_views.edit_map, KnowledgeBase DEC-0022) says where each relation and fact a
 definition uses is edited: a file and a key path in it, as prose. Each writer here implements one
-edit-map id, and records the ``source`` and ``key_path`` it was written for. When the pinned edit
-map says something else, the writer refuses ("routing changed") rather than writing to the place
-the edit map no longer names; tests/test_views_writers.py fails on re-vendoring.
+edit-map id, and records the ``source`` and ``key_path`` it was written for. When the edit map of
+the tenant's bundle says something else, the writer refuses ("routing changed") rather than writing
+to the place the edit map no longer names; tests/test_views_writers.py fails when the Knovas
+fixture's edit map moves a source.
 
 Edits are line edits on the file's text, never a re-serialisation. After every edit the writer
 reads the result back the way KnowledgeBase's loader reads it (``declared`` below is a port of
-scripts/client_zero/providers/plan_declarations.py at the pinned commit) and refuses an edit
+scripts/client_zero/providers/plan_declarations.py at KnowledgeBase c325397d) and refuses an edit
 whose result the loader would not see.
 """
 from __future__ import annotations

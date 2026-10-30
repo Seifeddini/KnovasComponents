@@ -13,7 +13,7 @@ from graph_views import default_views, process_views as pv, service as views, sp
 from graph_views.descriptions import hop_fits
 from graph_views.settings import ViewSettings
 from identity.saved_views import clean_view
-from views_fixture import FakeViewsClient, client_zero_graph
+from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
 
 TODAY = dt.date(2026, 10, 27)
 
@@ -44,7 +44,7 @@ def graph():
 
 def _ctx(graph):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     ctx = svc.context()
     return ctx, svc.definitions(ctx)
 
@@ -151,7 +151,7 @@ class TestSeed:
                               "connection": lambda self: platform_db})()
         app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"))
         app.register_blueprint(create_views_blueprint(
-            gate, views.ViewService(lambda: None, ViewSettings()), graph_mode=lambda: True,
+            gate, views.ViewService(lambda: None, ViewSettings(config_source=KNOVAS_SOURCE)), graph_mode=lambda: True,
             view_store=lambda: SavedViewStore(platform_db)))
         client = app.test_client()
         gate.user = ida

@@ -17,7 +17,7 @@ from flask import Flask
 
 from graph_views import change_requests as cr, change_set as cs, fixes, plan_file, service as views
 from graph_views.settings import ViewSettings
-from views_fixture import FakeViewsClient, client_zero_graph
+from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
 from web_interface.views_routes import create_views_blueprint
 
 TODAY = dt.date(2026, 10, 28)
@@ -195,7 +195,7 @@ def graph():
 
 def _ctx(graph):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     ctx = svc.context()
     return ctx, svc.definitions(ctx), svc
 
@@ -571,7 +571,7 @@ class TestRoutes:
         from identity.node_grants import NodeGrantStore
 
         client = FakeViewsClient(graph)
-        svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+        svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
         gate = type("G", (), {"user": None, "current_user": lambda self: self.user, "connection": lambda self: platform_db})()
         app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"))
         app.register_blueprint(create_views_blueprint(
@@ -666,7 +666,7 @@ class TestRoutes:
 
     def test_without_identity_there_are_no_change_sets(self, graph):
         client = FakeViewsClient(graph)
-        svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+        svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
         app = Flask(__name__)
         app.register_blueprint(create_views_blueprint(None, svc, graph_mode=lambda: True))
         assert app.test_client().get("/api/views/changeset").status_code == 409

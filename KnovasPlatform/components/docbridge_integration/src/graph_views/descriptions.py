@@ -1,42 +1,33 @@
 """Display names and descriptions from KnowledgeBase's descriptions.yaml (rule 8).
 
-The vendored copy under definitions/ is pinned in SOURCE.json. A type or
-relation the file does not describe shows its technical name and no text —
-nothing is made up here.
+Both come from the tenant's definitions bundle (sections ``descriptions`` and
+``relations``, ``bundle.py``). A type or relation the bundle does not describe
+shows its technical name and no text — nothing is made up here.
 """
 from __future__ import annotations
 
-import functools
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
-
-DEFINITIONS_DIR = Path(__file__).resolve().parent / "definitions"
+from graph_views import bundle
 
 
-@functools.lru_cache(maxsize=4)
-def load(path: Optional[str] = None) -> Dict[str, Any]:
-    target = Path(path) if path else DEFINITIONS_DIR / "descriptions.yaml"
-    try:
-        data = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
+def load() -> Dict[str, Any]:
+    data = bundle.current().descriptions
     return data if isinstance(data, dict) else {}
 
 
-@functools.lru_cache(maxsize=1)
 def relations() -> Dict[str, Dict[str, Any]]:
-    """relations.yaml (pinned copy): name -> {domain, range}."""
-    try:
-        data = yaml.safe_load((DEFINITIONS_DIR / "relations.yaml").read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
-    return {r["name"]: r for r in data.get("relations") or [] if isinstance(r, dict) and r.get("name")}
+    """The bundle's relations: name -> {domain, range}."""
+    def build() -> Dict[str, Dict[str, Any]]:
+        data = bundle.current().relations
+        rels = data.get("relations") if isinstance(data, dict) else None
+        return {r["name"]: r for r in rels or [] if isinstance(r, dict) and r.get("name")}
+
+    return bundle.current().memo("relations_by_name", build)
 
 
 def hop_fits(type_name: str, hop: Dict[str, str]) -> bool:
-    """May a hop start at a node of ``type_name``, by relations.yaml?
+    """May a hop start at a node of ``type_name``, by the bundle's relations?
 
     ``out``: the start node is the edge's node_lo, so its type must be in the
     relation's domain; ``in``: it is node_hi, so in the range. Unknown

@@ -39,10 +39,10 @@
         const add = (node) => { if (node) page.appendChild(node); };
         page.appendChild(el('p', { className: 'views-muted', text: data.source === 'tenant'
             ? 'Quelle: Definitionsknoten des Mandanten.'
-            : 'Quelle: gepinnte Kopie aus KnowledgeBase (der Mandant war nicht lesbar oder nicht gültig).' }));
+            : `Quelle: Definitionsbündel ${(data.pinned && data.pinned.label) || ''} aus KnowledgeBase (der Mandant war nicht lesbar oder nicht gültig).` }));
         add(messages('Fehler', data.errors, 'error'));
         add(messages('Lücken auf dem Mandanten', data.gaps, 'gap'));
-        add(messages('Abweichungen Mandant ↔ Kopie', data.differences, 'diff'));
+        add(messages('Abweichungen Mandant ↔ Bündel', data.differences, 'diff'));
 
         page.appendChild(el('h2', { text: `Prozesse (${data.processes.length})` }));
         data.processes.forEach((p) => {

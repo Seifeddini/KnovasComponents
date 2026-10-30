@@ -7,7 +7,6 @@ docs/superpowers/plans/2026-10-27-process-and-spine-views.md
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from pathlib import Path
@@ -19,10 +18,9 @@ from graph_views import grouping, service as views
 from graph_views.pacing import TokenBucket
 from graph_views.settings import ViewSettings
 from graph_views.topology import PartialIndex, TopologyCache, TopologyIndex, subject_key
-from views_fixture import FakeViewsClient, client_zero_graph
+from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
 from web_interface.views_routes import create_views_blueprint
 
-DEFINITIONS = Path(__file__).resolve().parents[1] / "src" / "graph_views" / "definitions"
 
 
 class _NoWait:
@@ -31,7 +29,7 @@ class _NoWait:
 
 
 def _service(client, **settings):
-    return views.ViewService(lambda: client, ViewSettings(**settings), bucket=_NoWait(),
+    return views.ViewService(lambda: client, ViewSettings(**{"config_source": KNOVAS_SOURCE, **settings}), bucket=_NoWait(),
                              markers=lambda: set())
 
 
@@ -80,7 +78,7 @@ class TestTopologyCache:
 
     def test_ttl_expiry_reads_again(self, client):
         clock = [1000.0]
-        svc = views.ViewService(lambda: client, ViewSettings(ttl_seconds=60), bucket=_NoWait(),
+        svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE, ttl_seconds=60), bucket=_NoWait(),
                                 now=lambda: clock[0], markers=lambda: set())
         svc.context()
         clock[0] += 61
@@ -175,7 +173,7 @@ class TestMeta:
         assert any(c["type"] == "GlossaryTerm" for c in body["chips"])
 
     def test_a_type_level_marker_wins_and_reads_no_fact(self, client, graph):
-        svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(),
+        svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(),
                                 markers=lambda: {"Event", "RunEvent"})
         ctx = svc.context()
         views.ego_graph(ctx, graph.by_key["L2-KNOWLEDGE-GRAPH"])
@@ -436,28 +434,11 @@ def test_token_bucket_paces_after_the_burst():
     assert slept and abs(sum(slept) - 1.0) < 1e-6   # third call waits one second at 1/s
 
 
-# -- vendored files and their pin -------------------------------------------------------
-
-
-def test_vendored_copies_match_their_pin():
-    """A copy edited by hand, or re-vendored without SOURCE.json, fails here."""
-    source = json.loads((DEFINITIONS / "SOURCE.json").read_text(encoding="utf-8"))
-    assert source["files"], "SOURCE.json lists no file"
-    for name, pin in source["files"].items():
-        data = (DEFINITIONS / name).read_bytes().replace(b"\r\n", b"\n")
-        assert hashlib.sha256(data).hexdigest() == pin["sha256"], f"{name} diverged from its pin"
-        # A copy is pinned to a KnowledgeBase commit, or says why it cannot be.
-        assert (pin.get("commit") and len(pin["commit"]) == 40) or pin.get("note"), name
-
-
-def test_every_vendored_file_is_pinned():
-    source = json.loads((DEFINITIONS / "SOURCE.json").read_text(encoding="utf-8"))
-    files = {p.name for p in DEFINITIONS.iterdir() if p.is_file() and p.name != "SOURCE.json"}
-    assert files == set(source["files"])
-
-
 def test_settings_come_from_config():
     class Config:
+        def get(self, key, default):
+            return {"views.config_source": " file:/defs/bundle.json "}.get(key, default)
+
         def get_int(self, key, default):
             return {"views.fanout_threshold": 7, "views.edge_limit": 5}.get(key, default)
 
@@ -466,3 +447,4 @@ def test_settings_come_from_config():
 
     s = ViewSettings.from_config(Config())
     assert (s.fanout_threshold, s.edge_limit, s.edge_budget_seconds) == (7, 5, 1.5)
+    assert s.config_source == "file:/defs/bundle.json"

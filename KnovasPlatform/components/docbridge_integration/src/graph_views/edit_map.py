@@ -7,42 +7,28 @@ path in it. A non-editable entry says why (``from git``, ``from CI``, ``derived 
 
 ``suggestions.json`` lists, per missing required artefact of an instance, ranked candidates with
 the rule and a reason a person can check. Both are KnowledgeBase's; the Platform only reads them
-from the pinned copies in ``definitions/``.
+from the tenant's definitions bundle (section ``edit_map``, report ``suggestions``; ``bundle.py``).
 """
 from __future__ import annotations
 
-import functools
-import json
 from typing import Any, Dict, List, Optional
 
-from graph_views.definitions import DEFINITIONS_DIR
+from graph_views import bundle
 
 #: Edit-map sources are written relative to the repository or to docs/ModernDocs.
 _MODERNDOCS = "docs/ModernDocs/"
 
 
-@functools.lru_cache(maxsize=1)
 def _edit_map() -> Dict[str, Any]:
-    try:
-        return json.loads((DEFINITIONS_DIR / "edit-map.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return bundle.current().edit_map
 
 
-@functools.lru_cache(maxsize=1)
 def _suggestions() -> Dict[str, Any]:
-    try:
-        return json.loads((DEFINITIONS_DIR / "suggestions.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return bundle.current().report("suggestions")
 
 
 def items() -> Dict[str, Dict[str, Any]]:
-    return {i["id"]: i for i in _edit_map().get("items") or []}
-
-
-def generated_at() -> Optional[str]:
-    return _edit_map().get("generated_at")
+    return bundle.current().memo("edit_map_items", lambda: {i["id"]: i for i in _edit_map().get("items") or []})
 
 
 def entry(edit_id: str) -> Optional[Dict[str, Any]]:

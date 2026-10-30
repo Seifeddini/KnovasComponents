@@ -1,29 +1,26 @@
 """Node keys as KnowledgeBase declares them: ``id_prefixes`` per type in terms.yaml.
 
 Used to tell which types a typed key can belong to (search) and which type a
-key names (change requests). Read from the pinned copy under definitions/.
+key names (change requests). Read from the ``types`` section of the tenant's bundle.
 """
 from __future__ import annotations
 
-import functools
 import re
-from pathlib import Path
 from typing import Dict, List, Optional
 
-import yaml
-
-TERMS = Path(__file__).resolve().parent / "definitions" / "terms.yaml"
+from graph_views import bundle
 
 
-@functools.lru_cache(maxsize=1)
 def key_patterns() -> Dict[str, List[re.Pattern]]:
     """type -> compiled id_prefixes."""
-    data = yaml.safe_load(TERMS.read_text(encoding="utf-8")) or {}
-    out: Dict[str, List[re.Pattern]] = {}
-    for t in data.get("node_types") or []:
-        if isinstance(t, dict) and t.get("name") and t.get("id_prefixes"):
-            out[t["name"]] = [re.compile(p) for p in t["id_prefixes"]]
-    return out
+    def build() -> Dict[str, List[re.Pattern]]:
+        out: Dict[str, List[re.Pattern]] = {}
+        for t in bundle.current().types.get("node_types") or []:
+            if isinstance(t, dict) and t.get("name") and t.get("id_prefixes"):
+                out[t["name"]] = [re.compile(p) for p in t["id_prefixes"]]
+        return out
+
+    return bundle.current().memo("key_patterns", build)
 
 
 def key_type(key: str, *types: str) -> Optional[str]:

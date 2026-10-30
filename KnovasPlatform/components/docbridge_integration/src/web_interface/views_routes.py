@@ -15,6 +15,7 @@ from typing import Any, Callable, Optional
 from flask import Blueprint, jsonify, render_template, request
 
 from graph_views import service as views
+from graph_views.bundle import BundleError
 from graph_views.reader import ReadFailed
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,13 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             if not graph_mode():
                 return jsonify({"success": False, "error": _FIXTURE_MODE_ERROR}), 409
             try:
+                service.bundle()          # refused before any read; the view's context refreshes it
                 return view(*args, **kwargs)
+            except BundleError as exc:
+                # The tenant's definitions bundle is missing, unreadable or refused (wrong format
+                # version or hash): every view says why instead of drawing from nothing.
+                logger.warning("views: definitions bundle: %s", exc)
+                return jsonify({"success": False, "error": f"Definitionsbündel: {exc}", "bundle_error": True}), 503
             except PermissionError:
                 return jsonify({"success": False, "error": "Nicht angemeldet."}), 401
             except ReadFailed as exc:
@@ -75,18 +82,32 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         return wrapped
 
     def ctx():
+        # ``guarded`` read the bundle already (cached); a refresh reads it and the graph again.
         return service.context(refresh=_flag("refresh"))
+
+    def bundle_error() -> Optional[str]:
+        """Why the tenant's definitions bundle cannot be used, for the page; None when it can."""
+        if not graph_mode() or (gate is not None and gate.current_user() is None):
+            return None
+        try:
+            service.bundle()
+        except BundleError as exc:
+            return str(exc)
+        except Exception:  # noqa: BLE001 - the page still loads; the JSON routes say what failed
+            return None
+        return None
 
     @bp.route("/views")
     def views_page():
         extra = page_context() if page_context else {}
-        return render_template("views.html", graph_mode=graph_mode(), **extra)
+        return render_template("views.html", graph_mode=graph_mode(), bundle_error=bundle_error(), **extra)
 
     @bp.route("/views/doc/<path:key>")
     def views_doc_page(key: str):
         """A documentation page's stable address (Step 8): /views/doc/L2-KNOWLEDGE-GRAPH."""
         extra = page_context() if page_context else {}
-        return render_template("views.html", graph_mode=graph_mode(), doc_key=key[:200], **extra)
+        return render_template("views.html", graph_mode=graph_mode(), bundle_error=bundle_error(),
+                               doc_key=key[:200], **extra)
 
     @bp.route("/api/views/graph")
     @guarded
@@ -137,8 +158,9 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         d = service.definitions(context, refresh=_flag("refresh"))
         body = context.envelope(
             source=d.source, processes=d.processes, spines=d.spines, rules=d.rules,
-            pinned={name: {k: v for k, v in pin.items() if k in ("commit", "note")}
-                    for name, pin in (d.pinned.get("files") or {}).items()})
+            # The bundle's label, content hash and build commit; the source names a repository and
+            # ref only (never a token), so everyone may see it.
+            pinned=d.pinned)
         if is_admin():
             # Validation errors, gaps and differences are for the people who can
             # fix the ontology; everyone else sees the definitions themselves.

@@ -61,11 +61,42 @@ COMPOSE_PROFILES=                                   # no mock, no experiments
 ONTOLOGY_SOURCE=graph
 # CORTEX_ENABLED stays unset (true): /views belongs to Cortex and is refused when it is false.
 
+# The tenant's definitions bundle (see "The definitions bundle" below). Without it every view
+# answers "Definitionsbündel: Kein Definitionsbündel konfiguriert".
+VIEWS_CONFIG_SOURCE=github:Seifeddini/KnowledgeBase@master:docs/ModernDocs/client-zero/generated/bundle.json
+
 # Plain HTTP on 127.0.0.1 only (no TLS in front): otherwise the session cookie is dropped.
 WEB_SESSION_COOKIE_SECURE=false
 ```
 
 `IDENTITY_ENABLED` stays unset (on): saved views, the remembered selection, change sets and their audit need accounts. Every key `setup.sh` does not consume (`ONTOLOGY_SOURCE`, `VIEWS_*`, `WEB_SESSION_COOKIE_SECURE`) is passed through to the Platform unchanged. The tunable view settings and their defaults are in `KnovasPlatform/components/docbridge_integration/config/config.yaml` under `views:`.
+
+### The definitions bundle (never a copy in the Platform)
+
+The views draw processes, spines, pages, the edit map, descriptions and key patterns from the tenant's
+**definitions bundle** (KnowledgeBase KB-7, `docs/ModernDocs/client-zero/generated/bundle.json`), with the
+three computed reports it names. Definition nodes on the tenant still come first; the bundle fills what the
+tenant does not hold (listed as gaps on "Definitionen"). `views.config_source` (`VIEWS_CONFIG_SOURCE`) names it:
+
+| Form | Use |
+|---|---|
+| `github:<owner>/<repo>@<ref>:<path to bundle.json>` | A deployment. Read with the change requests' GitHub client and token (`KB_GITHUB_TOKEN`, else the file `views.change_requests.github_token_file`, default `/app/secrets/kb_github_token`). The token needs Contents (read) on KnowledgeBase. |
+| `file:<path>` | Development and tests: a KnowledgeBase checkout's `bundle.json` (the reports are read beside it). |
+
+The bundle is read again after `views.definitions_ttl_seconds` (default 600 s) and kept by its content hash.
+The refresh button reads it at once. A bundle with an unknown `format_version`, or whose `content_hash`
+does not match its sections, is refused, and every view shows why.
+
+Compose mounts no token file. Put the token into a file outside the checkout and mount it with a local
+`docker-compose.override.yml`, never in `knovas.env`. `setup.sh` copies `knovas.env` into the
+world-readable `.env.generated`:
+
+```yaml
+services:
+  docbridge-web:
+    volumes:
+      - /path/outside/the/checkout/kb_github_token:/app/secrets/kb_github_token:ro
+```
 
 ### Start
 
@@ -115,6 +146,7 @@ export SEMANTIX_API_URL=https://api.knovas.ch:8443
 export SEMANTIX_CUSTOMER_ID=af639810-afc7-403f-8139-f6026d085c99
 export SEMANTIX_CLIENT_CERT=<path>/client-cert.pem SEMANTIX_CLIENT_KEY=<path>/client-key.pem SEMANTIX_CA_CERT=<path>/ca-root.pem
 export ONTOLOGY_SOURCE=graph
+export VIEWS_CONFIG_SOURCE=file:<KnowledgeBase checkout>/docs/ModernDocs/client-zero/generated/bundle.json
 # Without accounts (read-only views; no saved views or change sets). Binds to 127.0.0.1 only:
 export IDENTITY_ENABLED=false COMPANY_LOGIN_ENABLED=false
 # With accounts instead: IDENTITY_ENABLED=true, PLATFORM_DB_DSN=postgresql://…, PLATFORM_ADMIN_EMAIL=…

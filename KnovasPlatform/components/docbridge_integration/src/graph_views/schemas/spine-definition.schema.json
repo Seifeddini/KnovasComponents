@@ -9,7 +9,7 @@
     "version": {"type": "integer", "minimum": 1},
     "generated_at": {"type": "string"},
     "source": {"type": "string"},
-    "spines": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/spine"}}
+    "spines": {"type": "array", "items": {"$ref": "#/$defs/spine"}, "description": "Platform reader (KC-1): may be empty, as for a company without spines (KB-7)."}
   },
   "$defs": {
     "link": {
