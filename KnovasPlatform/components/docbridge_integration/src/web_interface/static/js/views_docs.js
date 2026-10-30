@@ -1,18 +1,17 @@
 /* Ansichten, render kind "doc" ("Dokumentation"): the software documentation (Step 8).
  *
- * Left, a tree along the product spine's software levels under the System page
- * (System → software areas → L2 → L3) with a search and a marker per node;
- * right, the page drawn from KnowledgeBase's page definition: sections in
- * order, each with its render hint, "Quelle · Stand", stale and missing flags.
- * System and software areas draw their children as a layered diagram (no force
- * layout: the server places the boxes). Every page has a stable address,
- * /views/doc/<key>. Nothing is stored in the browser.
+ * Left, the tree of pages the page definitions give (for Knovas: System →
+ * software areas → L2 → L3) with a search and a marker per node; right, the
+ * page drawn from KnowledgeBase's page definition: sections in order, each with
+ * its render hint, "Quelle · Stand", stale and missing flags. A page with
+ * children draws them as a layered diagram (no force layout: the server places
+ * the boxes). Which types have pages comes from the server (KC-3). Every page
+ * has a stable address, /views/doc/<key>. Nothing is stored in the browser.
  */
 (function (root) {
     'use strict';
     const { el, clear, api } = root.ViewsCore;
     const SVG = 'http://www.w3.org/2000/svg';
-    const DOC_TYPES = ['System', 'BoundedContext', 'Component', 'Interface'];
 
     function svg(tag, attrs, children) {
         const node = document.createElementNS(SVG, tag);
@@ -100,11 +99,13 @@
         constructor(page) {
             this.page = page;
             this.open = new Set();
+            this.docTypes = [];                                // until the tree says which types have pages
         }
 
         /** Mount into the page's document area: tree left, page right. */
         mount(box, rootsBody) {
             this.roots = rootsBody.nodes;
+            this.docTypes = rootsBody.types || [];          // the types with a page definition
             this.nav = el('nav', { className: 'views-docs-nav', 'aria-label': 'Dokumentation' });
             this.main = el('article', { className: 'views-docs-page' });
             box.appendChild(el('div', { className: 'views-docs' }, [this.nav, this.main]));
@@ -112,7 +113,7 @@
             const key = this.page.state.docKey;
             if (key) this.openKey(key);
             else if (this.roots.length) this.openNode(this.roots[0].id);
-            else this.main.appendChild(el('p', { className: 'views-empty', text: 'Kein System-Knoten im Wissensnetz.' }));
+            else this.main.appendChild(el('p', { className: 'views-empty', text: 'Keine Seite der obersten Ebene im Wissensnetz.' }));
         }
 
         drawNav() {
@@ -127,7 +128,7 @@
                     if (input.value.trim().length < 2) { results.hidden = true; return; }
                     try {
                         const d = await api('/api/views/search', { q: input.value.trim() });
-                        const hits = d.results.filter((r) => DOC_TYPES.includes(r.type)).slice(0, 12);
+                        const hits = d.results.filter((r) => this.docTypes.includes(r.type)).slice(0, 12);
                         hits.forEach((r) => results.appendChild(el('li', {}, [el('button', { type: 'button', className: 'views-link',
                             onclick: () => { results.hidden = true; input.value = ''; this.openNode(r.id); } },
                         [el('span', { className: 'views-tech', text: r.key || r.type_label }), ` ${r.name}`])])));
@@ -243,7 +244,7 @@
             ]));
             if (d.diagram) {
                 main.appendChild(el('section', { className: 'views-docs-section' }, [
-                    el('h3', { text: n.type === 'System' ? 'Software-Bereiche' : 'Komponenten und ihre Aufrufe' }),
+                    el('h3', { text: d.diagram.title || 'Übersicht' }),
                     drawDiagram(d.diagram, (b) => this.openNode(b.id)),
                     el('p', { className: 'views-tech', text: d.diagram.note }),
                 ]));
@@ -326,7 +327,7 @@
             if (r.url) {
                 return el('a', { href: r.url, target: '_blank', rel: 'noopener noreferrer', title: r.path || '', text: r.name });
             }
-            if (DOC_TYPES.includes(r.type)) {
+            if (this.docTypes.includes(r.type)) {
                 return el('button', { type: 'button', className: 'views-link', title: 'Seite öffnen', onclick: () => this.openNode(r.id) }, [r.name]);
             }
             return el('button', { type: 'button', className: 'views-link', title: 'Dossier öffnen', onclick: () => this.page.openDossier(r.id) }, [r.name]);
