@@ -769,7 +769,8 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             key = doc_pages.keys_of(context, service.schemas, [parent], service.settings.key_index_max).get(parent)
             rows = doc_pages.children(context, service.schemas, parent, key, service.settings.key_index_max)
         rep = doc_pages.report()
-        return jsonify(context.envelope(nodes=rows, report_as_of=rep["generated_at"]))
+        # The types with a page definition: their nodes open as pages, everything else as a dossier.
+        return jsonify(context.envelope(nodes=rows, report_as_of=rep["generated_at"], types=doc_pages.documented_types()))
 
     @bp.route("/api/views/doc/page")
     @guarded
