@@ -1,0 +1,130 @@
+{
+ "name": {
+  "de": "Engineering",
+  "en": "Engineering"
+ },
+ "pack": "engineering",
+ "source": "DataModels/Semantic Data Model (SeDM)/ontology/domains/engineering/engineering.ttl",
+ "types": [
+  {
+   "abstract": false,
+   "id": "eng:Assembly",
+   "label": {
+    "de": "Baugruppe",
+    "en": "Assembly"
+   },
+   "name": "Assembly",
+   "parents": [
+    "eng:Component"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:CodeArtifact",
+   "label": {
+    "de": "Code-Artefakt",
+    "en": "Code Artifact"
+   },
+   "name": "CodeArtifact",
+   "parents": [
+    "euo:Software"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:Component",
+   "label": {
+    "de": "Komponente",
+    "en": "Component"
+   },
+   "name": "Component",
+   "parents": [
+    "euo:MaterialObject"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:DesignActivity",
+   "label": {
+    "de": "Konstruktionsaktivität",
+    "en": "Design Activity"
+   },
+   "name": "DesignActivity",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:EngineeringModel",
+   "label": {
+    "de": "Engineering-Modell",
+    "en": "Engineering Model"
+   },
+   "name": "EngineeringModel",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:ManufacturingProcess",
+   "label": {
+    "de": "Fertigungsprozess",
+    "en": "Manufacturing Process"
+   },
+   "name": "ManufacturingProcess",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:Part",
+   "label": {
+    "de": "Teil",
+    "en": "Part"
+   },
+   "name": "Part",
+   "parents": [
+    "eng:Component"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:SimulationRun",
+   "label": {
+    "de": "Simulationslauf",
+    "en": "Simulation Run"
+   },
+   "name": "SimulationRun",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:TechnicalRole",
+   "label": {
+    "de": "Technische Rolle",
+    "en": "Technical Role"
+   },
+   "name": "TechnicalRole",
+   "parents": [
+    "euo:Role"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "eng:TestExecution",
+   "label": {
+    "de": "Testausführung",
+    "en": "Test Execution"
+   },
+   "name": "TestExecution",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  }
+ ]
+}

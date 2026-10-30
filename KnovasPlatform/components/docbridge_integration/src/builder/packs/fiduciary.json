@@ -1,0 +1,310 @@
+{
+ "name": {
+  "de": "Fiduciary",
+  "en": "Fiduciary"
+ },
+ "pack": "fiduciary",
+ "source": "DataModels/Semantic Data Model (SeDM)/ontology/domains/fiduciary/fiduciary.ttl",
+ "types": [
+  {
+   "abstract": false,
+   "id": "fid:AnnualAccounts",
+   "label": {
+    "de": "Jahresrechnung",
+    "en": "Annual Accounts"
+   },
+   "name": "AnnualAccounts",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:AnnualClosing",
+   "label": {
+    "de": "Jahresabschluss",
+    "en": "Annual Closing"
+   },
+   "name": "AnnualClosing",
+   "parents": [
+    "fid:Engagement"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:Audit",
+   "label": {
+    "de": "Revision",
+    "en": "Audit"
+   },
+   "name": "Audit",
+   "parents": [
+    "fid:Engagement"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:AuditReport",
+   "label": {
+    "de": "Revisionsbericht",
+    "en": "Audit Report"
+   },
+   "name": "AuditReport",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:BankAccount",
+   "label": {
+    "de": "Bankkonto",
+    "en": "Bank Account"
+   },
+   "name": "BankAccount",
+   "parents": [
+    "euo:Account"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:BankStatement",
+   "label": {
+    "de": "Kontoauszug",
+    "en": "Bank Statement"
+   },
+   "name": "BankStatement",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:Booking",
+   "label": {
+    "de": "Buchung",
+    "en": "Booking"
+   },
+   "name": "Booking",
+   "parents": [
+    "euo:Transaction"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:CompensationFund",
+   "label": {
+    "de": "Ausgleichskasse",
+    "en": "Compensation Fund"
+   },
+   "name": "CompensationFund",
+   "parents": [
+    "euo:Organization"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:Engagement",
+   "label": {
+    "de": "Auftrag",
+    "en": "Engagement"
+   },
+   "name": "Engagement",
+   "parents": [
+    "euo:Case"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:FilingDeadline",
+   "label": {
+    "de": "Einreichefrist",
+    "en": "Filing Deadline"
+   },
+   "name": "FilingDeadline",
+   "parents": [
+    "euo:Deadline"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:FiscalYear",
+   "label": {
+    "de": "Geschäftsjahr",
+    "en": "Fiscal Year"
+   },
+   "name": "FiscalYear",
+   "parents": [
+    "euo:Period"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:Household",
+   "label": {
+    "de": "Haushalt",
+    "en": "Household"
+   },
+   "name": "Household",
+   "parents": [
+    "euo:Party"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:LedgerAccount",
+   "label": {
+    "de": "Sachkonto",
+    "en": "Ledger Account"
+   },
+   "name": "LedgerAccount",
+   "parents": [
+    "euo:Account"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:Mandate",
+   "label": {
+    "de": "Mandat",
+    "en": "Mandate"
+   },
+   "name": "Mandate",
+   "parents": [
+    "euo:Contract"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:PayrollRun",
+   "label": {
+    "de": "Lohnlauf",
+    "en": "Payroll Run"
+   },
+   "name": "PayrollRun",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:Payslip",
+   "label": {
+    "de": "Lohnabrechnung",
+    "en": "Payslip"
+   },
+   "name": "Payslip",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:PensionFund",
+   "label": {
+    "de": "Pensionskasse",
+    "en": "Pension Fund"
+   },
+   "name": "PensionFund",
+   "parents": [
+    "euo:LegalEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:SalaryStatement",
+   "label": {
+    "de": "Lohnausweis",
+    "en": "Salary Statement"
+   },
+   "name": "SalaryStatement",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:TaxAssessment",
+   "label": {
+    "de": "Veranlagungsverfügung",
+    "en": "Tax Assessment"
+   },
+   "name": "TaxAssessment",
+   "parents": [
+    "euo:Decision"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:TaxAuthority",
+   "label": {
+    "de": "Steuerverwaltung",
+    "en": "Tax Authority"
+   },
+   "name": "TaxAuthority",
+   "parents": [
+    "euo:PublicAuthority"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:TaxObligation",
+   "label": {
+    "de": "Steuerpflicht",
+    "en": "Tax Obligation"
+   },
+   "name": "TaxObligation",
+   "parents": [
+    "euo:Obligation"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:TaxPeriod",
+   "label": {
+    "de": "Steuerperiode",
+    "en": "Tax Period"
+   },
+   "name": "TaxPeriod",
+   "parents": [
+    "euo:Period"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:TaxReturn",
+   "label": {
+    "de": "Steuererklärung",
+    "en": "Tax Return"
+   },
+   "name": "TaxReturn",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:VatReturn",
+   "label": {
+    "de": "MWST-Abrechnung",
+    "en": "VAT Return"
+   },
+   "name": "VatReturn",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "fid:Voucher",
+   "label": {
+    "de": "Beleg",
+    "en": "Voucher"
+   },
+   "name": "Voucher",
+   "parents": [
+    "euo:Document"
+   ]
+  }
+ ]
+}

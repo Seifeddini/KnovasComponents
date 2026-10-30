@@ -247,6 +247,126 @@ def test_the_dialog_shows_a_refusal_and_keeps_focus_inside(browser, workspace_ur
     page.context.close()
 
 
+# ---------------------------------------------------------------------------
+# Step B2: the ontology, read-only. Same package as above.
+# ---------------------------------------------------------------------------
+
+
+def _open_ontology(page, base):
+    page.goto(f"{base}/builder/ontologie")
+    page.wait_for_function("window.__builderOntology && window.__builderOntology.readyMs >= 0", timeout=10_000)
+    return page.evaluate("""() => ({
+        sinceNavigation: Math.round(performance.now()),
+        readyMs: window.__builderOntology.readyMs,
+        types: window.__builderOntology.types,
+        relations: window.__builderOntology.relations,
+        expectedRelations: JSON.parse(document.getElementById('b-onto-data').textContent)
+            .relations.filter(r => r.domain.length && r.range.length).length,
+        expectedTypes: JSON.parse(document.getElementById('b-onto-data').textContent).counts.types,
+    })""")
+
+
+@pytest.mark.parametrize("width,scheme", [("1440", "light"), ("1440", "dark"), ("390", "light")])
+def test_ontology_screens(browser, workspace_url, shots, import_zip, width, scheme):
+    page = _page(browser, width, scheme)
+    _import_through_the_dialog(page, workspace_url, import_zip)
+    timing = _open_ontology(page, workspace_url)
+    suffix = f"-{width}-{scheme}"
+
+    # Acceptance: every type and every relation drawn, in under two seconds.
+    assert timing["types"] == timing["expectedTypes"]
+    assert timing["relations"] == timing["expectedRelations"]
+    assert timing["readyMs"] < 2000, timing
+    assert _no_sideways_scroll(page)
+    page.screenshot(path=shots / f"b2-canvas{suffix}.png")
+
+    if width == "1440":
+        page.locator("[data-onto-layout='force']").click()
+        page.screenshot(path=shots / f"b2-canvas-force{suffix}.png")
+        page.locator("[data-onto-layout='grouped']").click()
+
+    # A selected type: pick the model type with the most attributes.
+    chosen = page.evaluate("""() => {
+        const data = JSON.parse(document.getElementById('b-onto-data').textContent);
+        const node = data.nodes.filter(n => n.source === 'model').sort((a, b) => b.attribute_count - a.attribute_count)[0];
+        window.__builderOntology.select(node.id, {center: true});
+        return node.name;
+    }""")
+    page.wait_for_timeout(300)
+    panel = page.locator("#b-onto-panel")
+    assert panel.is_visible()
+    assert "Attribute" in panel.inner_text() and "Ausgehende Beziehungen" in panel.inner_text()
+    page.screenshot(path=shots / f"b2-selected{suffix}.png")
+    panel.locator(".b-panel-head [data-panel-close]").click()
+
+    page.locator("#b-onto-tab-tree").click()
+    page.screenshot(path=shots / f"b2-tree{suffix}.png")
+    page.locator("#b-onto-tab-problems").click()
+    page.screenshot(path=shots / f"b2-problems{suffix}.png", full_page=True)
+    assert chosen
+    page.context.close()
+
+
+def test_ontology_problems_of_the_sample_package(browser, workspace_url, shots, tmp_path):
+    """The sample package has the problems Client Zero has fixed: show them."""
+    from builder import package
+    from builder_harness import SAMPLE_PACKAGE
+
+    sample = tmp_path / "beispiel.zip"
+    sample.write_bytes(package.zip_files(package.files_from_directory(SAMPLE_PACKAGE)))
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, workspace_url, sample)
+    _open_ontology(page, workspace_url)
+    page.locator("#b-onto-tab-problems").click()
+    assert not page.locator("[data-onto-filters]").is_visible()
+    problems = page.locator("[data-onto-problems]").inner_text()
+    assert "relates_to" in problems
+    page.screenshot(path=shots / "b2-problems-sample-1440-light.png", full_page=True)
+    page.locator("[data-onto-problems] .b-problem button").first.click()
+    assert page.locator("#b-onto-panel").is_visible()
+    assert "relates_to" in page.locator("#b-onto-panel").inner_text()
+    faded = page.evaluate("window.__builderOntology.cy.nodes('.type.faded').length")
+    assert faded == 0  # a relation with nothing to draw fades nothing
+    page.wait_for_timeout(400)  # the panel's entrance
+    page.screenshot(path=shots / "b2-problem-on-canvas-1440-light.png")
+    page.context.close()
+
+
+def test_ontology_filters_search_and_problem_links(browser, workspace_url, import_zip):
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, workspace_url, import_zip)
+    _open_ontology(page, workspace_url)
+    visible = "() => window.__builderOntology.cy.nodes('.type').filter(n => n.style('display') !== 'none').length"
+    everything = page.evaluate(visible)
+
+    page.fill("#b-onto-search", "zzzz-nothing")
+    assert page.evaluate(visible) == 0
+    assert page.locator("[data-onto-canvas-empty]").is_visible()
+    page.fill("#b-onto-search", "")
+    assert page.evaluate(visible) == everything
+
+    page.locator("label:has([data-filter='level'][value='core'])").click()
+    without_core = page.evaluate(visible)
+    assert 0 < without_core < everything
+    page.locator("label:has([data-filter='level'][value='core'])").click()
+
+    # The tree collapses and expands.
+    page.locator("#b-onto-tab-tree").click()
+    rows = page.locator("[data-onto-tree] > li").count()
+    page.locator("[data-onto-tree] .b-tree-toggle").first.click()
+    assert page.locator("[data-onto-tree] > li").count() < rows
+    page.locator("[data-onto-tree] .b-tree-toggle").first.click()
+    assert page.locator("[data-onto-tree] > li").count() == rows
+
+    # A problem's link leads to its element on the canvas.
+    page.locator("#b-onto-tab-problems").click()
+    page.locator("[data-onto-problems] details").first.evaluate("d => d.open = true")
+    page.locator("[data-onto-problems] .b-problem button").first.click()
+    assert page.locator("#b-onto-view-canvas").is_visible()
+    assert page.locator("#b-onto-panel").is_visible()
+    page.context.close()
+
+
 def test_the_theme_choice_is_remembered(browser, base_url):
     page = _page(browser, "1440", "light")
     page.goto(f"{base_url}/builder/arbeitsbereich")

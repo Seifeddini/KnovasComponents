@@ -1,0 +1,122 @@
+{# Stage 3, read-only (build plan step B2): the workspace's ontology as a
+   canvas, a type tree and a problems list. Expects current_workspace and
+   ontology (builder.ontology_view.build). The views are drawn by
+   static/js/builder/ontology.js from the JSON below. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set c = ontology.counts %}
+{% block title %}{{ stage.label }} · {{ current_workspace.name }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }} · {{ current_workspace.name }}</p>
+        <h1 class="b-h1">{{ stage.label }}</h1>
+    </div>
+    <div class="b-tag-row">
+        <span class="b-tag">{{ c.types }} Typen</span>
+        <span class="b-tag">{{ c.relations }} Beziehungen</span>
+        {% if c.problems.critical %}<span class="b-tag b-tag--critical"><span class="b-tag-dot"></span>{{ c.problems.critical }} Probleme</span>{% endif %}
+        {% if c.problems.warning %}<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>{{ c.problems.warning }} Warnungen</span>{% endif %}
+        {% if c.problems.info %}<span class="b-tag"><span class="b-tag-dot"></span>{{ c.problems.info }} Hinweise</span>{% endif %}
+        <span class="b-tag b-tag--accent">Nur lesen</span>
+    </div>
+</header>
+
+<div data-tabs>
+    <div class="b-tablist" role="tablist" aria-label="Ansicht der Ontologie">
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-canvas" aria-controls="b-onto-view-canvas" aria-selected="true" data-onto-view="canvas">Fläche</button>
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-tree" aria-controls="b-onto-view-tree" aria-selected="false" tabindex="-1" data-onto-view="tree">Typbaum</button>
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-problems" aria-controls="b-onto-view-problems" aria-selected="false" tabindex="-1" data-onto-view="problems">Probleme<span class="b-tab-count">{{ ontology.problems | length }}</span></button>
+    </div>
+
+    <form class="b-onto-filters" role="search" aria-label="Typen filtern" data-onto-filters>
+        <div class="b-field">
+            <label class="b-label" for="b-onto-search">Suchen</label>
+            <input class="b-input b-search" id="b-onto-search" type="search" placeholder="Name oder Schlüssel, z. B. CAP-" autocomplete="off" data-filter="search">
+        </div>
+        <fieldset class="b-field b-choice">
+            <legend class="b-label">Ebene</legend>
+            <div class="b-onto-levels">
+                <label class="b-check"><input type="checkbox" data-filter="level" value="core" checked>Kern</label>
+                <label class="b-check"><input type="checkbox" data-filter="level" value="pack" checked>Paket</label>
+                <label class="b-check"><input type="checkbox" data-filter="level" value="company" checked>Firma</label>
+            </div>
+        </fieldset>
+        <div class="b-field">
+            <label class="b-label" for="b-onto-pack">Paket</label>
+            <select class="b-select" id="b-onto-pack" data-filter="pack">
+                <option value="">Alle</option>
+                {% for p in ontology.packs %}<option value="{{ p.id }}">{{ p.name.de or p.id }}</option>{% endfor %}
+                <option value="-">Ohne Paket</option>
+            </select>
+        </div>
+        <div class="b-field">
+            <label class="b-label" for="b-onto-meta">Meta</label>
+            <select class="b-select" id="b-onto-meta" data-filter="meta">
+                <option value="">Alle</option>
+                <option value="yes">Nur Meta-Typen</option>
+                <option value="no">Ohne Meta-Typen</option>
+            </select>
+        </div>
+        <div class="b-onto-levels">
+            <label class="b-check"><input type="checkbox" data-filter="problems">Nur mit Problemen</label>
+        </div>
+        <p class="b-onto-count" aria-live="polite" data-onto-count></p>
+    </form>
+
+    <div class="b-onto-work">
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-canvas" aria-labelledby="b-onto-tab-canvas" style="padding-top: 0">
+            <div class="b-canvas" data-onto-canvas>
+                <div class="b-onto-graph" id="b-onto-graph" aria-label="Typen und Beziehungen als Fläche" role="img"></div>
+                <div class="b-onto-empty" data-onto-canvas-empty hidden>Kein Typ passt zu den Filtern.</div>
+                <div class="b-toolbar" role="toolbar" aria-label="Fläche">
+                    <span data-toggle-group style="display: contents">
+                        <button type="button" class="b-tool b-tool-text" aria-pressed="true" data-onto-layout="grouped" title="Nach Ebene gruppiert">Gruppiert</button>
+                        <button type="button" class="b-tool b-tool-text" aria-pressed="false" data-onto-layout="force" title="Frei angeordnet nach Verbindungen">Frei</button>
+                    </span>
+                    <span class="b-tool-sep" aria-hidden="true"></span>
+                    <button type="button" class="b-tool" aria-label="Vergrößern" data-onto-zoom="in">{{ icon('zoom-in') }}</button>
+                    <button type="button" class="b-tool" aria-label="Verkleinern" data-onto-zoom="out">{{ icon('zoom-out') }}</button>
+                    <button type="button" class="b-tool" aria-label="Alles zeigen" data-onto-zoom="fit">{{ icon('fit') }}</button>
+                </div>
+                <div class="b-onto-legend" aria-hidden="true">
+                    <span><span class="b-onto-swatch b-onto-swatch--core"></span>Kern</span>
+                    <span><span class="b-onto-swatch b-onto-swatch--pack"></span>Paket</span>
+                    <span><span class="b-onto-swatch b-onto-swatch--company"></span>Firma</span>
+                    <span><span class="b-onto-swatch b-onto-swatch--problem"></span>Mit Problem</span>
+                    <span><span class="b-onto-line"></span>Untertyp von</span>
+                    <span><span class="b-onto-line b-onto-line--relation"></span>Beziehung</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-tree" aria-labelledby="b-onto-tab-tree" hidden>
+            <ul class="b-tree" role="tree" aria-label="Typbaum" data-onto-tree></ul>
+        </div>
+
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-problems" aria-labelledby="b-onto-tab-problems" hidden>
+            <div data-onto-problems></div>
+        </div>
+
+        <aside class="b-panel" id="b-onto-panel" aria-labelledby="b-onto-panel-title" data-panel hidden style="--panel-width: 480px">
+            <button type="button" class="b-panel-resize" role="separator" aria-orientation="vertical"
+                    aria-label="Breite der Seitenleiste" aria-valuemin="320" aria-valuemax="720" aria-valuenow="480"
+                    data-panel-resize></button>
+            <div class="b-panel-head">
+                <div>
+                    <h2 class="b-h3" id="b-onto-panel-title" data-onto-panel-title></h2>
+                    <span class="b-mono b-muted" data-onto-panel-key></span>
+                </div>
+                <button type="button" class="b-button b-button--quiet b-button--icon" data-panel-close aria-label="Seitenleiste schließen">{{ icon('close') }}</button>
+            </div>
+            <div class="b-panel-body" data-onto-panel-body></div>
+        </aside>
+    </div>
+</div>
+
+<script type="application/json" id="b-onto-data">{{ ontology | tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/ontology.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

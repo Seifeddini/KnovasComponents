@@ -1,0 +1,301 @@
+"""The ontology of a workspace as a tree, for the canvas and the type tree.
+
+Build plan step B2. The model holds the company's types; the reference packs
+hold the Brain's core types and the industry packs' classes. This module puts
+them into one tree: every model type under its parent, every core or pack
+class a model type descends from as a read-only node above it. A model type
+whose iri names a core or pack class *is* that class, as the company uses it.
+
+A type's parent comes from the model; a type that has none takes it from its
+description header "[level=...; parent=...]" (DEC-0004), which is where the
+Brain keeps it until its API can hold parents. The model is not changed.
+
+It also finds the problems a consultant should see while reading the
+ontology: types without a description, relations without a domain or range
+or naming an unknown type, parents that resolve to nothing, and attributes
+the graph store cannot hold today (only enum attributes reach it).
+"""
+from __future__ import annotations
+
+import re
+from typing import Any, Iterable, Mapping
+
+from builder import packs as reference_packs
+
+#: Datatypes the graph store holds as values today. Others are written as
+#: labels only until the store takes them (text, date, money, entity_ref).
+HELD_DATATYPES = frozenset({"enum"})
+#: A relation's domain or range that admits any type.
+WILDCARD = "*"
+
+_HEADER = re.compile(r"^\s*\[([^\]]*)\]")
+
+
+def header_fields(text: Any) -> dict[str, str]:
+    """``[level=pack; parent=euo:Software; iri=...]`` at the start of a description."""
+    match = _HEADER.match(text) if isinstance(text, str) else None
+    if not match:
+        return {}
+    fields = {}
+    for part in match.group(1).split(";"):
+        key, sep, value = part.partition("=")
+        if sep and value.strip() and value.strip().lower() not in ("none", "null", "-"):
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def _attribute(attr: Mapping[str, Any], origin: str | None = None) -> dict:
+    out = {
+        "name": attr.get("name"),
+        "datatype": attr.get("datatype") or "",
+        "required": bool(attr.get("required")),
+        "enum_values": list(attr.get("enum_values") or []),
+        "label": dict(attr.get("label") or {}),
+        "held": (attr.get("datatype") or "") in HELD_DATATYPES,
+    }
+    if origin:
+        out["from"] = origin
+    return out
+
+
+class _Problems:
+    def __init__(self):
+        self.items: list[dict] = []
+
+    def add(self, kind: str, severity: str, message: str, target_kind: str, target: str, **extra) -> str:
+        problem_id = f"p{len(self.items) + 1}"
+        self.items.append({"id": problem_id, "kind": kind, "severity": severity, "message": message,
+                           "target_kind": target_kind, "target": target, **extra})
+        return problem_id
+
+
+def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = None) -> dict:
+    """The tree, the relations and the problems of ``model``'s ontology."""
+    packs = list(packs if packs is not None else reference_packs.load())
+    catalog: dict[str, dict] = {}
+    for pack in packs:
+        for item in pack.get("types") or []:
+            catalog.setdefault(item["id"], {**item, "pack": pack["pack"]})
+
+    ontology = model.get("ontology") or {}
+    types = list(ontology.get("types") or [])
+    problems = _Problems()
+
+    # Node ids. A core-level type whose iri names a core class *is* that class
+    # as the company uses it, and takes its id (the first such type does).
+    # Any other type only maps to a class: pack and company types often name
+    # the class they specialise, which is their parent, not themselves.
+    key_to_id: dict[str, str] = {}
+    claimed: set[str] = set()
+    for item in types:
+        iri = item.get("iri")
+        if item.get("level") == "core" and iri in catalog and iri not in claimed:
+            key_to_id[item["key"]] = iri
+            claimed.add(iri)
+        else:
+            key_to_id[item["key"]] = f"type:{item['key']}"
+
+    nodes: dict[str, dict] = {}
+    for item in types:
+        node_id = key_to_id[item["key"]]
+        description = dict(item.get("description") or {})
+        nodes[node_id] = {
+            "id": node_id,
+            "key": item["key"],
+            "name": item["key"],
+            "label": dict(item.get("label") or {}),
+            "level": item.get("level") or "company",
+            "source": "model",
+            "readonly": item.get("level") == "core",
+            "meta": bool(item.get("meta")),
+            "iri": item.get("iri"),
+            "id_prefixes": list(item.get("id_prefixes") or []),
+            "description": description,
+            "example": item.get("example") or "",
+            "not_to_confuse": item.get("not_to_confuse") or "",
+            "attributes": [_attribute(a) for a in item.get("attributes") or []],
+            "parent": None,
+            "parent_ref": item.get("parent") or header_fields(description.get("en")).get("parent"),
+            "problems": [],
+        }
+
+    def add_catalog(class_id: str) -> None:
+        """A read-only node for a catalog class and the classes above it."""
+        while class_id and class_id not in nodes:
+            entry = catalog[class_id]
+            parent = (entry.get("parents") or [None])[0]
+            nodes[class_id] = {
+                "id": class_id, "key": class_id, "name": entry["name"], "label": dict(entry.get("label") or {}),
+                "level": "core" if entry["pack"] == "core" else "pack", "source": entry["pack"],
+                "readonly": True, "meta": False, "iri": class_id, "id_prefixes": [], "description": {},
+                "example": "", "not_to_confuse": "", "attributes": [],
+                "parent": parent if parent in catalog else None, "parent_ref": parent, "problems": [],
+                "abstract": bool(entry.get("abstract")),
+            }
+            class_id = parent if parent in catalog else None
+
+    # Resolve parents.
+    for node in list(nodes.values()):
+        if node["source"] != "model":
+            continue
+        ref = node["parent_ref"]
+        if not ref or ref == node["id"]:
+            # No parent given, or the type names its own class: a core class
+            # used as is hangs under the class's own parent from the catalog.
+            iri = node["id"] if node["id"] in catalog else None
+            ref = (catalog[iri].get("parents") or [None])[0] if iri else None
+            if not ref:
+                continue
+        if ref in key_to_id:
+            node["parent"] = key_to_id[ref]
+        elif ref in nodes:
+            node["parent"] = ref
+        elif ref in catalog:
+            add_catalog(ref)
+            node["parent"] = ref
+        else:
+            node["problems"].append(problems.add(
+                "parent_unknown", "critical", f"Der Elterntyp «{ref}» von {node['name']} ist unbekannt.",
+                "type", node["id"]))
+    # A parent chain must end: one that loops is cut where it closes.
+    for node in nodes.values():
+        seen = {node["id"]}
+        current = node["parent"]
+        while current is not None:
+            if current in seen:
+                node["problems"].append(problems.add(
+                    "parent_cycle", "critical", f"Die Elterntypen von {node['name']} bilden einen Kreis.",
+                    "type", node["id"]))
+                node["parent"] = None
+                break
+            seen.add(current)
+            current = nodes[current]["parent"] if current in nodes else None
+
+    # Pack membership: the type's own catalog pack, else the first pack class above it.
+    for node in nodes.values():
+        node["pack"] = None
+        current = node["id"]
+        while current is not None and current in nodes:
+            entry = catalog.get(current)
+            if entry and entry["pack"] != "core":
+                node["pack"] = entry["pack"]
+                break
+            current = nodes[current]["parent"]
+
+    # Inherited attributes: the model types above, then those every type has.
+    common = [_attribute(a, "Alle Typen") for a in ontology.get("common_attributes") or []]
+    for node in nodes.values():
+        inherited = []
+        current = node["parent"]
+        while current is not None and current in nodes:
+            above = nodes[current]
+            inherited += [{**a, "from": above["name"]} for a in above["attributes"]]
+            current = above["parent"]
+        node["inherited"] = inherited + (common if node["source"] == "model" else [])
+        node["attribute_count"] = len(node["attributes"])
+
+    # Problems on types and their attributes.
+    for node in nodes.values():
+        if node["source"] != "model":
+            continue
+        if not (node["description"].get("en") or node["description"].get("de")):
+            node["problems"].append(problems.add(
+                "type_no_description", "warning", f"{node['name']} hat keine Beschreibung.", "type", node["id"]))
+        for attr in node["attributes"]:
+            if not attr["held"]:
+                node["problems"].append(problems.add(
+                    "attribute_not_held", "info",
+                    f"{node['name']}.{attr['name']} ({attr['datatype'] or 'ohne Datentyp'}) kann der Graph-Speicher "
+                    "heute nicht als Wert halten; er bekommt nur die Beschriftung.",
+                    "type", node["id"], attribute=attr["name"]))
+    for attr in common:
+        if not attr["held"]:
+            problems.add(
+                "attribute_not_held", "info",
+                f"{attr['name']} ({attr['datatype'] or 'ohne Datentyp'}) gilt für alle Typen und kann heute nicht als "
+                "Wert gehalten werden.", "common", "", attribute=attr["name"])
+
+    # Relations.
+    relations = []
+    for item in ontology.get("relations") or []:
+        relation_id = f"relation:{item['key']}"
+        entry = {
+            "id": relation_id, "key": item["key"], "label": dict(item.get("label") or {}),
+            "sentence": item.get("sentence") or "", "level": item.get("level") or "company",
+            "inverse": item.get("inverse"), "domain": [], "range": [],
+            "domain_names": list(item.get("domain") or []), "range_names": list(item.get("range") or []),
+            "problems": [],
+        }
+        for side in ("domain", "range"):
+            names = entry[f"{side}_names"]
+            if WILDCARD in names:
+                # "*": any type. Valid, and drawn as no particular arrow.
+                entry[f"{side}_any"] = True
+                continue
+            if not names:
+                entry["problems"].append(problems.add(
+                    "relation_no_bounds", "critical",
+                    f"Der Beziehung {item['key']} fehlt der {'Definitions' if side == 'domain' else 'Werte'}bereich.",
+                    "relation", relation_id))
+            for name in names:
+                target = key_to_id.get(name) or (name if name in nodes else None)
+                if target is None:
+                    entry["problems"].append(problems.add(
+                        "relation_unknown_type", "critical",
+                        f"Die Beziehung {item['key']} nennt den unbekannten Typ «{name}».",
+                        "relation", relation_id))
+                else:
+                    entry[side].append(target)
+        relations.append(entry)
+
+    for relation in relations:
+        for side in ("domain", "range"):
+            for node_id in relation[side]:
+                nodes[node_id].setdefault("outgoing" if side == "domain" else "incoming", []).append(relation["id"])
+    for node in nodes.values():
+        node.setdefault("outgoing", [])
+        node.setdefault("incoming", [])
+
+    ordered = _tree_order(nodes)
+    present_packs = sorted({n["pack"] for n in nodes.values() if n["pack"]})
+    pack_names = {p["pack"]: p.get("name") or {} for p in packs}
+    return {
+        "nodes": ordered,
+        "relations": relations,
+        "problems": problems.items,
+        "packs": [{"id": p, "name": pack_names.get(p, {})} for p in present_packs],
+        "counts": {
+            "types": sum(1 for n in ordered if n["source"] == "model"),
+            "reference": sum(1 for n in ordered if n["source"] != "model"),
+            "relations": len(relations),
+            "edges": sum(len(r["domain"]) * len(r["range"]) for r in relations),
+            "problems": {
+                severity: sum(1 for p in problems.items if p["severity"] == severity)
+                for severity in ("critical", "warning", "info")
+            },
+        },
+    }
+
+
+def _tree_order(nodes: dict[str, dict]) -> list[dict]:
+    """Nodes depth first, children by name, each with its depth: the type tree's order."""
+    children: dict[str | None, list[str]] = {}
+    for node in nodes.values():
+        parent = node["parent"] if node["parent"] in nodes else None
+        children.setdefault(parent, []).append(node["id"])
+    for ids in children.values():
+        ids.sort(key=lambda i: nodes[i]["name"].lower())
+
+    ordered = []
+
+    def visit(node_id: str, depth: int) -> None:
+        node = nodes[node_id]
+        node["depth"] = depth
+        node["children"] = len(children.get(node_id, []))
+        ordered.append(node)
+        for child in children.get(node_id, []):
+            visit(child, depth + 1)
+
+    for root in children.get(None, []):
+        visit(root, 0)
+    return ordered

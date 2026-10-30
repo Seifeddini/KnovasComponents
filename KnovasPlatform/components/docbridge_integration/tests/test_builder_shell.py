@@ -137,6 +137,7 @@ class TestTheDesignSystemRules:
 
     def test_every_token_builder_css_uses_is_defined(self):
         tokens = (WEB / "static" / "css" / "builder" / "tokens.css").read_text(encoding="utf-8")
-        defined = set(re.findall(r"(--[a-z0-9-]+):", tokens)) | {"--panel-width"}
+        # Set per element by markup or script, not tokens: a panel's width, a tree row's depth.
+        defined = set(re.findall(r"(--[a-z0-9-]+):", tokens)) | {"--panel-width", "--depth"}
         used = set(re.findall(r"var\((--[a-z0-9-]+)", (WEB / "static" / "css" / "builder" / "builder.css").read_text(encoding="utf-8")))
         assert used - defined == set()

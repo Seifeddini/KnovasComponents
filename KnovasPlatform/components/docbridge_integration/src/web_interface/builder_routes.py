@@ -30,7 +30,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
                    session, url_for)
 from markupsafe import Markup
 
-from builder import package
+from builder import ontology_view, package
 
 logger = logging.getLogger(__name__)
 
@@ -234,8 +234,17 @@ def create_builder_blueprint(
         current = STAGES_BY_SLUG.get(slug)
         if current is None:
             abort(404)
-        template = "builder/workspaces.html" if current is STAGES[0] else "builder/stage.html"
-        return _render(template, stage=current, stage_number=STAGES.index(current) + 1)
+        number = STAGES.index(current) + 1
+        if current is STAGES[0]:
+            return _render("builder/workspaces.html", stage=current, stage_number=number)
+        if current.slug == "ontologie":
+            store = _store()
+            workspace = _current_workspace(store)
+            if workspace is not None:
+                return _render("builder/ontology.html", stage=current, stage_number=number,
+                               current_workspace=workspace,
+                               ontology=ontology_view.build(store.model(workspace.id)))
+        return _render("builder/stage.html", stage=current, stage_number=number)
 
     # -------------------------------------------------------- workspaces
 

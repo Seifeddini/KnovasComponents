@@ -127,6 +127,36 @@ class TestTheScreens:
         assert client.get("/builder/w/00000000-0000-0000-0000-000000000000/export").status_code == 404
 
 
+class TestTheOntologyStage:
+    def test_without_a_workspace_it_asks_for_one(self):
+        client, _ = _app()
+        html = client.get("/builder/ontologie").get_data(as_text=True)
+        assert "Dafür braucht es einen Arbeitsbereich" in html
+        assert 'id="b-onto-data"' not in html
+
+    def test_with_a_workspace_it_carries_the_tree_as_json(self, sample_zip):
+        import json
+
+        client, _ = _app()
+        _import(client, sample_zip)
+        html = client.get("/builder/ontologie").get_data(as_text=True)
+        raw = html.split('<script type="application/json" id="b-onto-data">', 1)[1].split("</script>", 1)[0]
+        data = json.loads(raw)
+        assert data["counts"]["types"] == 4
+        assert "js/vendor/cytoscape.min.js" in html
+        assert "4 Typen" in html and "2 Probleme" in html
+
+    def test_text_from_the_package_cannot_close_the_script(self, sample_zip):
+        """A description is customer text; tojson must keep it inside the JSON."""
+        files = package.files_from_directory(SAMPLE_PACKAGE)
+        files["ontology/descriptions.yaml"] = files["ontology/descriptions.yaml"].replace(
+            b"A dated duty inside a mandate.", b"</script><script>alert(1)</script>")
+        client, _ = _app()
+        assert _import(client, package.zip_files(files)).status_code == 201
+        html = client.get("/builder/ontologie").get_data(as_text=True)
+        assert "<script>alert(1)</script>" not in html
+
+
 class TestTheExport:
     def test_it_downloads_the_package_with_the_same_data(self, sample_zip):
         client, store = _app()

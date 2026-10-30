@@ -1,0 +1,969 @@
+{
+ "name": {
+  "de": "Kern",
+  "en": "Core"
+ },
+ "pack": "core",
+ "profile_hash": "1c0158dc758e54f267bf9e82792fc179a4a2dbba501781ac3db994b28d5a0ceb",
+ "source": "knovas-software/app/src/services/brain_store/ontology/core_binding.json",
+ "types": [
+  {
+   "abstract": false,
+   "id": "euo:Account",
+   "label": {
+    "de": "Konto",
+    "en": "Account"
+   },
+   "name": "Account",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:AdvisorRole",
+   "label": {
+    "de": "Beraterrolle",
+    "en": "Advisor Role"
+   },
+   "name": "AdvisorRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Agent",
+   "label": {
+    "de": "Akteur",
+    "en": "Agent"
+   },
+   "name": "Agent",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Agreement",
+   "label": {
+    "de": "Vereinbarung",
+    "en": "Agreement"
+   },
+   "name": "Agreement",
+   "parents": [
+    "euo:DirectiveContent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Assumption",
+   "label": {
+    "de": "Annahme",
+    "en": "Assumption"
+   },
+   "name": "Assumption",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:AutomatedAgent",
+   "label": {
+    "de": "Automatisierter Agent",
+    "en": "Automated Agent"
+   },
+   "name": "AutomatedAgent",
+   "parents": [
+    "euo:Agent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Capability",
+   "label": {
+    "de": "Fähigkeit",
+    "en": "Capability"
+   },
+   "name": "Capability",
+   "parents": [
+    "euo:RealizableEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Case",
+   "label": {
+    "de": "Fall",
+    "en": "Case"
+   },
+   "name": "Case",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Change",
+   "label": {
+    "de": "Änderung",
+    "en": "Change"
+   },
+   "name": "Change",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Company",
+   "label": {
+    "de": "Unternehmen",
+    "en": "Company"
+   },
+   "name": "Company",
+   "parents": [
+    "euo:LegalEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:ContactPoint",
+   "label": {
+    "de": "Kontaktangabe",
+    "en": "Contact Point"
+   },
+   "name": "ContactPoint",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:ContactRole",
+   "label": {
+    "de": "Kontaktperson",
+    "en": "Contact Role"
+   },
+   "name": "ContactRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Contract",
+   "label": {
+    "de": "Vertrag",
+    "en": "Contract"
+   },
+   "name": "Contract",
+   "parents": [
+    "euo:Agreement"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:CostElement",
+   "label": {
+    "de": "Kostenelement",
+    "en": "Cost Element"
+   },
+   "name": "CostElement",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:CustomerRole",
+   "label": {
+    "de": "Kundenrolle",
+    "en": "Customer Role"
+   },
+   "name": "CustomerRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Dataset",
+   "label": {
+    "de": "Datensatz",
+    "en": "Dataset"
+   },
+   "name": "Dataset",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Deadline",
+   "label": {
+    "de": "Frist",
+    "en": "Deadline"
+   },
+   "name": "Deadline",
+   "parents": [
+    "euo:TemporalRegion"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Decision",
+   "label": {
+    "de": "Entscheid",
+    "en": "Decision"
+   },
+   "name": "Decision",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Designation",
+   "label": {
+    "de": "Bezeichner",
+    "en": "Designation"
+   },
+   "name": "Designation",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:DirectiveContent",
+   "label": {
+    "de": "Normativer Inhalt",
+    "en": "Directive Content"
+   },
+   "name": "DirectiveContent",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Document",
+   "label": {
+    "de": "Dokument",
+    "en": "Document"
+   },
+   "name": "Document",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:EmployeeRole",
+   "label": {
+    "de": "Mitarbeiterrolle",
+    "en": "Employee Role"
+   },
+   "name": "EmployeeRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Entity",
+   "label": {
+    "de": "Entität",
+    "en": "Entity"
+   },
+   "name": "Entity",
+   "parents": []
+  },
+  {
+   "abstract": false,
+   "id": "euo:Equipment",
+   "label": {
+    "de": "Betriebsmittel",
+    "en": "Equipment"
+   },
+   "name": "Equipment",
+   "parents": [
+    "euo:MaterialObject"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Function",
+   "label": {
+    "de": "Funktion",
+    "en": "Function"
+   },
+   "name": "Function",
+   "parents": [
+    "euo:RealizableEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:GeographicRegion",
+   "label": {
+    "de": "Geografische Region",
+    "en": "Geographic Region"
+   },
+   "name": "GeographicRegion",
+   "parents": [
+    "euo:Location"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Incident",
+   "label": {
+    "de": "Vorfall",
+    "en": "Incident"
+   },
+   "name": "Incident",
+   "parents": [
+    "euo:Process"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:InformationCarrier",
+   "label": {
+    "de": "Informationsträger",
+    "en": "Information Carrier"
+   },
+   "name": "InformationCarrier",
+   "parents": [
+    "euo:MaterialObject"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:InformationContentEntity",
+   "label": {
+    "de": "Informationsinhalt",
+    "en": "Information Content Entity"
+   },
+   "name": "InformationContentEntity",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:LegalEntity",
+   "label": {
+    "de": "Juristische Person",
+    "en": "Legal Entity"
+   },
+   "name": "LegalEntity",
+   "parents": [
+    "euo:Organization"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Location",
+   "label": {
+    "de": "Ort",
+    "en": "Location"
+   },
+   "name": "Location",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Material",
+   "label": {
+    "de": "Material",
+    "en": "Material"
+   },
+   "name": "Material",
+   "parents": [
+    "euo:MaterialObject"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:MaterialObject",
+   "label": {
+    "de": "Materieller Gegenstand",
+    "en": "Material Object"
+   },
+   "name": "MaterialObject",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Meeting",
+   "label": {
+    "de": "Besprechung",
+    "en": "Meeting"
+   },
+   "name": "Meeting",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Message",
+   "label": {
+    "de": "Nachricht",
+    "en": "Message"
+   },
+   "name": "Message",
+   "parents": [
+    "euo:Document"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Milestone",
+   "label": {
+    "de": "Meilenstein",
+    "en": "Milestone"
+   },
+   "name": "Milestone",
+   "parents": [
+    "euo:Occurrent"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Norm",
+   "label": {
+    "de": "Norm",
+    "en": "Norm"
+   },
+   "name": "Norm",
+   "parents": [
+    "euo:DirectiveContent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Objective",
+   "label": {
+    "de": "Ziel",
+    "en": "Objective"
+   },
+   "name": "Objective",
+   "parents": [
+    "euo:DirectiveContent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Obligation",
+   "label": {
+    "de": "Pflicht",
+    "en": "Obligation"
+   },
+   "name": "Obligation",
+   "parents": [
+    "euo:DirectiveContent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Observation",
+   "label": {
+    "de": "Beobachtung",
+    "en": "Observation"
+   },
+   "name": "Observation",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Occurrent",
+   "label": {
+    "de": "Geschehen",
+    "en": "Occurrent"
+   },
+   "name": "Occurrent",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Offering",
+   "label": {
+    "de": "Angebot",
+    "en": "Offering"
+   },
+   "name": "Offering",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:OfficerRole",
+   "label": {
+    "de": "Organrolle",
+    "en": "Officer Role"
+   },
+   "name": "OfficerRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Organization",
+   "label": {
+    "de": "Organisation",
+    "en": "Organization"
+   },
+   "name": "Organization",
+   "parents": [
+    "euo:Party"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:OrganizationalRole",
+   "label": {
+    "de": "Organisatorische Rolle",
+    "en": "Organizational Role"
+   },
+   "name": "OrganizationalRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:OrganizationalUnit",
+   "label": {
+    "de": "Organisationseinheit",
+    "en": "Organizational Unit"
+   },
+   "name": "OrganizationalUnit",
+   "parents": [
+    "euo:Organization"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:OwnerRole",
+   "label": {
+    "de": "Eigentümerrolle",
+    "en": "Owner Role"
+   },
+   "name": "OwnerRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Party",
+   "label": {
+    "de": "Partei",
+    "en": "Party"
+   },
+   "name": "Party",
+   "parents": [
+    "euo:Agent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:PartyRole",
+   "label": {
+    "de": "Parteirolle",
+    "en": "Party Role"
+   },
+   "name": "PartyRole",
+   "parents": [
+    "euo:Role"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Period",
+   "label": {
+    "de": "Periode",
+    "en": "Period"
+   },
+   "name": "Period",
+   "parents": [
+    "euo:TemporalRegion"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Person",
+   "label": {
+    "de": "Person",
+    "en": "Person"
+   },
+   "name": "Person",
+   "parents": [
+    "euo:Party"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Plan",
+   "label": {
+    "de": "Plan",
+    "en": "Plan"
+   },
+   "name": "Plan",
+   "parents": [
+    "euo:DirectiveContent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:PlannedProcess",
+   "label": {
+    "de": "Geplanter Vorgang",
+    "en": "Planned Process"
+   },
+   "name": "PlannedProcess",
+   "parents": [
+    "euo:Process"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Policy",
+   "label": {
+    "de": "Weisung",
+    "en": "Policy"
+   },
+   "name": "Policy",
+   "parents": [
+    "euo:Norm"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Process",
+   "label": {
+    "de": "Vorgang",
+    "en": "Process"
+   },
+   "name": "Process",
+   "parents": [
+    "euo:Occurrent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:ProcessDefinition",
+   "label": {
+    "de": "Prozessbeschreibung",
+    "en": "Process Definition"
+   },
+   "name": "ProcessDefinition",
+   "parents": [
+    "euo:Plan"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:ProcessRole",
+   "label": {
+    "de": "Prozessrolle",
+    "en": "Process Role"
+   },
+   "name": "ProcessRole",
+   "parents": [
+    "euo:Role"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Product",
+   "label": {
+    "de": "Produkt",
+    "en": "Product"
+   },
+   "name": "Product",
+   "parents": [
+    "euo:Offering"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Project",
+   "label": {
+    "de": "Projekt",
+    "en": "Project"
+   },
+   "name": "Project",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:PublicAuthority",
+   "label": {
+    "de": "Behörde",
+    "en": "Public Authority"
+   },
+   "name": "PublicAuthority",
+   "parents": [
+    "euo:Organization"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Quality",
+   "label": {
+    "de": "Eigenschaft",
+    "en": "Quality"
+   },
+   "name": "Quality",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:RealEstate",
+   "label": {
+    "de": "Liegenschaft",
+    "en": "Real Estate"
+   },
+   "name": "RealEstate",
+   "parents": [
+    "euo:MaterialObject"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:RealizableEntity",
+   "label": {
+    "de": "Realisierbare Entität",
+    "en": "Realizable Entity"
+   },
+   "name": "RealizableEntity",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Regulation",
+   "label": {
+    "de": "Rechtsvorschrift",
+    "en": "Regulation"
+   },
+   "name": "Regulation",
+   "parents": [
+    "euo:Norm"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:RepresentativeRole",
+   "label": {
+    "de": "Vertreterrolle",
+    "en": "Representative Role"
+   },
+   "name": "RepresentativeRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Requirement",
+   "label": {
+    "de": "Anforderung",
+    "en": "Requirement"
+   },
+   "name": "Requirement",
+   "parents": [
+    "euo:DirectiveContent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Right",
+   "label": {
+    "de": "Recht",
+    "en": "Right"
+   },
+   "name": "Right",
+   "parents": [
+    "euo:DirectiveContent"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Risk",
+   "label": {
+    "de": "Risiko",
+    "en": "Risk"
+   },
+   "name": "Risk",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:Role",
+   "label": {
+    "de": "Rolle",
+    "en": "Role"
+   },
+   "name": "Role",
+   "parents": [
+    "euo:RealizableEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Service",
+   "label": {
+    "de": "Dienstleistung",
+    "en": "Service"
+   },
+   "name": "Service",
+   "parents": [
+    "euo:Offering"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Site",
+   "label": {
+    "de": "Standort",
+    "en": "Site"
+   },
+   "name": "Site",
+   "parents": [
+    "euo:Location"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Software",
+   "label": {
+    "de": "Software",
+    "en": "Software"
+   },
+   "name": "Software",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Standard",
+   "label": {
+    "de": "Standard",
+    "en": "Standard"
+   },
+   "name": "Standard",
+   "parents": [
+    "euo:Norm"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:SupplierRole",
+   "label": {
+    "de": "Lieferantenrolle",
+    "en": "Supplier Role"
+   },
+   "name": "SupplierRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Task",
+   "label": {
+    "de": "Aufgabe",
+    "en": "Task"
+   },
+   "name": "Task",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": true,
+   "id": "euo:TemporalRegion",
+   "label": {
+    "de": "Zeitbereich",
+    "en": "Temporal Region"
+   },
+   "name": "TemporalRegion",
+   "parents": [
+    "euo:Entity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Test",
+   "label": {
+    "de": "Prüfung",
+    "en": "Test"
+   },
+   "name": "Test",
+   "parents": [
+    "euo:Plan"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Topic",
+   "label": {
+    "de": "Thema",
+    "en": "Topic"
+   },
+   "name": "Topic",
+   "parents": [
+    "euo:InformationContentEntity"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "euo:Transaction",
+   "label": {
+    "de": "Transaktion",
+    "en": "Transaction"
+   },
+   "name": "Transaction",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "tenant:Unclassified",
+   "label": {
+    "de": "Nicht klassifiziert",
+    "en": "Unclassified"
+   },
+   "name": "Unclassified",
+   "parents": [
+    "euo:Entity"
+   ]
+  }
+ ]
+}
