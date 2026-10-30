@@ -1,0 +1,29 @@
+# A small configuration package of a fictitious company, for the builder's tests.
+# Same layout as a real package: brain-config.yaml lists every part.
+version: 1
+company:
+  key: BEISPIEL
+  name: Beispiel AG
+  kind: fiduciary (test fixture)
+
+ontology:
+  terms: ontology/terms.yaml
+  relations: ontology/relations.yaml
+  descriptions: ontology/descriptions.yaml
+  node_descriptions: ontology/node-descriptions.yaml
+processes: ontology/processes.yaml
+spines: ontology/spines.yaml
+pages: ontology/page-definitions.yaml
+owners: ontology/owners.yaml
+edit_sources: ontology/edit-sources.yaml
+mappings: mappings/*.yaml
+profiles: profiles/*.yaml
+health: health.yaml
+
+generated:
+  processes: ontology/generated/process-definitions.json
+runner:
+  state: .brain-runner/state.json
+  ontology:
+    type_description:
+      header: "[level={level}; parent={parent}]"

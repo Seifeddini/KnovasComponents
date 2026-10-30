@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/schema/builder/workspace.schema.json",
+  "title": "Brain Builder workspace model",
+  "description": "A company's whole configuration as one record: the workspace model the builder's editors write and every output is compiled from. Shaped after the configuration package (brain-config.yaml, ontology/*.yaml, mappings/*.yaml, profiles/*.yaml) so import and export are lossless. Keys the model does not name are kept beside each item in `extra` (from the terms or relations file) and `description_extra` (from the descriptions file).",
+  "type": "object",
+  "required": ["model_version", "company", "package", "ontology", "processes", "spines", "pages", "sources", "mappings", "profiles", "health"],
+  "additionalProperties": false,
+  "properties": {
+    "model_version": {"const": 1},
+    "company": {
+      "description": "brain-config.yaml `company`: key, name and anything else the package says about the company.",
+      "type": "object",
+      "properties": {
+        "key": {"type": "string"},
+        "name": {"type": "string"}
+      }
+    },
+    "package": {
+      "description": "How the package is laid out: brain-config.yaml without `company`, kept whole (paths, generated, reports, runner). Export writes the files where it says.",
+      "type": "object",
+      "required": ["manifest"],
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {"type": "object"}
+      }
+    },
+    "ontology": {
+      "type": "object",
+      "required": ["types", "relations"],
+      "additionalProperties": false,
+      "properties": {
+        "terms_header": {"description": "Top-level keys of the terms file other than node_types and common_attributes.", "type": "object"},
+        "relations_header": {"description": "Top-level keys of the relations file other than relations.", "type": "object"},
+        "descriptions_rest": {"description": "What the descriptions file says about things the model does not hold.", "type": "object"},
+        "common_attributes": {
+          "description": "Attributes every type carries; null when the package has none.",
+          "type": ["array", "null"],
+          "items": {"$ref": "#/$defs/attribute"}
+        },
+        "types": {"type": "array", "items": {"$ref": "#/$defs/type"}},
+        "relations": {"type": "array", "items": {"$ref": "#/$defs/relation"}},
+        "documents": {"description": "Other ontology parts (node descriptions), kept as documents.", "type": "object"}
+      }
+    },
+    "processes": {"description": "The processes document (rules, report rules, processes).", "type": ["object", "null"]},
+    "spines": {"description": "The spines document.", "type": ["object", "null"]},
+    "pages": {"description": "The page definitions document.", "type": ["object", "null"]},
+    "owners": {"description": "Owner aliases.", "type": ["object", "null"]},
+    "edit_sources": {"description": "Where each type, relation and fact is edited.", "type": ["object", "null"]},
+    "health": {"description": "Health per type.", "type": ["object", "null"]},
+    "sources": {
+      "description": "Sync components and what they read (step B7). Not part of a configuration package yet.",
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "mappings": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
+    "profiles": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}}
+  },
+  "$defs": {
+    "level": {
+      "description": "core: the Brain's own ontology, read-only. pack: an industry pack. company: the company's own.",
+      "enum": ["core", "pack", "company"]
+    },
+    "label": {
+      "type": "object",
+      "properties": {"de": {"type": "string"}, "en": {"type": "string"}}
+    },
+    "text": {
+      "type": "object",
+      "properties": {"de": {"type": "string"}, "en": {"type": "string"}}
+    },
+    "described": {
+      "description": "What every term carries for rule 8: labels, a description, an example and what not to confuse it with.",
+      "properties": {
+        "label": {"$ref": "#/$defs/label"},
+        "description": {"$ref": "#/$defs/text"},
+        "example": {"type": "string"},
+        "not_to_confuse": {"type": "string"},
+        "description_extra": {"type": "object"}
+      }
+    },
+    "type": {
+      "type": "object",
+      "required": ["key", "level", "attributes"],
+      "allOf": [{"$ref": "#/$defs/described"}],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "level": {"$ref": "#/$defs/level"},
+        "level_label": {"description": "The level as the package names it, written back on export.", "type": ["string", "null"]},
+        "parent": {"type": ["string", "null"]},
+        "iri": {"type": ["string", "null"]},
+        "meta": {"type": "boolean"},
+        "state_attribute": {"type": ["string", "null"]},
+        "id_prefixes": {"type": "array", "items": {"type": "string"}},
+        "aligns_with": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": ["string", "null"]},
+        "attributes": {"type": "array", "items": {"$ref": "#/$defs/attribute"}},
+        "extra": {"type": "object"}
+      }
+    },
+    "attribute": {
+      "type": "object",
+      "required": ["name", "level"],
+      "allOf": [{"$ref": "#/$defs/described"}],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "level": {"$ref": "#/$defs/level"},
+        "level_label": {"type": ["string", "null"]},
+        "datatype": {"type": "string"},
+        "required": {"type": "boolean"},
+        "enum_values": {"type": "array"},
+        "enum_labels": {"description": "Labels and descriptions per enum value.", "type": "object"},
+        "note": {"description": "The technical note the terms file gives the attribute.", "type": ["string", "null"]},
+        "extra": {"type": "object"}
+      }
+    },
+    "relation": {
+      "type": "object",
+      "required": ["key", "level"],
+      "allOf": [{"$ref": "#/$defs/described"}],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "level": {"$ref": "#/$defs/level"},
+        "level_label": {"type": ["string", "null"]},
+        "family": {"type": ["string", "null"]},
+        "iri": {"type": ["string", "null"]},
+        "domain": {"type": "array", "items": {"type": "string"}},
+        "range": {"type": "array", "items": {"type": "string"}},
+        "inverse": {"type": ["string", "null"]},
+        "reason": {"type": ["string", "null"]},
+        "sentence": {"description": "How the relation reads between two nodes.", "type": ["string", "null"]},
+        "extra": {"type": "object"}
+      }
+    },
+    "fileDefinition": {
+      "type": "object",
+      "required": ["file", "definition"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"description": "Path inside the package.", "type": "string"},
+        "definition": {}
+      }
+    }
+  }
+}

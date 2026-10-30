@@ -1,0 +1,15 @@
+version: 1
+spines:
+  - key: SPINE-client
+    name: Client spine
+    description: "Client, mandate, deadline."
+    levels:
+      - {id: L1, name: Client, types: [Organization]}
+      - id: L2
+        name: Mandate
+        types: [Mandate]
+        link_to_parent: {relation: client_of, direction: in}
+      - id: L3
+        name: Deadline
+        types: [Deadline]
+        link_to_parent: {relation: due_in, direction: out}

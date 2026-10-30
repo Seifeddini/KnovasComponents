@@ -1,0 +1,12 @@
+version: 1
+pages:
+  - key: PAGE-mandate
+    type: Mandate
+    name: {de: Mandat, en: Mandate}
+    sections:
+      - {id: description, title: {de: Beschreibung, en: Description}, render: text, required: true, field: description}
+      - id: deadlines
+        title: {de: Fristen, en: Deadlines}
+        render: list
+        required: false
+        paths: [{path: [{relation: due_in, direction: in, to_type: Deadline}]}]

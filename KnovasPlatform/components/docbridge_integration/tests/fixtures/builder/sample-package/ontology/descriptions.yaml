@@ -1,0 +1,29 @@
+version: 1
+
+types:
+  Organization: {de: Organisation, en: Organisation, text: "A company, association or authority the firm deals with.", example: "ORG-0001, a client company.", confuse: "A person is not an organisation.", meta: false}
+  Mandate: {de: Mandat, en: Mandate, text: "One engagement the firm holds for a client.", example: "MAN-0001, annual accounts 2026.", meta: false}
+  Deadline: {de: Frist, en: Deadline, text: "A dated duty inside a mandate.", example: "DL-0001, VAT return Q3.", meta: false, reviewed: false}
+  Process: {de: Prozess, en: Process, text: "How a kind of work moves.", example: "PROC-mandate.", meta: true}
+  Retired: {de: Alt, en: Retired, text: "A type the terms file no longer has."}
+
+relations:
+  client_of: {de: ist Kunde von, en: is client of, sentence: "Organisation is client of mandate.", example: "ORG-0001 client_of MAN-0001."}
+  due_in: {de: fällig in, en: due in, sentence: "Deadline is due in mandate.", confuse: "Not the mandate's own end date."}
+  relates_to: {de: hängt zusammen mit, en: relates to, sentence: "Anything relates to anything."}
+
+attributes:
+  _common:
+    key: {de: Schlüssel, en: Key, text: "The stable id."}
+  Organization:
+    legal_form: {de: Rechtsform, en: Legal form, text: "AG, GmbH or other."}
+  Mandate:
+    status: {de: Status, en: Status, text: "Where the mandate stands."}
+    opened_on: {de: Eröffnet am, en: Opened on, text: "The day it started.", example: "2026-01-15"}
+
+enums:
+  Mandate:
+    status:
+      open: {de: offen, en: open, text: "Offered, not yet signed."}
+      active: {de: aktiv, en: active, text: "Signed and running."}
+      closed: {de: abgeschlossen, en: closed, text: "Finished."}

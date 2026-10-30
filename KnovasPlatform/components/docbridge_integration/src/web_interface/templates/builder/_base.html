@@ -10,6 +10,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Builder{% endblock %} · {{ brand }}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
     {# Before the stylesheets, so a chosen theme is there on the first paint. #}
     <script>
     (function () {
@@ -119,5 +120,6 @@
 </div>
 <div class="b-toast-region" id="b-toasts" aria-live="polite"></div>
 <script src="{{ url_for('static', filename='js/builder/builder.js') }}?v={{ asset_version }}"></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

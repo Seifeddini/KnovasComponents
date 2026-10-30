@@ -1,0 +1,15 @@
+version: 2
+rules:
+  - {id: P-owner, name: "Instance has an owner", check: fact_present, fact: owner}
+processes:
+  - key: PROC-mandate
+    name: Mandate
+    owner_role: ROLE-PARTNER
+    exists_today: true
+    governs: {type: Mandate, fact: status}
+    steps:
+      - {id: open, exit_criteria: [P-owner]}
+      - {id: active, exit_criteria: []}
+      - {id: closed, exit_criteria: []}
+    transitions: [[open, active], [active, closed], [closed, active, rework]]
+    final: [closed]

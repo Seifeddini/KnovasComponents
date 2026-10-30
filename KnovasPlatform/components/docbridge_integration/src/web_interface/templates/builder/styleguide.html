@@ -269,6 +269,56 @@
         </div>
     </div>
 
+    {# ---- Callouts ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Hinweise im Inhalt</h3>
+        <div class="b-callout"><p class="b-callout-title">Entwurf</p><p>Änderungen liegen im Entwurf, bis sie veröffentlicht werden.</p></div>
+        <div class="b-callout b-callout--good"><p class="b-callout-title">Probelauf ohne Befund</p><p>Nichts würde gelöscht.</p></div>
+        <div class="b-callout b-callout--warning"><p class="b-callout-title">Hinweise</p><ul><li>2 Typen haben keine Beschreibung.</li><li>1 Beziehung fehlt der Wertebereich.</li></ul></div>
+        <div class="b-callout b-callout--critical"><p class="b-callout-title">Die Datei ontology/spines.yaml fehlt im Paket.</p></div>
+    </div>
+
+    {# ---- Counts ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Kennzahlen</h3>
+        <div class="b-stats">
+            <a class="b-stat" href="#" tabindex="-1"><span class="b-stat-label">Typen</span><span class="b-stat-value">71</span><span class="b-stat-detail">35 Kern · 32 Paket · 4 Firma</span></a>
+            <a class="b-stat" href="#" tabindex="-1"><span class="b-stat-label">Beziehungen</span><span class="b-stat-value">68</span></a>
+        </div>
+        <div class="b-stats b-stats--compact">
+            {% for label, value in [('Typen', 71), ('Prozesse', 7), ('Zuordnungen', 23), ('Profile', 4)] %}
+            <div class="b-stat b-stat--small"><span class="b-stat-label">{{ label }}</span><span class="b-stat-value">{{ value }}</span></div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# ---- Dialog ---- #}
+    <div class="sg-section">
+        <h3 class="b-h3">Dialog</h3>
+        <p class="b-muted">Öffnet sich über der Seite (native dialog, Escape schließt). Hier ohne Abdunkelung gezeigt.</p>
+        <div class="b-dialog b-dialog--static" role="group" aria-labelledby="sg-dialog-{{ t }}">
+            <div class="b-dialog-head">
+                <div><h4 class="b-h2" id="sg-dialog-{{ t }}">Paket importieren</h4><p class="b-muted">Schritt 1 von 2: Paket wählen</p></div>
+                <button type="button" class="b-button b-button--quiet b-button--icon" aria-label="Dialog schließen" tabindex="-1">{{ icon('close') }}</button>
+            </div>
+            <div class="b-dialog-body">
+                <fieldset class="b-choice">
+                    <legend>Woher kommt das Paket?</legend>
+                    <label class="b-radio"><input type="radio" name="sg-source-{{ t }}" checked>ZIP-Archiv</label>
+                    <label class="b-radio"><input type="radio" name="sg-source-{{ t }}" disabled>Aus einem GitHub-Repository</label>
+                </fieldset>
+                <div class="b-field">
+                    <label class="b-label" for="sg-file-{{ t }}">ZIP-Archiv</label>
+                    <input class="b-file" type="file" id="sg-file-{{ t }}">
+                </div>
+            </div>
+            <div class="b-dialog-foot">
+                <button type="button" class="b-button b-button--quiet" tabindex="-1">Abbrechen</button>
+                <button type="button" class="b-button b-button--primary" tabindex="-1">Paket prüfen</button>
+            </div>
+        </div>
+    </div>
+
     {# ---- Diff ---- #}
     <div class="sg-section">
         <h3 class="b-h3">Änderungen</h3>

@@ -1,0 +1,54 @@
+version: 1
+tenant: 00000000-0000-0000-0000-000000000000
+
+common_attributes:
+  - {name: key, datatype: text, required: true, description: "Stable id the loader upserts by."}
+  - {name: owner, datatype: text, required: false}
+
+id_kinds:
+  - {pattern: "^MAN-\\d{4}$", example: MAN-0001}
+
+node_types:
+  - name: Organization
+    level: euo
+    meta: false
+    sedm_iri: euo:Organization
+    parent: euo:Party
+    reason: Every company deals with organisations.
+    id_prefixes: ["^ORG-"]
+    attributes:
+      - {name: legal_form, datatype: enum, enum_values: [ag, gmbh, other], required: true}
+
+  - name: Mandate
+    level: pack
+    aligns_with: []
+    meta: false
+    state_attribute: status
+    sedm_iri: null
+    parent: euo:Agreement
+    reason: "candidate: fiduciary pack -- every fiduciary works in mandates."
+    id_prefixes: ["^MAN-\\d{4}$"]
+    attributes:
+      - {name: status, datatype: enum, enum_values: [open, active, closed]}
+      - {name: opened_on, datatype: date, description: "The day the mandate letter was signed."}
+      - {name: fee_note, datatype: text}
+
+  - name: Deadline
+    level: beispiel
+    meta: false
+    sedm_iri: null
+    parent: Mandate
+    reason: The firm's own word for a dated duty inside a mandate.
+    id_prefixes: ["^DL-"]
+    review_hint: monthly
+    attributes:
+      - {name: due_on, datatype: date, required: true}
+
+  - name: Process
+    level: euo
+    meta: true
+    sedm_iri: euo:Process
+    parent: euo:Plan
+    reason: Processes are definitions.
+    id_prefixes: ["^PROC-"]
+    attributes: []

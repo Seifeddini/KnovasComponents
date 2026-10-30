@@ -1,0 +1,151 @@
+"""Workspace screens and the import API (build plan step B1), on the harness.
+
+The routes are exercised against the in-memory store; test_builder_store.py
+holds it to the PostgreSQL store's behaviour, and test_builder_in_the_app.py
+runs the import through the real app with its CSRF gate.
+"""
+import io
+import re
+import zipfile
+
+import pytest
+
+from builder import package
+from builder_harness import SAMPLE_PACKAGE, MemoryWorkspaceStore, StandInUser, make_app
+
+
+@pytest.fixture(scope="module")
+def sample_zip():
+    return package.zip_files(package.files_from_directory(SAMPLE_PACKAGE))
+
+
+def _app(roles=("admin",), store=None):
+    user = StandInUser(set(roles))
+    store = store if store is not None else MemoryWorkspaceStore({str(user.id): user.display_name})
+    return make_app(user, store).test_client(), store
+
+
+def _upload(data, **fields):
+    return {"package": (io.BytesIO(data), "paket.zip"), **fields}
+
+
+def _import(client, data, name="Beispiel AG"):
+    return client.post("/builder/api/import", data=_upload(data, name=name), content_type="multipart/form-data")
+
+
+class TestTheImportApi:
+    def test_preview_counts_what_the_package_holds(self, sample_zip):
+        client, store = _app()
+        response = client.post("/builder/api/import/preview", data=_upload(sample_zip), content_type="multipart/form-data")
+        body = response.get_json()
+        assert response.status_code == 200 and body["success"]
+        assert body["summary"]["types"] == 4
+        assert body["summary"]["levels"] == {"core": 2, "pack": 1, "company": 1}
+        assert body["suggested_name"] == "Beispiel AG"
+        assert store.list() == []  # a preview stores nothing
+
+    def test_preview_explains_a_broken_package(self):
+        client, _ = _app()
+        response = client.post("/builder/api/import/preview", data=_upload(b"no zip"), content_type="multipart/form-data")
+        assert response.status_code == 422
+        assert response.get_json()["error"] == "Die Datei ist kein ZIP-Archiv."
+
+    def test_preview_without_a_file(self):
+        client, _ = _app()
+        response = client.post("/builder/api/import/preview", data={}, content_type="multipart/form-data")
+        assert response.status_code == 400
+
+    def test_import_creates_the_workspace_and_chooses_it(self, sample_zip):
+        client, store = _app()
+        response = _import(client, sample_zip)
+        assert response.status_code == 201
+        [workspace] = store.list()
+        assert response.get_json()["url"] == f"/builder/w/{workspace.id}"
+        with client.session_transaction() as session:
+            assert session["builder_workspace"] == workspace.id
+
+    @pytest.mark.parametrize("name", ["", "   ", "x" * 121])
+    def test_import_needs_a_name(self, sample_zip, name):
+        client, store = _app()
+        assert _import(client, sample_zip, name=name).status_code == 400
+        assert store.list() == []
+
+    def test_without_a_store_there_is_no_import(self, sample_zip):
+        client = make_app(StandInUser({"admin"})).test_client()
+        assert _import(client, sample_zip).status_code == 503
+
+    @pytest.mark.parametrize("path", ["/builder/api/import", "/builder/api/import/preview"])
+    def test_the_api_refuses_without_a_builder_role(self, sample_zip, path):
+        client, store = _app(roles=("member",))
+        response = client.post(path, data=_upload(sample_zip, name="x"), content_type="multipart/form-data")
+        assert response.status_code == 403
+        assert store.list() == []
+
+    def test_the_api_answers_an_anonymous_caller_in_json(self, sample_zip):
+        client = make_app(None, MemoryWorkspaceStore()).test_client()
+        response = client.post("/builder/api/import/preview", data=_upload(sample_zip), content_type="multipart/form-data")
+        assert response.status_code == 401
+        assert response.get_json()["success"] is False
+
+
+class TestTheScreens:
+    def test_the_list_shows_each_workspace_with_its_counts(self, sample_zip):
+        client, _ = _app()
+        _import(client, sample_zip)
+        html = client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        assert "Beispiel AG" in html
+        assert re.search(r'<td class="is-num">4</td>\s*<td class="is-num">3</td>', html)
+        assert "Paket importiert" in html
+        assert "Entwurf 1" in html
+
+    def test_an_empty_list_offers_the_import(self):
+        client, _ = _app()
+        html = client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        assert "Noch kein Arbeitsbereich" in html
+        assert 'id="b-import"' in html
+
+    def test_the_overview_counts_every_section_and_shows_the_last_change(self, sample_zip):
+        client, store = _app()
+        _import(client, sample_zip)
+        [workspace] = store.list()
+        html = client.get(f"/builder/w/{workspace.id}").get_data(as_text=True)
+        for label, value in (("Typen", 4), ("Beziehungen", 3), ("Prozesse", 1), ("Zuordnungen", 1), ("Profile", 1)):
+            assert re.search(rf'b-stat-label">{label}</span>\s*<span class="b-stat-value">{value}<', html), label
+        assert "2 Kern · 1 Paket · 1 Firma" in html
+        assert "Paket importiert" in html and "Alex Beispiel" in html
+
+    def test_the_switcher_names_the_chosen_workspace(self, sample_zip):
+        client, store = _app()
+        _import(client, sample_zip)
+        html = client.get("/builder/ontologie").get_data(as_text=True)
+        assert re.search(r'b-switcher-name">Beispiel AG<', html)
+        assert "Dafür braucht es einen Arbeitsbereich" not in html
+
+    def test_an_unknown_workspace_is_404(self):
+        client, _ = _app()
+        assert client.get("/builder/w/00000000-0000-0000-0000-000000000000").status_code == 404
+        assert client.get("/builder/w/00000000-0000-0000-0000-000000000000/export").status_code == 404
+
+
+class TestTheExport:
+    def test_it_downloads_the_package_with_the_same_data(self, sample_zip):
+        client, store = _app()
+        _import(client, sample_zip)
+        [workspace] = store.list()
+        response = client.get(f"/builder/w/{workspace.id}/export")
+        assert response.status_code == 200
+        assert response.mimetype == "application/zip"
+        assert response.headers["Content-Disposition"] == 'attachment; filename="beispiel-ag-konfiguration.zip"'
+        original = package.files_from_directory(SAMPLE_PACKAGE)
+        exported = package.files_from_zip(response.data)
+        for path, data in exported.items():
+            assert package.load_yaml(data) == package.load_yaml(original[path]), path
+
+    def test_two_exports_are_the_same_bytes(self, sample_zip):
+        client, store = _app()
+        _import(client, sample_zip)
+        [workspace] = store.list()
+        first = client.get(f"/builder/w/{workspace.id}/export").data
+        assert client.get(f"/builder/w/{workspace.id}/export").data == first
+        with zipfile.ZipFile(io.BytesIO(first)) as archive:
+            assert "brain-config.yaml" in archive.namelist()

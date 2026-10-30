@@ -157,6 +157,96 @@ def test_tabs_panel_and_toasts_work_from_the_keyboard(browser, base_url):
     page.context.close()
 
 
+# ---------------------------------------------------------------------------
+# Step B1: workspaces. The package imported is $BUILDER_IMPORT_ZIP when set
+# (the acceptance uses Client Zero's), else the fictitious sample package.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def import_zip(tmp_path_factory):
+    given = os.environ.get("BUILDER_IMPORT_ZIP")
+    if given:
+        return Path(given)
+    from builder import package
+    from builder_harness import SAMPLE_PACKAGE
+
+    path = tmp_path_factory.mktemp("builder-import") / "beispiel.zip"
+    path.write_bytes(package.zip_files(package.files_from_directory(SAMPLE_PACKAGE)))
+    return path
+
+
+@pytest.fixture
+def workspace_url():
+    from builder_harness import MemoryWorkspaceStore
+
+    user = StandInUser({"admin"})
+    store = MemoryWorkspaceStore({str(user.id): user.display_name})
+    server = make_server("127.0.0.1", 0, make_app(user, store), threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+
+
+def _import_through_the_dialog(page, base, import_zip, shots=None, suffix=""):
+    page.goto(f"{base}/builder/arbeitsbereich")
+    page.locator("[data-import-open]").first.click()
+    dialog = page.locator("#b-import")
+    assert dialog.is_visible()
+    if shots:
+        page.screenshot(path=shots / f"b1-import-choose{suffix}.png")
+    page.set_input_files("#b-import-file", str(import_zip))
+    dialog.get_by_role("button", name="Paket prüfen").click()
+    page.wait_for_selector("[data-import-step='confirm']:not([hidden])")
+    if shots:
+        page.screenshot(path=shots / f"b1-import-summary{suffix}.png")
+    summary = {
+        label: int(value)
+        for label, value in zip(
+            dialog.locator("[data-import-summary] .b-stat-label").all_inner_texts(),
+            dialog.locator("[data-import-summary] .b-stat-value").all_inner_texts(),
+        )
+    }
+    dialog.get_by_role("button", name="Arbeitsbereich anlegen").click()
+    page.wait_for_url(f"{base}/builder/w/*")
+    return summary
+
+
+@pytest.mark.parametrize("width,scheme", [("1440", "light"), ("1440", "dark"), ("390", "light")])
+def test_workspace_screenshots(browser, workspace_url, shots, import_zip, width, scheme):
+    page = _page(browser, width, scheme)
+    suffix = f"-{width}-{scheme}"
+    page.goto(f"{workspace_url}/builder/arbeitsbereich")
+    if width == "1440" and scheme == "light":
+        page.screenshot(path=shots / "b1-list-empty-1440-light.png")
+    summary = _import_through_the_dialog(page, workspace_url, import_zip, shots, suffix)
+    assert summary["Typen"] > 0
+    assert _no_sideways_scroll(page)
+    page.evaluate("document.fonts.ready")
+    page.screenshot(path=shots / f"b1-overview{suffix}.png", full_page=True)
+    page.goto(f"{workspace_url}/builder/arbeitsbereich")
+    assert _no_sideways_scroll(page)
+    page.screenshot(path=shots / f"b1-list{suffix}.png", full_page=True)
+    page.context.close()
+
+
+def test_the_dialog_shows_a_refusal_and_keeps_focus_inside(browser, workspace_url, tmp_path):
+    page = _page(browser, "1440", "light")
+    page.goto(f"{workspace_url}/builder/arbeitsbereich")
+    page.locator("[data-import-open]").first.click()
+    bogus = tmp_path / "kaputt.zip"
+    bogus.write_bytes(b"not a zip")
+    page.set_input_files("#b-import-file", str(bogus))
+    page.get_by_role("button", name="Paket prüfen").click()
+    error = page.locator("[data-import-step='choose'] [data-import-error]")
+    error.wait_for(state="visible")
+    assert "kein ZIP-Archiv" in error.inner_text()
+    page.keyboard.press("Escape")
+    assert not page.locator("#b-import").is_visible()
+    page.context.close()
+
+
 def test_the_theme_choice_is_remembered(browser, base_url):
     page = _page(browser, "1440", "light")
     page.goto(f"{base_url}/builder/arbeitsbereich")

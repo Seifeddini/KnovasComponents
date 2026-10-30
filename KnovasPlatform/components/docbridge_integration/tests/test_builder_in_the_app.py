@@ -51,6 +51,34 @@ def test_a_member_is_refused_and_not_offered_the_builder(identity_client, identi
     assert 'href="/builder/"' not in identity_client.get("/settings").get_data(as_text=True)
 
 
+def test_an_import_needs_the_csrf_header_and_lands_in_the_database(identity_client, identity_repo, platform_db):
+    import io
+
+    from builder import package
+    from builder_harness import SAMPLE_PACKAGE
+
+    data = package.zip_files(package.files_from_directory(SAMPLE_PACKAGE))
+    _person(identity_repo, "admin@example.org", "admin")
+    _sign_in(identity_client, "admin@example.org")
+
+    def upload():
+        return {"package": (io.BytesIO(data), "paket.zip"), "name": "Beispiel AG"}
+
+    refused = identity_client.post("/builder/api/import", data=upload(), content_type="multipart/form-data")
+    assert refused.status_code == 403
+
+    page = identity_client.get("/builder/arbeitsbereich").get_data(as_text=True)
+    token = page.split('name="csrf-token" content="', 1)[1].split('"', 1)[0]
+    created = identity_client.post("/builder/api/import", data=upload(), content_type="multipart/form-data",
+                                   headers={"X-CSRF-Token": token})
+    assert created.status_code == 201
+    workspace_url = created.get_json()["url"]
+    assert platform_db.execute("SELECT count(*) FROM builder_workspace").fetchone()[0] == 1
+    assert "Beispiel AG" in identity_client.get(workspace_url).get_data(as_text=True)
+    exported = identity_client.get(workspace_url + "/export")
+    assert exported.status_code == 200 and exported.mimetype == "application/zip"
+
+
 def test_an_admin_opens_every_stage_and_is_offered_the_builder(identity_client, identity_repo):
     _person(identity_repo, "admin@example.org", "admin")
     _sign_in(identity_client, "admin@example.org")

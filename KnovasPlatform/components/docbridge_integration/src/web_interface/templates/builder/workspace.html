@@ -1,0 +1,70 @@
+{# A workspace's overview: what it holds per section and what changed last.
+   Expects current_workspace (builder.store.Workspace) and changes. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set ws = current_workspace %}
+{% set s = ws.summary %}
+{% block title %}{{ ws.name }}{% endblock %}
+
+{% macro stat(label, value, slug, detail='') -%}
+<a class="b-stat" href="{{ url_for('builder.stage', slug=slug) }}">
+    <span class="b-stat-label">{{ label }}</span>
+    <span class="b-stat-value">{{ value }}</span>
+    {% if detail %}<span class="b-stat-detail">{{ detail }}</span>{% endif %}
+</a>
+{%- endmacro %}
+
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small"><a href="{{ url_for('builder.stage', slug=stages[0].slug) }}">Arbeitsbereiche</a></p>
+    <h1 class="b-h1">{{ ws.name }}</h1>
+    <div class="b-tag-row">
+        {{ ws | b_version_tag }}
+        {% if s.company and s.company != ws.name %}<span class="b-tag">{{ s.company }}</span>{% endif %}
+        <span class="b-tag">{{ 'Mit Mandant verbunden' if ws.tenant else 'Kein Mandant verbunden' }}</span>
+    </div>
+</header>
+
+<div class="b-page-actions">
+    <p class="b-muted">Angelegt am {{ ws.created_at | b_datetime }}</p>
+    <a class="b-button b-button--secondary" href="{{ url_for('builder.export', workspace_id=ws.id) }}" download>Paket exportieren</a>
+</div>
+
+<section class="b-section" aria-labelledby="b-sections-title">
+    <h2 class="b-h3" id="b-sections-title">Inhalt</h2>
+    <div class="b-stats">
+        {{ stat('Typen', s.types, 'ontologie', s.levels.core ~ ' Kern · ' ~ s.levels.pack ~ ' Paket · ' ~ s.levels.company ~ ' Firma') }}
+        {{ stat('Attribute', s.attributes, 'ontologie') }}
+        {{ stat('Beziehungen', s.relations, 'ontologie') }}
+        {{ stat('Prozesse', s.processes, 'prozesse') }}
+        {{ stat('Quellen', s.sources, 'quellen', 'Kommen mit den Komponenten' if not s.sources else '') }}
+        {{ stat('Zuordnungen', s.mappings, 'quellen') }}
+        {{ stat('Hierarchien', s.spines, 'ansichten') }}
+        {{ stat('Seiten', s.pages, 'ansichten') }}
+        {{ stat('Profile', s.profiles, 'ansichten') }}
+        {{ stat('Gesundheit', s.health, 'betrieb', 'Typen mit Regeln') }}
+    </div>
+</section>
+
+<section class="b-section" aria-labelledby="b-changes-title">
+    <h2 class="b-h3" id="b-changes-title">Letzte Änderungen</h2>
+    {% if changes %}
+    <div class="b-table-wrap">
+        <table class="b-table">
+            <thead><tr><th scope="col">Was</th><th scope="col">Wer</th><th scope="col">Wann</th></tr></thead>
+            <tbody>
+                {% for c in changes %}
+                <tr>
+                    <td>{{ c.path | b_change_label }}{% if c.path == 'import' and c.after %}<br><span class="b-small b-muted">{{ c.after.types }} Typen, {{ c.after.relations }} Beziehungen</span>{% endif %}</td>
+                    <td>{{ c.actor_name or '–' }}</td>
+                    <td>{{ c.at | b_datetime }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Noch keine Änderungen.</p>
+    {% endif %}
+</section>
+{% endblock %}

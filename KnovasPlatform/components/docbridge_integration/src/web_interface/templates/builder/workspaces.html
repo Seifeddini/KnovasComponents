@@ -1,0 +1,120 @@
+{# Stage 1: the list of workspaces and the import dialog.
+   Expects workspace_list (builder.store.Workspace), import_enabled. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}{{ stage.label }}{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }}</p>
+    <h1 class="b-h1">{{ stage.label }}</h1>
+    <p class="b-muted">{{ stage.summary }}</p>
+</header>
+
+{% if workspace_list %}
+<div class="b-page-actions">
+    <p class="b-muted">{{ workspace_list | length }} {{ 'Arbeitsbereich' if workspace_list | length == 1 else 'Arbeitsbereiche' }}</p>
+    <button type="button" class="b-button b-button--primary" data-import-open>{{ icon('plus') }}Paket importieren</button>
+</div>
+<div class="b-section">
+    <div class="b-table-wrap">
+        <table class="b-table">
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col" class="is-num">Typen</th>
+                    <th scope="col" class="is-num">Beziehungen</th>
+                    <th scope="col" class="is-num">Prozesse</th>
+                    <th scope="col" class="is-num">Zuordnungen</th>
+                    <th scope="col">Stand</th>
+                    <th scope="col">Letzte Änderung</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ws in workspace_list %}
+                <tr {% if current_workspace and current_workspace.id == ws.id %}aria-selected="true"{% endif %}>
+                    <td><a class="b-link-strong" href="{{ url_for('builder.workspace', workspace_id=ws.id) }}">{{ ws.name }}</a>
+                        {% if ws.summary.company and ws.summary.company != ws.name %}<br><span class="b-small b-muted">{{ ws.summary.company }}</span>{% endif %}</td>
+                    <td class="is-num">{{ ws.summary.types }}</td>
+                    <td class="is-num">{{ ws.summary.relations }}</td>
+                    <td class="is-num">{{ ws.summary.processes }}</td>
+                    <td class="is-num">{{ ws.summary.mappings }}</td>
+                    <td>{{ ws | b_version_tag }}</td>
+                    <td>{% if ws.last_change %}{{ ws.last_change.path | b_change_label }}<br><span class="b-small b-muted">{{ ws.last_change.at | b_datetime }}{% if ws.last_change.actor_name %} · {{ ws.last_change.actor_name }}{% endif %}</span>{% else %}–{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<section class="b-empty" aria-labelledby="b-empty-title">
+    <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
+    <div class="b-empty-text">
+        <h2 class="b-h3" id="b-empty-title">{{ stage.empty_title }}</h2>
+        <p class="b-muted">{{ stage.empty_text }} Importieren Sie dazu ein Konfigurationspaket.</p>
+    </div>
+    <button type="button" class="b-button b-button--primary" data-import-open
+            {% if not import_enabled %}aria-disabled="true" aria-describedby="b-empty-hint"{% endif %}>{{ icon('plus') }}Paket importieren</button>
+    {% if not import_enabled %}<p class="b-empty-hint" id="b-empty-hint">Arbeitsbereiche brauchen die Personen-Anmeldung der Plattform.</p>{% endif %}
+</section>
+{% endif %}
+
+{% if import_enabled %}
+<dialog class="b-dialog" id="b-import" aria-labelledby="b-import-title"
+        data-preview-url="{{ url_for('builder.import_preview') }}" data-import-url="{{ url_for('builder.import_package') }}">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-import-title">Paket importieren</h2>
+            <p class="b-muted" data-import-step-label>Schritt 1 von 2: Paket wählen</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-import-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+
+    <form data-import-step="choose" novalidate>
+        <div class="b-dialog-body">
+            <fieldset class="b-choice">
+                <legend>Woher kommt das Paket?</legend>
+                <label class="b-radio"><input type="radio" name="source" value="zip" checked>ZIP-Archiv mit brain-config.yaml</label>
+                <label class="b-radio"><input type="radio" name="source" value="github" disabled aria-describedby="b-import-github-hint">Aus einem GitHub-Repository</label>
+                <span class="b-hint" id="b-import-github-hint">Braucht die GitHub-Einstellungen der Plattform, die es hier noch nicht gibt.</span>
+            </fieldset>
+            <div class="b-field">
+                <label class="b-label" for="b-import-file">ZIP-Archiv</label>
+                <input class="b-file" type="file" id="b-import-file" name="package" accept=".zip,application/zip" required aria-describedby="b-import-file-hint">
+                <span class="b-hint" id="b-import-file-hint">Das Archiv darf das Paket in einem Ordner enthalten, etwa ein ganzes Repository. Gelesen wird nur, was brain-config.yaml nennt.</span>
+            </div>
+            <div class="b-callout b-callout--critical" data-import-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-import-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Paket prüfen</button>
+        </div>
+    </form>
+
+    <form data-import-step="confirm" novalidate hidden>
+        <div class="b-dialog-body">
+            <p data-import-company></p>
+            <div class="b-stats b-stats--compact" data-import-summary></div>
+            <p class="b-small b-muted" data-import-levels hidden></p>
+            <div class="b-callout b-callout--warning" data-import-warnings hidden>
+                <p class="b-callout-title">Hinweise</p>
+                <ul></ul>
+            </div>
+            <p class="b-small b-muted" data-import-ignored hidden></p>
+            <div class="b-field">
+                <label class="b-label" for="b-import-name">Name des Arbeitsbereichs</label>
+                <input class="b-input" id="b-import-name" name="name" maxlength="120" required>
+            </div>
+            <div class="b-callout b-callout--critical" data-import-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-import-back>Zurück</button>
+            <button type="submit" class="b-button b-button--primary">Arbeitsbereich anlegen</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if import_enabled %}<script src="{{ url_for('static', filename='js/builder/import.js') }}?v={{ asset_version }}"></script>{% endif %}
+{% endblock %}

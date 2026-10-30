@@ -78,6 +78,12 @@ a:hover { color: var(--color-accent-hover); }
         "top top"
         "rail main";
     min-height: 100vh;
+    /* The rail is sticky and one screen tall; its column keeps the rail's
+       colour and edge all the way down a long page. */
+    background: linear-gradient(to right,
+        var(--color-surface) 0 calc(var(--rail-width) - var(--border-width)),
+        var(--color-border) calc(var(--rail-width) - var(--border-width)) var(--rail-width),
+        transparent var(--rail-width));
 }
 
 .b-skip {
@@ -368,6 +374,7 @@ a:hover { color: var(--color-accent-hover); }
         grid-template-areas:
             "top"
             "main";
+        background: none;
     }
     .b-topbar { padding: 0 var(--space-2); gap: var(--space-1); }
     .b-button.b-menu-button { display: inline-flex; }
@@ -916,6 +923,128 @@ a:hover { color: var(--color-accent-hover); }
     .b-panel-resize { display: none; }
     .b-canvas-items .b-card { width: 100%; }
 }
+
+/* ---- Dialog (native <dialog>, opened with showModal) -------------------- */
+
+.b-dialog {
+    width: min(560px, calc(100vw - var(--space-4)));
+    max-height: calc(100vh - var(--space-6));
+    padding: 0;
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-m);
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: var(--shadow-overlay);
+}
+.b-dialog::backdrop { background: var(--color-scrim); }
+.b-dialog[open] { display: flex; flex-direction: column; }
+.b-dialog--static { position: static; display: flex; flex-direction: column; width: 100%; max-width: 560px; margin: 0; box-shadow: var(--shadow-raised); }
+.b-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-1) var(--space-3);
+}
+.b-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3) var(--space-3);
+    overflow-y: auto;
+}
+.b-dialog-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    border-top: var(--border-width) solid var(--color-border);
+    background: var(--color-surface-sunken);
+}
+
+.b-file {
+    width: 100%;
+    padding: var(--space-1);
+    border: var(--border-width) dashed var(--color-border-strong);
+    border-radius: var(--radius-s);
+    background: var(--color-surface-sunken);
+    color: var(--color-text-muted);
+    font: inherit;
+}
+.b-file::file-selector-button {
+    margin-right: var(--space-2);
+    height: var(--control-height);
+    padding: 0 var(--space-2);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-s);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+}
+.b-file:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: var(--focus-offset); }
+
+.b-choice { display: flex; flex-direction: column; gap: var(--space-1); border: 0; margin: 0; padding: 0; min-width: 0; }
+.b-choice legend { padding: 0; margin-bottom: var(--space-half); font-weight: var(--weight-medium); }
+.b-radio { display: inline-flex; align-items: flex-start; gap: var(--space-1); cursor: pointer; }
+.b-radio input { margin: 3px 0 0; accent-color: var(--color-accent); }
+.b-radio:has(input:disabled) { color: var(--color-text-disabled); cursor: not-allowed; }
+
+/* ---- Callout (a message inside the page) ------------------------------- */
+
+.b-callout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-half);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-s);
+    border-left: var(--border-width-strong) solid var(--color-accent);
+    background: var(--color-accent-soft);
+    color: var(--color-text);
+}
+.b-callout--warning { border-left-color: var(--color-warning); background: var(--color-warning-soft); }
+.b-callout--critical { border-left-color: var(--color-critical); background: var(--color-critical-soft); }
+.b-callout--good { border-left-color: var(--color-good); background: var(--color-good-soft); }
+.b-callout-title { font-weight: var(--weight-semibold); }
+.b-callout ul { margin: 0; padding-left: var(--space-2); }
+.b-callout code,
+.b-callout .b-mono { overflow-wrap: anywhere; }
+
+/* ---- Count tile -------------------------------------------------------- */
+
+/* 168px: five tiles across the content column, two on a phone. */
+.b-stats { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+.b-stat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-half);
+    padding: var(--space-2);
+    background: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-m);
+    color: var(--color-text);
+    text-decoration: none;
+}
+a.b-stat:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-raised); color: var(--color-text); }
+.b-stat-label { color: var(--color-text-muted); }
+.b-stat-value {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+    font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
+}
+.b-stat-detail { color: var(--color-text-muted); font-size: var(--text-xs); line-height: var(--leading-xs); }
+.b-stat--small .b-stat-value { font-size: var(--text-lg); line-height: var(--leading-lg); }
+.b-stats--compact { gap: var(--space-1); grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.b-stats--compact .b-stat { padding: var(--space-1) var(--space-2); }
+.b-stats--compact .b-stat-detail { grid-column: 1 / -1; }
+
+.b-page-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3); max-width: var(--content-max); }
+.b-section { display: flex; flex-direction: column; gap: var(--space-2); max-width: var(--content-max); margin-bottom: var(--space-5); }
+.b-link-strong { font-weight: var(--weight-semibold); color: var(--color-text); text-decoration: none; }
+.b-link-strong:hover { color: var(--color-accent); text-decoration: underline; }
 
 /* ---- Definition list (inside panels and cards) ------------------------- */
 

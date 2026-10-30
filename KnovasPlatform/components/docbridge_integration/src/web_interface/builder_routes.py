@@ -1,6 +1,7 @@
-"""The Brain Builder's shell: /builder and its eight stages.
+"""The Brain Builder's shell: /builder, its eight stages and the workspaces.
 
-Plan: "Knovas Brain Builder -- build plan" (Claude Docs), step B0. The builder
+Plan: "Knovas Brain Builder -- build plan" (Claude Docs), steps B0 and B1
+(workspaces: list, import of a configuration package, overview, export). The builder
 is the Platform as a consultant's tool: a consultant models a company's
 ontology, processes, sources and views, then publishes them to the company's
 Brain. This module draws the frame every later step fills in -- the stage
@@ -18,10 +19,20 @@ so it can be exercised against a minimal Flask app, as the console is.
 """
 from __future__ import annotations
 
+import hashlib
+import logging
+import re
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from datetime import datetime
+from typing import Any, Callable, Mapping, Optional
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import (Blueprint, Response, abort, jsonify, redirect, render_template, request,
+                   session, url_for)
+from markupsafe import Markup
+
+from builder import package
+
+logger = logging.getLogger(__name__)
 
 #: Roles that open the builder. Step B11 replaces this with the builder roles.
 BUILDER_ROLES = frozenset({"admin"})
@@ -112,12 +123,35 @@ def user_may_build(user) -> bool:
     return user is not None and bool(BUILDER_ROLES & set(getattr(user, "roles", ()) or ()))
 
 
-def create_builder_blueprint(gate, *, page_context: Callable[[], Mapping[str, Any]]):
+#: Where the chosen workspace is remembered between pages.
+SESSION_WORKSPACE = "builder_workspace"
+
+#: builder_change.path values that are events, not places in the model.
+CHANGE_LABELS = {"import": "Paket importiert"}
+
+
+def _download_name(name: str) -> str:
+    """A file name for the export that every browser and file system takes."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower().translate(str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}))).strip("-")
+    return f"{slug or 'arbeitsbereich'}-konfiguration.zip"
+
+
+def create_builder_blueprint(
+    gate,
+    *,
+    page_context: Callable[[], Mapping[str, Any]],
+    store_factory: Optional[Callable[[], Any]] = None,
+):
     """Build the /builder blueprint.
 
     ``page_context`` returns what every builder page needs from the app:
-    ``app_title``, ``brand``, ``asset_version`` and ``platform_url`` (where
-    "Zur Plattform" leads).
+    ``app_title``, ``brand``, ``asset_version``, ``platform_url`` (where
+    "Zur Plattform" leads) and ``csrf_token`` (the import dialog sends it as
+    the X-CSRF-Token header the app's gate checks).
+
+    ``store_factory`` returns the workspace store for this request
+    (``builder.store.WorkspaceStore`` on the request's connection). Without
+    one there are no workspaces and the import is refused.
     """
     bp = Blueprint("builder", __name__, url_prefix="/builder")
 
@@ -125,6 +159,8 @@ def create_builder_blueprint(gate, *, page_context: Callable[[], Mapping[str, An
     def _require_builder_role():
         user = gate.current_user()
         if user is None:
+            if request.path.startswith("/builder/api/"):
+                return jsonify({"success": False, "error": "Nicht angemeldet."}), 401
             return redirect(url_for("login", next=request.full_path or "/builder"))
         if not user_may_build(user):
             # 403, as the console does: the person is signed in and the
@@ -133,17 +169,59 @@ def create_builder_blueprint(gate, *, page_context: Callable[[], Mapping[str, An
             abort(403)
         return None
 
+    @bp.app_template_filter("b_datetime")
+    def _datetime(value):
+        """ISO 8601 -> "30.10.2026, 14:03" in the server's time zone."""
+        if not value:
+            return "–"
+        try:
+            moment = datetime.fromisoformat(str(value))
+        except ValueError:
+            return str(value)
+        if moment.tzinfo is not None:
+            moment = moment.astimezone()
+        return moment.strftime("%d.%m.%Y, %H:%M")
+
+    @bp.app_template_filter("b_change_label")
+    def _change_label(path):
+        return CHANGE_LABELS.get(path, path)
+
+    @bp.app_template_filter("b_version_tag")
+    def _version_tag(workspace):
+        parts = []
+        if workspace.draft_number is not None:
+            parts.append(Markup('<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>Entwurf {}</span>')
+                         .format(workspace.draft_number))
+        if workspace.published_number is not None:
+            parts.append(Markup('<span class="b-tag b-tag--good"><span class="b-tag-dot"></span>Veröffentlicht {}</span>')
+                         .format(workspace.published_number))
+        return Markup(" ").join(parts) if parts else Markup('<span class="b-tag">Leer</span>')
+
+    def _store():
+        return store_factory() if store_factory is not None else None
+
+    def _current_workspace(store):
+        workspace_id = session.get(SESSION_WORKSPACE)
+        if not workspace_id or store is None:
+            return None
+        workspace = store.get(workspace_id)
+        if workspace is None:
+            session.pop(SESSION_WORKSPACE, None)
+        return workspace
+
     def _render(template: str, **values):
-        user = gate.current_user()
+        store = _store()
+        workspaces = store.list() if store is not None else []
+        values.setdefault("current_workspace", _current_workspace(store))
         return render_template(
             template,
             **page_context(),
             stages=STAGES,
-            me=user,
-            # Workspaces arrive with the workspace model (step B1). Until then
-            # the switcher says there is none, which is the truth.
-            workspaces=(),
-            current_workspace=None,
+            me=gate.current_user(),
+            workspaces=[{"id": w.id, "name": w.name,
+                         "url": url_for("builder.workspace", workspace_id=w.id)} for w in workspaces],
+            workspace_list=workspaces,
+            import_enabled=store is not None,
             **values,
         )
 
@@ -156,11 +234,86 @@ def create_builder_blueprint(gate, *, page_context: Callable[[], Mapping[str, An
         current = STAGES_BY_SLUG.get(slug)
         if current is None:
             abort(404)
+        template = "builder/workspaces.html" if current is STAGES[0] else "builder/stage.html"
+        return _render(template, stage=current, stage_number=STAGES.index(current) + 1)
+
+    # -------------------------------------------------------- workspaces
+
+    def _workspace_or_404(store, workspace_id):
+        workspace = store.get(workspace_id) if store is not None else None
+        if workspace is None:
+            abort(404)
+        return workspace
+
+    @bp.route("/w/<workspace_id>")
+    def workspace(workspace_id: str):
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        session[SESSION_WORKSPACE] = current.id
         return _render(
-            "builder/stage.html",
-            stage=current,
-            stage_number=STAGES.index(current) + 1,
+            "builder/workspace.html",
+            stage=STAGES[0], stage_number=1, current_workspace=current,
+            changes=store.changes(current.id, limit=10),
         )
+
+    @bp.route("/w/<workspace_id>/export")
+    def export(workspace_id: str):
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        data = package.zip_files(package.write_package(store.model(current.id)))
+        logger.info("Builder export: workspace %s, %d bytes, sha256 %s",
+                    current.id, len(data), hashlib.sha256(data).hexdigest()[:16])
+        response = Response(data, mimetype="application/zip")
+        response.headers["Content-Disposition"] = f'attachment; filename="{_download_name(current.name)}"'
+        return response
+
+    def _uploaded_package():
+        """The uploaded zip read into the model, or a JSON refusal."""
+        upload = request.files.get("package")
+        if upload is None or not upload.filename:
+            return None, (jsonify({"success": False, "error": "Bitte ein ZIP-Archiv wählen."}), 400)
+        data = upload.read()
+        try:
+            result = package.read_package(package.files_from_zip(data))
+        except package.PackageError as exc:
+            # The message is ours; details may quote paths from the archive,
+            # so they go to the person who uploaded it, never into the log.
+            logger.info("Builder import refused: %d bytes, %s", len(data), type(exc).__name__)
+            return None, (jsonify({"success": False, "error": exc.message, "details": exc.details}), 422)
+        return (result, data), None
+
+    @bp.route("/api/import/preview", methods=["POST"])
+    def import_preview():
+        if _store() is None:
+            return jsonify({"success": False, "error": "Arbeitsbereiche sind hier nicht verfügbar."}), 503
+        uploaded, refusal = _uploaded_package()
+        if refusal:
+            return refusal
+        result, _ = uploaded
+        return jsonify({"success": True, "summary": result.summary,
+                        "suggested_name": result.summary.get("company") or ""})
+
+    @bp.route("/api/import", methods=["POST"])
+    def import_package():
+        store = _store()
+        if store is None:
+            return jsonify({"success": False, "error": "Arbeitsbereiche sind hier nicht verfügbar."}), 503
+        name = str(request.form.get("name", "") or "").strip()
+        if not 1 <= len(name) <= 120:
+            return jsonify({"success": False, "error": "Der Name braucht 1 bis 120 Zeichen."}), 400
+        uploaded, refusal = _uploaded_package()
+        if refusal:
+            return refusal
+        result, data = uploaded
+        workspace_id = store.create_from_import(
+            name=name, model=result.model, actor_id=gate.current_user().id,
+            source={"kind": "zip", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                    "types": result.summary["types"], "relations": result.summary["relations"]},
+        )
+        logger.info("Builder import: workspace %s from %d bytes, %d types, %d relations",
+                    workspace_id, len(data), result.summary["types"], result.summary["relations"])
+        session[SESSION_WORKSPACE] = workspace_id
+        return jsonify({"success": True, "url": url_for("builder.workspace", workspace_id=workspace_id)}), 201
 
     @bp.route("/_styleguide")
     def styleguide():

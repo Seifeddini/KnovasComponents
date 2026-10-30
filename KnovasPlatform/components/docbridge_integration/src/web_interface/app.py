@@ -1855,10 +1855,12 @@ def create_app(config_path: Optional[str] = None):
             },
         ))
 
+        from builder.store import WorkspaceStore
         from web_interface.builder_routes import create_builder_blueprint
 
         # Only with per-user identity: the builder is gated on a role, and the
-        # legacy shared login has no roles to check.
+        # legacy shared login has no roles to check. The store is built per
+        # request, on the request's connection, as the grant store below is.
         app.register_blueprint(create_builder_blueprint(
             identity_gate,
             page_context=lambda: {
@@ -1866,7 +1868,9 @@ def create_app(config_path: Optional[str] = None):
                 'brand': web_brand,
                 'asset_version': _static_asset_version(),
                 'platform_url': url_for('index'),
+                'csrf_token': _ensure_csrf_token(),
             },
+            store_factory=lambda: WorkspaceStore(identity_gate.connection()),
         ))
 
         from identity.node_grants import NodeGrantStore
