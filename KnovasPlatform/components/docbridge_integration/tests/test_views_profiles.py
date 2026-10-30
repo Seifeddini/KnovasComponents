@@ -268,6 +268,21 @@ class TestSystemMap:
         missing = c.get("/api/views/tree?view=cto/no-such-view")
         assert missing.status_code == 404 and "steht nicht im Definitionsbündel" in missing.get_json()["error"]
 
+    def test_the_map_is_only_drawn_for_the_users_of_its_profile(self):
+        from web_interface.views_routes import create_views_blueprint
+
+        g, n = _map_graph()
+        svc, _ = _svc(g, profile_roles="admin=CTO; member=Engineer")
+        gate = type("G", (), {"user": None, "current_user": lambda self: self.user})()
+        app = Flask(__name__, template_folder=str(TEMPLATES))
+        app.register_blueprint(create_views_blueprint(gate, svc, graph_mode=lambda: True))
+        c = app.test_client()
+        gate.user = type("U", (), {"id": uuid.uuid4(), "roles": frozenset({"member"})})()
+        r = c.get(f"/api/views/tree?view={_map_key()}")
+        assert r.status_code == 404 and r.get_json()["error"] == "Ansicht nicht gefunden."
+        gate.user = type("U", (), {"id": uuid.uuid4(), "roles": frozenset({"admin"})})()
+        assert c.get(f"/api/views/tree?view={_map_key()}").get_json()["nodes"][0]["id"] == n["system"]
+
 
 # -- no view name or definition key in Python code ------------------------------------------------------------
 
