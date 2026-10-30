@@ -150,6 +150,80 @@ section; the API behind it (`/api/settings/platform`) answers 403 to anyone else
 
   Losing or changing the key makes a saved token unreadable. The page then says "gesetzt, aber mit diesem Schlüssel nicht lesbar"; save the token again.
 
+### Sync von GitHub (KC-0.2)
+
+The Platform syncs the tenant's Brain from its knowledge base on demand: **Einstellungen → Sync von GitHub** (`/sync`,
+`admin` accounts only). It runs the knowledge base's own mapping runner, **brain-runner**, as an installed package.
+The image installs a pinned release; the Platform never imports or runs code from the repository.
+
+**Set-up, once:**
+
+1. **The package in the image.**
+   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.1.0.dev2`, commit `1ff84917`, tag
+     `brain-runner-v0.1.0.dev2` on KnowledgeBase).
+   - KnowledgeBase is private, so the build needs a read-only token as a BuildKit secret, kept outside every checkout:
+
+     ```bash
+     docker compose build --secret id=kb_read_token,src=/path/outside/the/checkout/kb_read_token docbridge-web
+     ```
+
+   - Without the secret the image builds without brain-runner, and the sync page says the package is not installed.
+2. **Settings** (Einstellungen → Ansichten und Wissensbasis, or pinned by the environment):
+
+   | Setting | Key | Pinned by | Knovas |
+   |---|---|---|---|
+   | Repository der Wissensbasis | `brain_sync.repository` | `BRAIN_SYNC_REPOSITORY` | `Seifeddini/KnowledgeBase` (default) |
+   | Branch | `brain_sync.branch` | `BRAIN_SYNC_BRANCH` | `master` (default) |
+   | Pfad zur brain-config.yaml | `brain_sync.config_path` | `BRAIN_SYNC_CONFIG_PATH` | `docs/ModernDocs/client-zero/brain-config.yaml` (default) |
+   | Lese-Token für den Sync | `brain_sync.github_token` | `BRAIN_SYNC_GITHUB_TOKEN`, or the file `brain_sync.github_token_file` | a fine-grained token: **Contents (read) on that repository only** |
+
+   - The token is write-only on the page and stored encrypted (needs `PLATFORM_SETTINGS_KEY`, above).
+   - The **write credential is the tenant's client certificate** (`certs/`, above): the sync writes to the Brain with
+     it, as the Platform does everything else.
+3. **Storage:** `brain_sync.storage_dir` (`BRAIN_SYNC_STORAGE_DIR`, default `/app/data/brain-sync`). Per tenant it
+   holds:
+   - the GitHub source's file cache;
+   - the runner's state;
+   - the fetched configuration;
+   - the plans;
+   - the outputs of each successful sync (`outputs/<commit>/bundle.json` and `evaluation.json`), and `current.json`
+     naming the last one.
+
+   Keep it on the data volume: losing it costs one full fetch, not data.
+
+**Use:**
+
+1. **Neuen Stand holen.** Resolves the branch to a commit and shows its SHA, date and message, and how many files the
+   mappings read changed since the last successful sync. Changed configuration files are fetched now; unchanged ones
+   are copied from the last fetch.
+2. **Probelauf.** In the background, with progress on the page.
+   - Fetches the configuration at that commit (only changed files) and plans every mapping through the package with
+     its GitHub source.
+   - Only the changed files the mappings read are downloaded; the rest comes from the tenant's cache.
+   - Shows per mapping:
+     - source items and candidates;
+     - what would be added, changed, retired, unchanged;
+     - drift;
+     - whether it is blocked (deletion guard, unreadable sources).
+   - Nothing is written to the Brain.
+3. **Anwenden.** In the background.
+   - Applies exactly the Probelauf's plans with the tenant's certificate, then the package's `evaluate` and `bundle`.
+   - **Refused**, and recorded as refused, when:
+     - there is no successful Probelauf;
+     - the Probelauf was already applied;
+     - the branch has moved to another commit since;
+     - the tenant (its id or certificate) changed since.
+
+     In each case, run the Probelauf again.
+   - One sync per tenant at a time.
+
+After a successful Anwenden, the views read its bundle. `views.config_source` defaults to `sync` (the last successful
+sync) once one exists; a value on the page or in `VIEWS_CONFIG_SOURCE` still wins.
+
+**History** (the page, and `brain_sync_runs`): commit, who, when, files fetched, counts per mapping, result,
+duration, the plan's sha256. Counts and hashes only, no file names or values. Every run is audited
+(`brain_sync.probe`, `brain_sync.apply`). The token appears in no response, log or history.
+
 ### Start
 
 ```bash

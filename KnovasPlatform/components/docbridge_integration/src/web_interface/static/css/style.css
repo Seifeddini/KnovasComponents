@@ -1908,3 +1908,8 @@ mark.context-snippet-match,
 .platform-settings-ok { color: var(--success-color, #1a6b4a); }
 .platform-settings-error { color: var(--error-color, #be123c); }
 .platform-settings-actions { display: flex; gap: 12px; align-items: center; }
+
+/* Sync von GitHub (KC-0.2): counts per mapping and the history. */
+.sync-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+.sync-table th, .sync-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border-color, #e5e7eb); }
+.sync-table th { font-weight: 600; }

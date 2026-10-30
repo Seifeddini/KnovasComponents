@@ -372,6 +372,18 @@ views:
   max_hops: "${VIEWS_MAX_HOPS:-4}"
   max_nodes_per_hop: "${VIEWS_MAX_NODES_PER_HOP:-2000}"
 
+# "Sync von GitHub" (WP KC-0.2): the Platform syncs the tenant's Brain from its knowledge base on demand,
+# through the installed brain-runner package (never code from the repository). An admin changes the
+# first four on the settings page; an environment variable pins them. The read-only token: Contents
+# (read) on the repository only; the tenant certificate above is the write credential.
+brain_sync:
+  repository: "${BRAIN_SYNC_REPOSITORY:-Seifeddini/KnowledgeBase}"
+  branch: "${BRAIN_SYNC_BRANCH:-master}"
+  config_path: "${BRAIN_SYNC_CONFIG_PATH:-docs/ModernDocs/client-zero/brain-config.yaml}"
+  github_token_file: "${BRAIN_SYNC_GITHUB_TOKEN_FILE:-/app/secrets/brain_sync_github_token}"
+  # Per tenant: the source cache, the runner's state, the fetched configuration, plans and outputs.
+  storage_dir: "${BRAIN_SYNC_STORAGE_DIR:-/app/data/brain-sync}"
+
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
   companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"

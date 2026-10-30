@@ -2982,8 +2982,56 @@ def create_app(config_path: Optional[str] = None):
     settings_resolver = _psettings.Resolver(
         config, tenant=str(config.get('api.customer_id', '') or '').strip(),
         store=(lambda: _psettings.SettingStore(identity_gate.open_connection(), owned=True))
-        if identity_gate is not None else None)
+        if identity_gate is not None else None,
+        # Once a sync from GitHub succeeded, the views read its bundle unless a source is configured (KC-0.2).
+        defaults={'views.config_source': lambda: _sync_default()})
     app.extensions['platform_settings'] = settings_resolver
+
+    # Sync from GitHub (KC-0.2): the tenant's Brain from its knowledge base through the installed brain-runner
+    # package, read-only token from the settings, written with the tenant's certificate. Per tenant storage under
+    # brain_sync.storage_dir; history in the platform database, so only with identity on.
+    from brain_sync import PackageRunner as _SyncRunner
+    from brain_sync import SyncService as _SyncService
+    from brain_sync import SyncStore as _SyncStore
+    from pathlib import Path as _SyncPath
+
+    def _tenant_id() -> str:
+        return str(config.get('api.customer_id', '') or '').strip()
+
+    def _tenant_ref() -> str:
+        """The tenant and its certificate as one hash: a replaced certificate is another reference."""
+        import hashlib
+
+        cert = str(config.get('api.cert_path', '') or '').strip()
+        try:
+            cert_hash = hashlib.sha256(_SyncPath(cert).read_bytes()).hexdigest() if cert else ''
+        except OSError:
+            cert_hash = ''
+        return hashlib.sha256(f'{_tenant_id()}|{cert_hash}'.encode('utf-8')).hexdigest()[:16]
+
+    def _brain_api():
+        """The graph API with the tenant's client certificate (the write credential)."""
+        from brain_runner.api import BrainApi
+
+        return BrainApi(str(config.get('api.base_url', '') or '').strip(),
+                        str(config.get('api.cert_path', '') or '').strip(),
+                        str(config.get('api.key_path', '') or '').strip(),
+                        str(config.get('api.ca_cert_path', '') or '').strip())
+
+    sync_service = _SyncService(
+        settings_resolver, tenant=_tenant_id, tenant_ref=_tenant_ref,
+        storage=_SyncPath(str(config.get('brain_sync.storage_dir', '') or '/app/data/brain-sync')),
+        store=lambda: _SyncStore(identity_gate.open_connection(), owned=True),
+        runner=_SyncRunner(brain_api=_brain_api),
+        on_success=lambda tenant: _views_forget(tenant)) if identity_gate is not None else None
+    app.extensions['brain_sync'] = sync_service
+
+    def _sync_default():
+        return sync_service.default_bundle_source() if sync_service is not None else None
+
+    def _views_forget(tenant: str) -> None:
+        view_service.bundles.forget(tenant)
+        settings_resolver.invalidate()
 
     def _kb_token() -> str:
         """The change requests' least-privilege GitHub token (KB_GITHUB_TOKEN, the token file, else
@@ -2997,7 +3045,8 @@ def create_app(config_path: Optional[str] = None):
         return GitHubRepo(repo, _kb_token())
 
     view_service = ViewService(lambda: api_client, github=_bundle_github,
-                               settings_provider=settings_resolver.view_settings)
+                               settings_provider=settings_resolver.view_settings,
+                               sync_path=lambda tenant: sync_service.bundle_path() if sync_service is not None else None)
     app.extensions['views'] = view_service
     from identity import view_prefs
     from identity.change_sets import ChangeSetStore
@@ -3049,6 +3098,14 @@ def create_app(config_path: Optional[str] = None):
         bundle_github=_bundle_github,
         repository=lambda: str(config.get('views.change_requests.github_repo', '') or '').strip(),
         make_repo=_github_repo))
+
+    if sync_service is not None:
+        from web_interface.sync_routes import create_sync_blueprint
+
+        app.register_blueprint(create_sync_blueprint(
+            sync_service, gate=identity_gate,
+            page_context=lambda: {**_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                                  'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version()}))
 
     app.register_blueprint(create_views_blueprint(
         identity_gate, view_service,

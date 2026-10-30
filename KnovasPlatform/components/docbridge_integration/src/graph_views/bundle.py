@@ -9,7 +9,9 @@ The source has two forms:
 
 * ``file:<path>`` — a local file (development and tests);
 * ``github:<owner>/<repo>@<ref>:<path to bundle.json>`` — read through the GitHub client of the change
-  requests (``github_repo.py``) with its token.
+  requests (``github_repo.py``) with its token;
+* ``sync`` — the bundle of this tenant's last successful "Sync von GitHub" (``brain_sync``, KC-0.2), kept in
+  the Platform's storage with its evaluation reports.
 
 A bundle is refused, with the reason on the page, when its ``format`` is not
 ``brain-definitions-bundle``, its ``format_version`` is one this reader does not know, or its
@@ -84,11 +86,13 @@ def parse_source(spec: str) -> Source:
         raise BundleError("Kein Definitionsbündel konfiguriert (views.config_source).")
     if spec.startswith("file:") and spec[len("file:"):].strip():
         return Source(spec, "file", spec[len("file:"):].strip())
+    if spec in ("sync", "sync:"):
+        return Source(spec, "sync", "")
     m = _GITHUB.match(spec)
     if m:
         return Source(spec, "github", m.group("path").lstrip("/"), repo=m.group("repo"), ref=m.group("ref"))
-    raise BundleError(f"views.config_source {spec!r} ist ungültig: erwartet file:<Pfad> oder "
-                      "github:<owner>/<repo>@<ref>:<Pfad zu bundle.json>.")
+    raise BundleError(f"views.config_source {spec!r} ist ungültig: erwartet file:<Pfad>, "
+                      "github:<owner>/<repo>@<ref>:<Pfad zu bundle.json> oder sync.")
 
 
 def _read_text(source: Source, path: str, github: Optional[Callable[[str], Any]]) -> Optional[str]:
@@ -256,13 +260,20 @@ def _read_reports(source: Source, header: Dict[str, Any],
 
 
 def read(spec: str, github: Optional[Callable[[str], Any]] = None, *,
-         known: Optional[Callable[[str], Optional[Bundle]]] = None) -> Bundle:
+         known: Optional[Callable[[str], Optional[Bundle]]] = None,
+         sync_path: Optional[Callable[[], Optional[str]]] = None) -> Bundle:
     """Read, check and return the bundle at ``spec`` with its reports.
 
     ``known`` maps a content hash to a bundle already read: then that bundle's sections and derived
-    values are reused and only the reports are read again.
+    values are reused and only the reports are read again. ``sync_path`` names the file of this tenant's
+    last successful sync (source ``sync``).
     """
     source = parse_source(spec)
+    if source.kind == "sync":
+        path = sync_path() if sync_path is not None else None
+        if not path:
+            raise BundleError("Noch kein erfolgreicher Sync von GitHub: die Quelle sync hat kein Definitionsbündel.")
+        source = Source(spec, "file", str(path))
     text = _read_text(source, source.path, github)
     if text is None:
         raise BundleError(f"Definitionsbündel {_where(source)} nicht gefunden.")
@@ -288,9 +299,11 @@ class BundleStore:
     ERROR_TTL_SECONDS = 30
 
     def __init__(self, ttl_seconds: float, *, github: Optional[Callable[[str], Any]] = None,
-                 now: Optional[Callable[[], float]] = None):
+                 now: Optional[Callable[[], float]] = None,
+                 sync_path: Optional[Callable[[str], Optional[str]]] = None):
         self._ttl = ttl_seconds
         self._github = github
+        self._sync_path = sync_path          # tenant -> its last successful sync's bundle file, or None
         self._now = now or time.time
         self._items: Dict[Tuple[str, str], Tuple[float, Any]] = {}
         self._by_hash: Dict[str, Bundle] = {}
@@ -308,7 +321,8 @@ class BundleStore:
                     raise value
                 return value
         try:
-            bundle = read(key[1], self._github, known=self._by_hash.get)
+            sync_path = (lambda: self._sync_path(key[0])) if self._sync_path is not None else None
+            bundle = read(key[1], self._github, known=self._by_hash.get, sync_path=sync_path)
         except BundleError as exc:
             with self._lock:
                 self._items[key] = (now, exc)
@@ -317,6 +331,12 @@ class BundleStore:
             self._items[key] = (now, bundle)
             self._by_hash[bundle.content_hash] = bundle
         return bundle
+
+    def forget(self, tenant: str) -> None:
+        """Read the tenant's bundles again on next use (a sync replaced its ``sync`` bundle)."""
+        with self._lock:
+            for key in [k for k in self._items if k[0] == str(tenant or "")]:
+                self._items.pop(key, None)
 
 
 # -- the bundle of this request -------------------------------------------------------------------
