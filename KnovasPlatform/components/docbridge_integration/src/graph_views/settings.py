@@ -28,6 +28,9 @@ class ViewSettings:
     key_index_max: int = 60
     doc_fact_budget: int = 24          # facts one documentation page reads before deferring sections
     doc_page_items: int = 25           # items a page section draws before "weitere"
+    map_fact_budget: int = 120         # check facts one level of a profile map reads (KC-2)
+    #: Platform role -> profiles (id or audience), "admin=CTO; member=Engineer"; empty: every profile
+    profile_roles: str = ""
     page_size: int = 50
     max_hops: int = 4
     max_nodes_per_hop: int = 2000

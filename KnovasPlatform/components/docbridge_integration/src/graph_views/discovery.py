@@ -21,13 +21,18 @@ from graph_views import descriptions
 from graph_views.facts import KeyedTTL, fact_values, read_facts, status_of
 from graph_views.process_views import current_step
 
-SPINE_ORDER = ("SPINE-product", "SPINE-organisation", "SPINE-process", "SPINE-market")
+def spine_order() -> Tuple[str, ...]:
+    """The spines in the order the tenant's bundle lists them (its own first spine first)."""
+    from graph_views import bundle
+
+    return tuple(s["key"] for s in bundle.current().spines.get("spines") or [] if s.get("key"))
 
 
 def spine_types(defs: Any) -> List[Tuple[str, str, List[str]]]:
     """(spine key, spine name, types in level order), branches after their spine."""
     out = []
-    for key in SPINE_ORDER + tuple(s["key"] for s in defs.spines if s["key"] not in SPINE_ORDER):
+    order = spine_order()
+    for key in order + tuple(s["key"] for s in defs.spines if s["key"] not in order):
         spine = defs.spine(key)
         if not spine:
             continue
@@ -255,7 +260,8 @@ def tree_path(ctx: Any, defs: Any, nid: str) -> Optional[Dict[str, Any]]:
 
     index = ctx.index
     t = index.type_of(nid)
-    for spine in [defs.spine(k) for k in SPINE_ORDER] + [s for s in defs.spines if s["key"] not in SPINE_ORDER]:
+    order = spine_order()
+    for spine in [defs.spine(k) for k in order] + [s for s in defs.spines if s["key"] not in order]:
         if not spine:
             continue
         for branch, levels in [("", spine["levels"])] + [(b["key"], b["levels"]) for b in spine.get("branches") or []]:

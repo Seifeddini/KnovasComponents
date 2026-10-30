@@ -2,7 +2,7 @@
  "header": {
   "absent": [],
   "config": "KnovasPlatform/components/docbridge_integration/src/graph_views/definitions (vendored)",
-  "content_hash": "sha256:7dcb691e1ae99b6616c34f1e768dcefec361a46f6f7a0bdcddf15279d0673a59",
+  "content_hash": "sha256:2f17fbc384f709e3394ac66b7e28077c77e7b2c0f73ff6a55803f6515763dd45",
   "format": "brain-definitions-bundle",
   "format_version": 1,
   "kind": "software company (Client Zero)",
@@ -8910,7 +8910,890 @@
    ],
    "version": 2
   },
-  "profiles": {},
+  "profiles": {
+   "agent": {
+    "actions": [],
+    "audience": "AI agent",
+    "context_packs": [
+     {
+      "budget_tokens": 24000,
+      "description": "A plan and its components, contracts, invariants, open decisions and risks, each with the file it is defined in.",
+      "id": "plan",
+      "include": [
+       {
+        "label": "components",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "affects",
+          "to_type": "Component"
+         }
+        ]
+       },
+       {
+        "label": "contracts of the components",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "affects",
+          "to_type": "Component"
+         },
+         {
+          "direction": "in",
+          "relation": "governs",
+          "to_type": "ComponentContract"
+         }
+        ]
+       },
+       {
+        "label": "contracts the plan keeps",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "keeps",
+          "to_type": "ComponentContract"
+         }
+        ]
+       },
+       {
+        "label": "invariants the plan keeps",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "keeps",
+          "to_type": "Invariant"
+         }
+        ]
+       },
+       {
+        "label": "invariants of the components",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "affects",
+          "to_type": "Component"
+         },
+         {
+          "direction": "out",
+          "relation": "keeps",
+          "to_type": "Invariant"
+         }
+        ]
+       },
+       {
+        "label": "interfaces of the components",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "affects",
+          "to_type": "Component"
+         },
+         {
+          "direction": "out",
+          "relation": "exposes",
+          "to_type": "Interface"
+         }
+        ]
+       },
+       {
+        "label": "open decisions on the plan",
+        "path": [
+         {
+          "direction": "in",
+          "relation": "affects",
+          "to_type": "Decision"
+         }
+        ],
+        "where": {
+         "fact": "status",
+         "in": [
+          "proposed",
+          "reviewed"
+         ]
+        }
+       },
+       {
+        "label": "open decisions on the components",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "affects",
+          "to_type": "Component"
+         },
+         {
+          "direction": "in",
+          "relation": "affects",
+          "to_type": "Decision"
+         }
+        ],
+        "where": {
+         "fact": "status",
+         "in": [
+          "proposed",
+          "reviewed"
+         ]
+        }
+       },
+       {
+        "label": "risks on the plan",
+        "path": [
+         {
+          "direction": "in",
+          "relation": "threatens",
+          "to_type": "Risk"
+         }
+        ],
+        "where": {
+         "fact": "status",
+         "not_in": [
+          "closed"
+         ]
+        }
+       },
+       {
+        "label": "risks of the plan",
+        "path": [
+         {
+          "direction": "in",
+          "relation": "affects",
+          "to_type": "Risk"
+         }
+        ],
+        "where": {
+         "fact": "status",
+         "not_in": [
+          "closed"
+         ]
+        }
+       },
+       {
+        "label": "risks of the components",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "affects",
+          "to_type": "Component"
+         },
+         {
+          "direction": "in",
+          "relation": "affects",
+          "to_type": "Risk"
+         }
+        ],
+        "where": {
+         "fact": "status",
+         "not_in": [
+          "closed"
+         ]
+        }
+       },
+       {
+        "label": "source files",
+        "path": [
+         {
+          "direction": "out",
+          "relation": "affects",
+          "to_type": "Component"
+         },
+         {
+          "direction": "in",
+          "relation": "part_of",
+          "to_type": "SourceFile"
+         }
+        ]
+       }
+      ],
+      "root_type": "FeaturePlan",
+      "with_source_paths": true
+     }
+    ],
+    "delivered_through": "secured API (later through agent tools)",
+    "description": "An agent implementing one plan: gets everything the plan needs and nothing more; every output is a proposal a person accepts.",
+    "id": "agent",
+    "lens": {
+     "relations": [
+      "affects",
+      "governs",
+      "keeps",
+      "part_of",
+      "threatens",
+      "exposes"
+     ],
+     "spines": [
+      "SPINE-product"
+     ],
+     "types": [
+      "FeaturePlan",
+      "Component",
+      "ComponentContract",
+      "Invariant",
+      "Decision",
+      "Risk",
+      "SourceFile",
+      "Interface"
+     ]
+    },
+    "pages": [],
+    "rights": {
+     "read": [
+      "FeaturePlan",
+      "Component",
+      "ComponentContract",
+      "Invariant",
+      "Decision",
+      "Risk",
+      "SourceFile",
+      "Interface"
+     ],
+     "write": "propose"
+    },
+    "views": []
+   },
+   "ci": {
+    "actions": [],
+    "audience": "CI gate",
+    "context_packs": [],
+    "delivered_through": "CI job reading the rules report",
+    "description": "The CI job that reads the rules report and, once out of report mode, fails a merge that adds a new rule violation.",
+    "id": "ci",
+    "lens": {
+     "relations": [
+      "*"
+     ],
+     "spines": [],
+     "types": [
+      "*"
+     ]
+    },
+    "pages": [],
+    "rights": {
+     "read": [
+      "*"
+     ],
+     "write": "none"
+    },
+    "views": []
+   },
+   "cto": {
+    "actions": [
+     {
+      "autonomy": "person_commits",
+      "change": "FeaturePlan.status",
+      "criteria": [
+       "R1",
+       "R7",
+       "P-owner",
+       "P-source"
+      ],
+      "id": "approve-plan",
+      "label": "Approve plan",
+      "target_type": "FeaturePlan",
+      "to_value": "approved",
+      "writeback": "pull_request"
+     },
+     {
+      "autonomy": "person_commits",
+      "change": "Decision.status",
+      "criteria": [
+       "R3",
+       "R7"
+      ],
+      "id": "decide-decision",
+      "label": "Decide",
+      "target_type": "Decision",
+      "to_value": "decided",
+      "writeback": "pull_request"
+     },
+     {
+      "autonomy": "person_commits",
+      "change": "Risk accepted_by Role",
+      "criteria": [
+       "P-owner",
+       "P-review"
+      ],
+      "id": "accept-risk",
+      "label": "Accept risk",
+      "target_type": "Risk",
+      "writeback": "pull_request"
+     }
+    ],
+    "audience": "CTO",
+    "context_packs": [],
+    "delivered_through": "Platform",
+    "description": "Sees and steers the whole software: what it consists of, what is planned and done, which decisions and risks sit where, and how healthy the knowledge is.",
+    "id": "cto",
+    "lens": {
+     "relations": [
+      "part_of",
+      "exposes",
+      "calls",
+      "calls_back",
+      "governs",
+      "keeps",
+      "satisfies",
+      "realises",
+      "affects",
+      "serves",
+      "motivated_by",
+      "justified_by",
+      "implements",
+      "verifies",
+      "changes",
+      "evidenced_by",
+      "examines",
+      "raised_in",
+      "threatens",
+      "mitigated_by",
+      "accepted_by",
+      "decided_by",
+      "owned_by",
+      "supersedes",
+      "instance_of",
+      "in_state",
+      "describes"
+     ],
+     "spines": [
+      "SPINE-product",
+      "SPINE-process"
+     ],
+     "types": [
+      "System",
+      "BoundedContext",
+      "Component",
+      "Interface",
+      "Interaction",
+      "ComponentContract",
+      "Invariant",
+      "Capability",
+      "FeaturePlan",
+      "Decision",
+      "PreMortem",
+      "Risk",
+      "Release",
+      "Commit",
+      "AlloyCheck",
+      "TestRun",
+      "SourceFile",
+      "Record",
+      "Process",
+      "ProcessStep",
+      "Goal",
+      "Hypothesis",
+      "Role",
+      "Person"
+     ]
+    },
+    "pages": [
+     "PAGE-system",
+     "PAGE-software-area",
+     "PAGE-component",
+     "PAGE-sub-part",
+     "PAGE-interface"
+    ],
+    "rights": {
+     "read": [
+      "*"
+     ],
+     "write": "actions"
+    },
+    "role": "ROLE-CTO",
+    "views": [
+     {
+      "definition": {
+       "color_by": [
+        "docs_completeness",
+        "check_status"
+       ],
+       "description": "Software areas → components → interfaces, each component coloured by its documentation completeness and the status of the checks on its invariants.",
+       "paths": [
+        {
+         "label": "software areas",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "part_of",
+           "to_type": "BoundedContext"
+          }
+         ]
+        },
+        {
+         "label": "components",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "part_of",
+           "to_type": "BoundedContext"
+          },
+          {
+           "direction": "in",
+           "relation": "part_of",
+           "to_type": "Component"
+          }
+         ]
+        },
+        {
+         "label": "interfaces",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "part_of",
+           "to_type": "BoundedContext"
+          },
+          {
+           "direction": "in",
+           "relation": "part_of",
+           "to_type": "Component"
+          },
+          {
+           "direction": "out",
+           "relation": "exposes",
+           "to_type": "Interface"
+          }
+         ]
+        },
+        {
+         "label": "calls",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "part_of",
+           "to_type": "BoundedContext"
+          },
+          {
+           "direction": "in",
+           "relation": "part_of",
+           "to_type": "Component"
+          },
+          {
+           "direction": "out",
+           "relation": "calls",
+           "to_type": "Component"
+          }
+         ]
+        }
+       ],
+       "root_types": [
+        "System"
+       ]
+      },
+      "id": "system-map",
+      "label": "System map",
+      "render": "map"
+     },
+     {
+      "definition": {
+       "description": "One plan from left to right: the components it changes, the invariants it keeps, the checks that verify them, the commits that implement it and the release that shipped them.",
+       "paths": [
+        {
+         "label": "components",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "affects",
+           "to_type": "Component"
+          }
+         ]
+        },
+        {
+         "label": "invariants",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "keeps",
+           "to_type": "Invariant"
+          }
+         ]
+        },
+        {
+         "label": "Alloy checks",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "keeps",
+           "to_type": "Invariant"
+          },
+          {
+           "direction": "in",
+           "relation": "verifies",
+           "to_type": "AlloyCheck"
+          }
+         ]
+        },
+        {
+         "label": "test runs",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "verifies",
+           "to_type": "TestRun"
+          }
+         ]
+        },
+        {
+         "label": "commits",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "implements",
+           "to_type": "Commit"
+          }
+         ]
+        },
+        {
+         "label": "release",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "implements",
+           "to_type": "Commit"
+          },
+          {
+           "direction": "in",
+           "relation": "evidenced_by",
+           "to_type": "Release"
+          }
+         ]
+        }
+       ],
+       "root_types": [
+        "FeaturePlan"
+       ],
+       "rules": [
+        "R1",
+        "R2"
+       ]
+      },
+      "id": "feature-trace",
+      "label": "Feature trace",
+      "render": "trace"
+     },
+     {
+      "definition": {
+       "columns": [
+        "owner",
+        "current_step",
+        "size_points"
+       ],
+       "description": "Every feature plan in the column of its feature-lifecycle step, with what is missing to leave the step.",
+       "process": "PROC-feature-lifecycle",
+       "root_types": [
+        "FeaturePlan"
+       ],
+       "rules": [
+        "R1",
+        "R2",
+        "R7",
+        "P-owner",
+        "P-source",
+        "P-dated"
+       ]
+      },
+      "id": "work-board",
+      "label": "Work board",
+      "render": "board"
+     },
+     {
+      "definition": {
+       "columns": [
+        "status",
+        "decided_on",
+        "owner",
+        "reversibility"
+       ],
+       "description": "Decisions newest first, with what each affects, its state, and whether a pre-mortem examined it.",
+       "paths": [
+        {
+         "label": "affects component",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "affects",
+           "to_type": "Component"
+          }
+         ]
+        },
+        {
+         "label": "affects plan",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "affects",
+           "to_type": "FeaturePlan"
+          }
+         ]
+        },
+        {
+         "label": "pre-mortem",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "examines",
+           "to_type": "PreMortem"
+          }
+         ]
+        }
+       ],
+       "root_types": [
+        "Decision"
+       ],
+       "rules": [
+        "R3",
+        "R7"
+       ]
+      },
+      "id": "decision-log",
+      "label": "Decision log",
+      "render": "list"
+     },
+     {
+      "definition": {
+       "columns": [
+        "status",
+        "owner",
+        "review_date",
+        "likelihood_impact"
+       ],
+       "description": "Open risks grouped by component: the component's own risks and those of the plans that affect it.",
+       "group_by": "Component",
+       "paths": [
+        {
+         "label": "component",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "affects",
+           "to_type": "Component"
+          }
+         ]
+        },
+        {
+         "label": "through a plan",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "affects",
+           "to_type": "FeaturePlan"
+          },
+          {
+           "direction": "out",
+           "relation": "affects",
+           "to_type": "Component"
+          }
+         ]
+        },
+        {
+         "label": "mitigated by",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "mitigated_by",
+           "to_type": "FeaturePlan"
+          }
+         ]
+        }
+       ],
+       "root_types": [
+        "Risk"
+       ],
+       "rules": [
+        "R4",
+        "P-review"
+       ]
+      },
+      "id": "risk-register",
+      "label": "Risk register",
+      "render": "list"
+     },
+     {
+      "definition": {
+       "description": "Per type of health.yaml: correctness, completeness and compliance (DC-34), with the owner role and the review rhythm.",
+       "root_types": [
+        "FeaturePlan",
+        "Decision",
+        "Risk",
+        "Release",
+        "Component",
+        "Interface",
+        "Invariant"
+       ],
+       "rules": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5",
+        "R6",
+        "R7",
+        "R8"
+       ]
+      },
+      "id": "health",
+      "label": "Health",
+      "render": "matrix"
+     }
+    ]
+   },
+   "engineer": {
+    "actions": [
+     {
+      "autonomy": "person_commits",
+      "change": "ComponentContract governs Component",
+      "criteria": [],
+      "id": "add-contract",
+      "label": "Add a contract to the spec",
+      "target_type": "Component",
+      "writeback": "pull_request"
+     }
+    ],
+    "audience": "Engineer",
+    "context_packs": [],
+    "delivered_through": "Platform",
+    "description": "Builds and documents the software: what a component promises, what guards it, and which plans change it.",
+    "id": "engineer",
+    "lens": {
+     "relations": [
+      "part_of",
+      "exposes",
+      "calls",
+      "calls_back",
+      "initiated_by",
+      "received_by",
+      "governs",
+      "keeps",
+      "satisfies",
+      "affects",
+      "implements",
+      "verifies",
+      "changes",
+      "defines",
+      "describes",
+      "threatens"
+     ],
+     "spines": [
+      "SPINE-product"
+     ],
+     "types": [
+      "System",
+      "BoundedContext",
+      "Component",
+      "Interface",
+      "Interaction",
+      "ComponentContract",
+      "Invariant",
+      "FeaturePlan",
+      "Decision",
+      "Risk",
+      "AlloyCheck",
+      "TestRun",
+      "Commit",
+      "SourceFile",
+      "Symbol",
+      "Record"
+     ]
+    },
+    "pages": [
+     "PAGE-component",
+     "PAGE-sub-part",
+     "PAGE-interface"
+    ],
+    "rights": {
+     "read": [
+      "System",
+      "BoundedContext",
+      "Component",
+      "Interface",
+      "Interaction",
+      "ComponentContract",
+      "Invariant",
+      "FeaturePlan",
+      "Decision",
+      "Risk",
+      "AlloyCheck",
+      "TestRun",
+      "Commit",
+      "SourceFile",
+      "Symbol",
+      "Record"
+     ],
+     "write": "actions"
+    },
+    "role": "ROLE-ENGINE-OWNER",
+    "views": [
+     {
+      "definition": {
+       "description": "One plan: the components it changes, the invariants it keeps, the checks and commits.",
+       "paths": [
+        {
+         "label": "components",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "affects",
+           "to_type": "Component"
+          }
+         ]
+        },
+        {
+         "label": "invariants",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "keeps",
+           "to_type": "Invariant"
+          }
+         ]
+        },
+        {
+         "label": "Alloy checks",
+         "path": [
+          {
+           "direction": "out",
+           "relation": "keeps",
+           "to_type": "Invariant"
+          },
+          {
+           "direction": "in",
+           "relation": "verifies",
+           "to_type": "AlloyCheck"
+          }
+         ]
+        },
+        {
+         "label": "test runs",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "verifies",
+           "to_type": "TestRun"
+          }
+         ]
+        },
+        {
+         "label": "commits",
+         "path": [
+          {
+           "direction": "in",
+           "relation": "implements",
+           "to_type": "Commit"
+          }
+         ]
+        }
+       ],
+       "root_types": [
+        "FeaturePlan"
+       ],
+       "rules": [
+        "R2"
+       ]
+      },
+      "id": "feature-trace",
+      "label": "Feature trace",
+      "render": "trace"
+     }
+    ]
+   }
+  },
   "relations": {
    "relations": [
     {

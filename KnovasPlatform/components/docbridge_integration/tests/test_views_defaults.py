@@ -1,7 +1,6 @@
-"""Ansichten, Step 6: the default shared views of the Knovas tenant.
+"""Ansichten, Step 6: the views the Knovas tenant opens most render against the fixture graph.
 
-Each default view is valid as a saved view, the seed is admin-only, idempotent
-and audited, and each view renders against the fixture graph.
+The shared views themselves come from the tenant's profiles since KC-2 (tests/test_views_profiles.py).
 """
 from __future__ import annotations
 
@@ -9,10 +8,9 @@ import datetime as dt
 
 import pytest
 
-from graph_views import default_views, process_views as pv, service as views, spine_views as sv
+from graph_views import process_views as pv, service as views, spine_views as sv
 from graph_views.descriptions import hop_fits
 from graph_views.settings import ViewSettings
-from identity.saved_views import clean_view
 from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
 
 TODAY = dt.date(2026, 10, 27)
@@ -47,21 +45,6 @@ def _ctx(graph):
     svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     ctx = svc.context()
     return ctx, svc.definitions(ctx)
-
-
-def test_six_default_views_and_all_are_valid():
-    assert [v["name"] for v in default_views.KNOVAS] == [
-        "Entwicklungszyklus", "Entwicklungs-Board", "Management-Sicht", "Entscheidungen & Risiken", "Markt",
-        "Software-Dokumentation"]
-    for v in default_views.KNOVAS:
-        clean_view(v)
-
-
-def test_every_default_draws_from_a_defined_process_or_spine(graph):
-    _, d = _ctx(graph)
-    for v in default_views.KNOVAS:
-        (kind, key), = v["source"].items()
-        assert (d.process(key) if kind == "process" else d.spine(key)) is not None, key
 
 
 class TestEachDefaultRenders:
@@ -108,56 +91,3 @@ def test_hop_fits_reads_relations_yaml():
     assert not hop_fits("Component", {"relation": "mitigated_by", "direction": "in", "to_type": "Risk"})
     assert hop_fits("FeaturePlan", {"relation": "affects", "direction": "out", "to_type": "Component"})
     assert not hop_fits("Component", {"relation": "no_such_relation", "direction": "in", "to_type": "X"})
-
-
-# -- seeding (database) ---------------------------------------------------------------
-
-from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable  # noqa: E402
-
-needs_db = pytest.mark.skipif(not platform_db_reachable(), reason=f"No PostgreSQL at {PLATFORM_DB_TEST_DSN}")
-
-
-@needs_db
-class TestSeed:
-    def _admin(self, repo, admin=True):
-        u = repo.create(email=("admin" if admin else "ida") + "@kanzlei.ch", display_name="A",
-                        password="korrektes-pferd-batterie")
-        if admin:
-            repo.grant_role(u.id, "admin")
-        return repo.get(u.id)
-
-    def test_seed_is_idempotent_and_audited(self, platform_db, identity_repo):
-        from identity import audit
-        from identity.saved_views import SavedViewStore
-
-        store, admin = SavedViewStore(platform_db), self._admin(identity_repo)
-        first = default_views.seed(store, admin)
-        assert len(first["created"]) == 6 and first["kept"] == []
-        again = default_views.seed(store, admin)
-        assert again == {"created": [], "kept": [v["name"] for v in default_views.KNOVAS]}
-        created = audit.recent(platform_db, action="view.shared.created")
-        assert len(created) == 6 and {r["actor_email"] for r in created} == {"admin@kanzlei.ch"}
-
-    def test_everyone_sees_the_defaults_but_only_admins_seed(self, platform_db, identity_repo):
-        from pathlib import Path
-
-        from flask import Flask
-
-        from identity.saved_views import SavedViewStore
-        from web_interface.views_routes import create_views_blueprint
-
-        admin, ida = self._admin(identity_repo), self._admin(identity_repo, admin=False)
-        gate = type("G", (), {"user": None, "current_user": lambda self: self.user,
-                              "connection": lambda self: platform_db})()
-        app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"))
-        app.register_blueprint(create_views_blueprint(
-            gate, views.ViewService(lambda: None, ViewSettings(config_source=KNOVAS_SOURCE)), graph_mode=lambda: True,
-            view_store=lambda: SavedViewStore(platform_db)))
-        client = app.test_client()
-        gate.user = ida
-        assert client.post("/api/views/saved/defaults", json={}).status_code == 403
-        gate.user = admin
-        assert client.post("/api/views/saved/defaults", json={}).get_json()["created"]
-        gate.user = ida
-        names = [v["name"] for v in client.get("/api/views/saved").get_json()["views"]]
-        assert sorted(names) == sorted(v["name"] for v in default_views.KNOVAS)

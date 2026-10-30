@@ -3,6 +3,9 @@
  * TREE expands level by level (one request per expansion); each node shows its
  * key, name, status and how many children it has at the next level. MATRIX puts
  * two levels against each other; a cell says whether the spine links them.
+ *
+ * A profile's map (KC-2) is the same TREE over the profile view's paths
+ * (?view=<profile>/<view>); its nodes also carry the view's colour signals.
  */
 (function (root) {
     'use strict';
@@ -20,13 +23,41 @@
         return el('span', { className: 'views-dot', style: `background:${statusColor(status)}`, title: status || 'kein Status' });
     }
 
+    /** Colour of a signal value: good, partly, bad, unknown (the server says which value is which). */
+    const SIGNAL_COLORS = { complete: '#1a6b4a', passing: '#1a6b4a', stale: '#b45309', partial: '#b45309',
+        incomplete: '#be123c', failing: '#be123c', unread: '#B8C1D1', none: '#B8C1D1' };
+
+    function signalBadges(signals, legend) {
+        if (!signals || !legend || !legend.length) return null;
+        return el('span', { className: 'views-signals' }, legend.map((g) => {
+            const v = signals[g.id];
+            const value = (g.values.find((x) => x.value === v) || { label: v || '—' }).label;
+            return el('span', { className: 'views-signal', title: `${g.label}: ${value}` }, [
+                el('span', { className: 'views-dot', style: `background:${SIGNAL_COLORS[v] || '#B8C1D1'}` }),
+                el('span', { className: 'views-tech', text: g.label })]);
+        }));
+    }
+
+    function signalLegend(legend) {
+        if (!legend || !legend.length) return null;
+        return el('div', { className: 'views-status-legend' }, legend.map((g) => el('span', {}, [
+            el('strong', { text: `${g.label}:` }),
+            ...g.values.map((v) => el('span', {}, [el('span', { className: 'views-dot', style: `background:${SIGNAL_COLORS[v.value] || '#B8C1D1'}` }), ` ${v.label}`])),
+        ])));
+    }
+
     function statusLegend(states) {
         if (!states || !states.length) return null;
         return el('p', { className: 'views-status-legend' }, states.map((s) =>
             el('span', {}, [statusDot(s.status), ` ${s.status || 'ohne Status'} (${s.count})`])));
     }
 
-    function nodeRow(page, spine, branch, level, nextLevel, n) {
+    /** The tree's own query: a spine (and branch), or a profile view's map. */
+    function treeQuery(d) {
+        return d.profile_view ? { view: d.profile_view } : { spine: d.spine.key, branch: d.branch };
+    }
+
+    function nodeRow(page, query, legend, level, nextLevel, n) {
         const li = el('li', { className: 'views-tree-node' });
         const children = el('ul', { className: 'views-tree', hidden: true });
         let loaded = false;
@@ -38,12 +69,12 @@
             loaded = true;
             children.appendChild(el('li', { className: 'views-muted', text: 'Lädt…' }));
             try {
-                const d = await api('/api/views/tree', { spine, branch, parent: n.id, level: level.id });
+                const d = await api('/api/views/tree', { ...query, parent: n.id, level: level.id });
                 clear(children);
                 page.showAnswerMeta(d);
                 children.appendChild(el('li', { className: 'views-tree-level' }, [el('span', { className: 'views-tech', text: d.level.name }), statusLegend(d.states)]));
                 d.nodes.filter((c) => !page.isHidden || !page.isHidden(c.type))
-                    .forEach((c) => children.appendChild(nodeRow(page, spine, branch, d.level, d.next_level, c)));
+                    .forEach((c) => children.appendChild(nodeRow(page, query, legend, d.level, d.next_level, c)));
                 if (!d.nodes.length) children.appendChild(el('li', { className: 'views-muted', text: 'keine' }));
             } catch (err) {
                 clear(children);
@@ -58,6 +89,7 @@
             el('button', { type: 'button', className: 'views-link', onclick: () => page.openDossier(n.id) }, [
                 n.key ? el('span', { className: 'views-tech', text: n.key }) : null, el('span', { text: n.name })]),
             n.status ? el('span', { className: 'views-status', text: n.status }) : null,
+            signalBadges(n.signals, legend),
             count ? el('span', { className: 'views-tech', text: count }) : null,
         ]));
         li.appendChild(children);
@@ -71,9 +103,15 @@
         if (d.spine.description) box.appendChild(el('p', { className: 'views-muted', text: d.spine.description }));
         box.appendChild(el('p', { className: 'views-tech', text: d.levels.map((l) => l.name).join(' → ') }));
         box.appendChild(statusLegend(d.states) || el('span'));
+        if (d.profile_view) {
+            box.appendChild(signalLegend(d.signals) || el('span'));
+            if (d.skipped && d.skipped.length) box.appendChild(el('p', { className: 'views-muted', text: `Nicht als Ebene gezeichnet: ${d.skipped.join('; ')}` }));
+            if (d.unknown_signals && d.unknown_signals.length) box.appendChild(el('p', { className: 'views-muted', text: `Unbekannte Farbsignale: ${d.unknown_signals.join(', ')}` }));
+        }
+        const query = treeQuery(d);
         const list = el('ul', { className: 'views-tree views-tree-root' });
         d.nodes.filter((n) => !page.isHidden || !page.isHidden(n.type))
-            .forEach((n) => list.appendChild(nodeRow(page, d.spine.key, d.branch, d.level, d.next_level, n)));
+            .forEach((n) => list.appendChild(nodeRow(page, query, d.signals, d.level, d.next_level, n)));
         if (!d.nodes.length) list.appendChild(el('li', { className: 'views-muted', text: `Keine Knoten auf der Ebene ${d.level.name}.` }));
         box.appendChild(list);
         expandPath(list, (page.state && page.state.expand) || []);

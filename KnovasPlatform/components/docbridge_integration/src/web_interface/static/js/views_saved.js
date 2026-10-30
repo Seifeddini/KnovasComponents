@@ -2,7 +2,8 @@
  * with the tenant" (admins), delete, and the change log of shared views.
  *
  * A view is presentation only (name, source, render kind, settings); applying
- * one sets the page's state and draws it as usual.
+ * one sets the page's state and draws it as usual. A profile view (KC-2) comes
+ * with ``open`` from the server: which render kind draws it, with what.
  */
 (function (root) {
     'use strict';
@@ -44,9 +45,12 @@
             this.page.$('viewsPicker').hidden = false;
             const sel = clear(this.select);
             sel.appendChild(el('option', { value: '', text: 'Ansicht wählen…' }));
-            const groups = [['shared', 'Geteilt'], ['personal', 'Persönlich']];
-            groups.forEach(([aud, label]) => {
-                const mine = this.views.filter((v) => v.audience === aud);
+            // Profile views under their profile's audience, then the other shared views, then the user's own.
+            const audiences = [...new Set(this.views.filter((v) => v.profile).map((v) => v.profile.audience || v.profile.id))];
+            const groups = [...audiences.map((a) => [(v) => v.profile && (v.profile.audience || v.profile.id) === a, a]),
+                [(v) => v.audience === 'shared' && !v.source.profile, 'Geteilt'], [(v) => v.audience === 'personal', 'Persönlich']];
+            groups.forEach(([pick, label]) => {
+                const mine = this.views.filter(pick);
                 if (!mine.length) return;
                 sel.appendChild(el('optgroup', { label }, mine.map((v) => el('option', { value: v.id, text: v.name, selected: v.id === this.current }))));
             });
@@ -60,6 +64,18 @@
             this.current = v.id;
             this.select.value = v.id;
             s.view = v.id;
+            s.profileView = '';
+            let kind = v.render_kind;
+            if (v.source.profile) {
+                const o = v.open || {};
+                if (!o.kind) { this.page.notice(o.unsupported || 'Diese Profilansicht kann die Plattform noch nicht zeichnen.'); return; }
+                kind = o.kind;
+                if (o.process) s.process = o.process;
+                if (o.spine) s.spine = o.spine;
+                if (o.type) s.listType = o.type;
+                if (o.profile_view) s.profileView = o.profile_view;
+                this.page.notice(o.note || '');
+            }
             if (v.source.process) s.process = v.source.process;
             if (v.source.spine) s.spine = v.source.spine;
             s.owner = filters.owner || '';
@@ -77,7 +93,7 @@
             this.page.viewSettings = { hidden: new Set(settings.hidden_types || []), sorting: settings.sorting || '' };
             this.page.overrides = Object.fromEntries(Object.entries(settings.colours || {}).map(([t, c]) => [t, { color: c }]));
             if (this.page.fillSpineControls) this.page.fillSpineControls();
-            this.page.setKind(v.render_kind);
+            this.page.setKind(kind);
         }
 
         /** The current page state as a view body (presentation only). */
@@ -132,7 +148,7 @@
                 if (current.description) body.appendChild(el('p', { text: current.description }));
                 const actions = el('div', { className: 'views-pager' });
                 const mayChange = current.audience === 'personal' || this.isAdmin;
-                if (mayChange && canSave) {
+                if (mayChange && canSave && !current.source.profile) {   // a profile view's source is its profile
                     actions.appendChild(el('button', { type: 'button', className: 'views-button', text: 'Mit aktueller Darstellung überschreiben', onclick: async () => {
                         try {
                             const snap = this.snapshot(current.name, current.description);
@@ -169,11 +185,13 @@
             }
             body.appendChild(msg);
             if (this.isAdmin) {
-                body.appendChild(el('button', { type: 'button', className: 'views-button', text: 'Standardansichten anlegen', onclick: async () => {
+                body.appendChild(el('button', { type: 'button', className: 'views-button', text: 'Ansichten aus den Profilen anlegen', onclick: async () => {
                     try {
-                        const d = await api('/api/views/saved/defaults', {}, { method: 'POST', body: JSON.stringify({ set: 'knovas' }) });
+                        const d = await api('/api/views/saved/defaults', {}, { method: 'POST', body: JSON.stringify({}) });
                         await this.load();
-                        msg.textContent = d.created.length ? `Angelegt: ${d.created.join(', ')}` : 'Alle Standardansichten gibt es schon.';
+                        const parts = [d.created.length ? `angelegt: ${d.created.join(', ')}` : '',
+                            d.updated.length ? `aktualisiert: ${d.updated.join(', ')}` : ''].filter(Boolean);
+                        msg.textContent = parts.length ? `Profilansichten ${parts.join('; ')}.` : 'Alle Profilansichten gibt es schon.';
                     } catch (err) { msg.textContent = err.message; }
                 } }));
                 this.showLog(body);

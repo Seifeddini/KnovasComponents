@@ -8,6 +8,9 @@ parts gets them.
 KnowledgeBase has no `scripts/brain_runner/examples/lawfirm`. The configuration under `config/` is the
 law firm exactly as KnowledgeBase's own tests write it (`scripts/brain_runner/tests/test_bundle.py`:
 `LAW_MANIFEST`, `LAW_TERMS`, `LAW_RELATIONS`, `LAW_MAPPING`, `LAW_PROCESSES`, `LAW_PAGES`, `LAW_EDITS`).
+`config/profiles/partner.yaml` is added here (KC-2): the partners' profile, delivered through the
+Platform, with one view, the contract review board. KnowledgeBase's own test gives the partner profile
+no views. It is valid against KnowledgeBase's `profile.schema.json`.
 `bundle.json` was built from it by KnowledgeBase's runner:
 
 ```bash

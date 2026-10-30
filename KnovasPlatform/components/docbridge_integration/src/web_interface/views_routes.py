@@ -242,6 +242,15 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     @guarded
     def spine_tree():
         context, d = _process_context()
+        if _arg("view"):
+            # A profile's map (KC-2): the tree over the profile view's paths, coloured by its signals.
+            from graph_views import profiles
+
+            try:
+                return _drawable(lambda: jsonify(spine_views.profile_map(
+                    context, _arg("view"), parent=_arg("parent"), level=_arg("level"))))
+            except profiles.NotAProfileView as exc:
+                return jsonify({"success": False, "error": str(exc)}), 404
         if not _arg("spine"):
             return jsonify({"success": False, "error": "Achse angeben."}), 400
         return _drawable(lambda: jsonify(spine_views.tree(
@@ -279,10 +288,45 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         body = request.get_json(silent=True)
         return body if isinstance(body, dict) else {}
 
+    def user_profiles(user) -> Optional[set]:
+        """Ids of the profiles the user's roles map to (views.profile_roles); None: every profile.
+
+        Without the tenant's bundle no profile view can be drawn, so none is listed.
+        """
+        from graph_views import profiles
+
+        try:
+            found = service.bundle()
+        except BundleError:
+            return set()
+        return profiles.profiles_for(getattr(user, "roles", ()) or (),
+                                     profiles.parse_roles(service.settings.profile_roles), found)
+
+    def with_profile(views_: list) -> list:
+        """Each profile view with its profile and how the page opens it (from the bundle)."""
+        from graph_views import profiles
+
+        for v in views_:
+            key = (v.get("source") or {}).get("profile")
+            if not key:
+                continue
+            try:
+                profile, pview = profiles.find(key, service.bundle())
+            except (BundleError, profiles.NotAProfileView) as exc:
+                v["open"] = {"kind": None, "unsupported": str(exc)}
+                continue
+            v["profile"] = {"id": profile["id"], "audience": profile.get("audience")}
+            v["open"] = profiles.open_spec(profile, pview)
+        return views_
+
     @bp.route("/api/views/saved", methods=["GET"])
     @saved
     def saved_list(store, user):
-        return jsonify({"success": True, "views": store.list_for(user), "is_admin": is_admin()})
+        # An admin may ask for every profile's views (?all=1) to look after them; the picker shows
+        # the user's own profiles.
+        mine = None if (_flag("all") and is_admin()) else user_profiles(user)
+        return jsonify({"success": True, "views": with_profile(store.list_for(user, mine)), "is_admin": is_admin(),
+                        "profiles": sorted(mine) if mine is not None else None})
 
     @bp.route("/api/views/saved", methods=["POST"])
     @saved
@@ -294,7 +338,8 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     @bp.route("/api/views/saved/<view_id>", methods=["GET"])
     @saved
     def saved_get(store, user, view_id):
-        return jsonify({"success": True, "view": store.get(view_id, user)})
+        mine = None if is_admin() else user_profiles(user)
+        return jsonify({"success": True, "view": with_profile([store.get(view_id, user, mine)])[0]})
 
     @bp.route("/api/views/saved/<view_id>", methods=["PATCH"])
     @saved
@@ -318,12 +363,14 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
     def saved_defaults(store, user):
         if not is_admin():
             return jsonify({"success": False, "error": "Nur für Administratoren."}), 403
-        from graph_views import default_views
+        from graph_views import profiles
 
-        which = str(_body().get("set") or "knovas")
-        if which not in default_views.SETS:
-            return jsonify({"success": False, "error": f"Unbekannter Satz {which}."}), 400
-        return jsonify({"success": True, **default_views.seed(store, user, which)})
+        # The shared views come from the profiles in the tenant's bundle (KC-2), never from a list here.
+        try:
+            found = service.bundle()
+        except BundleError as exc:
+            return jsonify({"success": False, "error": f"Definitionsbündel: {exc}", "bundle_error": True}), 503
+        return jsonify({"success": True, **profiles.seed(store, user, found)})
 
     @bp.route("/api/views/saved/audit", methods=["GET"])
     @saved

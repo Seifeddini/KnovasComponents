@@ -8,7 +8,7 @@ saw before the bundle.
 
 | File | What it is |
 |---|---|
-| `bundle.json` | The bundle. Parsed sections are the vendored YAML files as parsed (`types` without `tenant`). Normalised sections are the vendored JSON files without `generated_at` and `source`, and `processes.report_rules[]` without `computed_by`. `profiles` and `health` are empty: they did not exist at that commit. |
+| `bundle.json` | The bundle. Parsed sections are the vendored YAML files as parsed (`types` without `tenant`). Normalised sections are the vendored JSON files without `generated_at` and `source`, and `processes.report_rules[]` without `computed_by`. `profiles` holds KnowledgeBase master's four profiles (`docs/ModernDocs/client-zero/profiles/*.yaml`, KB-2 `e8800a79`, added for KC-2): agent, ci, cto and engineer. `health` is empty: it did not exist at `c325397d`. |
 | `process-completeness.json`, `docs-completeness.json`, `suggestions.json` | The computed reports the header names (`header.reports`), unchanged. |
 
 **Do not edit it by hand.** The reader recomputes `content_hash` and refuses a file whose sections do
