@@ -246,6 +246,11 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             # A profile's map (KC-2): the tree over the profile view's paths, coloured by its signals.
             from graph_views import profiles
 
+            # Another profile's view answers like a missing one, as in the saved views.
+            user = gate.current_user() if gate is not None else None
+            mine = None if (user is None or is_admin()) else user_profiles(user)
+            if mine is not None and _arg("view").split("/", 1)[0] not in mine:
+                return jsonify({"success": False, "error": "Ansicht nicht gefunden."}), 404
             try:
                 return _drawable(lambda: jsonify(spine_views.profile_map(
                     context, _arg("view"), parent=_arg("parent"), level=_arg("level"))))
