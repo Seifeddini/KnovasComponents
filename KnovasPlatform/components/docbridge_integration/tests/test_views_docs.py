@@ -322,10 +322,3 @@ class TestRoutes:
         assert res.status_code == 200 and res.mimetype == "text/markdown"
         assert res.headers["Content-Disposition"] == 'attachment; filename="L1-RETRIEVE-teilbaum.md"'
         assert json.loads(json.dumps(res.get_data(as_text=True)))
-
-    def test_the_default_view_opens_the_documentation(self):
-        from graph_views import default_views
-        from identity.saved_views import clean_view
-
-        view = next(v for v in default_views.KNOVAS if v["name"] == "Software-Dokumentation")
-        assert clean_view(view)["render_kind"] == "doc" and view["source"] == {"spine": "SPINE-product"}

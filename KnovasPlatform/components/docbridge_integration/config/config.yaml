@@ -329,6 +329,12 @@ views:
   # Read again after definitions_ttl_seconds; a wrong format version or hash is refused on the page.
   # Knovas: github:Seifeddini/KnowledgeBase@master:docs/ModernDocs/client-zero/generated/bundle.json
   config_source: "${VIEWS_CONFIG_SOURCE:-}"
+  # Who sees which profile views (KC-2): Platform role = profiles (id or audience), e.g.
+  # "admin=CTO; member=Engineer". Empty: every user sees every profile delivered through the
+  # Platform. See the component README, "Profile views".
+  profile_roles: "${VIEWS_PROFILE_ROLES:-}"
+  # Check facts one level of a profile map reads for its check-status colour (paced like all reads).
+  map_fact_budget: "${VIEWS_MAP_FACT_BUDGET:-120}"
   # Per-subject topology index (D1): lifetime, and the scale guard above which a
   # request walks per node instead of reading the edge list.
   ttl_seconds: "${VIEWS_TTL_SECONDS:-60}"

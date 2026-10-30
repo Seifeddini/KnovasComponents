@@ -10,6 +10,11 @@ Personal views: the owner reads and changes them; nobody else sees them.
 Shared views: everyone signed in reads them; admins create, change, delete and
 share — and every one of those changes is written to audit_log.
 
+Profile views (KC-2) are shared views seeded from the tenant's profiles: their
+source is ``{profile: "<profile id>/<view id>"}``, the definition stays in the
+definitions bundle, and a user sees those of their own profiles
+(``graph_views.profiles``). They are unique by source, not by name.
+
 Rows are tuples, mapped by position, like the rest of identity/.
 """
 from __future__ import annotations
@@ -24,11 +29,14 @@ import psycopg
 from identity import audit
 
 AUDIENCES = ("personal", "shared")
-RENDER_KINDS = {"process": ("trace", "board"), "spine": ("tree", "matrix", "doc")}
+RENDER_KINDS = {"process": ("trace", "board"), "spine": ("tree", "matrix", "doc"),
+                "profile": ("trace", "board", "tree", "matrix", "list", "doc", "map")}
 SORTINGS = ("key", "name", "days", "missing", "risks")
 FILTER_KEYS = ("owner", "capability", "status", "branch", "rows", "cols", "meta")
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 _KEY = re.compile(r"^(PROC|SPINE)-[a-z0-9-]{1,72}$")
+#: <profile id>/<view id>, both as the profile schema writes ids
+_PROFILE_KEY = re.compile(r"^[a-z][a-z0-9-]{0,38}/[a-z][a-z0-9-]{0,38}$")
 
 _COLUMNS = ("id, audience, owner_user_id, name, description, source_kind, source_key, "
             "render_kind, settings, created_at, created_by, updated_at, updated_by")
@@ -133,15 +141,18 @@ def clean_view(data: Any) -> Dict[str, Any]:
         raise InvalidView("Eine Ansicht ist ein Objekt.")
     source = data.get("source") or {}
     if not isinstance(source, dict) or len(source) != 1 or next(iter(source)) not in RENDER_KINDS:
-        raise InvalidView("source ist {process: <Schlüssel>} oder {spine: <Schlüssel>}.")
+        raise InvalidView("source ist {process: <Schlüssel>}, {spine: <Schlüssel>} oder {profile: <Profil>/<Ansicht>}.")
     source_kind, source_key = next(iter(source.items()))
     source_key = str(source_key or "")
-    if not _KEY.match(source_key):
+    if source_kind == "profile":
+        if not _PROFILE_KEY.match(source_key):
+            raise InvalidView("source nennt eine Profilansicht als <Profil-Id>/<Ansicht-Id>.")
+    elif not _KEY.match(source_key):
         raise InvalidView("source nennt einen Prozess- (PROC-…) oder Achsenschlüssel (SPINE-…).")
     render_kind = data.get("render_kind")
     if render_kind not in RENDER_KINDS[source_kind]:
-        raise InvalidView(f"Ein {'Prozess' if source_kind == 'process' else 'Achse'} wird als "
-                          f"{' oder '.join(RENDER_KINDS[source_kind])} gezeigt.")
+        what = {"process": "Ein Prozess", "spine": "Eine Achse", "profile": "Eine Profilansicht"}[source_kind]
+        raise InvalidView(f"{what} wird als {' oder '.join(RENDER_KINDS[source_kind])} gezeigt.")
     return {"name": _text(data.get("name"), "name", 80, required=True),
             "description": _text(data.get("description"), "description", 500),
             "source_kind": source_kind, "source_key": source_key, "render_kind": render_kind,
@@ -162,30 +173,55 @@ def _is_admin(user: Any) -> bool:
     return "admin" in (getattr(user, "roles", ()) or ())
 
 
+def profile_of(view: Dict[str, Any]) -> Optional[str]:
+    """The profile id of a profile view, else None."""
+    key = (view.get("source") or {}).get("profile")
+    return key.split("/", 1)[0] if key else None
+
+
+def _visible(view: Dict[str, Any], profiles: Optional[Any]) -> bool:
+    """A profile view is visible to the users of its profile; ``profiles`` None means every profile."""
+    pid = profile_of(view)
+    return pid is None or profiles is None or pid in profiles
+
+
 class SavedViewStore:
     def __init__(self, conn: Any) -> None:
         self._conn = conn
 
     # -- reading -------------------------------------------------------------
 
-    def list_for(self, user: Any) -> List[Dict[str, Any]]:
-        """The user's personal views and every shared view, shared first."""
+    def list_for(self, user: Any, profiles: Optional[Any] = None) -> List[Dict[str, Any]]:
+        """The user's personal views and the shared views they see, shared first.
+
+        ``profiles``: the ids of the user's profiles; a profile view of another profile is left
+        out. None: every profile view (no mapping configured, or an admin asking for all).
+        """
         rows = self._conn.execute(
             f"SELECT {_COLUMNS} FROM saved_views "
             "WHERE audience = 'shared' OR owner_user_id = %s "
-            "ORDER BY audience DESC, lower(name)", (str(user.id),)).fetchall()
-        return [_row(r) for r in rows]
+            "ORDER BY audience DESC, lower(name), source_key", (str(user.id),)).fetchall()
+        return [v for v in (_row(r) for r in rows) if _visible(v, profiles)]
 
-    def get(self, view_id: Any, user: Any) -> Dict[str, Any]:
+    def get(self, view_id: Any, user: Any, profiles: Optional[Any] = None) -> Dict[str, Any]:
         vid = _uuid(view_id)
         if vid is None:
             raise ViewNotFound("Ansicht nicht gefunden.")
         r = self._conn.execute(f"SELECT {_COLUMNS} FROM saved_views WHERE id = %s", (vid,)).fetchone()
         # Someone else's personal view answers like a missing one: its name
-        # is nobody else's business.
+        # is nobody else's business. So does a profile view of another profile.
         if r is None or (r[1] == "personal" and str(r[2]) != str(user.id)):
             raise ViewNotFound("Ansicht nicht gefunden.")
-        return _row(r)
+        view = _row(r)
+        if not _visible(view, profiles):
+            raise ViewNotFound("Ansicht nicht gefunden.")
+        return view
+
+    def profile_views(self) -> Dict[str, Dict[str, Any]]:
+        """Every profile view by its source key (<profile id>/<view id>)."""
+        rows = self._conn.execute(
+            f"SELECT {_COLUMNS} FROM saved_views WHERE source_kind = 'profile'").fetchall()
+        return {r[6]: _row(r) for r in rows}
 
     # -- writing -------------------------------------------------------------
 
@@ -203,6 +239,8 @@ class SavedViewStore:
         if audience == "shared" and not _is_admin(user):
             raise ViewForbidden("Geteilte Ansichten legen nur Administratoren an.")
         v = clean_view(data)
+        if v["source_kind"] == "profile" and audience != "shared":
+            raise InvalidView("Eine Profilansicht ist immer geteilt.")
         try:
             r = self._conn.execute(
                 "INSERT INTO saved_views (audience, owner_user_id, name, description, source_kind, "
@@ -212,6 +250,8 @@ class SavedViewStore:
                  v["source_kind"], v["source_key"], v["render_kind"], json.dumps(v["settings"]),
                  str(user.id), str(user.id))).fetchone()
         except psycopg.errors.UniqueViolation:
+            if v["source_kind"] == "profile":
+                raise ViewNameTaken(f"Die Profilansicht {v['source_key']} gibt es schon.") from None
             raise ViewNameTaken(f"Es gibt schon eine Ansicht namens „{v['name']}“.") from None
         view = _row(r)
         if audience == "shared":
@@ -228,6 +268,8 @@ class SavedViewStore:
         if not isinstance(data, dict):
             raise InvalidView("Eine Änderung ist ein Objekt.")
         merged.update({k: v for k, v in data.items() if k in merged})
+        if profile_of(before) and merged["source"] != before["source"]:
+            raise InvalidView("Die Quelle einer Profilansicht ist ihr Profil; sie ändert sich nicht.")
         v = clean_view(merged)
         try:
             r = self._conn.execute(

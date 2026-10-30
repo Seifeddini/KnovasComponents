@@ -24,6 +24,7 @@
                 capability: params.get('capability') || '',
                 status: params.get('status') || '',
                 spine: params.get('spine') || 'SPINE-product',
+                profileView: params.get('pview') || '',            // a profile's map (KC-2): <profile>/<view>
                 branch: params.get('branch') || '',
                 rows: params.get('rows') || 'L3',
                 cols: params.get('cols') || 'L5',
@@ -92,7 +93,7 @@
                     render: (box, body, page) => { page.learnLabels(body.legend); root.ViewsProcess.renderTrace(box, body, page); },
                 },
                 tree: {
-                    path: (s) => ['/api/views/tree', { spine: s.spine, branch: s.branch }],
+                    path: (s) => ['/api/views/tree', s.profileView ? { view: s.profileView } : { spine: s.spine, branch: s.branch }],
                     render: (box, body, page) => root.ViewsSpine.renderTree(box, body, page),
                 },
                 matrix: {
@@ -145,14 +146,14 @@
         syncUrl() {
             // Keep parameters this controller does not own (?open= of the definitions).
             const params = new URLSearchParams(root.location.search);
-            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand', 'sections', 'type', 'gaps'].forEach((k) => params.delete(k));
+            ['node', 'meta', 'n', 'process', 'instance', 'owner', 'capability', 'status', 'spine', 'branch', 'rows', 'cols', 'expand', 'sections', 'type', 'gaps', 'pview'].forEach((k) => params.delete(k));
             params.set('kind', this.state.kind);
             if (this.state.view) params.set('view', this.state.view); else params.delete('view');
             const own = { sections: ['trace'], process: ['trace', 'board'], gapProcess: ['gaps'], listType: ['list'], owner: ['board'], capability: ['board'], status: ['board'],
-                spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'] };
+                spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'], profileView: ['tree'] };
             Object.entries(own).forEach(([k, kinds]) => {
                 const v = Array.isArray(this.state[k]) ? this.state[k].join(',') : this.state[k];
-                if (v && kinds.includes(this.state.kind)) params.set({ listType: 'type', gapProcess: 'gaps' }[k] || k, v);
+                if (v && kinds.includes(this.state.kind)) params.set({ listType: 'type', gapProcess: 'gaps', profileView: 'pview' }[k] || k, v);
             });
             if (this.state.node) params.set('node', this.state.node);
             if (this.state.meta) params.set('meta', '1');
@@ -370,6 +371,7 @@
             this.$('viewsSpine').addEventListener('change', (e) => {
                 this.state.spine = e.target.value;
                 this.state.branch = '';
+                this.state.profileView = '';
                 const spine = (this.spines || []).find((s) => s.key === this.state.spine);
                 if (spine && spine.levels.length > 2) { this.state.rows = spine.levels[0].id; this.state.cols = spine.levels[spine.levels.length - 1].id; }
                 this.fillSpineControls();

@@ -7,14 +7,14 @@
    "ontology/spines.yaml"
   ],
   "config": "KnovasPlatform/components/docbridge_integration/tests/fixtures/lawfirm-bundle/config/brain-config.yaml",
-  "content_hash": "sha256:665c3ceda9ab3f49a2effb014108428d019f443908b3e66a5960293185d9b75b",
+  "content_hash": "sha256:f34fd173ae512e156bd6aa9dc056528a9d7f29d7c6e039790510c54cf8737125",
   "format": "brain-definitions-bundle",
   "format_version": 1,
   "kind": "law firm",
   "label": "KANZLEI-X",
   "name": "Kanzlei X",
   "reports": {},
-  "source_commit": "4ea47a167f3be1d2fbf16b4d2a0c7332424e58ab",
+  "source_commit": "012fd005b28a288c142d7f9cf6ec1494fd79d3cc",
   "sources": {
    "descriptions": "ontology/descriptions.yaml",
    "edit_map": "ontology/edit-sources.yaml",
@@ -285,7 +285,53 @@
    "rules": [],
    "version": 1
   },
-  "profiles": {},
+  "profiles": {
+   "partner": {
+    "actions": [],
+    "audience": "Partner",
+    "context_packs": [],
+    "delivered_through": "Platform",
+    "description": "Prüft Verträge und sieht, wo jeder Vertrag eines Mandats in der Prüfung steht.",
+    "id": "partner",
+    "lens": {
+     "relations": [
+      "belongs_to_matter",
+      "matter_of"
+     ],
+     "spines": [],
+     "types": [
+      "Contract",
+      "Matter",
+      "Client"
+     ]
+    },
+    "pages": [],
+    "rights": {
+     "read": [
+      "*"
+     ],
+     "write": "none"
+    },
+    "views": [
+     {
+      "definition": {
+       "columns": [
+        "status",
+        "term_end"
+       ],
+       "description": "Jeder Vertrag in der Spalte seines Prüfschritts, mit dem, was ihm zum nächsten Schritt fehlt.",
+       "process": "PROC-contract-review",
+       "root_types": [
+        "Contract"
+       ]
+      },
+      "id": "contract-board",
+      "label": "Vertragsprüfung",
+      "render": "board"
+     }
+    ]
+   }
+  },
   "relations": {
    "relations": [
     {

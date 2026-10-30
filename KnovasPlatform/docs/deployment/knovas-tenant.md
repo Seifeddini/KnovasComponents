@@ -64,6 +64,9 @@ ONTOLOGY_SOURCE=graph
 # The tenant's definitions bundle (see "The definitions bundle" below). Without it every view
 # answers "Definitionsbündel: Kein Definitionsbündel konfiguriert".
 VIEWS_CONFIG_SOURCE=github:Seifeddini/KnowledgeBase@master:docs/ModernDocs/client-zero/generated/bundle.json
+# Who sees which profile views: the CTO profile for admins, the engineer's for members
+# (component README, "Profile views").
+VIEWS_PROFILE_ROLES=admin=CTO; member=Engineer
 
 # Plain HTTP on 127.0.0.1 only (no TLS in front): otherwise the session cookie is dropped.
 WEB_SESSION_COOKIE_SECURE=false
@@ -133,7 +136,8 @@ Base address: `http://127.0.0.1:8081` with the compose default (`DOCBRIDGE_WEB_P
 | Dokumentation as Markdown (for agents) | `/api/views/doc/export?key=<key>` (`&scope=subtree` for everything below) |
 | Definitionen | `/views?kind=definitions` |
 | Änderungen (the user's change set) | `/views?kind=changes` |
-| A saved view | `/views?view=<saved view id>` (the default shared views are seeded by an admin) |
+| A saved view | `/views?view=<saved view id>`. The shared views come from the bundle's profiles: an admin creates them once with "Ansichten aus den Profilen anlegen" in the saved-views menu. |
+| The CTO's system map | `/views?kind=tree&pview=cto/system-map` |
 
 Without `node`, the Graph and Ablauf tabs open "Startpunkt wählen". Every view shows "Stand HH:MM:SS"; the refresh button bypasses the 60-second cache.
 

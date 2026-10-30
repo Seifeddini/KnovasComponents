@@ -7,10 +7,14 @@ child (KnowledgeBase, generated/README.md). A level may link per type
 (``links_to_parent``) and narrow a type to a key prefix (``filter.key_prefix``,
 e.g. L2- vs L3- components); the prefix is checked on the ``key`` fact, read
 only for the nodes a view shows.
+
+The same TREE draws a profile's map (``profile_map``, WP KC-2): its levels come
+from the profile view's paths (``profiles.levels``) and its nodes carry the
+colour signals the view names (``signals``).
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from graph_views.facts import fact_values, read_facts, status_of
 from graph_views.grouping import breakdown
@@ -124,13 +128,40 @@ def tree(ctx: Any, defs: Any, spine_key: str, *, parent: str = "", level: str = 
          branch: str = "") -> Dict[str, Any]:
     """One level: the roots, or the children of ``parent`` at the next level."""
     spine, levels = chain(defs, spine_key, branch)
+    head = {"key": spine["key"], "name": spine["name"], "description": spine.get("description", ""),
+            "branches": [{"key": b["key"], "name": b["name"]} for b in spine.get("branches") or []]}
+    return _tree(ctx, head, levels, parent=parent, level=level, branch=branch, where=spine_key)
+
+
+def profile_map(ctx: Any, key: str, *, parent: str = "", level: str = "") -> Dict[str, Any]:
+    """A profile view's map: the TREE over its paths, nodes coloured by its signals (WP KC-2)."""
+    from graph_views import profiles, signals
+
+    profile, view = profiles.find(key)
+    levels, skipped = profiles.levels(view)
+    d = view.get("definition") or {}
+    names = list(d.get("color_by") or [])
+    head = {"key": None, "name": str(view.get("label") or view["id"]),
+            "description": str(d.get("description") or ""), "branches": []}
+    body = _tree(ctx, head, levels, parent=parent, level=level, branch="", where=key,
+                 colour=lambda rows: signals.colour(ctx, rows, names, ctx.settings.map_fact_budget))
+    body.update(profile_view=key, profile={"id": profile["id"], "audience": profile.get("audience")},
+                signals=signals.legend(names), skipped=skipped,
+                unknown_signals=[n for n in names if n not in signals.known(names)])
+    return body
+
+
+def _tree(ctx: Any, head: Dict[str, Any], levels: List[Dict[str, Any]], *, parent: str, level: str, branch: str,
+          where: str, colour: Optional[Callable[[List[Dict[str, Any]]], None]] = None) -> Dict[str, Any]:
+    if len(levels) < 1 or not levels[0]["types"]:
+        raise NotDrawable(f"{where} hat keine Wurzeltypen.")
     ids_by_level = {l["id"]: i for i, l in enumerate(levels)}
     if not parent:
         i = 0
         ids = roots(ctx, levels)
     else:
         if level not in ids_by_level:
-            raise NotDrawable(f"Ebene {level} gibt es in {spine_key} nicht.")
+            raise NotDrawable(f"Ebene {level} gibt es in {where} nicht.")
         i = ids_by_level[level] + 1
         if i >= len(levels):
             raise NotDrawable("Die unterste Ebene hat keine Kinder.")
@@ -139,10 +170,11 @@ def tree(ctx: Any, defs: Any, spine_key: str, *, parent: str = "", level: str = 
     ids = ids[: ctx.settings.max_nodes_per_hop]
     nxt = levels[i + 1] if i + 1 < len(levels) else None
     rows = sorted(_dress(ctx, ids, nxt), key=lambda r: (r["key"] or r["name"]).lower())
+    if colour is not None:
+        colour(rows)
     states = breakdown(r["status"] for r in rows)
     return ctx.envelope(
-        spine={"key": spine["key"], "name": spine["name"], "description": spine.get("description", ""),
-               "branches": [{"key": b["key"], "name": b["name"]} for b in spine.get("branches") or []]},
+        spine=head,
         branch=branch, levels=[{"id": l["id"], "name": l["name"], "types": l["types"]} for l in levels],
         level={"id": levels[i]["id"], "name": levels[i]["name"], "types": levels[i]["types"],
                "verified": levels[i].get("verified", True)},
