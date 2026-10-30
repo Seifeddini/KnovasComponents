@@ -30,11 +30,11 @@ def _ctx(graph):
     return svc, svc.context(), client
 
 
-def _graph_with(processes=None, spines=None):
+def _graph_with(processes=None, spines=None, **kw):
     g = FixtureGraph()
     for t in ("Process", "ProcessStep", "Spine", "SpineLevel"):
         g.type(t, meta_capable=True)
-    load_definitions_into(g, processes, spines)
+    load_definitions_into(g, processes, spines, **kw)
     return g
 
 
@@ -44,6 +44,16 @@ class TestTheBundle:
         assert defs.validate(proc, "process-definition.schema.json") == []
         assert defs.validate(spine, "spine-definition.schema.json") == []
         assert len(proc["processes"]) == 7 and len(spine["spines"]) == 4
+
+    def test_report_rules_may_carry_their_checks_as_configuration(self):
+        # KnowledgeBase KB-12: a bundle built since then carries checks and not_evaluable on each R-rule
+        proc, _ = defs.from_bundle()
+        doc = copy.deepcopy(proc)
+        doc["report_rules"][0]["checks"] = [{"kind": "fact_present", "fact": "owner"}]
+        doc["report_rules"][0]["not_evaluable"] = {"unless_types": ["TestRun"], "message": "Keine Testläufe."}
+        assert defs.validate(doc, "process-definition.schema.json") == []
+        doc["report_rules"][0]["not_evaluable"]["extra"] = 1
+        assert len(defs.validate(doc, "process-definition.schema.json")) == 1
 
     def test_an_invalid_definition_reads_as_a_sentence_with_its_place(self):
         proc, _ = defs.from_bundle()
@@ -75,14 +85,35 @@ class TestFromTenant:
         _, ctx, _ = _ctx(_graph_with())
         assert defs.load(ctx).differences == []
 
-    def test_what_the_tenant_does_not_hold_is_named_as_a_gap(self):
+    def test_a_tenant_loaded_with_the_current_loader_has_no_gaps(self):
         _, ctx, _ = _ctx(_graph_with())
         d = defs.load(ctx)
+        assert d.source == "tenant" and d.gaps == [], d.gaps
+        assert d.process("PROC-feature-lifecycle")["change_classes"]["on_substantive"] == {"from": "approved", "to": "brief"}
+        proc, _ = defs.from_bundle()
+        want = {s["key"]: s.get("description") for p in proc["processes"] for s in p["steps"]}
+        assert {s["key"]: s.get("description") for p in d.processes for s in p["steps"]} == want
+
+    def test_the_step_description_and_change_classes_come_from_the_tenant(self):
+        proc, _ = defs.from_bundle()
+        changed = copy.deepcopy(proc["processes"])
+        release = next(p for p in changed if p["key"] == "PROC-release")
+        release["change_classes"]["minor"] = ["typo"]
+        release["steps"][0]["description"] = "Auf dem Mandanten geschrieben."
+        _, ctx, _ = _ctx(_graph_with(processes=changed))
+        d = defs.load(ctx)
+        assert d.process("PROC-release")["change_classes"]["minor"] == ["typo"]
+        assert d.process("PROC-release")["steps"][0]["description"] == "Auf dem Mandanten geschrieben."
+
+    def test_what_an_older_tenant_does_not_hold_is_named_as_a_gap(self):
+        _, ctx, _ = _ctx(_graph_with(change_facts=False))
+        d = defs.load(ctx)
         # since Phase P8 the loader writes status_map, transitions, governing_fact and the used P-rules;
-        # change classes (DEC-0024) are not on the tenant yet
+        # a tenant loaded before the change-class and step-description facts takes those two from the bundle
         assert not any(g.startswith(("P-Regeln", "governing_fact", "status_map", "rework")) for g in d.gaps), d.gaps
         line = next(g for g in d.gaps if g.startswith("change_classes"))
         assert "PROC-feature-lifecycle" in line and "PROC-decision" in line
+        assert any(g.startswith("Schrittbeschreibungen") for g in d.gaps), d.gaps
         assert d.process("PROC-feature-lifecycle")["change_classes"]["on_substantive"] == {"from": "approved", "to": "brief"}
 
     def test_a_broken_definition_on_the_tenant_falls_back_with_a_readable_error(self):
@@ -157,7 +188,7 @@ class TestRoute:
 
     def test_admins_see_errors_gaps_and_differences(self):
         body = _app(client_zero_graph(), ("admin",)).get("/api/views/definitions").get_json()
-        assert body["errors"] == [] and body["gaps"] and "differences" in body
+        assert body["errors"] == [] and body["gaps"] == [] and "differences" in body
         assert body["pinned"]["label"] == "KNOVAS" and body["pinned"]["source"] == KNOVAS_SOURCE
         assert body["pinned"]["content_hash"].startswith("sha256:") and len(body["pinned"]["source_commit"]) == 40
 
