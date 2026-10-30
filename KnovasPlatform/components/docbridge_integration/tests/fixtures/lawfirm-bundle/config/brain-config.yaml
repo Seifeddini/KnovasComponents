@@ -1,0 +1,20 @@
+version: 1
+company:
+  key: KANZLEI-X
+  name: Kanzlei X
+  kind: law firm
+ontology:
+  terms: ontology/terms.yaml
+  relations: ontology/relations.yaml
+  descriptions: ontology/descriptions.yaml
+  node_descriptions: ontology/node-descriptions.yaml
+processes: ontology/processes.yaml
+spines: ontology/spines.yaml
+pages: ontology/page-definitions.yaml
+owners: ontology/owners.yaml
+edit_sources: ontology/edit-sources.yaml
+mappings: mappings/*.yaml
+profiles: profiles/*.yaml
+health: health.yaml
+runner:
+  state: .brain-runner/state.json

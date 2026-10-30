@@ -1,0 +1,34 @@
+version: 1
+processes:
+- key: PROC-contract-review
+  name: Contract review
+  instance_types:
+  - Contract
+  owner_role: ROLE-PARTNER
+  governing_fact: status
+  status_map:
+    Contract:
+      draft: draft
+      in review: review
+      signed: signed
+  steps:
+  - id: draft
+  - id: review
+    requires:
+    - type: Matter
+      required: true
+      path:
+      - relation: belongs_to_matter
+        direction: out
+        to_type: Matter
+  - id: signed
+  transitions:
+  - - draft
+    - review
+  - - review
+    - signed
+  - - review
+    - draft
+    - rework
+  final:
+  - signed
