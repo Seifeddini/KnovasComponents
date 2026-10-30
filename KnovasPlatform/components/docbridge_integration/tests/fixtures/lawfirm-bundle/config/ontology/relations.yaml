@@ -1,0 +1,11 @@
+relations:
+- name: belongs_to_matter
+  domain:
+  - Contract
+  range:
+  - Matter
+- name: matter_of
+  domain:
+  - Matter
+  range:
+  - Client

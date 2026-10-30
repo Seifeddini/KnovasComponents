@@ -122,8 +122,8 @@ def W(edit_id):
 
 
 class TestRouting:
-    def test_every_writer_matches_the_pinned_edit_map(self):
-        """Re-vendoring an edit map that moved a source turns this red, not a write to the old place."""
+    def test_every_writer_matches_the_bundles_edit_map(self):
+        """A bundle whose edit map moved a source turns this red, not a write to the old place."""
         for edit_id, writer in w.WRITERS.items():
             assert writer.routing_problem() is None, edit_id
         for edit_id in w.FIELD_ROUTES:

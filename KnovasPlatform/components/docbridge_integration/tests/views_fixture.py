@@ -6,12 +6,28 @@ tests can assert what a view read — and what it did not.
 """
 from __future__ import annotations
 
+import functools
 import itertools
 import re
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 _ids = itertools.count(1)
+
+#: KnowledgeBase's definitions as the views read them, as one bundle (KB-7): the files vendored
+#: until KC-1 (KnowledgeBase c325397d), and the law firm of case study 1.
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+KNOVAS_BUNDLE = FIXTURES / "knovas-bundle" / "bundle.json"
+LAWFIRM_BUNDLE = FIXTURES / "lawfirm-bundle" / "bundle.json"
+KNOVAS_SOURCE = f"file:{KNOVAS_BUNDLE}"
+
+
+@functools.lru_cache(maxsize=1)
+def knovas_bundle():
+    from graph_views import bundle
+
+    return bundle.load_file(KNOVAS_BUNDLE)
 
 
 class FixtureGraph:
@@ -133,7 +149,7 @@ def load_definitions_into(g: FixtureGraph, processes: Optional[List[Dict[str, An
     import json as _json
     from graph_views import definitions as defs
 
-    proc_doc, spine_doc = defs.vendored()
+    proc_doc, spine_doc = defs.from_bundle()
     ids: Dict[str, str] = {}
     streams: Dict[str, str] = {}
     for p in processes if processes is not None else proc_doc["processes"]:

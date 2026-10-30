@@ -14,7 +14,7 @@ from flask import Flask
 
 from graph_views import service as views, spine_views as sv
 from graph_views.settings import ViewSettings
-from views_fixture import FakeViewsClient, client_zero_graph
+from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
 from web_interface.views_routes import create_views_blueprint
 
 SPINE = "SPINE-product"
@@ -49,7 +49,7 @@ def graph():
 
 def _ctx(graph):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     ctx = svc.context()
     return ctx, svc.definitions(ctx), svc, client
 
@@ -150,7 +150,7 @@ class TestMatrix:
 
 def _app(graph):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     gate = type("G", (), {"current_user": lambda self: type("U", (), {"id": uuid.uuid4(), "roles": frozenset()})()})()
     app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"))
     app.register_blueprint(create_views_blueprint(gate, svc, graph_mode=lambda: True))

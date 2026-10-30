@@ -44,6 +44,8 @@
 
     {% if not graph_mode %}
     <main class="views-main"><p class="views-empty">Wissensnetz-Modus erforderlich</p></main>
+    {% elif bundle_error %}
+    <main class="views-main"><p class="views-empty" role="alert" id="viewsBundleError">Definitionsbündel: {{ bundle_error }}</p></main>
     {% else %}
     <div class="views-toolbar" id="viewsToolbar">
         <button type="button" class="views-button" id="viewsStartButton" title="Startpunkt wählen">Start</button>

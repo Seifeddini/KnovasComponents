@@ -15,15 +15,12 @@ demand (``section``); a section draws ``doc_page_items`` items and counts the re
 """
 from __future__ import annotations
 
-import functools
-import json
 import math
 import re
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
-from graph_views import descriptions, discovery, edit_map
-from graph_views.definitions import DEFINITIONS_DIR, pin
+from graph_views import bundle, descriptions, discovery, edit_map
 from graph_views.facts import KeyedTTL, fact_values, read_facts
 from graph_views.traverse import follow
 
@@ -39,28 +36,21 @@ class NotDocumented(Exception):
     """The node has no page definition, or is not visible."""
 
 
-@functools.lru_cache(maxsize=1)
-def _read(name: str) -> Dict[str, Any]:
-    try:
-        return json.loads((DEFINITIONS_DIR / name).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
 def definitions() -> List[Dict[str, Any]]:
-    return list(_read("page-definitions.json").get("pages") or [])
+    return list(bundle.current().pages.get("pages") or [])
 
 
 def report() -> Dict[str, Any]:
     """KnowledgeBase's documentation completeness report: rows by component key, and its time."""
-    data = _read("docs-completeness.json")
+    data = bundle.current().report("docs_completeness")
     return {"generated_at": data.get("generated_at"), "page": data.get("page"),
             "rows": {r["component"]: r for r in data.get("components") or []}}
 
 
 def kb_commit() -> Optional[str]:
-    """The KnowledgeBase commit the page definitions were copied from (SOURCE.json)."""
-    return ((pin().get("files") or {}).get("page-definitions.json") or {}).get("commit")
+    """The KnowledgeBase commit the bundle was built at (informative, KB-7), else its content hash."""
+    b = bundle.current()
+    return b.source_commit or b.content_hash
 
 
 def page_for(type_name: str, key: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -495,7 +485,7 @@ _PAGES_MAX = 256
 
 
 def _page_key(ctx: Any, node: str, repo: Optional[str]) -> Tuple[Any, ...]:
-    return (ctx.key, ctx.state.as_of, node, repo)
+    return (ctx.key, ctx.state.as_of, bundle.current().content_hash, node, repo)
 
 
 def render(ctx: Any, cache: KeyedTTL, node: str, *, repo: Optional[str] = None, only: Optional[str] = None,

@@ -2,7 +2,8 @@
 
 Every number a reviewer may want to move without a release lives here: the
 TTL of the per-subject index, the scale guard of D1, the meta threshold of D2,
-the fact pacing of D3 and the fan-out threshold of Step 1.
+the fact pacing of D3 and the fan-out threshold of Step 1. ``config_source`` names
+where this tenant's definitions bundle is read from (``bundle.py``).
 """
 from __future__ import annotations
 
@@ -11,6 +12,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ViewSettings:
+    #: file:<path> or github:<owner>/<repo>@<ref>:<path to bundle.json>; empty: the views say so
+    config_source: str = ""
     ttl_seconds: int = 60
     definitions_ttl_seconds: int = 600
     edge_limit: int = 100_000
@@ -40,10 +43,12 @@ class ViewSettings:
         for name, default in defaults.__dict__.items():
             key = f"views.{name}"
             try:
-                if isinstance(default, float):
+                if isinstance(default, str):
+                    values[name] = str(config.get(key, default) or "").strip()
+                elif isinstance(default, float):
                     values[name] = float(config.get_float(key, default))
                 else:
                     values[name] = int(config.get_int(key, default))
-            except (TypeError, ValueError):
+            except (AttributeError, TypeError, ValueError):
                 values[name] = default
         return cls(**values)

@@ -17,7 +17,7 @@ from graph_views import completeness as comp, process_views as pv, service as vi
 from graph_views.settings import ViewSettings
 from graph_views.topology import TopologyIndex
 from graph_views.traverse import follow, path_text
-from views_fixture import FakeViewsClient, client_zero_graph
+from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
 from web_interface.views_routes import create_views_blueprint
 
 TODAY = dt.date(2026, 10, 27)
@@ -53,7 +53,7 @@ def graph():
 
 def _svc(graph):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     return svc, client
 
 

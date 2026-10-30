@@ -1,8 +1,9 @@
 """The views' entry point for the routes: one request's context and the ego graph.
 
 A ``ViewContext`` is what one request works with: the subject's cached index
-(D1), a paced reader (D3) and the meta classifier (D2). Process and spine views
-(process_views, spine_views) take the same context.
+(D1), a paced reader (D3), the meta classifier (D2) and the tenant's definitions
+bundle (``bundle.py``). Process and spine views (process_views, spine_views) take
+the same context.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from graph_views import bundle as bundles
 from graph_views import descriptions
 from graph_views.facts import STATUS_LABELS, KeyedTTL, fact_values, read_facts, status_of
 from graph_views.grouping import breakdown, group, group_key, page
@@ -29,6 +31,7 @@ class ViewContext:
     key: Optional[str]
     settings: ViewSettings
     started: float = field(default_factory=time.perf_counter)
+    bundle: Optional[bundles.Bundle] = None
 
     def status_label(self, type_name: str) -> Optional[str]:
         """The state attribute a type's schema declares, if any (status, outcome, ...)."""
@@ -52,10 +55,13 @@ class ViewService:
     def __init__(self, client: Callable[[], Any], settings: Optional[ViewSettings] = None,
                  *, bucket: Optional[TokenBucket] = None,
                  now: Optional[Callable[[], float]] = None,
-                 markers: Optional[Callable[[], Set[str]]] = None):
+                 markers: Optional[Callable[[], Set[str]]] = None,
+                 github: Optional[Callable[[str], Any]] = None):
         self._client = client
         self.settings = settings or ViewSettings()
         self._bucket = bucket
+        # github: repository name -> GitHubRepo with the change requests' token (or None)
+        self.bundles = bundles.BundleStore(self.settings.definitions_ttl_seconds, github=github, now=now)
         self.cache = TopologyCache(self.settings, now=now)
         self.schemas = KeyedTTL(self.settings.definitions_ttl_seconds, now=now)
         self.defs = KeyedTTL(self.settings.definitions_ttl_seconds, now=now)
@@ -66,9 +72,18 @@ class ViewService:
                                                self.settings.fact_burst)
         bucket.acquire()
 
+    def bundle(self, refresh: bool = False, client: Any = None) -> bundles.Bundle:
+        """This tenant's definitions bundle, set for the rest of the request; BundleError when refused."""
+        client = self._client() if client is None else client
+        tenant = str(getattr(client, "customer_id", "") or "")
+        found = self.bundles.get(tenant, self.settings.config_source, refresh=refresh)
+        bundles.use(found)
+        return found
+
     def context(self, refresh: bool = False) -> ViewContext:
         started = time.perf_counter()
         client = self._client()
+        found = self.bundle(refresh, client)
         key = subject_key(client)
         reader = GraphReader(client, acquire=self._acquire, workers=self.settings.workers)
         state = self.cache.get(key, reader, refresh=refresh)
@@ -78,13 +93,15 @@ class ViewService:
         decisions = self.schemas.get((key, "__meta__"), dict) if key is not None else None
         meta = MetaClassifier(state, reader, schemas=schemas, markers=self._markers(),
                               exact_max=self.settings.meta_exact_max, decisions=decisions)
-        return ViewContext(state, reader, meta, schemas, key, self.settings, started=started)
+        return ViewContext(state, reader, meta, schemas, key, self.settings, started=started, bundle=found)
 
     def definitions(self, ctx: ViewContext, refresh: bool = False):
-        """Process and spine definitions for this subject, cached for the definitions TTL."""
+        """Process and spine definitions for this subject and bundle, cached for the definitions TTL."""
         from graph_views import definitions as defs
 
-        return self.defs.get(ctx.key, lambda: defs.load(ctx), refresh=refresh)
+        found = ctx.bundle or bundles.current()
+        key = None if ctx.key is None else (ctx.key, found.content_hash)
+        return self.defs.get(key, lambda: defs.load(ctx), refresh=refresh)
 
     def forget_subject(self, subject_id: str) -> None:
         """Logout: drop this subject's index, facts and schema decisions."""
@@ -93,15 +110,18 @@ class ViewService:
         self.cache.drop_subject(subject_id)
         self.schemas.drop(lambda k: isinstance(k, tuple) and k[0] is not None
                           and json.loads(k[0])[1] == str(subject_id))
-        self.defs.drop(lambda k: k is not None and json.loads(k)[1] == str(subject_id))
+        self.defs.drop(lambda k: k is not None and json.loads(k[0])[1] == str(subject_id))
 
 
 def _file_markers() -> Set[str]:
-    """Type-level meta markers from the pinned ontology files (none yet; Phase P adds them)."""
+    """Type-level meta markers from the bundle's definitions (none yet; Phase P adds them)."""
     from graph_views import definitions as defs
 
-    proc, spine = defs.vendored()
-    return type_markers(descriptions.load(), proc, spine)
+    def build() -> Set[str]:
+        proc, spine = defs.from_bundle()
+        return type_markers(descriptions.load(), proc, spine)
+
+    return bundles.current().memo("type_markers", build)
 
 
 # -- helpers shared by the views ------------------------------------------------

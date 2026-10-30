@@ -1,9 +1,9 @@
 """Ansichten, Step 2: process and spine definitions from the tenant, validated.
 
 The fixture writes definition nodes the way KnowledgeBase's loader does; the
-loader here must put them back together, validate them against the pinned
-schemas, name what the tenant does not hold, and fall back to the pinned copy
-with a readable error when the tenant's definitions are broken.
+loader here must put them back together, validate them against the schemas,
+name what the tenant does not hold, and fall back to the tenant's definitions
+bundle with a readable error when the tenant's definitions are broken.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from flask import Flask
 
 from graph_views import definitions as defs, service as views
 from graph_views.settings import ViewSettings
-from views_fixture import FakeViewsClient, FixtureGraph, client_zero_graph, load_definitions_into
+from views_fixture import FakeViewsClient, FixtureGraph, KNOVAS_SOURCE, client_zero_graph, load_definitions_into
 from web_interface.views_routes import create_views_blueprint
 
 
@@ -26,7 +26,7 @@ class _NoWait:
 
 def _ctx(graph):
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     return svc, svc.context(), client
 
 
@@ -38,15 +38,15 @@ def _graph_with(processes=None, spines=None):
     return g
 
 
-class TestPinnedCopy:
-    def test_the_copy_validates_with_seven_processes_and_four_spines(self):
-        proc, spine = defs.vendored()
+class TestTheBundle:
+    def test_the_bundle_validates_with_seven_processes_and_four_spines(self):
+        proc, spine = defs.from_bundle()
         assert defs.validate(proc, "process-definition.schema.json") == []
         assert defs.validate(spine, "spine-definition.schema.json") == []
         assert len(proc["processes"]) == 7 and len(spine["spines"]) == 4
 
     def test_an_invalid_definition_reads_as_a_sentence_with_its_place(self):
-        proc, _ = defs.vendored()
+        proc, _ = defs.from_bundle()
         broken = copy.deepcopy(proc)
         lifecycle = next(p for p in broken["processes"] if p["key"] == "PROC-feature-lifecycle")
         brief = next(s for s in lifecycle["steps"] if s["id"] == "brief")
@@ -86,15 +86,15 @@ class TestFromTenant:
         assert d.process("PROC-feature-lifecycle")["change_classes"]["on_substantive"] == {"from": "approved", "to": "brief"}
 
     def test_a_broken_definition_on_the_tenant_falls_back_with_a_readable_error(self):
-        proc, _ = defs.vendored()
+        proc, _ = defs.from_bundle()
         broken = copy.deepcopy(proc["processes"])
         step = next(s for p in broken if p["key"] == "PROC-decision" for s in p["steps"] if s["id"] == "decided")
         step["exit_criteria"] = ["R9", "not a rule"]
         _, ctx, _ = _ctx(_graph_with(processes=broken))
         d = defs.load(ctx)
-        assert d.source == "vendored"
+        assert d.source == "bundle"
         assert any(e.startswith("Mandant: PROC-decision / STEP-decision-decided:") and "'not a rule'" in e for e in d.errors)
-        assert len(d.processes) == 7            # the copy still draws every view
+        assert len(d.processes) == 7            # the bundle still draws every view
 
     def test_unparseable_json_on_a_step_is_named(self):
         g = _graph_with()
@@ -104,11 +104,11 @@ class TestFromTenant:
                 f["value"] = "[{broken"
         _, ctx, _ = _ctx(g)
         d = defs.load(ctx)
-        assert d.source == "vendored"
+        assert d.source == "bundle"
         assert any("STEP-feature-lifecycle-brief.produces: kein gültiges JSON" in e for e in d.errors)
 
     def test_a_tenant_change_shows_as_a_difference(self):
-        proc, _ = defs.vendored()
+        proc, _ = defs.from_bundle()
         changed = copy.deepcopy(proc["processes"])
         next(p for p in changed if p["key"] == "PROC-release")["owner_role"] = "ROLE-SOMEONE-ELSE"
         _, ctx, _ = _ctx(_graph_with(processes=changed))
@@ -116,12 +116,12 @@ class TestFromTenant:
         assert d.source == "tenant"
         assert "PROC-release: owner_role weicht ab" in d.differences
 
-    def test_no_definition_nodes_means_the_copy(self):
+    def test_no_definition_nodes_means_the_bundle(self):
         g = FixtureGraph()
         g.node("Component", "Lonely")
         _, ctx, _ = _ctx(g)
         d = defs.load(ctx)
-        assert d.source == "vendored" and len(d.processes) == 7
+        assert d.source == "bundle" and len(d.processes) == 7
 
     def test_definitions_are_cached_per_subject(self):
         svc, ctx, client = _ctx(_graph_with())
@@ -143,7 +143,7 @@ def _app(graph, roles):
     from pathlib import Path
 
     client = FakeViewsClient(graph)
-    svc = views.ViewService(lambda: client, ViewSettings(), bucket=_NoWait(), markers=lambda: set())
+    svc = views.ViewService(lambda: client, ViewSettings(config_source=KNOVAS_SOURCE), bucket=_NoWait(), markers=lambda: set())
     app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "src" / "web_interface" / "templates"))
     app.register_blueprint(create_views_blueprint(_Gate(roles), svc, graph_mode=lambda: True))
     return app.test_client()
@@ -158,7 +158,8 @@ class TestRoute:
     def test_admins_see_errors_gaps_and_differences(self):
         body = _app(client_zero_graph(), ("admin",)).get("/api/views/definitions").get_json()
         assert body["errors"] == [] and body["gaps"] and "differences" in body
-        assert len(body["pinned"]["process-definitions.json"]["commit"]) == 40
+        assert body["pinned"]["label"] == "KNOVAS" and body["pinned"]["source"] == KNOVAS_SOURCE
+        assert body["pinned"]["content_hash"].startswith("sha256:") and len(body["pinned"]["source_commit"]) == 40
 
 
 def test_page_offers_the_definitions_kind():

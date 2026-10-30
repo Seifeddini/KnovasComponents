@@ -1,7 +1,8 @@
 """The few GitHub REST calls a change request needs, on one repository.
 
 Least privilege: the token needs Contents (read/write) and Pull requests
-(read/write) on KnowledgeBase and nothing else. It is read from a file
+(read/write) on KnowledgeBase and nothing else. The same client and token read
+a ``github:`` definitions bundle (``bundle.py``, ``views.config_source``). It is read from a file
 (``views.change_requests.github_token_file``) or the environment, never from
 the request, and never logged.
 """
@@ -31,8 +32,10 @@ class GitHubRepo:
         self.repo = repo
         self._api = api.rstrip("/")
         self._s = session or requests.Session()
-        self._headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+        self._headers = {"Accept": "application/vnd.github+json",
                          "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "knovas-platform-views"}
+        if token:
+            self._headers["Authorization"] = f"Bearer {token}"
         self._timeout = timeout
 
     def _call(self, method: str, path: str, what: str, *, ok=(200, 201), **kw) -> Any:
@@ -54,6 +57,16 @@ class GitHubRepo:
         if not data or data.get("type") != "file":
             return None
         return base64.b64decode(data.get("content") or "").decode("utf-8"), data["sha"]
+
+    def get_raw(self, path: str, ref: str) -> Optional[str]:
+        """A file's text at a ref, or None; raw media type, so files over the 1 MB of ``get_file`` work too."""
+        r = self._s.get(f"{self._api}/repos/{self.repo}/contents/{quote(path)}?ref={quote(ref)}",
+                        headers={**self._headers, "Accept": "application/vnd.github.raw+json"}, timeout=self._timeout)
+        if r.status_code == 404:
+            return None
+        if r.status_code != 200:
+            raise GitHubError("read file", r.status_code)
+        return r.content.decode("utf-8")
 
     def list_dir(self, path: str, ref: str) -> List[str]:
         data = self._call("GET", f"/contents/{quote(path)}?ref={quote(ref)}", "list directory") or []
