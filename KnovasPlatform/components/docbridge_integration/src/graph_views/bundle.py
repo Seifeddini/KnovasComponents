@@ -133,7 +133,12 @@ class Bundle:
 
     @property
     def label(self) -> str:
-        return str(self.header.get("label") or "")
+        """The company's key. KnowledgeBase's runner writes the manifest's ``company`` ({key, name, kind});
+        older bundles carry the key as text."""
+        label = self.header.get("label")
+        if isinstance(label, dict):
+            return str(label.get("key") or label.get("name") or "")
+        return str(label or "")
 
     @property
     def content_hash(self) -> str:

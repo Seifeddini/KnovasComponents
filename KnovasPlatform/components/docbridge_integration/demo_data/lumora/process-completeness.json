@@ -1,0 +1,892 @@
+{
+ "version": 1,
+ "generated_at": "2026-10-30T08:00:00Z",
+ "definitions_generated_at": "",
+ "excluded_evidence": "test runs and Alloy checks with source `local` (a developer machine) are not evidence",
+ "type_level_rules": [
+  "R8"
+ ],
+ "summary": {
+  "PROC-customer-onboarding": {
+   "open": 3,
+   "with_missing": 0,
+   "missing_items": 0,
+   "with_unmet": 0
+  },
+  "PROC-decision": {
+   "open": 2,
+   "with_missing": 0,
+   "missing_items": 0,
+   "with_unmet": 0
+  },
+  "PROC-experiment": {
+   "open": 3,
+   "with_missing": 2,
+   "missing_items": 4,
+   "with_unmet": 0
+  },
+  "PROC-feature-lifecycle": {
+   "open": 6,
+   "with_missing": 1,
+   "missing_items": 3,
+   "with_unmet": 0
+  },
+  "PROC-release": {
+   "open": 2,
+   "with_missing": 0,
+   "missing_items": 0,
+   "with_unmet": 0
+  },
+  "PROC-risk-review": {
+   "open": 3,
+   "with_missing": 0,
+   "missing_items": 0,
+   "with_unmet": 1
+  },
+  "PROC-sales": {
+   "open": 4,
+   "with_missing": 0,
+   "missing_items": 0,
+   "with_unmet": 0
+  }
+ },
+ "instances": [
+  {
+   "process": "PROC-customer-onboarding",
+   "instance": "CUST-berg-fiduciaire",
+   "type": "Customer",
+   "name": "Berg Fiduciaire SA",
+   "step": "client-created",
+   "step_since": "2026-10-26",
+   "days_in_step": 4,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-customer-onboarding",
+   "instance": "CUST-wyss-steuer",
+   "type": "Customer",
+   "name": "Steuerbüro Wyss",
+   "step": "organisation-created",
+   "step_since": "2026-10-29",
+   "days_in_step": 1,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-customer-onboarding",
+   "instance": "CUST-zollinger-partner",
+   "type": "Customer",
+   "name": "Zollinger & Partner",
+   "step": "certificate-issued",
+   "step_since": "2026-10-22",
+   "days_in_step": 8,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-decision",
+   "instance": "DEC-0003",
+   "type": "Decision",
+   "name": "Bill per processed document, not per seat",
+   "step": "reviewed",
+   "step_since": "2026-10-20",
+   "days_in_step": 10,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-decision",
+   "instance": "DEC-0004",
+   "type": "Decision",
+   "name": "Microsoft sign-in only, no Google for now",
+   "step": "proposed",
+   "step_since": "2026-10-27",
+   "days_in_step": 3,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R3",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-experiment",
+   "instance": "CMP-treuhand-webinar",
+   "type": "Campaign",
+   "name": "Webinar: Belege finden in Sekunden",
+   "step": "measure",
+   "step_since": "2026-10-10",
+   "days_in_step": 20,
+   "missing": [
+    {
+     "kind": "produces",
+     "type": "Result",
+     "path": "→results_in→ Result",
+     "found": 0,
+     "min_count": 1,
+     "note": "required before keep, kill or iterate"
+    },
+    {
+     "kind": "produces",
+     "type": "Decision",
+     "path": "→results_in→ Decision",
+     "found": 0,
+     "min_count": 1,
+     "note": "the proposed decision the founder confirms"
+    }
+   ],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-thresholds",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-experiment",
+   "instance": "EXP-setup-checklist",
+   "type": "Experiment",
+   "name": "Setup checklist for new firms",
+   "step": "measure",
+   "step_since": "2026-10-05",
+   "days_in_step": 25,
+   "missing": [
+    {
+     "kind": "produces",
+     "type": "Result",
+     "path": "→results_in→ Result",
+     "found": 0,
+     "min_count": 1,
+     "note": "required before keep, kill or iterate"
+    },
+    {
+     "kind": "produces",
+     "type": "Decision",
+     "path": "→results_in→ Decision",
+     "found": 0,
+     "min_count": 1,
+     "note": "the proposed decision the founder confirms"
+    }
+   ],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-thresholds",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-experiment",
+   "instance": "CMP-de-vendor-outreach",
+   "type": "Campaign",
+   "name": "Outreach to German tax software vendors",
+   "step": "design",
+   "step_since": "2026-10-27",
+   "days_in_step": 3,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-thresholds",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-10-21-email-intake",
+   "type": "FeaturePlan",
+   "name": "E-mail intake for client documents",
+   "step": "brief",
+   "step_since": "2026-10-21",
+   "days_in_step": 9,
+   "missing": [
+    {
+     "kind": "produces",
+     "type": "Record",
+     "path": "←describes– Record",
+     "found": 0,
+     "min_count": 1,
+     "note": "the plan file itself"
+    },
+    {
+     "kind": "produces",
+     "type": "Invariant",
+     "path": "→keeps→ Invariant",
+     "found": 0,
+     "min_count": 1,
+     "note": "contracts-and-invariants step: the plan's own Golden Invariants table or .ai.yaml (DEC-0023)"
+    },
+    {
+     "kind": "produces",
+     "type": "AlloyCheck",
+     "path": "←verifies– AlloyCheck",
+     "found": 0,
+     "min_count": 1,
+     "note": "alloy-model step: checks of the models in the plan's Alloy section (DEC-0023)"
+    }
+   ],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-08-04-sso-login",
+   "type": "FeaturePlan",
+   "name": "Sign in with Microsoft",
+   "step": "implemented",
+   "step_since": "2026-10-16",
+   "days_in_step": 14,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [
+    "RISK-4"
+   ],
+   "recent_decisions": [
+    "DEC-0004"
+   ]
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-08-18-tenant-export",
+   "type": "FeaturePlan",
+   "name": "A firm exports all its documents",
+   "step": "verified",
+   "step_since": "2026-10-23",
+   "days_in_step": 7,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-09-01-fuzzy-name-search",
+   "type": "FeaturePlan",
+   "name": "Find clients despite misspelt names",
+   "step": "implementing",
+   "step_since": "2026-10-06",
+   "days_in_step": 24,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-dated",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-09-15-usage-billing",
+   "type": "FeaturePlan",
+   "name": "Pay per processed document",
+   "step": "approved",
+   "step_since": "2026-10-14",
+   "days_in_step": 16,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-dated",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [
+    "RISK-3"
+   ],
+   "recent_decisions": [
+    "DEC-0003"
+   ]
+  },
+  {
+   "process": "PROC-feature-lifecycle",
+   "instance": "FEAT-2026-10-02-ocr-tables",
+   "type": "FeaturePlan",
+   "name": "Tables from scanned bank statements",
+   "step": "brief",
+   "step_since": "2026-10-09",
+   "days_in_step": 21,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R1",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R2",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R7",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-source",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [
+    "RISK-1"
+   ],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-release",
+   "instance": "REL-2026.10.0",
+   "type": "Release",
+   "name": "Release 2026.10.0",
+   "step": "deployed",
+   "step_since": "2026-10-17",
+   "days_in_step": 13,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-dated",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-release",
+   "instance": "REL-2026.10.1",
+   "type": "Release",
+   "name": "Release 2026.10.1",
+   "step": "candidate",
+   "step_since": "2026-10-28",
+   "days_in_step": 2,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-risk-review",
+   "instance": "RISK-3",
+   "type": "Risk",
+   "name": "Usage counted twice after a retry",
+   "step": "assessed",
+   "step_since": "2026-10-15",
+   "days_in_step": 15,
+   "missing": [],
+   "unmet": [
+    {
+     "id": "P-review",
+     "why": "The risk's review date has not passed."
+    }
+   ],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": false,
+     "why": [
+      "open risk with neither mitigation nor explicit acceptance"
+     ]
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": false,
+     "why": [
+      "The risk's review date has not passed."
+     ]
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-risk-review",
+   "instance": "RISK-1",
+   "type": "Risk",
+   "name": "OCR misreads amounts in low-quality scans",
+   "step": "mitigating",
+   "step_since": "2026-10-09",
+   "days_in_step": 21,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "change-class",
+     "kind": "change-class",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-risk-review",
+   "instance": "RISK-2",
+   "type": "Risk",
+   "name": "Firms do not finish setup and never search",
+   "step": "owned",
+   "step_since": "2026-10-01",
+   "days_in_step": 29,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "R4",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-owner",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    },
+    {
+     "id": "P-review",
+     "kind": "process",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-sales",
+   "instance": "OPP-berg-start",
+   "type": "Opportunity",
+   "name": "Berg Fiduciaire SA — contract",
+   "step": "contract",
+   "step_since": "2026-10-21",
+   "days_in_step": 9,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-sales",
+   "instance": "OPP-kanzlei-roth",
+   "type": "Opportunity",
+   "name": "Steuerkanzlei Roth — demo",
+   "step": "demo",
+   "step_since": "2026-10-24",
+   "days_in_step": 6,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-sales",
+   "instance": "OPP-ledgerline-api",
+   "type": "Opportunity",
+   "name": "Ledgerline GmbH — qualified",
+   "step": "qualified",
+   "step_since": "2026-10-08",
+   "days_in_step": 22,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  },
+  {
+   "process": "PROC-sales",
+   "instance": "OPP-tessin-fidu",
+   "type": "Opportunity",
+   "name": "Fiduciaria Ticino SA — proof-of-concept",
+   "step": "proof-of-concept",
+   "step_since": "2026-10-12",
+   "days_in_step": 18,
+   "missing": [],
+   "unmet": [],
+   "rule_results": [
+    {
+     "id": "R0",
+     "kind": "report",
+     "passed": true,
+     "why": []
+    }
+   ],
+   "open_risks": [],
+   "recent_decisions": []
+  }
+ ]
+}

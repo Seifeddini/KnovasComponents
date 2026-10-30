@@ -1,0 +1,759 @@
+{
+ "version": 1,
+ "generated_at": "2026-10-30T08:00:00Z",
+ "page": "PAGE-component",
+ "summary": {
+  "components": 8,
+  "complete": 6,
+  "with_empty_required": 2,
+  "empty_required_sections": 7,
+  "with_stale": 0
+ },
+ "components": [
+  {
+   "component": "L2-INVOICING",
+   "name": "L2-INVOICING — Invoicing",
+   "empty_required": [
+    "responsibilities",
+    "contracts",
+    "invariants",
+    "calls",
+    "source_files",
+    "explanation"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 0,
+     "empty": true
+    }
+   ]
+  },
+  {
+   "component": "L2-USAGE",
+   "name": "L2-USAGE — Usage meter",
+   "empty_required": [
+    "responsibilities"
+   ],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 1,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-AUTH",
+   "name": "L2-AUTH — Sign-in",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 1,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-INBOX",
+   "name": "L2-INBOX — Inbox",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 1,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-OCR",
+   "name": "L2-OCR — OCR",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 1,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-QUERY",
+   "name": "L2-QUERY — Query",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 1,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-SEARCH-INDEX",
+   "name": "L2-SEARCH-INDEX — Search index",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 1,
+     "empty": false
+    }
+   ]
+  },
+  {
+   "component": "L2-TENANTS",
+   "name": "L2-TENANTS — Tenants",
+   "empty_required": [],
+   "stale": [],
+   "sections": [
+    {
+     "id": "description",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "capabilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "responsibilities",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "contracts",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "invariants",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "interfaces",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "calls",
+     "required": true,
+     "count": 3,
+     "empty": false
+    },
+    {
+     "id": "sub_parts",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "source_files",
+     "required": true,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "commits",
+     "required": false,
+     "count": 2,
+     "empty": false
+    },
+    {
+     "id": "plans",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "decisions",
+     "required": false,
+     "count": 1,
+     "empty": false
+    },
+    {
+     "id": "risks",
+     "required": false,
+     "count": 0,
+     "empty": true
+    },
+    {
+     "id": "explanation",
+     "required": true,
+     "count": 1,
+     "empty": false
+    }
+   ]
+  }
+ ]
+}
