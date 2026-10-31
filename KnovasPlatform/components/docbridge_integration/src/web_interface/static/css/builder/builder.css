@@ -1193,6 +1193,38 @@ a.b-stat:hover { border-color: var(--color-border-strong); box-shadow: var(--sha
 .b-onto-graph.is-connecting { cursor: crosshair; }
 .b-onto-empty-actions { margin-top: var(--space-2); }
 
+/* ---- Packs (step B4) ----------------------------------------------------- */
+
+.b-wizard-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--space-1); counter-reset: step; }
+.b-wizard-steps li { counter-increment: step; display: flex; align-items: center; gap: var(--space-half); color: var(--color-text-muted); font-size: var(--text-xs); }
+.b-wizard-steps li::before {
+    content: counter(step);
+    display: inline-grid; place-items: center;
+    width: var(--space-3); height: var(--space-3);
+    border-radius: 50%;
+    border: var(--border-width) solid var(--color-border-strong);
+}
+.b-wizard-steps li + li::after { content: none; }
+.b-wizard-steps .is-current { color: var(--color-text); font-weight: var(--weight-semibold); }
+.b-wizard-steps .is-current::before { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.b-wizard-steps .is-done::before { content: "✓"; border-color: var(--color-good); color: var(--color-good); }
+.b-pack-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-1); }
+.b-pack-card {
+    display: flex; flex-direction: column; gap: var(--space-half);
+    padding: var(--space-1) var(--space-2) var(--space-2);
+    border: var(--border-width) solid var(--color-border); border-radius: var(--radius-m);
+    background: var(--color-surface); cursor: pointer;
+}
+.b-pack-card:has(input:checked) { border-color: var(--color-accent); background: var(--color-accent-soft); }
+.b-pack-card:has(input:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.b-pack-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); max-width: var(--content-max); }
+.b-pack-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: var(--space-1) var(--space-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-m); background: var(--color-surface); }
+.b-pack-row > span:first-child { flex: 1 1 auto; }
+.b-pack-counts { margin-bottom: var(--space-2); }
+.b-pack-diff { display: flex; flex-direction: column; gap: var(--space-2); max-width: var(--content-max); }
+.b-pack-diff-group h2 { margin-bottom: var(--space-1); }
+.b-pack-apply { margin-top: var(--space-3); justify-content: flex-end; }
+
 @media (max-width: 599px) {
     .b-ed-pair,
     .b-ed-attr-add { grid-template-columns: minmax(0, 1fr); }

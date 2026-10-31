@@ -32,6 +32,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
 from markupsafe import Markup
 
 from builder import editing, ontology_view, package
+from builder import packs as shipped_packs
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ def create_builder_blueprint(
     *,
     page_context: Callable[[], Mapping[str, Any]],
     store_factory: Optional[Callable[[], Any]] = None,
+    tenant_provider: Optional[Callable[[], Optional[str]]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -157,6 +159,10 @@ def create_builder_blueprint(
     ``store_factory`` returns the workspace store for this request
     (``builder.store.WorkspaceStore`` on the request's connection). Without
     one there are no workspaces and the import is refused.
+
+    ``tenant_provider`` returns the tenant this Platform belongs to (from its
+    certificate). A new workspace can be linked to it; a tenant named in a
+    request is never taken.
     """
     bp = Blueprint("builder", __name__, url_prefix="/builder")
 
@@ -189,7 +195,9 @@ def create_builder_blueprint(
 
     @bp.app_template_filter("b_change_label")
     def _change_label(path):
-        return CHANGE_LABELS.get(path, path)
+        section, _, key = str(path).partition("/")
+        element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket"}.get(section)
+        return f"{element} {key}" if element and key else CHANGE_LABELS.get(path, path)
 
     @bp.app_template_filter("b_version_tag")
     def _version_tag(workspace):
@@ -227,8 +235,23 @@ def create_builder_blueprint(
                          "url": url_for("builder.workspace", workspace_id=w.id)} for w in workspaces],
             workspace_list=workspaces,
             import_enabled=store is not None,
+            term_packs=[_pack_card(p) for p in shipped_packs.term_packs()],
+            platform_tenant=_platform_tenant(),
             **values,
         )
+
+    def _platform_tenant() -> Optional[str]:
+        try:
+            tenant = tenant_provider() if tenant_provider is not None else None
+        except Exception:  # noqa: BLE001 - no certificate here: the workspace is linked later
+            logger.info("Builder: the Platform's tenant is not known")
+            return None
+        return str(tenant) if tenant else None
+
+    def _pack_card(pack: Mapping[str, Any]) -> dict:
+        return {"id": pack["id"], "version": str(pack["version"]), "name": dict(pack.get("name") or {}),
+                "description": dict(pack.get("description") or {}), "types": len(pack.get("types") or []),
+                "relations": len(pack.get("relations") or [])}
 
     @bp.route("/")
     def home():
@@ -264,10 +287,37 @@ def create_builder_blueprint(
         store = _store()
         current = _workspace_or_404(store, workspace_id)
         session[SESSION_WORKSPACE] = current.id
+        model = store.model(current.id) or {}
+        names = shipped_packs.names()
         return _render(
             "builder/workspace.html",
             stage=STAGES[0], stage_number=1, current_workspace=current,
             changes=store.changes(current.id, limit=10),
+            workspace_packs=[{**entry, "name": names.get(entry["key"], {})} for entry in model.get("packs") or []],
+            pack_updates={u["key"]: u for u in editing.pack_updates(model)},
+        )
+
+    @bp.route("/w/<workspace_id>/pakete/<pack_id>")
+    def pack_update(workspace_id: str, pack_id: str):
+        """What updating a pack would change, for review before it is applied."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        model = store.model(current.id) or {}
+        pack = shipped_packs.term_pack(pack_id)
+        if pack is None:
+            abort(404)
+        taken = next((p for p in model.get("packs") or [] if p["key"] == pack_id), None)
+        try:
+            changes = editing.pack_changes(model, pack_id)
+            refusal = None
+        except editing.EditError as exc:
+            changes, refusal = [], exc
+        session[SESSION_WORKSPACE] = current.id
+        return _render(
+            "builder/pack_update.html", stage=STAGES[0], stage_number=1, current_workspace=current,
+            pack=_pack_card(pack), taken=taken, diff=_diff(changes), refusal=refusal,
+            edit_url=url_for("builder.edit_ontology", workspace_id=current.id),
+            done_url=url_for("builder.stage", slug="ontologie"),
         )
 
     @bp.route("/w/<workspace_id>/export")
@@ -338,10 +388,18 @@ def create_builder_blueprint(
         name = str(request.form.get("name", "") or "").strip()
         if not 1 <= len(name) <= 120:
             return jsonify({"success": False, "error": "Der Name braucht 1 bis 120 Zeichen."}), 400
-        result = package.read_package(package.blank_package(name))
-        workspace_id = store.create(name=name, model=result.model, actor_id=gate.current_user().id,
-                                    source={"kind": "blank"})
-        logger.info("Builder workspace created: %s", workspace_id)
+        model = package.read_package(package.blank_package(name)).model
+        chosen = [str(p) for p in request.form.getlist("packs") if str(p).strip()]
+        try:
+            for pack_id in dict.fromkeys(chosen):
+                editing.apply(model, {"op": "pack.apply", "pack": pack_id})
+        except editing.EditError as exc:
+            return _refused(exc)
+        tenant = _platform_tenant() if request.form.get("tenant") == "link" else None
+        workspace_id = store.create(name=name, model=model, actor_id=gate.current_user().id,
+                                    source={"kind": "blank", "packs": model.get("packs") or []}, tenant=tenant)
+        logger.info("Builder workspace created: %s, %d packs, tenant linked: %s",
+                    workspace_id, len(model.get("packs") or []), tenant is not None)
         session[SESSION_WORKSPACE] = workspace_id
         return jsonify({"success": True, "url": url_for("builder.workspace", workspace_id=workspace_id)}), 201
 
@@ -420,6 +478,70 @@ def create_builder_blueprint(
     @bp.route("/api/w/<workspace_id>/redo", methods=["POST"])
     def redo(workspace_id: str):
         return _step(workspace_id, "redo", "undo", editing.redo)
+
+    def _diff(changes: list) -> list[dict]:
+        """Changes as the diff lines of a review: one group per element, its fields line by line."""
+        groups = []
+        for change in changes:
+            section, _, key = change["path"].partition("/")
+            before, after = change["before"], change["after"]
+            kind = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand"}.get(section, section)
+            if before is None:
+                state = "added"
+            elif after is not None and after.get("retired") and not before.get("retired"):
+                state = "removed"
+            else:
+                state = "changed"
+            lines = []
+            if section == "packs":
+                lines.append({"sign": "changed", "text": f"Version {(before or {}).get('version', '–')} → {after['version']}"})
+            elif state == "added":
+                lines.append({"sign": "added", "text": _describe(after)})
+            elif state == "removed":
+                lines.append({"sign": "removed", "text": "Nicht mehr im Paket: wird stillgelegt, nicht gelöscht."})
+            else:
+                lines += _field_lines(before, after)
+            groups.append({"kind": kind, "key": key, "state": state, "lines": lines})
+        return groups
+
+    def _describe(item: Mapping[str, Any]) -> str:
+        parts = [(item.get("label") or {}).get("de") or item["key"]]
+        if item.get("parent"):
+            parts.append(f"Untertyp von {item['parent']}")
+        if item.get("attributes"):
+            parts.append(f"{len(item['attributes'])} Attribute: " + ", ".join(a["name"] for a in item["attributes"]))
+        if item.get("domain") or item.get("range"):
+            parts.append(f"{', '.join(item.get('domain') or [])} → {', '.join(item.get('range') or [])}")
+        return " · ".join(parts)
+
+    def _field_lines(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[dict]:
+        lines = []
+        old_attrs = {a["name"]: a for a in before.get("attributes") or []}
+        new_attrs = {a["name"]: a for a in after.get("attributes") or []}
+        for name, attr in new_attrs.items():
+            if name not in old_attrs:
+                lines.append({"sign": "added", "text": f"Attribut {name} ({attr.get('datatype', '')})"})
+            elif attr != old_attrs[name]:
+                lines.append({"sign": "changed", "text": f"Attribut {name} geändert"})
+        for name in old_attrs:
+            if name not in new_attrs:
+                lines.append({"sign": "removed", "text": f"Attribut {name}"})
+        labels = {"label": "Namen", "description": "Beschreibung", "example": "Beispiel",
+                  "not_to_confuse": "Nicht verwechseln mit", "parent": "Elterntyp", "domain": "Von",
+                  "range": "Nach", "family": "Familie", "inverse": "Umkehrung", "sentence": "Lesart", "iri": "IRI"}
+        for field, label in labels.items():
+            if before.get(field) != after.get(field):
+                old, new = before.get(field), after.get(field)
+                if isinstance(new, list) and isinstance(old, list):
+                    added = [v for v in new if v not in old]
+                    removed = [v for v in old if v not in new]
+                    if added:
+                        lines.append({"sign": "added", "text": f"{label}: {', '.join(map(str, added))}"})
+                    if removed:
+                        lines.append({"sign": "removed", "text": f"{label}: {', '.join(map(str, removed))}"})
+                else:
+                    lines.append({"sign": "changed", "text": f"{label} geändert"})
+        return lines or [{"sign": "changed", "text": "Kleine Änderungen"}]
 
     @bp.route("/_styleguide")
     def styleguide():

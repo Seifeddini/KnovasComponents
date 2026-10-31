@@ -243,3 +243,106 @@ class TestTheRoutes:
         response = client.post("/builder/api/w/00000000-0000-0000-0000-000000000000/ontology",
                                json={"op": "type.create", "key": "X"})
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Step B4: packs.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def law_firm():
+    model = package.read_package(package.blank_package("Kanzlei Muster")).model
+    editing.apply(model, {"op": "pack.apply", "pack": "legal"})
+    return model
+
+
+class TestPacks:
+    def test_every_shipped_pack_reads_without_a_problem(self):
+        from builder import packs
+
+        assert {p["id"] for p in packs.term_packs()} >= {"legal", "fiduciary", "software"}
+        for pack in packs.term_packs():
+            model = package.read_package(package.blank_package("Muster")).model
+            editing.apply(model, {"op": "pack.apply", "pack": pack["id"]})
+            view = ontology_view.build(model)
+            serious = [p["message"] for p in view["problems"] if p["severity"] == "critical"]
+            assert serious == [], (pack["id"], serious)
+            assert view["counts"]["types"] == len(pack["types"])
+            assert all(t["level"] == "pack" and t["pack"] == pack["id"] for t in model["ontology"]["types"])
+
+    def test_the_hand_written_packs_meet_rule_8(self):
+        for pack_id in ("legal", "fiduciary"):
+            model = package.read_package(package.blank_package("Muster")).model
+            editing.apply(model, {"op": "pack.apply", "pack": pack_id})
+            kinds = {p["kind"] for p in ontology_view.build(model)["problems"] if p["severity"] != "info"}
+            assert kinds == set(), (pack_id, kinds)
+
+    def test_a_workspace_from_a_pack_round_trips(self, law_firm):
+        files = package.write_package(law_firm)
+        assert b"packs:" in files["brain-config.yaml"]
+        assert package.read_package(files).model == law_firm
+
+    def test_pack_terms_are_read_only_but_take_the_company_attributes(self, law_firm):
+        with pytest.raises(editing.EditError):
+            _apply(law_firm, op="type.update", key="Matter", set={"example": "x"})
+        with pytest.raises(editing.EditError):
+            _apply(law_firm, op="attribute.update", key="Matter", name="status", set={"required": False})
+        _apply(law_firm, op="attribute.add", key="Matter", attribute={"name": "billing_partner"})
+        assert _type(law_firm, "Matter")["attributes"][-1]["level"] == "company"
+        _apply(law_firm, op="attribute.remove", key="Matter", name="billing_partner")
+
+    def test_a_company_type_extends_a_pack_type(self, law_firm):
+        _apply(law_firm, op="type.create", key="ConflictCheck", parent="Matter")
+        node = next(n for n in ontology_view.build(law_firm)["nodes"] if n["key"] == "ConflictCheck")
+        assert node["parent"] == "type:Matter" and node["level"] == "company"
+
+    def test_an_update_keeps_the_company_work_and_retires_what_the_pack_dropped(self, law_firm):
+        _apply(law_firm, op="attribute.add", key="Matter", attribute={"name": "billing_partner"})
+        law_firm["packs"] = [{"key": "legal", "version": "0.9"}]
+        matter = _type(law_firm, "Matter")
+        matter["attributes"] = [a for a in matter["attributes"] if a["name"] != "opened_on"]
+        law_firm["ontology"]["types"].append({"key": "Hearing", "level": "pack", "pack": "legal", "attributes": []})
+        assert editing.pack_updates(law_firm) == [{"key": "legal", "from": "0.9", "to": "1.0",
+                                                   "name": {"de": "Recht", "en": "Legal"}}]
+        preview = editing.pack_changes(law_firm, "legal")
+        assert {c["path"] for c in preview} == {"ontology.types/Matter", "ontology.types/Hearing", "packs/legal"}
+        assert law_firm["packs"][0]["version"] == "0.9"  # a preview changes nothing
+        _apply(law_firm, op="pack.apply", pack="legal")
+        names = [a["name"] for a in _type(law_firm, "Matter")["attributes"]]
+        assert "opened_on" in names and names[-1] == "billing_partner"
+        assert _type(law_firm, "Hearing")["retired"] is True
+        assert editing.pack_updates(law_firm) == []
+
+    def test_a_pack_cannot_take_over_a_company_type_of_the_same_name(self):
+        model = package.read_package(package.blank_package("Muster")).model
+        _apply(model, op="type.create", key="Matter")
+        with pytest.raises(editing.EditError) as refused:
+            _apply(model, op="pack.apply", pack="legal")
+        assert refused.value.details == ["Matter"]
+
+    def test_an_unknown_pack(self):
+        model = package.read_package(package.blank_package("Muster")).model
+        with pytest.raises(editing.EditError):
+            _apply(model, op="pack.apply", pack="nowhere")
+
+
+class TestCandidates:
+    @pytest.mark.parametrize("reason,pack", [
+        ("candidate: legal pack — a check every firm runs", "legal"),
+        ("candidate: not in SeDM yet", ""),
+        ("Kept for reports.", None),
+        (None, None),
+    ])
+    def test_reading_the_mark(self, reason, pack):
+        assert editing.candidate_of(reason) == pack
+
+    def test_marking_and_unmarking_keep_the_reason(self, law_firm):
+        _apply(law_firm, op="type.create", key="ConflictCheck", parent="Matter")
+        _apply(law_firm, op="type.update", key="ConflictCheck", set={"reason": "Every firm runs it."})
+        _apply(law_firm, op="type.update", key="ConflictCheck", set={"candidate": "legal"})
+        assert _type(law_firm, "ConflictCheck")["reason"] == "candidate: legal pack — Every firm runs it."
+        assert [c["key"] for c in ontology_view.build(law_firm)["candidates"]] == ["ConflictCheck"]
+        _apply(law_firm, op="type.update", key="ConflictCheck", set={"candidate": ""})
+        assert _type(law_firm, "ConflictCheck")["reason"] == "Every firm runs it."
+        assert ontology_view.build(law_firm)["candidates"] == []

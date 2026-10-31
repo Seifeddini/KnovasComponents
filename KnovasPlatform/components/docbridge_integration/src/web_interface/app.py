@@ -1871,6 +1871,9 @@ def create_app(config_path: Optional[str] = None):
                 'csrf_token': _ensure_csrf_token(),
             },
             store_factory=lambda: WorkspaceStore(identity_gate.connection()),
+            # The tenant of this Platform's own certificate: the only one a
+            # workspace can be linked to from here.
+            tenant_provider=lambda: api_client.customer_id,
         ))
 
         from identity.node_grants import NodeGrantStore

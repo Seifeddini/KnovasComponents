@@ -115,18 +115,20 @@ class WorkspaceStore:
         """A new workspace whose first draft is an imported package's model."""
         return self.create(name=name, model=model, actor_id=actor_id, source=source, change="import")
 
-    def create(self, *, name: str, model: dict, actor_id, source: dict, change: str = "create") -> str:
+    def create(self, *, name: str, model: dict, actor_id, source: dict, change: str = "create",
+               tenant: Optional[str] = None) -> str:
         """A new workspace whose first draft is ``model``. Returns its id.
 
         The change row (path ``change``: ``create`` or ``import``) records
         where the model came from and its content hash, not the model a
-        second time.
+        second time. ``tenant`` comes from the Platform's own certificate,
+        never from a request.
         """
         digest = content_hash(model)
         with self.conn.transaction():
             workspace_id = self.conn.execute(
-                "INSERT INTO builder_workspace (name, created_by) VALUES (%s, %s) RETURNING id",
-                (name.strip(), actor_id),
+                "INSERT INTO builder_workspace (name, created_by, tenant) VALUES (%s, %s, %s) RETURNING id",
+                (name.strip(), actor_id, tenant),
             ).fetchone()[0]
             version_id = self.conn.execute(
                 """INSERT INTO builder_version (workspace, number, state, model, content_hash)

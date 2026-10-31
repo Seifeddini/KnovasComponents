@@ -58,7 +58,7 @@ class MemoryWorkspaceStore:
             last = {"path": change["path"], "at": change["at"], "actor": change["actor"],
                     "actor_name": change["actor_name"]}
         return Workspace(
-            id=row["id"], name=row["name"], tenant=None, created_at=row["created_at"],
+            id=row["id"], name=row["name"], tenant=row.get("tenant"), created_at=row["created_at"],
             created_by=row["created_by"], draft_number=1, published_number=None,
             summary=summarise(row["model"]), last_change=last,
         )
@@ -82,12 +82,12 @@ class MemoryWorkspaceStore:
     def create_from_import(self, *, name, model, actor_id, source):
         return self.create(name=name, model=model, actor_id=actor_id, source=source, change="import")
 
-    def create(self, *, name, model, actor_id, source, change="create"):
+    def create(self, *, name, model, actor_id, source, change="create", tenant=None):
         workspace_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         actor = str(actor_id) if actor_id else None
         self.rows[workspace_id] = {
-            "id": workspace_id, "name": name.strip(), "created_at": now, "created_by": actor,
+            "id": workspace_id, "name": name.strip(), "created_at": now, "created_by": actor, "tenant": tenant,
             "model": copy.deepcopy(model),
             "changes": [{"path": change, "at": now, "actor": actor,
                          "actor_name": self.user_names.get(actor),
@@ -120,7 +120,7 @@ class MemoryWorkspaceStore:
         return [{"path": c["path"], "before": copy.deepcopy(c["before"]), "after": copy.deepcopy(c["after"])}
                 for c in reversed(row["changes"]) if c.get("batch") == batch_id]
 
-def make_app(user=None, store=None) -> Flask:
+def make_app(user=None, store=None, tenant=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none."""
     app = Flask(
         __name__,
@@ -148,5 +148,6 @@ def make_app(user=None, store=None) -> Flask:
             "csrf_token": "harness",
         },
         store_factory=(lambda: store) if store is not None else None,
+        tenant_provider=lambda: tenant,
     ))
     return app

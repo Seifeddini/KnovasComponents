@@ -1,0 +1,3127 @@
+{
+ "description": {
+  "de": "Softwareentwicklung, Betrieb und Vertrieb: Komponenten, Schnittstellen, Releases, Tests, Kampagnen und Verkaufschancen.",
+  "en": "Software development, operations and sales: components, interfaces, releases, tests, campaigns and opportunities."
+ },
+ "id": "software",
+ "name": {
+  "de": "Software",
+  "en": "Software"
+ },
+ "process_templates": [],
+ "relations": [
+  {
+   "domain": [
+    "Component",
+    "BoundedContext",
+    "SourceFile",
+    "WorkflowJob"
+   ],
+   "family": "Structure",
+   "inverse": "contains",
+   "iri": "int:partOf",
+   "key": "part_of",
+   "label": {
+    "de": "ist Teil von",
+    "en": "is part of"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "BoundedContext",
+    "Component",
+    "System",
+    "Workflow"
+   ],
+   "sentence": "Component is part of Software area — the component belongs to this area; a source file belongs to its component, a CI job to its workflow, a tier to the product, a function to the company, a process to its value stream."
+  },
+  {
+   "domain": [
+    "Persona"
+   ],
+   "family": "Structure",
+   "iri": "int:memberOf",
+   "key": "member_of",
+   "label": {
+    "de": "gehört zu",
+    "en": "belongs to"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Segment"
+   ],
+   "sentence": "Persona belongs to Segment — this persona works at this kind of customer; a role belongs to a function."
+  },
+  {
+   "domain": [
+    "Component"
+   ],
+   "family": "Realisation",
+   "key": "calls",
+   "label": {
+    "de": "ruft auf",
+    "en": "calls"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Component"
+   ],
+   "sentence": "Component calls Component — the first invokes the second; read backwards it is called-by."
+  },
+  {
+   "domain": [
+    "Component"
+   ],
+   "family": "Realisation",
+   "key": "calls_back",
+   "label": {
+    "de": "ruft zurück auf",
+    "en": "calls back"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Component"
+   ],
+   "sentence": "Component calls back Component — it calls a component that also calls it; read like calls."
+  },
+  {
+   "domain": [
+    "Component"
+   ],
+   "family": "Realisation",
+   "key": "exposes",
+   "label": {
+    "de": "stellt bereit",
+    "en": "exposes"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Interface"
+   ],
+   "sentence": "Component exposes Interface — the component serves this route."
+  },
+  {
+   "domain": [
+    "Interaction"
+   ],
+   "family": "Realisation",
+   "key": "initiated_by",
+   "label": {
+    "de": "ausgelöst von",
+    "en": "initiated by"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Component"
+   ],
+   "sentence": "Interaction is initiated by Component — the calling side."
+  },
+  {
+   "domain": [
+    "Interaction"
+   ],
+   "family": "Realisation",
+   "key": "received_by",
+   "label": {
+    "de": "empfangen von",
+    "en": "received by"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Component"
+   ],
+   "sentence": "Interaction is received by Component — the called side."
+  },
+  {
+   "domain": [
+    "SourceFile",
+    "Commit",
+    "Component"
+   ],
+   "family": "Realisation",
+   "iri": "int:implements",
+   "key": "implements",
+   "label": {
+    "de": "implementiert",
+    "en": "implements"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "ComponentContract"
+   ],
+   "sentence": "Commit implements Feature plan — this change is part of carrying out the plan."
+  },
+  {
+   "domain": [
+    "TestRun"
+   ],
+   "family": "Verification",
+   "iri": "int:verifies",
+   "key": "verifies",
+   "label": {
+    "de": "verifiziert",
+    "en": "verifies"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Invariant",
+    "ComponentContract",
+    "Component"
+   ],
+   "sentence": "Alloy check verifies Invariant — this check proves the invariant holds; a test run verifies a plan or component."
+  },
+  {
+   "domain": [
+    "ComponentContract"
+   ],
+   "family": "Verification",
+   "iri": "int:satisfies",
+   "key": "satisfies",
+   "label": {
+    "de": "erfüllt",
+    "en": "satisfies"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Invariant"
+   ],
+   "sentence": "Component contract satisfies Invariant — this clause is how the component upholds the invariant."
+  },
+  {
+   "domain": [
+    "ComponentContract"
+   ],
+   "family": "Verification",
+   "iri": "int:governedBy",
+   "key": "governs",
+   "label": {
+    "de": "regelt",
+    "en": "governs"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Component"
+   ],
+   "sentence": "Component contract governs Component — this clause applies to this component."
+  },
+  {
+   "domain": [
+    "Commit",
+    "Release"
+   ],
+   "family": "Realisation",
+   "key": "changes",
+   "label": {
+    "de": "ändert",
+    "en": "changes"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Component",
+    "SourceFile"
+   ],
+   "sentence": "Commit changes Component — the change touched files of this component."
+  },
+  {
+   "domain": [
+    "SourceFile"
+   ],
+   "example": "graph_api.py defines graph_api.py#create_node.",
+   "family": "Structure",
+   "inverse": "defined_in",
+   "iri": "int:partOf",
+   "key": "defines",
+   "label": {
+    "de": "definiert",
+    "en": "defines"
+   },
+   "level": "pack",
+   "not_to_confuse": "imports says a file uses another file's code; defines says where the code lives.",
+   "pack": "software",
+   "range": [
+    "Symbol"
+   ],
+   "sentence": "Source file defines Symbol — the class or function lives in this file. Read backwards: defined in."
+  },
+  {
+   "domain": [
+    "Release"
+   ],
+   "family": "Verification",
+   "iri": "int:supports",
+   "key": "evidenced_by",
+   "label": {
+    "de": "belegt durch",
+    "en": "evidenced by"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "SourceFile",
+    "Commit"
+   ],
+   "sentence": "Hypothesis is evidenced by Evidence record — this evidence speaks for the claim."
+  },
+  {
+   "domain": [
+    "Component"
+   ],
+   "family": "Verification",
+   "key": "keeps",
+   "label": {
+    "de": "hält ein",
+    "en": "keeps"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Invariant",
+    "ComponentContract"
+   ],
+   "sentence": "Component keeps Invariant — this component must uphold this invariant."
+  },
+  {
+   "domain": [
+    "Component"
+   ],
+   "example": "L2-SECURE-API depends on LIB-pypi:flask.",
+   "family": "Dependency",
+   "inverse": "required_by",
+   "iri": "int:dependsOn",
+   "key": "depends_on",
+   "label": {
+    "de": "hängt ab von",
+    "en": "depends on"
+   },
+   "level": "pack",
+   "not_to_confuse": "imports links two files; depends_on links components, plans and phases.",
+   "pack": "software",
+   "range": [
+    "Component",
+    "Library"
+   ],
+   "sentence": "Component depends on Component — it cannot work without the other; a component depends on the libraries its code needs. Read backwards: required by."
+  },
+  {
+   "domain": [
+    "SourceFile"
+   ],
+   "example": "secure_api.py imports query_pipeline.py.",
+   "family": "Dependency",
+   "inverse": "imported_by",
+   "iri": "int:dependsOn",
+   "key": "imports",
+   "label": {
+    "de": "importiert",
+    "en": "imports"
+   },
+   "level": "pack",
+   "not_to_confuse": "depends_on links components; imports links two files.",
+   "pack": "software",
+   "range": [
+    "SourceFile"
+   ],
+   "sentence": "Source file imports Source file — the first uses code from the second. Read backwards: imported by."
+  },
+  {
+   "domain": [
+    "SourceFile"
+   ],
+   "example": "Two modules that import each other, one of them inside a function.",
+   "family": "Dependency",
+   "inverse": "imported_back_by",
+   "iri": "int:dependsOn",
+   "key": "imports_back",
+   "label": {
+    "de": "importiert zurück",
+    "en": "imports back"
+   },
+   "level": "pack",
+   "not_to_confuse": "imports is the first direction of the pair; imports_back exists only because the brain stores one edge per pair and relation.",
+   "pack": "software",
+   "range": [
+    "SourceFile"
+   ],
+   "sentence": "Source file imports back Source file — it imports a file that also imports it; read like imports."
+  },
+  {
+   "domain": [
+    "Service",
+    "Job"
+   ],
+   "example": "SVC-secure-api executes L2-SECURE-API.",
+   "family": "Runtime",
+   "inverse": "executed_by",
+   "key": "executes",
+   "label": {
+    "de": "führt aus",
+    "en": "executes"
+   },
+   "level": "pack",
+   "not_to_confuse": "deployed_in says where the workload runs; executes says what code it runs.",
+   "pack": "software",
+   "range": [
+    "Component"
+   ],
+   "sentence": "Service executes Component — the deployed workload runs this component's code. Read backwards: executed by."
+  },
+  {
+   "domain": [
+    "Service",
+    "Job",
+    "DataStore"
+   ],
+   "example": "SVC-secure-api is deployed in ENV-knovas-cloudscale-prod.",
+   "family": "Runtime",
+   "inverse": "hosts",
+   "iri": "int:locatedIn",
+   "key": "deployed_in",
+   "label": {
+    "de": "läuft in",
+    "en": "deployed in"
+   },
+   "level": "pack",
+   "not_to_confuse": "A deployment records one rollout on a date; deployed_in says where the workload runs today.",
+   "pack": "software",
+   "range": [
+    "Environment"
+   ],
+   "sentence": "Service is deployed in Environment — the workload or data store runs in this cluster or host. Read backwards: hosts."
+  },
+  {
+   "domain": [
+    "Workflow",
+    "WorkflowJob"
+   ],
+   "example": "WF-ci/acr-push builds SVC-secure-api.",
+   "family": "Runtime",
+   "inverse": "built_by",
+   "key": "builds",
+   "label": {
+    "de": "baut",
+    "en": "builds"
+   },
+   "level": "pack",
+   "not_to_confuse": "A release is the versioned whole; builds names the pipeline that produces one image.",
+   "pack": "software",
+   "range": [
+    "Service",
+    "Job"
+   ],
+   "sentence": "Workflow builds Service — the CI pipeline or job produces the workload's image. Read backwards: built by."
+  },
+  {
+   "domain": [
+    "DataStore"
+   ],
+   "example": "DS-weaviate stores DATA-weaviate/SentenceChunk.",
+   "family": "Data",
+   "inverse": "stored_in",
+   "iri": "int:partOf",
+   "key": "stores",
+   "label": {
+    "de": "speichert",
+    "en": "stores"
+   },
+   "level": "pack",
+   "not_to_confuse": "writes_to says which component changes the data; stores says where it lives.",
+   "pack": "software",
+   "range": [
+    "DataSet"
+   ],
+   "sentence": "Data store stores Data set — the table or collection lives in this database. Read backwards: stored in."
+  },
+  {
+   "domain": [
+    "Component"
+   ],
+   "example": "L2-QUERY-2STAGE reads from DATA-weaviate/SentenceChunk.",
+   "family": "Data",
+   "inverse": "read_by",
+   "key": "reads_from",
+   "label": {
+    "de": "liest aus",
+    "en": "reads from"
+   },
+   "level": "pack",
+   "not_to_confuse": "writes_to is the changing side; a component that does both has both edges.",
+   "pack": "software",
+   "range": [
+    "DataSet"
+   ],
+   "sentence": "Component reads from Data set — the component's code reads this table or collection. Read backwards: read by."
+  },
+  {
+   "domain": [
+    "Component"
+   ],
+   "example": "L2-USAGE-LEDGER writes to DATA-postgres/usage_ledger.",
+   "family": "Data",
+   "inverse": "written_by",
+   "key": "writes_to",
+   "label": {
+    "de": "schreibt in",
+    "en": "writes to"
+   },
+   "level": "pack",
+   "not_to_confuse": "reads_from is the reading side; stores is where the data lives.",
+   "pack": "software",
+   "range": [
+    "DataSet"
+   ],
+   "sentence": "Component writes to Data set — the component's code inserts, updates or deletes rows of this table or collection. Read backwards: written by."
+  },
+  {
+   "domain": [
+    "Component",
+    "Service",
+    "Job"
+   ],
+   "example": "L2-IO-MANAGER is configured by SET-ML_EMBEDDER_TIMEOUT.",
+   "family": "Configuration",
+   "inverse": "configures",
+   "key": "configured_by",
+   "label": {
+    "de": "konfiguriert durch",
+    "en": "configured by"
+   },
+   "level": "pack",
+   "not_to_confuse": "switches is only for feature flags that turn a route or component on or off.",
+   "pack": "software",
+   "range": [
+    "Setting"
+   ],
+   "sentence": "Component is configured by Setting — the component's code (or the workload's manifest) reads this setting. Read backwards: configures."
+  },
+  {
+   "domain": [
+    "Setting"
+   ],
+   "example": "SET-KG_DOCUMENT_SORTING_ENABLED switches the post-ingest document sorter.",
+   "family": "Configuration",
+   "inverse": "switched_by",
+   "key": "switches",
+   "label": {
+    "de": "schaltet",
+    "en": "switches"
+   },
+   "level": "pack",
+   "not_to_confuse": "configured_by says the code reads the setting; switches says the setting decides whether it runs at all.",
+   "pack": "software",
+   "range": [
+    "Interface",
+    "Component"
+   ],
+   "sentence": "Setting switches Component — this feature flag turns the component or route on or off. Read backwards: switched by."
+  },
+  {
+   "domain": [
+    "Campaign",
+    "MarketingAsset",
+    "Opportunity"
+   ],
+   "family": "Market",
+   "key": "targets",
+   "label": {
+    "de": "zielt auf",
+    "en": "targets"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Segment",
+    "Persona"
+   ],
+   "sentence": "Hypothesis targets Persona — the claim is about this persona or segment; a campaign targets a segment."
+  },
+  {
+   "domain": [
+    "Campaign"
+   ],
+   "family": "Market",
+   "key": "uses",
+   "label": {
+    "de": "verwendet",
+    "en": "uses"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "MarketingAsset"
+   ],
+   "sentence": "Campaign uses Marketing asset — the campaign sends this one-pager, deck or mail."
+  },
+  {
+   "domain": [
+    "Campaign"
+   ],
+   "family": "Market",
+   "key": "via",
+   "label": {
+    "de": "über",
+    "en": "via"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Channel"
+   ],
+   "sentence": "Campaign via Channel — the campaign runs through this channel."
+  },
+  {
+   "domain": [
+    "Campaign"
+   ],
+   "family": "Market",
+   "iri": "int:hasOutput",
+   "key": "produced",
+   "label": {
+    "de": "erzeugte",
+    "en": "produced"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Lead"
+   ],
+   "sentence": "Campaign produced Lead — this reply came out of the campaign."
+  },
+  {
+   "domain": [
+    "Lead",
+    "Opportunity",
+    "Quote"
+   ],
+   "family": "Market",
+   "iri": "int:precedes",
+   "key": "converts_to",
+   "label": {
+    "de": "wird zu",
+    "en": "converts to"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Quote"
+   ],
+   "sentence": "Lead converts to Account — the sales branch moves forward one stage."
+  },
+  {
+   "domain": [
+    "Segment"
+   ],
+   "family": "Market",
+   "iri": "int:locatedIn",
+   "key": "in_market",
+   "label": {
+    "de": "im Markt",
+    "en": "in market"
+   },
+   "level": "pack",
+   "pack": "software",
+   "range": [
+    "Market"
+   ],
+   "sentence": "Segment is in market Market — this customer type belongs to this market."
+  }
+ ],
+ "types": [
+  {
+   "attributes": [],
+   "description": {
+    "en": "One of the nine large areas the Knovas software is divided into; each has its own responsibility and vocabulary and contains several components (L2)."
+   },
+   "example": "L1-RETRIEVE, everything about search and retrieval.",
+   "id_prefixes": [
+    "^L1-[A-Z]+$"
+   ],
+   "key": "BoundedContext",
+   "label": {
+    "de": "Software-Bereich (L1)",
+    "en": "Software area (L1)"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A capability describes what a customer can do, not how the software is split.",
+   "pack": "software",
+   "parent": "euo:Software"
+  },
+  {
+   "attributes": [],
+   "description": {
+    "en": "The Knovas software as a whole; its software areas are part of it, and its reference documentation starts here."
+   },
+   "example": "SYS-KNOVAS-SEMANTIX, the Knovas Semantix platform.",
+   "id_prefixes": [
+    "^SYS-[A-Z0-9-]+$"
+   ],
+   "key": "System",
+   "label": {
+    "de": "System",
+    "en": "System"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A product is what Knovas sells; the system is the software that runs it.",
+   "pack": "software",
+   "parent": "euo:Software"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The route path, e.g. /secured/query."
+     },
+     "label": {
+      "de": "Pfad",
+      "en": "Path"
+     },
+     "level": "pack",
+     "name": "path"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The HTTP methods the route accepts."
+     },
+     "label": {
+      "de": "Methoden",
+      "en": "Methods"
+     },
+     "level": "pack",
+     "name": "methods"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The code file that registers the route."
+     },
+     "label": {
+      "de": "Quellmodul",
+      "en": "Source module"
+     },
+     "level": "pack",
+     "name": "source_module"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The contract page that describes the route."
+     },
+     "label": {
+      "de": "Dokumentiert in",
+      "en": "Documented in"
+     },
+     "level": "pack",
+     "name": "documented_in"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Whether the route is operational (health, metrics) rather than a product function."
+     },
+     "enum_labels": {
+      "no": {
+       "de": "nein",
+       "en": "no",
+       "text": "A route that offers a product function."
+      },
+      "yes": {
+       "de": "ja",
+       "en": "yes",
+       "text": "An operational route such as /health or /metrics."
+      }
+     },
+     "enum_values": [
+      "yes",
+      "no"
+     ],
+     "label": {
+      "de": "Betriebsroute",
+      "en": "Infrastructure route"
+     },
+     "level": "pack",
+     "name": "infrastructure"
+    }
+   ],
+   "description": {
+    "en": "An HTTP route a software component serves, with its methods and the page that documents it; read from the code."
+   },
+   "example": "IF-secure_api:/secured/query, the search route of the Secure API.",
+   "id_prefixes": [
+    "^IF-[a-z0-9_]+:/.*$"
+   ],
+   "key": "Interface",
+   "label": {
+    "de": "Schnittstelle",
+    "en": "Interface"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A capability is what a customer can do; an interface is one technical entry point.",
+   "pack": "software",
+   "parent": "euo:InformationContentEntity"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "What the calling component invokes on the other."
+     },
+     "label": {
+      "de": "Aufrufe",
+      "en": "Calls"
+     },
+     "level": "pack",
+     "name": "methods"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "How the call travels: in-process, HTTP, a queue, …"
+     },
+     "label": {
+      "de": "Protokoll",
+      "en": "Protocol"
+     },
+     "level": "pack",
+     "name": "protocol"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "What the call guarantees, as the interaction catalogue describes it."
+     },
+     "label": {
+      "de": "Vertrag",
+      "en": "Contract"
+     },
+     "level": "pack",
+     "name": "contract"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Which documents declare the interaction."
+     },
+     "label": {
+      "de": "Quelle",
+      "en": "Declared in"
+     },
+     "level": "pack",
+     "name": "declared_in"
+    }
+   ],
+   "description": {
+    "en": "One software component calling another: which methods, over which protocol, under which contract."
+   },
+   "example": "IX-L2-SECURE-API--L2-QUERY-2STAGE, the Secure API passing a search to the two-stage query engine.",
+   "id_prefixes": [
+    "^IX-L[23]-[A-Z0-9-]+--L[23]-[A-Z0-9-]+$"
+   ],
+   "key": "Interaction",
+   "label": {
+    "de": "Komponentenaufruf",
+    "en": "Interaction"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "An interface is the entry point; an interaction is who calls whom through it.",
+   "pack": "software",
+   "parent": "euo:Process"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the component's calls to other components are declared, or that no source declares any."
+     },
+     "label": {
+      "de": "Quelle der Aufrufe",
+      "en": "Interactions source"
+     },
+     "level": "pack",
+     "name": "interactions_source"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The design pattern the component follows, from its spec (e.g. Facade with Decorator)."
+     },
+     "label": {
+      "de": "Entwurfsmuster",
+      "en": "Design pattern"
+     },
+     "level": "pack",
+     "name": "design_pattern"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Whether the component's formal models cover it, as the manifest says."
+     },
+     "label": {
+      "de": "Alloy-Status",
+      "en": "Alloy status"
+     },
+     "level": "pack",
+     "name": "alloy_status"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Whether a component folder with README and spec exists."
+     },
+     "label": {
+      "de": "Dokumentationsstatus",
+      "en": "Documentation status"
+     },
+     "level": "pack",
+     "name": "docs_status"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the component's code lives, from the manifest."
+     },
+     "label": {
+      "de": "Code-Pfade",
+      "en": "Code paths"
+     },
+     "level": "pack",
+     "name": "source_paths"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The component's human name from the manifest."
+     },
+     "label": {
+      "de": "Anzeigename",
+      "en": "Display name"
+     },
+     "level": "pack",
+     "name": "display_name"
+    }
+   ],
+   "description": {
+    "en": "A part of the Knovas software with a clear responsibility, its own documentation and tests, inside one software area."
+   },
+   "example": "L2-KNOWLEDGE-GRAPH, the knowledge graph the brain is built on.",
+   "id_prefixes": [
+    "^L2-[A-Z0-9-]+$",
+    "^L3-[A-Z0-9-]+$"
+   ],
+   "iri": "eng:Component",
+   "key": "Component",
+   "label": {
+    "de": "Software-Komponente (L2/L3)",
+    "en": "Software component (L2/L3)"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A source file is a single code file; a component is the unit engineers own and document.",
+   "pack": "software",
+   "parent": "euo:MaterialObject",
+   "state_attribute": "alloy_status"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Precondition, postcondition or responsibility."
+     },
+     "enum_labels": {
+      "postcondition": {
+       "de": "Nachbedingung",
+       "en": "postcondition",
+       "text": "Holds after the component ran."
+      },
+      "precondition": {
+       "de": "Vorbedingung",
+       "en": "precondition",
+       "text": "Must hold before the component runs."
+      },
+      "responsibility": {
+       "de": "Verantwortung",
+       "en": "responsibility",
+       "text": "What the component is responsible for."
+      }
+     },
+     "enum_values": [
+      "precondition",
+      "postcondition",
+      "responsibility"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind"
+    }
+   ],
+   "description": {
+    "en": "A promise a component makes: what must be true before it runs (precondition), what is true afterwards (postcondition), or what it is responsible for."
+   },
+   "example": "L2-KNOWLEDGE-GRAPH/POST-P0-01, new chunks carry the access scope of their document from the moment they exist.",
+   "id_prefixes": [
+    "^(PRE|POST|RESP)-\\d+$",
+    "^L2-[A-Z0-9-]+/(PRE|POST|RESP)-[A-Z0-9-]+$"
+   ],
+   "key": "ComponentContract",
+   "label": {
+    "de": "Komponentenvertrag",
+    "en": "Component contract"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "An invariant holds for the whole system; a contract belongs to one component.",
+   "pack": "software",
+   "parent": "euo:Requirement"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Coverage as the catalog page states it (pytest, Alloy, planned)."
+     },
+     "label": {
+      "de": "Katalogstatus",
+      "en": "Catalog status"
+     },
+     "level": "pack",
+     "name": "catalog_status"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The area of the system the invariant belongs to."
+     },
+     "label": {
+      "de": "Bereich",
+      "en": "Area"
+     },
+     "level": "pack",
+     "name": "area"
+    }
+   ],
+   "description": {
+    "en": "A rule the whole system must keep at all times, written down with an id, verified by tests and formal checks."
+   },
+   "example": "GI-GRAPH-13, document sorting only ever proposes; the client decides.",
+   "id_prefixes": [
+    "^GI-[A-Z0-9]+(-[A-Z0-9]+)*-\\d+$"
+   ],
+   "key": "Invariant",
+   "label": {
+    "de": "Goldene Invariante",
+    "en": "Golden invariant"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A component contract is local to one part; an invariant is system-wide.",
+   "pack": "software",
+   "parent": "euo:Requirement",
+   "state_attribute": "catalog_status"
+  },
+  {
+   "attributes": [],
+   "description": {
+    "en": "A region and offering Knovas sells into."
+   },
+   "example": "MKT-01, DACH, the True Graph company brain.",
+   "id_prefixes": [
+    "^MKT-\\d{2}$"
+   ],
+   "key": "Market",
+   "label": {
+    "de": "Markt",
+    "en": "Market"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:GeographicRegion"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the segment is served."
+     },
+     "label": {
+      "de": "Region",
+      "en": "Region"
+     },
+     "level": "pack",
+     "name": "region"
+    }
+   ],
+   "description": {
+    "en": "A kind of customer Knovas targets, the ideal customer profile."
+   },
+   "example": "ICP-03, law firms in Switzerland and Germany.",
+   "id_prefixes": [
+    "^ICP-\\d{2}$"
+   ],
+   "key": "Segment",
+   "label": {
+    "de": "Kundensegment (ICP)",
+    "en": "Customer segment (ICP)"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A persona is a person inside such a customer; a segment is the company type.",
+   "pack": "software",
+   "parent": "euo:Topic"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Champion, economic buyer, user, …"
+     },
+     "label": {
+      "de": "Rolle im Verkauf",
+      "en": "Role in the deal"
+     },
+     "level": "pack",
+     "name": "role_in_deal"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Version and date of the persona sheet."
+     },
+     "label": {
+      "de": "Version",
+      "en": "Version"
+     },
+     "level": "pack",
+     "name": "version"
+    }
+   ],
+   "description": {
+    "en": "An archetype of a person in the buying centre of a customer, with pains, goals and a role in the deal."
+   },
+   "example": "P-10, the senior lawyer who is the practice group's memory.",
+   "id_prefixes": [
+    "^P-\\d{2}$"
+   ],
+   "key": "Persona",
+   "label": {
+    "de": "Persona",
+    "en": "Persona"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Role"
+  },
+  {
+   "attributes": [],
+   "description": {
+    "en": "How a segment is reached: direct, resellers, software vendors, events, content."
+   },
+   "example": "CH-RESELLERS.",
+   "id_prefixes": [
+    "^CH-[A-Z-]+$"
+   ],
+   "key": "Channel",
+   "label": {
+    "de": "Vertriebskanal",
+    "en": "Channel"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Service"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."
+     },
+     "label": {
+      "de": "Aktueller Prozessschritt",
+      "en": "Current step"
+     },
+     "level": "pack",
+     "name": "current_step"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."
+     },
+     "label": {
+      "de": "Schrittverlauf",
+      "en": "Step history"
+     },
+     "level": "pack",
+     "name": "step_history"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Planned, running, done, or exploration when the thresholds were not set before the start."
+     },
+     "enum_labels": {
+      "done": {
+       "de": "abgeschlossen",
+       "en": "done",
+       "text": "Finished."
+      },
+      "exploration": {
+       "de": "Erkundung",
+       "en": "exploration",
+       "text": "Thresholds not set before the start: counts, not evidence."
+      },
+      "planned": {
+       "de": "geplant",
+       "en": "planned",
+       "text": "Not started."
+      },
+      "running": {
+       "de": "läuft",
+       "en": "running",
+       "text": "In progress."
+      }
+     },
+     "enum_values": [
+      "planned",
+      "running",
+      "done",
+      "exploration"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The metric the keep and kill thresholds are set on (reply rate, meeting rate, …)."
+     },
+     "label": {
+      "de": "Kennzahl",
+      "en": "Metric"
+     },
+     "level": "pack",
+     "name": "metric_key",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "How many sent before a result counts."
+     },
+     "label": {
+      "de": "Mindeststichprobe",
+      "en": "Minimum sample"
+     },
+     "level": "pack",
+     "name": "minimum_sample",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The rate at which we keep the approach."
+     },
+     "label": {
+      "de": "Behalten-Schwelle",
+      "en": "Keep threshold"
+     },
+     "level": "pack",
+     "name": "keep_threshold",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The rate at which we stop it."
+     },
+     "label": {
+      "de": "Abbruch-Schwelle",
+      "en": "Kill threshold"
+     },
+     "level": "pack",
+     "name": "kill_threshold",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The A/B variants, if any, as a list."
+     },
+     "label": {
+      "de": "Varianten",
+      "en": "Variants"
+     },
+     "level": "pack",
+     "name": "variants"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "First day of the campaign."
+     },
+     "label": {
+      "de": "Beginn",
+      "en": "Starts on"
+     },
+     "level": "pack",
+     "name": "starts_on"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "Planned end date; the evaluation runs after it."
+     },
+     "label": {
+      "de": "Ende",
+      "en": "Ends on"
+     },
+     "level": "pack",
+     "name": "ends_on",
+     "required": true
+    }
+   ],
+   "description": {
+    "en": "A marketing effort aimed at a segment and its personas, run as a registered experiment: it tests a persona hypothesis with a metric, a minimum sample and keep and kill thresholds set before it starts."
+   },
+   "example": "CMP-2026-11-icp01-head-of-dev, a call campaign to 40 ICP-01 heads of development.",
+   "id_prefixes": [
+    "^CMP-[a-z0-9-]+$"
+   ],
+   "key": "Campaign",
+   "label": {
+    "de": "Kampagne",
+    "en": "Campaign"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "An experiment is the general type; a campaign is the marketing kind of it and appears on the same board.",
+   "pack": "software",
+   "parent": "euo:PlannedProcess",
+   "state_attribute": "status"
+  },
+  {
+   "attributes": [],
+   "description": {
+    "en": "A one-pager, deck, demo or case study written for a persona."
+   },
+   "example": "The reseller intro deck.",
+   "id_prefixes": [
+    "^ASSET-[a-z0-9-]+$"
+   ],
+   "iri": "euo:Document",
+   "key": "MarketingAsset",
+   "label": {
+    "de": "Marketing-Material",
+    "en": "Marketing asset"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Document"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."
+     },
+     "label": {
+      "de": "Aktueller Prozessschritt",
+      "en": "Current step"
+     },
+     "level": "pack",
+     "name": "current_step"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."
+     },
+     "label": {
+      "de": "Schrittverlauf",
+      "en": "Step history"
+     },
+     "level": "pack",
+     "name": "step_history"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The segment the lead belongs to."
+     },
+     "label": {
+      "de": "Segment",
+      "en": "Segment"
+     },
+     "level": "pack",
+     "name": "segment_key"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The account (company) the lead belongs to."
+     },
+     "label": {
+      "de": "Kunde",
+      "en": "Account"
+     },
+     "level": "pack",
+     "name": "account_key"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The persona the contact's role maps to."
+     },
+     "label": {
+      "de": "Persona",
+      "en": "Persona"
+     },
+     "level": "pack",
+     "name": "persona_key"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Economic buyer, champion, user, … (never a name)."
+     },
+     "label": {
+      "de": "Rolle im Verkauf",
+      "en": "Role in the deal"
+     },
+     "level": "pack",
+     "name": "role_in_deal"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "New, replied, meeting, opportunity or dropped."
+     },
+     "enum_labels": {
+      "dropped": {
+       "de": "verworfen",
+       "en": "dropped",
+       "text": "Declined or out of scope."
+      },
+      "meeting": {
+       "de": "Termin",
+       "en": "meeting",
+       "text": "A meeting took place."
+      },
+      "new": {
+       "de": "neu",
+       "en": "new",
+       "text": "Contacted, no reply yet."
+      },
+      "opportunity": {
+       "de": "Verkaufschance",
+       "en": "opportunity",
+       "text": "Became a deal."
+      },
+      "replied": {
+       "de": "geantwortet",
+       "en": "replied",
+       "text": "Replied."
+      }
+     },
+     "enum_values": [
+      "new",
+      "replied",
+      "meeting",
+      "opportunity",
+      "dropped"
+     ],
+     "label": {
+      "de": "Stufe",
+      "en": "Stage"
+     },
+     "level": "pack",
+     "name": "stage"
+    }
+   ],
+   "description": {
+    "en": "A company that showed interest in a campaign, stored as the account plus the buying-centre role mapped to a persona, never as a name or contact detail (privacy rule)."
+   },
+   "example": "LEAD-cmp-2026-11-icp01-acc-0007, economic buyer (P-03) at account ACC-0007.",
+   "id_prefixes": [
+    "^LEAD-[a-z0-9-]+$"
+   ],
+   "key": "Lead",
+   "label": {
+    "de": "Lead",
+    "en": "Lead"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "An opportunity is a qualified deal with a stage; a lead is the first reply.",
+   "pack": "software",
+   "parent": "euo:Party",
+   "state_attribute": "stage"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."
+     },
+     "label": {
+      "de": "Aktueller Prozessschritt",
+      "en": "Current step"
+     },
+     "level": "pack",
+     "name": "current_step"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."
+     },
+     "label": {
+      "de": "Schrittverlauf",
+      "en": "Step history"
+     },
+     "level": "pack",
+     "name": "step_history"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where the deal stands in the pipeline."
+     },
+     "enum_labels": {
+      "contract": {
+       "de": "Vertrag",
+       "en": "contract",
+       "text": "Contract in negotiation."
+      },
+      "demo": {
+       "de": "Demo",
+       "en": "demo",
+       "text": "Demo given."
+      },
+      "lead": {
+       "de": "Lead",
+       "en": "lead",
+       "text": "First contact."
+      },
+      "lost": {
+       "de": "verloren",
+       "en": "lost",
+       "text": "Lost or dropped."
+      },
+      "proof-of-concept": {
+       "de": "Proof of Concept",
+       "en": "proof of concept",
+       "text": "Paid or free pilot running."
+      },
+      "qualified": {
+       "de": "qualifiziert",
+       "en": "qualified",
+       "text": "Worth pursuing (economic buyer and pain known)."
+      },
+      "quote": {
+       "de": "Angebot",
+       "en": "quote",
+       "text": "Priced offer sent."
+      },
+      "won": {
+       "de": "gewonnen",
+       "en": "won",
+       "text": "Signed."
+      }
+     },
+     "enum_values": [
+      "lead",
+      "qualified",
+      "demo",
+      "proof-of-concept",
+      "quote",
+      "contract",
+      "won",
+      "lost"
+     ],
+     "label": {
+      "de": "Phase",
+      "en": "Stage"
+     },
+     "level": "pack",
+     "name": "stage",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we know how the customer measures success?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Metriken (M)",
+      "en": "Metrics (M)"
+     },
+     "level": "pack",
+     "name": "meddpicc_metrics"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we know who holds the budget and signs?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Kaufentscheider (E)",
+      "en": "Economic buyer (E)"
+     },
+     "level": "pack",
+     "name": "meddpicc_economic_buyer"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we know the must-haves and nice-to-haves?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Entscheidungskriterien (D)",
+      "en": "Decision criteria (D)"
+     },
+     "level": "pack",
+     "name": "meddpicc_decision_criteria"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we know who recommends, decides and confirms?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Entscheidungsprozess (D)",
+      "en": "Decision process (D)"
+     },
+     "level": "pack",
+     "name": "meddpicc_decision_process"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we know the contracts and approvals needed?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Papierprozess (P)",
+      "en": "Paper process (P)"
+     },
+     "level": "pack",
+     "name": "meddpicc_paper_process"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we know what it costs the customer to do nothing?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Schmerzfolgen (I)",
+      "en": "Implications of pain (I)"
+     },
+     "level": "pack",
+     "name": "meddpicc_pain"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we have an internal advocate?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Befürworter (C)",
+      "en": "Champion (C)"
+     },
+     "level": "pack",
+     "name": "meddpicc_champion"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Do we know what else the customer considers?"
+     },
+     "enum_labels": {
+      "confirmed": {
+       "de": "bestätigt",
+       "en": "confirmed",
+       "text": "Confirmed by the customer."
+      },
+      "partial": {
+       "de": "teilweise",
+       "en": "partial",
+       "text": "Partly known."
+      },
+      "unknown": {
+       "de": "unbekannt",
+       "en": "unknown",
+       "text": "Not yet asked."
+      }
+     },
+     "enum_values": [
+      "unknown",
+      "partial",
+      "confirmed"
+     ],
+     "label": {
+      "de": "Wettbewerb (C)",
+      "en": "Competition (C)"
+     },
+     "level": "pack",
+     "name": "meddpicc_competition"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "One note per element."
+     },
+     "label": {
+      "de": "Notizen",
+      "en": "Notes"
+     },
+     "level": "pack",
+     "name": "meddpicc_notes"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The company the deal is with."
+     },
+     "label": {
+      "de": "Kunde (Organisation)",
+      "en": "Account"
+     },
+     "level": "pack",
+     "name": "account_key"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The deal value, as text with currency and period."
+     },
+     "label": {
+      "de": "Wert",
+      "en": "Value"
+     },
+     "level": "pack",
+     "name": "value"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "What happens next in the deal."
+     },
+     "label": {
+      "de": "Nächster Schritt",
+      "en": "Next step"
+     },
+     "level": "pack",
+     "name": "next_step"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "When the next step is due."
+     },
+     "label": {
+      "de": "Nächster Schritt am",
+      "en": "Next step on"
+     },
+     "level": "pack",
+     "name": "next_step_on"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The roles in the deal mapped to personas, never names."
+     },
+     "label": {
+      "de": "Buying Center",
+      "en": "Buying centre"
+     },
+     "level": "pack",
+     "name": "buying_centre"
+    }
+   ],
+   "description": {
+    "en": "A deal in the sales pipeline with its stage and its MEDDPICC qualification."
+   },
+   "example": "A proof of concept with a Treuhand firm, stage quote.",
+   "id_prefixes": [
+    "^OPP-[a-z0-9-]+$"
+   ],
+   "key": "Opportunity",
+   "label": {
+    "de": "Verkaufschance",
+    "en": "Opportunity"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Transaction",
+   "state_attribute": "stage"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The quoted amount."
+     },
+     "label": {
+      "de": "Betrag",
+      "en": "Amount"
+     },
+     "level": "pack",
+     "name": "amount"
+    }
+   ],
+   "description": {
+    "en": "A priced offer: articles, seats, API buckets."
+   },
+   "example": "20 Cortex seats for a law firm.",
+   "id_prefixes": [
+    "^QUO-[a-z0-9-]+$"
+   ],
+   "key": "Quote",
+   "label": {
+    "de": "Angebot",
+    "en": "Quote"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Document"
+  },
+  {
+   "attributes": [],
+   "description": {
+    "en": "A git repository holding code or documents."
+   },
+   "example": "KnowledgeBase.",
+   "id_prefixes": [
+    "^REPO-[a-z0-9-]+$"
+   ],
+   "key": "Repository",
+   "label": {
+    "de": "Code-Repository",
+    "en": "Repository"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:InformationCarrier"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "A fingerprint of the file, to notice changes."
+     },
+     "label": {
+      "de": "Inhalts-Hash",
+      "en": "Content hash"
+     },
+     "level": "pack",
+     "name": "content_hash"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The name other code uses to import the file, e.g. services.query_pipeline."
+     },
+     "label": {
+      "de": "Modulname",
+      "en": "Module"
+     },
+     "level": "pack",
+     "name": "module"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The file's size in bytes."
+     },
+     "label": {
+      "de": "Grösse",
+      "en": "Size"
+     },
+     "level": "pack",
+     "name": "size"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "When the file last changed in the repository."
+     },
+     "label": {
+      "de": "Letzter Commit",
+      "en": "Last commit"
+     },
+     "level": "pack",
+     "name": "last_commit"
+    }
+   ],
+   "description": {
+    "en": "One code or model file in a repository, with a content hash so changes are noticed."
+   },
+   "example": "knovas-software/app/src/api/graph_api.py.",
+   "id_prefixes": [
+    "^SRC-.+$"
+   ],
+   "iri": "eng:CodeArtifact",
+   "key": "SourceFile",
+   "label": {
+    "de": "Quelldatei",
+    "en": "Source file"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:InformationContentEntity"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Module, class, function or method."
+     },
+     "enum_labels": {
+      "class": {
+       "de": "Klasse",
+       "en": "class",
+       "text": "A class."
+      },
+      "function": {
+       "de": "Funktion",
+       "en": "function",
+       "text": "A top-level function."
+      },
+      "method": {
+       "de": "Methode",
+       "en": "method",
+       "text": "A method of a class."
+      },
+      "module": {
+       "de": "Modul",
+       "en": "module",
+       "text": "A file-level module."
+      }
+     },
+     "enum_values": [
+      "module",
+      "class",
+      "function",
+      "method"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where it starts in the file."
+     },
+     "label": {
+      "de": "Zeile",
+      "en": "Line"
+     },
+     "level": "pack",
+     "name": "line"
+    }
+   ],
+   "description": {
+    "en": "A class, function or method inside a source file."
+   },
+   "example": "graph_api.py#create_node.",
+   "id_prefixes": [
+    "^SYM-.+#.+$"
+   ],
+   "iri": "eng:CodeArtifact",
+   "key": "Symbol",
+   "label": {
+    "de": "Code-Symbol",
+    "en": "Symbol"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "eng:CodeArtifact"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The commit date."
+     },
+     "label": {
+      "de": "Datum",
+      "en": "Committed on"
+     },
+     "level": "pack",
+     "name": "committed_on"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Who made the commit."
+     },
+     "label": {
+      "de": "Autor",
+      "en": "Author"
+     },
+     "level": "pack",
+     "name": "author"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The first line of the commit message."
+     },
+     "label": {
+      "de": "Nachricht",
+      "en": "Message"
+     },
+     "level": "pack",
+     "name": "message"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The pull request the commit merged, if any."
+     },
+     "label": {
+      "de": "Pull Request",
+      "en": "Pull request"
+     },
+     "level": "pack",
+     "name": "pull_request"
+    }
+   ],
+   "description": {
+    "en": "One recorded change to a repository, linked to the plan it implements and the components it touched."
+   },
+   "example": "COMMIT-215b05af5f77, the merge of Client Zero Phase 0.",
+   "id_prefixes": [
+    "^COMMIT-[0-9a-f]{7,40}$"
+   ],
+   "key": "Commit",
+   "label": {
+    "de": "Commit",
+    "en": "Commit"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Change"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Passed, failed or skipped."
+     },
+     "enum_labels": {
+      "failed": {
+       "de": "fehlgeschlagen",
+       "en": "failed",
+       "text": "At least one failed."
+      },
+      "passed": {
+       "de": "bestanden",
+       "en": "passed",
+       "text": "All tests passed."
+      },
+      "skipped": {
+       "de": "übersprungen",
+       "en": "skipped",
+       "text": "Nothing ran."
+      }
+     },
+     "enum_values": [
+      "passed",
+      "failed",
+      "skipped"
+     ],
+     "label": {
+      "de": "Ergebnis",
+      "en": "Outcome"
+     },
+     "level": "pack",
+     "name": "outcome"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "When the tests ran."
+     },
+     "label": {
+      "de": "Laufdatum",
+      "en": "Run date"
+     },
+     "level": "pack",
+     "name": "run_date"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "How many tests the module has."
+     },
+     "label": {
+      "de": "Anzahl Tests",
+      "en": "Tests"
+     },
+     "level": "pack",
+     "name": "tests"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "How many failed."
+     },
+     "label": {
+      "de": "Fehlschläge",
+      "en": "Failures"
+     },
+     "level": "pack",
+     "name": "failures"
+    }
+   ],
+   "description": {
+    "en": "The result of running one test module on a date: passed or failed, how many tests."
+   },
+   "example": "tests/test_document_sorter.py on 25 Oct 2026, passed.",
+   "id_prefixes": [
+    "^TESTRUN-.+@\\d{4}-\\d{2}-\\d{2}$"
+   ],
+   "iri": "eng:TestExecution",
+   "key": "TestRun",
+   "label": {
+    "de": "Testlauf",
+    "en": "Test run"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Process",
+   "state_attribute": "outcome"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the instance stands in its process; written by the loader and dated with the day the instance entered the step (DEC-0018)."
+     },
+     "label": {
+      "de": "Aktueller Prozessschritt",
+      "en": "Current step"
+     },
+     "level": "pack",
+     "name": "current_step"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Every step the instance went through with its start and end day, kept by the loader; the flow view measures lead times from it."
+     },
+     "label": {
+      "de": "Schrittverlauf",
+      "en": "Step history"
+     },
+     "level": "pack",
+     "name": "step_history"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The version label of the release."
+     },
+     "label": {
+      "de": "Version",
+      "en": "Version"
+     },
+     "level": "pack",
+     "name": "version",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Dev or prod."
+     },
+     "enum_labels": {
+      "dev": {
+       "de": "Entwicklung",
+       "en": "dev",
+       "text": "The development cluster."
+      },
+      "prod": {
+       "de": "Produktion",
+       "en": "prod",
+       "text": "Production."
+      }
+     },
+     "enum_values": [
+      "dev",
+      "prod"
+     ],
+     "label": {
+      "de": "Umgebung",
+      "en": "Environment"
+     },
+     "level": "pack",
+     "name": "environment",
+     "required": true
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The date it reached the environment."
+     },
+     "label": {
+      "de": "Freigegeben am",
+      "en": "Released on"
+     },
+     "level": "pack",
+     "name": "released_on"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Candidate, verified, deployed or announced."
+     },
+     "enum_labels": {
+      "announced": {
+       "de": "angekündigt",
+       "en": "announced",
+       "text": "Customers and partners told."
+      },
+      "candidate": {
+       "de": "Kandidat",
+       "en": "candidate",
+       "text": "Built, not yet verified."
+      },
+      "deployed": {
+       "de": "ausgerollt",
+       "en": "deployed",
+       "text": "Running in the environment."
+      },
+      "verified": {
+       "de": "verifiziert",
+       "en": "verified",
+       "text": "Tests and checks passed."
+      }
+     },
+     "enum_values": [
+      "candidate",
+      "verified",
+      "deployed",
+      "announced"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status",
+     "required": true
+    }
+   ],
+   "description": {
+    "en": "A versioned release of the software moving from candidate through verified and deployed to announced; recorded by the engine owner in releases.yaml because no git tag or deploy flow marks releases today."
+   },
+   "example": "REL-2026.10-brain-mvp, the brain MVP on cloudscale prod, 24 Oct 2026.",
+   "id_prefixes": [
+    "^REL-[a-z0-9.-]+$"
+   ],
+   "key": "Release",
+   "label": {
+    "de": "Release (Version)",
+    "en": "Release"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A deployment is one rollout to one environment; a release is the versioned whole that may be deployed to dev and then prod.",
+   "pack": "software",
+   "parent": "euo:PlannedProcess",
+   "state_attribute": "status"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Dev or prod."
+     },
+     "enum_labels": {
+      "dev": {
+       "de": "Entwicklung",
+       "en": "dev",
+       "text": "The development cluster."
+      },
+      "prod": {
+       "de": "Produktion",
+       "en": "prod",
+       "text": "Production."
+      }
+     },
+     "enum_values": [
+      "dev",
+      "prod"
+     ],
+     "label": {
+      "de": "Umgebung",
+      "en": "Environment"
+     },
+     "level": "pack",
+     "name": "environment"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The deployment date."
+     },
+     "label": {
+      "de": "Ausgerollt am",
+      "en": "Deployed on"
+     },
+     "level": "pack",
+     "name": "deployed_on"
+    }
+   ],
+   "description": {
+    "en": "A release of the software to an environment on a date."
+   },
+   "example": "The brain MVP on cloudscale prod, 24 Oct 2026.",
+   "id_prefixes": [
+    "^DEPLOY-[a-z0-9-]+$"
+   ],
+   "key": "Deployment",
+   "label": {
+    "de": "Deployment",
+    "en": "Deployment"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "pack": "software",
+   "parent": "euo:Process"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The container image the service runs, without its version tag."
+     },
+     "label": {
+      "de": "Container-Image",
+      "en": "Image"
+     },
+     "level": "pack",
+     "name": "image"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Whether the service is reachable only inside the cluster or from outside."
+     },
+     "enum_labels": {
+      "internal": {
+       "de": "intern",
+       "en": "internal",
+       "text": "Reachable only inside the cluster."
+      },
+      "public": {
+       "de": "öffentlich",
+       "en": "public",
+       "text": "Reachable from outside through a gateway, ingress or load balancer."
+      }
+     },
+     "enum_values": [
+      "internal",
+      "public"
+     ],
+     "label": {
+      "de": "Erreichbarkeit",
+      "en": "Exposure"
+     },
+     "level": "pack",
+     "name": "exposure"
+    }
+   ],
+   "description": {
+    "en": "A piece of the software that is deployed and keeps running, such as an API server or the embedding service; it executes one or more components in one or more environments."
+   },
+   "example": "SVC-secure-api, the mTLS API for clients, running on cloudscale prod and AKS dev.",
+   "id_prefixes": [
+    "^SVC-[a-z0-9-]+$"
+   ],
+   "key": "Service",
+   "label": {
+    "de": "Dienst (laufend)",
+    "en": "Service"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A component is a part of the code that engineers own; a service is what is deployed and running. A deployment is one rollout on a date. A product service (euo:Service) is something sold.",
+   "pack": "software",
+   "parent": "euo:Software"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "When the job starts, as a cron expression."
+     },
+     "label": {
+      "de": "Zeitplan",
+      "en": "Schedule"
+     },
+     "level": "pack",
+     "name": "schedule"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The container image the job runs, without its version tag."
+     },
+     "label": {
+      "de": "Container-Image",
+      "en": "Image"
+     },
+     "level": "pack",
+     "name": "image"
+    }
+   ],
+   "description": {
+    "en": "A piece of the software that is started on a schedule, does its work and stops, such as a nightly aggregation."
+   },
+   "example": "JOB-analytics-aggregation, the nightly analytics roll-up on cloudscale prod.",
+   "id_prefixes": [
+    "^JOB-[a-z0-9-]+$"
+   ],
+   "key": "Job",
+   "label": {
+    "de": "Geplanter Job",
+    "en": "Scheduled job"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A CI job (workflow job) builds and tests code; a scheduled job runs in an environment. An agent is the actor a run is recorded against.",
+   "pack": "software",
+   "parent": "euo:Software"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Local, dev or prod."
+     },
+     "enum_labels": {
+      "dev": {
+       "de": "Entwicklung",
+       "en": "dev",
+       "text": "A development cluster."
+      },
+      "local": {
+       "de": "lokal",
+       "en": "local",
+       "text": "A developer machine (Docker Compose)."
+      },
+      "prod": {
+       "de": "Produktion",
+       "en": "prod",
+       "text": "A production cluster with customer data or traffic."
+      }
+     },
+     "enum_values": [
+      "local",
+      "dev",
+      "prod"
+     ],
+     "label": {
+      "de": "Stufe",
+      "en": "Stage"
+     },
+     "level": "pack",
+     "name": "stage",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Where the cluster or host runs: AKS, cloudscale, AWS, Lambda Labs, Docker Compose."
+     },
+     "label": {
+      "de": "Plattform",
+      "en": "Platform"
+     },
+     "level": "pack",
+     "name": "platform"
+    }
+   ],
+   "description": {
+    "en": "A place where the software runs: one cluster or host of one stage, local, dev or prod."
+   },
+   "example": "ENV-knovas-cloudscale-prod, the production cluster at cloudscale that holds the customer data.",
+   "id_prefixes": [
+    "^ENV-[a-z0-9-]+$"
+   ],
+   "key": "Environment",
+   "label": {
+    "de": "Umgebung",
+    "en": "Environment"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A stage (dev, prod) is a property of an environment; prod has more than one environment (AKS and cloudscale).",
+   "pack": "software",
+   "parent": "euo:Location"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Relational, key-value, vector, object store or other."
+     },
+     "enum_labels": {
+      "key-value": {
+       "de": "Schlüssel-Wert",
+       "en": "key-value",
+       "text": "A cache or key-value store."
+      },
+      "object": {
+       "de": "Objektspeicher",
+       "en": "object",
+       "text": "A file or blob store."
+      },
+      "other": {
+       "de": "andere",
+       "en": "other",
+       "text": "Any other kind."
+      },
+      "relational": {
+       "de": "relational",
+       "en": "relational",
+       "text": "A SQL database with tables."
+      },
+      "vector": {
+       "de": "Vektor",
+       "en": "vector",
+       "text": "A vector database for embeddings."
+      }
+     },
+     "enum_values": [
+      "relational",
+      "key-value",
+      "vector",
+      "object",
+      "other"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The product and how it is run, e.g. PostgreSQL with CloudNativePG."
+     },
+     "label": {
+      "de": "Technologie",
+      "en": "Technology"
+     },
+     "level": "pack",
+     "name": "technology"
+    }
+   ],
+   "description": {
+    "en": "A database, cache, vector index or file store the software keeps data in; it holds tables or collections."
+   },
+   "example": "DS-postgres, the PostgreSQL cluster with clients, certificates and the usage ledger.",
+   "id_prefixes": [
+    "^DS-[a-z0-9-]+$"
+   ],
+   "key": "DataStore",
+   "label": {
+    "de": "Datenspeicher",
+    "en": "Data store"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A data set is one table or collection inside it; the data store is the database as a whole.",
+   "pack": "software",
+   "parent": "euo:Software"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Table, collection, bucket, keyspace or other."
+     },
+     "enum_labels": {
+      "bucket": {
+       "de": "Bucket",
+       "en": "bucket",
+       "text": "A container of a file or blob store."
+      },
+      "collection": {
+       "de": "Sammlung",
+       "en": "collection",
+       "text": "A collection of a vector or document database."
+      },
+      "keyspace": {
+       "de": "Schlüsselraum",
+       "en": "keyspace",
+       "text": "A group of keys in a key-value store."
+      },
+      "other": {
+       "de": "andere",
+       "en": "other",
+       "text": "Any other kind."
+      },
+      "table": {
+       "de": "Tabelle",
+       "en": "table",
+       "text": "A SQL table."
+      }
+     },
+     "enum_values": [
+      "table",
+      "collection",
+      "bucket",
+      "keyspace",
+      "other"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The table's columns with their types, as the migrations leave them."
+     },
+     "label": {
+      "de": "Spalten",
+      "en": "Columns"
+     },
+     "level": "pack",
+     "name": "columns"
+    }
+   ],
+   "description": {
+    "en": "One table, collection, bucket or keyspace inside a data store, with the components that read and write it."
+   },
+   "example": "DATA-weaviate/SentenceChunk, the stored text chunks with their embeddings.",
+   "id_prefixes": [
+    "^DATA-[a-z0-9-]+/[A-Za-z0-9_.-]+$"
+   ],
+   "iri": "euo:Dataset",
+   "key": "DataSet",
+   "label": {
+    "de": "Datenbestand (Tabelle)",
+    "en": "Data set"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A data store is the database; a data set is one table in it. A record is a document, not data.",
+   "pack": "software",
+   "parent": "euo:Dataset"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "A plain setting, a feature flag or a secret."
+     },
+     "enum_labels": {
+      "feature-flag": {
+       "de": "Feature-Flag",
+       "en": "feature flag",
+       "text": "A switch that turns a function on or off."
+      },
+      "secret": {
+       "de": "Geheimnis",
+       "en": "secret",
+       "text": "A password, key or token; its value is never recorded."
+      },
+      "setting": {
+       "de": "Einstellung",
+       "en": "setting",
+       "text": "A value that tunes how the software behaves."
+      }
+     },
+     "enum_values": [
+      "setting",
+      "feature-flag",
+      "secret"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The value the software uses when no environment overrides it; empty for a secret."
+     },
+     "label": {
+      "de": "Standardwert",
+      "en": "Default"
+     },
+     "level": "pack",
+     "name": "default"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The part of the defaults file the key is in; empty for the top."
+     },
+     "label": {
+      "de": "Abschnitt",
+      "en": "Section"
+     },
+     "level": "pack",
+     "name": "section"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "Whether the default is a yes/no switch, a number, a text or a list."
+     },
+     "label": {
+      "de": "Werttyp",
+      "en": "Value type"
+     },
+     "level": "pack",
+     "name": "value_type"
+    }
+   ],
+   "description": {
+    "en": "One configuration key the software reads, with its default: a plain setting, a feature flag that switches something on or off, or a secret whose value is never recorded."
+   },
+   "example": "SET-KG_DOCUMENT_SORTING_ENABLED, the feature flag for identifier-based document sorting, off by default.",
+   "id_prefixes": [
+    "^SET-[A-Za-z0-9_.-]+$"
+   ],
+   "key": "Setting",
+   "label": {
+    "de": "Einstellung",
+    "en": "Setting"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "The value in one environment is a property of that environment's configuration; the setting is the key and its default.",
+   "pack": "software",
+   "parent": "euo:InformationContentEntity"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The events that start the workflow, such as a push, a pull request or a schedule."
+     },
+     "label": {
+      "de": "Auslöser",
+      "en": "Triggers"
+     },
+     "level": "pack",
+     "name": "triggers"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The files and folders whose change starts the workflow or one of its jobs."
+     },
+     "label": {
+      "de": "Beobachtete Pfade",
+      "en": "Watched paths"
+     },
+     "level": "pack",
+     "name": "watched_paths"
+    }
+   ],
+   "description": {
+    "en": "An automated pipeline that tests, checks, builds or deploys the software when something happens, such as a push or a schedule; made of jobs."
+   },
+   "example": "WF-ci, the main pipeline: tests, Alloy checks, image builds and deploy.",
+   "id_prefixes": [
+    "^WF-[a-z0-9-]+$"
+   ],
+   "key": "Workflow",
+   "label": {
+    "de": "CI-Workflow",
+    "en": "CI workflow"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A process is how people's work moves; a workflow is a machine pipeline. A test run is one result, not the pipeline.",
+   "pack": "software",
+   "parent": "euo:ProcessDefinition"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The jobs of the same workflow that must finish first."
+     },
+     "label": {
+      "de": "Wartet auf",
+      "en": "Needs"
+     },
+     "level": "pack",
+     "name": "needs"
+    }
+   ],
+   "description": {
+    "en": "One job of a CI workflow, such as running the tests or building the images; it may wait for other jobs."
+   },
+   "example": "WF-ci/alloy-checks, the bounded Alloy checks in the main pipeline.",
+   "id_prefixes": [
+    "^WF-[a-z0-9-]+/[a-z0-9_-]+$"
+   ],
+   "key": "WorkflowJob",
+   "label": {
+    "de": "CI-Job",
+    "en": "CI job"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A scheduled job runs in an environment; a CI job runs in the pipeline.",
+   "pack": "software",
+   "parent": "euo:ProcessDefinition"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where the package comes from: PyPI, npm, Maven or other."
+     },
+     "enum_labels": {
+      "maven": {
+       "de": "Maven",
+       "en": "Maven",
+       "text": "A Java package."
+      },
+      "npm": {
+       "de": "npm",
+       "en": "npm",
+       "text": "A JavaScript package."
+      },
+      "other": {
+       "de": "andere",
+       "en": "other",
+       "text": "Any other package source."
+      },
+      "pypi": {
+       "de": "PyPI",
+       "en": "PyPI",
+       "text": "A Python package."
+      }
+     },
+     "enum_values": [
+      "pypi",
+      "npm",
+      "maven",
+      "other"
+     ],
+     "label": {
+      "de": "Paketquelle",
+      "en": "Ecosystem"
+     },
+     "level": "pack",
+     "name": "ecosystem",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The version the code pins or requires."
+     },
+     "label": {
+      "de": "Version",
+      "en": "Version"
+     },
+     "level": "pack",
+     "name": "version"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The package's licence as an SPDX id."
+     },
+     "label": {
+      "de": "Lizenz",
+      "en": "Licence"
+     },
+     "level": "pack",
+     "name": "license"
+    }
+   ],
+   "description": {
+    "en": "A third-party package the software uses, with its version and licence."
+   },
+   "example": "LIB-pypi:flask, the web framework of the two Flask APIs.",
+   "id_prefixes": [
+    "^LIB-[a-z]+:.+$"
+   ],
+   "key": "Library",
+   "label": {
+    "de": "Fremdbibliothek",
+    "en": "Library"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "meta": false,
+   "not_to_confuse": "A component is Knovas's own code; a library is someone else's.",
+   "pack": "software",
+   "parent": "euo:Software"
+  }
+ ],
+ "version": "1.0"
+}

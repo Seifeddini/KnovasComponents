@@ -18,6 +18,13 @@ without values, a relation without a range, a missing description.
 
 Retiring is not deleting: a retired type or relation stays in the model,
 marked, until publishing decides (step B5). Nothing here knows a company.
+
+Packs (step B4): ``pack.apply`` brings a pack's terms into the model, or
+updates them to the version the builder ships. Pack terms are read-only; the
+company extends them with its own attributes, subtypes and relations, and an
+update keeps those. A pack term the new version no longer has is retired, not
+removed. ``pack_changes`` computes an update without making it, for the diff
+a consultant reviews first.
 """
 from __future__ import annotations
 
@@ -26,10 +33,12 @@ import re
 from typing import Any, Callable, Iterable, Mapping
 
 from builder import ontology_view
+from builder import packs as shipped_packs
 
 TYPES = "ontology.types"
 RELATIONS = "ontology.relations"
-SECTIONS = (TYPES, RELATIONS)
+PACKS = "packs"
+SECTIONS = (TYPES, RELATIONS, PACKS)
 
 #: The datatypes an attribute can be given in the builder.
 DATATYPES = ("text", "date", "money", "enum", "entity_ref")
@@ -61,6 +70,8 @@ class EditError(ValueError):
 def _items(model: dict, section: str) -> list:
     if section not in SECTIONS:
         raise EditError("Unbekannter Teil des Modells.")
+    if section == PACKS:
+        return model.setdefault("packs", [])
     return model.setdefault("ontology", {}).setdefault(section.split(".", 1)[1], [])
 
 
@@ -103,6 +114,13 @@ class _Edit:
         item = self.type(key)
         if item.get("level") != "company":
             raise EditError(f"{key} gehört zum Kern oder zu einem Paket und ist schreibgeschützt.", 403)
+        return item
+
+    def extendable_type(self, key: Any) -> dict:
+        """A type the company may add attributes to: its own, or a pack's."""
+        item = self.type(key)
+        if item.get("level") not in ("company", "pack"):
+            raise EditError(f"{key} gehört zum Kern und ist schreibgeschützt.", 403)
         return item
 
     def relation(self, key: Any) -> dict:
@@ -284,6 +302,8 @@ def _type_update(edit: _Edit, op: Mapping[str, Any]) -> None:
     for name, label in (("example", "Beispiel"), ("not_to_confuse", "Nicht verwechseln mit"), ("reason", "Begründung")):
         if name in fields:
             _set_text(new, name, _text(fields[name], label))
+    if "candidate" in fields:
+        _set_text(new, "reason", with_candidate(new.get("reason") or "", _text(fields["candidate"], "Paket", limit=80)))
     parent_changed = "parent" in fields
     if parent_changed:
         parent = _text(fields["parent"], "Elterntyp", limit=200) or None
@@ -397,8 +417,13 @@ def _unique_attribute(item: dict, name: str, skip: int | None = None) -> None:
             raise EditError(f"{item['key']} hat schon ein Attribut «{attr['name']}».", 409)
 
 
+def _own_attribute(item: dict, index: int) -> None:
+    if item["attributes"][index].get("level", item.get("level")) != "company":
+        raise EditError(f"{item['key']}.{item['attributes'][index]['name']} gehört zum Paket und ist schreibgeschützt.", 403)
+
+
 def _attribute_add(edit: _Edit, op: Mapping[str, Any]) -> None:
-    old = edit.own_type(op.get("key"))
+    old = edit.extendable_type(op.get("key"))
     attr = _attribute_input(op.get("attribute"))
     _unique_attribute(old, attr["name"])
     new = copy.deepcopy(old)
@@ -407,8 +432,9 @@ def _attribute_add(edit: _Edit, op: Mapping[str, Any]) -> None:
 
 
 def _attribute_update(edit: _Edit, op: Mapping[str, Any]) -> None:
-    old = edit.own_type(op.get("key"))
+    old = edit.extendable_type(op.get("key"))
     index = _attribute_index(old, op.get("name"))
+    _own_attribute(old, index)
     attr = _attribute_input(op.get("set") or {}, old["attributes"][index])
     _unique_attribute(old, attr["name"], skip=index)
     new = copy.deepcopy(old)
@@ -417,8 +443,9 @@ def _attribute_update(edit: _Edit, op: Mapping[str, Any]) -> None:
 
 
 def _attribute_remove(edit: _Edit, op: Mapping[str, Any]) -> None:
-    old = edit.own_type(op.get("key"))
+    old = edit.extendable_type(op.get("key"))
     index = _attribute_index(old, op.get("name"))
+    _own_attribute(old, index)
     new = copy.deepcopy(old)
     del new["attributes"][index]
     edit.write(TYPES, old, new)
@@ -489,6 +516,110 @@ def _relation_retire(edit: _Edit, op: Mapping[str, Any]) -> None:
     _retire(edit, RELATIONS, item, op.get("retired", True))
 
 
+# ------------------------------------------------------------------ candidates
+
+
+_CANDIDATE = re.compile(r"^\s*candidate:\s*(?:(?P<pack>[a-z][a-z0-9_-]*) pack\b)?\s*(?:—|-)?\s*", re.IGNORECASE)
+
+
+def candidate_of(reason: Any) -> str | None:
+    """The pack a reason marks its term a candidate for: "" for any pack, None when it is no candidate."""
+    match = _CANDIDATE.match(reason) if isinstance(reason, str) else None
+    if not match:
+        return None
+    return (match.group("pack") or "").lower()
+
+
+def with_candidate(reason: str, pack: str) -> str:
+    """``reason`` marked as a candidate for ``pack`` (KnowledgeBase's "candidate:" convention), or unmarked."""
+    match = _CANDIDATE.match(reason or "")
+    rest = (reason or "")[match.end():] if match else (reason or "")
+    if not pack:
+        return rest.strip()
+    if pack != "*" and not SNAKE_KEY.match(pack.replace("-", "_")):
+        raise EditError("Unbekanntes Paket.")
+    head = "candidate:" if pack == "*" else f"candidate: {pack} pack"
+    return f"{head} — {rest.strip()}" if rest.strip() else head
+
+
+# ------------------------------------------------------------------ packs
+
+
+def _pack_term(item: Mapping[str, Any], pack_id: str) -> dict:
+    term = copy.deepcopy(dict(item))
+    term["level"] = "pack"
+    term["pack"] = pack_id
+    return term
+
+
+def _pack_apply(edit: _Edit, op: Mapping[str, Any]) -> None:
+    pack_id = _text(op.get("pack"), "Paket", limit=80)
+    pack = shipped_packs.term_pack(pack_id)
+    if pack is None:
+        raise EditError(f"Das Paket «{pack_id}» gibt es nicht.", 404)
+    shipped_types = {t["key"]: t for t in pack.get("types") or []}
+    clashes = []
+    for key in shipped_types:
+        existing = edit.find(TYPES, key)
+        if existing is not None and (existing.get("level") != "pack" or existing.get("pack") != pack_id):
+            clashes.append(key)
+    if clashes:
+        raise EditError("Diese Typen gibt es im Arbeitsbereich schon als eigene; das Paket kann sie nicht übernehmen.",
+                        409, clashes)
+
+    for key, shipped in shipped_types.items():
+        old = edit.find(TYPES, key)
+        new = _pack_term(shipped, pack_id)
+        if old is not None:
+            # The company's own attributes on the pack's type stay, after the pack's.
+            own = [a for a in old.get("attributes") or [] if a.get("level") == "company"]
+            names = {a["name"] for a in new.get("attributes") or []}
+            new["attributes"] = list(new.get("attributes") or []) + [a for a in own if a["name"] not in names]
+        edit.write(TYPES, old, new)
+    for item in list(_items(edit.model, TYPES)):
+        if item.get("pack") == pack_id and item["key"] not in shipped_types and not item.get("retired"):
+            edit.write(TYPES, item, {**copy.deepcopy(item), "retired": True})
+
+    shipped_relations = {r["key"]: r for r in pack.get("relations") or []}
+    for key, shipped in shipped_relations.items():
+        old = edit.find(RELATIONS, key)
+        if old is None:
+            edit.write(RELATIONS, None, _pack_term(shipped, pack_id))
+            continue
+        new = copy.deepcopy(old)
+        if old.get("pack") == pack_id:
+            new = _pack_term(shipped, pack_id)
+        # Whatever the workspace already relates stays related: the pack adds to it.
+        for side in ("domain", "range"):
+            merged = list(new.get(side) or [])
+            merged += [v for v in old.get(side) or [] if v not in merged]
+            merged += [v for v in shipped.get(side) or [] if v not in merged]
+            new[side] = merged
+        edit.write(RELATIONS, old, new)
+    for item in list(_items(edit.model, RELATIONS)):
+        if item.get("pack") == pack_id and item["key"] not in shipped_relations and not item.get("retired"):
+            edit.write(RELATIONS, item, {**copy.deepcopy(item), "retired": True})
+
+    old_entry = edit.find(PACKS, pack_id)
+    edit.write(PACKS, old_entry, {"key": pack_id, "version": str(pack["version"])})
+
+
+def pack_changes(model: Mapping[str, Any], pack_id: str) -> list[dict]:
+    """What ``pack.apply`` would change, without changing ``model``."""
+    return apply(copy.deepcopy(dict(model)), {"op": "pack.apply", "pack": pack_id})
+
+
+def pack_updates(model: Mapping[str, Any]) -> list[dict]:
+    """The packs the workspace uses whose shipped version differs from the one it took over."""
+    out = []
+    for entry in model.get("packs") or []:
+        pack = shipped_packs.term_pack(entry["key"])
+        if pack is not None and str(pack["version"]) != str(entry["version"]):
+            out.append({"key": entry["key"], "from": entry["version"], "to": str(pack["version"]),
+                        "name": dict(pack.get("name") or {})})
+    return out
+
+
 OPERATIONS: dict[str, Callable[[_Edit, Mapping[str, Any]], None]] = {
     "type.create": _type_create,
     "type.update": _type_update,
@@ -501,6 +632,7 @@ OPERATIONS: dict[str, Callable[[_Edit, Mapping[str, Any]], None]] = {
     "relation.create": _relation_create,
     "relation.update": _relation_update,
     "relation.retire": _relation_retire,
+    "pack.apply": _pack_apply,
 }
 
 

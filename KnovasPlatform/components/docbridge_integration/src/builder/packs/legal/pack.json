@@ -1,0 +1,564 @@
+{
+ "description": {
+  "de": "Anwaltskanzleien und Rechtsdienste: Mandate, Verfahren, Fristen, Rechtsschriften und Urteile.",
+  "en": "Law firms and legal services: matters, proceedings, deadlines, submissions and decisions."
+ },
+ "id": "legal",
+ "name": {
+  "de": "Recht",
+  "en": "Legal"
+ },
+ "process_templates": [],
+ "relations": [
+  {
+   "domain": [
+    "Proceeding",
+    "Submission"
+   ],
+   "family": "Structure",
+   "inverse": "contains",
+   "iri": "int:partOf",
+   "key": "part_of",
+   "label": {
+    "de": "ist Teil von",
+    "en": "is part of"
+   },
+   "level": "pack",
+   "pack": "legal",
+   "range": [
+    "Matter",
+    "Proceeding"
+   ],
+   "sentence": "Proceeding is part of Matter — the case belongs to the client's matter; a submission belongs to its proceeding."
+  },
+  {
+   "domain": [
+    "Proceeding"
+   ],
+   "family": "Process",
+   "key": "heard_by",
+   "label": {
+    "de": "wird verhandelt vor",
+    "en": "is heard by"
+   },
+   "level": "pack",
+   "pack": "legal",
+   "range": [
+    "Court"
+   ],
+   "sentence": "Proceeding is heard by Court — the court that has the case."
+  },
+  {
+   "domain": [
+    "ProceduralDeadline"
+   ],
+   "family": "Process",
+   "key": "due_in",
+   "label": {
+    "de": "läuft in",
+    "en": "is due in"
+   },
+   "level": "pack",
+   "pack": "legal",
+   "range": [
+    "Proceeding"
+   ],
+   "sentence": "Procedural deadline is due in Proceeding — the deadline belongs to this case."
+  },
+  {
+   "domain": [
+    "Proceeding"
+   ],
+   "family": "Decision",
+   "key": "results_in",
+   "label": {
+    "de": "endet mit",
+    "en": "results in"
+   },
+   "level": "pack",
+   "pack": "legal",
+   "range": [
+    "CourtDecision"
+   ],
+   "sentence": "Proceeding results in Court decision — the judgment that rules on it."
+  },
+  {
+   "domain": [
+    "PowerOfAttorney"
+   ],
+   "family": "Ownership",
+   "key": "authorises",
+   "label": {
+    "de": "berechtigt für",
+    "en": "authorises"
+   },
+   "level": "pack",
+   "pack": "legal",
+   "range": [
+    "Matter"
+   ],
+   "sentence": "Power of attorney authorises Matter — the firm may act for the client in it."
+  },
+  {
+   "domain": [
+    "Claim"
+   ],
+   "family": "Structure",
+   "key": "asserted_in",
+   "label": {
+    "de": "wird geltend gemacht in",
+    "en": "is asserted in"
+   },
+   "level": "pack",
+   "pack": "legal",
+   "range": [
+    "Matter"
+   ],
+   "sentence": "Claim is asserted in Matter — the matter in which the client pursues or defends it."
+  }
+ ],
+ "types": [
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The firm's number for the matter."
+     },
+     "label": {
+      "de": "Mandatsnummer",
+      "en": "Matter number"
+     },
+     "level": "pack",
+     "name": "matter_number",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "The field of law the matter belongs to."
+     },
+     "enum_values": [
+      "contract",
+      "corporate",
+      "employment",
+      "litigation",
+      "tax",
+      "other"
+     ],
+     "label": {
+      "de": "Rechtsgebiet",
+      "en": "Area of law"
+     },
+     "level": "pack",
+     "name": "area_of_law"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "open",
+      "on_hold",
+      "closed"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status",
+     "required": true
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The day the matter was opened."
+     },
+     "label": {
+      "de": "Eröffnet am",
+      "en": "Opened on"
+     },
+     "level": "pack",
+     "name": "opened_on"
+    }
+   ],
+   "description": {
+    "en": "A client's legal matter the firm works on, from intake to closing."
+   },
+   "example": "Matter 2026-031: contract dispute over a late delivery.",
+   "iri": "legal:Matter",
+   "key": "Matter",
+   "label": {
+    "de": "Mandat",
+    "en": "Matter"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A proceeding is one case before a court; a matter can have several or none.",
+   "pack": "legal",
+   "parent": "euo:Case"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The court's number for the case."
+     },
+     "label": {
+      "de": "Geschäftsnummer",
+      "en": "Case number"
+     },
+     "level": "pack",
+     "name": "case_number"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Which court level hears the case."
+     },
+     "enum_values": [
+      "first",
+      "appeal",
+      "supreme"
+     ],
+     "label": {
+      "de": "Instanz",
+      "en": "Instance"
+     },
+     "level": "pack",
+     "name": "instance"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "pending",
+      "decided",
+      "settled",
+      "withdrawn"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    }
+   ],
+   "description": {
+    "en": "A case before a court or authority, with its own number and instance."
+   },
+   "example": "Civil proceeding at the district court, first instance.",
+   "iri": "legal:Proceeding",
+   "key": "Proceeding",
+   "label": {
+    "de": "Verfahren",
+    "en": "Proceeding"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A matter is the client's concern; the proceeding is the case at court.",
+   "pack": "legal",
+   "parent": "euo:PlannedProcess"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The area and matters the court is competent for."
+     },
+     "label": {
+      "de": "Zuständigkeit",
+      "en": "Jurisdiction"
+     },
+     "level": "pack",
+     "name": "jurisdiction"
+    }
+   ],
+   "description": {
+    "en": "A court or authority that hears proceedings."
+   },
+   "example": "The district court of the firm's home canton.",
+   "iri": "legal:Court",
+   "key": "Court",
+   "label": {
+    "de": "Gericht",
+    "en": "Court"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A court decides; a party role is who takes part in the proceeding.",
+   "pack": "legal",
+   "parent": "euo:PublicAuthority"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The last day to act."
+     },
+     "label": {
+      "de": "Fällig am",
+      "en": "Due on"
+     },
+     "level": "pack",
+     "name": "due_on",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Whether the court can extend it."
+     },
+     "enum_values": [
+      "yes",
+      "no"
+     ],
+     "label": {
+      "de": "Erstreckbar",
+      "en": "Extendable"
+     },
+     "level": "pack",
+     "name": "extendable"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "open",
+      "met",
+      "extended",
+      "missed"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    }
+   ],
+   "description": {
+    "en": "A deadline set by law or by the court within a proceeding."
+   },
+   "example": "Reply to the statement of claim within 30 days.",
+   "iri": "legal:ProceduralDeadline",
+   "key": "ProceduralDeadline",
+   "label": {
+    "de": "Prozessuale Frist",
+    "en": "Procedural deadline"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A limitation period ends a claim; a procedural deadline ends a step in a proceeding.",
+   "pack": "legal",
+   "parent": "euo:Deadline"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The day it was filed."
+     },
+     "label": {
+      "de": "Eingereicht am",
+      "en": "Filed on"
+     },
+     "level": "pack",
+     "name": "filed_on"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "What kind of submission it is."
+     },
+     "enum_values": [
+      "statement_of_claim",
+      "reply",
+      "appeal",
+      "other"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind"
+    }
+   ],
+   "description": {
+    "en": "A written submission the firm files in a proceeding."
+   },
+   "example": "Statement of claim filed on 3 March.",
+   "iri": "legal:Submission",
+   "key": "Submission",
+   "label": {
+    "de": "Rechtsschrift",
+    "en": "Submission"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A submission is filed with the court; correspondence goes to the client or the other side.",
+   "pack": "legal",
+   "parent": "euo:Document"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The day the decision was given."
+     },
+     "label": {
+      "de": "Entschieden am",
+      "en": "Decided on"
+     },
+     "level": "pack",
+     "name": "decided_on"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "How the court decided."
+     },
+     "enum_values": [
+      "granted",
+      "partly_granted",
+      "dismissed",
+      "settled"
+     ],
+     "label": {
+      "de": "Ergebnis",
+      "en": "Outcome"
+     },
+     "level": "pack",
+     "name": "outcome"
+    }
+   ],
+   "description": {
+    "en": "A judgment or decision that ends or rules on a proceeding."
+   },
+   "example": "Judgment of 12 May granting the claim in part.",
+   "iri": "legal:CourtDecision",
+   "key": "CourtDecision",
+   "label": {
+    "de": "Urteil",
+    "en": "Court decision"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A decision of the court, not an internal decision of the firm.",
+   "pack": "legal",
+   "parent": "euo:Decision"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The day the client signed it."
+     },
+     "label": {
+      "de": "Unterzeichnet am",
+      "en": "Signed on"
+     },
+     "level": "pack",
+     "name": "signed_on"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "What the firm may do with it."
+     },
+     "label": {
+      "de": "Umfang",
+      "en": "Scope"
+     },
+     "level": "pack",
+     "name": "scope"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "When it ends, if it is limited."
+     },
+     "label": {
+      "de": "Gültig bis",
+      "en": "Valid until"
+     },
+     "level": "pack",
+     "name": "valid_until"
+    }
+   ],
+   "description": {
+    "en": "The client's written authority for the firm to act on the matter."
+   },
+   "example": "Power of attorney signed by the client's managing director.",
+   "iri": "legal:PowerOfAttorney",
+   "key": "PowerOfAttorney",
+   "label": {
+    "de": "Vollmacht",
+    "en": "Power of attorney"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "The engagement letter sets fees and terms; the power of attorney grants authority.",
+   "pack": "legal",
+   "parent": "euo:Right"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The amount claimed, as value and currency, e.g. 48000 CHF."
+     },
+     "label": {
+      "de": "Betrag",
+      "en": "Amount"
+     },
+     "level": "pack",
+     "name": "amount"
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The contract or statute the claim rests on."
+     },
+     "label": {
+      "de": "Grundlage",
+      "en": "Basis"
+     },
+     "level": "pack",
+     "name": "basis"
+    }
+   ],
+   "description": {
+    "en": "A right to payment or performance the client asserts or defends against."
+   },
+   "example": "Claim for 48000 CHF of unpaid fees.",
+   "iri": "legal:Claim",
+   "key": "Claim",
+   "label": {
+    "de": "Forderung",
+    "en": "Claim"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A claim is the right; the submission is the document that asserts it.",
+   "pack": "legal",
+   "parent": "euo:Right"
+  }
+ ],
+ "version": "1.0"
+}

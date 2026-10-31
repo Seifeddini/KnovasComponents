@@ -1,5 +1,6 @@
-{# A workspace's overview: what it holds per section and what changed last.
-   Expects current_workspace (builder.store.Workspace) and changes. #}
+{# A workspace's overview: what it holds per section, its packs and what
+   changed last. Expects current_workspace (builder.store.Workspace), changes,
+   workspace_packs and pack_updates (by pack id). #}
 {% extends 'builder/_base.html' %}
 {% from 'builder/_icons.html' import icon %}
 {% set ws = current_workspace %}
@@ -21,7 +22,7 @@
     <div class="b-tag-row">
         {{ ws | b_version_tag }}
         {% if s.company and s.company != ws.name %}<span class="b-tag">{{ s.company }}</span>{% endif %}
-        <span class="b-tag">{{ 'Mit Mandant verbunden' if ws.tenant else 'Kein Mandant verbunden' }}</span>
+        {% if ws.tenant %}<span class="b-tag" title="Mandant {{ ws.tenant }}">Mit Mandant verbunden</span>{% else %}<span class="b-tag">Kein Mandant verbunden</span>{% endif %}
     </div>
 </header>
 
@@ -44,6 +45,28 @@
         {{ stat('Profile', s.profiles, 'ansichten') }}
         {{ stat('Gesundheit', s.health, 'betrieb', 'Typen mit Regeln') }}
     </div>
+</section>
+
+<section class="b-section" aria-labelledby="b-packs-title">
+    <h2 class="b-h3" id="b-packs-title">Pakete</h2>
+    {% if workspace_packs %}
+    <ul class="b-pack-list">
+        {% for p in workspace_packs %}
+        {% set update = pack_updates.get(p.key) %}
+        <li class="b-pack-row">
+            <span><strong>{{ p.name.de or p.key }}</strong> <span class="b-muted">Version {{ p.version }}</span></span>
+            {% if update %}
+            <span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>Version {{ update.to }} verfügbar</span>
+            <a class="b-button b-button--secondary" href="{{ url_for('builder.pack_update', workspace_id=ws.id, pack_id=p.key) }}">Änderungen prüfen</a>
+            {% else %}
+            <span class="b-tag b-tag--good">Aktuell</span>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="b-muted">Dieser Arbeitsbereich nutzt kein Branchenpaket.</p>
+    {% endif %}
 </section>
 
 <section class="b-section" aria-labelledby="b-changes-title">

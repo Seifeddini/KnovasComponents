@@ -357,6 +357,18 @@
         rels.appendChild(button('Beziehung hinzufügen', 'b-button--secondary', function () { openRelationDialog({ domain: [node.key], range: [] }); }));
         body.appendChild(rels);
 
+        // Candidate for a pack.
+        var packBox = ctx.section('Paket');
+        var packOptions = [{ value: '', label: 'Kein Kandidat' }, { value: '*', label: 'Kandidat für ein Paket (offen)' }]
+            .concat((data().term_packs || []).map(function (p) { return { value: p.id, label: 'Kandidat für ' + (p.name.de || p.id) }; }));
+        var candidate = node.candidate === null || node.candidate === undefined ? '' : (node.candidate || '*');
+        var candidateSelect = select(packOptions, candidate);
+        candidateSelect.addEventListener('change', function () {
+            edit({ op: 'type.update', key: node.key, set: { candidate: candidateSelect.value } });
+        });
+        packBox.appendChild(field('Gehört in ein Branchenpaket?', candidateSelect, 'Kandidaten erscheinen im Reiter «Kandidaten»; Knovas prüft sie für das Paket.'));
+        body.appendChild(packBox);
+
         // Retire.
         var end = ctx.section(node.retired ? 'Stillgelegt' : 'Stilllegen');
         end.appendChild(el('p', 'b-small b-muted', node.retired
@@ -371,8 +383,10 @@
     function attributeEditor(node) {
         var box = el('div', 'b-ed-attrs');
         var list = el('ol', 'b-ed-attr-list');
-        var count = node.attributes.length;
-        node.attributes.forEach(function (attr, index) {
+        // On a pack's type the pack's attributes are read-only; the company's own are edited here.
+        var own = node.extendable ? node.attributes.filter(function (a) { return a.level === 'company'; }) : node.attributes;
+        var count = own.length;
+        own.forEach(function (attr, index) {
             list.appendChild(attributeRow(node, attr, index, count));
         });
         if (!count) list.appendChild(el('li', 'b-muted b-small', 'Noch keine eigenen Attribute.'));
@@ -400,6 +414,7 @@
         add.appendChild(addButton);
         box.appendChild(add);
 
+        if (node.extendable) return box;
         var inherited = node.inherited.filter(function (a) { return a.from !== ui.COMMON; });
         var common = node.inherited.length - inherited.length;
         if (inherited.length || common) {
@@ -436,12 +451,14 @@
         req.appendChild(document.createTextNode('Pflicht'));
         head.appendChild(req);
         var tools = el('span', 'b-ed-attr-tools');
+        if (!node.extendable) {
         var up = iconButton('Nach oben: ' + attr.name, UP, function () { edit({ op: 'attribute.move', key: node.key, name: attr.name, to: index - 1 }); });
         up.disabled = index === 0;
         var down = iconButton('Nach unten: ' + attr.name, DOWN, function () { edit({ op: 'attribute.move', key: node.key, name: attr.name, to: index + 1 }); });
         down.disabled = index === count - 1;
         tools.appendChild(up);
         tools.appendChild(down);
+        }
         tools.appendChild(iconButton('Entfernen: ' + attr.name, REMOVE, function () {
             edit({ op: 'attribute.remove', key: node.key, name: attr.name }, { done: 'Attribut ' + attr.name + ' entfernt' });
         }));
@@ -507,11 +524,19 @@
     }
 
     function readonlyNote(node, body) {
-        var note = el('p', 'b-small b-muted', node.level === 'pack'
-            ? 'Pakettypen sind schreibgeschützt. Erweitern Sie sie mit einem eigenen Untertyp.'
-            : 'Kerntypen sind schreibgeschützt. Erweitern Sie sie mit einem eigenen Untertyp.');
-        body.appendChild(note);
-        body.appendChild(button('Untertyp anlegen', 'b-button--secondary', function () { openTypeDialog(refOf(node)); }));
+        if (node.extendable) {
+            var ext = ui.section('Eigene Attribute der Firma');
+            ext.appendChild(el('p', 'b-small b-muted', 'Der Typ gehört zum Paket ' + api.packName(node.pack) +
+                ' und ist schreibgeschützt. Eigene Attribute, Untertypen und Beziehungen erweitern ihn; ein Paket-Update behält sie.'));
+            ext.appendChild(attributeEditor(node));
+            body.appendChild(ext);
+        } else {
+            body.appendChild(el('p', 'b-small b-muted', 'Kerntypen sind schreibgeschützt. Erweitern Sie sie mit einem eigenen Untertyp.'));
+        }
+        var row = el('div', 'b-button-row');
+        row.appendChild(button('Untertyp anlegen', 'b-button--secondary', function () { openTypeDialog(refOf(node)); }));
+        if (node.source === 'model') row.appendChild(button('Beziehung hinzufügen', 'b-button--secondary', function () { openRelationDialog({ domain: [node.key], range: [] }); }));
+        body.appendChild(row);
     }
 
     /* ---- the relation panel ------------------------------------------- */

@@ -250,7 +250,8 @@ def read_package(files: Mapping[str, bytes]) -> ImportResult:
     model: dict[str, Any] = {
         "model_version": MODEL_VERSION,
         "company": copy.deepcopy(manifest.get("company") or {}),
-        "package": {"manifest": {k: copy.deepcopy(v) for k, v in manifest.items() if k != "company"}},
+        "package": {"manifest": {k: copy.deepcopy(v) for k, v in manifest.items() if k not in ("company", "packs")}},
+        "packs": copy.deepcopy(manifest.get("packs") or []),
         "ontology": _read_ontology(ontology_docs, warnings),
         "sources": [],
     }
@@ -356,7 +357,8 @@ def _read_ontology(docs: dict[str, Any], warnings: list[str]) -> dict:
         entry["level"] = _level(entry.get("level_label"))
         _take(raw, entry, (("parent", "parent"), ("sedm_iri", "iri"), ("meta", "meta"),
                            ("state_attribute", "state_attribute"), ("id_prefixes", "id_prefixes"),
-                           ("aligns_with", "aligns_with"), ("reason", "reason"), ("retired", "retired")))
+                           ("aligns_with", "aligns_with"), ("reason", "reason"), ("retired", "retired"),
+                           ("pack", "pack")))
         attributes = raw.pop("attributes", None)
         if raw:
             entry["extra"] = raw
@@ -382,10 +384,12 @@ def _read_ontology(docs: dict[str, Any], warnings: list[str]) -> dict:
         entry = {"key": raw.pop("name", None)}
         _take(raw, entry, (("family", "family"), ("sedm_iri", "iri"), ("domain", "domain"),
                            ("range", "range"), ("inverse", "inverse"), ("reason", "reason"),
-                           ("retired", "retired")))
+                           ("retired", "retired"), ("pack", "pack")))
         if "level" in raw:
             entry["level_label"] = raw.pop("level")
             entry["level"] = _level(entry["level_label"])
+        elif "pack" in entry:
+            entry["level"] = "pack"  # a pack's relation says which pack; that is its level
         else:
             # The package gives relations no level: one that maps to a core
             # relation (an iri) is core, the rest are the company's own.
@@ -503,7 +507,8 @@ def _write_ontology(ontology: Mapping[str, Any], company: Mapping[str, Any]) -> 
         out: dict[str, Any] = {"name": item["key"], "level": _level_label(item, company)}
         _put(out, item, (("parent", "parent"), ("iri", "sedm_iri"), ("meta", "meta"),
                          ("state_attribute", "state_attribute"), ("id_prefixes", "id_prefixes"),
-                         ("aligns_with", "aligns_with"), ("reason", "reason"), ("retired", "retired")))
+                         ("aligns_with", "aligns_with"), ("reason", "reason"), ("retired", "retired"),
+                         ("pack", "pack")))
         out["attributes"] = [_attribute_out(a) for a in item.get("attributes") or []]
         out.update(copy.deepcopy(item.get("extra") or {}))
         node_types.append(out)
@@ -522,7 +527,7 @@ def _write_ontology(ontology: Mapping[str, Any], company: Mapping[str, Any]) -> 
         out = {"name": item["key"]}
         _put(out, item, (("family", "family"), ("iri", "sedm_iri"), ("domain", "domain"),
                          ("range", "range"), ("inverse", "inverse"), ("reason", "reason"),
-                         ("retired", "retired")))
+                         ("retired", "retired"), ("pack", "pack")))
         if "level_label" in item:
             out["level"] = item["level_label"]
         out.update(copy.deepcopy(item.get("extra") or {}))
@@ -548,6 +553,8 @@ def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
     manifest = copy.deepcopy(model["package"]["manifest"])
     if model.get("company"):
         manifest["company"] = copy.deepcopy(model["company"])
+    if model.get("packs"):
+        manifest["packs"] = copy.deepcopy(model["packs"])
     files: dict[str, bytes] = {PACKAGE_FILE: dump_yaml(manifest)}
 
     ontology_docs = _write_ontology(model["ontology"], model.get("company") or {})

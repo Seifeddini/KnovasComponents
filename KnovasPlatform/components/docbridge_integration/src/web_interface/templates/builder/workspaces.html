@@ -67,26 +67,53 @@
 {% endif %}
 
 {% if import_enabled %}
-<dialog class="b-dialog" id="b-create" aria-labelledby="b-create-title" data-create-url="{{ url_for('builder.create_workspace') }}">
+<dialog class="b-dialog b-dialog--wide" id="b-create" aria-labelledby="b-create-title" data-create-url="{{ url_for('builder.create_workspace') }}">
     <div class="b-dialog-head">
         <div>
             <h2 class="b-h2" id="b-create-title">Neuer Arbeitsbereich</h2>
-            <p class="b-muted">Für eine Firma, deren Konfiguration hier entsteht.</p>
+            <p class="b-muted" data-create-step-label>Schritt 1 von 3: Name</p>
         </div>
         <button type="button" class="b-button b-button--quiet b-button--icon" data-create-close aria-label="Dialog schließen">{{ icon('close') }}</button>
     </div>
     <form data-create-form novalidate>
         <div class="b-dialog-body">
-            <div class="b-field">
-                <label class="b-label" for="b-create-name">Name der Firma</label>
-                <input class="b-input" id="b-create-name" name="name" maxlength="120" required autocomplete="organization" aria-describedby="b-create-hint">
-                <span class="b-hint" id="b-create-hint">Der Arbeitsbereich beginnt leer: ohne Typen, Prozesse oder Zuordnungen. Er ist ein Entwurf; beim Mandanten ändert sich dadurch nichts.</span>
+            <ol class="b-wizard-steps" aria-hidden="true">
+                <li data-create-dot="name">Name</li><li data-create-dot="tenant">Mandant</li><li data-create-dot="packs">Pakete</li>
+            </ol>
+            <div data-create-step="name">
+                <div class="b-field">
+                    <label class="b-label" for="b-create-name">Name der Firma</label>
+                    <input class="b-input" id="b-create-name" name="name" maxlength="120" required autocomplete="organization" aria-describedby="b-create-hint">
+                    <span class="b-hint" id="b-create-hint">Für eine Firma, deren Konfiguration hier entsteht. Der Arbeitsbereich ist ein Entwurf; beim Mandanten ändert sich dadurch nichts.</span>
+                </div>
             </div>
+            <fieldset class="b-choice" data-create-step="tenant" hidden>
+                <legend>Mit welchem Mandanten wird der Arbeitsbereich verbunden?</legend>
+                {% if platform_tenant %}
+                <label class="b-radio"><input type="radio" name="tenant" value="link" checked>Mandant dieser Plattform <span class="b-mono">{{ platform_tenant }}</span></label>
+                {% endif %}
+                <label class="b-radio"><input type="radio" name="tenant" value="later" {% if not platform_tenant %}checked{% endif %}>Später verbinden</label>
+                <span class="b-hint">Der Mandant kommt aus dem Zertifikat der Plattform, nicht aus einer Eingabe. Veröffentlicht wird erst nach Prüfung und Freigabe.</span>
+            </fieldset>
+            <fieldset class="b-choice" data-create-step="packs" hidden>
+                <legend>Mit welchen Branchenpaketen beginnt der Arbeitsbereich?</legend>
+                <div class="b-pack-cards">
+                    {% for p in term_packs %}
+                    <label class="b-pack-card">
+                        <span class="b-check"><input type="checkbox" name="packs" value="{{ p.id }}"><strong>{{ p.name.de or p.id }}</strong></span>
+                        <span class="b-small b-muted">{{ p.description.de }}</span>
+                        <span class="b-small">{{ p.types }} Typen · {{ p.relations }} Beziehungen · Version {{ p.version }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <span class="b-hint">Paketbegriffe sind schreibgeschützt; die Firma erweitert sie mit eigenen Attributen, Untertypen und Beziehungen. Ohne Paket beginnt der Arbeitsbereich leer.</span>
+            </fieldset>
             <div class="b-callout b-callout--critical" data-create-error role="alert" hidden></div>
         </div>
         <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-create-back hidden>Zurück</button>
             <button type="button" class="b-button b-button--quiet" data-create-close>Abbrechen</button>
-            <button type="submit" class="b-button b-button--primary">Arbeitsbereich anlegen</button>
+            <button type="submit" class="b-button b-button--primary" data-create-next>Weiter</button>
         </div>
     </form>
 </dialog>

@@ -123,8 +123,13 @@
 
     /* ---- canvas ------------------------------------------------------- */
 
+    function packName(id) {
+        var pack = (data.packs || []).concat(data.term_packs || []).find(function (p) { return p.id === id; });
+        return pack ? (pack.name.de || pack.id) : id;
+    }
+
     function cardLabel(node) {
-        var parts = [LEVELS[node.level] || node.level];
+        var parts = [node.level === 'pack' && node.pack ? 'Paket ' + packName(node.pack) : (LEVELS[node.level] || node.level)];
         if (node.source === 'model') parts.push(node.attribute_count + (node.attribute_count === 1 ? ' Attribut' : ' Attribute'));
         if (node.meta) parts.push('◆ Meta');
         if (node.retired) parts.push('stillgelegt');
@@ -556,7 +561,8 @@
         openPanel(node.label.de || node.name, node.key + (node.iri && node.iri !== node.key ? ' · ' + node.iri : ''));
         var tags = el('div', 'b-tag-row');
         tags.appendChild(tag(LEVELS[node.level], node.level === 'core' ? null : 'accent'));
-        if (node.pack) tags.appendChild(tag('Paket ' + node.pack));
+        if (node.pack) tags.appendChild(tag('Paket ' + packName(node.pack)));
+        if (node.candidate !== null && node.candidate !== undefined) tags.appendChild(tag(node.candidate ? 'Kandidat für ' + packName(node.candidate) : 'Kandidat für ein Paket', 'accent'));
         if (node.meta) tags.appendChild(tag('Meta'));
         if (node.readonly) tags.appendChild(tag('Schreibgeschützt'));
         if (node.source !== 'model') tags.appendChild(tag('Bezugsklasse, nicht im Modell'));
@@ -589,7 +595,7 @@
         var inc = section('Eingehende Beziehungen');
         inc.appendChild(relationList(node.incoming, 'in'));
         panelBody.appendChild(inc);
-        if (editor && node.source === 'model') editor.readonlyNote(node, panelBody);
+        if (editor) editor.readonlyNote(node, panelBody);
     }
 
     function selectRelation(relationId) {
@@ -688,6 +694,8 @@
             if (node.label.de && node.label.de !== node.name) line.appendChild(el('span', 'b-muted', node.label.de));
             line.appendChild(tag(LEVELS[node.level], node.level === 'core' ? null : 'accent'));
             if (node.meta) line.appendChild(tag('Meta'));
+            if (node.level === 'pack' && node.pack) line.appendChild(tag(packName(node.pack)));
+            if (node.retired) line.appendChild(tag('Stillgelegt', 'warning'));
             var serious = seriousProblems(node);
             if (serious.length) line.appendChild(tag(serious.length + (serious.length === 1 ? ' Problem' : ' Probleme'), 'critical'));
             main.appendChild(line);
@@ -834,6 +842,38 @@
         });
     }
 
+    /* ---- candidates --------------------------------------------------- */
+
+    function renderCandidates() {
+        var box = document.querySelector('[data-onto-candidates]');
+        if (!box) return;
+        box.textContent = '';
+        var count = document.querySelector('#b-onto-tab-candidates .b-tab-count');
+        if (count) count.textContent = String(data.candidates.length);
+        if (!data.candidates.length) {
+            box.appendChild(el('p', 'b-muted', 'Kein eigener Typ ist als Kandidat für ein Paket markiert. Markieren lässt er sich in seiner Seitenleiste, unter «Paket».'));
+            return;
+        }
+        box.appendChild(el('p', 'b-muted', 'Eigene Typen der Firma, die in ein Branchenpaket gehören könnten. Knovas prüft sie, bevor ein Paket sie aufnimmt.'));
+        var list = el('ul', 'b-problem-list');
+        data.candidates.forEach(function (c) {
+            var li = el('li', 'b-problem');
+            var head = el('p');
+            head.appendChild(el('strong', null, c.name));
+            if (c.label.de) head.appendChild(document.createTextNode(' – ' + c.label.de));
+            head.appendChild(document.createTextNode(' '));
+            head.appendChild(tag(c.pack ? 'für ' + packName(c.pack) : 'Paket offen', 'accent'));
+            li.appendChild(head);
+            if (c.reason) li.appendChild(el('p', 'b-small b-muted', c.reason));
+            var show = el('button', 'b-button b-button--quiet', 'Auf der Fläche zeigen');
+            show.type = 'button';
+            show.addEventListener('click', function () { showOnCanvas({ target_kind: 'type', target: c.id }); });
+            li.appendChild(show);
+            list.appendChild(li);
+        });
+        box.appendChild(list);
+    }
+
     function showOnCanvas(problem) {
         document.getElementById('b-onto-tab-canvas').click();
         if (problem.target_kind === 'relation') { selectRelation(problem.target); return; }
@@ -894,6 +934,7 @@
         buildCanvas();
         refresh();
         renderProblems();
+        renderCandidates();
         var ready = Math.round(performance.now() - started);
         graphEl.setAttribute('aria-label', 'Fläche mit ' + data.counts.types + ' Typen und ' + data.counts.relations + ' Beziehungen');
         // For the acceptance test: how long from script start to a drawn canvas.
@@ -906,6 +947,7 @@
             selectRelation: selectRelation,
             load: load,
             data: function () { return data; },
+            packName: packName,
             setConnectMode: setConnectMode,
         };
         if (editor) editor.start(window.__builderOntology, { el: el, tag: tag, section: section, LEVELS: LEVELS, COMMON: COMMON, isBelow: isBelow });
@@ -934,6 +976,11 @@
         cy.viewport({ zoom: zoom, pan: pan });
         renderTree(currentVisible);
         renderProblems();
+        renderCandidates();
+        var headTypes = document.querySelector('[data-onto-head-types]');
+        if (headTypes) headTypes.textContent = data.counts.types + ' Typen';
+        var headRelations = document.querySelector('[data-onto-head-relations]');
+        if (headRelations) headRelations.textContent = data.counts.relations + ' Beziehungen';
         var tabCount = document.querySelector('#b-onto-tab-problems .b-tab-count');
         if (tabCount) tabCount.textContent = String(data.problems.length);
         var wanted = (options && options.select) || keep;

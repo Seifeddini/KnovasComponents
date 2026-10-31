@@ -234,3 +234,57 @@ class TestTheExport:
         assert client.get(f"/builder/w/{workspace.id}/export").data == first
         with zipfile.ZipFile(io.BytesIO(first)) as archive:
             assert "brain-config.yaml" in archive.namelist()
+
+
+class TestStartingFromPacks:
+    def _client(self, tenant="af000000"):
+        user = StandInUser({"admin"})
+        store = MemoryWorkspaceStore({str(user.id): user.display_name})
+        return make_app(user, store, tenant=tenant).test_client(), store
+
+    def test_the_wizard_offers_the_packs_and_the_platform_tenant(self):
+        client, _ = self._client()
+        html = client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        assert 'value="legal"' in html and 'value="fiduciary"' in html and 'value="software"' in html
+        assert "af000000" in html
+
+    def test_a_workspace_from_two_packs_linked_to_the_tenant(self):
+        client, store = self._client()
+        response = client.post("/builder/api/workspaces",
+                               data={"name": "Kanzlei Muster", "packs": ["legal", "fiduciary"], "tenant": "link"})
+        assert response.status_code == 201
+        [workspace] = store.list()
+        assert workspace.tenant == "af000000"
+        assert [p["key"] for p in store.model(workspace.id)["packs"]] == ["legal", "fiduciary"]
+        assert workspace.summary["levels"]["pack"] == 16
+
+    def test_the_tenant_never_comes_from_the_request(self):
+        client, store = self._client()
+        client.post("/builder/api/workspaces", data={"name": "Muster", "tenant": "someone-else"})
+        assert store.list()[0].tenant is None
+
+    def test_without_a_known_tenant_it_is_linked_later(self):
+        client, store = self._client(tenant=None)
+        assert "af000000" not in client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        client.post("/builder/api/workspaces", data={"name": "Muster", "tenant": "link"})
+        assert store.list()[0].tenant is None
+
+    def test_an_unknown_pack_is_refused(self):
+        client, store = self._client()
+        response = client.post("/builder/api/workspaces", data={"name": "Muster", "packs": ["nowhere"]})
+        assert response.status_code == 404 and store.list() == []
+
+    def test_the_overview_offers_an_update_and_the_diff_shows_it(self):
+        client, store = self._client()
+        client.post("/builder/api/workspaces", data={"name": "Kanzlei Muster", "packs": ["legal"]})
+        [workspace] = store.list()
+        assert "Aktuell" in client.get(f"/builder/w/{workspace.id}").get_data(as_text=True)
+        row = store.rows[workspace.id]
+        row["model"]["packs"] = [{"key": "legal", "version": "0.9"}]
+        row["model"]["ontology"]["types"] = [t for t in row["model"]["ontology"]["types"] if t["key"] != "Claim"]
+        overview = client.get(f"/builder/w/{workspace.id}").get_data(as_text=True)
+        assert "Version 1.0 verfügbar" in overview
+        diff = client.get(f"/builder/w/{workspace.id}/pakete/legal").get_data(as_text=True)
+        assert "Claim" in diff and "Version 1.0 übernehmen" in diff
+        assert store.model(workspace.id)["packs"][0]["version"] == "0.9"
+        assert client.get(f"/builder/w/{workspace.id}/pakete/nowhere").status_code == 404

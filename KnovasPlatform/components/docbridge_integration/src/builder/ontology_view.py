@@ -86,6 +86,7 @@ def _attribute(attr: Mapping[str, Any], origin: str | None = None) -> dict:
         "label": dict(attr.get("label") or {}),
         "description": description_text((attr.get("description") or {}).get("en")),
         "target": attr.get("target") or "",
+        "level": attr.get("level") or "",
         "held": (attr.get("datatype") or "") in HELD_DATATYPES,
     }
     if origin:
@@ -143,7 +144,11 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "source": "model",
             "readonly": item.get("level") == "core",
             "editable": (item.get("level") or "company") == "company",
+            # Pack types take the company's own attributes (step B4).
+            "extendable": item.get("level") == "pack",
             "retired": bool(item.get("retired")),
+            "pack": item.get("pack"),
+            "candidate": _candidate_of(item.get("reason")),
             "meta": bool(item.get("meta")),
             "iri": item.get("iri"),
             "id_prefixes": list(item.get("id_prefixes") or []),
@@ -167,7 +172,8 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             nodes[class_id] = {
                 "id": class_id, "key": class_id, "name": entry["name"], "label": dict(entry.get("label") or {}),
                 "level": "core" if entry["pack"] == "core" else "pack", "source": entry["pack"],
-                "readonly": True, "editable": False, "retired": False, "meta": False, "iri": class_id,
+                "readonly": True, "editable": False, "extendable": False, "retired": False, "meta": False,
+                "iri": class_id, "candidate": None,
                 "id_prefixes": [], "description": {}, "description_text": "", "reason": "", "rule8_missing": [],
                 "example": "", "not_to_confuse": "", "attributes": [],
                 "parent": parent if parent in catalog else None, "parent_ref": parent, "problems": [],
@@ -212,8 +218,11 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             seen.add(current)
             current = nodes[current]["parent"] if current in nodes else None
 
-    # Pack membership: the type's own catalog pack, else the first pack class above it.
+    # Pack membership: the pack the term came from, else its own catalog
+    # pack, else the first pack class above it.
     for node in nodes.values():
+        if node.get("pack"):
+            continue
         node["pack"] = None
         current = node["id"]
         while current is not None and current in nodes:
@@ -333,6 +342,7 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "sentence": item.get("sentence") or "", "level": item.get("level") or "company",
             "family": item.get("family") or "", "reason": item.get("reason") or "",
             "editable": (item.get("level") or "company") == "company", "retired": bool(item.get("retired")),
+            "pack": item.get("pack"),
             "inverse": item.get("inverse"), "domain": [], "range": [],
             "domain_names": list(item.get("domain") or []), "range_names": list(item.get("range") or []),
             "rule8_missing": rule8_missing(item, RULE8_RELATION),
@@ -385,6 +395,7 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
     ordered = _tree_order(nodes)
     present_packs = sorted({n["pack"] for n in nodes.values() if n["pack"]})
     pack_names = {p["pack"]: p.get("name") or {} for p in packs}
+    pack_names.update(reference_packs.names())
     return {
         "nodes": ordered,
         "relations": relations,
@@ -395,6 +406,12 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
         "catalog": [{"id": c["id"], "name": c["name"], "level": "core" if c["pack"] == "core" else "pack",
                      "pack": c["pack"], "label": dict(c.get("label") or {})} for c in catalog.values()],
         "relation_names": sorted({str(r["key"]) for r in relations}),
+        # Company types marked as candidates for a pack (step B4).
+        "candidates": [{"id": n["id"], "key": n["key"], "name": n["name"], "label": n["label"],
+                        "pack": n["candidate"], "reason": n["reason"]}
+                       for n in ordered if n["source"] == "model" and n["level"] == "company"
+                       and n["candidate"] is not None],
+        "term_packs": [{"id": p["id"], "name": dict(p.get("name") or {})} for p in reference_packs.term_packs()],
         "families": sorted({r["family"] for r in relations if r["family"]}),
         "datatypes": list(DATATYPES),
         "counts": {
@@ -440,3 +457,9 @@ def _usages(model: Mapping[str, Any], keys: list[str]) -> dict[str, list[str]]:
     from builder import editing  # late: editing builds on this module
 
     return editing.usages(model, keys)
+
+
+def _candidate_of(reason: Any) -> str | None:
+    from builder import editing  # late: editing builds on this module
+
+    return editing.candidate_of(reason)

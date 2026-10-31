@@ -240,10 +240,12 @@ def test_a_new_workspace_from_the_dialog(browser, workspace_url, shots, width, s
     dialog = page.locator("#b-create")
     assert dialog.is_visible()
     assert page.evaluate("document.activeElement.id") == "b-create-name"
-    dialog.get_by_role("button", name="Arbeitsbereich anlegen").click()
+    dialog.get_by_role("button", name="Weiter").click()
     assert "Bitte einen Namen" in dialog.locator("[data-create-error]").inner_text()
     page.fill("#b-create-name", "Muster Treuhand AG")
     page.screenshot(path=shots / f"b1-create{suffix}.png")
+    dialog.get_by_role("button", name="Weiter").click()
+    dialog.get_by_role("button", name="Weiter").click()
     dialog.get_by_role("button", name="Arbeitsbereich anlegen").click()
     page.wait_for_url(f"{workspace_url}/builder/w/*")
     assert "Muster Treuhand AG" in page.locator("h1").inner_text()
@@ -564,4 +566,87 @@ def test_editing_client_zero(browser, editing_server, shots, import_zip):
     page.locator("#b-onto-tab-problems").click()
     assert page.evaluate("() => window.__builderOntology.data().counts.problems.critical") == 0
     page.screenshot(path=shots / "b3-10-problems.png")
+    page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B4: a workspace from industry packs.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("width,scheme", [("1440", "light"), ("1440", "dark"), ("390", "light")])
+def test_a_law_firm_from_the_legal_pack(browser, editing_server, shots, width, scheme):
+    base, store = editing_server
+    page = _page(browser, width, scheme)
+    suffix = f"-{width}-{scheme}"
+    page.goto(f"{base}/builder/arbeitsbereich")
+    page.locator("[data-create-open]").first.click()
+    dialog = page.locator("#b-create")
+    page.fill("#b-create-name", "Kanzlei Muster")
+    page.screenshot(path=shots / f"b4-wizard-1-name{suffix}.png")
+    dialog.get_by_role("button", name="Weiter").click()
+    page.screenshot(path=shots / f"b4-wizard-2-tenant{suffix}.png")
+    dialog.get_by_role("button", name="Weiter").click()
+    dialog.locator(".b-pack-card", has_text="Recht").locator("input").check()
+    assert _no_sideways_scroll(page)
+    page.screenshot(path=shots / f"b4-wizard-3-packs{suffix}.png")
+    dialog.get_by_role("button", name="Arbeitsbereich anlegen").click()
+    page.wait_for_url(f"{base}/builder/w/*")
+    [workspace] = store.list()
+    assert store.model(workspace.id)["packs"] == [{"key": "legal", "version": "1.0"}]
+
+    # Two company types that extend the pack's.
+    _open_ontology(page, base)
+    assert page.evaluate("() => window.__builderOntology.data().nodes.filter(n => n.level === 'pack').length") == 8
+    for key, de, parent in (("ConflictCheck", "Kollisionsprüfung", "Matter"), ("TimeEntry", "Leistungserfassung", "Matter")):
+        page.locator(".b-onto-edit-bar [data-onto-new-type]").click()
+        page.fill("#b-nt-key", key)
+        page.fill("#b-nt-de", de)
+        page.select_option("#b-nt-parent", parent)
+        page.locator("#b-onto-new-type").get_by_role("button", name="Typ anlegen").click()
+        _wait_for(page, _has_type(key))
+    # The company's own attribute on the pack's Matter.
+    page.evaluate("() => window.__builderOntology.select('type:Matter')")
+    page.fill("[data-ed-attr-new]", "billing_partner")
+    page.locator(".b-ed-attr-add button[type=submit]").click()
+    _wait_for(page, "() => window.__builderOntology.data().nodes.find(n => n.key === 'Matter')"
+                    ".attributes.some(a => a.name === 'billing_partner' && a.level === 'company')")
+    # ConflictCheck is a candidate for the legal pack.
+    page.evaluate("() => window.__builderOntology.select('type:ConflictCheck')")
+    page.locator("#b-onto-panel select").filter(has_text="Kandidat für Recht").select_option("legal")
+    _wait_for(page, "() => window.__builderOntology.data().candidates.length === 1")
+    assert "10 Typen" in page.locator("[data-onto-head-types]").inner_text()
+    page.locator("#b-onto-panel [data-panel-close]").first.click()
+    page.evaluate("() => window.__builderOntology.cy.fit(window.__builderOntology.cy.nodes('.type'), 24)")
+    page.wait_for_timeout(300)
+    assert _no_sideways_scroll(page)
+    page.screenshot(path=shots / f"b4-canvas-pack-and-company{suffix}.png")
+    page.evaluate("() => window.__builderOntology.select('type:Matter', {center: true})")
+    page.wait_for_timeout(300)
+    page.screenshot(path=shots / f"b4-pack-type-extended{suffix}.png")
+    page.locator("#b-onto-tab-candidates").click()
+    page.screenshot(path=shots / f"b4-candidates{suffix}.png")
+
+    # A newer pack than the workspace took over: the overview offers the update, the diff shows it.
+    row = store.rows[workspace.id]
+    row["model"]["packs"] = [{"key": "legal", "version": "0.9"}]
+    matter = next(t for t in row["model"]["ontology"]["types"] if t["key"] == "Matter")
+    matter["attributes"] = [a for a in matter["attributes"] if a["name"] != "opened_on"]
+    row["model"]["ontology"]["types"] = [t for t in row["model"]["ontology"]["types"] if t["key"] != "Claim"]
+    row["model"]["ontology"]["types"].append({"key": "Hearing", "level": "pack", "level_label": "pack", "pack": "legal",
+                                             "parent": "euo:Event", "attributes": [], "label": {"de": "Verhandlung"}})
+    page.goto(f"{base}/builder/w/{workspace.id}")
+    page.get_by_role("link", name="Änderungen prüfen").click()
+    page.wait_for_url(f"{base}/builder/w/{workspace.id}/pakete/legal")
+    text = page.inner_text("main")
+    assert "Attribut opened_on" in text and "Claim" in text and "Hearing" in text
+    assert "billing_partner" not in text  # the company's own attribute stays and is no change
+    page.screenshot(path=shots / f"b4-pack-diff{suffix}.png", full_page=True)
+    page.get_by_role("button", name="Version 1.0 übernehmen").click()
+    page.wait_for_url(f"{base}/builder/ontologie")
+    model = store.model(workspace.id)
+    assert model["packs"] == [{"key": "legal", "version": "1.0"}]
+    names = [a["name"] for a in next(t for t in model["ontology"]["types"] if t["key"] == "Matter")["attributes"]]
+    assert "opened_on" in names and names[-1] == "billing_partner"
+    assert next(t for t in model["ontology"]["types"] if t["key"] == "Hearing")["retired"] is True
     page.context.close()

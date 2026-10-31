@@ -15,8 +15,8 @@
         <h1 class="b-h1">{{ stage.label }}</h1>
     </div>
     <div class="b-tag-row">
-        <span class="b-tag">{{ c.types }} Typen</span>
-        <span class="b-tag">{{ c.relations }} Beziehungen</span>
+        <span class="b-tag" data-onto-head-types>{{ c.types }} Typen</span>
+        <span class="b-tag" data-onto-head-relations>{{ c.relations }} Beziehungen</span>
         {% if c.problems.critical %}<span class="b-tag b-tag--critical"><span class="b-tag-dot"></span>{{ c.problems.critical }} Probleme</span>{% endif %}
         {% if c.problems.warning %}<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>{{ c.problems.warning }} Warnungen</span>{% endif %}
         {% if c.problems.info %}<span class="b-tag"><span class="b-tag-dot"></span>{{ c.problems.info }} Hinweise</span>{% endif %}
@@ -41,6 +41,7 @@
         <button type="button" class="b-tab" role="tab" id="b-onto-tab-canvas" aria-controls="b-onto-view-canvas" aria-selected="true" data-onto-view="canvas">Fläche</button>
         <button type="button" class="b-tab" role="tab" id="b-onto-tab-tree" aria-controls="b-onto-view-tree" aria-selected="false" tabindex="-1" data-onto-view="tree">Typbaum</button>
         <button type="button" class="b-tab" role="tab" id="b-onto-tab-problems" aria-controls="b-onto-view-problems" aria-selected="false" tabindex="-1" data-onto-view="problems">Probleme<span class="b-tab-count">{{ ontology.problems | length }}</span></button>
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-candidates" aria-controls="b-onto-view-candidates" aria-selected="false" tabindex="-1" data-onto-view="candidates">Kandidaten<span class="b-tab-count">{{ ontology.candidates | length }}</span></button>
     </div>
 
     <form class="b-onto-filters" role="search" aria-label="Typen filtern" data-onto-filters>
@@ -114,6 +115,10 @@
 
         <div class="b-tabpanel" role="tabpanel" id="b-onto-view-problems" aria-labelledby="b-onto-tab-problems" hidden>
             <div data-onto-problems></div>
+        </div>
+
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-candidates" aria-labelledby="b-onto-tab-candidates" hidden>
+            <div data-onto-candidates></div>
         </div>
 
         <aside class="b-panel" id="b-onto-panel" aria-labelledby="b-onto-panel-title" data-panel hidden style="--panel-width: 480px">

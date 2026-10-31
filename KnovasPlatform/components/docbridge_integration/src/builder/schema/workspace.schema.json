@@ -55,7 +55,13 @@
       "items": {"type": "object"}
     },
     "mappings": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
-    "profiles": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}}
+    "profiles": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
+    "packs": {
+      "description": "The packs the workspace uses, with the version it took over (step B4).",
+      "type": "array",
+      "items": {"type": "object", "required": ["key", "version"],
+                "properties": {"key": {"type": "string"}, "version": {"type": "string"}}}
+    }
   },
   "$defs": {
     "level": {
@@ -96,6 +102,7 @@
         "aligns_with": {"type": "array", "items": {"type": "string"}},
         "reason": {"type": ["string", "null"]},
         "retired": {"description": "Retired in the builder: kept, marked, until publishing decides.", "type": "boolean"},
+        "pack": {"description": "The pack a pack-level term came from (step B4).", "type": "string"},
         "attributes": {"type": "array", "items": {"$ref": "#/$defs/attribute"}},
         "extra": {"type": "object"}
       }
@@ -133,6 +140,7 @@
         "reason": {"type": ["string", "null"]},
         "sentence": {"description": "How the relation reads between two nodes.", "type": ["string", "null"]},
         "retired": {"type": "boolean"},
+        "pack": {"type": "string"},
         "extra": {"type": "object"}
       }
     },

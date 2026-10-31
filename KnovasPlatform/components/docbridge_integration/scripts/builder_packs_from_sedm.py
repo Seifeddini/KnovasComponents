@@ -9,8 +9,10 @@ classes of the industry packs. It does not invent them: this script reads
   - the SeDM domain packs (classes, labels, parents):
       DataModels/Semantic Data Model (SeDM)/ontology/domains/<pack>/<pack>.ttl
 
-and writes one JSON file per pack to src/builder/packs/. Run it again when
-the core or a pack changes; the files are data and are committed.
+and writes one class catalog per pack to src/builder/packs/<pack>/classes.json.
+Run it again when the core or a pack changes; the files are data and are
+committed. The terms a pack brings into a workspace are beside them, in
+pack.json (see builder_pack_from_package.py).
 
     python scripts/builder_packs_from_sedm.py ../../../../KnowledgeBase
 """
@@ -82,7 +84,8 @@ def main() -> int:
         if main_file.is_file():
             packs.append(domain_pack(main_file))
     for pack in packs:
-        target = OUT / f"{pack['pack']}.json"
+        target = OUT / pack["pack"] / "classes.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(pack, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         print(f"{target.relative_to(HERE)}: {len(pack['types'])} types")
     return 0
