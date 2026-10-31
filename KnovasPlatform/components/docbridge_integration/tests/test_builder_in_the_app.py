@@ -120,4 +120,4 @@ def test_an_edit_needs_the_csrf_header_and_is_written_with_its_actor(identity_cl
     assert row[0] == "ontology.types/Invoice" and row[1] is None and row[2]["key"] == "Invoice" and row[4] == "admin@example.org"
     undone = identity_client.post(f"/builder/api/w/{workspace_id}/undo", headers={"X-CSRF-Token": token})
     assert undone.status_code == 200 and undone.get_json()["history"] == {"undo": 0, "redo": 1}
-    assert "Noch keine Typen" in identity_client.get("/builder/ontologie").get_data(as_text=True)
+    assert "Noch keine eigenen Typen" in identity_client.get("/builder/ontologie").get_data(as_text=True)

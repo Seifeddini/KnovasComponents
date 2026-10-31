@@ -78,7 +78,7 @@
     <form data-create-form novalidate>
         <div class="b-dialog-body">
             <ol class="b-wizard-steps" aria-hidden="true">
-                <li data-create-dot="name">Name</li><li data-create-dot="tenant">Mandant</li><li data-create-dot="packs">Pakete</li>
+                <li data-create-dot="name">Name</li><li data-create-dot="tenant">Mandant</li><li data-create-dot="packs">Ausgangspunkt</li>
             </ol>
             <div data-create-step="name">
                 <div class="b-field">
@@ -96,7 +96,12 @@
                 <span class="b-hint">Der Mandant kommt aus dem Zertifikat der Plattform, nicht aus einer Eingabe. Veröffentlicht wird erst nach Prüfung und Freigabe.</span>
             </fieldset>
             <fieldset class="b-choice" data-create-step="packs" hidden>
-                <legend>Mit welchen Branchenpaketen beginnt der Arbeitsbereich?</legend>
+                <legend>Womit beginnt der Arbeitsbereich?</legend>
+                <label class="b-radio"><input type="radio" name="start" value="blank" {% if not tenant_start %}checked{% endif %}>Mit dem Kern (Enterprise Upper Ontology), ohne eigene Typen</label>
+                {% if tenant_start %}
+                <label class="b-radio"><input type="radio" name="start" value="tenant" checked>Mit der Ontologie des Mandanten <span class="b-mono">{{ platform_tenant }}</span>: seine Typen und Attribute, wie sie heute sind</label>
+                {% endif %}
+                <p class="b-label b-pack-legend">Dazu Branchenpakete</p>
                 <div class="b-pack-cards">
                     {% for p in term_packs %}
                     <label class="b-pack-card">

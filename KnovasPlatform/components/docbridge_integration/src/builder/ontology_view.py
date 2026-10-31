@@ -2,8 +2,9 @@
 
 Build plan step B2. The model holds the company's types; the reference packs
 hold the Brain's core types and the industry packs' classes. This module puts
-them into one tree: every model type under its parent, every core or pack
-class a model type descends from as a read-only node above it. A model type
+them into one tree: the whole core (the Enterprise Upper Ontology every tenant
+has) as read-only nodes, every model type under its parent, and every pack
+class a model type descends from above it. A model type
 whose iri names a core or pack class *is* that class, as the company uses it.
 
 A type's parent comes from the model; a type that has none takes it from its
@@ -180,6 +181,12 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
                 "abstract": bool(entry.get("abstract")),
             }
             class_id = parent if parent in catalog else None
+
+    # The core is every tenant's: always the tree's trunk, also before the
+    # workspace has a type of its own.
+    for class_id, entry in catalog.items():
+        if entry["pack"] == "core":
+            add_catalog(class_id)
 
     # Resolve parents.
     for node in list(nodes.values()):

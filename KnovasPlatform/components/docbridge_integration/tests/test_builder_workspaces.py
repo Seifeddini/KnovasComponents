@@ -133,8 +133,8 @@ class TestCreatingAWorkspace:
         client, _ = _app()
         _create(client)
         html = client.get("/builder/ontologie").get_data(as_text=True)
-        assert "Noch keine Typen" in html
-        assert 'id="b-onto-data"' not in html
+        assert "Noch keine eigenen Typen" in html
+        assert '"name": "Entity"' in html or '"name":"Entity"' in html  # the core is there
 
     def test_the_list_offers_both_ways_to_start(self):
         client, _ = _app()

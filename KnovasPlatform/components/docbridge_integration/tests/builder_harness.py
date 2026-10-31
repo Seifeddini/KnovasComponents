@@ -259,7 +259,7 @@ class FakeEngine:
         return {"written": written, "refused": list(plan["unresolved_parents"]), "skipped": [], "errors": []}
 
 
-def make_app(user=None, store=None, tenant=None, engine=None) -> Flask:
+def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -294,6 +294,7 @@ def make_app(user=None, store=None, tenant=None, engine=None) -> Flask:
         },
         store_factory=(lambda: store) if store is not None else None,
         tenant_provider=lambda: tenant,
+        tenant_ontology=(lambda: (tenant_types[0], tenant_types[1])) if tenant_types is not None else None,
         engine_factory=(lambda: engine) if engine is not None else None,
     ))
     return app

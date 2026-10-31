@@ -36,6 +36,12 @@
 </header>
 
 {% if ontology.nodes %}
+{% if not c.types %}
+<div class="b-callout b-onto-start" role="status">
+    <p class="b-callout-title">Noch keine eigenen Typen</p>
+    <p>Die Fläche zeigt den Kern, den jeder Mandant hat (Enterprise Upper Ontology). Legen Sie darunter eigene Typen an, oder beginnen Sie einen Arbeitsbereich mit der Ontologie des Mandanten oder mit einem Branchenpaket.</p>
+</div>
+{% endif %}
 <div data-tabs>
     <div class="b-tablist" role="tablist" aria-label="Ansicht der Ontologie">
         <button type="button" class="b-tab" role="tab" id="b-onto-tab-canvas" aria-controls="b-onto-view-canvas" aria-selected="true" data-onto-view="canvas">Fläche</button>

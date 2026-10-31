@@ -27,7 +27,7 @@ TOKEN = "github_pat_" + "s" * 40                    # made up; the fake GitHub r
 REPO = "kanzlei/akten"
 AKTEN = {"Akten/M-2026-001/vertrag-1.pdf": "%PDF-1.4 one", "Akten/M-2026-001/vertrag-2.pdf": "%PDF-1.4 two",
          "Akten/M-2026-002/vertrag-3.pdf": "%PDF-1.4 three"}
-CONFIG_FILES = 8                                     # brain-config, one mapping, five ontology files, one profile
+CONFIG_FILES = 13                                    # brain-config, one mapping, the ontology files, one profile, health
 
 
 def _files() -> dict:
@@ -147,7 +147,9 @@ class TestSync:
         current = svc.current()
         assert current["commit"] == world["first"]
         bundle = json.loads(Path(current["bundle"]).read_text(encoding="utf-8"))
-        assert bundle["header"]["label"] == "KANZLEI-X" and "partner" in bundle["sections"]["profiles"]
+        label = bundle["header"]["label"]  # the key (brain-runner before 0.1.0) or the whole company (0.1.0 on)
+        assert (label.get("key") if isinstance(label, dict) else label) == "KANZLEI-X"
+        assert "partner" in bundle["sections"]["profiles"]
         evaluation = json.loads(Path(current["evaluation"]).read_text(encoding="utf-8"))
         assert [m["mapping"] for m in evaluation["mappings"]] == ["contracts"]
 
@@ -163,8 +165,9 @@ class TestSync:
         head = svc.check(admin)
         assert head["changed_mapped_files"] == 1                        # the new Akte; terms.yaml is configuration
         probe = svc.run(svc.probe(admin))
-        # fetched: the changed terms.yaml (once, by "Neuen Stand holen") and the new Akte (by the plan); nothing else
-        assert probe["files_fetched"] == 2 and world["gh"].count("blob") == blobs + 2
+        # fetched: the changed terms.yaml (once, by "Neuen Stand holen") and, with brain-runner before 0.1.0, the new
+        # Akte (by the plan; 0.1.0 and later take what the mapping reads of it without its content); nothing else
+        assert probe["files_fetched"] in (1, 2) and world["gh"].count("blob") == blobs + probe["files_fetched"]
         assert probe["counts"]["contracts"]["add"] == 1
         applied = svc.run(svc.apply(admin))
         assert applied["status"] == "ok" and svc.current()["commit"] == head["commit"]

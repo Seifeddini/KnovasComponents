@@ -31,7 +31,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
                    session, url_for)
 from markupsafe import Markup
 
-from builder import editing, ontology_view, package, publisher, review
+from builder import editing, ontology_view, package, publisher, review, tenant_ontology as tenant_reader
 from builder import packs as shipped_packs
 
 logger = logging.getLogger(__name__)
@@ -149,6 +149,7 @@ def create_builder_blueprint(
     store_factory: Optional[Callable[[], Any]] = None,
     tenant_provider: Optional[Callable[[], Optional[str]]] = None,
     engine_factory: Optional[Callable[[], Any]] = None,
+    tenant_ontology: Optional[Callable[[], tuple]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -164,6 +165,10 @@ def create_builder_blueprint(
     ``tenant_provider`` returns the tenant this Platform belongs to (from its
     certificate). A new workspace can be linked to it; a tenant named in a
     request is never taken.
+
+    ``tenant_ontology`` returns the tenant's node types and a function that
+    reads one type's schema (the Platform's own client, on its certificate):
+    a new workspace can start from what the tenant already has.
 
     ``engine_factory`` returns the engine that compiles, dry-runs and applies
     a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
@@ -243,6 +248,7 @@ def create_builder_blueprint(
             import_enabled=store is not None,
             term_packs=[_pack_card(p) for p in shipped_packs.term_packs()],
             platform_tenant=_platform_tenant(),
+            tenant_start=tenant_ontology is not None and _platform_tenant() is not None,
             **values,
         )
 
@@ -400,16 +406,31 @@ def create_builder_blueprint(
         name = str(request.form.get("name", "") or "").strip()
         if not 1 <= len(name) <= 120:
             return jsonify({"success": False, "error": "Der Name braucht 1 bis 120 Zeichen."}), 400
-        model = package.read_package(package.blank_package(name)).model
+        start = request.form.get("start") or "blank"
+        source = {"kind": "blank"}
+        if start == "tenant":
+            if tenant_ontology is None or _platform_tenant() is None:
+                return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+            try:
+                node_types, schema_of = tenant_ontology()
+                model, counts = tenant_reader.model_from_tenant(name, node_types or [], schema_of)
+            except Exception as exc:  # noqa: BLE001 - the tenant could not be read; say so
+                logger.warning("Builder: the tenant's ontology could not be read: %s", type(exc).__name__)
+                return jsonify({"success": False, "error": "Die Ontologie des Mandanten ließ sich nicht lesen.",
+                                "details": [type(exc).__name__]}), 502
+            source = {"kind": "tenant", **counts}
+        else:
+            model = package.read_package(package.blank_package(name)).model
         chosen = [str(p) for p in request.form.getlist("packs") if str(p).strip()]
         try:
             for pack_id in dict.fromkeys(chosen):
                 editing.apply(model, {"op": "pack.apply", "pack": pack_id})
         except editing.EditError as exc:
             return _refused(exc)
-        tenant = _platform_tenant() if request.form.get("tenant") == "link" else None
+        # A workspace read from the tenant belongs to it.
+        tenant = _platform_tenant() if start == "tenant" or request.form.get("tenant") == "link" else None
         workspace_id = store.create(name=name, model=model, actor_id=gate.current_user().id,
-                                    source={"kind": "blank", "packs": model.get("packs") or []}, tenant=tenant)
+                                    source={**source, "packs": model.get("packs") or []}, tenant=tenant)
         logger.info("Builder workspace created: %s, %d packs, tenant linked: %s",
                     workspace_id, len(model.get("packs") or []), tenant is not None)
         session[SESSION_WORKSPACE] = workspace_id

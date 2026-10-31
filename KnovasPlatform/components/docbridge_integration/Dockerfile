@@ -98,8 +98,8 @@ PY
 # --no-deps: its dependencies are the Platform's (requirements.txt pins PyYAML, jsonschema and requests; jmespath
 # and defusedxml are pinned there at the package's versions). The package pins requests==2.34.2; the Platform
 # keeps 2.32.0 until both agree (a pin in a library is too strict; noted for KnowledgeBase).
-ARG BRAIN_RUNNER_VERSION=0.1.0.dev2
-ARG BRAIN_RUNNER_GIT_REF=1ff8491714c6ae06a6ea9064cc1dfbf6afee821a
+ARG BRAIN_RUNNER_VERSION=0.1.1
+ARG BRAIN_RUNNER_GIT_REF=43ea868e85b1be8ffa6299aa35289e74e28bf000
 RUN --mount=type=secret,id=kb_read_token,required=false     if [ -s /run/secrets/kb_read_token ]; then       git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/"       && pip install --no-cache-dir --no-deps         "brain-runner @ git+https://github.com/Seifeddini/KnowledgeBase.git@${BRAIN_RUNNER_GIT_REF}#subdirectory=scripts/brain_runner"       && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf       && python -c "import brain_runner, os; assert brain_runner.__version__ == os.environ['BRAIN_RUNNER_VERSION'], brain_runner.__version__; print('brain-runner', brain_runner.__version__)";     else       echo "brain-runner not installed: no kb_read_token build secret (Sync von GitHub stays unavailable)";     fi
 
 # Copy application code

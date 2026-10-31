@@ -133,7 +133,12 @@ class Bundle:
 
     @property
     def label(self) -> str:
-        return str(self.header.get("label") or "")
+        """The company's key. brain-runner 0.1.0 and later give the manifest's
+        whole company ({key, name, kind}), earlier releases only the key."""
+        label = self.header.get("label")
+        if isinstance(label, dict):
+            return str(label.get("key") or label.get("name") or "")
+        return str(label or "")
 
     @property
     def content_hash(self) -> str:

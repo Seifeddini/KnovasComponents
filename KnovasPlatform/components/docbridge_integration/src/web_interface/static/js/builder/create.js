@@ -11,7 +11,7 @@
     var dialog = document.getElementById('b-create');
     if (!dialog) return;
 
-    var STEPS = [['name', 'Name'], ['tenant', 'Mandant'], ['packs', 'Pakete']];
+    var STEPS = [['name', 'Name'], ['tenant', 'Mandant'], ['packs', 'Ausgangspunkt']];
     var form = dialog.querySelector('[data-create-form]');
     var nameInput = dialog.querySelector('#b-create-name');
     var errorBox = dialog.querySelector('[data-create-error]');

@@ -159,8 +159,8 @@ The image installs a pinned release; the Platform never imports or runs code fro
 **Set-up, once:**
 
 1. **The package in the image.**
-   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.1.0.dev2`, commit `1ff84917`, tag
-     `brain-runner-v0.1.0.dev2` on KnowledgeBase).
+   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.1.1`, commit `43ea868e`, tag
+     `brain-runner-v0.1.1` on KnowledgeBase: fetch for the sync, ontology plan and apply for the builder).
    - KnowledgeBase is private, so the build needs a read-only token as a BuildKit secret, kept outside every checkout:
 
      ```bash

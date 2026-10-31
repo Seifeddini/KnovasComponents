@@ -1897,6 +1897,9 @@ def create_app(config_path: Optional[str] = None):
             # workspace can be linked to from here.
             tenant_provider=lambda: api_client.customer_id,
             engine_factory=lambda: BrainRunnerEngine(_builder_brain_api),
+            # The tenant's own node types and their schemas, for a workspace
+            # that starts from what the tenant has.
+            tenant_ontology=lambda: (api_client.graph_node_types(), api_client.graph_schema),
         ))
 
         from identity.node_grants import NodeGrantStore

@@ -97,7 +97,7 @@ class PackageRunner:
         try:
             cfg = C.load(Path(config_file))
         except C.ConfigError as exc:
-            raise RunnerError(f"Konfiguration ungültig ({len(exc.errors)} Fehler)") from None
+            raise RunnerError(f"Konfiguration ungültig ({len(getattr(exc, 'errors', None) or [exc])} Fehler)") from None
         src = self._source(repo, commit, token, cache)
         try:
             plan = make_plan(cfg, self._brain_api(), State.load(state_path), None, source=src)
@@ -150,7 +150,7 @@ class PackageRunner:
         try:
             fresh = B.build(cfg, out)
         except B.BundleError as exc:
-            raise RunnerError(f"Kein Definitionsbündel ({len(exc.errors)} Fehler)") from None
+            raise RunnerError(f"Kein Definitionsbündel: {str(exc)[:300]}") from None
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(B.dumps(fresh), encoding="utf-8", newline="\n")
         return {"content_hash": fresh["header"]["content_hash"]}

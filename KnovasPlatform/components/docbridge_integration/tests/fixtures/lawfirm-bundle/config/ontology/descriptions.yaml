@@ -1,0 +1,5 @@
+types:
+  Contract:
+    de: Vertrag
+    en: Contract
+    text: A signed or draft agreement on file.

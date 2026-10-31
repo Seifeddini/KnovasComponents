@@ -252,7 +252,8 @@ def test_a_new_workspace_from_the_dialog(browser, workspace_url, shots, width, s
     assert _no_sideways_scroll(page)
     page.screenshot(path=shots / f"b1-created{suffix}.png", full_page=True)
     page.goto(f"{workspace_url}/builder/ontologie")
-    assert "Noch keine Typen" in page.inner_text("main")
+    assert "Noch keine eigenen Typen" in page.inner_text("main")
+    page.wait_for_function("window.__builderOntology && window.__builderOntology.data().counts.reference === 80")
     page.screenshot(path=shots / f"b2-ontology-empty{suffix}.png")
     page.context.close()
 
