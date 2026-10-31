@@ -38,7 +38,11 @@ from builder import packs as shipped_packs
 TYPES = "ontology.types"
 RELATIONS = "ontology.relations"
 PACKS = "packs"
-SECTIONS = (TYPES, RELATIONS, PACKS)
+PROCESSES = "processes"
+PROCESS_RULES = "processes.rules"
+SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES)
+#: The field that names an element of a section; "key" where not listed.
+KEY_FIELDS = {PROCESS_RULES: "id"}
 
 #: The datatypes an attribute can be given in the builder.
 DATATYPES = ("text", "date", "money", "enum", "entity_ref")
@@ -67,29 +71,45 @@ class EditError(ValueError):
 # ------------------------------------------------------------------ changes
 
 
-def _items(model: dict, section: str) -> list:
+def key_field(section: str) -> str:
+    return KEY_FIELDS.get(section, "key")
+
+
+def _items(model: dict, section: str, *, create: bool = True) -> list:
+    """The section's list of elements; without ``create``, an absent one reads as empty and is not added."""
     if section not in SECTIONS:
         raise EditError("Unbekannter Teil des Modells.")
     if section == PACKS:
-        return model.setdefault("packs", [])
+        return model.setdefault("packs", []) if create else (model.get("packs") or [])
+    if section in (PROCESSES, PROCESS_RULES):
+        name = "processes" if section == PROCESSES else "rules"
+        doc = model.get("processes")
+        if not isinstance(doc, dict):
+            if not create:
+                return []
+            doc = model["processes"] = {"processes": []}
+        return doc.setdefault(name, []) if create else (doc.get(name) or [])
     return model.setdefault("ontology", {}).setdefault(section.split(".", 1)[1], [])
 
 
 def put(model: dict, change: Mapping[str, Any], *, reverse: bool = False) -> None:
     """Apply ``change`` to ``model`` (or take it back, ``reverse``)."""
     section = change["path"].split("/", 1)[0]
+    name = key_field(section)
     before, after = (change["after"], change["before"]) if reverse else (change["before"], change["after"])
     items = _items(model, section)
     if before is None:
-        if any(item.get("key") == after["key"] for item in items):
-            raise EditError(f"«{after['key']}» gibt es inzwischen schon.", 409)
+        if any(item.get(name) == after[name] for item in items):
+            raise EditError(f"«{after[name]}» gibt es inzwischen schon.", 409)
         items.append(copy.deepcopy(after))
         return
-    index = next((n for n, item in enumerate(items) if item.get("key") == before["key"]), None)
+    index = next((n for n, item in enumerate(items) if item.get(name) == before[name]), None)
     if index is None or items[index] != before:
-        raise EditError(f"«{before['key']}» wurde inzwischen geändert.", 409)
+        raise EditError(f"«{before[name]}» wurde inzwischen geändert.", 409)
     if after is None:
         del items[index]
+        if section == PROCESS_RULES and not items:
+            model["processes"].pop("rules", None)  # a rules list the edit made is gone again with its last rule
     else:
         items[index] = copy.deepcopy(after)
 
@@ -102,7 +122,8 @@ class _Edit:
         self.changes: list[dict] = []
 
     def find(self, section: str, key: Any) -> dict | None:
-        return next((item for item in _items(self.model, section) if item.get("key") == key), None)
+        name = key_field(section)
+        return next((item for item in _items(self.model, section, create=False) if item.get(name) == key), None)
 
     def type(self, key: Any) -> dict:
         item = self.find(TYPES, key)
@@ -134,7 +155,8 @@ class _Edit:
             return
         named = old if old is not None else new
         assert named is not None
-        change = {"path": f"{section}/{named['key']}", "before": copy.deepcopy(old), "after": copy.deepcopy(new)}
+        change = {"path": f"{section}/{named[key_field(section)]}", "before": copy.deepcopy(old),
+                  "after": copy.deepcopy(new)}
         put(self.model, change)
         self.changes.append(change)
 
@@ -634,6 +656,10 @@ OPERATIONS: dict[str, Callable[[_Edit, Mapping[str, Any]], None]] = {
     "relation.retire": _relation_retire,
     "pack.apply": _pack_apply,
 }
+
+
+# The process operations (step B6) register themselves in OPERATIONS.
+from builder import process_edits  # noqa: E402,F401  - late: it builds on the helpers above
 
 
 def apply(model: dict, op: Any) -> list[dict]:

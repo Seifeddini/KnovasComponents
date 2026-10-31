@@ -16,8 +16,12 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, Optional
 
-SECTIONS = {"ontology.types": "Typen", "ontology.relations": "Beziehungen", "packs": "Pakete"}
-KINDS = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand"}
+from builder import processes
+
+SECTIONS = {"ontology.types": "Typen", "ontology.relations": "Beziehungen", "packs": "Pakete",
+            "processes": "Prozesse", "processes.rules": "Prozessregeln"}
+KINDS = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand",
+         "processes": "Prozess", "processes.rules": "Prozessregel"}
 #: Change rows that are not about one element: where the draft came from.
 ORIGINS = {"import": "Paket importiert", "create": "Angelegt"}
 
@@ -42,6 +46,11 @@ def state_of(before: Optional[Mapping[str, Any]], after: Optional[Mapping[str, A
 
 def describe(item: Mapping[str, Any]) -> str:
     """One line for an element that is new."""
+    if "steps" in item:
+        steps = processes.step_ids(item)
+        return f"{item.get('name') or item.get('key')} · {len(steps)} Schritte" + (f": {' → '.join(steps)}" if steps else "")
+    if "check" in item:
+        return f"{item.get('name') or item.get('id')} ({item['id']})"
     parts = [(item.get("label") or {}).get("de") or str(item.get("key"))]
     if "version" in item and "key" in item and len(item) == 2:
         return f"Version {item['version']}"
@@ -91,6 +100,57 @@ def field_lines(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[dic
     return lines
 
 
+_PROCESS_FIELDS = {"name": "Name", "description": "Beschreibung", "owner_role": "Verantwortliche Rolle",
+                   "instance_types": "Instanztypen", "governing_fact": "Steuerndes Attribut", "value_stream": "Wertstrom",
+                   "context": "Kontext-Artefakte", "change_classes": "Änderungsklassen"}
+_STEP_FIELDS = {"name": "Name", "description": "Beschreibung", "owner_role": "Rolle", "resting": "Ruheschritt",
+                "requires": "braucht", "produces": "liefert", "exit_criteria": "Abschlusskriterien"}
+
+
+def process_lines(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[dict]:
+    """The differences between two versions of a process: steps, transitions, status map, the rest."""
+    lines = []
+    old_steps = {str(processes.step_of(s).get("id")): processes.step_of(s) for s in before.get("steps") or []}
+    new_steps = {str(processes.step_of(s).get("id")): processes.step_of(s) for s in after.get("steps") or []}
+    for sid, step in new_steps.items():
+        if sid not in old_steps:
+            lines.append({"sign": "added", "text": f"Schritt {sid}"})
+            continue
+        was = old_steps[sid]
+        changed = [label for field, label in _STEP_FIELDS.items() if was.get(field) != step.get(field)]
+        if changed:
+            lines.append({"sign": "changed", "text": f"Schritt {sid}: {', '.join(changed)}"})
+    for sid in old_steps:
+        if sid not in new_steps:
+            lines.append({"sign": "removed", "text": f"Schritt {sid}"})
+    shared = [s for s in new_steps if s in old_steps]
+    if [s for s in old_steps if s in new_steps] != shared:
+        lines.append({"sign": "changed", "text": "Reihenfolge der Schritte"})
+    old_t = {(a, b): r for a, b, r in processes.transitions_of(before)}
+    new_t = {(a, b): r for a, b, r in processes.transitions_of(after)}
+    for (a, b), rework in new_t.items():
+        kind = "Nacharbeit" if rework else "Übergang"
+        if (a, b) not in old_t:
+            lines.append({"sign": "added", "text": f"{kind} {a} → {b}"})
+        elif old_t[(a, b)] != rework:
+            lines.append({"sign": "changed", "text": f"{a} → {b} ist jetzt {'Nacharbeit' if rework else 'ein Übergang vorwärts'}"})
+    for (a, b), rework in old_t.items():
+        if (a, b) not in new_t:
+            lines.append({"sign": "removed", "text": f"{'Nacharbeit' if rework else 'Übergang'} {a} → {b}"})
+    old_map, new_map = before.get("status_map") or {}, after.get("status_map") or {}
+    for t in sorted(set(old_map) | set(new_map)):
+        o, n = old_map.get(t) or {}, new_map.get(t) or {}
+        for value in [v for v in n if v not in o or o[v] != n[v]]:
+            lines.append({"sign": "changed" if value in o else "added",
+                          "text": f"Status {t} = {value} → {n[value] or '(nicht aus dem Wert)'}"})
+        for value in [v for v in o if v not in n]:
+            lines.append({"sign": "removed", "text": f"Status {t} = {value}"})
+    for field, label in _PROCESS_FIELDS.items():
+        if before.get(field) != after.get(field):
+            lines.append({"sign": "changed", "text": f"{label} geändert"})
+    return lines
+
+
 def element_diff(path: str, before: Optional[Mapping[str, Any]], after: Optional[Mapping[str, Any]]) -> dict:
     """One element's group of diff lines."""
     section, _, key = path.partition("/")
@@ -104,7 +164,8 @@ def element_diff(path: str, before: Optional[Mapping[str, Any]], after: Optional
         lines = [{"sign": "added", "text": "Wieder aktiv"}] + field_lines(
             {**(before or {}), "retired": False}, {**(after or {}), "retired": False})
     elif state == "changed":
-        lines = field_lines(before or {}, after or {}) or [{"sign": "changed", "text": "Kleine Änderungen"}]
+        compare = process_lines if section == "processes" else field_lines
+        lines = compare(before or {}, after or {}) or [{"sign": "changed", "text": "Kleine Änderungen"}]
     else:
         lines = []
     return {"section": section, "kind": KINDS.get(section, section), "key": key, "path": path, "state": state,

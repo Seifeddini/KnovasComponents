@@ -25,6 +25,7 @@ package itself.
 from __future__ import annotations
 
 import copy
+import datetime
 import fnmatch
 import hashlib
 import io
@@ -582,7 +583,36 @@ def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
             files[item["file"]] = dump_yaml(item["definition"])
     for path, text in (model["package"].get("files") or {}).items():
         files[path] = text.encode("utf-8")
+    _regenerate_processes(model, manifest, files)
     return files
+
+
+def _regenerate_processes(model: Mapping[str, Any], manifest: Mapping[str, Any], files: dict[str, bytes]) -> None:
+    """The machine form of the processes, when the manifest names one and the processes changed (step B6).
+
+    brain-runner bundles ``generated.processes`` instead of the YAML when the
+    manifest lists it, so a kept copy would hide every edit. Unchanged
+    processes keep the file byte for byte; changed ones replace its rules and
+    processes and keep the rest (report rules, source) as the company made it.
+    """
+    from builder import processes  # late: processes reads the schema file
+
+    path = (manifest.get("generated") or {}).get("processes") if isinstance(manifest.get("generated"), dict) else None
+    doc = model.get("processes")
+    if not path or path not in files or not isinstance(doc, dict):
+        return
+    try:
+        kept = json.loads(files[path].decode("utf-8"))
+    except ValueError:
+        kept = {}
+    normal = processes.normalise(doc)
+    if kept.get("processes") == normal["processes"] and kept.get("rules") == normal["rules"]:
+        return
+    out = dict(kept) or {"version": normal["version"]}
+    out.update(version=normal["version"], generated_at=datetime.date.today().isoformat(),
+               rules=normal["rules"], processes=normal["processes"])
+    out.setdefault("report_rules", normal["report_rules"])
+    files[path] = (json.dumps(out, indent=1, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def company_key(name: str) -> str:

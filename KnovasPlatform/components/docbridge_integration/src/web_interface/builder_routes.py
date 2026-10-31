@@ -31,7 +31,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
                    session, url_for)
 from markupsafe import Markup
 
-from builder import editing, ontology_view, package, publisher, review, tenant_ontology as tenant_reader
+from builder import editing, ontology_view, package, processes, publisher, review, tenant_ontology as tenant_reader
 from builder import packs as shipped_packs
 
 logger = logging.getLogger(__name__)
@@ -212,7 +212,8 @@ def create_builder_blueprint(
     @bp.app_template_filter("b_change_label")
     def _change_label(path):
         section, _, key = str(path).partition("/")
-        element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket"}.get(section)
+        element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket",
+                   "processes": "Prozess", "processes.rules": "Prozessregel"}.get(section)
         return f"{element} {key}" if element and key else CHANGE_LABELS.get(path, path)
 
     @bp.app_template_filter("b_version_tag")
@@ -288,6 +289,13 @@ def create_builder_blueprint(
             if workspace is not None:
                 return _render("builder/review.html", stage=current, stage_number=number,
                                current_workspace=workspace, **_review_context(store, workspace))
+        if current.slug == "prozesse":
+            store = _store()
+            workspace = _current_workspace(store)
+            if workspace is not None:
+                return _render("builder/processes.html", stage=current, stage_number=number,
+                               current_workspace=workspace, history=_history_counts(workspace.id),
+                               processes=processes.build(store.model(workspace.id)))
         if current.slug == "ontologie":
             store = _store()
             workspace = _current_workspace(store)
@@ -459,9 +467,11 @@ def create_builder_blueprint(
 
     def _edited(store, workspace_id: str, model: dict, changes: list, what: str):
         logger.info("Builder edit: workspace %s, %s, %d elements", workspace_id, what, len(changes))
+        # The page that edits says which view it redraws: the ontology (B3) or the processes (B6).
+        view = ({"processes": processes.build(model)} if request.args.get("view") == "processes"
+                else {"ontology": ontology_view.build(model)})
         return jsonify({"success": True, "changes": len(changes),
-                        "history": _history_counts(workspace_id),
-                        "ontology": ontology_view.build(model)})
+                        "history": _history_counts(workspace_id), **view})
 
     def _refused(exc: editing.EditError):
         return jsonify({"success": False, "error": exc.message, "details": exc.details}), exc.status

@@ -730,3 +730,144 @@ def test_publishing_client_zero(browser, publishing_server, shots, import_zip):
     assert store.published_bundle(workspace.id)["number"] == 1
     page.screenshot(path=shots / "b5-5-result.png", full_page=True)
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B6: processes as flows, published through B5.
+# ---------------------------------------------------------------------------
+
+_PROC = "window.__builderProcesses"
+_LIFECYCLE = f"{_PROC}.data().processes.find(p => p.key === 'PROC-feature-lifecycle')"
+
+
+def _proc(page, expression):
+    return page.evaluate(f"() => {{ const p = {_LIFECYCLE}; return {expression}; }}")
+
+
+def _drag_transition(page, source, target):
+    """Shift-drag on the canvas from one step's box onto another's."""
+    box = page.locator("#b-proc-graph").bounding_box()
+    points = page.evaluate("([a, b]) => [a, b].map(id => window.__builderProcesses.cy().getElementById('s:' + id).renderedPosition())",
+                           [source, target])
+    page.keyboard.down("Shift")
+    page.mouse.move(box["x"] + points[0]["x"], box["y"] + points[0]["y"])
+    page.mouse.down()
+    page.mouse.move(box["x"] + (points[0]["x"] + points[1]["x"]) / 2, box["y"] + points[0]["y"] + 40, steps=6)
+    page.mouse.move(box["x"] + points[1]["x"], box["y"] + points[1]["y"], steps=6)
+    page.mouse.up()
+    page.keyboard.up("Shift")
+
+
+def _check_text(page):
+    return page.inner_text("[data-proc-check-list]")
+
+
+def test_processes_of_client_zero(browser, publishing_server, shots, import_zip):
+    s = publishing_server
+    base, store = s["base"], s["store"]
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, base, import_zip)
+    [workspace] = store.list()
+    if not any(p["key"] == "PROC-feature-lifecycle" for p in (store.model(workspace.id)["processes"] or {}).get("processes", [])):
+        pytest.skip("needs the Client Zero package in $BUILDER_IMPORT_ZIP")
+
+    # The Client Zero processes from the import, PROC-feature-lifecycle opened.
+    page.goto(f"{base}/builder/prozesse#PROC-feature-lifecycle")
+    page.wait_for_selector("html[data-proc-ready='true']")
+    assert page.locator("[data-proc-list] li").count() == 7
+    assert _proc(page, "p.steps.length") == 11
+    assert "Keine Probleme" in _check_text(page)
+    page.screenshot(path=shots / "b6-01-feature-lifecycle.png")
+
+    # A new step after "verified".
+    page.locator("[data-proc-new-step]").click()
+    page.fill("#b-ns-id", "security-review")
+    page.fill("#b-ns-name", "Sicherheitsprüfung")
+    page.select_option("#b-ns-after", "verified")
+    page.screenshot(path=shots / "b6-02-new-step.png")
+    page.locator("#b-proc-new-step").get_by_role("button", name="Schritt anlegen").click()
+    _wait_for(page, f"() => {_LIFECYCLE}.steps.some(s => s.id === 'security-review')")
+    assert _proc(page, "p.steps.map(s => s.id).indexOf('security-review')") == 8
+
+    # The check sees what the new step lacks: no way in, no way out.
+    check = _check_text(page)
+    assert "Kein Übergang führt vom ersten Schritt idea zu security-review" in check
+    assert "Aus security-review führt kein Übergang hinaus" in check
+    page.wait_for_timeout(400)  # the panel has slid in
+    page.screenshot(path=shots / "b6-03-validation.png")
+
+    # One exit criterion, written as text: a new process rule.
+    panel = page.locator("#b-proc-panel")
+    panel.locator("summary", has_text="Neues Kriterium als Text").click()
+    criterion = panel.locator(".b-proc-new-criterion")
+    criterion.get_by_label("Kriterium", exact=True).fill("Sicherheitsprüfung abgeschlossen")
+    criterion.get_by_label("Attribut der Instanz").select_option("owner")
+    criterion.get_by_role("button", name="Kriterium anlegen").click()
+    _wait_for(page, f"() => {_LIFECYCLE}.steps.find(s => s.id === 'security-review').exit_criteria.length === 1")
+    assert _proc(page, "p.steps.find(s => s.id === 'security-review').exit_criteria") == ["P-sicherheitspruefung-abgeschlossen"]
+
+    # An artefact through the path picker: a passing test run that verifies the plan.
+    panel.locator(".b-panel-section", has_text="Liefert").get_by_role("button", name="Artefakt hinzufügen").click()
+    form = panel.locator(".b-proc-artefact-form")
+    hop = form.get_by_label("Pfad, Schritt 1")
+    offered = hop.locator("option").all_inner_texts()
+    assert "← verifies · TestRun" in offered
+    # Only relations whose domain fits a FeaturePlan: "serves" goes out of a plan, never into one.
+    assert "serves → Capability" in offered and "← serves · FeaturePlan" not in offered
+    hop.select_option(label="← verifies · TestRun")
+    form.get_by_label("Nur wenn").select_option("outcome")
+    form.get_by_label("gleich").fill("passed")
+    form.scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b6-04-artefact.png")
+    form.get_by_role("button", name="Artefakt hinzufügen").click()
+    _wait_for(page, f"() => {_LIFECYCLE}.steps.find(s => s.id === 'security-review').produces.length === 1")
+
+    # Transitions drawn on the canvas: in, out, and a rework loop back to implementing.
+    for source, target in (("verified", "security-review"), ("security-review", "implemented"),
+                           ("security-review", "implementing")):
+        before = _proc(page, "p.transitions.length")
+        _drag_transition(page, source, target)
+        _wait_for(page, f"() => {_LIFECYCLE}.transitions.length === {before + 1}")
+    transitions = _proc(page, "p.transitions.filter(t => t.from === 'security-review' || t.to === 'security-review')")
+    assert {(t["from"], t["to"], t["rework"]) for t in transitions} == {
+        ("verified", "security-review", False), ("security-review", "implemented", False),
+        ("security-review", "implementing", True)}
+    assert page.evaluate(f"() => {_PROC}.cy().getElementById('t:security-review>implementing').hasClass('rework')")
+    assert "Keine Probleme" in _check_text(page)
+    page.locator("#b-proc-panel [data-panel-close]").click()
+    page.screenshot(path=shots / "b6-05-rework-loop.png")
+
+    # A rework marked as forward closes a cycle: the check names it.
+    page.evaluate(f"() => {_PROC}.cy().getElementById('t:security-review>implementing').emit('tap')")
+    rework = panel.get_by_label("Nacharbeit: führt zu einem früheren Schritt zurück")
+    rework.uncheck()
+    _wait_for(page, "() => document.querySelector('[data-proc-check-list]').innerText.includes('bilden einen Kreis')")
+    page.wait_for_timeout(400)
+    page.screenshot(path=shots / "b6-06-cycle-found.png")
+    panel.get_by_label("Nacharbeit: führt zu einem früheren Schritt zurück").check()
+    _wait_for(page, "() => document.querySelector('[data-proc-check-list]').innerText.includes('Keine Probleme')")
+
+    # Published through B5.
+    page.goto(f"{base}/builder/pruefen")
+    page.get_by_role("button", name="Mit diesem Mandanten verbinden").click()
+    page.wait_for_selector("[data-publish-dry-run]")
+    main = page.inner_text("main")
+    assert "PROC-feature-lifecycle" in main
+    assert "Schritt security-review" in main and "Nacharbeit security-review → implementing" in main
+    page.screenshot(path=shots / "b6-07-change-set.png", full_page=True)
+    page.get_by_role("button", name="Probelauf starten").click()
+    page.wait_for_selector(".b-rv-counts")
+    s["gate"].user = s["reviewer"]
+    page.reload()
+    page.get_by_role("button", name="Diesen Stand freigeben").click()
+    page.wait_for_selector(".b-rv-approvals")
+    s["gate"].user = s["author"]
+    page.reload()
+    page.get_by_role("button", name="Veröffentlichen").click()
+    page.wait_for_selector("text=Nichts zu veröffentlichen")
+    published = store.published_bundle(workspace.id)["bundle"]["sections"]["processes"]
+    lifecycle = next(p for p in published["processes"] if p["key"] == "PROC-feature-lifecycle")
+    assert ["security-review", "implementing", "rework"] in lifecycle["transitions"]
+    assert any(r["id"] == "P-sicherheitspruefung-abgeschlossen" for r in published["rules"])
+    page.screenshot(path=shots / "b6-08-published.png", full_page=True)
+    page.context.close()

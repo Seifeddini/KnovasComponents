@@ -223,7 +223,8 @@ class FakeEngine:
         import json
 
         files = package.write_package(model)
-        sections = {"types": [t["key"] for t in model["ontology"]["types"] if not t.get("retired")]}
+        sections = {"types": [t["key"] for t in model["ontology"]["types"] if not t.get("retired")],
+                    "processes": model.get("processes")}
         digest = content_hash(sections)
         bundle = {"header": {"format": "brain-definitions-bundle", "format_version": 1, "content_hash": "sha256:" + digest},
                   "sections": sections}
