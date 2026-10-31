@@ -1900,6 +1900,8 @@ def create_app(config_path: Optional[str] = None):
             # The tenant's own node types and their schemas, for a workspace
             # that starts from what the tenant has.
             tenant_ontology=lambda: (api_client.graph_node_types(), api_client.graph_schema),
+            # The views read the sync's bundle: a published version becomes it.
+            publish_sink=lambda text, **info: app.extensions['brain_sync'].adopt(text, **info),
         ))
 
         from identity.node_grants import NodeGrantStore

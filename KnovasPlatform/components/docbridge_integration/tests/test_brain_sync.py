@@ -229,6 +229,21 @@ class TestSync:
         store = bundles.BundleStore(600, sync_path=lambda tenant: svc.bundle_path())
         assert store.get("tenant-a", "sync").label == "KANZLEI-X"
 
+    def test_a_published_bundle_becomes_the_views_source(self, world, platform_db, admin):
+        """The Brain Builder's publish (build plan step B5) hands its bundle to the views through the sync's source."""
+        import json as _json
+
+        svc = _service(world, SyncStore(platform_db))
+        forgotten = []
+        svc._on_success = forgotten.append
+        bundle = {"format": "brain-definitions-bundle", "format_version": 1,
+                  "header": {"format": "brain-definitions-bundle", "format_version": 1, "content_hash": "sha256:" + "a" * 64,
+                             "label": {"key": "KANZLEI-X", "name": "Kanzlei X"}},
+                  "sections": {"types": None}}
+        path = svc.adopt(_json.dumps(bundle), source="builder-v1", content_hash="sha256:" + "a" * 64)
+        assert svc.bundle_path() == path and svc.default_bundle_source() == "sync"
+        assert svc.current()["source"] == "builder-v1" and forgotten == ["tenant-a"]
+
     def test_the_token_is_in_no_log(self, world, platform_db, admin, caplog):
         caplog.set_level(logging.DEBUG)
         svc = _service(world, SyncStore(platform_db))

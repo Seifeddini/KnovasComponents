@@ -228,3 +228,88 @@ def test_the_plan_table():
         "not_configured": [{"type": "Invoice", "attribute": "number"}], "unresolved_parents": ["Hearing"]})
     assert table["counts"] == {"create": 1, "update": 1, "refused": 1, "not_configured": 1}
     assert table["rows"][1] == {"element": "Mandate.status", "status": "update", "detail": "Attribut ändern"}
+
+
+class TestAfterThePublish:
+    def test_a_run_event_and_the_views(self, setup):
+        s = setup
+        handed = []
+        from builder_harness import make_app
+
+        app = make_app(s["author"], s["store"], tenant=TENANT, engine=s["engine"],
+                       publish_sink=lambda text, **info: handed.append((text, info)))
+        client = app.test_client()
+        gate = app.extensions["builder_gate"]
+        client.post(f"/builder/api/w/{s['id']}/ontology", json={"op": "type.create", "key": "Invoice"})
+        client.post(f"/builder/api/w/{s['id']}/dry-run")
+        gate.user = s["reviewer"]
+        client.post(f"/builder/api/w/{s['id']}/approve", json={"content_hash": _hash(s)})
+        gate.user = s["author"]
+        result = client.post(f"/builder/api/w/{s['id']}/publish", json={"content_hash": _hash(s)}).get_json()["result"]
+        assert result["run_event"] == {"written": True, "key": "EVT-builder-publish-v1", "errors": [], "why": None}
+        assert s["engine"].events[0]["version"] == 1 and s["engine"].events[0]["condition"] == "Ready"
+        assert result["views"] == {"adopted": True}
+        [(text, info)] = handed
+        assert info["source"] == "builder-v1" and '"brain-definitions-bundle"' in text
+
+    def test_without_the_sync_the_views_keep_their_source(self, setup):
+        s = setup
+        s["client"].post(f"/builder/api/w/{s['id']}/ontology", json={"op": "type.create", "key": "Invoice"})
+        _post(s, "dry-run")
+        _as(s, "reviewer")
+        _post(s, "approve", content_hash=_hash(s))
+        _as(s, "author")
+        result = _post(s, "publish", content_hash=_hash(s)).get_json()["result"]
+        assert result["views"]["adopted"] is False
+
+
+class FakeBrainApi:
+    def __init__(self, types=("RunEvent",)):
+        self.posts = []
+        self.types = [{"name": t, "id": f"id-{t}"} for t in types]
+
+    def get(self, path):
+        if path == "secured/graph/node-types":
+            return {"node_types": self.types}
+        return {"attributes": [{"name": n, "id": f"a-{n}"} for n in ("key", "occurred_at", "condition", "observed")]}
+
+    def post(self, path, body):
+        self.posts.append((path, body))
+        return 201, {"node": {"id": "n1"}} if path == "secured/graph/nodes" else {"fact": {"id": "f"}}
+
+
+class TestTheRunEvent:
+    def test_it_is_a_node_with_the_run_facts(self):
+        import datetime as dt
+
+        from builder import run_event
+
+        api = FakeBrainApi()
+        model = package.read_package(package.blank_package("Muster")).model
+        got = run_event.write(api, model, version=3, condition="Ready", reason="Published", message="",
+                              observed="5 written", now=dt.datetime(2026, 10, 31, 12, 0, 5, tzinfo=dt.timezone.utc))
+        assert got == {"written": True, "key": "EVT-builder-publish-v3-2026-10-31-120005", "errors": [], "why": None}
+        node = api.posts[0]
+        assert node[0] == "secured/graph/nodes" and node[1]["node_type_id"] == "id-RunEvent"
+        facts = {b["label"]: b for p, b in api.posts[1:]}
+        assert set(facts) == {"key", "occurred_at", "condition", "reason", "observed"}
+        assert facts["key"]["attribute_id"] == "a-key" and "attribute_id" not in facts["reason"]
+
+    def test_the_configuration_names_type_prefix_and_actor(self):
+        from builder import run_event
+
+        api = FakeBrainApi(types=("Event",))
+        model = package.read_package(package.blank_package("Muster")).model
+        model["package"]["manifest"]["runner"] = {"run_record": {"type": "Event", "key_prefix": "EVT-x-",
+                                                                 "actor": {"key": "AGENT-builder"}}}
+        got = run_event.write(api, model, version=1, condition="Ready", reason="Published", message="", observed="")
+        assert got["key"].startswith("EVT-x-publish-v1-")
+        assert ("actor" in {b["label"] for _, b in api.posts[1:]})
+
+    def test_a_tenant_without_the_type_gets_none(self):
+        from builder import run_event
+
+        model = package.read_package(package.blank_package("Muster")).model
+        got = run_event.write(FakeBrainApi(types=()), model, version=1, condition="Ready", reason="Published",
+                              message="", observed="")
+        assert got["written"] is False and "RunEvent" in got["why"]

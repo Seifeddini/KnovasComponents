@@ -150,6 +150,7 @@ def create_builder_blueprint(
     tenant_provider: Optional[Callable[[], Optional[str]]] = None,
     engine_factory: Optional[Callable[[], Any]] = None,
     tenant_ontology: Optional[Callable[[], tuple]] = None,
+    publish_sink: Optional[Callable[..., Any]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -169,6 +170,10 @@ def create_builder_blueprint(
     ``tenant_ontology`` returns the tenant's node types and a function that
     reads one type's schema (the Platform's own client, on its certificate):
     a new workspace can start from what the tenant already has.
+
+    ``publish_sink(bundle_text, source=, content_hash=)`` hands a published
+    bundle to the views: the sync's source (brain_sync.SyncService.adopt), so
+    the views read what was published.
 
     ``engine_factory`` returns the engine that compiles, dry-runs and applies
     a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
@@ -665,6 +670,9 @@ def create_builder_blueprint(
         if status != "failed":
             number = store.publish(current.id, gate.current_user().id, content, compiled.bundle, compiled.bundle_hash)
             summary["published_number"] = number
+        if number is not None:
+            summary["run_event"] = _run_event(engine, model, number, status, summary)
+            summary["views"] = _hand_to_views(compiled, number)
         store.record_run(current.id, kind="apply", actor_id=gate.current_user().id, tenant=tenant,
                          content_hash=content, bundle_hash=compiled.bundle_hash, status=status, summary=summary)
         logger.info("Builder publish: workspace %s, status %s, %d written, %d refused, version %s",
@@ -672,6 +680,32 @@ def create_builder_blueprint(
         return jsonify({"success": status != "failed", "status": status, "result": summary,
                         "error": "Das Brain hat Fehler gemeldet." if status == "failed" else None}), \
             (200 if status != "failed" else 502)
+
+    def _run_event(engine, model, number, status, summary) -> dict:
+        """The publish's RunEvent on the tenant; its failure does not undo the publish."""
+        try:
+            return engine.run_event(
+                model, version=number, condition="Ready" if status == "ok" else "Degraded",
+                reason="Published" if status == "ok" else "Refused",
+                message=(f"{len(summary['refused'])} refused: " + ", ".join(summary["refused"][:20]))
+                if summary["refused"] else "",
+                observed=f"{summary['written']} written; {len(summary['refused'])} refused; "
+                         f"{len(summary['skipped'])} skipped")
+        except Exception as exc:  # noqa: BLE001 - reported, not raised
+            logger.warning("Builder RunEvent not written: %s", type(exc).__name__)
+            return {"written": False, "key": None, "errors": [type(exc).__name__], "why": None}
+
+    def _hand_to_views(compiled, number) -> dict:
+        """Make the published bundle the views' source; a failure is reported, the publish stands."""
+        if publish_sink is None:
+            return {"adopted": False, "why": "Die Ansichten dieser Plattform lesen keinen Sync."}
+        try:
+            publish_sink(compiled.bundle_bytes.decode("utf-8"), source=f"builder-v{number}",
+                         content_hash=compiled.content_hash)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Builder: the views did not take the bundle: %s", type(exc).__name__)
+            return {"adopted": False, "why": type(exc).__name__}
+        return {"adopted": True}
 
     @bp.route("/api/w/<workspace_id>/bundle")
     def published_bundle(workspace_id: str):

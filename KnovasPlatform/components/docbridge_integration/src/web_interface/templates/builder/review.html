@@ -181,7 +181,9 @@
             <tbody>
                 {% for r in runs %}
                 <tr>
-                    <td>{{ 'Probelauf' if r.kind == 'dry_run' else 'Veröffentlichung' }}{% if r.summary.published_number %} · Version {{ r.summary.published_number }}{% endif %}</td>
+                    <td>{{ 'Probelauf' if r.kind == 'dry_run' else 'Veröffentlichung' }}{% if r.summary.published_number %} · Version {{ r.summary.published_number }}{% endif %}
+                        {% if r.summary.run_event %}<br><span class="b-small b-muted">{% if r.summary.run_event.written %}RunEvent <span class="b-mono">{{ r.summary.run_event.key }}</span>{% else %}Kein RunEvent{% if r.summary.run_event.why %}: {{ r.summary.run_event.why }}{% endif %}{% endif %}</span>{% endif %}
+                        {% if r.summary.views %}<br><span class="b-small b-muted">{{ 'Die Ansichten lesen diesen Stand.' if r.summary.views.adopted else 'Die Ansichten lesen weiter den letzten Sync.' }}</span>{% endif %}</td>
                     <td>{% set tone = {'ok': 'good', 'refused': 'warning', 'failed': 'critical'}[r.status] %}<span class="b-tag b-tag--{{ tone }}">{{ {'ok': 'in Ordnung', 'refused': 'mit Ablehnungen', 'failed': 'fehlgeschlagen'}[r.status] }}</span>
                         {% if r.kind == 'apply' and r.summary.written is defined %}<span class="b-small b-muted">{{ r.summary.written }} geschrieben</span>{% endif %}</td>
                     <td>{{ r.actor_name or '–' }}</td>

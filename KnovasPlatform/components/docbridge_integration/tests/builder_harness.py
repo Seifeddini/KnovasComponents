@@ -209,6 +209,7 @@ class FakeEngine:
         self._missing = missing
         self._version = version
         self.applied = []
+        self.events = []
 
     def version(self):
         return self._version
@@ -258,8 +259,12 @@ class FakeEngine:
         self.applied.append(plan)
         return {"written": written, "refused": list(plan["unresolved_parents"]), "skipped": [], "errors": []}
 
+    def run_event(self, model, **facts):
+        self.events.append(facts)
+        return {"written": True, "key": f"EVT-builder-publish-v{facts['version']}", "errors": [], "why": None}
 
-def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None) -> Flask:
+
+def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -296,5 +301,6 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None)
         tenant_provider=lambda: tenant,
         tenant_ontology=(lambda: (tenant_types[0], tenant_types[1])) if tenant_types is not None else None,
         engine_factory=(lambda: engine) if engine is not None else None,
+        publish_sink=publish_sink,
     ))
     return app

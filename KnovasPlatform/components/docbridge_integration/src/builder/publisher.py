@@ -55,6 +55,7 @@ class Engine(Protocol):
     def compile(self, model: Mapping[str, Any]) -> Compiled: ...
     def plan(self, model: Mapping[str, Any], tenant: str) -> dict: ...
     def apply(self, model: Mapping[str, Any], tenant: str, plan: dict) -> dict: ...
+    def run_event(self, model: Mapping[str, Any], **facts: Any) -> dict: ...
 
 
 def _rows(plan: Mapping[str, Any]) -> list[dict]:
@@ -149,3 +150,9 @@ class BrainRunnerEngine:
     def apply(self, model: Mapping[str, Any], tenant: str, plan: dict) -> dict:
         ontology = self._module("ontology")
         return ontology.apply(self._api_factory(), plan)
+
+    def run_event(self, model: Mapping[str, Any], **facts: Any) -> dict:
+        """The publish's RunEvent on the tenant, through the Brain API (builder.run_event)."""
+        from builder import run_event
+
+        return run_event.write(self._api_factory(), model, **facts)

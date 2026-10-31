@@ -116,6 +116,30 @@ class SyncService:
         cur = self.current()
         return cur["bundle"] if cur and Path(cur["bundle"]).is_file() else None
 
+    def adopt(self, bundle_text: str, *, source: str, content_hash: str) -> str:
+        """Make a bundle published elsewhere -- the Brain Builder's (build plan step B5) -- the views' current one.
+
+        Written like a sync's: ``outputs/<source>/bundle.json`` and ``current.json`` naming it, through a temporary
+        file. The evaluation of the last sync stays (a publish evaluates no mapping). Returns the bundle's path.
+        """
+        folder = self._dir() / "outputs" / source
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "bundle.json").write_text(bundle_text, encoding="utf-8", newline="\n")
+        previous = self.current()
+        evaluation = f"outputs/{source}/evaluation.json"
+        if previous and Path(previous["evaluation"]).is_file():
+            evaluation = str(Path(previous["evaluation"]).relative_to(self._dir()).as_posix())
+        else:
+            (folder / "evaluation.json").write_text('{"mappings": []}\n', encoding="utf-8", newline="\n")
+        current = {"commit": None, "source": source, "at": time.time(), "bundle": f"outputs/{source}/bundle.json",
+                   "evaluation": evaluation, "content_hash": content_hash, "package": self.runner.version()}
+        tmp = self._dir() / "current.json.tmp"
+        tmp.write_text(json.dumps(current, indent=1) + "\n", encoding="utf-8")
+        tmp.replace(self._dir() / "current.json")
+        if self._on_success is not None:
+            self._on_success(self._tenant())
+        return str(folder / "bundle.json")
+
     def default_bundle_source(self) -> Optional[str]:
         """``sync`` once a sync has succeeded (views.config_source's default), else None."""
         return "sync" if self.bundle_path() else None
