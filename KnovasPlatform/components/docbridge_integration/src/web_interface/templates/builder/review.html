@@ -1,0 +1,200 @@
+{# Stage 7 (build plan step B5): review and publish the draft. Expects
+   current_workspace, draft ({id, number, content_hash} or None), changes
+   (builder.review.change_set), author, authors, destructive, dry_run (the
+   newest dry run of this very draft, or None), approvals (of this draft),
+   runs, is_author, engine_missing, engine_version, platform_tenant,
+   published. The buttons are wired by static/js/builder/publish.js. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set ws = current_workspace %}
+{% set signs = {'added': '+', 'removed': '−', 'changed': '~'} %}
+{% set said = {'added': 'Neu: ', 'removed': 'Entfällt: ', 'changed': 'Geändert: '} %}
+{% set states = {'added': ('neu', 'good'), 'changed': ('geändert', 'accent'), 'removed': ('stillgelegt', 'critical'), 'restored': ('wieder aktiv', 'good')} %}
+{% block title %}{{ stage.label }} · {{ ws.name }}{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }} · {{ ws.name }}</p>
+    <h1 class="b-h1">{{ stage.label }}</h1>
+    <div class="b-tag-row">
+        {% if draft %}<span class="b-tag b-tag--accent">Entwurf {{ draft.number }}</span>{% else %}<span class="b-tag">Kein Entwurf</span>{% endif %}
+        {% if published %}<span class="b-tag b-tag--good"><span class="b-tag-dot"></span>Veröffentlicht {{ published.number }}</span>{% endif %}
+        {% if ws.tenant %}<span class="b-tag" title="Mandant {{ ws.tenant }}">Mandant {{ ws.tenant }}</span>{% else %}<span class="b-tag b-tag--warning">Kein Mandant verbunden</span>{% endif %}
+        {% if engine_version %}<span class="b-tag">brain-runner {{ engine_version }}</span>{% endif %}
+    </div>
+</header>
+
+<div data-publish
+     data-content-hash="{{ draft.content_hash if draft else '' }}"
+     data-tenant-url="{{ url_for('builder.link_tenant', workspace_id=ws.id) }}"
+     data-dry-run-url="{{ url_for('builder.dry_run', workspace_id=ws.id) }}"
+     data-approve-url="{{ url_for('builder.approve', workspace_id=ws.id) }}"
+     data-publish-url="{{ url_for('builder.publish', workspace_id=ws.id) }}">
+
+{% if not draft %}
+<section class="b-empty" aria-labelledby="b-rv-empty">
+    <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
+    <div class="b-empty-text">
+        <h2 class="b-h3" id="b-rv-empty">Nichts zu veröffentlichen</h2>
+        <p class="b-muted">Der Stand ist veröffentlicht. Eine Änderung in der Ontologie beginnt den nächsten Entwurf.</p>
+    </div>
+</section>
+{% else %}
+
+<ol class="b-rv-steps">
+<li class="b-rv-step" aria-labelledby="b-rv-changes">
+    <h2 class="b-h2" id="b-rv-changes">Änderungen</h2>
+    <form class="b-rv-filter" method="get">
+        <div class="b-field">
+            <label class="b-label" for="b-rv-author">Von</label>
+            <select class="b-select" id="b-rv-author" name="autor" data-publish-author>
+                <option value="">Allen</option>
+                {% for id, name in authors.items() %}<option value="{{ id }}" {% if author == id %}selected{% endif %}>{{ name }}</option>{% endfor %}
+            </select>
+        </div>
+        <noscript><button class="b-button b-button--secondary" type="submit">Filtern</button></noscript>
+        <div class="b-tag-row">
+            <span class="b-tag b-tag--good">{{ changes.counts.added }} neu</span>
+            <span class="b-tag b-tag--accent">{{ changes.counts.changed }} geändert</span>
+            <span class="b-tag b-tag--critical">{{ changes.counts.removed }} stillgelegt</span>
+            {% if changes.counts.restored %}<span class="b-tag b-tag--good">{{ changes.counts.restored }} wieder aktiv</span>{% endif %}
+        </div>
+    </form>
+    {% if changes.origin %}<p class="b-small b-muted">Ausgangsstand: {{ changes.origin.label }}{% if changes.origin.actor_name %} von {{ changes.origin.actor_name }}{% endif %}, {{ changes.origin.at | b_datetime }}.</p>{% endif %}
+    {% if not changes.total %}
+    <p class="b-muted">{% if author %}Von dieser Person gibt es in diesem Entwurf keine Änderung.{% else %}Der Entwurf hat seit dem Ausgangsstand keine Änderung.{% endif %}</p>
+    {% endif %}
+    {% for section in changes.sections %}
+    <section class="b-rv-section" aria-label="{{ section.label }}">
+        <h3 class="b-h3">{{ section.label }}</h3>
+        {% for g in section.elements %}
+        <div class="b-pack-diff-group">
+            <p class="b-rv-element"><span class="b-mono">{{ g.key }}</span> {% set st = states[g.state] %}<span class="b-tag b-tag--{{ st[1] }}">{{ st[0] }}</span>
+                <span class="b-small b-muted">{{ g.authors | join(', ') }} · {{ g.last_at | b_datetime }}</span></p>
+            <div class="b-diff">
+                {% for line in g.lines %}
+                <div class="b-diff-line b-diff-line--{{ line.sign }}">
+                    <span class="b-diff-sign" aria-hidden="true">{{ signs[line.sign] }}</span>
+                    <span class="b-diff-body"><span class="b-visually-hidden">{{ said[line.sign] }}</span>{{ line.text }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </section>
+    {% endfor %}
+</li>
+
+<li class="b-rv-step" aria-labelledby="b-rv-dry">
+    <h2 class="b-h2" id="b-rv-dry">Probelauf</h2>
+    <p class="b-muted">Übersetzt den Entwurf in ein Konfigurationspaket und ein Definitionsbündel und fragt den Mandanten, was sich ändern würde. Beim Mandanten wird nichts geschrieben.</p>
+    {% if not ws.tenant %}
+    <div class="b-callout b-callout--warning"><p class="b-callout-title">Der Arbeitsbereich ist mit keinem Mandanten verbunden.</p>
+        {% if platform_tenant %}<p>Diese Plattform gehört zum Mandanten <span class="b-mono">{{ platform_tenant }}</span>.</p>
+        <button type="button" class="b-button b-button--secondary" data-publish-link>Mit diesem Mandanten verbinden</button>{% endif %}
+    </div>
+    {% elif engine_missing %}
+    <div class="b-callout b-callout--warning"><p class="b-callout-title">{{ engine_missing }}</p></div>
+    {% else %}
+    <button type="button" class="b-button b-button--primary" data-publish-dry-run>Probelauf starten</button>
+    {% endif %}
+    {% if dry_run %}
+    {% set c = dry_run.summary.counts %}
+    <div class="b-stats b-stats--compact b-rv-counts">
+        {# Item access: c.update would be the dict's own method. #}
+        <div class="b-stat b-stat--small"><span class="b-stat-label">Anlegen</span><span class="b-stat-value">{{ c['create'] }}</span></div>
+        <div class="b-stat b-stat--small"><span class="b-stat-label">Ändern</span><span class="b-stat-value">{{ c['update'] }}</span></div>
+        <div class="b-stat b-stat--small"><span class="b-stat-label">Abgelehnt</span><span class="b-stat-value">{{ c['refused'] }}</span></div>
+        <div class="b-stat b-stat--small"><span class="b-stat-label">Nicht abbildbar</span><span class="b-stat-value">{{ c['not_configured'] }}</span></div>
+    </div>
+    <p class="b-small b-muted">Probelauf von {{ dry_run.actor_name or '–' }}, {{ dry_run.at | b_datetime }}, Bündel <span class="b-mono">{{ (dry_run.summary.bundle_content_hash or '')[7:19] }}</span>.</p>
+    {% if c['refused'] %}<div class="b-callout b-callout--critical" role="status"><p class="b-callout-title">Das Brain wird {{ c['refused'] }} {{ 'Element' if c['refused'] == 1 else 'Elemente' }} ablehnen.</p><p>Sie stehen unten; der Rest wird geschrieben.</p></div>{% endif %}
+    {% if not dry_run.summary.rows %}<p class="b-muted">Der Mandant hat diesen Stand schon: nichts zu tun.</p>{% endif %}
+    {% set groups = [('refused', 'Abgelehnt', 'critical'), ('create', 'Anlegen', 'good'), ('update', 'Ändern', 'accent'), ('not_configured', 'Nicht abbildbar: bleibt im Modell, das Brain hält es noch nicht', 'warning')] %}
+    {% for status, title, tone in groups %}
+    {% set rows = dry_run.summary.rows | selectattr('status', 'equalto', status) | list %}
+    {% if rows %}
+    <details class="b-rv-plan" {% if status != 'not_configured' and rows | length <= 40 %}open{% endif %}>
+        <summary>{{ title }} <span class="b-tag b-tag--{{ tone }}">{{ rows | length }}</span></summary>
+        <div class="b-table-wrap">
+            <table class="b-table b-table--compact">
+                <thead><tr><th scope="col">Element</th><th scope="col">Was geschieht</th></tr></thead>
+                <tbody>{% for row in rows %}<tr><td class="b-mono">{{ row.element }}</td><td>{{ row.detail }}</td></tr>{% endfor %}</tbody>
+            </table>
+        </div>
+    </details>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+</li>
+
+<li class="b-rv-step" aria-labelledby="b-rv-approve">
+    <h2 class="b-h2" id="b-rv-approve">Freigabe</h2>
+    {% if approvals %}
+    <ul class="b-rv-approvals">{% for a in approvals %}<li>{{ icon('check') }} Freigegeben von {{ a.reviewer_name or '–' }}, {{ a.at | b_datetime }}</li>{% endfor %}</ul>
+    {% else %}
+    <p class="b-muted">Eine zweite Person prüft die Änderungen und den Probelauf und gibt diesen Stand frei. Wer am Entwurf etwas geändert hat, kann ihn nicht freigeben. Jede spätere Änderung hebt die Freigabe auf.</p>
+    {% endif %}
+    {% if is_author %}
+    <p class="b-small b-muted">Sie haben an diesem Entwurf mitgearbeitet; die Freigabe gibt jemand anderes.</p>
+    {% elif not dry_run %}
+    <p class="b-small b-muted">Freigeben lässt sich nach einem Probelauf dieses Stands.</p>
+    {% else %}
+    <button type="button" class="b-button b-button--primary" data-publish-approve>Diesen Stand freigeben</button>
+    {% endif %}
+</li>
+
+<li class="b-rv-step" aria-labelledby="b-rv-publish">
+    <h2 class="b-h2" id="b-rv-publish">Veröffentlichen</h2>
+    <p class="b-muted">Schreibt die Ontologie beim Mandanten und hält das Bündel als veröffentlichten Stand fest, den die Ansichten der Plattform lesen. Gelöscht wird beim Mandanten nichts.</p>
+    <button type="button" class="b-button b-button--primary" data-publish-apply {% if not approvals or not dry_run %}disabled{% endif %}>Veröffentlichen</button>
+    {% if not approvals %}<p class="b-small b-muted">Erst nach der Freigabe.</p>{% endif %}
+    <div class="b-callout" data-publish-result role="status" hidden></div>
+</li>
+</ol>
+
+<dialog class="b-dialog" id="b-rv-confirm" aria-labelledby="b-rv-confirm-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-rv-confirm-title">Stilllegungen bestätigen</h2>
+            <p class="b-muted">Diese Elemente werden mit dem Veröffentlichen stillgelegt. Beim Mandanten bleiben ihre Knoten und Fakten erhalten.</p>
+        </div>
+    </div>
+    <div class="b-dialog-body">
+        <ul class="b-rv-destructive">
+            {% for g in destructive %}<li data-path="{{ g.path }}"><span class="b-muted">{{ g.kind }}</span> <span class="b-mono">{{ g.key }}</span></li>{% endfor %}
+        </ul>
+        <label class="b-check"><input type="checkbox" data-publish-confirm-box>Ich habe die Liste geprüft und bestätige die Stilllegungen.</label>
+    </div>
+    <div class="b-dialog-foot">
+        <button type="button" class="b-button b-button--quiet" data-publish-cancel>Abbrechen</button>
+        <button type="button" class="b-button b-button--danger" data-publish-confirm disabled>Stilllegen und veröffentlichen</button>
+    </div>
+</dialog>
+{% endif %}
+
+{% if runs %}
+<section class="b-section b-rv-runs" aria-labelledby="b-rv-runs">
+    <h2 class="b-h3" id="b-rv-runs">Läufe</h2>
+    <div class="b-table-wrap">
+        <table class="b-table">
+            <thead><tr><th scope="col">Was</th><th scope="col">Ergebnis</th><th scope="col">Wer</th><th scope="col">Wann</th></tr></thead>
+            <tbody>
+                {% for r in runs %}
+                <tr>
+                    <td>{{ 'Probelauf' if r.kind == 'dry_run' else 'Veröffentlichung' }}{% if r.summary.published_number %} · Version {{ r.summary.published_number }}{% endif %}</td>
+                    <td>{% set tone = {'ok': 'good', 'refused': 'warning', 'failed': 'critical'}[r.status] %}<span class="b-tag b-tag--{{ tone }}">{{ {'ok': 'in Ordnung', 'refused': 'mit Ablehnungen', 'failed': 'fehlgeschlagen'}[r.status] }}</span>
+                        {% if r.kind == 'apply' and r.summary.written is defined %}<span class="b-small b-muted">{{ r.summary.written }} geschrieben</span>{% endif %}</td>
+                    <td>{{ r.actor_name or '–' }}</td>
+                    <td>{{ r.at | b_datetime }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/publish.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

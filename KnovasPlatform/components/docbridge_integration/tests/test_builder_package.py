@@ -35,7 +35,9 @@ def _semantic_differences(original_files, exported_files):
     for path, data in exported_files.items():
         if path not in original_files:
             differences.append(f"{path}: only in the export")
-        elif package.load_yaml(original_files[path]) != package.load_yaml(data):
+        elif path.endswith(".json") and original_files[path] != data:
+            differences.append(f"{path}: different bytes")
+        elif not path.endswith(".json") and package.load_yaml(original_files[path]) != package.load_yaml(data):
             differences.append(f"{path}: different data")
     return differences
 
@@ -47,6 +49,8 @@ def _listed(files):
     listed |= {manifest[p] for p in package.DOCUMENT_PARTS if p in manifest}
     for part in package.COLLECTION_PARTS:
         listed |= set(package._glob(files, manifest[part]))
+    for part in ("generated", "reports"):  # kept byte for byte
+        listed |= {path for path in (manifest.get(part) or {}).values() if path in files}
     return listed
 
 
@@ -162,7 +166,8 @@ class TestABlankPackage:
         result = package.read_package(package.blank_package(" Muster Treuhand AG "))
         assert result.model["company"] == {"key": "MUSTER-TREUHAND-AG", "name": "Muster Treuhand AG"}
         assert result.summary["types"] == result.summary["relations"] == 0
-        assert result.warnings == []
+        # Every part brain-runner's manifest asks for is there; only the folders of mappings and profiles are empty.
+        assert len(result.warnings) == 2 and all("findet keine Datei" in w for w in result.warnings)
         assert schema.problems(result.model) == []
 
     def test_it_exports_to_the_same_bytes(self):

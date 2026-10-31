@@ -1225,6 +1225,34 @@ a.b-stat:hover { border-color: var(--color-border-strong); box-shadow: var(--sha
 .b-pack-diff-group h2 { margin-bottom: var(--space-1); }
 .b-pack-apply { margin-top: var(--space-3); justify-content: flex-end; }
 
+/* ---- Review and publish (step B5) ---------------------------------------- */
+
+.b-rv-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-4); max-width: var(--content-max); counter-reset: rv; }
+.b-rv-step { counter-increment: rv; display: flex; flex-direction: column; gap: var(--space-2); padding-left: var(--space-5); position: relative; }
+.b-rv-step::before {
+    content: counter(rv);
+    position: absolute; left: 0; top: 0;
+    display: grid; place-items: center;
+    width: var(--space-4); height: var(--space-4);
+    border-radius: 50%;
+    border: var(--border-width) solid var(--color-border-strong);
+    color: var(--color-text-muted); font-weight: var(--weight-semibold);
+}
+.b-rv-step .b-button { align-self: flex-start; }
+.b-rv-filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
+.b-rv-section { display: flex; flex-direction: column; gap: var(--space-2); }
+.b-rv-element { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 0 0 var(--space-1); }
+.b-rv-approvals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-half); color: var(--color-good); }
+.b-rv-approvals li { display: flex; align-items: center; gap: var(--space-1); }
+.b-rv-destructive { margin: 0; padding-left: var(--space-3); display: flex; flex-direction: column; gap: var(--space-half); }
+.b-rv-runs { margin-top: var(--space-5); }
+.b-rv-plan summary { cursor: pointer; display: flex; align-items: center; gap: var(--space-1); font-weight: var(--weight-semibold); margin-bottom: var(--space-1); }
+
+@media (max-width: 599px) {
+    .b-rv-step { padding-left: 0; }
+    .b-rv-step::before { position: static; }
+}
+
 @media (max-width: 599px) {
     .b-ed-pair,
     .b-ed-attr-add { grid-template-columns: minmax(0, 1fr); }

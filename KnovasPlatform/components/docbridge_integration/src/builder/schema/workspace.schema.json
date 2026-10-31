@@ -22,7 +22,9 @@
       "required": ["manifest"],
       "additionalProperties": false,
       "properties": {
-        "manifest": {"type": "object"}
+        "manifest": {"type": "object"},
+        "files": {"description": "Generated parts and reports the manifest lists, kept byte for byte (UTF-8 text).",
+                  "type": "object", "additionalProperties": {"type": "string"}}
       }
     },
     "ontology": {

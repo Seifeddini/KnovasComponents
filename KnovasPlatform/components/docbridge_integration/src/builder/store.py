@@ -196,3 +196,110 @@ class WorkspaceStore:
             (workspace_id, batch_id),
         ).fetchall()
         return [{"path": r[0], "before": r[1], "after": r[2]} for r in rows]
+
+    # -------------------------------------------------------------- review and publish (B5)
+
+    def draft(self, workspace_id: str) -> Optional[dict]:
+        """The draft's id, number and content hash, or None when there is none."""
+        row = self.conn.execute(
+            "SELECT id, number, content_hash FROM builder_version WHERE workspace = %s AND state = 'draft'",
+            (workspace_id,),
+        ).fetchone()
+        return {"id": str(row[0]), "number": row[1], "content_hash": row[2]} if row else None
+
+    def draft_changes(self, workspace_id: str) -> list[dict]:
+        """Every change of the current draft, oldest first, with who made it."""
+        rows = self.conn.execute(
+            """SELECT c.path, c.before, c.after, c.actor, u.display_name, c.at
+                 FROM builder_change c
+                 JOIN builder_version v ON v.id = c.version AND v.state = 'draft'
+                 LEFT JOIN users u ON u.id = c.actor
+                WHERE c.workspace = %s ORDER BY c.id""",
+            (workspace_id,),
+        ).fetchall()
+        return [{"path": r[0], "before": r[1], "after": r[2], "actor": _uuid(r[3]), "actor_name": r[4],
+                 "at": _iso(r[5])} for r in rows]
+
+    def approve(self, workspace_id: str, reviewer_id, content_hash: str) -> bool:
+        """Approve the draft as it is (``content_hash``); False when it changed since."""
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """SELECT id, content_hash FROM builder_version
+                    WHERE workspace = %s AND state = 'draft' FOR UPDATE""",
+                (workspace_id,),
+            ).fetchone()
+            if row is None or row[1] != content_hash:
+                return False
+            self.conn.execute(
+                "INSERT INTO builder_approval (workspace, version, content_hash, reviewer) VALUES (%s, %s, %s, %s)",
+                (workspace_id, row[0], content_hash, reviewer_id),
+            )
+        return True
+
+    def approvals(self, workspace_id: str) -> list[dict]:
+        """The approvals of the current draft, each with the hash it approved."""
+        rows = self.conn.execute(
+            """SELECT a.reviewer, u.display_name, a.at, a.content_hash
+                 FROM builder_approval a
+                 JOIN builder_version v ON v.id = a.version AND v.state = 'draft'
+                 LEFT JOIN users u ON u.id = a.reviewer
+                WHERE a.workspace = %s ORDER BY a.at""",
+            (workspace_id,),
+        ).fetchall()
+        return [{"reviewer": _uuid(r[0]), "reviewer_name": r[1], "at": _iso(r[2]), "content_hash": r[3]}
+                for r in rows]
+
+    def record_run(self, workspace_id: str, *, kind: str, actor_id, tenant: Optional[str], content_hash: str,
+                   bundle_hash: Optional[str], status: str, summary: dict) -> str:
+        draft = self.draft(workspace_id)
+        row = self.conn.execute(
+            """INSERT INTO builder_run (workspace, version, kind, actor, tenant, content_hash, bundle_hash, status, summary)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb) RETURNING id""",
+            (workspace_id, draft["id"] if draft else None, kind, actor_id, tenant, content_hash, bundle_hash, status,
+             json.dumps(summary)),
+        ).fetchone()
+        return str(row[0])
+
+    def runs(self, workspace_id: str, limit: int = 20) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT r.id, r.kind, r.actor, u.display_name, r.tenant, r.content_hash, r.bundle_hash, r.status,
+                      r.summary, r.at
+                 FROM builder_run r LEFT JOIN users u ON u.id = r.actor
+                WHERE r.workspace = %s ORDER BY r.at DESC LIMIT %s""",
+            (workspace_id, limit),
+        ).fetchall()
+        return [{"id": str(r[0]), "kind": r[1], "actor": _uuid(r[2]), "actor_name": r[3], "tenant": r[4],
+                 "content_hash": r[5], "bundle_hash": r[6], "status": r[7], "summary": r[8], "at": _iso(r[9])}
+                for r in rows]
+
+    def publish(self, workspace_id: str, publisher_id, content_hash: str, bundle: dict, bundle_hash: str) -> Optional[int]:
+        """Turn the draft into the published version with its bundle; its number, or None when it changed."""
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """SELECT id, number, content_hash FROM builder_version
+                    WHERE workspace = %s AND state = 'draft' FOR UPDATE""",
+                (workspace_id,),
+            ).fetchone()
+            if row is None or row[2] != content_hash:
+                return None
+            self.conn.execute(
+                """UPDATE builder_version SET state = 'published', published_at = now(), published_by = %s,
+                          bundle = %s::jsonb, bundle_hash = %s, updated_at = now()
+                    WHERE id = %s""",
+                (publisher_id, json.dumps(bundle), bundle_hash, row[0]),
+            )
+        return row[1]
+
+    def published_bundle(self, workspace_id: str) -> Optional[dict]:
+        """The bundle of the newest published version: what the Platform's views read."""
+        row = self.conn.execute(
+            """SELECT number, bundle, bundle_hash, published_at FROM builder_version
+                WHERE workspace = %s AND state = 'published' ORDER BY number DESC LIMIT 1""",
+            (workspace_id,),
+        ).fetchone()
+        if row is None or row[1] is None:
+            return None
+        return {"number": row[0], "bundle": row[1], "bundle_hash": row[2], "published_at": _iso(row[3])}
+
+    def link_tenant(self, workspace_id: str, tenant: str) -> None:
+        self.conn.execute("UPDATE builder_workspace SET tenant = %s WHERE id = %s", (tenant, workspace_id))

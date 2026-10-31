@@ -280,7 +280,7 @@ class TestPacks:
 
     def test_a_workspace_from_a_pack_round_trips(self, law_firm):
         files = package.write_package(law_firm)
-        assert b"packs:" in files["brain-config.yaml"]
+        assert b"packs:" in files["ontology/terms.yaml"] and b"packs:" not in files["brain-config.yaml"]
         assert package.read_package(files).model == law_firm
 
     def test_pack_terms_are_read_only_but_take_the_company_attributes(self, law_firm):

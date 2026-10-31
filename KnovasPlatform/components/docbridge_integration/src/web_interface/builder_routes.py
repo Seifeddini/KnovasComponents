@@ -31,7 +31,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
                    session, url_for)
 from markupsafe import Markup
 
-from builder import editing, ontology_view, package
+from builder import editing, ontology_view, package, publisher, review
 from builder import packs as shipped_packs
 
 logger = logging.getLogger(__name__)
@@ -148,6 +148,7 @@ def create_builder_blueprint(
     page_context: Callable[[], Mapping[str, Any]],
     store_factory: Optional[Callable[[], Any]] = None,
     tenant_provider: Optional[Callable[[], Optional[str]]] = None,
+    engine_factory: Optional[Callable[[], Any]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -163,6 +164,11 @@ def create_builder_blueprint(
     ``tenant_provider`` returns the tenant this Platform belongs to (from its
     certificate). A new workspace can be linked to it; a tenant named in a
     request is never taken.
+
+    ``engine_factory`` returns the engine that compiles, dry-runs and applies
+    a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
+    certificate). It acts on that certificate's tenant only, so a workspace
+    linked to another tenant is refused before anything runs.
     """
     bp = Blueprint("builder", __name__, url_prefix="/builder")
 
@@ -265,6 +271,12 @@ def create_builder_blueprint(
         number = STAGES.index(current) + 1
         if current is STAGES[0]:
             return _render("builder/workspaces.html", stage=current, stage_number=number)
+        if current.slug == "pruefen":
+            store = _store()
+            workspace = _current_workspace(store)
+            if workspace is not None:
+                return _render("builder/review.html", stage=current, stage_number=number,
+                               current_workspace=workspace, **_review_context(store, workspace))
         if current.slug == "ontologie":
             store = _store()
             workspace = _current_workspace(store)
@@ -315,7 +327,7 @@ def create_builder_blueprint(
         session[SESSION_WORKSPACE] = current.id
         return _render(
             "builder/pack_update.html", stage=STAGES[0], stage_number=1, current_workspace=current,
-            pack=_pack_card(pack), taken=taken, diff=_diff(changes), refusal=refusal,
+            pack=_pack_card(pack), taken=taken, diff=review.diff(changes), refusal=refusal,
             edit_url=url_for("builder.edit_ontology", workspace_id=current.id),
             done_url=url_for("builder.stage", slug="ontologie"),
         )
@@ -479,69 +491,176 @@ def create_builder_blueprint(
     def redo(workspace_id: str):
         return _step(workspace_id, "redo", "undo", editing.redo)
 
-    def _diff(changes: list) -> list[dict]:
-        """Changes as the diff lines of a review: one group per element, its fields line by line."""
-        groups = []
-        for change in changes:
-            section, _, key = change["path"].partition("/")
-            before, after = change["before"], change["after"]
-            kind = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand"}.get(section, section)
-            if before is None:
-                state = "added"
-            elif after is not None and after.get("retired") and not before.get("retired"):
-                state = "removed"
-            else:
-                state = "changed"
-            lines = []
-            if section == "packs":
-                lines.append({"sign": "changed", "text": f"Version {(before or {}).get('version', '–')} → {after['version']}"})
-            elif state == "added":
-                lines.append({"sign": "added", "text": _describe(after)})
-            elif state == "removed":
-                lines.append({"sign": "removed", "text": "Nicht mehr im Paket: wird stillgelegt, nicht gelöscht."})
-            else:
-                lines += _field_lines(before, after)
-            groups.append({"kind": kind, "key": key, "state": state, "lines": lines})
-        return groups
+    # -------------------------------------------------------- review and publish (B5)
 
-    def _describe(item: Mapping[str, Any]) -> str:
-        parts = [(item.get("label") or {}).get("de") or item["key"]]
-        if item.get("parent"):
-            parts.append(f"Untertyp von {item['parent']}")
-        if item.get("attributes"):
-            parts.append(f"{len(item['attributes'])} Attribute: " + ", ".join(a["name"] for a in item["attributes"]))
-        if item.get("domain") or item.get("range"):
-            parts.append(f"{', '.join(item.get('domain') or [])} → {', '.join(item.get('range') or [])}")
-        return " · ".join(parts)
+    def _engine():
+        return engine_factory() if engine_factory is not None else None
 
-    def _field_lines(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[dict]:
-        lines = []
-        old_attrs = {a["name"]: a for a in before.get("attributes") or []}
-        new_attrs = {a["name"]: a for a in after.get("attributes") or []}
-        for name, attr in new_attrs.items():
-            if name not in old_attrs:
-                lines.append({"sign": "added", "text": f"Attribut {name} ({attr.get('datatype', '')})"})
-            elif attr != old_attrs[name]:
-                lines.append({"sign": "changed", "text": f"Attribut {name} geändert"})
-        for name in old_attrs:
-            if name not in new_attrs:
-                lines.append({"sign": "removed", "text": f"Attribut {name}"})
-        labels = {"label": "Namen", "description": "Beschreibung", "example": "Beispiel",
-                  "not_to_confuse": "Nicht verwechseln mit", "parent": "Elterntyp", "domain": "Von",
-                  "range": "Nach", "family": "Familie", "inverse": "Umkehrung", "sentence": "Lesart", "iri": "IRI"}
-        for field, label in labels.items():
-            if before.get(field) != after.get(field):
-                old, new = before.get(field), after.get(field)
-                if isinstance(new, list) and isinstance(old, list):
-                    added = [v for v in new if v not in old]
-                    removed = [v for v in old if v not in new]
-                    if added:
-                        lines.append({"sign": "added", "text": f"{label}: {', '.join(map(str, added))}"})
-                    if removed:
-                        lines.append({"sign": "removed", "text": f"{label}: {', '.join(map(str, removed))}"})
-                else:
-                    lines.append({"sign": "changed", "text": f"{label} geändert"})
-        return lines or [{"sign": "changed", "text": "Kleine Änderungen"}]
+    def _authors(rows) -> set:
+        """Who made the draft's changes: its import or creation does not count."""
+        return {str(r["actor"]) for r in rows if r.get("actor") and r["path"] not in review.ORIGINS}
+
+    def _review_context(store, workspace) -> dict:
+        draft = store.draft(workspace.id)
+        rows = store.draft_changes(workspace.id) if draft else []
+        author = request.args.get("autor") or None
+        changes = review.change_set(rows, author=author)
+        everything = review.change_set(rows) if author else changes
+        runs = store.runs(workspace.id)
+        content = draft["content_hash"] if draft else None
+        dry_run = next((r for r in runs if r["kind"] == "dry_run" and r["content_hash"] == content), None)
+        approvals = [a for a in store.approvals(workspace.id) if a["content_hash"] == content]
+        me = str(gate.current_user().id)
+        engine = _engine()
+        return {
+            "draft": draft, "changes": changes, "author": author, "authors": everything["authors"],
+            "destructive": review.destructive(everything), "dry_run": dry_run, "approvals": approvals,
+            "runs": runs[:10], "is_author": me in _authors(rows),
+            "engine_missing": engine.missing() if engine is not None else "Keine Veröffentlichung in dieser Umgebung.",
+            "engine_version": engine.version() if engine is not None else None,
+            "published": store.published_bundle(workspace.id),
+        }
+
+    def _publishable(store, workspace_id: str):
+        """The workspace, its draft and the tenant it publishes to -- or a refusal."""
+        current = _workspace_or_404(store, workspace_id)
+        draft = store.draft(current.id)
+        if draft is None:
+            return None, (jsonify({"success": False, "error": "Es gibt keinen Entwurf zu veröffentlichen."}), 409)
+        tenant = _platform_tenant()
+        if not current.tenant:
+            return None, (jsonify({"success": False, "error": "Der Arbeitsbereich ist mit keinem Mandanten verbunden."}), 409)
+        if current.tenant != tenant:
+            # The engine acts with this Platform's certificate: it reaches only that tenant.
+            return None, (jsonify({"success": False, "error": "Der Arbeitsbereich gehört zu einem anderen Mandanten "
+                                   "als diese Plattform."}), 409)
+        engine = _engine()
+        missing = engine.missing() if engine is not None else "Keine Veröffentlichung in dieser Umgebung."
+        if missing:
+            return None, (jsonify({"success": False, "error": missing}), 503)
+        return (current, draft, tenant, engine), None
+
+    def _hash_of(body) -> str:
+        return str((body or {}).get("content_hash") or "")
+
+    @bp.route("/api/w/<workspace_id>/tenant", methods=["POST"])
+    def link_tenant(workspace_id: str):
+        """Link the workspace to this Platform's tenant (from its certificate, never from the request)."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        tenant = _platform_tenant()
+        if not tenant:
+            return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+        store.link_tenant(current.id, tenant)
+        logger.info("Builder: workspace %s linked to the Platform's tenant", current.id)
+        return jsonify({"success": True})
+
+    @bp.route("/api/w/<workspace_id>/dry-run", methods=["POST"])
+    def dry_run(workspace_id: str):
+        """Compile the draft and plan it against the tenant; nothing is written there."""
+        store = _store()
+        ready, refusal = _publishable(store, workspace_id)
+        if refusal:
+            return refusal
+        current, draft, tenant, engine = ready
+        model = store.model(current.id)
+        try:
+            compiled = engine.compile(model)
+            plan = engine.plan(model, tenant)
+        except Exception as exc:  # noqa: BLE001 - the engine's failure is the run's result
+            logger.warning("Builder dry run failed: workspace %s, %s", current.id, type(exc).__name__)
+            store.record_run(current.id, kind="dry_run", actor_id=gate.current_user().id, tenant=tenant,
+                             content_hash=draft["content_hash"], bundle_hash=None, status="failed",
+                             summary={"error": type(exc).__name__})
+            return jsonify({"success": False, "error": "Der Probelauf ist fehlgeschlagen.",
+                            "details": [str(exc)[:500]]}), 502
+        table = publisher.summarise_plan(plan)
+        status = "refused" if table["counts"]["refused"] else "ok"
+        store.record_run(current.id, kind="dry_run", actor_id=gate.current_user().id, tenant=tenant,
+                         content_hash=draft["content_hash"], bundle_hash=compiled.bundle_hash, status=status,
+                         summary={**table, "bundle_content_hash": compiled.content_hash,
+                                  "engine": engine.version()})
+        logger.info("Builder dry run: workspace %s, %s", current.id, table["counts"])
+        return jsonify({"success": True, "status": status, **table})
+
+    @bp.route("/api/w/<workspace_id>/approve", methods=["POST"])
+    def approve(workspace_id: str):
+        """A reviewer approves the draft as dry-run; never one of its authors."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        draft = store.draft(current.id)
+        body = request.get_json(silent=True) or {}
+        if draft is None or _hash_of(body) != draft["content_hash"]:
+            return jsonify({"success": False, "error": "Der Entwurf hat sich seit dem Laden geändert."}), 409
+        me = str(gate.current_user().id)
+        if me in _authors(store.draft_changes(current.id)):
+            return jsonify({"success": False, "error": "Freigeben kann nur, wer an diesem Entwurf nichts geändert hat."}), 403
+        if not any(r["kind"] == "dry_run" and r["content_hash"] == draft["content_hash"] and r["status"] != "failed"
+                   for r in store.runs(current.id)):
+            return jsonify({"success": False, "error": "Erst nach einem Probelauf dieses Stands."}), 409
+        if not store.approve(current.id, gate.current_user().id, draft["content_hash"]):
+            return jsonify({"success": False, "error": "Der Entwurf hat sich seit dem Laden geändert."}), 409
+        logger.info("Builder approval: workspace %s", current.id)
+        return jsonify({"success": True})
+
+    @bp.route("/api/w/<workspace_id>/publish", methods=["POST"])
+    def publish(workspace_id: str):
+        """Apply the approved draft to the tenant and keep its bundle as the published version."""
+        store = _store()
+        ready, refusal = _publishable(store, workspace_id)
+        if refusal:
+            return refusal
+        current, draft, tenant, engine = ready
+        body = request.get_json(silent=True) or {}
+        content = draft["content_hash"]
+        if _hash_of(body) != content:
+            return jsonify({"success": False, "error": "Der Entwurf hat sich seit dem Laden geändert."}), 409
+        if not any(a["content_hash"] == content for a in store.approvals(current.id)):
+            return jsonify({"success": False, "error": "Dieser Stand ist nicht freigegeben."}), 409
+        destructive = sorted(g["path"] for g in review.destructive(review.change_set(store.draft_changes(current.id))))
+        confirmed = sorted(str(p) for p in body.get("confirm_destructive") or [])
+        if destructive and confirmed != destructive:
+            return jsonify({"success": False, "error": "Stilllegungen brauchen eine eigene Bestätigung.",
+                            "details": destructive}), 409
+        model = store.model(current.id)
+        try:
+            compiled = engine.compile(model)
+            plan = engine.plan(model, tenant)
+            result = engine.apply(model, tenant, plan)
+        except Exception as exc:  # noqa: BLE001 - the engine's failure is the run's result
+            logger.warning("Builder apply failed: workspace %s, %s", current.id, type(exc).__name__)
+            store.record_run(current.id, kind="apply", actor_id=gate.current_user().id, tenant=tenant,
+                             content_hash=content, bundle_hash=None, status="failed",
+                             summary={"error": type(exc).__name__})
+            return jsonify({"success": False, "error": "Das Veröffentlichen ist fehlgeschlagen.",
+                            "details": [str(exc)[:500]]}), 502
+        errors = list(result.get("errors") or [])
+        status = "failed" if errors else ("refused" if result.get("refused") else "ok")
+        summary = {"written": result.get("written", 0), "refused": list(result.get("refused") or []),
+                   "skipped": list(result.get("skipped") or [])[:200], "errors": [str(e)[:300] for e in errors][:50],
+                   "plan": publisher.summarise_plan(plan)["counts"], "bundle_content_hash": compiled.content_hash,
+                   "engine": engine.version()}
+        number = None
+        if status != "failed":
+            number = store.publish(current.id, gate.current_user().id, content, compiled.bundle, compiled.bundle_hash)
+            summary["published_number"] = number
+        store.record_run(current.id, kind="apply", actor_id=gate.current_user().id, tenant=tenant,
+                         content_hash=content, bundle_hash=compiled.bundle_hash, status=status, summary=summary)
+        logger.info("Builder publish: workspace %s, status %s, %d written, %d refused, version %s",
+                    current.id, status, summary["written"], len(summary["refused"]), number)
+        return jsonify({"success": status != "failed", "status": status, "result": summary,
+                        "error": "Das Brain hat Fehler gemeldet." if status == "failed" else None}), \
+            (200 if status != "failed" else 502)
+
+    @bp.route("/api/w/<workspace_id>/bundle")
+    def published_bundle(workspace_id: str):
+        """The bundle of the newest published version, as the views read it."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        published = store.published_bundle(current.id)
+        if published is None:
+            abort(404)
+        return jsonify(published["bundle"])
 
     @bp.route("/_styleguide")
     def styleguide():

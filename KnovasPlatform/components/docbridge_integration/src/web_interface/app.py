@@ -1855,8 +1855,16 @@ def create_app(config_path: Optional[str] = None):
             },
         ))
 
+        from builder.publisher import BrainRunnerEngine
         from builder.store import WorkspaceStore
         from web_interface.builder_routes import create_builder_blueprint
+
+        def _builder_brain_api():
+            """brain-runner's API client on this Platform's certificate: its tenant only."""
+            from brain_runner.api import BrainApi
+
+            return BrainApi(api_client.base_url, api_client.cert_path or None, api_client.key_path or None,
+                            api_client.ca_cert_path or None)
 
         # Only with per-user identity: the builder is gated on a role, and the
         # legacy shared login has no roles to check. The store is built per
@@ -1874,6 +1882,7 @@ def create_app(config_path: Optional[str] = None):
             # The tenant of this Platform's own certificate: the only one a
             # workspace can be linked to from here.
             tenant_provider=lambda: api_client.customer_id,
+            engine_factory=lambda: BrainRunnerEngine(_builder_brain_api),
         ))
 
         from identity.node_grants import NodeGrantStore

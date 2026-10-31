@@ -121,3 +121,39 @@ def test_an_edit_changes_the_draft_and_logs_each_element_in_one_batch(store, con
         store.edit(workspace_id, consultant.id, refuse)
     assert [t["key"] for t in store.model(workspace_id)["ontology"]["types"]] == ["Invoice"]
     assert store.batch(workspace_id, "not-a-uuid") == []
+
+
+def test_review_and_publish(store, consultant):
+    from builder import editing
+
+    blank = package.read_package(package.blank_package("Muster AG")).model
+    workspace_id = store.create(name="Muster AG", model=blank, actor_id=consultant.id, source={"kind": "blank"},
+                                tenant="test-tenant")
+    assert store.get(workspace_id).tenant == "test-tenant"
+    store.edit(workspace_id, consultant.id, lambda m: editing.apply(m, {"op": "type.create", "key": "Invoice"}))
+    draft = store.draft(workspace_id)
+    assert draft["number"] == 1 and len(draft["content_hash"]) == 64
+    assert [c["path"] for c in store.draft_changes(workspace_id)] == ["create", "ontology.types/Invoice"]
+
+    assert not store.approve(workspace_id, consultant.id, "0" * 64)  # not the draft as it is
+    assert store.approve(workspace_id, consultant.id, draft["content_hash"])
+    assert [a["content_hash"] for a in store.approvals(workspace_id)] == [draft["content_hash"]]
+
+    store.record_run(workspace_id, kind="dry_run", actor_id=consultant.id, tenant="test-tenant",
+                     content_hash=draft["content_hash"], bundle_hash="a" * 64, status="ok", summary={"counts": {}})
+    bundle = {"header": {"format": "brain-definitions-bundle"}, "sections": {}}
+    assert store.publish(workspace_id, consultant.id, "0" * 64, bundle, "a" * 64) is None
+    assert store.publish(workspace_id, consultant.id, draft["content_hash"], bundle, "a" * 64) == 1
+    assert store.draft(workspace_id) is None and store.approvals(workspace_id) == []
+    published = store.published_bundle(workspace_id)
+    assert published["number"] == 1 and published["bundle"] == bundle
+    assert store.get(workspace_id).published_number == 1
+    assert [r["kind"] for r in store.runs(workspace_id)] == ["dry_run"]
+
+    # The next edit opens draft 2 on the published model.
+    store.edit(workspace_id, consultant.id, lambda m: editing.apply(m, {"op": "type.create", "key": "Reminder"}))
+    assert store.draft(workspace_id)["number"] == 2
+    assert [c["path"] for c in store.draft_changes(workspace_id)] == ["ontology.types/Reminder"]
+    assert [t["key"] for t in store.model(workspace_id)["ontology"]["types"]] == ["Invoice", "Reminder"]
+    store.link_tenant(workspace_id, "other")
+    assert store.get(workspace_id).tenant == "other"

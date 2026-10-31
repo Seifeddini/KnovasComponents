@@ -650,3 +650,82 @@ def test_a_law_firm_from_the_legal_pack(browser, editing_server, shots, width, s
     assert "opened_on" in names and names[-1] == "billing_partner"
     assert next(t for t in model["ontology"]["types"] if t["key"] == "Hearing")["retired"] is True
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B5: review and publish, with a stand-in engine (a tenant in memory).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def publishing_server():
+    from builder_harness import FakeEngine, MemoryWorkspaceStore
+
+    author, reviewer = StandInUser({"admin"}, "Alex Beispiel"), StandInUser({"admin"}, "Robin Muster")
+    store = MemoryWorkspaceStore({str(author.id): author.display_name, str(reviewer.id): reviewer.display_name})
+    engine = FakeEngine(tenant_types={"Opportunity": {"stage"}}, refuse={"AlloyCheck"})
+    app = make_app(author, store, tenant="test-tenant-0001", engine=engine)
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "store": store, "engine": engine,
+           "gate": app.extensions["builder_gate"], "author": author, "reviewer": reviewer}
+    server.shutdown()
+
+
+def test_publishing_client_zero(browser, publishing_server, shots, import_zip):
+    from builder import editing
+
+    s = publishing_server
+    base, store = s["base"], s["store"]
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, base, import_zip)
+    [workspace] = store.list()
+    if not any(t["key"] == "RunEvent" for t in store.model(workspace.id)["ontology"]["types"]):
+        pytest.skip("needs the Client Zero package in $BUILDER_IMPORT_ZIP")
+
+    # The B3 changes, made by the author.
+    for op in ({"op": "type.create", "key": "Invoice", "parent": "euo:Transaction", "label": {"de": "Rechnung", "en": "Invoice"}},
+               {"op": "attribute.add", "key": "Invoice", "attribute": {"name": "invoice_number"}},
+               {"op": "attribute.add", "key": "Invoice", "attribute": {"name": "status", "datatype": "enum"}},
+               {"op": "attribute.update", "key": "Invoice", "name": "status", "set": {"enum_values": ["open", "paid"]}},
+               {"op": "attribute.add", "key": "Invoice", "attribute": {"name": "due_date", "datatype": "date"}},
+               {"op": "relation.create", "key": "billed_to", "domain": ["Invoice"], "range": ["Company"], "family": "Market"},
+               {"op": "type.retire", "key": "AlloyCheck"}):
+        store.edit(workspace.id, s["author"].id, lambda m, op=op: editing.apply(m, op))
+
+    page.goto(f"{base}/builder/pruefen")
+    page.get_by_role("button", name="Mit diesem Mandanten verbinden").click()
+    page.wait_for_selector("[data-publish-dry-run]")
+    assert "Invoice" in page.inner_text("main") and "AlloyCheck" in page.inner_text("main")
+    page.screenshot(path=shots / "b5-1-change-set.png", full_page=True)
+
+    page.get_by_role("button", name="Probelauf starten").click()
+    page.wait_for_selector(".b-rv-counts")
+    assert "Invoice" not in s["engine"].tenant
+    page.locator("#b-rv-dry").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b5-2-dry-run.png", full_page=True)
+    assert page.locator("[data-publish-approve]").count() == 0  # the author cannot approve
+
+    s["gate"].user = s["reviewer"]
+    page.reload()
+    page.get_by_role("button", name="Diesen Stand freigeben").click()
+    page.wait_for_selector(".b-rv-approvals")
+    assert "Freigegeben von Robin Muster" in page.inner_text("main")
+    page.locator("#b-rv-approve").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b5-3-approval.png")
+
+    s["gate"].user = s["author"]
+    page.reload()
+    page.get_by_role("button", name="Veröffentlichen").click()
+    confirm = page.locator("#b-rv-confirm")
+    confirm.wait_for(state="visible")
+    assert "AlloyCheck" in confirm.inner_text()
+    page.screenshot(path=shots / "b5-4-confirm-retirement.png")
+    confirm.locator("[data-publish-confirm-box]").check()
+    confirm.get_by_role("button", name="Stilllegen und veröffentlichen").click()
+    page.wait_for_selector("text=Nichts zu veröffentlichen")
+    assert s["engine"].tenant["Invoice"] == {"status"}
+    assert store.published_bundle(workspace.id)["number"] == 1
+    page.screenshot(path=shots / "b5-5-result.png", full_page=True)
+    page.context.close()

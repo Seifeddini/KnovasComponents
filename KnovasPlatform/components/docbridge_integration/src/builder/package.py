@@ -146,7 +146,7 @@ def content_hash(model: Mapping[str, Any]) -> str:
 
 
 def files_from_zip(data: bytes) -> dict[str, bytes]:
-    """The YAML files of a zip, keyed by their path relative to brain-config.yaml.
+    """The YAML and JSON files of a zip, keyed by their path relative to brain-config.yaml.
 
     The zip may hold the package at its root or inside folders (a repository
     exported whole); the one brain-config.yaml decides where the package is.
@@ -181,7 +181,7 @@ def files_from_zip(data: bytes) -> dict[str, bytes]:
             if info.is_dir() or not name.startswith(prefix):
                 continue
             relative = name[len(prefix):]
-            if not relative.endswith((".yaml", ".yml")):
+            if not relative.endswith((".yaml", ".yml", ".json")):
                 continue
             if _unsafe(relative):
                 raise PackageError("Das Archiv enthält einen unzulässigen Pfad.", [name])
@@ -202,11 +202,11 @@ def files_from_zip(data: bytes) -> dict[str, bytes]:
 
 
 def files_from_directory(root: Path) -> dict[str, bytes]:
-    """The YAML files under ``root`` (a checked-out package), keyed by relative path."""
+    """The YAML and JSON files under ``root`` (a checked-out package), keyed by relative path."""
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and path.suffix in (".yaml", ".yml")
+        if path.is_file() and path.suffix in (".yaml", ".yml", ".json")
     }
 
 
@@ -250,11 +250,13 @@ def read_package(files: Mapping[str, bytes]) -> ImportResult:
     model: dict[str, Any] = {
         "model_version": MODEL_VERSION,
         "company": copy.deepcopy(manifest.get("company") or {}),
-        "package": {"manifest": {k: copy.deepcopy(v) for k, v in manifest.items() if k not in ("company", "packs")}},
-        "packs": copy.deepcopy(manifest.get("packs") or []),
+        "package": {"manifest": {k: copy.deepcopy(v) for k, v in manifest.items() if k != "company"}},
         "ontology": _read_ontology(ontology_docs, warnings),
         "sources": [],
     }
+    # The packs the workspace took over (step B4) sit in the terms file's
+    # header: brain-config.yaml takes no keys beyond its own.
+    model["packs"] = model["ontology"]["terms_header"].pop("packs", None) or []
     for part in DOCUMENT_PARTS:
         model[part] = document(manifest[part], part) if part in manifest else None
     for part in COLLECTION_PARTS:
@@ -269,7 +271,18 @@ def read_package(files: Mapping[str, bytes]) -> ImportResult:
             warnings.append(f"Das Muster {pattern} ({part}) findet keine Datei.")
         model[part] = [{"file": path, "definition": load_yaml(files[path], path)} for path in paths]
 
-    used = {PACKAGE_FILE, *(p for p in ontology_paths.values())}
+    # Generated parts and reports (the machine form KnowledgeBase's tools build
+    # from the YAML, which brain-runner's bundle reads) are kept byte for byte.
+    kept = {}
+    for part in ("generated", "reports"):
+        listed = manifest.get(part) or {}
+        for path in listed.values() if isinstance(listed, dict) else []:
+            if isinstance(path, str) and path in files:
+                kept[path] = files[path].decode("utf-8")
+    if kept:
+        model["package"]["files"] = kept
+
+    used = {PACKAGE_FILE, *kept, *(p for p in ontology_paths.values())}
     used |= {manifest[p] for p in DOCUMENT_PARTS if p in manifest}
     used |= {item["file"] for part in COLLECTION_PARTS for item in model[part]}
     ignored = sorted(set(files) - used)
@@ -553,11 +566,11 @@ def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
     manifest = copy.deepcopy(model["package"]["manifest"])
     if model.get("company"):
         manifest["company"] = copy.deepcopy(model["company"])
-    if model.get("packs"):
-        manifest["packs"] = copy.deepcopy(model["packs"])
     files: dict[str, bytes] = {PACKAGE_FILE: dump_yaml(manifest)}
 
     ontology_docs = _write_ontology(model["ontology"], model.get("company") or {})
+    if model.get("packs"):
+        ontology_docs["terms"]["packs"] = copy.deepcopy(model["packs"])
     for part, path in (manifest.get("ontology") or {}).items():
         if part in ontology_docs:
             files[path] = dump_yaml(ontology_docs[part])
@@ -567,6 +580,8 @@ def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
     for part in COLLECTION_PARTS:
         for item in model.get(part) or []:
             files[item["file"]] = dump_yaml(item["definition"])
+    for path, text in (model["package"].get("files") or {}).items():
+        files[path] = text.encode("utf-8")
     return files
 
 
@@ -579,21 +594,34 @@ def company_key(name: str) -> str:
 
 def blank_package(name: str) -> dict[str, bytes]:
     """The files of a package that holds only the company: where a workspace
-    created in the builder, rather than imported, starts. Read with
-    ``read_package`` like any other, so it has the model's exact shape and
-    exports to a package the Brain's tools read."""
-    paths = {part: f"ontology/{part}.yaml" for part in ("terms", "relations", "descriptions")}
+    created in the builder, rather than imported, starts. Every part
+    brain-runner's manifest asks for is there, empty, so the package is one it
+    reads. Read with ``read_package`` like any other, so it has the model's
+    exact shape."""
+    ontology = {part: f"ontology/{part.replace('_', '-')}.yaml"
+                for part in ("terms", "relations", "descriptions", "node_descriptions")}
+    parts = {"processes": "ontology/processes.yaml", "spines": "ontology/spines.yaml",
+             "pages": "ontology/page-definitions.yaml", "owners": "ontology/owners.yaml",
+             "edit_sources": "ontology/edit-sources.yaml", "health": "health.yaml"}
     manifest = {
         "version": 1,
         "company": {"key": company_key(name), "name": name.strip()},
-        "ontology": paths,
+        "ontology": ontology,
+        **parts,
+        "mappings": "mappings/*.yaml",
+        "profiles": "profiles/*.yaml",
     }
-    return {
+    empty = {"processes": {"processes": []}, "spines": {"spines": []}, "pages": {"pages": []},
+             "owners": {}, "edit_sources": {}, "health": {"types": {}}}
+    files = {
         PACKAGE_FILE: dump_yaml(manifest),
-        paths["terms"]: dump_yaml({"node_types": []}),
-        paths["relations"]: dump_yaml({"relations": []}),
-        paths["descriptions"]: dump_yaml({}),
+        ontology["terms"]: dump_yaml({"node_types": []}),
+        ontology["relations"]: dump_yaml({"relations": []}),
+        ontology["descriptions"]: dump_yaml({}),
+        ontology["node_descriptions"]: dump_yaml({}),
     }
+    files.update({parts[part]: dump_yaml(doc) for part, doc in empty.items()})
+    return files
 
 
 def zip_files(files: Mapping[str, bytes]) -> bytes:
