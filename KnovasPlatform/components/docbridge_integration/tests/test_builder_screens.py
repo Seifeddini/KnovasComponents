@@ -280,10 +280,17 @@ def test_ontology_screens(browser, workspace_url, shots, import_zip, width, sche
     assert _no_sideways_scroll(page)
     page.screenshot(path=shots / f"b2-canvas{suffix}.png")
 
+    # The canvas opens as a tree: every subtype card to the right of its parent.
+    misplaced = page.evaluate("""() => window.__builderOntology.cy.edges('.subtype:visible')
+        .filter(e => e.source().position('x') <= e.target().position('x')).map(e => e.id())""")
+    assert misplaced == []
+
     if width == "1440":
+        page.locator("[data-onto-layout='grouped']").click()
+        page.screenshot(path=shots / f"b2-canvas-grouped{suffix}.png")
         page.locator("[data-onto-layout='force']").click()
         page.screenshot(path=shots / f"b2-canvas-force{suffix}.png")
-        page.locator("[data-onto-layout='grouped']").click()
+        page.locator("[data-onto-layout='tree']").click()
 
     # A selected type: pick the model type with the most attributes.
     chosen = page.evaluate("""() => {

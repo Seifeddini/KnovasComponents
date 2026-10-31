@@ -3,7 +3,9 @@
  * Three views of one JSON document (#b-onto-data, builder.ontology_view):
  * a Cytoscape canvas (types as cards, subtype links as thin lines, relations
  * as labelled arrows from domain to range), the type tree, and the problems
- * list. Filters and the side panel are shared by all three.
+ * list. Filters and the side panel are shared by all three. The canvas opens
+ * as a tree, root on the left; grouped by level and free are the other two
+ * arrangements.
  *
  * The Cytoscape setup follows Cortex (static/js/ontology.js), which this file
  * does not touch: colours come from the design tokens at runtime, the brand
@@ -30,6 +32,13 @@
     /* builder.ontology_view's name for the attributes every type carries. */
     var COMMON = 'Alle Typen';
     var CARD_W = 168, CARD_H = 56, GAP = 24, GROUP_GAP = 96;
+    var TREE_COL = CARD_W + 72, TREE_ROW = CARD_H + 16, TREE_MIN_ZOOM = 0.8;
+
+    /* Children in tree order: data.nodes is depth first, children by name. */
+    var childrenOf = {};
+    data.nodes.forEach(function (n) {
+        if (n.parent && nodesById[n.parent]) (childrenOf[n.parent] = childrenOf[n.parent] || []).push(n.id);
+    });
 
     /* ---- helpers ------------------------------------------------------ */
 
@@ -179,10 +188,17 @@
                 'text-rotation': 'autorotate', 'text-background-color': token('--color-surface'),
                 'text-background-opacity': 0.9, 'text-background-padding': 2, 'min-zoomed-font-size': 10,
             } },
+            /* The tree: elbow lines from parent to child; relations wait for a selection. */
+            { selector: 'edge.subtype.tree', style: {
+                'curve-style': 'taxi', 'taxi-direction': 'horizontal', 'taxi-turn': 36, 'taxi-turn-min-distance': 8,
+                'width': 1.25, 'opacity': 1,
+            } },
+            { selector: 'edge.relation.tree', style: { 'opacity': 0, 'events': 'no' } },
             { selector: 'edge.loop', style: { 'loop-direction': '0deg', 'loop-sweep': '-40deg', 'control-point-step-size': 48 } },
-            { selector: 'edge.relation.focus', style: { 'opacity': 1, 'width': 2.5, 'z-index': 10 } },
+            { selector: 'edge.relation.focus', style: { 'opacity': 1, 'width': 2.5, 'z-index': 10, 'events': 'yes' } },
             { selector: '.faded', style: { 'opacity': 0.15, 'text-opacity': 0 } },
             { selector: 'node.type.faded', style: { 'opacity': 0.3, 'text-opacity': 0.3 } },
+            { selector: 'edge.relation.tree.faded', style: { 'opacity': 0 } },
         ];
     }
 
@@ -203,8 +219,43 @@
         return positions;
     }
 
+    /* Tree: depth to the right, one row per leaf, a parent centred on its
+     * children. Only what the filters show takes room; a type whose parent is
+     * hidden starts a tree of its own. */
+    function treePositions(visible) {
+        var shown = function (id) { return !visible || visible[id]; };
+        var positions = {};
+        var row = 0;
+        function place(id, depth) {
+            positions[id] = null;  // placed: a parent cycle stops here
+            var kids = (childrenOf[id] || []).filter(function (k) { return shown(k) && !(k in positions); });
+            var y;
+            if (!kids.length) {
+                y = row++ * TREE_ROW;
+            } else {
+                var ys = kids.map(function (k) { return place(k, depth + 1); });
+                y = (ys[0] + ys[ys.length - 1]) / 2;
+            }
+            positions[id] = { x: depth * TREE_COL, y: y };
+            return y;
+        }
+        data.nodes.forEach(function (n) {
+            if (!shown(n.id) || n.id in positions) return;
+            var parentShown = n.parent && nodesById[n.parent] && shown(n.parent);
+            if (parentShown) return;
+            if (row) row += 0.5;  // a little air between separate trees
+            place(n.id, 0);
+        });
+        // Types caught in a parent cycle have a shown parent but no root above them.
+        data.nodes.forEach(function (n) {
+            if (shown(n.id) && !(n.id in positions)) { row += 0.5; place(n.id, 0); }
+        });
+        return positions;
+    }
+
     var cy = null;
-    var layoutMode = 'grouped';
+    var layoutMode = 'tree';
+    var currentVisible = null;  // id -> shown by the filters; null before the first pass
 
     function applyLayout(mode) {
         layoutMode = mode;
@@ -214,8 +265,12 @@
                 var current = node.parent().length ? node.parent().id() : null;
                 if (current !== wanted) node.move({ parent: wanted });
             });
+            cy.edges()[mode === 'tree' ? 'addClass' : 'removeClass']('tree');
         });
-        if (mode === 'grouped') {
+        if (mode === 'tree') {
+            var placed = treePositions(currentVisible);
+            cy.nodes('.type').positions(function (node) { return placed[node.id()] || node.position(); });
+        } else if (mode === 'grouped') {
             var positions = groupedPositions();
             cy.nodes('.type').positions(function (node) { return positions[node.id()] || { x: 0, y: 0 }; });
         } else {
@@ -233,7 +288,15 @@
     }
 
     function fit(eles) {
-        cy.fit(eles && eles.length ? eles : cy.elements(':visible'), 40);
+        var whole = !(eles && eles.length);
+        cy.fit(whole ? cy.elements(':visible') : eles, 40);
+        // A whole tree fitted into the screen is too small to read: keep the
+        // cards legible and start at the root, top left.
+        if (whole && layoutMode === 'tree' && cy.zoom() < TREE_MIN_ZOOM) {
+            var box = cy.elements(':visible').boundingBox();
+            cy.zoom(TREE_MIN_ZOOM);
+            cy.pan({ x: 40 - box.x1 * TREE_MIN_ZOOM, y: 88 - box.y1 * TREE_MIN_ZOOM });  // below the toolbar
+        }
     }
 
     function buildCanvas() {
@@ -245,7 +308,7 @@
             minZoom: 0.08, maxZoom: 3, wheelSensitivity: 0.2,
             boxSelectionEnabled: false, autoungrabify: false,
         });
-        applyLayout('grouped');
+        applyLayout('tree');
 
         cy.on('tap', 'node.type', function (evt) { select(evt.target.id(), { from: 'canvas' }); });
         cy.on('tap', 'edge.relation', function (evt) { selectRelation(evt.target.data('relation')); });
@@ -636,12 +699,12 @@
 
     /* ---- wiring ------------------------------------------------------- */
 
-    var currentVisible = {};
-
     function refresh() {
         readFilters();
         currentVisible = applyFiltersToCanvas();
         renderTree(currentVisible);
+        // The tree closes up around what the filters leave.
+        if (layoutMode === 'tree') applyLayout('tree');
     }
 
     var filterForm = document.querySelector('[data-onto-filters]');
