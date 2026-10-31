@@ -231,6 +231,30 @@ def test_workspace_screenshots(browser, workspace_url, shots, import_zip, width,
     page.context.close()
 
 
+@pytest.mark.parametrize("width,scheme", [("1440", "light"), ("1440", "dark"), ("390", "light")])
+def test_a_new_workspace_from_the_dialog(browser, workspace_url, shots, width, scheme):
+    page = _page(browser, width, scheme)
+    suffix = f"-{width}-{scheme}"
+    page.goto(f"{workspace_url}/builder/arbeitsbereich")
+    page.locator("[data-create-open]").first.click()
+    dialog = page.locator("#b-create")
+    assert dialog.is_visible()
+    assert page.evaluate("document.activeElement.id") == "b-create-name"
+    dialog.get_by_role("button", name="Arbeitsbereich anlegen").click()
+    assert "Bitte einen Namen" in dialog.locator("[data-create-error]").inner_text()
+    page.fill("#b-create-name", "Muster Treuhand AG")
+    page.screenshot(path=shots / f"b1-create{suffix}.png")
+    dialog.get_by_role("button", name="Arbeitsbereich anlegen").click()
+    page.wait_for_url(f"{workspace_url}/builder/w/*")
+    assert "Muster Treuhand AG" in page.locator("h1").inner_text()
+    assert _no_sideways_scroll(page)
+    page.screenshot(path=shots / f"b1-created{suffix}.png", full_page=True)
+    page.goto(f"{workspace_url}/builder/ontologie")
+    assert "Noch keine Typen" in page.inner_text("main")
+    page.screenshot(path=shots / f"b2-ontology-empty{suffix}.png")
+    page.context.close()
+
+
 def test_the_dialog_shows_a_refusal_and_keeps_focus_inside(browser, workspace_url, tmp_path):
     page = _page(browser, "1440", "light")
     page.goto(f"{workspace_url}/builder/arbeitsbereich")

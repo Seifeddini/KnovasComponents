@@ -22,6 +22,7 @@
     </div>
 </header>
 
+{% if ontology.nodes %}
 <div data-tabs>
     <div class="b-tablist" role="tablist" aria-label="Ansicht der Ontologie">
         <button type="button" class="b-tab" role="tab" id="b-onto-tab-canvas" aria-controls="b-onto-view-canvas" aria-selected="true" data-onto-view="canvas">Fläche</button>
@@ -116,6 +117,15 @@
 </div>
 
 <script type="application/json" id="b-onto-data">{{ ontology | tojson }}</script>
+{% else %}
+<section class="b-empty" aria-labelledby="b-onto-empty-title">
+    <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
+    <div class="b-empty-text">
+        <h2 class="b-h3" id="b-onto-empty-title">Noch keine Typen</h2>
+        <p class="b-muted">{{ current_workspace.name }} hat noch keine Typen. Hier entstehen sie, sobald sich die Ontologie bearbeiten lässt; bis dahin bringt ein importiertes Konfigurationspaket Typen mit.</p>
+    </div>
+</section>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>

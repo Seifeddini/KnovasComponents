@@ -30,6 +30,7 @@ import hashlib
 import io
 import json
 import posixpath
+import unicodedata
 import zipfile
 import zlib
 from dataclasses import dataclass, field
@@ -558,6 +559,32 @@ def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
         for item in model.get(part) or []:
             files[item["file"]] = dump_yaml(item["definition"])
     return files
+
+
+def company_key(name: str) -> str:
+    """A key for a company from its name: ASCII capitals, digits and hyphens."""
+    folded = unicodedata.normalize("NFKD", name.replace("ß", "ss")).encode("ascii", "ignore").decode("ascii")
+    words = "".join(c if c.isalnum() else " " for c in folded.upper()).split()
+    return "-".join(words)[:40].strip("-") or "COMPANY"
+
+
+def blank_package(name: str) -> dict[str, bytes]:
+    """The files of a package that holds only the company: where a workspace
+    created in the builder, rather than imported, starts. Read with
+    ``read_package`` like any other, so it has the model's exact shape and
+    exports to a package the Brain's tools read."""
+    paths = {part: f"ontology/{part}.yaml" for part in ("terms", "relations", "descriptions")}
+    manifest = {
+        "version": 1,
+        "company": {"key": company_key(name), "name": name.strip()},
+        "ontology": paths,
+    }
+    return {
+        PACKAGE_FILE: dump_yaml(manifest),
+        paths["terms"]: dump_yaml({"node_types": []}),
+        paths["relations"]: dump_yaml({"relations": []}),
+        paths["descriptions"]: dump_yaml({}),
+    }
 
 
 def zip_files(files: Mapping[str, bytes]) -> bytes:

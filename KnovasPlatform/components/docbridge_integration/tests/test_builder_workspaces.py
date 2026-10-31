@@ -88,6 +88,61 @@ class TestTheImportApi:
         assert response.get_json()["success"] is False
 
 
+def _create(client, name="Muster Treuhand AG"):
+    return client.post("/builder/api/workspaces", data={"name": name}, content_type="multipart/form-data")
+
+
+class TestCreatingAWorkspace:
+    def test_it_creates_an_empty_workspace_and_chooses_it(self):
+        client, store = _app()
+        response = _create(client, " Muster Treuhand AG ")
+        assert response.status_code == 201
+        [workspace] = store.list()
+        assert workspace.name == "Muster Treuhand AG"
+        assert response.get_json()["url"] == f"/builder/w/{workspace.id}"
+        assert workspace.summary["types"] == 0 and workspace.summary["company"] == "Muster Treuhand AG"
+        assert workspace.last_change["path"] == "create"
+        with client.session_transaction() as session:
+            assert session["builder_workspace"] == workspace.id
+
+    @pytest.mark.parametrize("name", ["", "   ", "x" * 121])
+    def test_it_needs_a_name(self, name):
+        client, store = _app()
+        assert _create(client, name).status_code == 400
+        assert store.list() == []
+
+    def test_it_refuses_without_a_builder_role(self):
+        client, store = _app(roles=("member",))
+        assert _create(client).status_code == 403
+        assert store.list() == []
+
+    def test_without_a_store_there_is_nothing_to_create(self):
+        client = make_app(StandInUser({"admin"})).test_client()
+        assert _create(client).status_code == 503
+
+    def test_the_new_workspace_shows_as_created_and_exports_a_package(self):
+        client, store = _app()
+        url = _create(client).get_json()["url"]
+        assert "Angelegt" in client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        exported = client.get(url + "/export")
+        with zipfile.ZipFile(io.BytesIO(exported.data)) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        assert package.read_package(files).model == store.model(store.list()[0].id)
+
+    def test_its_ontology_says_there_are_no_types_yet(self):
+        client, _ = _app()
+        _create(client)
+        html = client.get("/builder/ontologie").get_data(as_text=True)
+        assert "Noch keine Typen" in html
+        assert 'id="b-onto-data"' not in html
+
+    def test_the_list_offers_both_ways_to_start(self):
+        client, _ = _app()
+        html = client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        assert 'id="b-create"' in html and 'id="b-import"' in html
+        assert "Neuer Arbeitsbereich" in html
+
+
 class TestTheScreens:
     def test_the_list_shows_each_workspace_with_its_counts(self, sample_zip):
         client, _ = _app()

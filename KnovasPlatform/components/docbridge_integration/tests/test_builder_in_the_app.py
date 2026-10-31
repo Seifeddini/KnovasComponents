@@ -79,6 +79,21 @@ def test_an_import_needs_the_csrf_header_and_lands_in_the_database(identity_clie
     assert exported.status_code == 200 and exported.mimetype == "application/zip"
 
 
+def test_creating_a_workspace_needs_the_csrf_header_and_lands_in_the_database(identity_client, identity_repo, platform_db):
+    _person(identity_repo, "admin@example.org", "admin")
+    _sign_in(identity_client, "admin@example.org")
+    refused = identity_client.post("/builder/api/workspaces", data={"name": "Muster AG"})
+    assert refused.status_code == 403
+
+    page = identity_client.get("/builder/arbeitsbereich").get_data(as_text=True)
+    token = page.split('name="csrf-token" content="', 1)[1].split('"', 1)[0]
+    created = identity_client.post("/builder/api/workspaces", data={"name": "Muster AG"},
+                                   headers={"X-CSRF-Token": token})
+    assert created.status_code == 201
+    assert platform_db.execute("SELECT count(*) FROM builder_workspace").fetchone()[0] == 1
+    assert "Muster AG" in identity_client.get(created.get_json()["url"]).get_data(as_text=True)
+
+
 def test_an_admin_opens_every_stage_and_is_offered_the_builder(identity_client, identity_repo):
     _person(identity_repo, "admin@example.org", "admin")
     _sign_in(identity_client, "admin@example.org")

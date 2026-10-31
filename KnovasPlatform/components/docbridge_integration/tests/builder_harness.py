@@ -80,13 +80,16 @@ class MemoryWorkspaceStore:
         return list(row["changes"][:limit]) if row else []
 
     def create_from_import(self, *, name, model, actor_id, source):
+        return self.create(name=name, model=model, actor_id=actor_id, source=source, change="import")
+
+    def create(self, *, name, model, actor_id, source, change="create"):
         workspace_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         actor = str(actor_id) if actor_id else None
         self.rows[workspace_id] = {
             "id": workspace_id, "name": name.strip(), "created_at": now, "created_by": actor,
             "model": copy.deepcopy(model),
-            "changes": [{"path": "import", "at": now, "actor": actor,
+            "changes": [{"path": change, "at": now, "actor": actor,
                          "actor_name": self.user_names.get(actor),
                          "after": {**source, "content_hash": content_hash(model)}}],
         }

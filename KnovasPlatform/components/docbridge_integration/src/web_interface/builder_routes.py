@@ -127,7 +127,7 @@ def user_may_build(user) -> bool:
 SESSION_WORKSPACE = "builder_workspace"
 
 #: builder_change.path values that are events, not places in the model.
-CHANGE_LABELS = {"import": "Paket importiert"}
+CHANGE_LABELS = {"import": "Paket importiert", "create": "Angelegt"}
 
 
 def _download_name(name: str) -> str:
@@ -321,6 +321,22 @@ def create_builder_blueprint(
         )
         logger.info("Builder import: workspace %s from %d bytes, %d types, %d relations",
                     workspace_id, len(data), result.summary["types"], result.summary["relations"])
+        session[SESSION_WORKSPACE] = workspace_id
+        return jsonify({"success": True, "url": url_for("builder.workspace", workspace_id=workspace_id)}), 201
+
+    @bp.route("/api/workspaces", methods=["POST"])
+    def create_workspace():
+        """A new, empty workspace: the company's name, no types yet."""
+        store = _store()
+        if store is None:
+            return jsonify({"success": False, "error": "Arbeitsbereiche sind hier nicht verfügbar."}), 503
+        name = str(request.form.get("name", "") or "").strip()
+        if not 1 <= len(name) <= 120:
+            return jsonify({"success": False, "error": "Der Name braucht 1 bis 120 Zeichen."}), 400
+        result = package.read_package(package.blank_package(name))
+        workspace_id = store.create(name=name, model=result.model, actor_id=gate.current_user().id,
+                                    source={"kind": "blank"})
+        logger.info("Builder workspace created: %s", workspace_id)
         session[SESSION_WORKSPACE] = workspace_id
         return jsonify({"success": True, "url": url_for("builder.workspace", workspace_id=workspace_id)}), 201
 

@@ -1,4 +1,4 @@
-{# Stage 1: the list of workspaces and the import dialog.
+{# Stage 1: the list of workspaces, the new-workspace dialog and the import dialog.
    Expects workspace_list (builder.store.Workspace), import_enabled. #}
 {% extends 'builder/_base.html' %}
 {% from 'builder/_icons.html' import icon %}
@@ -13,7 +13,10 @@
 {% if workspace_list %}
 <div class="b-page-actions">
     <p class="b-muted">{{ workspace_list | length }} {{ 'Arbeitsbereich' if workspace_list | length == 1 else 'Arbeitsbereiche' }}</p>
-    <button type="button" class="b-button b-button--primary" data-import-open>{{ icon('plus') }}Paket importieren</button>
+    <div class="b-button-row">
+        <button type="button" class="b-button b-button--secondary" data-import-open>Paket importieren</button>
+        <button type="button" class="b-button b-button--primary" data-create-open>{{ icon('plus') }}Neuer Arbeitsbereich</button>
+    </div>
 </div>
 <div class="b-section">
     <div class="b-table-wrap">
@@ -51,15 +54,43 @@
     <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
     <div class="b-empty-text">
         <h2 class="b-h3" id="b-empty-title">{{ stage.empty_title }}</h2>
-        <p class="b-muted">{{ stage.empty_text }} Importieren Sie dazu ein Konfigurationspaket.</p>
+        <p class="b-muted">{{ stage.empty_text }} Legen Sie einen neuen an oder importieren Sie ein Konfigurationspaket.</p>
     </div>
-    <button type="button" class="b-button b-button--primary" data-import-open
-            {% if not import_enabled %}aria-disabled="true" aria-describedby="b-empty-hint"{% endif %}>{{ icon('plus') }}Paket importieren</button>
+    <div class="b-button-row">
+        <button type="button" class="b-button b-button--primary" data-create-open
+                {% if not import_enabled %}aria-disabled="true" aria-describedby="b-empty-hint"{% endif %}>{{ icon('plus') }}Neuer Arbeitsbereich</button>
+        <button type="button" class="b-button b-button--secondary" data-import-open
+                {% if not import_enabled %}aria-disabled="true" aria-describedby="b-empty-hint"{% endif %}>Paket importieren</button>
+    </div>
     {% if not import_enabled %}<p class="b-empty-hint" id="b-empty-hint">Arbeitsbereiche brauchen die Personen-Anmeldung der Plattform.</p>{% endif %}
 </section>
 {% endif %}
 
 {% if import_enabled %}
+<dialog class="b-dialog" id="b-create" aria-labelledby="b-create-title" data-create-url="{{ url_for('builder.create_workspace') }}">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-create-title">Neuer Arbeitsbereich</h2>
+            <p class="b-muted">Für eine Firma, deren Konfiguration hier entsteht.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-create-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form data-create-form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-create-name">Name der Firma</label>
+                <input class="b-input" id="b-create-name" name="name" maxlength="120" required autocomplete="organization" aria-describedby="b-create-hint">
+                <span class="b-hint" id="b-create-hint">Der Arbeitsbereich beginnt leer: ohne Typen, Prozesse oder Zuordnungen. Er ist ein Entwurf; beim Mandanten ändert sich dadurch nichts.</span>
+            </div>
+            <div class="b-callout b-callout--critical" data-create-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-create-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Arbeitsbereich anlegen</button>
+        </div>
+    </form>
+</dialog>
+
 <dialog class="b-dialog" id="b-import" aria-labelledby="b-import-title"
         data-preview-url="{{ url_for('builder.import_preview') }}" data-import-url="{{ url_for('builder.import_package') }}">
     <div class="b-dialog-head">
@@ -116,5 +147,6 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-{% if import_enabled %}<script src="{{ url_for('static', filename='js/builder/import.js') }}?v={{ asset_version }}"></script>{% endif %}
+{% if import_enabled %}<script src="{{ url_for('static', filename='js/builder/import.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/create.js') }}?v={{ asset_version }}"></script>{% endif %}
 {% endblock %}

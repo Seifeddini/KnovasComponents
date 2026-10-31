@@ -57,6 +57,17 @@ def test_the_import_is_the_first_change(store, model, consultant):
     assert change["after"]["types"] == 4
 
 
+def test_a_created_workspace_records_its_creation(store, consultant):
+    blank = package.read_package(package.blank_package("Muster AG")).model
+    workspace_id = store.create(name="Muster AG", model=blank, actor_id=consultant.id, source={"kind": "blank"})
+    workspace = store.get(workspace_id)
+    assert workspace.draft_number == 1 and workspace.summary["types"] == 0
+    assert workspace.last_change["path"] == "create"
+    [change] = store.changes(workspace_id)
+    assert change["after"] == {"kind": "blank", "content_hash": package.content_hash(blank)}
+    assert store.model(workspace_id) == blank
+
+
 def test_the_list_is_sorted_by_name(store, model, consultant):
     for name in ("zeta", "Alpha", "beta"):
         store.create_from_import(name=name, model=model, actor_id=consultant.id, source=_source())

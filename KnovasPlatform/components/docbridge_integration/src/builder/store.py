@@ -108,10 +108,15 @@ class WorkspaceStore:
     # -------------------------------------------------------------- writes
 
     def create_from_import(self, *, name: str, model: dict, actor_id, source: dict) -> str:
+        """A new workspace whose first draft is an imported package's model."""
+        return self.create(name=name, model=model, actor_id=actor_id, source=source, change="import")
+
+    def create(self, *, name: str, model: dict, actor_id, source: dict, change: str = "create") -> str:
         """A new workspace whose first draft is ``model``. Returns its id.
 
-        The change row records the import, not the model a second time:
-        ``after`` holds where it came from and the content hash.
+        The change row (path ``change``: ``create`` or ``import``) records
+        where the model came from and its content hash, not the model a
+        second time.
         """
         digest = content_hash(model)
         with self.conn.transaction():
@@ -126,8 +131,8 @@ class WorkspaceStore:
             ).fetchone()[0]
             self.conn.execute(
                 """INSERT INTO builder_change (workspace, version, actor, path, before, after)
-                   VALUES (%s, %s, %s, 'import', NULL, %s::jsonb)""",
-                (workspace_id, version_id, actor_id,
+                   VALUES (%s, %s, %s, %s, NULL, %s::jsonb)""",
+                (workspace_id, version_id, actor_id, change,
                  json.dumps({**source, "content_hash": digest})),
             )
         return str(workspace_id)

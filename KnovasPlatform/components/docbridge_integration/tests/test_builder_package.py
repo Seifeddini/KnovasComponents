@@ -157,6 +157,27 @@ class TestTheModel:
         assert terms["node_types"][-1] == {"name": "Invoice", "level": "beispiel", "attributes": []}
 
 
+class TestABlankPackage:
+    def test_it_holds_the_company_and_nothing_else(self):
+        result = package.read_package(package.blank_package(" Muster Treuhand AG "))
+        assert result.model["company"] == {"key": "MUSTER-TREUHAND-AG", "name": "Muster Treuhand AG"}
+        assert result.summary["types"] == result.summary["relations"] == 0
+        assert result.warnings == []
+        assert schema.problems(result.model) == []
+
+    def test_it_exports_to_the_same_bytes(self):
+        files = package.blank_package("Muster AG")
+        assert package.write_package(package.read_package(files).model) == files
+
+    @pytest.mark.parametrize("name,key", [
+        ("Müller & Söhne GmbH", "MULLER-SOHNE-GMBH"),
+        ("Straße 12 AG", "STRASSE-12-AG"),
+        ("???", "COMPANY"),
+    ])
+    def test_the_company_key_comes_from_the_name(self, name, key):
+        assert package.company_key(name) == key
+
+
 class TestTheSummary:
     def test_it_counts_each_section(self, sample):
         s = sample.summary
