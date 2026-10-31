@@ -19,9 +19,9 @@ from typing import Any, Iterable, Mapping, Optional
 from builder import processes
 
 SECTIONS = {"ontology.types": "Typen", "ontology.relations": "Beziehungen", "packs": "Pakete",
-            "processes": "Prozesse", "processes.rules": "Prozessregeln", "sources": "Quellen"}
+            "processes": "Prozesse", "processes.rules": "Prozessregeln", "sources": "Quellen", "mappings": "Zuordnungen"}
 KINDS = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand",
-         "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle"}
+         "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung"}
 #: Change rows that are not about one element: where the draft came from.
 ORIGINS = {"import": "Paket importiert", "create": "Angelegt"}
 

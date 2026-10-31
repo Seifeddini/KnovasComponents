@@ -1,0 +1,83 @@
+{# Stage 5 (build plan step B8): one mapping of a source to the ontology.
+   Expects current_workspace, history and mapping (builder_routes._mapping_view).
+   static/js/builder/mapping.js draws the fields of the source (left), the
+   target types with their attributes and relations (right), the settings, the
+   preview, the dry run and the expression view, and sends every change to the
+   edit route (builder.mapping_edits). #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}Zuordnung {{ mapping.id }} · {{ current_workspace.name }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small"><a href="{{ url_for('builder.stage', slug='quellen') }}">Quellen &amp; Zuordnung</a> · {{ current_workspace.name }}</p>
+        <h1 class="b-h1">Zuordnung <span class="b-mono">{{ mapping.id }}</span></h1>
+        <p class="b-muted" data-map-description>{{ mapping.description }}</p>
+    </div>
+    <div class="b-onto-edit-bar" data-map-root
+         data-edit-url="{{ url_for('builder.edit_ontology', workspace_id=current_workspace.id, view='mapping', mapping=mapping.id) }}"
+         data-undo-url="{{ url_for('builder.undo', workspace_id=current_workspace.id, view='mapping', mapping=mapping.id) }}"
+         data-redo-url="{{ url_for('builder.redo', workspace_id=current_workspace.id, view='mapping', mapping=mapping.id) }}"
+         data-preview-url="{{ url_for('builder.mapping_preview', workspace_id=current_workspace.id, mapping_id=mapping.id) }}"
+         data-dry-run-url="{{ url_for('builder.mapping_dry_run', workspace_id=current_workspace.id, mapping_id=mapping.id) }}"
+         data-undo="{{ history.undo }}" data-redo="{{ history.redo }}">
+        <button type="button" class="b-button b-button--quiet" data-map-undo {% if not history.undo %}disabled{% endif %}>Rückgängig</button>
+        <button type="button" class="b-button b-button--quiet" data-map-redo {% if not history.redo %}disabled{% endif %}>Wiederherstellen</button>
+        <button type="button" class="b-button b-button--secondary" data-map-preview>Vorschau</button>
+        <button type="button" class="b-button b-button--primary" data-map-dry-run>Probelauf</button>
+    </div>
+</header>
+
+<div class="b-callout b-callout--critical" data-map-problems role="status" hidden></div>
+
+<div class="b-map-layout">
+    <section class="b-map-source" aria-labelledby="b-map-source-title">
+        <h2 class="b-h3" id="b-map-source-title">Quelle</h2>
+        <div class="b-field">
+            <label class="b-label" for="b-map-reads">Gelesen über</label>
+            <select class="b-select" id="b-map-reads" data-map-reads></select>
+        </div>
+        <dl class="b-dl b-map-spec" data-map-spec></dl>
+        <h3 class="b-h3">Felder</h3>
+        <p class="b-small b-muted" data-map-fields-note>Ziehen Sie ein Feld auf ein Attribut, oder wählen Sie es und dann «Hier einsetzen».</p>
+        <ul class="b-map-fields" data-map-fields aria-label="Felder der Quelle"></ul>
+    </section>
+
+    <section class="b-map-target" aria-labelledby="b-map-target-title">
+        <div class="b-map-target-head">
+            <h2 class="b-h3" id="b-map-target-title">Ziel</h2>
+            <label class="b-check"><input type="checkbox" data-map-expert>Ausdrücke zeigen</label>
+        </div>
+        <div data-map-emits></div>
+        <div class="b-proc-inline b-map-add-type">
+            <select class="b-select" data-map-add-type aria-label="Weiteren Zieltyp wählen"></select>
+            <button type="button" class="b-button b-button--quiet" data-map-add-type-button>Zieltyp hinzufügen</button>
+        </div>
+    </section>
+</div>
+
+<section class="b-map-settings" aria-labelledby="b-map-settings-title">
+    <h2 class="b-h3" id="b-map-settings-title">Einstellungen</h2>
+    <form class="b-map-settings-form" data-map-settings novalidate></form>
+</section>
+
+<section class="b-map-preview" aria-labelledby="b-map-preview-title">
+    <h2 class="b-h3" id="b-map-preview-title">Vorschau</h2>
+    <div data-map-preview-body><p class="b-muted">Die ersten 20 Knoten mit ihren Fakten und Kanten, sobald die Quelle gelesen ist.</p></div>
+</section>
+
+<section class="b-map-dry" aria-labelledby="b-map-dry-title">
+    <h2 class="b-h3" id="b-map-dry-title">Probelauf</h2>
+    <div data-map-dry-body><p class="b-muted">Plant die Zuordnung gegen den Mandanten: hinzugefügt, geändert, stillgelegt, Abweichungen, Löschschutz. Nichts wird geschrieben.</p></div>
+</section>
+
+<details class="b-map-yaml">
+    <summary>Zuordnung als YAML (brain-runner)</summary>
+    <pre class="b-mono" data-map-yaml></pre>
+</details>
+
+<script type="application/json" id="b-map-data">{{ mapping | tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/mapping.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

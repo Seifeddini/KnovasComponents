@@ -234,6 +234,7 @@
             tr.appendChild(el('td', 'is-num', String(c.count)));
             var act = el('td');
             act.appendChild(button('Stichprobe', 'b-button--quiet b-button--small', function () { sample(s, c.id, c.label); }));
+            act.appendChild(button('Zuordnen', 'b-button--quiet b-button--small', function () { newMapping(s, c); }));
             tr.appendChild(act);
             body.appendChild(tr);
         });
@@ -339,6 +340,36 @@
         details.appendChild(rowsWrap);
         box.appendChild(details);
     }
+
+    /* ---- new mapping (step B8) ----------------------------------------- */
+
+    var mapDialog = document.getElementById('b-map-new');
+    var mapFor = null;
+    function newMapping(s, c) {
+        mapFor = { source: s.key, collection: c.id };
+        var f = mapDialog.querySelector('form');
+        f.reset();
+        mapDialog.querySelector('[data-ed-error]').hidden = true;
+        mapDialog.querySelector('[data-mn-what]').textContent = s.name + ': ' + c.label;
+        mapDialog.showModal();
+        f.elements.id.focus();
+    }
+    Array.prototype.forEach.call(mapDialog.querySelectorAll('[data-ed-close]'), function (b) {
+        b.addEventListener('click', function () { mapDialog.close(); });
+    });
+    mapDialog.querySelector('form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var f = e.target;
+        var id = f.elements.id.value.trim();
+        post(root.dataset.editUrl, { op: 'mapping.create', id: id, type: f.elements.type.value,
+                                     source: mapFor.source, collection: mapFor.collection })
+            .then(function (payload) {
+                var box = mapDialog.querySelector('[data-ed-error]');
+                if (!payload.success) { box.textContent = payload.error; box.hidden = false; return; }
+                var made = payload.sources.mappings.find(function (m) { return m.id === id; });
+                window.location.href = made.url;
+            });
+    });
 
     /* ---- new source ----------------------------------------------------- */
 

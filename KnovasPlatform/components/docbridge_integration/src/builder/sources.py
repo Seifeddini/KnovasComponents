@@ -97,7 +97,7 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ][0-9:.]+(Z|[+-]\d{2}:?\d{2})?)?$")
 
 
 def _flat(value: Any, prefix: str, out: dict, depth: int) -> None:
-    if isinstance(value, Mapping) and depth < 3:
+    if isinstance(value, Mapping) and depth < 4:
         if not value and prefix:
             out[prefix] = {}
         for k, v in value.items():
@@ -107,7 +107,7 @@ def _flat(value: Any, prefix: str, out: dict, depth: int) -> None:
 
 
 def flatten(item: Any) -> dict:
-    """An item as fields: nested objects become dotted names, three levels deep."""
+    """An item as fields: nested objects become dotted names, four levels deep."""
     out: dict = {}
     _flat(item, "", out, 0)
     return out
@@ -232,6 +232,13 @@ class GitHubReader:
         return out
 
 
+    def documents(self, spec: Mapping[str, Any]):
+        """The documents a mapping's source names, read by brain-runner's extractor (step B8)."""
+        from brain_runner.extractors import extract
+
+        return extract(self.src, dict(spec))
+
+
 class KnovasConnectorReader:
     """A folder of the file share or DMS, through the KnovasConnector's /discover."""
 
@@ -284,7 +291,8 @@ class KnovasConnectorReader:
 
 
     def documents(self, spec: Mapping[str, Any]) -> list[dict]:
-        """The files a mapping's source names (its glob under the connector's root), one document each (step B8)."""
+        """The files a mapping's source names (its glob under the connector's root), one document each, shaped as
+        brain-runner's file_glob gives them on the folder itself (step B8)."""
         files, _ = self._entries()
         base = str(spec.get("glob") or "**/*").removesuffix("**/*").rstrip("/")
         folder = self.folder.strip("/")
@@ -294,9 +302,11 @@ class KnovasConnectorReader:
             full = f"{folder}/{rel}" if folder else rel
             if base and not full.startswith(base + "/"):
                 continue
-            out.append({"path": full, "name": f.get("name"), "folder": posixpath.dirname(full),
-                        "extension": posixpath.splitext(str(f.get("name") or ""))[1].lower(),
-                        "size_bytes": f.get("size_bytes"), "modified_at": f.get("modified_at")})
+            name = str(f.get("name") or posixpath.basename(full))
+            stem, suffix = posixpath.splitext(name)
+            out.append({"path": full, "name": name, "stem": stem, "suffix": suffix, "size": f.get("size_bytes"),
+                        "modified": f.get("modified_at"),
+                        "folders": [x for x in posixpath.dirname(full).split("/") if x]})
         return out
 
 
@@ -413,8 +423,8 @@ class HttpJsonReader:
                 "counts": [["Listen", len(lists)], ["Datensätze", sum(len(v) for v in lists.values())]], "detail": {}}
 
     def documents(self, spec: Mapping[str, Any]) -> list[Any]:
-        """The response as the one document a mapping's ``select`` reads (step B8)."""
-        return [self._document()]
+        """The response as the one document brain-runner's json_file gives: ``{path, data}`` (step B8)."""
+        return [{"path": str(spec.get("path") or "response.json"), "data": self._document()}]
 
     def sample(self, collection: str, limit: int = SAMPLE_LIMIT) -> list[Any]:
         lists = self._lists()

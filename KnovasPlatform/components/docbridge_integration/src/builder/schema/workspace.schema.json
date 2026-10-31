@@ -152,7 +152,8 @@
       "additionalProperties": false,
       "properties": {
         "file": {"description": "Path inside the package.", "type": "string"},
-        "definition": {}
+        "definition": {},
+        "builder": {"description": "What only the builder needs (step B8): the source a mapping reads, its collection, the steps behind each expression. Not written to the package.", "type": "object"}
       }
     }
   }

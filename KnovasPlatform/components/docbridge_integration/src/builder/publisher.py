@@ -56,6 +56,7 @@ class Engine(Protocol):
     def plan(self, model: Mapping[str, Any], tenant: str) -> dict: ...
     def apply(self, model: Mapping[str, Any], tenant: str, plan: dict) -> dict: ...
     def run_event(self, model: Mapping[str, Any], **facts: Any) -> dict: ...
+    def mapping_plan(self, model: Mapping[str, Any], mapping_id: str, run: Any) -> dict: ...
 
 
 def _rows(plan: Mapping[str, Any]) -> list[dict]:
@@ -156,3 +157,20 @@ class BrainRunnerEngine:
         from builder import run_event
 
         return run_event.write(self._api_factory(), model, **facts)
+
+    def mapping_plan(self, model: Mapping[str, Any], mapping_id: str, run: Any) -> dict:
+        """brain-runner's plan of one mapping's run against the tenant (step B8): diff.plan over a snapshot of
+        the types it touches. Nothing is written. The package holds only this mapping, so a mapping still
+        being built elsewhere in the workspace does not stop the configuration from loading."""
+        import copy
+
+        config, diff = self._module("config"), self._module("diff")
+        snapshot, state = self._module("snapshot"), self._module("state")
+        only = copy.deepcopy(dict(model))
+        only["mappings"] = [m for m in model.get("mappings") or [] if (m.get("definition") or {}).get("id") == mapping_id]
+        with tempfile.TemporaryDirectory(prefix="builder-") as tmp:
+            _, manifest = self._write(only, Path(tmp))
+            cfg = config.load(manifest)
+            node_types, schema_types = diff.snapshot_types(cfg, [mapping_id])
+            snap = snapshot.read(self._api_factory(), node_types, schema_types)
+            return diff.plan(cfg, {mapping_id: run}, snap, state.State(None))

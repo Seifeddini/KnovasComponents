@@ -228,6 +228,8 @@ class FakeEngine:
         self._version = version
         self.applied = []
         self.events = []
+        self.nodes = {}
+        self.mapping_plans = []
 
     def version(self):
         return self._version
@@ -277,6 +279,32 @@ class FakeEngine:
             written += 1
         self.applied.append(plan)
         return {"written": written, "refused": list(plan["unresolved_parents"]), "skipped": [], "errors": []}
+
+    def mapping_plan(self, model, mapping_id, run):
+        """brain-runner's plan shape over the nodes the stand-in tenant holds (``self.nodes``: type -> key -> facts)."""
+        from brain_runner import guard
+
+        self.mapping_plans.append(mapping_id)
+        seen, add, change, unchanged = set(), 0, 0, 0
+        for cand in run.candidates:
+            held = self.nodes.get(cand.type, {})
+            seen.add((cand.type, cand.key))
+            facts = {k: v.value for k, v in cand.facts.items()}
+            if cand.key not in held:
+                add += 1
+            elif held[cand.key] != facts:
+                change += 1
+            else:
+                unchanged += 1
+        types = {c.type for c in run.candidates}
+        owned = {t: len(self.nodes.get(t, {})) for t in types}
+        retire = {t: sum(1 for k in self.nodes.get(t, {}) if (t, k) not in seen) for t in types}
+        verdict = guard.check(next(m["definition"] for m in model["mappings"] if m["definition"]["id"] == mapping_id),
+                              owned, retire)
+        return {"summary": {mapping_id: {"add": add, "change": change, "retire": sum(retire.values()),
+                                         "unchanged": unchanged, "drift": 0}},
+                "guard": {mapping_id: verdict}, "blocked": [mapping_id] if verdict["tripped"] else [],
+                "observed": {mapping_id: {"source_items": run.source_items, "candidates": len(run.candidates)}}}
 
     def run_event(self, model, **facts):
         self.events.append(facts)

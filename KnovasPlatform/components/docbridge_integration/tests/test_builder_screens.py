@@ -990,3 +990,189 @@ def test_sources_of_client_zero(browser, sources_server, shots, import_zip):
     [workspace] = s["store"].list()
     assert {c["path"] for c in s["store"].draft_changes(workspace.id)} >= {"sources/knowledgebase", "sources/ablage-mandate"}
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B8: a source mapped to the ontology, dry-run and published through B5.
+# The GitHub runner reads a KnowledgeBase checkout ($BUILDER_KB_CHECKOUT, a
+# `git archive` of the repository) the way it reads GitHub.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mapping_server(tmp_path):
+    from builder_harness import FakeConnector, FakeEngine, MemorySecrets, MemoryWorkspaceStore, stand_in_readers
+
+    pytest.importorskip("brain_runner.extractors")
+    checkout = os.environ.get("BUILDER_KB_CHECKOUT")
+    if not checkout:
+        pytest.skip("needs a KnowledgeBase checkout in $BUILDER_KB_CHECKOUT")
+    share = tmp_path / "ablage"
+    for path in ("Mandate/Muster AG/2026-03 Vollmacht.pdf", "Mandate/Muster AG/2026-04 Honorarvereinbarung.docx",
+                 "Mandate/Beispiel GmbH/Klage.pdf", "Mandate/Beispiel GmbH/Notiz.txt", "Mandate/Nord AG/Vertrag.pdf"):
+        (share / path).parent.mkdir(parents=True, exist_ok=True)
+        (share / path).write_bytes(b"x" * (len(path) * 97))
+    author, reviewer = StandInUser({"admin"}, "Alex Beispiel"), StandInUser({"admin"}, "Robin Muster")
+    store = MemoryWorkspaceStore({str(author.id): author.display_name, str(reviewer.id): reviewer.display_name})
+    engine = FakeEngine()
+    secrets = MemorySecrets()
+    app = make_app(author, store, tenant="test-tenant-0001", engine=engine, secrets=secrets,
+                   readers=stand_in_readers(github_root=checkout, connector=FakeConnector(share)))
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "store": store, "engine": engine, "secrets": secrets,
+           "gate": app.extensions["builder_gate"], "author": author, "reviewer": reviewer}
+    server.shutdown()
+
+
+def _map_wait(page):
+    page.wait_for_function("() => !document.documentElement.dataset.mapBusy", timeout=60_000)
+
+
+def test_mapping_client_zero(browser, mapping_server, shots, import_zip):
+    from builder import editing
+
+    s = mapping_server
+    base, store = s["base"], s["store"]
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, base, import_zip)
+    [workspace] = store.list()
+    if not any(m["definition"]["id"] == "component-manifest" for m in store.model(workspace.id)["mappings"]):
+        pytest.skip("needs the Client Zero package in $BUILDER_IMPORT_ZIP")
+    tenant = "test-tenant-0001"
+    runner = store.register_component(tenant, kind="github_runner", name="GitHub-Runner", site="Plattform", owner="IT",
+                                      settings={}, actor_id=s["author"].id)
+    connector = store.register_component(tenant, kind="knovas_connector", name="Dateiablage Zürich", site="Büro Zürich",
+                                         owner="IT", settings={}, actor_id=s["author"].id)
+    for op in ({"op": "source.create", "kind": "github", "name": "KnowledgeBase", "component": runner,
+                "settings": {"repository": "Seifeddini/KnowledgeBase", "ref": "master"}},
+               {"op": "source.credential", "key": "knowledgebase", "set": True},
+               {"op": "source.create", "kind": "knovas_connector", "name": "Ablage Mandate", "component": connector,
+                "settings": {"folder": "Mandate"}},
+               # The test types: a file of the share and the mandate it is filed under.
+               {"op": "type.create", "key": "Akte", "parent": "euo:Document", "label": {"de": "Akte", "en": "File"}},
+               {"op": "attribute.add", "key": "Akte", "attribute": {"name": "dateiart"}},
+               {"op": "attribute.add", "key": "Akte", "attribute": {"name": "geaendert_am", "datatype": "date"}},
+               {"op": "type.create", "key": "Mandat", "parent": "euo:Agreement", "label": {"de": "Mandat", "en": "Mandate"}},
+               {"op": "relation.create", "key": "abgelegt_unter", "domain": ["Akte"], "range": ["Mandat"], "family": "Structure"}):
+        store.edit(workspace.id, s["author"].id, lambda m, op=op: editing.apply(m, op))
+    s["secrets"].put(f"builder.sources.{workspace.id}.knowledgebase.credential", "ghp_read_only", s["author"])
+
+    # Client Zero's component-manifest, rendered: read through the KnowledgeBase repository.
+    page.goto(f"{base}/builder/quellen")
+    assert page.locator("[data-src-mappings] tbody tr").count() == 23
+    page.screenshot(path=shots / "b8-01-mappings.png")
+    page.locator("[data-src-mappings] a", has_text="component-manifest").click()
+    page.wait_for_selector("html[data-map-ready='true']")
+    page.select_option("[data-map-reads]", "knowledgebase")
+    _map_wait(page)
+    assert page.locator(".b-map-field", has_text="c.value.name").count() == 1
+    assert "c.key" in page.inner_text("[data-target='0:key']")
+    assert "part_of → BoundedContext" in page.inner_text("[data-map-emits]")
+    assert "L2-" in page.inner_text("[data-map-preview-body]")
+    page.screenshot(path=shots / "b8-02-component-manifest.png")
+    page.locator("[data-map-preview-body]").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b8-03-component-manifest-preview.png")
+
+    # A new mapping from the fileshare source to the test type.
+    page.goto(f"{base}/builder/quellen")
+    page.wait_for_selector("html[data-src-ready='true']")
+    page.locator(".b-proc-item", has_text="Ablage Mandate").click()
+    page.get_by_role("button", name="Testen").click()
+    page.wait_for_selector(".b-src-ok")
+    page.locator("[data-src-result] tbody tr", has_text="Alle Dateien").get_by_role("button", name="Zuordnen").click()
+    page.fill("#b-mn-id", "ablage-akten")
+    page.select_option("#b-mn-type", "Akte")
+    page.locator("#b-map-new").get_by_role("button", name="Zuordnung anlegen").click()
+    page.wait_for_url(f"{base}/builder/zuordnung/ablage-akten")
+    page.wait_for_selector("html[data-map-ready='true']")
+    _map_wait(page)
+
+    def bind(field, target):
+        page.locator(".b-map-field", has_text=field).first.drag_to(page.locator(f"[data-target='{target}']"))
+        page.wait_for_function("(t) => window.__builderMapping.data().emits[0].targets.concat(window.__builderMapping.data().emits[0].relations)"
+                               ".some(x => x.target === t && x.expression)", arg=target.split(":", 1)[1])
+        _map_wait(page)
+
+    bind("f.path", "0:key")
+    bind("f.name", "0:name")
+    bind("f.suffix", "0:fact:dateiart")
+    bind("f.modified", "0:fact:geaendert_am")
+    # Steps: the extension without its dot, the date without its time.
+    row = page.locator(".b-map-row", has=page.locator("[data-target='0:fact:dateiart']"))
+    row.get_by_role("button", name="Schritte").click()
+    steps = row.locator(".b-map-steps")
+    steps.get_by_label("Schritt", exact=True).select_option("replace")
+    steps.get_by_label("Alt").fill(".")
+    steps.get_by_label("Neu").fill("")
+    steps.get_by_role("button", name="Schritt hinzufügen").click()
+    page.screenshot(path=shots / "b8-04-steps.png")
+    steps.get_by_role("button", name="Schritte übernehmen").click()
+    page.wait_for_function("() => window.__builderMapping.data().emits[0].targets.find(t => t.target === 'fact:dateiart').steps.length === 1")
+    _map_wait(page)
+    row = page.locator(".b-map-row", has=page.locator("[data-target='0:fact:geaendert_am']"))
+    row.get_by_role("button", name="Schritte").click()
+    row.locator(".b-map-steps").get_by_label("Schritt", exact=True).select_option("date")
+    row.locator(".b-map-steps").get_by_role("button", name="Schritt hinzufügen").click()
+    row.locator(".b-map-steps").get_by_role("button", name="Schritte übernehmen").click()
+    page.wait_for_function("() => window.__builderMapping.data().emits[0].targets.find(t => t.target === 'fact:geaendert_am').steps.length === 1")
+    _map_wait(page)
+    # A relation: the folder names the mandate (looked up by its key).
+    page.get_by_label("Beziehung für Akte").select_option(label="abgelegt_unter → Mandat")
+    page.get_by_label("Feld mit dem Schlüssel des anderen Knotens").select_option("f.path")
+    page.get_by_role("button", name="Beziehung hinzufügen").click()
+    page.wait_for_function("() => window.__builderMapping.data().emits[0].relations.length === 1")
+    _map_wait(page)
+    # The mandate is the folder below Mandate/: the path split at "/", its second part.
+    row = page.locator(".b-map-row", has=page.locator("[data-target='0:relation:0']"))
+    row.get_by_role("button", name="Schritte").click()
+    row.locator(".b-map-steps").get_by_label("Schritt", exact=True).select_option("split")
+    row.locator(".b-map-steps").get_by_label("Teil (0 = erster)").fill("1")
+    row.locator(".b-map-steps").get_by_role("button", name="Schritt hinzufügen").click()
+    row.locator(".b-map-steps").get_by_role("button", name="Schritte übernehmen").click()
+    page.wait_for_function("() => window.__builderMapping.data().emits[0].relations[0].steps.length === 1")
+    _map_wait(page)
+    assert page.locator("[data-map-problems]").is_hidden()
+    preview = page.inner_text("[data-map-preview-body]")
+    assert "dateiart = pdf" in preview and "geaendert_am = 2026-10-30" in preview
+    assert "Mandat Muster AG" in preview
+    page.screenshot(path=shots / "b8-05-new-mapping.png")
+    page.locator("[data-map-preview-body]").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b8-06-preview.png")
+    page.locator("[data-map-expert]").check()
+    expressions = page.inner_text("[data-map-emits]")
+    page.locator("[data-map-emits]").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b8-07-expressions.png")
+    del expressions
+    assert "replace(f.suffix, '.', '')" in page.locator("[data-map-yaml]").text_content()
+
+    # Dry run against the tenant: one file the tenant knows with another date, one it holds that is gone.
+    store.link_tenant(workspace.id, tenant)
+    s["engine"].nodes = {"Akte": {"Mandate/Muster AG/2026-03 Vollmacht.pdf": {"dateiart": "pdf", "geaendert_am": "2026-01-01"},
+                                  "Mandate/Alt AG/Brief.pdf": {"dateiart": "pdf"}}}
+    page.get_by_role("button", name="Probelauf").click()
+    page.wait_for_selector("html[data-map-dry-run='done']")
+    dry = page.inner_text("[data-map-dry-body]")
+    assert "Hinzugefügt" in dry and "Löschschutz: frei" in dry
+    page.locator("[data-map-dry-body]").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b8-08-dry-run.png")
+
+    # Published through B5: the change set names the mapping; the published version holds it.
+    page.goto(f"{base}/builder/pruefen")
+    page.wait_for_selector("[data-publish-dry-run]")
+    assert "ablage-akten" in page.inner_text("main")
+    page.get_by_role("button", name="Probelauf starten").click()
+    page.wait_for_selector(".b-rv-counts")
+    s["gate"].user = s["reviewer"]
+    page.reload()
+    page.get_by_role("button", name="Diesen Stand freigeben").click()
+    page.wait_for_selector(".b-rv-approvals")
+    s["gate"].user = s["author"]
+    page.reload()
+    page.get_by_role("button", name="Veröffentlichen").click()
+    page.wait_for_selector("text=Nichts zu veröffentlichen")
+    published = store.model(workspace.id)
+    assert any(m["definition"]["id"] == "ablage-akten" for m in published["mappings"])
+    page.screenshot(path=shots / "b8-09-published.png")
+    page.context.close()

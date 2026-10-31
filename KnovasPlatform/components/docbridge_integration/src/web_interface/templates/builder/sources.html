@@ -42,6 +42,57 @@
     <div class="b-src-detail" data-src-detail aria-live="polite"></div>
 </div>
 
+<section class="b-src-mappings" aria-labelledby="b-src-mappings-title">
+    <h2 class="b-h2" id="b-src-mappings-title">Zuordnungen</h2>
+    <p class="b-muted">Wie die Einträge einer Quelle zu Knoten, Fakten und Kanten werden. Eine neue beginnt bei «Zuordnen» neben einer Sammlung im Test.</p>
+    {% if sources.mappings %}
+    <div class="b-table-wrap">
+        <table class="b-table" data-src-mappings>
+            <thead><tr><th scope="col">Zuordnung</th><th scope="col">Zieltypen</th><th scope="col">Liest</th><th scope="col">Prüfung</th></tr></thead>
+            <tbody>
+            {% for m in sources.mappings %}
+                <tr>
+                    <td><a href="{{ m.url }}" class="b-mono">{{ m.id }}</a><br><span class="b-small b-muted">{{ m.description }}</span></td>
+                    <td>{{ m.types | join(', ') }}</td>
+                    <td class="b-small">{% if m.source %}Quelle <span class="b-mono">{{ m.source }}</span>{% else %}<span class="b-muted">noch keine Quelle gewählt</span>{% endif %}<br><span class="b-mono b-muted">{{ m.extractor }}</span></td>
+                    <td>{% if m.problems %}<span class="b-tag b-tag--critical">{{ m.problems }} {{ 'Problem' if m.problems == 1 else 'Probleme' }}</span>{% else %}<span class="b-tag b-tag--good">In Ordnung</span>{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Noch keine Zuordnung.</p>
+    {% endif %}
+</section>
+
+<dialog class="b-dialog" id="b-map-new" aria-labelledby="b-map-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-map-new-title">Neue Zuordnung</h2>
+            <p class="b-muted" data-mn-what></p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-mn-id">Kennung</label>
+                <input class="b-input b-mono" id="b-mn-id" name="id" required autocomplete="off" spellcheck="false" placeholder="z. B. ablage-mandate">
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="b-mn-type">Zieltyp</label>
+                <select class="b-select" id="b-mn-type" name="type">{% for t in sources.types %}<option value="{{ t.key }}">{{ t.name }}{% if t.name != t.key %} ({{ t.key }}){% endif %}</option>{% endfor %}</select>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Zuordnung anlegen</button>
+        </div>
+    </form>
+</dialog>
+
 <script type="application/json" id="b-src-data">{{ sources | tojson }}</script>
 
 <dialog class="b-dialog b-dialog--wide" id="b-src-new" aria-labelledby="b-src-new-title">

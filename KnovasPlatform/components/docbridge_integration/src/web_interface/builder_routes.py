@@ -32,6 +32,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
 from markupsafe import Markup
 
 from builder import editing, ontology_view, package, processes, publisher, review, tenant_ontology as tenant_reader
+from builder import mappings as mapping_rules
 from builder import sources as source_kinds
 from builder import packs as shipped_packs
 
@@ -222,7 +223,7 @@ def create_builder_blueprint(
     def _change_label(path):
         section, _, key = str(path).partition("/")
         element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket",
-                   "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle"}.get(section)
+                   "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung"}.get(section)
         return f"{element} {key}" if element and key else CHANGE_LABELS.get(path, path)
 
     @bp.app_template_filter("b_version_tag")
@@ -492,6 +493,8 @@ def create_builder_blueprint(
             view = {"processes": processes.build(model)}
         elif wanted == "sources":
             view = {"sources": _sources_view(store, model)}
+        elif wanted == "mapping":
+            view = {"mapping": _mapping_view(model, request.args.get("mapping") or "")}
         else:
             view = {"ontology": ontology_view.build(model)}
         return jsonify({"success": True, "changes": len(changes),
@@ -573,7 +576,19 @@ def create_builder_blueprint(
                      "credential_required": v["credential_required"],
                      "settings": [{"name": n, "label": l, "hint": h} for n, l, h in v["settings"]]}
                  for k, v in source_kinds.SOURCE_KINDS.items()}
-        return {"sources": found, "kinds": kinds, "planned": source_kinds.PLANNED_SOURCES,
+        mapping_list = []
+        for m in model.get("mappings") or []:
+            d = m.get("definition") or {}
+            mapping_list.append({"id": d.get("id"), "description": d.get("description") or "",
+                                 "types": [e.get("type") for e in d.get("emits") or []],
+                                 "source": (m.get("builder") or {}).get("source"),
+                                 "extractor": (d.get("source") or {}).get("extractor"),
+                                 "problems": len(mapping_rules.problems(model, m)),
+                                 "url": url_for("builder.mapping_page", mapping_id=d.get("id"))})
+        types = [{"key": t["key"], "name": (t.get("label") or {}).get("de") or t["key"]}
+                 for t in (model.get("ontology") or {}).get("types") or [] if not t.get("retired")]
+        return {"sources": found, "kinds": kinds, "planned": source_kinds.PLANNED_SOURCES, "mappings": mapping_list,
+                "types": sorted(types, key=lambda t: t["key"]),
                 "components": list(components.values()), "extractors": source_kinds.FILE_EXTRACTORS,
                 "secrets": {"available": bool(secrets and secrets.available),
                             "reason": "" if secrets and secrets.available else
@@ -605,6 +620,146 @@ def create_builder_blueprint(
             if (secrets is not None and c["path"].startswith("sources/") and before.get("credential_set")
                     and (after is None or not after.get("credential_set"))):
                 secrets.clear(source_secret_key(workspace_id, before["key"]), gate.current_user())
+
+    # -------------------------------------------------------- mappings (B8)
+
+    def _mapping_entry(model, mapping_id: str):
+        return next((m for m in model.get("mappings") or [] if (m.get("definition") or {}).get("id") == mapping_id), None)
+
+    def _mapping_view(model, mapping_id: str) -> dict:
+        entry = _mapping_entry(model, mapping_id)
+        if entry is None:
+            return {"missing": True, "id": mapping_id}
+        onto = mapping_rules.Ontology(model)
+        defn = entry["definition"]
+        builder_meta = entry.get("builder") or {}
+        steps = builder_meta.get("steps") or {}
+        var = str((defn.get("source") or {}).get("as") or mapping_rules.VAR)
+
+        def target(emit_index, name, label, expr, kind, **extra):
+            meta = steps.get(f"{emit_index}:{name}")
+            return {"target": name, "label": label, "expression": expr or "", "kind": kind,
+                    "field": (meta or {}).get("field") or mapping_rules.simple_field(expr, var),
+                    "steps": (meta or {}).get("steps") or [], "custom": bool(expr) and not meta
+                    and mapping_rules.simple_field(expr, var) is None, **extra}
+
+        emits = []
+        for i, em in enumerate(defn.get("emits") or []):
+            t = em.get("type")
+            facts = em.get("facts") or {}
+            attrs = [a for a in onto.attributes(t)] if onto.live_type(str(t)) else []
+            targets = [target(i, "key", "Schlüssel", em.get("key"), "key"),
+                       target(i, "name", "Name", em.get("name"), "name"),
+                       target(i, "description", "Beschreibung", em.get("description"), "description")]
+            for a in attrs:
+                spec = facts.get(a["name"]) or {}
+                targets.append(target(i, f"fact:{a['name']}", a["name"], spec.get("value"), "fact",
+                                      datatype=a.get("datatype") or "text", priority=spec.get("priority"),
+                                      policy=spec.get("policy")))
+            for name, spec in facts.items():
+                if name not in {a["name"] for a in attrs}:
+                    targets.append(target(i, f"fact:{name}", name, spec.get("value"), "fact", unknown=True))
+            relations = [dict(target(i, f"relation:{j}", r.get("relation"), r.get("to_key"), "relation"),
+                              relation=r.get("relation"), to_type=r.get("to_type"), direction=r.get("direction", "out"),
+                              to_match=bool(r.get("to_match")))
+                         for j, r in enumerate(em.get("relations") or [])]
+            offered = [{"relation": r["key"], "direction": d, "to_type": other}
+                       for r in onto.relations.values() if not r.get("retired")
+                       for d, here, there in (("out", r.get("domain") or [], r.get("range") or []),
+                                              ("in", r.get("range") or [], r.get("domain") or []))
+                       if "*" in here or t in here
+                       for other in (there if "*" not in there else [])]
+            emits.append({"index": i, "type": t, "identify": em.get("identify") or [], "targets": targets,
+                          "relations": relations, "offered": offered[:200],
+                          "attributes": [a["name"] for a in attrs]})
+        src = next((s for s in model.get("sources") or [] if s.get("key") == builder_meta.get("source")), None)
+        return {"id": defn.get("id"), "file": entry.get("file"), "description": defn.get("description") or "",
+                "source_spec": defn.get("source") or {}, "var": var, "source": src,
+                "sources": [{"key": s["key"], "name": s["name"], "kind": s["kind"]} for s in model.get("sources") or []],
+                "collection": builder_meta.get("collection"), "priority": builder_meta.get("priority", 10),
+                "edit_policy": defn.get("edit_policy"), "deletion_guard": defn.get("deletion_guard") or {},
+                "freshness": (defn.get("freshness") or {}).get("window"), "emits": emits,
+                "problems": mapping_rules.problems(model, entry),
+                "yaml": package.dump_yaml(mapping_rules._written(defn)).decode("utf-8"),
+                "policies": mapping_rules.EDIT_POLICIES, "steps": mapping_rules.STEPS,
+                "types": [{"key": k, "name": (v.get("label") or {}).get("de") or k}
+                          for k, v in sorted(onto.types.items()) if not v.get("retired")]}
+
+    @bp.route("/zuordnung/<mapping_id>")
+    def mapping_page(mapping_id: str):
+        store = _store()
+        workspace = _current_workspace(store) if store is not None else None
+        if workspace is None:
+            return redirect(url_for("builder.stage", slug="quellen"))
+        view = _mapping_view(store.model(workspace.id), mapping_id)
+        if view.get("missing"):
+            abort(404)
+        stage = STAGES_BY_SLUG["quellen"]
+        return _render("builder/mapping.html", stage=stage, stage_number=STAGES.index(stage) + 1,
+                       current_workspace=workspace, history=_history_counts(workspace.id), mapping=view)
+
+    def _mapping_run(store, current, model, mapping_id: str):
+        entry = _mapping_entry(model, mapping_id)
+        if entry is None:
+            abort(404)
+        source = next((s for s in model.get("sources") or []
+                       if s.get("key") == (entry.get("builder") or {}).get("source")), None)
+        if source is None:
+            raise source_kinds.ReaderError("Wählen Sie die Quelle, über die die Zuordnung liest.")
+        reader = _reader(store, current, source)
+        return entry, reader
+
+    @bp.route("/api/w/<workspace_id>/mappings/<mapping_id>/preview", methods=["POST"])
+    def mapping_preview(workspace_id: str, mapping_id: str):
+        """The fields of the items the mapping reads, and the first nodes, facts and edges it would make."""
+        store, current = _editable_workspace(workspace_id)
+        model = store.model(current.id)
+        try:
+            entry, reader = _mapping_run(store, current, model, mapping_id)
+            items = mapping_rules.items(entry["definition"], reader)
+            problems = mapping_rules.problems(model, entry)
+            run = mapping_rules.run(entry["definition"], reader) if not [p for p in problems if p["severity"] == "critical"] else None
+        except source_kinds.ReaderError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 502
+        except Exception as exc:  # noqa: BLE001 - an expression brain-runner refuses at run time
+            logger.info("Builder: mapping preview failed, %s", type(exc).__name__)
+            return jsonify({"success": False, "error": f"Die Zuordnung lässt sich so nicht ausführen ({type(exc).__name__}).",
+                            "details": [str(exc)[:300]]}), 422
+        fields = source_kinds.profile(items)
+        logger.info("Builder: mapping preview, %d items", len(items))
+        return jsonify({"success": True, "fields": fields, "problems": problems,
+                        "preview": mapping_rules.preview(run) if run is not None else None})
+
+    @bp.route("/api/w/<workspace_id>/mappings/<mapping_id>/dry-run", methods=["POST"])
+    def mapping_dry_run(workspace_id: str, mapping_id: str):
+        """brain-runner's plan of the mapping against the tenant: added, modified, retired, drift, the deletion guard."""
+        store = _store()
+        ready, refusal = _publishable(store, workspace_id)
+        if refusal:
+            return refusal
+        current, draft, tenant, engine = ready
+        model = store.model(current.id)
+        try:
+            entry, reader = _mapping_run(store, current, model, mapping_id)
+            if [p for p in mapping_rules.problems(model, entry) if p["severity"] == "critical"]:
+                return jsonify({"success": False, "error": "Die Zuordnung hat noch Probleme; zuerst beheben."}), 409
+            run = mapping_rules.run(entry["definition"], reader)
+            plan = engine.mapping_plan(model, mapping_id, run)
+        except source_kinds.ReaderError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 502
+        except Exception as exc:  # noqa: BLE001 - the engine's failure is the run's result
+            logger.warning("Builder mapping dry run failed: %s", type(exc).__name__)
+            return jsonify({"success": False, "error": "Der Probelauf ist fehlgeschlagen.", "details": [str(exc)[:300]]}), 502
+        summary = mapping_rules.plan_summary(plan, mapping_id)
+        status = "refused" if summary["guard"]["tripped"] else "ok"
+        store.record_run(current.id, kind="dry_run", actor_id=gate.current_user().id, tenant=tenant,
+                         content_hash=draft["content_hash"], bundle_hash=None, status=status,
+                         summary={"mapping": mapping_id, **{k: summary[k] for k in
+                                                            ("added", "modified", "retired", "unchanged", "drift")},
+                                  "guard_tripped": summary["guard"]["tripped"]})
+        logger.info("Builder mapping dry run: %s added, %s modified, %s retired", summary["added"],
+                    summary["modified"], summary["retired"])
+        return jsonify({"success": True, "status": status, "summary": summary})
 
     @bp.route("/api/components", methods=["POST"])
     def register_component():
@@ -735,7 +890,9 @@ def create_builder_blueprint(
         everything = review.change_set(rows) if author else changes
         runs = store.runs(workspace.id)
         content = draft["content_hash"] if draft else None
-        dry_run = next((r for r in runs if r["kind"] == "dry_run" and r["content_hash"] == content), None)
+        # A mapping's dry run (B8) is not the draft's: it planned one mapping's items, not the publish.
+        dry_run = next((r for r in runs if r["kind"] == "dry_run" and r["content_hash"] == content
+                        and not (r.get("summary") or {}).get("mapping")), None)
         approvals = [a for a in store.approvals(workspace.id) if a["content_hash"] == content]
         me = str(gate.current_user().id)
         engine = _engine()

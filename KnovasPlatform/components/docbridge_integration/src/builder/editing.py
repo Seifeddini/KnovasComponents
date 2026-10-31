@@ -41,7 +41,8 @@ PACKS = "packs"
 PROCESSES = "processes"
 PROCESS_RULES = "processes.rules"
 SOURCES = "sources"
-SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES)
+MAPPINGS = "mappings"
+SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES, MAPPINGS)
 #: The field that names an element of a section; "key" where not listed.
 KEY_FIELDS = {PROCESS_RULES: "id"}
 
@@ -76,11 +77,18 @@ def key_field(section: str) -> str:
     return KEY_FIELDS.get(section, "key")
 
 
+def key_of(section: str, item: Mapping[str, Any]) -> Any:
+    """The name of an element: a mapping is named by its definition's id (a file of the package)."""
+    if section == MAPPINGS:
+        return (item.get("definition") or {}).get("id")
+    return item.get(key_field(section))
+
+
 def _items(model: dict, section: str, *, create: bool = True) -> list:
     """The section's list of elements; without ``create``, an absent one reads as empty and is not added."""
     if section not in SECTIONS:
         raise EditError("Unbekannter Teil des Modells.")
-    if section in (PACKS, SOURCES):
+    if section in (PACKS, SOURCES, MAPPINGS):
         return model.setdefault(section, []) if create else (model.get(section) or [])
     if section in (PROCESSES, PROCESS_RULES):
         name = "processes" if section == PROCESSES else "rules"
@@ -96,17 +104,16 @@ def _items(model: dict, section: str, *, create: bool = True) -> list:
 def put(model: dict, change: Mapping[str, Any], *, reverse: bool = False) -> None:
     """Apply ``change`` to ``model`` (or take it back, ``reverse``)."""
     section = change["path"].split("/", 1)[0]
-    name = key_field(section)
     before, after = (change["after"], change["before"]) if reverse else (change["before"], change["after"])
     items = _items(model, section)
     if before is None:
-        if any(item.get(name) == after[name] for item in items):
-            raise EditError(f"«{after[name]}» gibt es inzwischen schon.", 409)
+        if any(key_of(section, item) == key_of(section, after) for item in items):
+            raise EditError(f"«{key_of(section, after)}» gibt es inzwischen schon.", 409)
         items.append(copy.deepcopy(after))
         return
-    index = next((n for n, item in enumerate(items) if item.get(name) == before[name]), None)
+    index = next((n for n, item in enumerate(items) if key_of(section, item) == key_of(section, before)), None)
     if index is None or items[index] != before:
-        raise EditError(f"«{before[name]}» wurde inzwischen geändert.", 409)
+        raise EditError(f"«{key_of(section, before)}» wurde inzwischen geändert.", 409)
     if after is None:
         del items[index]
         if section == PROCESS_RULES and not items:
@@ -123,8 +130,7 @@ class _Edit:
         self.changes: list[dict] = []
 
     def find(self, section: str, key: Any) -> dict | None:
-        name = key_field(section)
-        return next((item for item in _items(self.model, section, create=False) if item.get(name) == key), None)
+        return next((item for item in _items(self.model, section, create=False) if key_of(section, item) == key), None)
 
     def type(self, key: Any) -> dict:
         item = self.find(TYPES, key)
@@ -156,7 +162,7 @@ class _Edit:
             return
         named = old if old is not None else new
         assert named is not None
-        change = {"path": f"{section}/{named[key_field(section)]}", "before": copy.deepcopy(old),
+        change = {"path": f"{section}/{key_of(section, named)}", "before": copy.deepcopy(old),
                   "after": copy.deepcopy(new)}
         put(self.model, change)
         self.changes.append(change)
@@ -662,6 +668,7 @@ OPERATIONS: dict[str, Callable[[_Edit, Mapping[str, Any]], None]] = {
 # The process operations (step B6) register themselves in OPERATIONS.
 from builder import process_edits  # noqa: E402,F401  - late: it builds on the helpers above
 from builder import source_edits  # noqa: E402,F401  - the source operations (step B7)
+from builder import mapping_edits  # noqa: E402,F401  - the mapping operations (step B8)
 
 
 def apply(model: dict, op: Any) -> list[dict]:
