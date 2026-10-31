@@ -522,6 +522,7 @@ def create_builder_blueprint(
             history["undo"].append(batch)
             history["redo"] = []
             _save_history(current.id, history)
+        _forget_moved_credentials(current.id, changes)
         return _edited(store, current.id, model, changes, str(op.get("op")))
 
     def _step(workspace_id: str, take: str, give: str, step):
@@ -593,6 +594,17 @@ def create_builder_blueprint(
             wanted = source_kinds.SOURCE_KINDS.get(op.get("kind"), {}).get("component")
             if wanted and wanted != component["kind"]:
                 raise editing.EditError(f"Eine Quelle dieser Art liest nur ein {source_kinds.COMPONENT_KINDS[wanted]['label']}.")
+
+    def _forget_moved_credentials(workspace_id: str, changes) -> None:
+        """A source that moved to another address or repository loses its credential in the registry too."""
+        from platform_settings import source_secret_key
+
+        secrets = _secrets()
+        for c in changes:
+            before, after = c.get("before") or {}, c.get("after")
+            if (secrets is not None and c["path"].startswith("sources/") and before.get("credential_set")
+                    and (after is None or not after.get("credential_set"))):
+                secrets.clear(source_secret_key(workspace_id, before["key"]), gate.current_user())
 
     @bp.route("/api/components", methods=["POST"])
     def register_component():

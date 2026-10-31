@@ -283,15 +283,57 @@ class KnovasConnectorReader:
         return out
 
 
+    def documents(self, spec: Mapping[str, Any]) -> list[dict]:
+        """The files a mapping's source names (its glob under the connector's root), one document each (step B8)."""
+        files, _ = self._entries()
+        base = str(spec.get("glob") or "**/*").removesuffix("**/*").rstrip("/")
+        folder = self.folder.strip("/")
+        out = []
+        for f in files:
+            rel = str(f.get("path") or "").replace("\\", "/").strip("/")
+            full = f"{folder}/{rel}" if folder else rel
+            if base and not full.startswith(base + "/"):
+                continue
+            out.append({"path": full, "name": f.get("name"), "folder": posixpath.dirname(full),
+                        "extension": posixpath.splitext(str(f.get("name") or ""))[1].lower(),
+                        "size_bytes": f.get("size_bytes"), "modified_at": f.get("modified_at")})
+        return out
+
+
+def public_https(url: str, resolve: Optional[Callable[[str], list]] = None) -> None:
+    """Refuse an address the Platform must not call for a source: not https, or a host that resolves to a
+    loopback, private, link-local or otherwise non-public address (every address it resolves to)."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        raise ReaderError("Die Adresse muss mit https:// beginnen.")
+    try:
+        infos = (resolve or (lambda host: socket.getaddrinfo(host, parts.port or 443, proto=socket.IPPROTO_TCP)))(parts.hostname)
+    except OSError:
+        raise ReaderError("Der Name der Adresse ist nicht auflösbar.") from None
+    addresses = {info[4][0] for info in infos}
+    if not addresses or any(not ipaddress.ip_address(a.split("%")[0]).is_global for a in addresses):
+        raise ReaderError("Die Adresse zeigt nicht ins öffentliche Netz; solche Quellen liest ein Connector vor Ort.")
+
+
 class HttpJsonReader:
-    """A JSON document over HTTPS: its lists of records are the collections."""
+    """A JSON document over HTTPS: its lists of records are the collections.
+
+    Only public addresses are called, every resolved address checked, and redirects are not followed: a
+    source's address is not a way into the Platform's own network.
+    """
 
     MAX_BYTES = 5_000_000
 
-    def __init__(self, url: str, token: Optional[str] = None, get: Optional[Callable[..., Any]] = None):
+    def __init__(self, url: str, token: Optional[str] = None, get: Optional[Callable[..., Any]] = None,
+                 resolve: Optional[Callable[[str], list]] = None):
         self.url = url
         self.token = token
         self._get = get
+        self._resolve = resolve
         self._data: Any = None
 
     def _document(self) -> Any:
@@ -302,13 +344,16 @@ class HttpJsonReader:
             import requests
 
             get = requests.get
+        public_https(self.url, self._resolve)
         headers = {"Accept": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         try:
-            resp = get(self.url, headers=headers, timeout=20, stream=True)
+            resp = get(self.url, headers=headers, timeout=20, stream=True, allow_redirects=False)
         except Exception as exc:  # noqa: BLE001
             raise ReaderError(f"Die Adresse ist nicht erreichbar ({type(exc).__name__}).") from None
+        if 300 <= resp.status_code < 400:
+            raise ReaderError("Die Adresse leitet weiter; Weiterleitungen werden nicht verfolgt.")
         if resp.status_code >= 400:
             raise ReaderError(f"Die Adresse antwortet mit HTTP {resp.status_code}.")
         body = resp.content
@@ -343,6 +388,10 @@ class HttpJsonReader:
                        for path, items in lists.items()]
         return {"collections": collections, "more": 0,
                 "counts": [["Listen", len(lists)], ["Datensätze", sum(len(v) for v in lists.values())]], "detail": {}}
+
+    def documents(self, spec: Mapping[str, Any]) -> list[Any]:
+        """The response as the one document a mapping's ``select`` reads (step B8)."""
+        return [self._document()]
 
     def sample(self, collection: str, limit: int = SAMPLE_LIMIT) -> list[Any]:
         lists = self._lists()

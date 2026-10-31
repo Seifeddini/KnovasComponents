@@ -17,6 +17,7 @@ from builder_harness import (SAMPLE_PACKAGE, FakeConnector, MemorySecrets, Memor
 
 TENANT = "test-tenant-0001"
 TOKEN = "ghp_secret_never_shown_0123456789"
+PUBLIC = lambda host: [(None, None, None, None, ("93.184.216.34", 443))]  # noqa: E731
 
 
 @pytest.fixture
@@ -95,17 +96,31 @@ class TestTheReaders:
 
         sent = {}
 
-        def get(url, headers, timeout, stream):
+        def get(url, headers, timeout, stream, allow_redirects):
+            assert allow_redirects is False
             sent.update(headers)
             return Answer(200, json.dumps({"data": {"clients": [{"id": 1, "name": "A"}, {"id": 2}]}, "page": 1}).encode())
 
-        reader = sources.HttpJsonReader("https://example.org/api", "tok", get=get)
+        reader = sources.HttpJsonReader("https://example.org/api", "tok", get=get, resolve=PUBLIC)
         assert reader.test()["collections"] == [{"id": "$.data.clients", "label": "$.data.clients", "kind": "Datensätze", "count": 2}]
         assert reader.sample("$.data.clients")[1] == {"id": 2} and sent["Authorization"] == "Bearer tok"
         assert pytest.raises(sources.ReaderError, sources.HttpJsonReader(
-            "https://x", get=lambda *a, **k: Answer(200, b"<html>")).test)
+            "https://x", get=lambda *a, **k: Answer(200, b"<html>"), resolve=PUBLIC).test)
         with pytest.raises(sources.ReaderError, match="HTTP 401"):
-            sources.HttpJsonReader("https://x", get=lambda *a, **k: Answer(401, b"{}")).test()
+            sources.HttpJsonReader("https://x", get=lambda *a, **k: Answer(401, b"{}"), resolve=PUBLIC).test()
+        with pytest.raises(sources.ReaderError, match="leitet weiter"):
+            sources.HttpJsonReader("https://x", get=lambda *a, **k: Answer(302, b""), resolve=PUBLIC).test()
+
+    @pytest.mark.parametrize("address", ["127.0.0.1", "10.1.2.3", "169.254.169.254", "192.168.1.15", "::1", "fd00::1"])
+    def test_json_only_from_the_public_network(self, address):
+        called = []
+        reader = sources.HttpJsonReader("https://inside.example/api", get=lambda *a, **k: called.append(1),
+                                        resolve=lambda host: [(None, None, None, None, (address, 443))])
+        with pytest.raises(sources.ReaderError, match="öffentliche Netz"):
+            reader.test()
+        assert called == []
+        with pytest.raises(sources.ReaderError, match="https://"):
+            sources.public_https("http://example.org/x", PUBLIC)
 
 
 @pytest.fixture
@@ -213,6 +228,16 @@ class TestTheRoutes:
         assert TOKEN not in page and TOKEN.encode() not in bundle_view
         assert TOKEN not in caplog.text
         assert "sources/kb" in [c["path"] for c in world["store"].draft_changes(world["id"])]
+
+    def test_a_source_that_moves_loses_its_credential(self, world):
+        runner = _register(world, "github_runner", "GitHub-Runner").get_json()["id"]
+        _edit(world, op="source.create", kind="github", name="KB", component=runner, settings={"repository": "acme/kb"})
+        world["client"].post(f"/builder/api/w/{world['id']}/sources/kb/credential", json={"value": TOKEN})
+        kept = _edit(world, op="source.update", key="kb", fields={"settings": {"repository": "acme/kb", "ref": "dev"}})
+        assert kept.get_json()["sources"]["sources"][0]["credential_set"] is True and world["secrets"].values
+        moved = _edit(world, op="source.update", key="kb", fields={"settings": {"repository": "evil/kb"}})
+        assert moved.get_json()["sources"]["sources"][0]["credential_set"] is False
+        assert world["secrets"].values == {}
 
     def test_a_test_and_a_sample_log_counts_only(self, world, caplog):
         caplog.set_level(logging.INFO)

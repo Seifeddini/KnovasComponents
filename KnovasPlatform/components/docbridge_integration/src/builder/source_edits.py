@@ -21,6 +21,8 @@ from builder import sources as S
 from builder.editing import OPERATIONS, SOURCES, EditError, _Edit, _set_text, _text
 
 SOURCE_KEY = re.compile(r"^[a-z][a-z0-9-]{0,59}$")
+#: Settings that say where a source is: changing one drops the credential.
+HOST_SETTINGS = ("url", "repository")
 
 
 def key_from_name(name: str) -> str:
@@ -86,6 +88,10 @@ def _source_update(edit: _Edit, op: Mapping[str, Any]) -> None:
         new["component"] = _text(fields["component"], "Komponente", limit=60) or new["component"]
     if "settings" in fields:
         new["settings"] = _settings(new["kind"], fields["settings"])
+        # A credential belongs to where it was set for: a new address or repository drops it
+        # (the route removes it from the registry), so a token never goes to another host.
+        if any(new["settings"].get(k) != old["settings"].get(k) for k in HOST_SETTINGS):
+            new["credential_set"] = False
     edit.write(SOURCES, old, new)
 
 
