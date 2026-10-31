@@ -357,6 +357,7 @@ class GraphOntologySource:
             "id": _node_id(node) or str(entity_id),
             "label": _node_label(node) or str(entity_id),
             "type": _node_type_id(node),
+            "description": str(node.get("description") or "").strip(),
             "doc_count": self._doc_count(node) or self._doc_count(detail),
         }
 
@@ -545,6 +546,48 @@ class GraphOntologySource:
                 self._invalidate()
             return ok
         return False
+
+    def update_type(self, type_id: str, label: str) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/node-types/<id> — Name des Typs."""
+        label = " ".join(str(label or "").split())
+        type_id = str(type_id or "").strip()
+        if not label or not type_id:
+            return None
+        updated = self._client.graph_update_node_type(type_id, name=label)
+        if not updated:
+            return None
+        node_type = (updated.get("node_type") if isinstance(updated.get("node_type"), dict)
+                     else updated)
+        self._invalidate()
+        return {"id": _type_id(node_type) or type_id,
+                "label": _type_label(node_type) or label}
+
+    def update_entity(self, entity_id: str, label: Optional[str] = None,
+                      description: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/graph/nodes/<id> — Name und Beschreibung."""
+        entity_id = str(entity_id or "").strip()
+        fields: Dict[str, Any] = {}
+        if label is not None:
+            label = " ".join(str(label).split())
+            if not label:
+                return None
+            fields["name"] = label
+        if description is not None:
+            fields["description"] = " ".join(str(description).split())
+        if not entity_id or not fields:
+            return None
+        updated = self._client.graph_update_node(entity_id, **fields)
+        if not updated:
+            return None
+        node = updated.get("node") if isinstance(updated.get("node"), dict) else updated
+        self._invalidate()
+        return {
+            "id": _node_id(node) or entity_id,
+            "label": _node_label(node) or fields.get("name") or "",
+            "type": _node_type_id(node),
+            "description": str(node.get("description") or fields.get("description") or ""),
+            "doc_count": self._doc_count(node),
+        }
 
     def delete_entity(self, entity_id: str) -> bool:
         """DELETE auf den Knoten; die API kaskadiert Zuordnungen und Kanten."""

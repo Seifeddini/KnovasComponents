@@ -190,14 +190,22 @@ class CortexApp {
     }
 
     renderGraph(data) {
+        // Im Galaxie-Mockup erscheinen diese beiden Typen als beschriftete
+        // Sonnen im Canvas statt ein zweites Mal als normale Graph-Knoten.
+        const sunLabels = new Set(['mandant', 'gericht', 'personen']);
+        const graphTypes = data.types.filter(
+            (type) => !sunLabels.has(foldText(type.label).trim()));
+        const graphTypeIds = new Set(graphTypes.map((type) => type.id));
+        const graphRelations = data.relations.filter(
+            (relation) => graphTypeIds.has(relation.src) && graphTypeIds.has(relation.dst));
         const iconColor = cssToken('--primary-color');
-        const maxCount = Math.max(...data.types.map((t) => t.count), 1);
-        const n = data.types.length;
+        const maxCount = Math.max(...graphTypes.map((t) => t.count), 1);
+        const n = graphTypes.length;
         // Deterministischer Kreis-Seed (Spec Regel 4): das anschliessende
         // cose-Layout mit randomize:false liefert damit stets dasselbe Bild.
         const seedRadius = 300;
-        const typeIcons = iconsForTypes(data.types, iconColor);
-        const nodes = data.types.map((t, i) => ({
+        const typeIcons = iconsForTypes(graphTypes, iconColor);
+        const nodes = graphTypes.map((t, i) => ({
             data: { id: t.id, label: t.label, count: t.count,
                     icon: typeIcons[i],
                     size: 54 + Math.round(40 * (t.count / maxCount)) },
@@ -206,8 +214,8 @@ class CortexApp {
                 y: seedRadius * Math.sin((2 * Math.PI * i) / n - Math.PI / 2),
             },
         }));
-        const maxRel = Math.max(...data.relations.map((r) => r.count), 1);
-        const edges = data.relations.map((r, i) => ({
+        const maxRel = Math.max(...graphRelations.map((r) => r.count), 1);
+        const edges = graphRelations.map((r, i) => ({
             data: { id: `r-${i}`, source: r.src, target: r.dst,
                     src: r.src, dst: r.dst, predicate: r.predicate,
                     label: r.count ? `${r.predicate} (${formatCount(r.count)})`
@@ -414,6 +422,7 @@ class CortexApp {
         this.connect = new ConnectGesture(this.cy, {
             onConnect: (zug) => this.onConnectDrawn(zug),
         });
+        this.bindPhysics();
     }
 
     /** Kraeftelayout ab dem Kreis-Seed, deterministisch. */
@@ -431,15 +440,14 @@ class CortexApp {
             // Kleiner als früher (war 1200x800): auf der grossen Fläche trieben
             // schwach verbundene Typen so weit auseinander, dass die Startansicht
             // fast nur Zwischenraum zeigte.
-            boundingBox: { x1: 0, y1: 0, w: 820, h: 560 },
+            boundingBox: { x1: 0, y1: 0, w: 980, h: 680 },
             nodeDimensionsIncludeLabels: true,
-            // Enger gestellt als zuvor (130 / 150000 / 2.2). Die Abstossung
-            // dominierte die Federn, deshalb lag der Graph als dünner Schleier
-            // über der Fläche statt als lesbare Gruppe.
-            idealEdgeLength: () => 85,
-            nodeRepulsion: () => 42000,
-            edgeElasticity: () => 190,
-            gravity: 4.5,
+            // Die Uebersicht bleibt eine Gruppe. Die starke Abstossung gilt
+            // fuer die Kinder eines geoeffneten Knotens, nicht fuer diese Ebene.
+            idealEdgeLength: () => 96,
+            nodeRepulsion: () => 52000,
+            edgeElasticity: () => 180,
+            gravity: 5.2,
             numIter: 3000,
         }).run();
         // Erst rahmen, wenn die Positionen stehen: sonst rechnet fitToVisible
@@ -512,43 +520,186 @@ class CortexApp {
             this.cy.animate({ zoom: level, pan },
                             { duration: 220, easing: 'ease-out-quart' });
         };
-        const fitAll = () => this.fitToVisible();
-        document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.25));
-        document.getElementById('zoomOut').addEventListener('click', () => zoomBy(0.8));
+        const galaxyZoomBy = (factor) => {
+            if (window.cortexGalaxy) window.cortexGalaxy.zoomBy(factor);
+        };
+        const fitAll = () => {
+            this.fitToVisible();
+            if (window.cortexGalaxy) window.cortexGalaxy.fit();
+        };
+        document.getElementById('zoomIn').addEventListener('click', () => {
+            zoomBy(1.25);
+            galaxyZoomBy(1.25);
+        });
+        document.getElementById('zoomOut').addEventListener('click', () => {
+            zoomBy(0.8);
+            galaxyZoomBy(0.8);
+        });
         document.getElementById('zoomFit').addEventListener('click', fitAll);
     }
 
-    /** Typ-Knoten-Klick: aufklappen (Kamerafahrt + Satelliten + Drawer)
-        bzw. wieder einklappen (inkl. Rückfahrt zur Übersicht). */
+    /** Typ-Knoten-Klick: Details öffnen. Kinder werden beim ersten Öffnen
+        gezeigt und danach nur noch über „Kinder verbergen / zeigen“ geschaltet,
+        damit Ziehen und Öffnen sich nicht mit dem Einklappen beissen. */
     onTypeTap(node, { fly = true } = {}) {
         const typeId = node.id();
-        if (this.expandedTypes.has(typeId)) {
-            // Nur DIESEN Typ zuklappen: stehen mehrere offen, sollen die
-            // anderen Gruppen stehen bleiben. Erst wenn keiner mehr offen
-            // ist, faehrt die Kamera zur Uebersicht zurueck.
-            this.collapseType(typeId);
-            this.closeDocDrawer();
-            document.getElementById('entityPane').classList.remove('open');
-            if (!this.expandedTypes.size) {
-                if (CortexApp.reducedMotion()) this.animateFit();
-                else setTimeout(() => this.animateFit(), 150);
-            }
-            // Der Tap selektiert den Knoten nativ erst nach diesem Handler —
-            // beim Einklappen soll aber nichts ausgewählt zurückbleiben.
-            setTimeout(() => node.unselect(), 0);
-            return;
-        }
-        // Mehrere Typen duerfen gleichzeitig offen stehen: eine Verbindung
-        // zwischen Entitaeten VERSCHIEDENER Typen ist sonst gar nicht
-        // zeichenbar, weil nie zwei Satellitengruppen sichtbar waeren.
-        // Sofort als aufgeklappt vermerken: sonst gilt ein Typ OHNE Entitäten
-        // nie als offen und liesse sich nicht zuklappen - jeder weitere Klick
-        // führe erneut hin.
+        if (!this.expandedTypes.has(typeId)) this.revealTypeChildren(typeId, node, { fly });
+        else if (fly) this.zoomAnim = this.zoomToNode(node);
+        this.onTypeSelect(typeId, node.data('label'));
+    }
+
+    /** Kinder eines Typs in den Graphen legen. */
+    revealTypeChildren(typeId, node, { fly = true } = {}) {
+        if (this.expandedTypes.has(typeId)) return;
         this.expandedTypes.set(typeId, null);
         node.addClass('expanded');
         this.applyFocus();
         this.zoomAnim = fly ? this.zoomToNode(node) : null;
-        this.onTypeSelect(typeId, node.data('label'));
+    }
+
+    /** Kinder ein- oder ausblenden, der Drawer bleibt offen. */
+    toggleTypeChildren(typeId, label) {
+        const node = this.cy.getElementById(typeId);
+        if (node.empty()) return;
+        if (this.expandedTypes.has(typeId)) {
+            this.collapseType(typeId);
+            if (!this.expandedTypes.size) {
+                if (CortexApp.reducedMotion()) this.animateFit();
+                else setTimeout(() => this.animateFit(), 150);
+            }
+            this.wakePhysics(700);
+        } else {
+            this.revealTypeChildren(typeId, node, { fly: true });
+        }
+        this.onTypeSelect(typeId, label);
+    }
+
+    /** Federn an den Kanten, Abstossung zwischen den Knoten. Ein gezogener
+        Knoten ist fest; losgelassen bleibt er liegen, die Nachbarn schwingen
+        nach. Wie im Graphen von Obsidian, ohne eine zweite Layout-Bibliothek. */
+    bindPhysics() {
+        this.pinnedNodes = new Set();
+        this.draggedId = null;
+        this.physicsFrame = null;
+        this.physicsUntil = 0;
+        this.cy.on('grab', 'node', (evt) => {
+            const node = evt.target;
+            if (node.hasClass('filter-node') || node.hasClass('connect-pointer')) return;
+            this.draggedId = node.id();
+            this.wakePhysics(1400);
+        });
+        this.cy.on('drag', 'node', (evt) => {
+            if (evt.target.id() !== this.draggedId) return;
+            this.physicsUntil = performance.now() + 1400;
+        });
+        this.cy.on('free', 'node', (evt) => {
+            if (evt.target.hasClass('filter-node') || evt.target.hasClass('connect-pointer')) return;
+            this.pinnedNodes.add(evt.target.id());
+            if (this.draggedId === evt.target.id()) this.draggedId = null;
+            this.wakePhysics(1100);
+        });
+    }
+
+    wakePhysics(extraMs = 800) {
+        if (!this.cy || CortexApp.reducedMotion()) return;
+        this.physicsUntil = Math.max(this.physicsUntil || 0, performance.now() + extraMs);
+        if (this.physicsFrame) return;
+        const tick = (now) => {
+            this.physicsFrame = null;
+            if (!this.cy) return;
+            const moving = this.stepPhysics();
+            if (this.draggedId || now < this.physicsUntil || moving) {
+                this.physicsFrame = window.requestAnimationFrame(tick);
+            }
+        };
+        this.physicsFrame = window.requestAnimationFrame(tick);
+    }
+
+    /** Ein Integrationsschritt. false, sobald fast nichts mehr wandert. */
+    stepPhysics() {
+        const nodes = this.cy.nodes().filter((node) =>
+            !node.hasClass('filter-node') && !node.hasClass('connect-pointer'));
+        if (nodes.length < 2) return false;
+        const pos = new Map();
+        nodes.forEach((node) => {
+            const p = node.position();
+            pos.set(node.id(), { x: p.x, y: p.y, vx: 0, vy: 0 });
+        });
+        const ids = [...pos.keys()];
+        const loose = new Set();
+        nodes.filter((node) => node.hasClass('entity')).forEach((node) => loose.add(node.id()));
+        const loosen = (nodeId) => {
+            const node = this.cy.getElementById(nodeId);
+            if (node.empty()) return;
+            node.connectedEdges().forEach((edge) => {
+                loose.add(edge.source().id());
+                loose.add(edge.target().id());
+            });
+        };
+        if (this.draggedId) loosen(this.draggedId);
+        nodes.filter((node) => node.hasClass('entity')).forEach((node) => loosen(node.id()));
+        const repel = 32000;
+        const cutoff = 720;
+        for (let i = 0; i < ids.length; i += 1) {
+            for (let j = i + 1; j < ids.length; j += 1) {
+                const a = pos.get(ids[i]);
+                const b = pos.get(ids[j]);
+                let dx = a.x - b.x;
+                let dy = a.y - b.y;
+                let dist2 = dx * dx + dy * dy;
+                if (dist2 > cutoff * cutoff) continue;
+                if (!loose.has(ids[i]) && !loose.has(ids[j])) continue;
+                if (dist2 < 36) { dx = 6; dy = 0; dist2 = 36; }
+                const dist = Math.sqrt(dist2);
+                const force = repel / dist2;
+                if (loose.has(ids[i])) {
+                    a.vx += (dx / dist) * force;
+                    a.vy += (dy / dist) * force;
+                }
+                if (loose.has(ids[j])) {
+                    b.vx -= (dx / dist) * force;
+                    b.vy -= (dy / dist) * force;
+                }
+            }
+        }
+        this.cy.edges().forEach((edge) => {
+            const source = pos.get(edge.source().id());
+            const target = pos.get(edge.target().id());
+            if (!source || !target) return;
+            const dx = target.x - source.x;
+            const dy = target.y - source.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            const width = Number(edge.data('width')) || 1.5;
+            const toChild = edge.hasClass('entity-edge');
+            const rest = toChild ? 220 : Math.max(120, 210 - width * 10);
+            const strength = toChild ? 0.012 : 0.01 + Math.min(0.06, width * 0.012);
+            const pull = (dist - rest) * strength;
+            if (loose.has(edge.source().id())) {
+                source.vx += (dx / dist) * pull;
+                source.vy += (dy / dist) * pull;
+            }
+            if (loose.has(edge.target().id())) {
+                target.vx -= (dx / dist) * pull;
+                target.vy -= (dy / dist) * pull;
+            }
+        });
+        let energy = 0;
+        nodes.forEach((node) => {
+            const id = node.id();
+            const point = pos.get(id);
+            if (!loose.has(id) || id === this.draggedId || this.pinnedNodes.has(id)) return;
+            point.vx *= 0.52;
+            point.vy *= 0.52;
+            const speed = Math.hypot(point.vx, point.vy);
+            const scale = speed > 16 ? 16 / speed : 1;
+            if (speed < 0.15) return;
+            node.position({
+                x: point.x + point.vx * scale,
+                y: point.y + point.vy * scale,
+            });
+            energy += speed;
+        });
+        return energy > 0.6;
     }
 
     static reducedMotion() {
@@ -624,6 +775,31 @@ class CortexApp {
         this.fitToVisible(480);
     }
 
+    /** So viele Kinder zeichnet ein Klick. Darüber bleibt der Graph lesbar;
+        die Liste im Drawer enthält weiterhin jeden Eintrag. */
+    static get GRAPH_CHILD_CAP() { return 48; }
+
+    /** Positionen als Versatz vom Typ-Knoten. Eine feste Fächerung auf
+        0.85π legte schon zwei Dutzend Kinder auf wenige Pixel übereinander. */
+    satelliteOffsets(parentSize, count, base) {
+        const inner = parentSize / 2 + 96;
+        if (count <= 1) {
+            return [{ x: inner * Math.cos(base), y: inner * Math.sin(base) }];
+        }
+        const gap = 240;
+        const golden = Math.PI * (3 - Math.sqrt(5));
+        const points = [];
+        for (let i = 0; i < count; i += 1) {
+            const radius = inner + gap * Math.sqrt(i);
+            const angle = base + i * golden;
+            points.push({
+                x: radius * Math.cos(angle),
+                y: radius * Math.sin(angle),
+            });
+        }
+        return points;
+    }
+
     /** Entitäten eines Typs als Satelliten-Knoten am Typ-Knoten auffächern.
         Wartet eine laufende Kamerafahrt ab: erst reinzoomen, dann aufpoppen. */
     async renderEntityNodes(typeId, entities) {
@@ -638,11 +814,10 @@ class CortexApp {
         const bb = this.cy.nodes().boundingBox();
         let base = Math.atan2(p.y - (bb.y1 + bb.y2) / 2, p.x - (bb.x1 + bb.x2) / 2);
         if (!Number.isFinite(base)) base = -Math.PI / 2;
-        const k = entities.length;
-        const spread = Math.min(Math.PI * 0.85, (Math.PI / 4) * k);
-        const radius = parent.data('size') / 2 + 90;
+        const shown = entities.slice(0, CortexApp.GRAPH_CHILD_CAP);
+        const offsets = this.satelliteOffsets(parent.data('size') || 54, shown.length, base);
         const eles = [];
-        entities.forEach((e) => {
+        shown.forEach((e) => {
             // Reste einer noch laufenden Einfahr-Animation räumen (ID-Kollision).
             const stale = this.cy.getElementById(`ent:${e.id}`);
             if (stale.nonempty()) stale.remove();
@@ -658,9 +833,9 @@ class CortexApp {
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const ziele = [{ x: p.x, y: p.y, r: parent.data('size') / 2 }];
         added.nodes().forEach((satellite, i) => {
-            const a = k === 1 ? base : base - spread / 2 + (spread * i) / (k - 1);
-            const target = { x: p.x + radius * Math.cos(a), y: p.y + radius * Math.sin(a) };
-            ziele.push({ x: target.x, y: target.y, r: 60 });   // Radius inkl. Beschriftung
+            const offset = offsets[i] || offsets[0];
+            const target = { x: p.x + offset.x, y: p.y + offset.y };
+            ziele.push({ x: target.x, y: target.y, r: 96 });
             if (reduceMotion) satellite.position(target);
             else satellite.animate({ position: target }, { duration: 320, easing: 'ease-out-quart' });
         });
@@ -670,7 +845,11 @@ class CortexApp {
         // ausserhalb und wirken abgeschnitten.
         this.frameGroup(ziele.concat(this.otherOpenPoints(typeId)));
         // Bestehende Verbindungen nachtragen, ohne den Aufbau aufzuhalten.
-        this.restoreEntityRelations(entities).catch(() => { /* nie eskalieren */ });
+        this.restoreEntityRelations(shown).catch(() => { /* nie eskalieren */ });
+        // Satelliten erst nach der Einfahrt in die Feder legen, sonst kämpft
+        // die Animation mit der Abstossung.
+        const warten = reduceMotion ? 0 : 360;
+        window.setTimeout(() => this.wakePhysics(1600), warten);
     }
 
     /** Punkte aller bereits offenen Gruppen ausser der angegebenen. Beim
@@ -693,8 +872,9 @@ class CortexApp {
     }
 
     /** Anfragelimit: hoechstens so viele Detailabfragen je Auffaechern, in
-        kleinen Buendeln nacheinander statt alles auf einmal. */
-    static get RELATION_FETCH_MAX() { return 24; }
+        kleinen Buendeln nacheinander statt alles auf einmal. Deckt jedes
+        gezeichnete Kind ab, sonst fehlen dessen Verbindungen. */
+    static get RELATION_FETCH_MAX() { return 48; }
 
     static get RELATION_FETCH_BATCH() { return 6; }
 
@@ -722,17 +902,59 @@ class CortexApp {
         }
     }
 
-    /** Eine gemeldete Relation zeichnen, wenn beide Enden im Graphen liegen.
+    /** Eine gemeldete Relation zeichnen.
+        Liegt die Gegen-Entität schon als Knoten vor, geht die Linie dorthin.
+        Sonst an ihren Typ: der ist in der Übersicht immer da. Vorher fiel die
+        Linie weg, sobald nur ein Typ aufgeklappt war — die Kinder wirkten
+        isoliert, obwohl sie verbunden sind.
         Auch die eingehende Richtung wird ausgewertet: sonst bliebe eine
-        Verbindung von einem laenger offenen Typ zu einem gerade geoeffneten
-        unsichtbar, weil nur die neuen Entitaeten abgefragt werden. */
+        Verbindung von einem länger offenen Typ zu einem gerade geöffneten
+        unsichtbar, weil nur die neuen Entitäten abgefragt werden. */
     drawKnownRelation(entityId, rel) {
         if (!rel || !rel.target || !rel.target.id || !rel.predicate) return;
         const hier = `ent:${entityId}`;
-        const dort = `ent:${rel.target.id}`;
-        if (this.cy.getElementById(dort).empty()) return;
-        if (rel.direction === 'out') this.addRelationToGraph(hier, dort, rel.predicate, 'entitaet');
-        else if (rel.direction === 'in') this.addRelationToGraph(dort, hier, rel.predicate, 'entitaet');
+        if (this.cy.getElementById(hier).empty()) return;
+        const konkret = `ent:${rel.target.id}`;
+        const typ = rel.target.type || '';
+        const hatEntitaet = this.cy.getElementById(konkret).nonempty();
+        const hatTyp = Boolean(typ) && this.cy.getElementById(typ).nonempty();
+        if (!hatEntitaet && !hatTyp) return;
+        const ziel = hatEntitaet ? konkret : typ;
+        const eingehend = rel.direction === 'in';
+        const src = eingehend ? ziel : hier;
+        const dst = eingehend ? hier : ziel;
+        if (hatEntitaet) this.addRelationToGraph(src, dst, rel.predicate, 'entitaet');
+        else this.addChildTypeLink(src, dst, rel.predicate, rel.target.label);
+        if (hatTyp) this.cy.getElementById(typ).removeClass('faded');
+    }
+
+    /** Mehrere Kanten derselben Art zwischen einem Kind und einem Typ als
+        eine Linie zeichnen. Die Gegen-Entitäten sind noch nicht aufgeklappt,
+        ihre Namen bleiben an der Linie hängen. */
+    addChildTypeLink(srcId, dstId, predicate, name) {
+        const id = `kind:${srcId}:${predicate}:${dstId}`;
+        const edge = this.cy.getElementById(id);
+        const labelOf = (count) => (count > 1
+            ? `${predicate} (${formatCount(count)})`
+            : predicate);
+        if (edge.nonempty()) {
+            const names = edge.data('names') || [];
+            if (name && !names.includes(name)) names.push(name);
+            const count = Math.max(names.length, 1);
+            edge.data({ names, count, label: labelOf(count) });
+            return;
+        }
+        const names = name ? [name] : [];
+        this.cy.add({
+            group: 'edges',
+            classes: 'observed-relation',
+            data: {
+                id, source: srcId, target: dstId, src: srcId, dst: dstId,
+                predicate, aggregated: true,
+                count: Math.max(names.length, 1), names,
+                label: labelOf(Math.max(names.length, 1)), width: 1.5,
+            },
+        });
     }
 
     /** Fokus-Modus: unbeteiligte Kanten und Typ-Knoten zurücktreten lassen,
@@ -918,6 +1140,82 @@ class CortexApp {
         return resp.json();
     }
 
+    async patchJson(url, payload) {
+        const resp = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json',
+                       'X-CSRF-Token': csrfToken() },
+            body: JSON.stringify(payload),
+        });
+        if (resp.status === 401) { window.location.assign('/login'); return null; }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+
+    typeEditorHtml(label) {
+        const esc = CortexApp.esc;
+        const offen = this.expandedTypes.has(this.selectedType);
+        return `
+            <form class="detail-edit" id="typeEditForm">
+                <label class="detail-edit-label" for="typeNameInput">Name</label>
+                <div class="create-row">
+                    <input type="text" id="typeNameInput" maxlength="80" value="${esc(label)}"
+                           aria-label="Name des Typs">
+                    <button type="submit" class="btn btn-primary">Speichern</button>
+                </div>
+                <p class="detail-edit-error" id="typeEditError" hidden></p>
+                <button type="button" class="btn" id="childrenToggle">${offen
+                    ? 'Kinder verbergen' : 'Kinder zeigen'}</button>
+                <p class="entity-hint">Ziehen bewegt den Knoten. Kanten ziehen mit,
+                    andere Knoten weichen aus. Ein losgelassener Knoten bleibt liegen.</p>
+            </form>`;
+    }
+
+    bindTypeEditor(typeId, label) {
+        const form = document.getElementById('typeEditForm');
+        if (form) {
+            form.addEventListener('submit', (evt) => {
+                evt.preventDefault();
+                const input = document.getElementById('typeNameInput');
+                this.onTypeRename(typeId, input && input.value);
+            });
+        }
+        const toggle = document.getElementById('childrenToggle');
+        if (toggle) {
+            toggle.addEventListener('click', () => {
+                const input = document.getElementById('typeNameInput');
+                const name = (input && input.value.trim()) || label;
+                this.toggleTypeChildren(typeId, name);
+            });
+        }
+    }
+
+    async onTypeRename(typeId, label) {
+        label = String(label || '').trim();
+        const fehler = document.getElementById('typeEditError');
+        if (!label) {
+            const input = document.getElementById('typeNameInput');
+            if (input) input.focus({ preventScroll: true });
+            return;
+        }
+        try {
+            const data = await this.patchJson(
+                `/api/ontology/types/${encodeURIComponent(typeId)}`, { label });
+            if (!data || !data.type) return;
+            const node = this.cy.getElementById(typeId);
+            if (node.nonempty()) node.data('label', data.type.label);
+            document.getElementById('entityPaneTitle').textContent = data.type.label;
+            if (fehler) fehler.hidden = true;
+            this.wakePhysics(400);
+        } catch (err) {
+            console.error('Cortex: Typ nicht speicherbar', err);
+            if (fehler) {
+                fehler.textContent = 'Der Name konnte nicht gespeichert werden.';
+                fehler.hidden = false;
+            }
+        }
+    }
+
     async onTypeSelect(typeId, label) {
         this.selectedType = typeId;
         this.closeDocDrawer();          // Belege des vorherigen Kontexts sind veraltet
@@ -933,6 +1231,7 @@ class CortexApp {
                                                              data.entities.length));
             if (!data.entities.length) {
                 body.innerHTML = `
+                    ${this.typeEditorHtml(label)}
                     <p class="ontology-empty">Noch keine Entitäten in diesem Typ.</p>
                     <div class="create-row">
                         <input type="text" id="entityInput" maxlength="120"
@@ -940,6 +1239,7 @@ class CortexApp {
                                aria-label="Name der neuen Entität">
                         <button type="button" id="entityCreateBtn" class="btn btn-primary">Anlegen</button>
                     </div>`;
+                this.bindTypeEditor(typeId, label);
                 const leerInput = document.getElementById('entityInput');
                 const leerCreate = () => this.onEntityCreate(typeId, label, leerInput.value);
                 document.getElementById('entityCreateBtn').addEventListener('click', leerCreate);
@@ -949,12 +1249,18 @@ class CortexApp {
                 leerInput.focus({ preventScroll: true });
                 return;
             }
-            this.renderEntityNodes(typeId, data.entities);
+            if (this.expandedTypes.has(typeId)) this.renderEntityNodes(typeId, data.entities);
             const esc = CortexApp.esc;
+            const total = data.entities.length;
+            const imGraph = Math.min(total, CortexApp.GRAPH_CHILD_CAP);
+            const hinweis = imGraph < total
+                ? `${formatCount(imGraph)} von ${formatCount(total)} Entitäten im Graphen. Die Liste enthält alle.`
+                : `${formatCount(total)} ${total === 1 ? 'Entität' : 'Entitäten'}`;
             // Kartenform analog zu den Suchtreffern (document-card):
             // Metazeile + Titel, Karte selbst ist die Geste.
             body.innerHTML = `
-                <p class="entity-hint">Auswahl der wichtigsten Entitäten</p>
+                ${this.typeEditorHtml(label)}
+                <p class="entity-hint">${hinweis}</p>
                 <ul class="entity-cards">${data.entities.map((e) => `
                     <li><button type="button" class="entity-card" data-id="${esc(e.id)}">
                         <span class="entity-card-metaline">${formatCount(e.doc_count)}
@@ -979,6 +1285,7 @@ class CortexApp {
             });
             body.querySelectorAll('.entity-card').forEach((btn) =>
                 btn.addEventListener('click', () => this.onEntitySelect(btn.dataset.id)));
+            this.bindTypeEditor(typeId, label);
         } catch (err) {
             if (err.name === 'AbortError') return;
             body.innerHTML = '<p class="ontology-empty">Entitäten konnten nicht geladen werden.</p>';
@@ -1096,7 +1403,18 @@ class CortexApp {
             body.innerHTML = `
                 <div class="entity-detail">
                     <button type="button" class="btn-text" id="entityBack">← Zurück zur Liste</button>
-                    <h3>${esc(data.entity.label)}</h3>
+                    <form class="detail-edit" id="entityEditForm">
+                        <label class="detail-edit-label" for="entityNameInput">Name</label>
+                        <input type="text" id="entityNameInput" maxlength="120"
+                               value="${esc(data.entity.label)}" aria-label="Name der Entität">
+                        <label class="detail-edit-label" for="entityDescriptionInput">Beschreibung</label>
+                        <textarea id="entityDescriptionInput" maxlength="2000"
+                                  aria-label="Beschreibung">${esc(data.entity.description || '')}</textarea>
+                        <div class="create-row">
+                            <button type="submit" class="btn btn-primary">Speichern</button>
+                        </div>
+                        <p class="detail-edit-error" id="entityEditError" hidden></p>
+                    </form>
                     ${filterCard}
                     <h4>Belege</h4>${evidence}
                     <h4>Verbundene Entitäten</h4>${relations}
@@ -1105,6 +1423,16 @@ class CortexApp {
                 const node = this.cy.getElementById(this.selectedType);
                 this.onTypeSelect(this.selectedType, node.data('label'));
             });
+            const entityForm = document.getElementById('entityEditForm');
+            if (entityForm) {
+                entityForm.addEventListener('submit', (evt) => {
+                    evt.preventDefault();
+                    const name = document.getElementById('entityNameInput');
+                    const description = document.getElementById('entityDescriptionInput');
+                    this.onEntityRename(entityId, name && name.value,
+                                        description ? description.value : '');
+                });
+            }
             this.syncFilterNodes(entityId, filters);
             this.setDrawerDelete(() => this.confirmEntityDelete(
                 entityId, data.entity.label, data.entity.type));
@@ -1131,6 +1459,33 @@ class CortexApp {
         } catch (err) {
             if (err.name === 'AbortError') return;
             body.innerHTML = '<p class="ontology-empty">Entität konnte nicht geladen werden.</p>';
+        }
+    }
+
+    async onEntityRename(entityId, label, description) {
+        label = String(label || '').trim();
+        const fehler = document.getElementById('entityEditError');
+        if (!label) {
+            const input = document.getElementById('entityNameInput');
+            if (input) input.focus({ preventScroll: true });
+            return;
+        }
+        try {
+            const data = await this.patchJson(
+                `/api/ontology/entities/${encodeURIComponent(entityId)}`,
+                { label, description: String(description || '') });
+            if (!data || !data.entity) return;
+            const node = this.cy.getElementById(`ent:${entityId}`);
+            if (node.nonempty()) node.data('label', data.entity.label);
+            document.getElementById('entityPaneTitle').textContent = data.entity.label;
+            if (fehler) fehler.hidden = true;
+            this.wakePhysics(400);
+        } catch (err) {
+            console.error('Cortex: Entität nicht speicherbar', err);
+            if (fehler) {
+                fehler.textContent = 'Die Angaben konnten nicht gespeichert werden.';
+                fehler.hidden = false;
+            }
         }
     }
 
@@ -1182,6 +1537,9 @@ class CortexApp {
             const data = await this.postJson('/api/ontology/entities',
                                              { type: typeId, label });
             if (!data) return;
+            if (data.entity && window.cortexGalaxy && window.cortexGalaxy.noteEntity) {
+                window.cortexGalaxy.noteEntity(data.entity);
+            }
             // Satelliten zuerst abräumen, dann den Typ frisch aufklappen —
             // sonst überschneidet sich die Einfahr-Animation mit dem Neuaufbau.
             this.collapseType(typeId);
@@ -1197,24 +1555,61 @@ class CortexApp {
     openTypeCreateForm() {
         this.openEntityDrawer();
         this.setDrawerDelete(null);
-        document.getElementById('entityPaneTitle').textContent = 'Neuer Typ';
+        document.getElementById('entityPaneTitle').textContent = 'Anlegen';
         const body = document.getElementById('entityPaneBody');
         body.innerHTML = `
             <div class="entity-detail">
-                <p class="entity-hint">Typen sind die Struktur Ihres Netzes,
-                   zum Beispiel Mandant, Dossier oder Vertrag.</p>
+                <h3>Neuer Typ</h3>
+                <p class="entity-hint">Ein Typ ist eine Sorte von Knoten, zum Beispiel Mandant oder Capability.</p>
                 <div class="create-row">
                     <input type="text" id="typeInput" maxlength="80"
                            placeholder="Name des Typs, z. B. Mandant"
                            aria-label="Name des neuen Typs">
-                    <button type="button" id="typeCreateSubmit" class="btn btn-primary">Anlegen</button>
+                    <button type="button" id="typeCreateSubmit" class="btn btn-primary">Typ anlegen</button>
                 </div>
+                <h3>Neuer Knoten</h3>
+                <p class="entity-hint">Ein Knoten gehört zu einem Typ. Wählen Sie den Typ und den Namen.</p>
+                <div class="create-row">
+                    <select id="nodeType" aria-label="Typ des neuen Knotens"></select>
+                    <input type="text" id="nodeInput" maxlength="120"
+                           placeholder="Name des Knotens"
+                           aria-label="Name des neuen Knotens">
+                    <button type="button" id="nodeCreateSubmit" class="btn btn-primary">Knoten anlegen</button>
+                </div>
+                <p class="entity-hint" id="createFehler" hidden></p>
             </div>`;
+        const select = document.getElementById('nodeType');
+        this.cy.nodes().forEach((node) => {
+            if (node.hasClass('entity') || node.hasClass('filter-node')) return;
+            const name = node.data('label');
+            if (!name) return;
+            const option = document.createElement('option');
+            option.value = node.id();
+            option.textContent = name;
+            select.appendChild(option);
+        });
         const input = document.getElementById('typeInput');
-        const submit = () => this.onTypeCreate(input.value);
-        document.getElementById('typeCreateSubmit').addEventListener('click', submit);
+        const submitType = () => this.onTypeCreate(input.value);
+        document.getElementById('typeCreateSubmit').addEventListener('click', submitType);
         input.addEventListener('keydown', (evt) => {
-            if (evt.key === 'Enter') { evt.preventDefault(); submit(); }
+            if (evt.key === 'Enter') { evt.preventDefault(); submitType(); }
+        });
+        const nodeInput = document.getElementById('nodeInput');
+        const submitNode = () => {
+            const option = select.selectedOptions[0];
+            const fehler = document.getElementById('createFehler');
+            if (!option) {
+                if (fehler) {
+                    fehler.textContent = 'Wählen Sie einen Typ.';
+                    fehler.hidden = false;
+                }
+                return;
+            }
+            this.onEntityCreate(select.value, option.textContent, nodeInput.value);
+        };
+        document.getElementById('nodeCreateSubmit').addEventListener('click', submitNode);
+        nodeInput.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter') { evt.preventDefault(); submitNode(); }
         });
         input.focus({ preventScroll: true });
     }
@@ -1418,9 +1813,27 @@ class CortexApp {
         this.openEntityDrawer();
         this.setDrawerDelete(null);
         document.getElementById('entityPaneTitle').textContent =
-            vorgabe ? 'Vorgabe' : (verdichtet ? 'Verbindungen' : 'Verbindung');
+            vorgabe ? 'Vorgabe' : (verdichtet || edge.data('aggregated')
+                ? 'Verbindungen' : 'Verbindung');
         const hinweis = `${esc(quelle.data('label') || '')}
                    zu ${esc(ziel.data('label') || '')}`;
+        if (edge.data('aggregated')) {
+            const names = edge.data('names') || [];
+            const liste = names.length
+                ? `<ul class="entity-cards">${names.map((name) => `
+                    <li><span class="entity-card-title">${esc(name)}</span></li>`).join('')}
+                   </ul>`
+                : '';
+            document.getElementById('entityPaneBody').innerHTML = `
+                <div class="entity-detail">
+                    <h3>${esc(predicate.replace(/[_-]+/g, ' '))}</h3>
+                    <p class="entity-hint">${hinweis}</p>
+                    <p class="confirm-detail">Die Gegenstelle ist noch zugeklappt.
+                        Die Linie zeigt die Verbindungen dieses Eintrags dorthin.</p>
+                    ${liste}
+                </div>`;
+            return;
+        }
         if (verdichtet) {
             // Die Anzahl steckt nicht in einem eigenen Datenfeld, nur in der
             // Beschriftung ("Praedikat (1'234)"). Laesst sie sich nicht

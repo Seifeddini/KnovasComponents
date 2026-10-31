@@ -1,4 +1,4 @@
-"""Workspaces, their versions and changes in PostgreSQL (migration 0005).
+"""Workspaces, their versions and changes in PostgreSQL (migrations 0011-0013).
 
 Functions take the connection at construction; Platform connections run in
 autocommit mode, so every write of more than one statement opens its own

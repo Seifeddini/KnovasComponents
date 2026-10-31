@@ -1,0 +1,40 @@
+common_attributes:
+- name: key
+  datatype: text
+- name: source
+  datatype: text
+- name: source_key
+  datatype: text
+- name: mapping
+  datatype: text
+- name: in_source
+  datatype: text
+- name: last_seen
+  datatype: date
+node_types:
+- name: Contract
+  attributes:
+  - name: file_type
+    datatype: text
+  - name: filed_on
+    datatype: date
+  - name: matter
+    datatype: text
+  - name: parties
+    datatype: text
+  - name: contract_type
+    datatype: text
+  - name: term_end
+    datatype: date
+  - name: status
+    datatype: enum
+    enum_values:
+    - draft
+    - in review
+    - signed
+- name: Matter
+  attributes:
+  - name: client
+    datatype: text
+- name: Client
+  attributes: []

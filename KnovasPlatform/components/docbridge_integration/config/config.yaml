@@ -320,6 +320,70 @@ experiments:
 
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Optional companion (semantix-doc:) if browser launch is blocked by policy.
+# Ansichten (/views): process and spine views drawn from the ontology's
+# definitions. Plan: docs/superpowers/plans/2026-10-27-process-and-spine-views.md
+views:
+  # This tenant's definitions bundle (KnowledgeBase KB-7): types, relations, processes, spines,
+  # pages, edit map, ... and the reports it names. file:<path> (development, tests) or
+  # github:<owner>/<repo>@<ref>:<path to bundle.json>, read with the change requests' token below.
+  # Read again after definitions_ttl_seconds; a wrong format version or hash is refused on the page.
+  # Knovas: github:Seifeddini/KnowledgeBase@master:docs/ModernDocs/client-zero/generated/bundle.json
+  config_source: "${VIEWS_CONFIG_SOURCE:-}"
+  # Who sees which profile views (KC-2): Platform role = profiles (id or audience), e.g.
+  # "admin=CTO; member=Engineer". Empty: every user sees every profile delivered through the
+  # Platform. See the component README, "Profile views".
+  profile_roles: "${VIEWS_PROFILE_ROLES:-}"
+  # Check facts one level of a profile map reads for its check-status colour (paced like all reads).
+  map_fact_budget: "${VIEWS_MAP_FACT_BUDGET:-120}"
+  # Per-subject topology index (D1): lifetime, and the scale guard above which a
+  # request walks per node instead of reading the edge list.
+  ttl_seconds: "${VIEWS_TTL_SECONDS:-60}"
+  definitions_ttl_seconds: "${VIEWS_DEFINITIONS_TTL_SECONDS:-600}"
+  edge_limit: "${VIEWS_EDGE_LIMIT:-100000}"
+  edge_budget_seconds: "${VIEWS_EDGE_BUDGET_SECONDS:-2}"
+  fallback_max_expansions: "${VIEWS_FALLBACK_MAX_EXPANSIONS:-40}"
+  # Meta detection (D2): meta-capable types up to this size are decided per node.
+  meta_exact_max: "${VIEWS_META_EXACT_MAX:-50}"
+  # Fact reads (D3): share of the tenant's 600 calls/minute, burst, parallelism.
+  fact_rate_per_minute: "${VIEWS_FACT_RATE_PER_MINUTE:-300}"
+  fact_burst: "${VIEWS_FACT_BURST:-120}"
+  workers: "${VIEWS_WORKERS:-4}"
+  # Fan-out grouping: more neighbours than this of one type and relation become a chip.
+  fanout_threshold: "${VIEWS_FANOUT_THRESHOLD:-5}"
+  chip_status_max: "${VIEWS_CHIP_STATUS_MAX:-60}"
+  # States (status, outcome, ...) a TRACE reads at most: current step and context first.
+  trace_fact_budget: "${VIEWS_TRACE_FACT_BUDGET:-48}"
+  # Search, lists: keys and facts are read for a whole type up to this size.
+  key_index_max: "${VIEWS_KEY_INDEX_MAX:-60}"
+  # Documentation pages (Step 8): facts read per page before a section loads on demand,
+  # and items a section draws before "weitere".
+  doc_fact_budget: "${VIEWS_DOC_FACT_BUDGET:-24}"
+  doc_page_items: "${VIEWS_DOC_PAGE_ITEMS:-25}"
+  # Change requests from the TRACE (Step 7): a pull request on the plan file in
+  # KnowledgeBase, never a brain write. The token needs Contents + Pull requests
+  # (read/write) on that repository only; KB_GITHUB_TOKEN wins over the file.
+  # Without a token, local_repo (a KnowledgeBase checkout) allows previews only.
+  change_requests:
+    github_repo: "${VIEWS_KB_GITHUB_REPO:-Seifeddini/KnowledgeBase}"
+    base_branch: "${VIEWS_KB_BASE_BRANCH:-master}"
+    github_token_file: "${VIEWS_KB_GITHUB_TOKEN_FILE:-/app/secrets/kb_github_token}"
+    local_repo: "${VIEWS_KB_LOCAL_REPO:-}"
+  page_size: "${VIEWS_PAGE_SIZE:-50}"
+  max_hops: "${VIEWS_MAX_HOPS:-4}"
+  max_nodes_per_hop: "${VIEWS_MAX_NODES_PER_HOP:-2000}"
+
+# "Sync von GitHub" (WP KC-0.2): the Platform syncs the tenant's Brain from its knowledge base on demand,
+# through the installed brain-runner package (never code from the repository). An admin changes the
+# first four on the settings page; an environment variable pins them. The read-only token: Contents
+# (read) on the repository only; the tenant certificate above is the write credential.
+brain_sync:
+  repository: "${BRAIN_SYNC_REPOSITORY:-Seifeddini/KnowledgeBase}"
+  branch: "${BRAIN_SYNC_BRANCH:-master}"
+  config_path: "${BRAIN_SYNC_CONFIG_PATH:-docs/ModernDocs/client-zero/brain-config.yaml}"
+  github_token_file: "${BRAIN_SYNC_GITHUB_TOKEN_FILE:-/app/secrets/brain_sync_github_token}"
+  # Per tenant: the source cache, the runner's state, the fetched configuration, plans and outputs.
+  storage_dir: "${BRAIN_SYNC_STORAGE_DIR:-/app/data/brain-sync}"
+
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
   companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"

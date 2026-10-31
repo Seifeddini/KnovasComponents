@@ -282,3 +282,25 @@ def test_delete_type_relation_and_relation(tmp_path):
     assert store.delete_relation(e2, "arbeitet mit", e1) is True
     assert store.delete_relation(e2, "arbeitet mit", e1) is False
     assert load_ontology(path).entity_detail(e2)["relations"] == []
+
+
+def test_update_type_and_entity_persist(tmp_path):
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+    type_id = VALID["types"][0]["id"]
+    entity_id = VALID["entities"][0]["id"]
+
+    assert store.update_type(type_id, "  Mandant neu ")["label"] == "Mandant neu"
+    assert store.update_type(type_id, "") is None
+    assert store.update_type("fehlt", "X") is None
+    renamed = store.update_entity(entity_id, label="  Müller neu ", description="Notiz")
+    assert renamed["label"] == "Müller neu"
+    assert renamed["description"] == "Notiz"
+    assert store.update_entity(entity_id, label="  ") is None
+    assert store.update_entity("fehlt", label="X") is None
+
+    frisch = load_ontology(path)
+    assert frisch.summary()["types"][0]["label"] == "Mandant neu"
+    detail = frisch.entity_detail(entity_id)
+    assert detail["entity"]["label"] == "Müller neu"
+    assert detail["entity"]["description"] == "Notiz"

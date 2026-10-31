@@ -1,4 +1,4 @@
-"""The workspace store on PostgreSQL (build plan step B1, migration 0005)."""
+"""The workspace store on PostgreSQL (build plan steps B1-B5, migrations 0011-0013)."""
 import psycopg
 import pytest
 

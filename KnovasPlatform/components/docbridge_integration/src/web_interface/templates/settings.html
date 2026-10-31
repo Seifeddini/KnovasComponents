@@ -63,6 +63,24 @@
                         </dl>
                         <p class="settings-legal">&copy; 2026 Knovas</p>
                     </section>
+
+                    {% if settings_admin %}
+                    <section class="settings-card settings-card-wide" id="platformSettings"
+                             data-csrf="{{ csrf_token }}" aria-labelledby="platformSettingsTitle">
+                        <h2 id="platformSettingsTitle">Ansichten und Wissensbasis</h2>
+                        <p class="settings-note">Änderungen gelten ohne Neustart. Was die Installation festlegt
+                            (Umgebungsvariable oder Datei), ist hier nur lesbar.</p>
+                        {% if identity_enabled %}
+                        <p class="settings-note"><a href="/sync">Sync von GitHub</a>: das Gehirn des Mandanten aus der
+                            Wissensbasis holen (Probelauf, dann Anwenden).</p>
+                        {% endif %}
+                        <div id="platformSettingsList" class="platform-settings" aria-live="polite">wird geladen …</div>
+                        <div class="platform-settings-actions">
+                            <button type="button" class="btn" id="platformSettingsSave">Speichern</button>
+                            <span id="platformSettingsMessage" role="status"></span>
+                        </div>
+                    </section>
+                    {% endif %}
                 </main>
             </div>
         </div>
@@ -94,5 +112,8 @@
                 });
         })();
     </script>
+    {% if settings_admin %}
+    <script src="{{ url_for('static', filename='js/platform_settings.js') }}?v={{ asset_version }}"></script>
+    {% endif %}
 </body>
 </html>

@@ -1,0 +1,761 @@
+/* Cortex Bestand — reading view for a type summary that has no edges.
+   Tokens come from style.css. No extra colours. */
+
+.bestand-app {
+    height: 100vh;
+    overflow: hidden;
+}
+
+.bestand-app .app-content {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.bestand-app .container {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    max-width: none;
+    padding-bottom: 20px;
+}
+
+.bestand-page {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.bestand-frame {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.bestand-frame-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 58px;
+    padding: 10px 12px 10px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.bestand-frame-head h2 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.bestand-switch {
+    display: flex;
+    gap: 4px;
+}
+
+.bestand-switch button {
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.92rem;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+
+.bestand-switch button:hover {
+    color: var(--text-primary);
+    background: var(--surface-sunken);
+}
+
+.bestand-switch button[aria-checked="true"] {
+    background: var(--highlight);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.bestand-switch button:focus-visible,
+.bestand-row:focus-visible,
+.bestand-empty-toggle:focus-visible,
+.bestand-search:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.bestand-scroll,
+#bestandOld {
+    flex: 1;
+    min-height: 0;
+}
+
+.bestand-scroll {
+    overflow: auto;
+}
+
+#bestandOld {
+    display: flex;
+    flex-direction: column;
+}
+
+.bestand-lead,
+.bestand-old-note,
+.bestand-band,
+.bestand-status,
+.bestand-empty-note,
+.bestand-empty-list,
+.bestand-none {
+    max-width: 46rem;
+}
+
+#bestandEmpty {
+    max-width: 46rem;
+}
+
+.bestand-lead,
+.bestand-old-note {
+    margin: 0;
+    padding: 16px 20px 4px;
+}
+
+.bestand-old-note {
+    color: var(--text-secondary);
+}
+
+.bestand-search {
+    display: block;
+    width: min(420px, calc(100% - 40px));
+    margin: 12px 20px 4px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.95rem;
+}
+
+.bestand-status {
+    margin: 0;
+    padding: 8px 20px 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.bestand-status:empty {
+    display: none;
+}
+
+.bestand-band h3 {
+    margin: 0;
+    padding: 18px 20px 2px;
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.bestand-item + .bestand-item {
+    box-shadow: inset 0 1px 0 var(--border-color);
+}
+
+.bestand-row {
+    display: grid;
+    grid-template-columns: minmax(10rem, 15rem) 4.75rem minmax(4rem, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 8px;
+    width: 100%;
+    margin: 0;
+    padding: 10px 20px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+
+.bestand-row:hover {
+    background: var(--surface-sunken);
+}
+
+.bestand-item.is-open .bestand-row {
+    background: var(--highlight);
+}
+
+.bestand-name {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.bestand-count {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    text-align: right;
+}
+
+.bestand-match {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 400;
+    line-height: 1.4;
+}
+
+.bestand-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border-color);
+    overflow: hidden;
+}
+
+.bestand-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--primary-color);
+    transform-origin: left center;
+}
+
+.bestand-detail {
+    padding: 0 20px 14px 20px;
+    background: var(--highlight);
+}
+
+.bestand-twin,
+.bestand-more {
+    margin: 0 0 8px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.bestand-examples {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.bestand-examples li {
+    margin: 0;
+    padding: 3px 0 3px 12px;
+    border-left: 2px solid var(--callout);
+    color: var(--text-primary);
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+.bestand-examples li + li {
+    margin-top: 4px;
+}
+
+.bestand-empty-toggle {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 16px 20px;
+    border: 0;
+    border-top: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--primary-color);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.bestand-empty-toggle:hover {
+    background: var(--surface-sunken);
+}
+
+.bestand-empty-note {
+    margin: 0;
+    padding: 0 20px 8px;
+    max-width: 68ch;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.bestand-empty-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin: 0;
+    padding: 0 20px 18px;
+    list-style: none;
+}
+
+.bestand-empty-list li {
+    font-family: var(--font-heading);
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+}
+
+.bestand-empty-list .is-twin {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.bestand-none {
+    margin: 0;
+    padding: 20px;
+    color: var(--text-secondary);
+}
+
+#oldGraph {
+    flex: 1;
+    min-height: 420px;
+}
+
+.layer-view {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.layer-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px 10px 20px;
+}
+
+.layer-toolbar p {
+    margin: 0;
+    max-width: 62ch;
+}
+
+.layer-toolbar-side {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.layer-search-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+}
+
+.layer-toolbar input {
+    width: 220px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.95rem;
+}
+
+.layer-toolbar input:focus-visible,
+.layer-node:focus-visible,
+#layerBack:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+#layerBack {
+    border: 0;
+    background: var(--highlight);
+    color: var(--primary-color);
+    font: inherit;
+    font-weight: 600;
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.layer-stage {
+    position: relative;
+    flex: 1;
+    min-height: 280px;
+    overflow: hidden;
+}
+
+.layer-stage.is-scroll {
+    overflow: auto;
+}
+
+.layer-world {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    transform-origin: 0 0;
+}
+
+.layer-world.is-animated {
+    transition: transform 520ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.layer-edges {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.layer-edges line {
+    stroke: var(--callout);
+    stroke-width: 1;
+}
+
+.layer-edges .layer-guide {
+    stroke: var(--border-color);
+}
+
+.layer-edges .layer-link {
+    stroke: var(--primary-color);
+    stroke-opacity: 0.55;
+    fill: none;
+}
+
+.layer-caption,
+.layer-note {
+    position: absolute;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    white-space: nowrap;
+}
+
+.layer-caption {
+    transform: translateY(-50%);
+}
+
+.layer-note {
+    transform: translate(-50%, -100%);
+}
+
+.layer-item {
+    position: absolute;
+    z-index: 1;
+}
+
+.layer-item.is-dim {
+    opacity: 0.18;
+}
+
+.layer-item.is-match .layer-node {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 4px var(--highlight);
+}
+
+.layer-item.is-focus,
+.layer-item.is-selected {
+    z-index: 2;
+}
+
+.layer-node {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--card-bg);
+    cursor: pointer;
+}
+
+.layer-node-empty {
+    border-width: 1px;
+    border-color: var(--border-color);
+    background: var(--surface-sunken);
+}
+
+.layer-node-child {
+    border-color: var(--callout);
+    background: var(--surface-sunken);
+}
+
+.layer-item.is-focus .layer-node,
+.layer-item.is-selected .layer-node {
+    border-color: var(--primary-color);
+    background: var(--highlight);
+}
+
+.layer-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: max-content;
+    max-width: 148px;
+    color: var(--text-primary);
+    font-family: var(--font-heading);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: center;
+    pointer-events: none;
+}
+
+.layer-label-name {
+    white-space: nowrap;
+}
+
+.layer-node-child + .layer-label .layer-label-name,
+.layer-node-empty + .layer-label .layer-label-name {
+    display: block;
+    width: 148px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.layer-label-count {
+    color: var(--text-secondary);
+    font-weight: 400;
+    font-size: 11px;
+}
+
+.layer-mass {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: var(--callout);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .layer-world.is-animated {
+        transition: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .layer-toolbar {
+        flex-direction: column;
+    }
+
+    .layer-toolbar input {
+        width: min(220px, 100%);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .bestand-bar > span {
+        animation: bestand-grow 640ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    }
+}
+
+@keyframes bestand-grow {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+}
+
+@media (max-width: 640px) {
+    .bestand-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .bestand-bar,
+    .bestand-match {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 900px) {
+    .bestand-app,
+    .bestand-app .app-content,
+    .bestand-app .container {
+        height: auto;
+        overflow: visible;
+    }
+
+    .bestand-scroll {
+        overflow: visible;
+    }
+
+    #oldGraph {
+        height: 70vh;
+        flex: none;
+    }
+}
+
+.view-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 16px 0 20px;
+}
+
+.view-chip {
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 0.88rem;
+    cursor: pointer;
+}
+
+.view-chip:hover {
+    color: var(--text-primary);
+}
+
+.view-chip[aria-selected="true"] {
+    background: var(--highlight);
+    border-color: transparent;
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.view-chip:focus-visible,
+.node-picker button:focus-visible,
+.node-picker input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.layer-stage-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.layer-stage-wrap.is-picking .layer-stage {
+    margin-right: min(320px, 48%);
+}
+
+.view-empty {
+    position: absolute;
+    left: 20px;
+    top: 16px;
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.node-picker {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(300px, 46%);
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.node-picker-head {
+    display: flex;
+    gap: 8px;
+}
+
+.node-picker-head input,
+#pickerSearch {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.node-picker-head input {
+    flex: 1;
+    min-width: 0;
+}
+
+.node-picker-head button,
+.node-picker-actions button {
+    border: 0;
+    background: transparent;
+    color: var(--primary-color);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 6px 4px;
+}
+
+.node-picker-actions {
+    display: flex;
+    gap: 12px;
+}
+
+#pickerDelete {
+    margin-left: auto;
+    color: var(--text-secondary);
+}
+
+#pickerList {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+#pickerList label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 2px;
+    cursor: pointer;
+}
+
+#pickerList label:hover {
+    background: var(--surface-sunken);
+}
+
+#pickerList span:nth-child(2) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-heading);
+    font-size: 0.86rem;
+}
+
+.picker-count {
+    color: var(--text-secondary);
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 800px) {
+    .layer-stage-wrap.is-picking {
+        flex-direction: column;
+    }
+
+    .layer-stage-wrap.is-picking .layer-stage {
+        margin-right: 0;
+        min-height: 280px;
+    }
+
+    .node-picker {
+        position: static;
+        width: auto;
+        max-height: 46vh;
+    }
+}

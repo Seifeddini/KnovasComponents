@@ -37,6 +37,10 @@
     const searchForm = document.getElementById('galaxySearch');
     const searchInput = document.getElementById('galaxySearchInput');
     const searchStatus = document.getElementById('galaxySearchStatus');
+    const searchApi = window.CortexGalaxySearch;
+    const searchVersion = searchApi
+        ? searchApi.versionFromSearch(window.location.search)
+        : 1;
     let width = 0;
     let height = 0;
     let pixelRatio = 1;
@@ -52,7 +56,66 @@
     let focusMix = 0;
     let targetFocusMix = 0;
     let focusedSystem = null;
+    let centralNode = null;
+    let lastNodeActivate = 0;
     let highlightedEntity = null;
+    let viewFrame = null;
+    let heldRotation = null;
+    let nodeDrag = null;
+    const hiddenStoreKey = 'cortex-galaxy-hidden';
+    let hiddenItems = { nodes: [], entities: [], edges: [] };
+    try {
+        const savedHidden = JSON.parse(localStorage.getItem(hiddenStoreKey) || 'null');
+        if (savedHidden && Array.isArray(savedHidden.nodes)) hiddenItems = {
+            nodes: savedHidden.nodes,
+            entities: savedHidden.entities || [],
+            edges: savedHidden.edges || [],
+        };
+    } catch (err) { /* no saved hides */ }
+
+    function saveHidden() {
+        localStorage.setItem(hiddenStoreKey, JSON.stringify(hiddenItems));
+        renderHiddenTray();
+    }
+
+    function hiddenKeyList(kind) {
+        return hiddenItems[kind].map((item) => item.key);
+    }
+
+    function nodeKey(system) {
+        return system && (system.id || `label:${system.label}`);
+    }
+
+    function entityKey(entity) {
+        return entity && (entity.id || `label:${entity.label}`);
+    }
+
+    function isNodeHidden(system) {
+        return hiddenKeyList('nodes').includes(nodeKey(system));
+    }
+
+    function isEntityHidden(entity) {
+        return hiddenKeyList('entities').includes(entityKey(entity));
+    }
+
+    function isEdgeHidden(key) {
+        return hiddenKeyList('edges').includes(key);
+    }
+
+    function rememberHidden(kind, key, label) {
+        if (hiddenKeyList(kind).includes(key)) return;
+        hiddenItems[kind].push({ key, label });
+        saveHidden();
+    }
+
+    function forgetHidden(kind, key) {
+        hiddenItems[kind] = hiddenItems[kind].filter((item) => item.key !== key);
+        saveHidden();
+    }
+    let springFrames = 0;
+    let springsArmed = false;
+    let springPin = null;
+    let linkRests = new Map();
     let selectedEntity = null;
     let entityMix = 0;
     let targetEntityMix = 0;
@@ -195,6 +258,8 @@
                     legalForm: 'Erbengemeinschaft', location: 'Küsnacht ZH',
                     contact: 'Lisa Baumann', email: 'l.baumann@example.ch',
                     activeMatters: '1', since: '2025', industry: 'Privatmandat',
+                    matters: 'M-2025-119',
+                    connection: { system: 'Mandate', entity: 'Familie Baumann · Nachlass' },
                 },
                 {
                     label: 'Stadtwerke Nord', number: 'K-10256',
@@ -454,10 +519,15 @@
         { x: 0.22, y: 0.02, z: 0.18 },
     ];
 
-    systemDefinitions.forEach((definition, systemIndex) => {
+    function mountSystems(definitions) {
+        for (let index = stars.length - 1; index >= 0; index -= 1) {
+            if (stars[index].systemOrbit) stars.splice(index, 1);
+        }
+        systems.length = 0;
+        definitions.forEach((definition, systemIndex) => {
         const system = {
             ...definition,
-            size: definition.primary ? 8.5 : 3.2 + random() * 1.8,
+            size: definition.size || (definition.primary ? 8.5 : 3.2 + random() * 1.8),
             orbit: [],
             entityNodes: [],
         };
@@ -473,6 +543,7 @@
                 size: 0.42 + random() * 0.72,
                 brightness: 0.52 + random() * 0.48,
                 warmth: definition.warm ? 0.98 : random(),
+                systemOrbit: true,
             });
         }
         (definition.entities || []).forEach((entity, index, entities) => {
@@ -488,7 +559,21 @@
         });
         systems.push(system);
         stars.push(...system.orbit);
-    });
+        });
+        rebuildSunTargets();
+        if (focusedSystem && !systems.includes(focusedSystem)) {
+            focusedSystem = null;
+            selectedEntity = null;
+            highlightedEntity = null;
+            targetFocusMix = 0;
+            targetEntityMix = 0;
+            hideEntityPanel();
+        }
+    }
+
+    const documents = searchVersion === 1 || !searchApi
+        ? []
+        : searchApi.placeDocuments(systems, searchApi.DOCUMENTS);
 
     function normalizeSearchValue(value) {
         return String(value || '')
@@ -581,6 +666,7 @@
     }
 
     function applySearch(value, forceDetail = false) {
+        if (searchVersion !== 1) return;
         const query = String(value || '').trim();
         const normalizedQuery = normalizeSearchValue(query);
         document.body.classList.toggle('galaxy-searching', Boolean(normalizedQuery));
@@ -715,18 +801,21 @@
         canvas.parentElement.appendChild(button);
         return button;
     });
-    const entityTargetCount = Math.max(
-        ...systems.map((system) => system.entityNodes.length),
-    );
-    const entityTargets = Array.from({ length: entityTargetCount }, (_, index) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'galaxy-entity-target';
-        button.dataset.entityIndex = String(index);
-        button.hidden = true;
-        canvas.parentElement.appendChild(button);
-        return button;
-    });
+    const entityTargets = [];
+
+    function ensureEntityTargets(count) {
+        const host = canvas.parentElement;
+        if (!host) return;
+        while (entityTargets.length < count) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'galaxy-entity-target';
+            button.hidden = true;
+            bindEntityDrag(button);
+            host.appendChild(button);
+            entityTargets.push(button);
+        }
+    }
     const connectionPopover = document.createElement('aside');
     connectionPopover.className = 'galaxy-connection-popover';
     connectionPopover.hidden = true;
@@ -745,6 +834,13 @@
     });
 
     function detailGroups(system, entity) {
+        if (entity.live) {
+            return [['Eintrag', [
+                ['Name', entity.label],
+                ['Typ', system.label],
+                ['Einträge im Typ', entity.typeCount || '—'],
+            ]]];
+        }
         if (system.label === 'Mandate') {
             return [
                 ['Akte', [
@@ -841,6 +937,7 @@
     }
 
     function documentsFor(system, entity) {
+        if (entity.live) return [];
         if (system.label === 'Mandate') {
             return [
                 [`Mandatsvereinbarung ${entity.number}.pdf`, 'Mandatsakte · unterzeichnet'],
@@ -950,7 +1047,7 @@
                 `Behördenkontakt dem Mandat ${entity.matter} zugeordnet`,
             ],
         };
-        const events = contextualEvents[system.label] || [];
+        const events = entity.live ? [] : (contextualEvents[system.label] || []);
         [
             ['Heute, 09:42', `${entity.label} im Wissensnetz geöffnet`],
             ['15. Okt.', events[0]],
@@ -1115,6 +1212,13 @@
         context.strokeStyle = outline;
         context.lineWidth = 1.25;
         context.stroke();
+        if (centralNode && centralNode.system === system && !centralNode.opened && focusMix < 0.25) {
+            context.beginPath();
+            context.arc(projected.x, projected.y, radius * 2.6, 0, Math.PI * 2);
+            context.strokeStyle = warm ? 'rgba(227, 116, 0, .85)' : 'rgba(26, 69, 199, .85)';
+            context.lineWidth = 1.6;
+            context.stroke();
+        }
         context.restore();
 
         if (!system.label) return;
@@ -1122,7 +1226,7 @@
         context.textAlign = 'center';
         context.textBaseline = 'top';
         context.fillStyle = '#283647';
-        context.fillText(system.label, projected.x, projected.y + radius + 9);
+        context.fillText(shortLabel(system.label, 22), projected.x, projected.y + radius + 9);
     }
 
     function positionSunTarget(system, projected) {
@@ -1135,7 +1239,7 @@
         target.style.height = `${size}px`;
         target.style.transform =
             `translate3d(${projected.x - size / 2}px, ${projected.y - size / 2}px, 0)`;
-        const enabled = !focusedSystem || focusedSystem === system;
+        const enabled = focusMix < 0.45 || !focusedSystem || focusedSystem === system;
         target.style.pointerEvents = enabled ? 'auto' : 'none';
         target.tabIndex = enabled ? 0 : -1;
     }
@@ -1155,9 +1259,314 @@
                 || button.dataset.system !== system.label) {
             button.dataset.label = node.label;
             button.dataset.system = system.label;
-            button.onclick = () => openEntityDetail(
-                button.dataset.system, button.dataset.label);
+            button.dataset.entityIndex = String(index);
         }
+    }
+
+    function canvasPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+        };
+    }
+
+    function screenToDisk(sx, sy, depthScale) {
+        const view = viewFrame;
+        if (!view || !depthScale) return null;
+        const rx = (sx - view.centerX) / (view.scale * depthScale);
+        const ry = (sy - view.centerY) / (view.scale * depthScale);
+        const rotationY = view.rotation + view.tiltY;
+        const sinX = Math.sin(view.tiltX);
+        const cosY = Math.cos(rotationY);
+        const sinY = Math.sin(rotationY);
+        const z1 = Math.abs(sinX) > 0.2 ? -ry / sinX : 0;
+        const x1 = rx;
+        return {
+            x: x1 * cosY + z1 * sinY,
+            z: -x1 * sinY + z1 * cosY,
+        };
+    }
+
+    function beginNodeDrag(event, payload) {
+        if (event.button != null && event.button !== 0) return;
+        const point = canvasPoint(event);
+        nodeDrag = {
+            ...payload,
+            pointerId: event.pointerId,
+            button: event.currentTarget && event.currentTarget.classList
+                ? event.currentTarget : null,
+            startX: event.clientX,
+            startY: event.clientY,
+            lastX: point.x,
+            lastY: point.y,
+            moved: false,
+        };
+        if (nodeDrag.button && nodeDrag.button.setPointerCapture
+                && event.pointerId != null) {
+            nodeDrag.button.setPointerCapture(event.pointerId);
+            nodeDrag.button.classList.add('dragging');
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    function moveNodeDrag(event) {
+        if (!nodeDrag || event.pointerId !== nodeDrag.pointerId) return;
+        const point = canvasPoint(event);
+        if (Math.hypot(event.clientX - nodeDrag.startX, event.clientY - nodeDrag.startY) > 3) {
+            nodeDrag.moved = true;
+        }
+        if (!nodeDrag.moved || !viewFrame) return;
+        if (heldRotation == null) heldRotation = viewFrame.rotation;
+        armSprings(nodeDrag.kind === 'sun' ? 'sun' : 'siblings');
+        if (nodeDrag.kind === 'sun') {
+            const world = screenToDisk(
+                point.x - nodeDrag.offsetX,
+                point.y - nodeDrag.offsetY,
+                nodeDrag.depthScale,
+            );
+            if (!world) return;
+            nodeDrag.system.x = world.x;
+            nodeDrag.system.y = 0;
+            nodeDrag.system.z = world.z;
+            nodeDrag.system.vx = 0;
+            nodeDrag.system.vz = 0;
+        } else if (nodeDrag.slot) {
+            nodeDrag.slot.x += point.x - nodeDrag.lastX;
+            nodeDrag.slot.y += point.y - nodeDrag.lastY;
+            nodeDrag.slot.vx = 0;
+            nodeDrag.slot.vy = 0;
+            nodeDrag.lastX = point.x;
+            nodeDrag.lastY = point.y;
+        }
+        event.preventDefault();
+    }
+
+    function armSprings(mode) {
+        springFrames = 90;
+        if (springsArmed && springPin && springPin.mode === mode) return;
+        springsArmed = true;
+        springPin = { mode, drag: nodeDrag };
+        linkRests = new Map();
+        systems.forEach((system) => {
+            system.vx = 0;
+            system.vz = 0;
+            system.restReady = false;
+            if (system.focusAnchor) {
+                system.focusAnchor.vx = 0;
+                system.focusAnchor.vy = 0;
+            }
+            (system.siblingPoints || []).forEach((point) => {
+                point.vx = 0;
+                point.vy = 0;
+            });
+        });
+    }
+
+    function band(ax, ay, bx, by, rest, stiffness) {
+        let dx = bx - ax;
+        let dy = by - ay;
+        const dist = Math.hypot(dx, dy) || 0.0001;
+        const pull = (dist - rest) * stiffness;
+        return { x: (dx / dist) * pull, y: (dy / dist) * pull };
+    }
+
+    function stepWorldSprings(pinned) {
+        if (!pinned) return;
+        const labelled = systems.filter((system) => system.label);
+        const seen = new Set();
+        const touch = (system) => {
+            (system.links || []).forEach((link) => {
+                const other = labelled.find((candidate) => candidate.label === link.label);
+                if (!other || other === system) return;
+                if (system !== pinned && other !== pinned) return;
+                const key = [system.label, other.label].sort().join('|');
+                if (seen.has(key)) return;
+                seen.add(key);
+                const dist = Math.hypot(other.x - system.x, other.z - system.z) || 0.0001;
+                if (!linkRests.has(key)) linkRests.set(key, dist);
+                const force = band(system.x, system.z, other.x, other.z, linkRests.get(key), 0.018);
+                if (system !== pinned) { system.vx += force.x; system.vz += force.y; }
+                if (other !== pinned) { other.vx -= force.x; other.vz -= force.y; }
+            });
+        };
+        touch(pinned);
+        labelled.forEach((system) => {
+            if (system !== pinned) touch(system);
+        });
+        labelled.forEach((system) => {
+            if (system === pinned) { system.vx = 0; system.vz = 0; return; }
+            system.vx *= 0.62;
+            system.vz *= 0.62;
+            const speed = Math.hypot(system.vx, system.vz);
+            const scale = speed > 0.025 ? 0.025 / speed : 1;
+            system.x += system.vx * scale;
+            system.z += system.vz * scale;
+        });
+    }
+
+    function stepSiblingSprings(system, pinnedIndex) {
+        const points = system.siblingPoints;
+        if (!points || points.length < 2) return;
+        if (!system.focusAnchor) system.focusAnchor = { x: 0, y: 0, vx: 0, vy: 0 };
+        const anchor = system.focusAnchor;
+        if (!system.restReady) {
+            points.forEach((point) => {
+                point.rest = Math.hypot(point.x - anchor.x, point.y - anchor.y) || 1;
+                point.vx = 0;
+                point.vy = 0;
+            });
+            anchor.vx = 0;
+            anchor.vy = 0;
+            system.restReady = true;
+        }
+        const fx = points.map(() => 0);
+        const fy = points.map(() => 0);
+        points.forEach((point, index) => {
+            const force = band(point.x, point.y, anchor.x, anchor.y, point.rest, 0.012);
+            if (index !== pinnedIndex) { fx[index] += force.x; fy[index] += force.y; }
+        });
+        const damp = 0.55;
+        points.forEach((point, index) => {
+            if (index === pinnedIndex) { point.vx = 0; point.vy = 0; return; }
+            point.vx = (point.vx + fx[index]) * damp;
+            point.vy = (point.vy + fy[index]) * damp;
+            const speed = Math.hypot(point.vx, point.vy);
+            const scale = speed > 8 ? 8 / speed : 1;
+            point.x += point.vx * scale;
+            point.y += point.vy * scale;
+        });
+    }
+
+    function stepSprings() {
+        const pin = nodeDrag && nodeDrag.moved ? nodeDrag : springPin;
+        if (!pin) return;
+        if ((pin.kind || (pin.drag && pin.drag.kind)) === 'sun'
+                || (pin.mode === 'sun')) {
+            const system = pin.system || (pin.drag && pin.drag.system);
+            stepWorldSprings(system);
+            return;
+        }
+        const system = focusedSystem;
+        const index = pin.slotIndex != null
+            ? pin.slotIndex
+            : (pin.drag ? pin.drag.slotIndex : -1);
+        if (system) stepSiblingSprings(system, index);
+    }
+
+    function endNodeDrag(event) {
+        if (!nodeDrag) return;
+        const same = event.pointerId == null
+            || nodeDrag.pointerId == null
+            || event.pointerId === nodeDrag.pointerId;
+        if (!same) return;
+        const drag = nodeDrag;
+        nodeDrag = null;
+        if (drag.button) drag.button.classList.remove('dragging');
+        if (drag.moved) {
+            springPin = {
+                mode: drag.kind === 'sun' ? 'sun' : 'siblings',
+                drag,
+            };
+            springFrames = 90;
+            return;
+        }
+        springsArmed = false;
+        springPin = null;
+        springFrames = 0;
+        const now = performance.now();
+        if (now - lastNodeActivate < 180) return;
+        lastNodeActivate = now;
+        if (drag.kind === 'sun') clickSun(drag.system);
+        else if (drag.kind === 'entity') clickEntity(drag.systemLabel, drag.entityLabel);
+    }
+
+    function bindSunDrag(button) {
+        button.addEventListener('pointerdown', (event) => startSunDrag(button, event));
+        button.addEventListener('mousedown', (event) => startSunDrag(button, event));
+    }
+
+    function startSunDrag(button, event) {
+        if (nodeDrag) return;
+        const system = systems.find(
+            (candidate) => candidate.label === button.dataset.galaxySystem);
+        if (!system || !viewFrame) return;
+        const point = canvasPoint(event);
+        const projected = project(
+            system, viewFrame.rotation, viewFrame.scale,
+            viewFrame.centerX, viewFrame.centerY);
+        beginNodeDrag(event, {
+            kind: 'sun',
+            system,
+            depthScale: projected.depthScale || 1,
+            offsetX: point.x - projected.x,
+            offsetY: point.y - projected.y,
+        });
+    }
+
+    function bindEntityDrag(button) {
+        button.addEventListener('pointerdown', (event) => startEntityDrag(button, event));
+        button.addEventListener('mousedown', (event) => startEntityDrag(button, event));
+    }
+
+    function startEntityDrag(button, event) {
+        if (nodeDrag) return;
+        const system = systems.find(
+            (candidate) => candidate.label === button.dataset.system);
+        const index = Number(button.dataset.entityIndex);
+        if (!system) return;
+        if (!system.siblingPoints || !system.siblingPoints[index]) {
+            spreadSiblings(system, (system.entityNodes || []).length);
+        }
+        if (!system.siblingPoints || !system.siblingPoints[index]) return;
+        beginNodeDrag(event, {
+            kind: 'entity',
+            slot: system.siblingPoints[index],
+            points: system.siblingPoints,
+            slotIndex: index,
+            systemLabel: system.label,
+            entityLabel: button.dataset.label,
+        });
+    }
+
+    window.addEventListener('pointermove', moveNodeDrag);
+    window.addEventListener('mousemove', moveNodeDrag);
+    window.addEventListener('pointerup', endNodeDrag);
+    window.addEventListener('mouseup', endNodeDrag);
+    window.addEventListener('pointercancel', endNodeDrag);
+
+    function drawTypeLinks(projectedSystems) {
+        if (focusMix > 0.25) return;
+        context.save();
+        context.lineWidth = 1.15;
+        context.strokeStyle = 'rgba(26, 69, 199, 0.38)';
+        const seen = new Set();
+        projectedSystems.forEach(({ system, projected }) => {
+            (system.links || []).forEach((link) => {
+                const key = [system.label, link.label].sort().join('|');
+                const edgeKey = `type|${key}|${link.predicate || ''}`;
+                if (seen.has(key) || isEdgeHidden(edgeKey)) return;
+                if (isNodeHidden(system)) return;
+                seen.add(key);
+                const other = projectedSystems.find(
+                    (entry) => entry.system.label === link.label);
+                if (!other || isNodeHidden(other.system)) return;
+                const neighborhood = centralNode
+                    && centralNode.kind === 'sun'
+                    && !centralNode.opened
+                    && focusMix < 0.25;
+                const onContext = !neighborhood
+                    || system === centralNode.system
+                    || other.system === centralNode.system;
+                context.globalAlpha = onContext ? 1 : 0.12;
+                context.beginPath();
+                context.moveTo(projected.x, projected.y);
+                context.lineTo(other.projected.x, other.projected.y);
+                context.stroke();
+            });
+        });
+        context.restore();
     }
 
     function fadingLine(from, to, color) {
@@ -1255,35 +1664,84 @@
         };
     }
 
+    function spreadSiblings(system, count) {
+        if (!count) return [];
+        if (system.siblingPoints && system.siblingPoints.length === count) {
+            return system.siblingPoints;
+        }
+        const minDist = count > 18 ? 176 : 220;
+        const points = [];
+        let placed = 0;
+        let ring = 0;
+        while (placed < count) {
+            const radius = 220 + ring * minDist;
+            const capacity = Math.max(5, Math.floor((2 * Math.PI * radius) / minDist));
+            const n = Math.min(capacity, count - placed);
+            for (let slot = 0; slot < n; slot += 1) {
+                const angle = -Math.PI / 2
+                    + ((slot + 0.5) / n) * Math.PI * 2
+                    + ring * 0.4;
+                points.push({
+                    x: Math.cos(angle) * radius,
+                    y: Math.sin(angle) * radius * 0.92,
+                });
+            }
+            placed += n;
+            ring += 1;
+        }
+        for (let pass = 0; pass < 14; pass += 1) {
+            for (let i = 0; i < count; i += 1) {
+                for (let j = i + 1; j < count; j += 1) {
+                    let dx = points[i].x - points[j].x;
+                    let dy = points[i].y - points[j].y;
+                    let dist2 = dx * dx + dy * dy;
+                    if (dist2 < 9) { dx = 3; dy = 0; dist2 = 9; }
+                    const dist = Math.sqrt(dist2);
+                    if (dist >= minDist) continue;
+                    const push = (minDist - dist) * 0.5;
+                    points[i].x += (dx / dist) * push;
+                    points[i].y += (dy / dist) * push;
+                    points[j].x -= (dx / dist) * push;
+                    points[j].y -= (dy / dist) * push;
+                }
+            }
+        }
+        system.siblingPoints = points;
+        return points;
+    }
+
     function drawFocusedSystem(system, projectedSun, projectedSystems,
                                rotation, scale, centerX, centerY, time) {
         if (!system || focusMix < 0.015) return [];
         const visualCenter = detailSystemCenter(projectedSun);
-        const nodes = system.entityNodes.map((entity, index, entities) => {
+        const anchor = system.focusAnchor || { x: 0, y: 0 };
+        const hub = {
+            x: visualCenter.x + anchor.x,
+            y: visualCenter.y + anchor.y,
+        };
+        const spread = spreadSiblings(system, system.entityNodes.length);
+        const nodes = [];
+        system.entityNodes.forEach((entity, index) => {
+            if (!entity || isEntityHidden(entity)) return;
             const natural = project(entity, rotation, scale, centerX, centerY);
-            const angle = -Math.PI / 2 + (index / entities.length) * Math.PI * 2;
-            const orbitWidth = Math.min(width * 0.14, 165);
-            const orbitHeight = Math.min(height * 0.1, 70);
-            const orbitTilt = 0.34;
-            const orbitX = Math.cos(angle) * orbitWidth;
-            const orbitY = Math.sin(angle) * orbitHeight;
-            const depth = Math.sin(angle);
+            const slot = spread[index] || { x: 0, y: 0 };
+            const depth = Math.sin(
+                -Math.PI / 2 + (index / Math.max(system.entityNodes.length, 1)) * Math.PI * 2);
             const arranged = {
-                x: visualCenter.x
-                    + orbitX * Math.cos(orbitTilt) - orbitY * Math.sin(orbitTilt),
-                y: visualCenter.y
-                    + orbitX * Math.sin(orbitTilt) + orbitY * Math.cos(orbitTilt),
+                x: visualCenter.x + slot.x,
+                y: visualCenter.y + slot.y,
                 depthScale: 0.68 + (depth + 1) * 0.17,
             };
-            return {
+            nodes.push({
                 ...natural,
-                x: natural.x + (arranged.x - natural.x) * entityMix,
-                y: natural.y + (arranged.y - natural.y) * entityMix,
+                x: natural.x + (arranged.x - natural.x) * Math.max(focusMix, entityMix),
+                y: natural.y + (arranged.y - natural.y) * Math.max(focusMix, entityMix),
                 depthScale: natural.depthScale
                     + (arranged.depthScale - natural.depthScale) * entityMix,
                 label: entity.label,
                 connection: entity.connection,
-            };
+                sourceIndex: index,
+            });
         });
         const systemColor = system.warm ? 'rgba(214, 132, 30, .34)'
                                         : 'rgba(40, 89, 205, .34)';
@@ -1313,36 +1771,49 @@
             context.save();
             context.globalAlpha *= foregroundDepthFactor(node.x, node.y);
             context.beginPath();
-            context.moveTo(visualCenter.x, visualCenter.y);
+            context.moveTo(hub.x, hub.y);
             context.lineTo(node.x, node.y);
             context.strokeStyle = systemColor;
             context.lineWidth = 0.9;
             context.stroke();
 
-            if (node.connection && !selectedEntity) {
-                const destination = projectedSystems.find(
-                    (entry) => entry.system.label === node.connection.system);
-                const lineTarget = destination
-                    ? { x: destination.projected.x, y: destination.projected.y }
-                    : { x: node.x + width * 0.43, y: node.y - height * 0.24 };
-                const arrowPosition = fadingLine(node, lineTarget, systemColor);
-                positionConnectionArrow(
-                    arrowIndex,
-                    arrowPosition,
-                    node.label,
-                    node.connection,
-                    system.warm,
-                );
-                arrowIndex += 1;
+            if (node.connections || node.connection) {
+                const links = node.connections
+                    || (node.connection ? [node.connection] : []);
+                links.forEach((connection) => {
+                    if (isEdgeHidden(`to|${entityKey(system.entityNodes[node.sourceIndex])}|${connection.system}`)) {
+                        return;
+                    }
+                    const destination = projectedSystems.find(
+                        (entry) => entry.system.label === connection.system);
+                    if (!destination) return;
+                    const lineTarget = {
+                        x: destination.projected.x,
+                        y: destination.projected.y,
+                    };
+                    const arrowPosition = fadingLine(node, lineTarget, systemColor);
+                    if (connection.button === false) return;
+                    positionConnectionArrow(
+                        arrowIndex,
+                        arrowPosition,
+                        node.label,
+                        connection,
+                        system.warm,
+                    );
+                    arrowIndex += 1;
+                });
             }
             context.restore();
         });
 
+        ensureEntityTargets(nodes.length);
         nodes.forEach((node, index) => {
             if (selectedEntity && node.label === selectedEntity.label) return;
             const depthFactor = foregroundDepthFactor(node.x, node.y);
-            const radius = node.size * node.depthScale
-                * (0.72 + depthFactor * 0.28);
+            const radius = Math.max(
+                9,
+                node.size * node.depthScale * (0.72 + depthFactor * 0.28),
+            );
             context.save();
             context.globalAlpha *= depthFactor;
             const isHighlighted = node.label === highlightedEntity;
@@ -1388,11 +1859,11 @@
             context.textBaseline = 'middle';
             context.fillStyle = '#283647';
             context.fillText(
-                node.label,
+                shortLabel(node.label, nodes.length > 16 ? 18 : 32),
                 node.x + (node.x < projectedSun.x ? -radius - 7 : radius + 7),
                 node.y,
             );
-            if (!selectedEntity) positionEntityTarget(index, node, system);
+            positionEntityTarget(node.sourceIndex, node, system);
             context.restore();
         });
         context.restore();
@@ -1492,7 +1963,7 @@
         context.textBaseline = 'bottom';
         context.fillStyle = '#283647';
         context.font = '700 13px "IBM Plex Mono", ui-monospace, monospace';
-        context.fillText(entity.label, x - discWidth, y - discHeight - 50);
+        context.fillText(shortLabel(entity.label, 36), x - discWidth, y - discHeight - 50);
         context.restore();
     }
 
@@ -1600,7 +2071,7 @@
         context.textBaseline = 'top';
         context.fillStyle = '#283647';
         context.globalAlpha = entityMix * (1 - historyMix);
-        context.fillText(entity.label, x, y + radius + 18);
+        context.fillText(shortLabel(entity.label, 32), x, y + radius + 18);
         context.globalAlpha = entityMix;
         drawHistoryCylinder(system, entity, x, y, radius);
         context.restore();
@@ -1718,7 +2189,22 @@
         entityMix += (targetEntityMix - entityMix) * motionStep;
         historyMix += (targetHistoryMix - historyMix) * motionStep;
 
-        const rotation = reducedMotion.matches ? 0.2 : time * 0.000022;
+        if (nodeDrag || springFrames > 0) {
+            const substeps = 2;
+            for (let substep = 0; substep < substeps; substep += 1) stepSprings();
+            if (!nodeDrag) springFrames -= 1;
+            if (!nodeDrag && springFrames <= 0) {
+                springsArmed = false;
+                springPin = null;
+            }
+        }
+        const rotation = heldRotation != null
+            ? heldRotation
+            : (reducedMotion.matches ? 0.2 : time * 0.000022);
+        if (nodeDrag) {
+            targetTiltX = tiltX;
+            targetTiltY = tiltY;
+        }
         const scale = Math.min(width, height) * (width < 640 ? 0.32 : 0.3) * zoom;
         const baseCenterX = width * 0.5;
         const baseCenterY = height * 0.46;
@@ -1729,11 +2215,16 @@
                 focusedSystem, rotation, scale, baseCenterX, baseCenterY);
             wantedCameraX = baseCenterX - focusAtRest.x;
             wantedCameraY = baseCenterY - focusAtRest.y;
+            if (centralNode && centralNode.kind === 'entity' && centralNode.slot) {
+                wantedCameraX -= centralNode.slot.x;
+                wantedCameraY -= centralNode.slot.y;
+            }
         }
         cameraX += (wantedCameraX - cameraX) * motionStep;
         cameraY += (wantedCameraY - cameraY) * motionStep;
         const centerX = baseCenterX + cameraX;
         const centerY = baseCenterY + cameraY;
+        viewFrame = { rotation, scale, centerX, centerY, tiltX, tiltY };
         const halo = context.createRadialGradient(
             centerX, centerY, 0,
             centerX, centerY, scale * 1.15,
@@ -1777,19 +2268,31 @@
             system,
             projected: project(system, rotation, scale, centerX, centerY),
         }));
+        drawTypeLinks(projectedSystems);
         projectedSystems.forEach(({ system, projected: projectedSystem }) => {
+            if (isNodeHidden(system)) {
+                const target = sunTargets.find(
+                    (button) => button.dataset.galaxySystem === system.label);
+                if (target) target.hidden = true;
+                return;
+            }
             const displayCenter = system === focusedSystem
                 ? detailSystemCenter(projectedSystem)
                 : projectedSystem;
+            const anchor = system === focusedSystem ? system.focusAnchor : null;
             const displayedSystem = {
                 ...projectedSystem,
-                x: displayCenter.x,
-                y: displayCenter.y,
+                x: displayCenter.x + (anchor ? anchor.x : 0),
+                y: displayCenter.y + (anchor ? anchor.y : 0),
             };
             context.save();
             context.globalAlpha = focusedSystem && focusedSystem !== system
                 ? 1 - focusMix * 0.88
                 : 1;
+            if (centralNode && centralNode.kind === 'sun' && !centralNode.opened && focusMix < 0.25
+                    && !sharesContext(system)) {
+                context.globalAlpha *= 0.16;
+            }
             context.globalAlpha *= 1 - entityMix * 0.88;
             context.globalAlpha *= foregroundDepthFactor(
                 displayedSystem.x,
@@ -1827,8 +2330,45 @@
                 selectedProjection,
                 detailSystemCenter(focusedProjection.projected),
             );
+            if (centralNode && centralNode.kind === 'entity'
+                    && centralNode.system === focusedSystem) {
+                const placed = (focusedNodes || []).find(
+                    (node) => node.label === centralNode.entity.label);
+                const hub = placed
+                    ? { x: placed.x, y: placed.y }
+                    : detailSystemCenter(focusedProjection.projected);
+                drawChildRing(hub, nodeChildren(focusedSystem, centralNode.entity));
+            }
         }
         drawSearchHeatmap(projectedSystems, focusedNodes, selectedProjection);
+        const screenPositions = {};
+        projectedSystems.forEach(({ system, projected: projectedSystem }) => {
+            const displayCenter = system === focusedSystem
+                ? detailSystemCenter(projectedSystem)
+                : projectedSystem;
+            screenPositions[`system:${system.label}`] = {
+                x: displayCenter.x,
+                y: displayCenter.y,
+            };
+            (system.entityNodes || []).forEach((entity) => {
+                const placed = project(entity, rotation, scale, centerX, centerY);
+                screenPositions[`${system.label}::${entity.label}`] = {
+                    x: placed.x,
+                    y: placed.y,
+                };
+            });
+        });
+        documents.forEach((doc) => {
+            const placed = project(doc, rotation, scale, centerX, centerY);
+            screenPositions[`Dokumente::${doc.label}`] = {
+                x: placed.x,
+                y: placed.y,
+            };
+        });
+        if (window.cortexGalaxy) window.cortexGalaxy.screenPositions = screenPositions;
+        if (window.cortexGalaxyResults && window.cortexGalaxyResults.syncPositions) {
+            window.cortexGalaxyResults.syncPositions();
+        }
 
         if (!reducedMotion.matches) frame = window.requestAnimationFrame(draw);
     }
@@ -1849,7 +2389,13 @@
         if (!breadcrumb || !breadcrumbCurrent) return;
         if (galaxySystemUp) galaxySystemUp.hidden = true;
         if (entitySeparator) entitySeparator.hidden = true;
-        breadcrumbCurrent.textContent = system.label;
+        const total = Number(system.count) || 0;
+        const shown = (system.entityNodes || []).length;
+        breadcrumbCurrent.textContent = total > shown && shown > 0
+            ? `${system.label} · ${formatGalaxyCount(shown)} von ${formatGalaxyCount(total)}`
+            : total > 0
+                ? `${system.label} · ${formatGalaxyCount(total)}`
+                : system.label;
         breadcrumb.hidden = false;
     }
 
@@ -1863,10 +2409,110 @@
         breadcrumb.hidden = false;
     }
 
-    function openSystem(label) {
-        window.clearTimeout(travelTimer);
-        const system = systems.find((candidate) => candidate.label === label);
-        if (!system) return;
+    async function loadChildLinks(system) {
+        if (!system || system.linksLoaded) return;
+        const nodes = (system.entityNodes || []).filter((entity) => entity && entity.id);
+        if (!nodes.length) return;
+        system.linksLoaded = true;
+        const batch = 6;
+        for (let start = 0; start < nodes.length; start += batch) {
+            const slice = nodes.slice(start, start + batch);
+            const details = await Promise.all(slice.map((entity) =>
+                fetch(`/api/ontology/entities/${encodeURIComponent(entity.id)}`)
+                    .then((resp) => (resp.ok ? resp.json() : null))
+                    .catch(() => null)));
+            details.forEach((data, index) => {
+                const grouped = new Map();
+                ((data && data.relations) || []).forEach((rel) => {
+                    if (!rel || !rel.target || !rel.predicate) return;
+                    const other = systems.find((candidate) => candidate.id === rel.target.type);
+                    if (!other || other === system) return;
+                    if (!grouped.has(other.label)) {
+                        grouped.set(other.label, { predicates: new Set(), names: [] });
+                    }
+                    const bucket = grouped.get(other.label);
+                    bucket.predicates.add(String(rel.predicate).replace(/[_-]+/g, ' '));
+                    if (rel.target.label && bucket.names.length < 3) {
+                        bucket.names.push(rel.target.label);
+                    }
+                });
+                slice[index].connections = [...grouped.entries()].map(([label, bucket]) => ({
+                    system: label,
+                    entity: `${[...bucket.predicates].join(', ')} → ${bucket.names.join(', ')}`,
+                    button: false,
+                }));
+                slice[index].related = ((data && data.relations) || []).map((rel) => {
+                    const target = rel && rel.target;
+                    if (!target || !target.label) return null;
+                    const host = systems.find((candidate) => candidate.id === target.type);
+                    return {
+                        id: target.id || '',
+                        label: target.label,
+                        typeLabel: host ? host.label : '',
+                        predicate: String(rel.predicate || '').replace(/[_-]+/g, ' '),
+                    };
+                }).filter(Boolean);
+            });
+            if (reducedMotion.matches && focusedSystem === system) draw();
+        }
+    }
+
+    function rememberHomes() {
+        systems.forEach((system) => {
+            if (!system.home) system.home = { x: system.x, z: system.z };
+        });
+    }
+
+    function restoreHomes() {
+        systems.forEach((system) => {
+            if (!system.home) return;
+            system.x = system.home.x;
+            system.z = system.home.z;
+            system.vx = 0;
+            system.vz = 0;
+        });
+    }
+
+    function sharesContext(system) {
+        if (!centralNode || centralNode.kind !== 'sun') return true;
+        if (system === centralNode.system) return true;
+        return (centralNode.system.links || []).some((link) => link.label === system.label);
+    }
+
+    function placeNeighborhood(system) {
+        rememberHomes();
+        restoreHomes();
+        system.x = 0;
+        system.z = 0;
+        system.vx = 0;
+        system.vz = 0;
+        const neighbors = systems.filter((other) => other !== system
+            && other.label
+            && !isNodeHidden(other)
+            && (system.links || []).some((link) => link.label === other.label));
+        const radius = neighbors.length > 10 ? 0.62 : 0.46;
+        neighbors.forEach((other, index) => {
+            const angle = -Math.PI / 2 + (index / Math.max(neighbors.length, 1)) * Math.PI * 2;
+            other.x = Math.cos(angle) * radius;
+            other.z = Math.sin(angle) * radius * 0.84;
+            other.vx = 0;
+            other.vz = 0;
+        });
+        const outsiders = systems.filter((other) => other.label
+            && other !== system
+            && !neighbors.includes(other)
+            && !isNodeHidden(other));
+        outsiders.forEach((other, index) => {
+            const angle = (index / Math.max(outsiders.length, 1)) * Math.PI * 2;
+            other.x = Math.cos(angle) * 1.05;
+            other.z = Math.sin(angle) * 0.88;
+            other.vx = 0;
+            other.vz = 0;
+        });
+    }
+
+    function showNeighborhood(system) {
+        centralNode = { kind: 'sun', system, opened: false };
         focusedSystem = system;
         highlightedEntity = null;
         selectedEntity = null;
@@ -1874,8 +2520,145 @@
         targetFocusMix = 1;
         connectionPopover.hidden = true;
         hideEntityPanel();
+        placeNeighborhood(system);
+        showBreadcrumb(system);
+        loadChildLinks(system);
+        setZoom(2.35);
+    }
+
+    function clickSun(system) {
+        const same = centralNode
+            && centralNode.kind === 'sun'
+            && centralNode.system === system;
+        if (same && centralNode.opened) return;
+        if (same) openSystem(system.label);
+        else showNeighborhood(system);
+    }
+
+    function clickEntity(systemLabel, entityLabel) {
+        const system = systems.find((candidate) => candidate.label === systemLabel);
+        const entity = system && system.entityNodes.find(
+            (candidate) => candidate.label === entityLabel);
+        if (!system || !entity) return;
+        const index = system.entityNodes.indexOf(entity);
+        const same = centralNode
+            && centralNode.kind === 'entity'
+            && centralNode.entity === entity;
+        if (same && centralNode.opened) return;
+        if (same) {
+            openEntityDetail(systemLabel, entityLabel);
+            return;
+        }
+        centralNode = {
+            kind: 'entity',
+            system,
+            entity,
+            opened: false,
+            slot: (system.siblingPoints && system.siblingPoints[index]) || { x: 0, y: 0 },
+        };
+        focusedSystem = system;
+        selectedEntity = null;
+        highlightedEntity = entity.label;
+        targetEntityMix = 0;
+        targetFocusMix = 1;
+        connectionPopover.hidden = true;
+        hideEntityPanel();
+        showEntityBreadcrumb(system, entity);
+        loadEntityRelated(entity);
+        setZoom(Math.max(targetZoom, 2.05));
+    }
+
+    function nodeChildren(system, entity) {
+        const related = (entity && entity.related) || [];
+        if (related.length) {
+            return related.map((item) => ({
+                label: item.label,
+                caption: item.predicate,
+            }));
+        }
+        return (system.links || []).map((link) => ({
+            label: link.label,
+            caption: String(link.predicate || '').replace(/[_-]+/g, ' '),
+        }));
+    }
+
+    function drawChildRing(hub, items) {
+        if (!hub || !items.length) return;
+        context.save();
+        context.globalAlpha = 1;
+        const perRing = items.length > 14 ? 10 : Math.max(items.length, 1);
+        items.forEach((item, index) => {
+            const ring = Math.floor(index / perRing);
+            const slot = index % perRing;
+            const count = Math.min(perRing, items.length - ring * perRing);
+            const angle = -Math.PI / 2 + ((slot + 0.5) / count) * Math.PI * 2;
+            const orbit = 188 + ring * 156;
+            const x = hub.x + Math.cos(angle) * orbit;
+            const y = hub.y + Math.sin(angle) * orbit;
+            context.beginPath();
+            context.moveTo(hub.x, hub.y);
+            context.lineTo(x, y);
+            context.strokeStyle = 'rgba(40, 89, 205, .4)';
+            context.lineWidth = 1.15;
+            context.stroke();
+            context.beginPath();
+            context.arc(x, y, 8, 0, Math.PI * 2);
+            context.fillStyle = '#1a73e8';
+            context.fill();
+            context.strokeStyle = '#0b57d0';
+            context.lineWidth = 1.2;
+            context.stroke();
+            context.font = '600 12px "IBM Plex Sans", ui-sans-serif, sans-serif';
+            context.fillStyle = '#283647';
+            context.textAlign = x < hub.x ? 'right' : 'left';
+            context.textBaseline = 'middle';
+            context.fillText(
+                shortLabel(item.label, 32),
+                x + (x < hub.x ? -14 : 14),
+                y,
+            );
+        });
+        context.restore();
+    }
+
+    async function loadEntityRelated(entity) {
+        if (!entity || !entity.id || entity.relatedLoaded) return;
+        entity.relatedLoaded = true;
+        try {
+            const response = await fetch(
+                `/api/ontology/entities/${encodeURIComponent(entity.id)}`);
+            if (!response.ok) return;
+            const data = await response.json();
+            entity.related = ((data && data.relations) || []).map((rel) => {
+                const target = rel && rel.target;
+                if (!target || !target.label) return null;
+                const host = systems.find((candidate) => candidate.id === target.type);
+                return {
+                    id: target.id || '',
+                    label: target.label,
+                    typeLabel: host ? host.label : '',
+                    predicate: String(rel.predicate || '').replace(/[_-]+/g, ' '),
+                };
+            }).filter(Boolean);
+            if (centralNode && centralNode.entity === entity) restart();
+        } catch (err) { /* the type links stay as the visible layer */ }
+    }
+
+    function openSystem(label) {
+        window.clearTimeout(travelTimer);
+        const system = systems.find((candidate) => candidate.label === label);
+        if (!system) return;
+        centralNode = { kind: 'sun', system, opened: true };
+        focusedSystem = system;
+        highlightedEntity = null;
+        selectedEntity = null;
+        targetEntityMix = 0;
+        targetFocusMix = 1;
+        connectionPopover.hidden = true;
         showBreadcrumb(system);
         setZoom(2.65);
+        loadChildLinks(system);
+        showTypeDetails(system);
     }
 
     function openEntityDetail(systemLabel, entityLabel) {
@@ -1883,6 +2666,14 @@
         const entity = system && system.entityNodes.find(
             (candidate) => candidate.label === entityLabel);
         if (!system || !entity) return;
+        const index = system.entityNodes.indexOf(entity);
+        centralNode = {
+            kind: 'entity',
+            system,
+            entity,
+            opened: true,
+            slot: (system.siblingPoints && system.siblingPoints[index]) || centralNode && centralNode.slot,
+        };
         focusedSystem = system;
         selectedEntity = entity;
         highlightedEntity = entity.label;
@@ -1890,8 +2681,555 @@
         targetFocusMix = 1;
         connectionPopover.hidden = true;
         showEntityBreadcrumb(system, entity);
-        renderEntityPanel(system, entity);
+        loadEntityRelated(entity);
+        if (entity.id) showEntityDetails(system, entity);
+        else renderEntityPanel(system, entity);
         setZoom(1.7);
+    }
+
+    function revealDetailPanel() {
+        if (!entityPanel) return;
+        entityPanel.hidden = false;
+        window.requestAnimationFrame(() => {
+            entityPanel.classList.add('open');
+            if (typeof setDetailTab === 'function') setDetailTab('fields');
+        });
+    }
+
+    function detailButton(text, onClick) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn-text galaxy-detail-link';
+        button.textContent = text;
+        button.addEventListener('click', onClick);
+        return button;
+    }
+
+    function detailRow(text, onOpen, onHide, onDelete) {
+        const item = document.createElement('li');
+        item.className = 'galaxy-detail-row';
+        item.appendChild(detailButton(text, onOpen));
+        if (onHide) item.appendChild(smallAction('Ausblenden', 'galaxy-hide', onHide));
+        if (onDelete) {
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn btn-danger galaxy-mini';
+            remove.textContent = 'Löschen';
+            remove.addEventListener('click', (event) => {
+                event.stopPropagation();
+                onDelete();
+            });
+            item.appendChild(remove);
+        }
+        return item;
+    }
+
+    function smallAction(text, className, onClick) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `btn-text ${className}`;
+        button.textContent = text;
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            onClick();
+        });
+        return button;
+    }
+
+    function galaxyCsrf() {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.content : '';
+    }
+
+    async function galaxyWrite(url, method, payload) {
+        const response = await fetch(url, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': galaxyCsrf(),
+            },
+            body: payload == null ? undefined : JSON.stringify(payload),
+        });
+        if (response.status === 401) {
+            window.location.assign('/login');
+            return null;
+        }
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success === false) {
+            throw new Error(data.error || 'Das hat nicht geklappt.');
+        }
+        return data;
+    }
+
+    function findLoadedEntity(label) {
+        const want = String(label || '').trim().toLowerCase();
+        if (!want) return null;
+        for (let s = 0; s < systems.length; s += 1) {
+            const hit = (systems[s].entityNodes || []).find(
+                (node) => node.label && node.label.toLowerCase() === want);
+            if (hit && hit.id) return hit;
+        }
+        return null;
+    }
+
+    function actionForm(fields, submitLabel, onSubmit) {
+        const form = document.createElement('form');
+        form.className = 'galaxy-action-form';
+        const inputs = {};
+        fields.forEach((field) => {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = field.placeholder;
+            input.setAttribute('aria-label', field.placeholder);
+            input.maxLength = field.max || 120;
+            inputs[field.name] = input;
+            form.appendChild(input);
+        });
+        const button = document.createElement('button');
+        button.type = 'submit';
+        button.className = 'btn btn-primary';
+        button.textContent = submitLabel;
+        form.appendChild(button);
+        const error = document.createElement('p');
+        error.className = 'entity-hint';
+        error.hidden = true;
+        form.appendChild(error);
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            error.hidden = true;
+            try {
+                await onSubmit(inputs);
+            } catch (err) {
+                error.textContent = err.message || 'Das hat nicht geklappt.';
+                error.hidden = false;
+            }
+        });
+        return form;
+    }
+
+    function nodeCreateForm(selectedTypeId) {
+        const form = document.createElement('form');
+        form.className = 'galaxy-action-form';
+        const select = document.createElement('select');
+        select.className = 'galaxy-type-select';
+        select.setAttribute('aria-label', 'Typ des neuen Knotens');
+        systems
+            .filter((system) => system.id && system.label)
+            .slice()
+            .sort((a, b) => a.label.localeCompare(b.label, 'de'))
+            .forEach((system) => {
+                const option = document.createElement('option');
+                option.value = system.id;
+                option.textContent = system.label;
+                if (system.id === selectedTypeId) option.selected = true;
+                select.appendChild(option);
+            });
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Name des Knotens';
+        input.setAttribute('aria-label', 'Name des Knotens');
+        input.maxLength = 120;
+        const button = document.createElement('button');
+        button.type = 'submit';
+        button.className = 'btn btn-primary';
+        button.textContent = 'Knoten anlegen';
+        const error = document.createElement('p');
+        error.className = 'entity-hint';
+        error.hidden = true;
+        form.append(select, input, button, error);
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            error.hidden = true;
+            const host = systems.find((system) => system.id === select.value);
+            if (!host) {
+                error.textContent = 'Wählen Sie einen Typ.';
+                error.hidden = false;
+                return;
+            }
+            try {
+                await createEntity(host, input.value);
+            } catch (err) {
+                error.textContent = err.message || 'Das hat nicht geklappt.';
+                error.hidden = false;
+            }
+        });
+        return form;
+    }
+
+    function renderHiddenTray() {
+        const host = canvas.parentElement;
+        if (!host) return;
+        let tray = document.getElementById('galaxyHidden');
+        const count = hiddenItems.nodes.length
+            + hiddenItems.entities.length
+            + hiddenItems.edges.length;
+        if (!count) {
+            if (tray) tray.remove();
+            return;
+        }
+        if (!tray) {
+            tray = document.createElement('section');
+            tray.id = 'galaxyHidden';
+            tray.className = 'galaxy-hidden';
+            host.appendChild(tray);
+        }
+        tray.replaceChildren();
+        const title = document.createElement('h2');
+        title.textContent = `Ausgeblendet · ${count}`;
+        tray.appendChild(title);
+        const list = document.createElement('ul');
+        const add = (kind, item) => {
+            const row = document.createElement('li');
+            const name = document.createElement('span');
+            name.textContent = item.label;
+            const back = document.createElement('button');
+            back.type = 'button';
+            back.className = 'btn-text';
+            back.textContent = 'Einblenden';
+            back.addEventListener('click', () => forgetHidden(kind, item.key));
+            row.append(name, back);
+            list.appendChild(row);
+        };
+        hiddenItems.nodes.forEach((item) => add('nodes', item));
+        hiddenItems.entities.forEach((item) => add('entities', item));
+        hiddenItems.edges.forEach((item) => add('edges', item));
+        tray.appendChild(list);
+    }
+
+    function hideNode(system) {
+        rememberHidden('nodes', nodeKey(system), system.label);
+        if (focusedSystem === system) fitGalaxy();
+        else hideEntityPanel();
+    }
+
+    function hideEntityNode(system, entity) {
+        rememberHidden('entities', entityKey(entity), `${entity.label} · ${system.label}`);
+        if (selectedEntity === entity) selectedEntity = null;
+        if (focusedSystem === system) showTypeDetails(system);
+    }
+
+    function typeEdgeKey(system, link) {
+        return `type|${[system.label, link.label].sort().join('|')}|${link.predicate || ''}`;
+    }
+
+    function hideTypeEdge(system, link) {
+        const predicate = String(link.predicate || 'Kante').replace(/[_-]+/g, ' ');
+        rememberHidden('edges', typeEdgeKey(system, link), `${predicate} · ${system.label} – ${link.label}`);
+        if (focusedSystem === system) showTypeDetails(system);
+    }
+
+    function entityEdgeKey(entity, typeLabel) {
+        return `to|${entityKey(entity)}|${typeLabel}`;
+    }
+
+    function hideEntityEdge(system, entity, relation) {
+        const target = relation.target || {};
+        const host = systems.find((candidate) => candidate.id === target.type);
+        const typeLabel = host ? host.label : (target.type || target.label || '');
+        const predicate = String(relation.predicate || 'Kante').replace(/[_-]+/g, ' ');
+        rememberHidden(
+            'edges',
+            entityEdgeKey(entity, typeLabel),
+            `${predicate} · ${entity.label} – ${target.label || typeLabel}`,
+        );
+        showEntityDetails(system, entity);
+    }
+
+    async function createEntity(system, label) {
+        const name = String(label || '').trim();
+        if (!name) throw new Error('Name fehlt.');
+        if (!system.id) throw new Error('Dieser Typ kann hier nicht ergänzt werden.');
+        const data = await galaxyWrite('/api/ontology/entities', 'POST', {
+            type: system.id,
+            label: name,
+        });
+        const created = data && data.entity;
+        if (!created) return;
+        system.entityNodes = system.entityNodes || [];
+        system.entityNodes.unshift({
+            id: created.id,
+            label: created.label || name,
+            live: true,
+        });
+        system.count = (Number(system.count) || 0) + 1;
+        system.siblingPoints = null;
+        showTypeDetails(system);
+    }
+
+    async function removeEntity(system, entity) {
+        if (!entity.id) throw new Error('Dieser Eintrag kann hier nicht gelöscht werden.');
+        if (!window.confirm(`${entity.label} löschen?`)) return;
+        await galaxyWrite(
+            `/api/ontology/entities/${encodeURIComponent(entity.id)}`,
+            'DELETE',
+        );
+        system.entityNodes = (system.entityNodes || []).filter((node) => node.id !== entity.id);
+        system.count = Math.max(0, (Number(system.count) || 1) - 1);
+        system.siblingPoints = null;
+        if (selectedEntity && selectedEntity.id === entity.id) selectedEntity = null;
+        showTypeDetails(system);
+    }
+
+    async function removeType(system) {
+        if (!system.id) throw new Error('Dieser Knoten kann hier nicht gelöscht werden.');
+        if (!window.confirm(`${system.label} und seine Einträge löschen?`)) return;
+        await galaxyWrite(`/api/ontology/types/${encodeURIComponent(system.id)}`, 'DELETE');
+        const index = systems.indexOf(system);
+        if (index >= 0) systems.splice(index, 1);
+        fitGalaxy();
+    }
+
+    async function createRelation(system, entity, predicate, targetLabel) {
+        const name = String(predicate || '').trim();
+        const target = findLoadedEntity(targetLabel);
+        if (!name) throw new Error('Art der Verbindung fehlt.');
+        if (!entity.id) throw new Error('Dieser Eintrag kann hier nicht verbunden werden.');
+        if (!target) throw new Error('Zielknoten nicht gefunden. Öffnen Sie ihn zuerst.');
+        await galaxyWrite('/api/ontology/relations', 'POST', {
+            src: entity.id,
+            predicate: name,
+            dst: target.id,
+        });
+        showEntityDetails(system, entity);
+    }
+
+    async function removeRelation(system, entity, relation) {
+        const target = relation.target || {};
+        if (!entity.id || !target.id || !relation.predicate) {
+            throw new Error('Diese Kante kann hier nicht gelöscht werden.');
+        }
+        const src = relation.direction === 'in' ? target.id : entity.id;
+        const dst = relation.direction === 'in' ? entity.id : target.id;
+        if (!window.confirm(`${relation.predicate} löschen?`)) return;
+        await galaxyWrite('/api/ontology/relations', 'DELETE', {
+            src,
+            predicate: relation.predicate,
+            dst,
+        });
+        showEntityDetails(system, entity);
+    }
+
+    async function showTypeDetails(system) {
+        if (!entityPanel || !entityType || !entityTitle || !entityFields) return;
+        entityType.textContent = 'Typ';
+        entityTitle.textContent = system.label;
+        entityFields.replaceChildren();
+        if (documentsPanel) documentsPanel.hidden = true;
+        if (historyPanel) historyPanel.hidden = true;
+        if (entityTabs) entityTabs.hidden = true;
+        const total = Number(system.count) || (system.entityNodes || []).length;
+        const hint = document.createElement('p');
+        hint.className = 'entity-hint';
+        hint.textContent = total
+            ? `${formatGalaxyCount(total)} ${total === 1 ? 'Eintrag' : 'Einträge'}`
+            : 'Keine Einträge';
+        entityFields.appendChild(hint);
+        const hideThis = document.createElement('button');
+        hideThis.type = 'button';
+        hideThis.className = 'btn-text galaxy-hide';
+        hideThis.textContent = 'Knoten ausblenden';
+        hideThis.addEventListener('click', () => hideNode(system));
+        entityFields.appendChild(hideThis);
+        const removeTypeButton = document.createElement('button');
+        removeTypeButton.type = 'button';
+        removeTypeButton.className = 'btn btn-danger galaxy-mini';
+        removeTypeButton.textContent = 'Löschen';
+        removeTypeButton.addEventListener('click', () => {
+            removeType(system).catch((err) => {
+                hint.textContent = err.message;
+            });
+        });
+        entityFields.appendChild(removeTypeButton);
+        entityFields.appendChild(nodeCreateForm(system.id));
+        const links = (system.links || []).filter((link) => !isEdgeHidden(typeEdgeKey(system, link)));
+        if (links.length) {
+            const heading = document.createElement('h3');
+            heading.textContent = 'Verbindungen';
+            entityFields.appendChild(heading);
+            const list = document.createElement('ul');
+            list.className = 'galaxy-detail-list';
+            links.forEach((link) => {
+                const predicate = String(link.predicate || 'verbunden').replace(/[_-]+/g, ' ');
+                list.appendChild(detailRow(
+                    `${predicate} → ${link.label}`,
+                    () => openSystem(link.label),
+                    () => hideTypeEdge(system, link),
+                ));
+            });
+            entityFields.appendChild(list);
+        }
+        const entriesHeading = document.createElement('h3');
+        entriesHeading.textContent = 'Einträge';
+        entityFields.appendChild(entriesHeading);
+        const entries = document.createElement('ul');
+        entries.className = 'galaxy-detail-list';
+        entityFields.appendChild(entries);
+        const paintEntries = (rows) => {
+            entries.replaceChildren();
+            (rows || []).slice(0, 48).forEach((row) => {
+                if (!row || !row.label || isEntityHidden(row)) return;
+                entries.appendChild(detailRow(row.label, () => {
+                    const known = (system.entityNodes || []).find(
+                        (node) => node.id === row.id || node.label === row.label);
+                    if (!known) {
+                        system.entityNodes = system.entityNodes || [];
+                        system.entityNodes.push({
+                            id: row.id,
+                            label: row.label,
+                            live: true,
+                            typeCount: formatGalaxyCount(total),
+                        });
+                    }
+                    openEntityDetail(system.label, row.label);
+                }, () => hideEntityNode(system, row), () => {
+                    removeEntity(system, row).catch((err) => {
+                        hint.textContent = err.message;
+                    });
+                }));
+            });
+            if (!entries.childElementCount) {
+                const empty = document.createElement('li');
+                empty.className = 'entity-hint';
+                empty.textContent = 'Keine Einträge geladen.';
+                entries.appendChild(empty);
+            }
+        };
+        paintEntries(system.entityNodes);
+        revealDetailPanel();
+        if (!system.id) return;
+        try {
+            const response = await fetch(
+                `/api/ontology/entities?type=${encodeURIComponent(system.id)}`);
+            if (!response.ok) return;
+            const data = await response.json();
+            if (focusedSystem !== system) return;
+            paintEntries(data.entities || []);
+        } catch (err) { /* die schon gezeigte Liste bleibt */ }
+    }
+
+    async function showEntityDetails(system, entity) {
+        if (!entityPanel || !entityType || !entityTitle || !entityFields) return;
+        entityType.textContent = system.label;
+        entityTitle.textContent = entity.label;
+        entityFields.replaceChildren();
+        const hint = document.createElement('p');
+        hint.className = 'entity-hint';
+        hint.textContent = 'Wird geladen…';
+        entityFields.appendChild(hint);
+        if (documentsPanel) documentsPanel.hidden = true;
+        if (historyPanel) historyPanel.hidden = true;
+        if (entityTabs) entityTabs.hidden = true;
+        revealDetailPanel();
+        try {
+            const response = await fetch(
+                `/api/ontology/entities/${encodeURIComponent(entity.id)}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (selectedEntity !== entity) return;
+            const record = data.entity || {};
+            entityTitle.textContent = record.label || entity.label;
+            entityFields.replaceChildren();
+            if (record.description) {
+                const description = document.createElement('p');
+                description.textContent = record.description;
+                entityFields.appendChild(description);
+            }
+            const meta = document.createElement('p');
+            meta.className = 'entity-hint';
+            const docs = Number(record.doc_count) || 0;
+            meta.textContent = `${formatGalaxyCount(docs)} ${docs === 1 ? 'Dokument' : 'Dokumente'}`;
+            entityFields.appendChild(meta);
+            const hideThis = document.createElement('button');
+            hideThis.type = 'button';
+            hideThis.className = 'btn-text galaxy-hide';
+            hideThis.textContent = 'Knoten ausblenden';
+        hideThis.addEventListener('click', () => hideEntityNode(system, entity));
+        entityFields.appendChild(hideThis);
+        const removeNode = document.createElement('button');
+        removeNode.type = 'button';
+        removeNode.className = 'btn btn-danger galaxy-mini';
+        removeNode.textContent = 'Löschen';
+        removeNode.addEventListener('click', () => {
+            removeEntity(system, entity).catch((err) => {
+                hint.textContent = err.message;
+            });
+        });
+        entityFields.appendChild(removeNode);
+            const heading = document.createElement('h3');
+            heading.textContent = 'Verbindungen';
+            entityFields.appendChild(heading);
+            const relations = (Array.isArray(data.relations) ? data.relations : [])
+                .filter((relation) => {
+                    const target = relation.target || {};
+                    const host = systems.find((candidate) => candidate.id === target.type);
+                    const typeLabel = host ? host.label : (target.type || '');
+                    return !isEdgeHidden(entityEdgeKey(entity, typeLabel));
+                });
+            if (!relations.length) {
+                const empty = document.createElement('p');
+                empty.className = 'entity-hint';
+                empty.textContent = 'Keine Verbindungen erfasst.';
+                entityFields.appendChild(empty);
+            } else {
+                const list = document.createElement('ul');
+                list.className = 'galaxy-detail-list';
+                relations.forEach((relation) => {
+                    const target = relation.target || {};
+                    const predicate = String(relation.predicate || '').replace(/[_-]+/g, ' ');
+                    const text = relation.direction === 'in'
+                        ? `${target.label || 'Eintrag'} · ${predicate}`
+                        : `${predicate} → ${target.label || 'Eintrag'}`;
+                    list.appendChild(detailRow(text, () => {
+                        const host = systems.find((candidate) => candidate.id === target.type);
+                        if (!host || !target.label) return;
+                        if (!(host.entityNodes || []).some((node) => node.id === target.id)) {
+                            host.entityNodes = host.entityNodes || [];
+                            host.entityNodes.push({
+                                id: target.id,
+                                label: target.label,
+                                live: true,
+                            });
+                        }
+                        openEntityDetail(host.label, target.label);
+                    }, () => hideEntityEdge(system, entity, relation), () => {
+                        removeRelation(system, entity, relation).catch((err) => {
+                            hint.textContent = err.message;
+                        });
+                    }));
+                });
+                entityFields.appendChild(list);
+            }
+            entityFields.appendChild(actionForm(
+                [
+                    { name: 'predicate', placeholder: 'Art, z. B. member of' },
+                    { name: 'target', placeholder: 'Zielknoten, genauer Name' },
+                ],
+                'Verbinden',
+                (inputs) => createRelation(
+                    system,
+                    entity,
+                    inputs.predicate.value,
+                    inputs.target.value,
+                ),
+            ));
+            const evidence = Array.isArray(data.evidence) ? data.evidence : [];
+            if (entityDocuments && documentsPanel && entityTabs && evidence.length) {
+                entityDocuments.replaceChildren();
+                evidence.forEach((item) => {
+                    const line = document.createElement('p');
+                    const documentInfo = item.document || {};
+                    const title = documentInfo.title || documentInfo.path || 'Dokument';
+                    line.textContent = item.quote
+                        ? `«${item.quote}» — ${title}, Seite ${item.page}`
+                        : `${title}, Seite ${item.page || 1}`;
+                    entityDocuments.appendChild(line);
+                });
+                documentsPanel.hidden = false;
+                entityTabs.hidden = false;
+            }
+        } catch (err) {
+            hint.textContent = 'Details konnten nicht geladen werden.';
+        }
     }
 
     function travelTo(systemLabel, entityLabel) {
@@ -1911,6 +3249,7 @@
             hideEntityPanel();
             showBreadcrumb(destination);
             setZoom(3.05);
+            loadChildLinks(destination);
         };
         if (reducedMotion.matches) arrive();
         else travelTimer = window.setTimeout(arrive, 380);
@@ -1918,7 +3257,9 @@
 
     function fitGalaxy() {
         window.clearTimeout(travelTimer);
+        restoreHomes();
         focusedSystem = null;
+        centralNode = null;
         highlightedEntity = null;
         selectedEntity = null;
         targetEntityMix = 0;
@@ -1935,11 +3276,30 @@
         },
         fit: fitGalaxy,
         open: openSystem,
+        systems,
+        documents,
+        version: searchVersion,
+        screenPositions: {},
+        redraw: restart,
+        noteEntity(entity) {
+            if (!entity || !entity.id) return;
+            const system = systems.find((candidate) => candidate.id === entity.type);
+            if (!system) return;
+            system.entityNodes = system.entityNodes || [];
+            if (!system.entityNodes.some((node) => node.id === entity.id)) {
+                system.entityNodes.unshift({
+                    id: entity.id,
+                    label: entity.label,
+                    live: true,
+                });
+                system.count = (Number(system.count) || 0) + 1;
+                system.siblingPoints = null;
+            }
+            if (focusedSystem === system) showTypeDetails(system);
+        },
     };
 
-    sunTargets.forEach((target) => {
-        target.addEventListener('click', () => openSystem(target.dataset.galaxySystem));
-    });
+    sunTargets.forEach((target) => bindSunDrag(target));
     if (fieldsTab) fieldsTab.addEventListener('click', () => setDetailTab('fields'));
     if (documentsTab) {
         documentsTab.addEventListener('click', () => setDetailTab('documents'));
@@ -1964,6 +3324,13 @@
             applySearch(searchInput ? searchInput.value : '', true);
         });
     }
+    const initialQuery = searchApi
+        ? searchApi.queryFromSearch(window.location.search)
+        : '';
+    if (searchInput && initialQuery && !searchInput.value) {
+        searchInput.value = initialQuery;
+    }
+    if (searchVersion === 1 && initialQuery) applySearch(initialQuery);
     window.addEventListener('keydown', (event) => {
         if (event.key !== 'Escape') return;
         if (searchInput && searchInput.value) {
@@ -1976,7 +3343,7 @@
     });
     window.addEventListener('resize', restart);
     window.addEventListener('pointermove', (event) => {
-        if (reducedMotion.matches) return;
+        if (reducedMotion.matches || nodeDrag) return;
         targetTiltY = 0.14
             + ((event.clientX / Math.max(window.innerWidth, 1)) - 0.5) * 0.42;
         targetTiltX = 0.58
@@ -1986,6 +3353,236 @@
         if (document.hidden) window.cancelAnimationFrame(frame);
         else restart();
     });
+    function shortLabel(text, max) {
+        const value = String(text || '');
+        return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+    }
+
+    function rebuildSunTargets() {
+        const host = canvas.parentElement;
+        if (!host) return;
+        host.querySelectorAll('[data-galaxy-system]').forEach((button) => button.remove());
+        sunTargets.length = 0;
+        systems.forEach((system) => {
+            if (!system.label) return;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'galaxy-sun-target';
+            button.dataset.galaxySystem = system.label;
+            button.setAttribute('aria-label', `${system.label} öffnen`);
+            button.title = `${system.label} öffnen`;
+            bindSunDrag(button);
+            host.appendChild(button);
+            sunTargets.push(button);
+        });
+    }
+
+    const galaxyTopKey = 'cortex-galaxy-top';
+    let galaxyTopIds = new Set();
+    let galaxyTopSaved = false;
+    try {
+        const savedTop = JSON.parse(localStorage.getItem(galaxyTopKey) || 'null');
+        if (Array.isArray(savedTop)) {
+            galaxyTopIds = new Set(savedTop.map(String));
+            galaxyTopSaved = true;
+        }
+    } catch (err) { /* no saved front layer */ }
+    let liveTypes = [];
+    let liveRelations = [];
+
+    function renderGalaxyLayers() {
+        let bar = document.getElementById('galaxyLayers');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'galaxyLayers';
+            bar.className = 'galaxy-layers';
+            canvas.parentElement.appendChild(bar);
+        }
+        const pickerOpen = bar.dataset.open === 'true';
+        bar.replaceChildren();
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'galaxy-layer';
+        toggle.setAttribute('aria-expanded', pickerOpen ? 'true' : 'false');
+        const chosen = liveTypes.filter((type) => galaxyTopIds.has(type.id) && type.count > 0);
+        toggle.textContent = chosen.length
+            ? `Vordergrund · ${chosen.length}`
+            : 'Vordergrund wählen';
+        toggle.addEventListener('click', () => {
+            bar.dataset.open = pickerOpen ? 'false' : 'true';
+            renderGalaxyLayers();
+        });
+        bar.appendChild(toggle);
+        if (!pickerOpen) return;
+        const panel = document.createElement('div');
+        panel.className = 'galaxy-top-panel';
+        panel.setAttribute('role', 'group');
+        panel.setAttribute('aria-label', 'Knoten der vorderen Schicht');
+        const note = document.createElement('p');
+        note.textContent = 'Die nächste Schicht sind die verbundenen Typen.';
+        panel.appendChild(note);
+        const populated = liveTypes
+            .filter((type) => type.count > 0)
+            .slice()
+            .sort((a, b) => a.label.localeCompare(b.label, 'de'));
+        populated.forEach((type) => {
+            const label = document.createElement('label');
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = galaxyTopIds.has(type.id);
+            box.addEventListener('change', () => {
+                if (box.checked) galaxyTopIds.add(type.id);
+                else galaxyTopIds.delete(type.id);
+                localStorage.setItem(galaxyTopKey, JSON.stringify([...galaxyTopIds]));
+                applyLiveLayers();
+            });
+            const name = document.createElement('span');
+            name.textContent = type.label;
+            label.append(box, name);
+            panel.appendChild(label);
+        });
+        bar.appendChild(panel);
+    }
+
+    function applyLiveLayers() {
+        focusedSystem = null;
+        centralNode = null;
+        selectedEntity = null;
+        highlightedEntity = null;
+        targetFocusMix = 0;
+        targetEntityMix = 0;
+        hideEntityPanel();
+        const byId = new Map(liveTypes.map((type) => [type.id, type]));
+        const tops = liveTypes.filter((type) => galaxyTopIds.has(type.id) && type.count > 0);
+        const neighborIds = new Map();
+        liveRelations.forEach((relation) => {
+            const srcTop = galaxyTopIds.has(relation.src);
+            const dstTop = galaxyTopIds.has(relation.dst);
+            if (srcTop === dstTop) return;
+            const otherId = srcTop ? relation.dst : relation.src;
+            if (!byId.has(otherId) || galaxyTopIds.has(otherId)) return;
+            if (!neighborIds.has(otherId)) neighborIds.set(otherId, relation.predicate || '');
+        });
+        const neighbors = [...neighborIds.keys()].map((id) => byId.get(id)).filter(Boolean);
+        const maxCount = Math.max(
+            ...tops.map((type) => type.count),
+            ...neighbors.map((type) => type.count),
+            1,
+        );
+        const definitions = [];
+        const place = (type, index, total, radius, role) => {
+            const angle = (index / Math.max(total, 1)) * Math.PI * 2 - Math.PI / 2;
+            const span = role === 'top' && total === 1 ? 0 : radius;
+            definitions.push({
+                id: type.id,
+                x: Math.cos(angle) * span,
+                y: 0,
+                z: Math.sin(angle) * span * 0.84,
+                label: type.label,
+                count: type.count,
+                primary: role === 'top',
+                warm: role === 'top',
+                size: role === 'top'
+                    ? 6.2 + 3.2 * Math.sqrt(type.count / maxCount)
+                    : 3.1 + 1.8 * Math.sqrt((type.count || 1) / maxCount),
+                entities: (type.entities || []).slice(0, 48).map((entity) => ({
+                    id: entity.id || '',
+                    label: entity.label || String(entity),
+                    live: true,
+                    typeCount: formatGalaxyCount(type.count),
+                })),
+                links: [],
+            });
+        };
+        tops.forEach((type, index) => place(type, index, tops.length, 0.16, 'top'));
+        neighbors.forEach((type, index) => place(type, index, neighbors.length, 0.34, 'next'));
+        const byDef = new Map(definitions.map((definition) => [definition.id, definition]));
+        liveRelations.forEach((relation) => {
+            const from = byDef.get(relation.src);
+            const to = byDef.get(relation.dst);
+            if (!from || !to) return;
+            from.links.push({ label: to.label, predicate: relation.predicate || '' });
+        });
+        relaxDisk(definitions);
+        mountSystems(definitions);
+        document.body.classList.add('galaxy-live');
+        renderGalaxyLayers();
+    }
+
+    function relaxDisk(definitions) {
+        const minX = 0.12;
+        const minZ = 0.16;
+        for (let pass = 0; pass < 6; pass += 1) {
+            for (let i = 0; i < definitions.length; i += 1) {
+                for (let j = i + 1; j < definitions.length; j += 1) {
+                    let dx = definitions[i].x - definitions[j].x;
+                    let dz = definitions[i].z - definitions[j].z;
+                    if (dx === 0 && dz === 0) { dx = 0.02; dz = 0.01; }
+                    const nx = dx / minX;
+                    const nz = dz / minZ;
+                    const ell = Math.hypot(nx, nz);
+                    if (ell >= 1 || ell === 0) continue;
+                    const push = (1 - ell) * 0.22;
+                    const ux = nx / ell;
+                    const uz = nz / ell;
+                    definitions[i].x += ux * minX * push;
+                    definitions[i].z += uz * minZ * push;
+                    definitions[j].x -= ux * minX * push;
+                    definitions[j].z -= uz * minZ * push;
+                }
+            }
+        }
+    }
+
+    function formatGalaxyCount(count) {
+        return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+    }
+
+    async function loadLiveGalaxy() {
+        try {
+            const response = await fetch('/api/ontology/summary');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            const types = Array.isArray(data.types) ? data.types : [];
+            liveRelations = Array.isArray(data.relations) ? data.relations : [];
+            const populated = types
+                .filter((type) => type && type.count > 0 && type.label)
+                .sort((a, b) => b.count - a.count || String(a.label).localeCompare(b.label, 'de'));
+            const samples = await Promise.all(populated.map(async (type) => {
+                const limit = Math.min(type.count, 48);
+                try {
+                    const ents = await fetch(`/api/ontology/entities?type=${encodeURIComponent(type.id)}`);
+                    if (!ents.ok) return [];
+                    const json = await ents.json();
+                    return (json.entities || []).slice(0, limit)
+                        .filter((entity) => entity && entity.label)
+                        .map((entity) => ({ id: entity.id, label: entity.label }));
+                } catch (err) {
+                    return [];
+                }
+            }));
+            liveTypes = populated.map((type, index) => ({
+                id: type.id,
+                label: type.label,
+                count: type.count,
+                entities: samples[index],
+            }));
+            if (!populated.length) throw new Error('empty');
+            // Ohne gespeicherte Wahl steht der Demo-Mandant vorn. Die
+            // verbundenen Typen liegen dann auf dem naechsten Ring. Gespeichert
+            // wird die Wahl erst, wenn sie jemand aendert.
+            if (!galaxyTopSaved) {
+                const client = liveTypes.find((type) => type.label === 'Client' && type.count > 0);
+                if (client) galaxyTopIds.add(client.id);
+            }
+            applyLiveLayers();
+        } catch (err) {
+            mountSystems(systemDefinitions);
+        }
+    }
     reducedMotion.addEventListener('change', restart);
+    renderHiddenTray();
+    loadLiveGalaxy();
+
     restart();
 }());

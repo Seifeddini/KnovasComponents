@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/client-zero/process-definition.schema.json",
+  "title": "Client Zero process definitions",
+  "description": "The file generated/process-definitions.json: every process of processes.yaml with its steps, what each step produces and requires (as paths of relation hops from the instance), its exit criteria and the allowed transitions. Semantics live here; the Platform renders traces and boards from it.",
+  "type": "object",
+  "required": ["version", "generated_at", "rules", "processes"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1, "description": "Platform reader (KC-1): a company's own processes may be version 1, as in the bundle's empty form."},
+    "generated_at": {"type": "string"},
+    "source": {"type": "string"},
+    "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}},
+    "report_rules": {"type": "array", "items": {"$ref": "#/$defs/report_rule"}, "description": "R0–R8: computed by rules_report.py over the whole tenant; results per instance are in process-completeness.json."},
+    "processes": {"type": "array", "items": {"$ref": "#/$defs/process"}, "description": "Platform reader (KC-1): may be empty, as for a company without processes (KB-7)."}
+  },
+  "$defs": {
+    "hop": {
+      "type": "object",
+      "required": ["relation", "direction", "to_type"],
+      "properties": {
+        "relation": {"type": "string", "description": "A relation name from relations.yaml."},
+        "direction": {"type": "string", "enum": ["out", "in"], "description": "out: the edge goes from the current node to the target; in: from the target to the current node."},
+        "to_type": {"type": "string", "description": "The node type reached by this hop."}
+      },
+      "additionalProperties": false
+    },
+    "artefact": {
+      "type": "object",
+      "required": ["type", "path"],
+      "properties": {
+        "type": {"type": "string"},
+        "required": {"type": "boolean", "default": false},
+        "min_count": {"type": "integer", "minimum": 1, "default": 1},
+        "path": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hop"}},
+        "alternative": {"type": "object", "required": ["type", "path"], "properties": {"type": {"type": "string"}, "path": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hop"}}}, "additionalProperties": false},
+        "verified": {"type": "boolean", "description": "False when validate_definitions.py found no edge of this shape on the tenant yet."},
+        "where": {"type": "object", "required": ["fact", "equals"], "properties": {"fact": {"type": "string"}, "equals": {"type": "string"}}, "additionalProperties": false,
+                  "description": "Only artefacts whose fact has this value count (e.g. outcome = passed)."},
+        "note": {"type": "string"},
+        "label": {"type": "string", "description": "How the Platform names this item, e.g. \"via component (all)\" for a broad context path (DEC-0023)."}
+      },
+      "additionalProperties": false
+    },
+    "report_rule": {
+      "type": "object",
+      "required": ["id", "name", "description", "applies_to"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^R[0-9]$"},
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "applies_to": {"type": "array", "items": {"type": "string"}, "description": "Node types the rule checks; * = every type."},
+        "computed_by": {"type": "string", "description": "Not in a definitions bundle (KB-7: the bundle names no scripts)."},
+        "dimension": {"enum": ["accuracy", "completeness", "consistency", "timeliness", "uniqueness", "conformity"], "description": "The data-quality dimension the rule measures (DC-33; KnowledgeBase d1a18b1f)."},
+        "severity": {"enum": ["warning", "violation"], "description": "The severity of a breach; the report may mark a single finding milder."},
+        "warn_at": {"type": "integer", "minimum": 1, "description": "Findings on the tenant at which the rule's health turns amber."},
+        "error_at": {"type": "integer", "minimum": 1, "description": "Findings on the tenant at which the rule's health turns red; at least warn_at."}
+      },
+      "additionalProperties": false
+    },
+    "rule": {
+      "type": "object",
+      "required": ["id", "name", "check"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^P-[a-z-]+$"},
+        "name": {"type": "string"},
+        "check": {"type": "string", "enum": ["fact_present", "facts_present", "date_not_past"]},
+        "fact": {"type": "string"},
+        "facts": {"type": "array", "items": {"type": "string"}},
+        "description": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "required": ["id", "order"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "key": {"type": "string", "description": "The step node's key on the tenant: STEP-<process slug>-<id>."},
+        "order": {"type": "integer", "minimum": 1},
+        "name": {"type": "string"},
+        "owner_role": {"type": "string"},
+        "resting": {"type": "boolean", "default": false},
+        "description": {"type": "string"},
+        "requires": {"type": "array", "items": {"$ref": "#/$defs/artefact"}},
+        "produces": {"type": "array", "items": {"$ref": "#/$defs/artefact"}},
+        "exit_criteria": {"type": "array", "items": {"type": "string", "pattern": "^(R[0-9]|P-[a-z-]+)$"}}
+      },
+      "additionalProperties": false
+    },
+    "process": {
+      "type": "object",
+      "required": ["key", "name", "instance_types", "owner_role", "steps", "transitions", "final", "governing_fact", "status_map", "change_classes"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^PROC-[a-z-]+$"},
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "instance_types": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "governing_fact": {"type": "string", "description": "The instance fact that names the current step (status, stage, onboarding_state)."},
+        "change_classes": {"type": "object", "required": ["minor", "substantive", "on_substantive"], "additionalProperties": false,
+                           "description": "Which source fields are minor and which substantive (DEC-0024); a field is name, description, <Type>.<fact> or '<From> <relation> <To>' (an edit-map entry). on_substantive: the rework transition a substantive change triggers once the instance reached `from`.",
+                           "properties": {"minor": {"type": "array", "items": {"type": "string"}},
+                                          "substantive": {"type": "array", "items": {"type": "string"}},
+                                          "on_substantive": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["from", "to"], "additionalProperties": false,
+                                                                                         "properties": {"from": {"type": "string"}, "to": {"type": "string"}}}]}}},
+        "status_map": {"type": "object", "description": "Per instance type: governing-fact value → step id; null = the step cannot be told from the value alone (it follows another fact).",
+                       "additionalProperties": {"type": "object", "additionalProperties": {"type": ["string", "null"]}}},
+        "owner_role": {"type": "string"},
+        "exists_today": {"type": "string"},
+        "value_stream": {"type": "string", "description": "The value stream the process belongs to (process spine)."},
+        "pack": {"type": "string", "enum": ["engineering", "sales-and-marketing"], "description": "The pack candidate of the concrete process."},
+        "context": {"type": "array", "items": {"$ref": "#/$defs/artefact"}},
+        "steps": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/step"}},
+        "transitions": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "rework": {"type": "boolean"}}, "additionalProperties": false}},
+        "final": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}
