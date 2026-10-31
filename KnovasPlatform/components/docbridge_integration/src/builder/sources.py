@@ -300,7 +300,7 @@ class KnovasConnectorReader:
         return out
 
 
-def public_https(url: str, resolve: Optional[Callable[[str], list]] = None) -> None:
+def public_https(url: str, resolve: Optional[Callable[[str], list]] = None) -> str:
     """Refuse an address the Platform must not call for a source: not https, or a host that resolves to a
     loopback, private, link-local or otherwise non-public address (every address it resolves to)."""
     import ipaddress
@@ -314,9 +314,34 @@ def public_https(url: str, resolve: Optional[Callable[[str], list]] = None) -> N
         infos = (resolve or (lambda host: socket.getaddrinfo(host, parts.port or 443, proto=socket.IPPROTO_TCP)))(parts.hostname)
     except OSError:
         raise ReaderError("Der Name der Adresse ist nicht auflösbar.") from None
-    addresses = {info[4][0] for info in infos}
+    addresses = sorted({info[4][0] for info in infos})
     if not addresses or any(not ipaddress.ip_address(a.split("%")[0]).is_global for a in addresses):
         raise ReaderError("Die Adresse zeigt nicht ins öffentliche Netz; solche Quellen liest ein Connector vor Ort.")
+    return addresses[0]
+
+
+def _pinned_get(url: str, address: str, **kwargs):
+    """GET ``url`` from ``address`` (checked by public_https), never from a second lookup of its name: the
+    connection goes to that address, TLS checks the certificate against the name, the Host header carries it."""
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    host = parts.hostname
+
+    class Pinned(HTTPAdapter):
+        def init_poolmanager(self, connections, maxsize, block=False, **pool):
+            pool.update(server_hostname=host, assert_hostname=host)
+            super().init_poolmanager(connections, maxsize, block, **pool)
+
+    literal = f"[{address}]" if ":" in address else address
+    target = urlunsplit(("https", f"{literal}:{parts.port}" if parts.port else literal, parts.path or "/", parts.query, ""))
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers["Host"] = parts.netloc.rsplit("@", 1)[-1]
+    with requests.Session() as session:
+        session.mount("https://", Pinned())
+        return session.get(target, headers=headers, **kwargs)
 
 
 class HttpJsonReader:
@@ -339,12 +364,10 @@ class HttpJsonReader:
     def _document(self) -> Any:
         if self._data is not None:
             return self._data
+        address = public_https(self.url, self._resolve)
         get = self._get
         if get is None:
-            import requests
-
-            get = requests.get
-        public_https(self.url, self._resolve)
+            get = lambda url, **kw: _pinned_get(url, address, **kw)  # noqa: E731
         headers = {"Accept": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
