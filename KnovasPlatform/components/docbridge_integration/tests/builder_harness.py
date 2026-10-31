@@ -96,6 +96,30 @@ class MemoryWorkspaceStore:
         return workspace_id
 
 
+    def edit(self, workspace_id, actor_id, mutate):
+        row = self.rows.get(workspace_id)
+        if row is None:
+            raise LookupError(workspace_id)
+        model = copy.deepcopy(row["model"])
+        changes = mutate(model)  # an exception leaves the row as it was
+        if not changes:
+            return model, [], None
+        batch = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        actor = str(actor_id) if actor_id else None
+        row["model"] = copy.deepcopy(model)
+        for change in changes:
+            row["changes"].insert(0, {"path": change["path"], "at": now, "actor": actor,
+                                      "actor_name": self.user_names.get(actor),
+                                      "before": copy.deepcopy(change["before"]),
+                                      "after": copy.deepcopy(change["after"]), "batch": batch})
+        return model, changes, batch
+
+    def batch(self, workspace_id, batch_id):
+        row = self.rows.get(workspace_id) or {"changes": []}
+        return [{"path": c["path"], "before": copy.deepcopy(c["before"]), "after": copy.deepcopy(c["after"])}
+                for c in reversed(row["changes"]) if c.get("batch") == batch_id]
+
 def make_app(user=None, store=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none."""
     app = Flask(

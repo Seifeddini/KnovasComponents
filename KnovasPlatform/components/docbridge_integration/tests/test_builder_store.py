@@ -100,3 +100,24 @@ def test_a_published_version_must_say_when(platform_db, model, consultant):
                VALUES (%s, 2, 'published', '{}'::jsonb, %s)""",
             (workspace_id, "0" * 64),
         )
+
+
+def test_an_edit_changes_the_draft_and_logs_each_element_in_one_batch(store, consultant):
+    from builder import editing
+
+    blank = package.read_package(package.blank_package("Muster AG")).model
+    workspace_id = store.create(name="Muster AG", model=blank, actor_id=consultant.id, source={"kind": "blank"})
+    model, changes, batch = store.edit(workspace_id, consultant.id,
+                                       lambda m: editing.apply(m, {"op": "type.create", "key": "Invoice"}))
+    assert [t["key"] for t in store.model(workspace_id)["ontology"]["types"]] == ["Invoice"]
+    assert store.batch(workspace_id, batch) == changes
+    assert store.get(workspace_id).last_change["path"] == "ontology.types/Invoice"
+
+    def refuse(m):
+        editing.apply(m, {"op": "type.create", "key": "Bill"})
+        raise editing.EditError("no")
+
+    with pytest.raises(editing.EditError):
+        store.edit(workspace_id, consultant.id, refuse)
+    assert [t["key"] for t in store.model(workspace_id)["ontology"]["types"]] == ["Invoice"]
+    assert store.batch(workspace_id, "not-a-uuid") == []

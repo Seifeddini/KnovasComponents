@@ -7,6 +7,10 @@ timestamps ISO 8601 with an offset.
 
 One draft per workspace is the database's rule (a partial unique index), not
 only this module's: two people importing at once cannot leave two drafts.
+
+Edits (step B3) lock the draft row, change the model and write one change
+row per element they touched, all in one transaction; the rows of one edit
+share a batch id, which undo and redo take back as a whole.
 """
 from __future__ import annotations
 
@@ -136,3 +140,57 @@ class WorkspaceStore:
                  json.dumps({**source, "content_hash": digest})),
             )
         return str(workspace_id)
+
+    def edit(self, workspace_id: str, actor_id, mutate) -> tuple[dict, list[dict], Optional[str]]:
+        """Change the draft with ``mutate(model) -> [{path, before, after}]``.
+
+        Returns the model, the changes and their batch id. All or nothing: an
+        exception from ``mutate`` leaves the draft and the change log as they
+        were. A workspace with only published versions gets a new draft first.
+        """
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """SELECT id, model FROM builder_version
+                    WHERE workspace = %s AND state = 'draft' FOR UPDATE""",
+                (workspace_id,),
+            ).fetchone()
+            if row is None:
+                row = self.conn.execute(
+                    """INSERT INTO builder_version (workspace, number, state, model, content_hash)
+                       SELECT workspace, number + 1, 'draft', model, content_hash FROM builder_version
+                        WHERE workspace = %s ORDER BY number DESC LIMIT 1
+                       RETURNING id, model""",
+                    (workspace_id,),
+                ).fetchone()
+                if row is None:
+                    raise LookupError(workspace_id)
+            version_id, model = row
+            changes = mutate(model)
+            if not changes:
+                return model, [], None
+            batch = uuid.uuid4()
+            self.conn.execute(
+                "UPDATE builder_version SET model = %s::jsonb, content_hash = %s, updated_at = now() WHERE id = %s",
+                (json.dumps(model), content_hash(model), version_id),
+            )
+            for change in changes:
+                self.conn.execute(
+                    """INSERT INTO builder_change (workspace, version, actor, path, before, after, batch)
+                       VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)""",
+                    (workspace_id, version_id, actor_id, change["path"],
+                     json.dumps(change["before"]), json.dumps(change["after"]), batch),
+                )
+        return model, changes, str(batch)
+
+    def batch(self, workspace_id: str, batch_id: str) -> list[dict]:
+        """The changes of one edit, in the order they were made."""
+        try:
+            uuid.UUID(str(batch_id))
+        except ValueError:
+            return []
+        rows = self.conn.execute(
+            """SELECT path, before, after FROM builder_change
+                WHERE workspace = %s AND batch = %s ORDER BY id""",
+            (workspace_id, batch_id),
+        ).fetchall()
+        return [{"path": r[0], "before": r[1], "after": r[2]} for r in rows]

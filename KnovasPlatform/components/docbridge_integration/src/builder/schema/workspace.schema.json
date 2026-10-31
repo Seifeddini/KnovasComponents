@@ -95,6 +95,7 @@
         "id_prefixes": {"type": "array", "items": {"type": "string"}},
         "aligns_with": {"type": "array", "items": {"type": "string"}},
         "reason": {"type": ["string", "null"]},
+        "retired": {"description": "Retired in the builder: kept, marked, until publishing decides.", "type": "boolean"},
         "attributes": {"type": "array", "items": {"$ref": "#/$defs/attribute"}},
         "extra": {"type": "object"}
       }
@@ -111,6 +112,7 @@
         "required": {"type": "boolean"},
         "enum_values": {"type": "array"},
         "enum_labels": {"description": "Labels and descriptions per enum value.", "type": "object"},
+        "target": {"description": "The type an entity_ref attribute points to.", "type": "string"},
         "note": {"description": "The technical note the terms file gives the attribute.", "type": ["string", "null"]},
         "extra": {"type": "object"}
       }
@@ -130,6 +132,7 @@
         "inverse": {"type": ["string", "null"]},
         "reason": {"type": ["string", "null"]},
         "sentence": {"description": "How the relation reads between two nodes.", "type": ["string", "null"]},
+        "retired": {"type": "boolean"},
         "extra": {"type": "object"}
       }
     },

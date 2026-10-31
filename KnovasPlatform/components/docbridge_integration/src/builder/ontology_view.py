@@ -10,10 +10,15 @@ A type's parent comes from the model; a type that has none takes it from its
 description header "[level=...; parent=...]" (DEC-0004), which is where the
 Brain keeps it until its API can hold parents. The model is not changed.
 
-It also finds the problems a consultant should see while reading the
-ontology: types without a description, relations without a domain or range
-or naming an unknown type, parents that resolve to nothing, and attributes
-the graph store cannot hold today (only enum attributes reach it).
+It also finds the problems a consultant should see while reading or
+editing the ontology, with the rules KnowledgeBase checks a package with
+(test_terms_yaml, rules_report R0 and R8): parents that resolve to nothing or
+loop; relations without a domain or range or naming an unknown type; names
+taken twice; unknown datatypes, enums without values, entity references
+without a target; descriptions missing a part rule 8 asks for (names de/en,
+the text, an example); retired types that processes or mappings still use;
+and attributes the graph store cannot hold today (only enum attributes reach
+it), which the canvas shows as a badge.
 """
 from __future__ import annotations
 
@@ -27,6 +32,13 @@ from builder import packs as reference_packs
 HELD_DATATYPES = frozenset({"enum"})
 #: A relation's domain or range that admits any type.
 WILDCARD = "*"
+#: The datatypes KnowledgeBase accepts (scripts/client_zero/terms.py DATATYPES).
+DATATYPES = ("text", "date", "money", "enum", "entity_ref")
+#: Rule 8: what a type's description must have, and an attribute's and a relation's.
+RULE8_TYPE = (("label.de", "Name (de)"), ("label.en", "Name (en)"), ("description", "Beschreibung"),
+              ("example", "Beispiel"))
+RULE8_ATTRIBUTE = (("label.de", "Name (de)"), ("label.en", "Name (en)"), ("description", "Beschreibung"))
+RULE8_RELATION = (("label.de", "Name (de)"), ("label.en", "Name (en)"), ("sentence", "Lesart"))
 
 _HEADER = re.compile(r"^\s*\[([^\]]*)\]")
 
@@ -44,6 +56,27 @@ def header_fields(text: Any) -> dict[str, str]:
     return fields
 
 
+def description_text(text: Any) -> str:
+    """A description without its header: what a person reads and edits."""
+    if not isinstance(text, str):
+        return ""
+    match = _HEADER.match(text)
+    return text[match.end():].strip() if match else text.strip()
+
+
+def _has(item: Mapping[str, Any], part: str) -> bool:
+    if part == "description":
+        return bool(description_text((item.get("description") or {}).get("en")))
+    if part.startswith("label."):
+        return bool((item.get("label") or {}).get(part[6:]))
+    return bool(item.get(part))
+
+
+def rule8_missing(item: Mapping[str, Any], parts) -> list[str]:
+    """The parts of rule 8 ``item`` lacks, by their German names."""
+    return [label for part, label in parts if not _has(item, part)]
+
+
 def _attribute(attr: Mapping[str, Any], origin: str | None = None) -> dict:
     out = {
         "name": attr.get("name"),
@@ -51,6 +84,8 @@ def _attribute(attr: Mapping[str, Any], origin: str | None = None) -> dict:
         "required": bool(attr.get("required")),
         "enum_values": list(attr.get("enum_values") or []),
         "label": dict(attr.get("label") or {}),
+        "description": description_text((attr.get("description") or {}).get("en")),
+        "target": attr.get("target") or "",
         "held": (attr.get("datatype") or "") in HELD_DATATYPES,
     }
     if origin:
@@ -107,12 +142,17 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "level": item.get("level") or "company",
             "source": "model",
             "readonly": item.get("level") == "core",
+            "editable": (item.get("level") or "company") == "company",
+            "retired": bool(item.get("retired")),
             "meta": bool(item.get("meta")),
             "iri": item.get("iri"),
             "id_prefixes": list(item.get("id_prefixes") or []),
             "description": description,
+            "description_text": description_text(description.get("en")),
             "example": item.get("example") or "",
             "not_to_confuse": item.get("not_to_confuse") or "",
+            "reason": item.get("reason") or "",
+            "rule8_missing": rule8_missing(item, RULE8_TYPE),
             "attributes": [_attribute(a) for a in item.get("attributes") or []],
             "parent": None,
             "parent_ref": item.get("parent") or header_fields(description.get("en")).get("parent"),
@@ -127,7 +167,8 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             nodes[class_id] = {
                 "id": class_id, "key": class_id, "name": entry["name"], "label": dict(entry.get("label") or {}),
                 "level": "core" if entry["pack"] == "core" else "pack", "source": entry["pack"],
-                "readonly": True, "meta": False, "iri": class_id, "id_prefixes": [], "description": {},
+                "readonly": True, "editable": False, "retired": False, "meta": False, "iri": class_id,
+                "id_prefixes": [], "description": {}, "description_text": "", "reason": "", "rule8_missing": [],
                 "example": "", "not_to_confuse": "", "attributes": [],
                 "parent": parent if parent in catalog else None, "parent_ref": parent, "problems": [],
                 "abstract": bool(entry.get("abstract")),
@@ -195,12 +236,77 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
         node["attribute_count"] = len(node["attributes"])
 
     # Problems on types and their attributes.
+    by_lower: dict[str, list[str]] = {}
+    for item in types:
+        by_lower.setdefault(str(item["key"]).lower(), []).append(item["key"])
+    used = _usages(model, [t["key"] for t in types if t.get("retired")])
+    for item in types:
+        node = nodes[key_to_id[item["key"]]]
+        same = by_lower[str(item["key"]).lower()]
+        if len(same) > 1:
+            node["problems"].append(problems.add(
+                "name_collision", "critical",
+                f"Den Typnamen {item['key']} gibt es {len(same)}-mal ({', '.join(same)}).", "type", node["id"]))
+        places = used.get(item["key"]) if item.get("retired") else None
+        if places:
+            node["problems"].append(problems.add(
+                "retired_in_use", "critical",
+                f"{node['name']} ist stillgelegt, wird aber noch verwendet: {', '.join(places)}.",
+                "type", node["id"], places=places))
+    for item in types:
+        node = nodes[key_to_id[item["key"]]]
+        parent = nodes.get(node["parent"]) if node["parent"] else None
+        if parent is not None and parent.get("retired") and not node["retired"]:
+            node["problems"].append(problems.add(
+                "retired_parent", "warning", f"Der Elterntyp {parent['name']} von {node['name']} ist stillgelegt.",
+                "type", node["id"]))
+        if not node["description_text"]:
+            node["problems"].append(problems.add(
+                "type_no_description", "warning", f"{node['name']} hat keine Beschreibung.", "type", node["id"]))
+        rest = [part for part in node["rule8_missing"] if part != "Beschreibung"]
+        if rest:
+            node["problems"].append(problems.add(
+                "description_incomplete", "warning", f"{node['name']}: es fehlt {', '.join(rest)} (Regel 8).",
+                "type", node["id"], parts=rest))
+        seen_attrs: set[str] = set()
+        for raw_attr, attr in zip(item.get("attributes") or [], node["attributes"]):
+            name = str(attr["name"])
+            where = f"{node['name']}.{name}"
+            if name.lower() in seen_attrs:
+                node["problems"].append(problems.add(
+                    "name_collision", "critical", f"{node['name']} hat das Attribut {name} zweimal.",
+                    "type", node["id"], attribute=name))
+            seen_attrs.add(name.lower())
+            if attr["datatype"] not in DATATYPES:
+                node["problems"].append(problems.add(
+                    "datatype_unknown", "critical",
+                    f"{where}: den Datentyp «{attr['datatype'] or 'leer'}» gibt es nicht.",
+                    "type", node["id"], attribute=name))
+            if attr["datatype"] == "enum" and not attr["enum_values"]:
+                node["problems"].append(problems.add(
+                    "enum_no_values", "critical", f"{where} ist eine Auswahl ohne Werte.",
+                    "type", node["id"], attribute=name))
+            if attr["datatype"] == "entity_ref":
+                target = attr["target"]
+                if not target:
+                    node["problems"].append(problems.add(
+                        "entity_ref_no_target", "critical", f"{where} verweist auf keinen Zieltyp.",
+                        "type", node["id"], attribute=name))
+                elif target not in key_to_id and target not in catalog:
+                    node["problems"].append(problems.add(
+                        "entity_ref_unknown_target", "critical",
+                        f"{where} verweist auf den unbekannten Typ «{target}».",
+                        "type", node["id"], attribute=name))
+            attr["rule8_missing"] = rule8_missing(raw_attr, RULE8_ATTRIBUTE)
+        gaps = [a["name"] for a in node["attributes"] if a["rule8_missing"]]
+        if gaps and node["editable"]:
+            node["problems"].append(problems.add(
+                "attribute_description_incomplete", "warning",
+                f"{node['name']}: Attributen fehlen Namen oder Beschreibung (Regel 8): {', '.join(gaps)}.",
+                "type", node["id"]))
     for node in nodes.values():
         if node["source"] != "model":
             continue
-        if not (node["description"].get("en") or node["description"].get("de")):
-            node["problems"].append(problems.add(
-                "type_no_description", "warning", f"{node['name']} hat keine Beschreibung.", "type", node["id"]))
         for attr in node["attributes"]:
             if not attr["held"]:
                 node["problems"].append(problems.add(
@@ -217,15 +323,30 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
 
     # Relations.
     relations = []
+    relation_keys: dict[str, int] = {}
+    for item in ontology.get("relations") or []:
+        relation_keys[str(item["key"]).lower()] = relation_keys.get(str(item["key"]).lower(), 0) + 1
     for item in ontology.get("relations") or []:
         relation_id = f"relation:{item['key']}"
         entry = {
             "id": relation_id, "key": item["key"], "label": dict(item.get("label") or {}),
             "sentence": item.get("sentence") or "", "level": item.get("level") or "company",
+            "family": item.get("family") or "", "reason": item.get("reason") or "",
+            "editable": (item.get("level") or "company") == "company", "retired": bool(item.get("retired")),
             "inverse": item.get("inverse"), "domain": [], "range": [],
             "domain_names": list(item.get("domain") or []), "range_names": list(item.get("range") or []),
+            "rule8_missing": rule8_missing(item, RULE8_RELATION),
             "problems": [],
         }
+        if relation_keys[str(item["key"]).lower()] > 1:
+            entry["problems"].append(problems.add(
+                "name_collision", "critical", f"Den Beziehungsnamen {item['key']} gibt es mehrmals.",
+                "relation", relation_id))
+        if entry["editable"] and entry["rule8_missing"]:
+            entry["problems"].append(problems.add(
+                "description_incomplete", "warning",
+                f"{item['key']}: es fehlt {', '.join(entry['rule8_missing'])} (Regel 8).", "relation", relation_id,
+                parts=entry["rule8_missing"]))
         for side in ("domain", "range"):
             names = entry[f"{side}_names"]
             if WILDCARD in names:
@@ -246,6 +367,11 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
                         "relation", relation_id))
                 else:
                     entry[side].append(target)
+                    if nodes[target].get("retired") and not entry["retired"]:
+                        entry["problems"].append(problems.add(
+                            "retired_in_relation", "warning",
+                            f"Die Beziehung {item['key']} nennt den stillgelegten Typ {nodes[target]['name']}.",
+                            "relation", relation_id))
         relations.append(entry)
 
     for relation in relations:
@@ -264,6 +390,13 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
         "relations": relations,
         "problems": problems.items,
         "packs": [{"id": p, "name": pack_names.get(p, {})} for p in present_packs],
+        # For the editors: every class a type can descend from, and the
+        # vocabulary a new relation picks from.
+        "catalog": [{"id": c["id"], "name": c["name"], "level": "core" if c["pack"] == "core" else "pack",
+                     "pack": c["pack"], "label": dict(c.get("label") or {})} for c in catalog.values()],
+        "relation_names": sorted({str(r["key"]) for r in relations}),
+        "families": sorted({r["family"] for r in relations if r["family"]}),
+        "datatypes": list(DATATYPES),
         "counts": {
             "types": sum(1 for n in ordered if n["source"] == "model"),
             "reference": sum(1 for n in ordered if n["source"] != "model"),
@@ -299,3 +432,11 @@ def _tree_order(nodes: dict[str, dict]) -> list[dict]:
     for root in children.get(None, []):
         visit(root, 0)
     return ordered
+
+
+def _usages(model: Mapping[str, Any], keys: list[str]) -> dict[str, list[str]]:
+    if not keys:
+        return {}
+    from builder import editing  # late: editing builds on this module
+
+    return editing.usages(model, keys)

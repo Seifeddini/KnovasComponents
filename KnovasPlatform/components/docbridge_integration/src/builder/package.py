@@ -323,7 +323,7 @@ def _read_attribute(raw: dict, owner_level: str, desc: dict, enums: dict) -> dic
     else:
         entry["level"] = owner_level
     _take(raw, entry, (("datatype", "datatype"), ("required", "required"),
-                       ("enum_values", "enum_values"), ("description", "note")))
+                       ("enum_values", "enum_values"), ("target", "target"), ("description", "note")))
     if raw:
         entry["extra"] = raw
     name = entry["name"]
@@ -356,7 +356,7 @@ def _read_ontology(docs: dict[str, Any], warnings: list[str]) -> dict:
         entry["level"] = _level(entry.get("level_label"))
         _take(raw, entry, (("parent", "parent"), ("sedm_iri", "iri"), ("meta", "meta"),
                            ("state_attribute", "state_attribute"), ("id_prefixes", "id_prefixes"),
-                           ("aligns_with", "aligns_with"), ("reason", "reason")))
+                           ("aligns_with", "aligns_with"), ("reason", "reason"), ("retired", "retired")))
         attributes = raw.pop("attributes", None)
         if raw:
             entry["extra"] = raw
@@ -381,7 +381,8 @@ def _read_ontology(docs: dict[str, Any], warnings: list[str]) -> dict:
         raw = dict(raw)
         entry = {"key": raw.pop("name", None)}
         _take(raw, entry, (("family", "family"), ("sedm_iri", "iri"), ("domain", "domain"),
-                           ("range", "range"), ("inverse", "inverse"), ("reason", "reason")))
+                           ("range", "range"), ("inverse", "inverse"), ("reason", "reason"),
+                           ("retired", "retired")))
         if "level" in raw:
             entry["level_label"] = raw.pop("level")
             entry["level"] = _level(entry["level_label"])
@@ -464,7 +465,7 @@ def _attribute_out(attr: Mapping[str, Any]) -> dict:
     if "level_label" in attr:
         out["level"] = attr["level_label"]
     _put(out, attr, (("datatype", "datatype"), ("required", "required"),
-                     ("enum_values", "enum_values"), ("note", "description")))
+                     ("enum_values", "enum_values"), ("target", "target"), ("note", "description")))
     out.update(copy.deepcopy(attr.get("extra") or {}))
     return out
 
@@ -502,7 +503,7 @@ def _write_ontology(ontology: Mapping[str, Any], company: Mapping[str, Any]) -> 
         out: dict[str, Any] = {"name": item["key"], "level": _level_label(item, company)}
         _put(out, item, (("parent", "parent"), ("iri", "sedm_iri"), ("meta", "meta"),
                          ("state_attribute", "state_attribute"), ("id_prefixes", "id_prefixes"),
-                         ("aligns_with", "aligns_with"), ("reason", "reason")))
+                         ("aligns_with", "aligns_with"), ("reason", "reason"), ("retired", "retired")))
         out["attributes"] = [_attribute_out(a) for a in item.get("attributes") or []]
         out.update(copy.deepcopy(item.get("extra") or {}))
         node_types.append(out)
@@ -520,7 +521,8 @@ def _write_ontology(ontology: Mapping[str, Any], company: Mapping[str, Any]) -> 
     for item in ontology.get("relations") or []:
         out = {"name": item["key"]}
         _put(out, item, (("family", "family"), ("iri", "sedm_iri"), ("domain", "domain"),
-                         ("range", "range"), ("inverse", "inverse"), ("reason", "reason")))
+                         ("range", "range"), ("inverse", "inverse"), ("reason", "reason"),
+                         ("retired", "retired")))
         if "level_label" in item:
             out["level"] = item["level_label"]
         out.update(copy.deepcopy(item.get("extra") or {}))

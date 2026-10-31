@@ -1159,6 +1159,46 @@ a.b-stat:hover { border-color: var(--color-border-strong); box-shadow: var(--sha
 .b-rel-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-half); }
 .b-rel-list button { padding: 0; border: 0; background: none; color: var(--color-accent); font: inherit; text-align: left; cursor: pointer; }
 .b-rel-list button:hover { text-decoration: underline; }
+
+/* ---- Ontology editing (step B3) ------------------------------------------ */
+
+.b-onto-edit-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); flex-basis: 100%; justify-content: flex-end; }
+.b-onto-edit-bar .b-button svg { margin-right: var(--space-half); }
+.b-ed-form { display: flex; flex-direction: column; gap: var(--space-2); }
+.b-ed-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.b-ed-actions { justify-content: flex-end; }
+.b-ed-checks { padding: var(--space-1) var(--space-2); border-radius: var(--radius-s); background: var(--color-surface-sunken); }
+.b-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-half); font-size: var(--text-base); line-height: var(--leading-base); }
+.b-checklist li { display: flex; align-items: baseline; gap: var(--space-1); }
+.b-checklist-mark { flex: 0 0 auto; width: var(--space-2); font-weight: var(--weight-semibold); text-align: center; }
+.b-checklist .is-done { color: var(--color-good); }
+.b-checklist .is-missing { color: var(--color-critical); }
+.b-checklist .is-optional { color: var(--color-text-muted); }
+.b-ed-attrs { display: flex; flex-direction: column; gap: var(--space-2); }
+.b-ed-attr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.b-ed-attr { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-1); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-s); }
+.b-ed-attr-head { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto; gap: var(--space-1); align-items: center; }
+.b-ed-attr-tools { display: inline-flex; }
+.b-ed-attr-more summary { cursor: pointer; color: var(--color-text-muted); font-size: var(--text-xs); }
+.b-ed-attr-more[open] summary { margin-bottom: var(--space-1); }
+.b-ed-attr-add { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: var(--space-1); align-items: end; }
+.b-ed-inherited { margin: 0; }
+.b-dialog--wide { width: min(720px, calc(100vw - var(--space-4))); }
+.b-dialog [data-ed-new-only] { display: flex; flex-direction: column; gap: var(--space-2); }
+.b-dialog select[multiple],
+.b-panel select[multiple] { height: auto; padding: var(--space-half); }
+.b-tree-row[draggable="true"] { cursor: grab; }
+.b-tree-row.is-dragged { opacity: 0.5; }
+.b-tree-row.is-drop-target { background: var(--color-accent-soft); box-shadow: inset 0 0 0 2px var(--color-focus); }
+.b-onto-graph.is-connecting { cursor: crosshair; }
+.b-onto-empty-actions { margin-top: var(--space-2); }
+
+@media (max-width: 599px) {
+    .b-ed-pair,
+    .b-ed-attr-add { grid-template-columns: minmax(0, 1fr); }
+    .b-ed-attr-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .b-onto-edit-bar { justify-content: flex-start; }
+}
 .b-table tr.is-inherited td { color: var(--color-text-disabled); }
 .b-table--compact th,
 .b-table--compact td { padding: var(--space-half) var(--space-1); }

@@ -11,6 +11,13 @@
  * does not touch: colours come from the design tokens at runtime, the brand
  * fonts are loaded before the first frame, the force layout is deterministic
  * on a fixed area, and a selection fades what it does not touch.
+ *
+ * Editing (step B3) lives in ontology-edit.js, which registers itself as
+ * window.BuilderOntologyEditor before this file starts. This file then draws
+ * the editor's panels for the types and relations the company owns, lets a
+ * relation be drawn from card to card and a parent be set by dragging in the
+ * type tree, and reloads everything from the view the server returns after
+ * each edit.
  */
 (function () {
     'use strict';
@@ -20,25 +27,32 @@
     if (!dataEl || !graphEl || typeof cytoscape !== 'function') return;
 
     var started = performance.now();
-    var data = JSON.parse(dataEl.textContent);
-    var nodesById = {};
-    data.nodes.forEach(function (n) { nodesById[n.id] = n; });
-    var relationsById = {};
-    data.relations.forEach(function (r) { relationsById[r.id] = r; });
-    var problemsById = {};
-    data.problems.forEach(function (p) { problemsById[p.id] = p; });
+    var editor = window.BuilderOntologyEditor || null;
+    var data, nodesById, relationsById, problemsById, childrenOf;
+
+    function index(next) {
+        data = next;
+        nodesById = {};
+        data.nodes.forEach(function (n) { nodesById[n.id] = n; });
+        relationsById = {};
+        data.relations.forEach(function (r) { relationsById[r.id] = r; });
+        problemsById = {};
+        data.problems.forEach(function (p) { problemsById[p.id] = p; });
+        /* Children in tree order: data.nodes is depth first, children by name. */
+        childrenOf = {};
+        data.nodes.forEach(function (n) {
+            if (n.parent && nodesById[n.parent]) (childrenOf[n.parent] = childrenOf[n.parent] || []).push(n.id);
+        });
+        below = null;
+    }
 
     var LEVELS = { core: 'Kern', pack: 'Paket', company: 'Firma' };
     /* builder.ontology_view's name for the attributes every type carries. */
     var COMMON = 'Alle Typen';
     var CARD_W = 168, CARD_H = 56, GAP = 24, GROUP_GAP = 96;
     var TREE_COL = CARD_W + 72, TREE_ROW = CARD_H + 16, TREE_MIN_ZOOM = 0.8;
-
-    /* Children in tree order: data.nodes is depth first, children by name. */
-    var childrenOf = {};
-    data.nodes.forEach(function (n) {
-        if (n.parent && nodesById[n.parent]) (childrenOf[n.parent] = childrenOf[n.parent] || []).push(n.id);
-    });
+    var below = null;
+    index(JSON.parse(dataEl.textContent));
 
     /* ---- helpers ------------------------------------------------------ */
 
@@ -113,6 +127,7 @@
         var parts = [LEVELS[node.level] || node.level];
         if (node.source === 'model') parts.push(node.attribute_count + (node.attribute_count === 1 ? ' Attribut' : ' Attribute'));
         if (node.meta) parts.push('◆ Meta');
+        if (node.retired) parts.push('stillgelegt');
         return displayName(node) + '\n' + parts.join(' · ');
     }
 
@@ -125,6 +140,8 @@
             var classes = ['type', 'level-' + n.level];
             if (n.source !== 'model') classes.push('reference');
             if (n.meta) classes.push('meta');
+            if (n.retired) classes.push('retired');
+            if (n.editable) classes.push('editable');
             if (seriousProblems(n).length) classes.push('problem');
             nodes.push({ group: 'nodes', data: { id: n.id, label: cardLabel(n), level: n.level }, classes: classes.join(' ') });
             if (n.parent && nodesById[n.parent]) {
@@ -135,7 +152,7 @@
             r.domain.forEach(function (d) {
                 r.range.forEach(function (t) {
                     edges.push({ group: 'edges', data: { id: r.id + '|' + d + '|' + t, source: d, target: t, relation: r.id, label: r.key },
-                                 classes: 'relation' + (d === t ? ' loop' : '') });
+                                 classes: 'relation' + (d === t ? ' loop' : '') + (r.retired ? ' retired' : '') });
                 });
             });
         });
@@ -163,6 +180,15 @@
             } },
             { selector: 'node.meta', style: { 'border-style': 'double', 'border-width': 4 } },
             { selector: 'node.problem', style: { 'border-color': token('--color-critical'), 'border-width': 3 } },
+            { selector: 'node.retired', style: { 'border-style': 'dashed', 'opacity': 0.55 } },
+            { selector: 'edge.relation.retired', style: { 'line-style': 'dashed' } },
+            { selector: 'node.connect-source', style: { 'border-color': token('--color-focus'), 'border-width': 4 } },
+            { selector: 'node.connect-target', style: { 'border-color': token('--color-accent-hover'), 'border-width': 4 } },
+            { selector: 'node.ghost', style: { 'width': 1, 'height': 1, 'opacity': 0, 'events': 'no' } },
+            { selector: 'edge.ghost', style: {
+                'width': 2, 'line-color': token('--color-focus'), 'target-arrow-color': token('--color-focus'),
+                'target-arrow-shape': 'triangle', 'line-style': 'dashed', 'curve-style': 'straight', 'events': 'no',
+            } },
             { selector: 'node.group', style: {
                 'shape': 'round-rectangle', 'background-color': token('--color-surface'), 'background-opacity': 0.55,
                 'border-width': 1, 'border-color': token('--color-border'), 'border-style': 'solid',
@@ -257,8 +283,7 @@
     var layoutMode = 'tree';
     var currentVisible = null;  // id -> shown by the filters; null before the first pass
 
-    function applyLayout(mode) {
-        layoutMode = mode;
+    function applyLayoutParents(mode) {
         cy.batch(function () {
             cy.nodes('.type').forEach(function (node) {
                 var wanted = mode === 'grouped' ? 'group:' + node.data('level') : null;
@@ -267,6 +292,11 @@
             });
             cy.edges()[mode === 'tree' ? 'addClass' : 'removeClass']('tree');
         });
+    }
+
+    function applyLayout(mode, options) {
+        layoutMode = mode;
+        applyLayoutParents(mode);
         if (mode === 'tree') {
             var placed = treePositions(currentVisible);
             cy.nodes('.type').positions(function (node) { return placed[node.id()] || node.position(); });
@@ -284,7 +314,7 @@
                 gravity: 1.2, numIter: 1200,
             }).run();
         }
-        fit();
+        if (!(options && options.keepView)) fit();
     }
 
     function fit(eles) {
@@ -316,6 +346,7 @@
         cy.on('mouseover', 'node.type', function (evt) { evt.target.addClass('hovered'); graphEl.style.cursor = 'pointer'; });
         cy.on('mouseout', 'node.type', function (evt) { evt.target.removeClass('hovered'); graphEl.style.cursor = ''; });
         cy.on('dbltap', function (evt) { if (evt.target === cy) fit(); });
+        if (editor) wireConnect();
 
         // Theme switches re-read the tokens; the canvas draws with colours, not CSS.
         var restyle = function () { cy.style(style()); };
@@ -324,6 +355,68 @@
             var media = window.matchMedia('(prefers-color-scheme: dark)');
             if (media.addEventListener) media.addEventListener('change', restyle);
         }
+    }
+
+    /* ---- drawing a relation from card to card -------------------------- */
+
+    var connectMode = false;
+    var connect = null;  // {source, ghost, edge}
+
+    function setConnectMode(on) {
+        connectMode = !!on;
+        cy.autoungrabify(connectMode);
+        cy.userPanningEnabled(!connectMode);
+        graphEl.classList.toggle('is-connecting', connectMode);
+        var button = document.querySelector('[data-onto-connect]');
+        if (button) button.setAttribute('aria-pressed', String(connectMode));
+    }
+
+    function nodeAt(position) {
+        var hit = null;
+        cy.nodes('.type:visible').forEach(function (n) {
+            var box = n.boundingBox();
+            if (position.x >= box.x1 && position.x <= box.x2 && position.y >= box.y1 && position.y <= box.y2) hit = n;
+        });
+        return hit;
+    }
+
+    function endConnect() {
+        if (!connect) return;
+        cy.remove(connect.ghost);
+        cy.nodes().removeClass('connect-source connect-target');
+        connect = null;
+    }
+
+    function wireConnect() {
+        // Draw: in the connect mode, or with Shift held, press on a card and
+        // release on another (or the same) card.
+        cy.on('tapstart', 'node.type', function (evt) {
+            var shift = evt.originalEvent && evt.originalEvent.shiftKey;
+            if (!connectMode && !shift) return;
+            if (shift && !connectMode) { cy.autoungrabify(true); cy.userPanningEnabled(false); }
+            var source = evt.target;
+            var ghost = cy.add([
+                { group: 'nodes', data: { id: 'ghost:node' }, position: Object.assign({}, evt.position), classes: 'ghost' },
+                { group: 'edges', data: { id: 'ghost:edge', source: source.id(), target: 'ghost:node' }, classes: 'ghost' },
+            ]);
+            source.addClass('connect-source');
+            connect = { source: source, ghost: ghost };
+        });
+        cy.on('tapdrag', function (evt) {
+            if (!connect) return;
+            cy.getElementById('ghost:node').position(evt.position);
+            cy.nodes('.type').removeClass('connect-target');
+            var over = nodeAt(evt.position);
+            if (over) over.addClass('connect-target');
+        });
+        cy.on('tapend', function (evt) {
+            if (!connect) return;
+            var source = connect.source;
+            var target = nodeAt(evt.position);
+            endConnect();
+            if (!connectMode) { cy.autoungrabify(false); cy.userPanningEnabled(true); }
+            if (target) editor.drawRelation(nodesById[source.id()], nodesById[target.id()]);
+        });
     }
 
     function applyFiltersToCanvas() {
@@ -469,8 +562,12 @@
         if (node.source !== 'model') tags.appendChild(tag('Bezugsklasse, nicht im Modell'));
         panelBody.appendChild(tags);
 
+        if (node.retired) tags.appendChild(tag('Stillgelegt', 'warning'));
+
         var serious = seriousProblems(node);
         if (serious.length) panelBody.appendChild(problemList(serious));
+
+        if (editor && node.editable) { editor.typePanel(node, panelBody); return; }
 
         var parent = node.parent && nodesById[node.parent];
         var about = section('Beschreibung');
@@ -492,6 +589,7 @@
         var inc = section('Eingehende Beziehungen');
         inc.appendChild(relationList(node.incoming, 'in'));
         panelBody.appendChild(inc);
+        if (editor && node.source === 'model') editor.readonlyNote(node, panelBody);
     }
 
     function selectRelation(relationId) {
@@ -507,8 +605,10 @@
         tags.appendChild(tag(LEVELS[r.level], r.level === 'core' ? null : 'accent'));
         if (r.inverse) tags.appendChild(tag('Umkehrung: ' + r.inverse));
         panelBody.appendChild(tags);
+        if (r.retired) tags.appendChild(tag('Stillgelegt', 'warning'));
         var serious = (r.problems || []).filter(function (id) { return problemsById[id].severity !== 'info'; });
         if (serious.length) panelBody.appendChild(problemList(serious));
+        if (editor) { editor.relationPanel(r, panelBody); if (edges.length) fit(edges.union(edges.connectedNodes())); return; }
         var about = section('Beschreibung');
         about.appendChild(dl([
             ['Name (de)', r.label.de], ['Name (en)', r.label.en], ['Lesart', r.sentence],
@@ -559,6 +659,7 @@
             li.style.setProperty('--depth', String(node.depth));
             li.dataset.node = node.id;
             if (node.id === selectedId) li.setAttribute('aria-selected', 'true');
+            if (editor) treeDrag(li, node);
 
             var toggleCell = el('span');
             if (node.children) {
@@ -608,7 +709,42 @@
         if (!tree.querySelector('[data-node]')) tree.appendChild(el('li', 'b-tree-row b-muted', 'Kein Typ passt zu den Filtern.'));
     }
 
-    var below = null;
+    /* Drag a company type onto another row to make that its parent. */
+    var dragged = null;
+    function treeDrag(li, node) {
+        if (node.editable) {
+            li.draggable = true;
+            li.addEventListener('dragstart', function (event) {
+                dragged = node;
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', node.key);
+                li.classList.add('is-dragged');
+            });
+            li.addEventListener('dragend', function () { dragged = null; li.classList.remove('is-dragged'); });
+        }
+        li.addEventListener('dragover', function (event) {
+            if (!dragged || dragged.id === node.id || isBelow(node.id, dragged.id)) return;
+            event.preventDefault();
+            li.classList.add('is-drop-target');
+        });
+        li.addEventListener('dragleave', function () { li.classList.remove('is-drop-target'); });
+        li.addEventListener('drop', function (event) {
+            event.preventDefault();
+            li.classList.remove('is-drop-target');
+            if (dragged && dragged.id !== node.id) editor.setParent(dragged, node);
+        });
+    }
+
+    /* Is ``id`` the node ``ancestor`` or somewhere below it? */
+    function isBelow(id, ancestor) {
+        var current = id;
+        while (current) {
+            if (current === ancestor) return true;
+            current = nodesById[current] && nodesById[current].parent;
+        }
+        return false;
+    }
+
     function hasVisibleBelow(node, visible) {
         if (!below) {
             below = {};
@@ -637,6 +773,16 @@
         relation_unknown_type: 'Beziehungen mit unbekanntem Typ',
         type_no_description: 'Typen ohne Beschreibung',
         attribute_not_held: 'Attribute, die das Brain heute nicht als Wert hält',
+        name_collision: 'Doppelte Namen',
+        datatype_unknown: 'Unbekannte Datentypen',
+        enum_no_values: 'Auswahlen ohne Werte',
+        entity_ref_no_target: 'Verweise ohne Zieltyp',
+        entity_ref_unknown_target: 'Verweise auf unbekannte Typen',
+        retired_in_use: 'Stillgelegte Typen, die noch verwendet werden',
+        retired_parent: 'Typen unter einem stillgelegten Elterntyp',
+        retired_in_relation: 'Beziehungen mit stillgelegten Typen',
+        description_incomplete: 'Unvollständige Beschreibungen (Regel 8)',
+        attribute_description_incomplete: 'Attribute ohne vollständige Beschreibung (Regel 8)',
     };
     var SEVERITY = { critical: ['Problem', 'critical'], warning: ['Warnung', 'warning'], info: ['Hinweis', null] };
 
@@ -657,7 +803,10 @@
             calm.style.marginBottom = 'var(--space-3)';
             box.appendChild(calm);
         }
-        var order = ['parent_unknown', 'parent_cycle', 'relation_no_bounds', 'relation_unknown_type', 'type_no_description', 'attribute_not_held'];
+        var order = ['name_collision', 'parent_unknown', 'parent_cycle', 'retired_in_use', 'datatype_unknown', 'enum_no_values',
+                     'entity_ref_no_target', 'entity_ref_unknown_target', 'relation_no_bounds', 'relation_unknown_type',
+                     'retired_parent', 'retired_in_relation', 'type_no_description', 'description_incomplete',
+                     'attribute_description_incomplete', 'attribute_not_held'];
         var groups = order.filter(function (kind) { return data.problems.some(function (p) { return p.kind === kind; }); });
         groups.forEach(function (kind) {
             var items = data.problems.filter(function (p) { return p.kind === kind; });
@@ -754,7 +903,46 @@
             relations: Object.keys(cy.edges('.relation').reduce(function (seen, e) { seen[e.data('relation')] = 1; return seen; }, {})).length,
             cy: cy,
             select: select,
+            selectRelation: selectRelation,
+            load: load,
+            data: function () { return data; },
+            setConnectMode: setConnectMode,
         };
+        if (editor) editor.start(window.__builderOntology, { el: el, tag: tag, section: section, LEVELS: LEVELS, COMMON: COMMON, isBelow: isBelow });
+    }
+
+    /* A new view from the server after an edit: redraw, keep the viewport,
+     * and select ``options.select`` (or what was selected, if it still exists). */
+    function load(next, options) {
+        var keep = selectedId;
+        var pan = Object.assign({}, cy.pan()), zoom = cy.zoom();
+        var positions = {};
+        cy.nodes('.type').forEach(function (n) { positions[n.id()] = Object.assign({}, n.position()); });
+        index(next);
+        cy.batch(function () {
+            cy.elements().remove();
+            cy.add(elements());
+        });
+        if (layoutMode === 'force') {
+            var center = { x: (graphEl.clientWidth / 2 - pan.x) / zoom, y: (graphEl.clientHeight / 2 - pan.y) / zoom };
+            cy.nodes('.type').positions(function (n) { return positions[n.id()] || center; });
+            applyLayoutParents('force');
+        }
+        readFilters();
+        currentVisible = applyFiltersToCanvas();
+        if (layoutMode !== 'force') applyLayout(layoutMode, { keepView: true });
+        cy.viewport({ zoom: zoom, pan: pan });
+        renderTree(currentVisible);
+        renderProblems();
+        var tabCount = document.querySelector('#b-onto-tab-problems .b-tab-count');
+        if (tabCount) tabCount.textContent = String(data.problems.length);
+        var wanted = (options && options.select) || keep;
+        // The same element again: the panel keeps where it was scrolled to.
+        var scroll = wanted === keep ? panelBody.scrollTop : 0;
+        if (wanted && nodesById[wanted]) select(wanted);
+        else if (wanted && relationsById[wanted]) selectRelation(wanted);
+        else if (wanted) clearSelection();
+        panelBody.scrollTop = scroll;
     }
 
     // Load the brand fonts first: Cytoscape draws once and does not redraw

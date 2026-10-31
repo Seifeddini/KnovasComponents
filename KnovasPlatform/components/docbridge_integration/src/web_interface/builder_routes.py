@@ -1,7 +1,8 @@
 """The Brain Builder's shell: /builder, its eight stages and the workspaces.
 
 Plan: "Knovas Brain Builder -- build plan" (Claude Docs), steps B0 and B1
-(workspaces: list, import of a configuration package, overview, export). The builder
+(workspaces: list, import of a configuration package, overview, export), B2 and
+B3 (the ontology, read and edited on the canvas, with undo and redo). The builder
 is the Platform as a consultant's tool: a consultant models a company's
 ontology, processes, sources and views, then publishes them to the company's
 Brain. This module draws the frame every later step fills in -- the stage
@@ -30,7 +31,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
                    session, url_for)
 from markupsafe import Markup
 
-from builder import ontology_view, package
+from builder import editing, ontology_view, package
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,10 @@ SESSION_WORKSPACE = "builder_workspace"
 
 #: builder_change.path values that are events, not places in the model.
 CHANGE_LABELS = {"import": "Paket importiert", "create": "Angelegt"}
+#: Session key of the undo and redo stacks: {workspace id: {"undo": [batch], "redo": [batch]}}.
+SESSION_HISTORY = "builder_history"
+#: How many edits a session can take back.
+HISTORY_DEPTH = 30
 
 
 def _download_name(name: str) -> str:
@@ -242,7 +247,7 @@ def create_builder_blueprint(
             workspace = _current_workspace(store)
             if workspace is not None:
                 return _render("builder/ontology.html", stage=current, stage_number=number,
-                               current_workspace=workspace,
+                               current_workspace=workspace, history=_history_counts(workspace.id),
                                ontology=ontology_view.build(store.model(workspace.id)))
         return _render("builder/stage.html", stage=current, stage_number=number)
 
@@ -339,6 +344,82 @@ def create_builder_blueprint(
         logger.info("Builder workspace created: %s", workspace_id)
         session[SESSION_WORKSPACE] = workspace_id
         return jsonify({"success": True, "url": url_for("builder.workspace", workspace_id=workspace_id)}), 201
+
+    # -------------------------------------------------------- editing
+
+    def _history(workspace_id: str) -> dict:
+        stacks = session.get(SESSION_HISTORY) or {}
+        entry = stacks.get(workspace_id) or {}
+        return {"undo": list(entry.get("undo") or []), "redo": list(entry.get("redo") or [])}
+
+    def _save_history(workspace_id: str, history: dict) -> None:
+        stacks = dict(session.get(SESSION_HISTORY) or {})
+        stacks[workspace_id] = {"undo": history["undo"][-HISTORY_DEPTH:], "redo": history["redo"][-HISTORY_DEPTH:]}
+        session[SESSION_HISTORY] = stacks
+
+    def _history_counts(workspace_id: str) -> dict:
+        history = _history(workspace_id)
+        return {"undo": len(history["undo"]), "redo": len(history["redo"])}
+
+    def _edited(store, workspace_id: str, model: dict, changes: list, what: str):
+        logger.info("Builder edit: workspace %s, %s, %d elements", workspace_id, what, len(changes))
+        return jsonify({"success": True, "changes": len(changes),
+                        "history": _history_counts(workspace_id),
+                        "ontology": ontology_view.build(model)})
+
+    def _refused(exc: editing.EditError):
+        return jsonify({"success": False, "error": exc.message, "details": exc.details}), exc.status
+
+    def _editable_workspace(workspace_id: str):
+        store = _store()
+        if store is None:
+            abort(503)
+        return store, _workspace_or_404(store, workspace_id)
+
+    @bp.route("/api/w/<workspace_id>/ontology", methods=["POST"])
+    def edit_ontology(workspace_id: str):
+        """One edit of the draft's ontology (builder.editing), written with actor, before and after."""
+        store, current = _editable_workspace(workspace_id)
+        op = request.get_json(silent=True)
+        try:
+            model, changes, batch = store.edit(current.id, gate.current_user().id,
+                                               lambda m: editing.apply(m, op))
+        except editing.EditError as exc:
+            return _refused(exc)
+        if batch:
+            history = _history(current.id)
+            history["undo"].append(batch)
+            history["redo"] = []
+            _save_history(current.id, history)
+        return _edited(store, current.id, model, changes, str(op.get("op")))
+
+    def _step(workspace_id: str, take: str, give: str, step):
+        store, current = _editable_workspace(workspace_id)
+        history = _history(current.id)
+        if not history[take]:
+            return jsonify({"success": False, "error": "Es gibt nichts zurückzunehmen." if take == "undo"
+                            else "Es gibt nichts wiederherzustellen."}), 409
+        batch = history[take][-1]
+        recorded = store.batch(current.id, batch)
+        try:
+            model, changes, _ = store.edit(current.id, gate.current_user().id, lambda m: step(m, recorded))
+        except editing.EditError as exc:
+            # The draft moved on under this edit (another session): it cannot be taken back as recorded.
+            history[take].pop()
+            _save_history(current.id, history)
+            return _refused(exc)
+        history[take].pop()
+        history[give].append(batch)
+        _save_history(current.id, history)
+        return _edited(store, current.id, model, changes, take)
+
+    @bp.route("/api/w/<workspace_id>/undo", methods=["POST"])
+    def undo(workspace_id: str):
+        return _step(workspace_id, "undo", "redo", editing.undo)
+
+    @bp.route("/api/w/<workspace_id>/redo", methods=["POST"])
+    def redo(workspace_id: str):
+        return _step(workspace_id, "redo", "undo", editing.redo)
 
     @bp.route("/_styleguide")
     def styleguide():

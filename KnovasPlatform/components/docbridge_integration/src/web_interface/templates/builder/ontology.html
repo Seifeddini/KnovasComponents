@@ -1,7 +1,9 @@
-{# Stage 3, read-only (build plan step B2): the workspace's ontology as a
-   canvas, a type tree and a problems list. Expects current_workspace and
-   ontology (builder.ontology_view.build). The views are drawn by
-   static/js/builder/ontology.js from the JSON below. #}
+{# Stage 3 (build plan steps B2 and B3): the workspace's ontology as a
+   canvas, a type tree and a problems list, edited in place. Expects
+   current_workspace, history ({undo, redo} counts) and ontology
+   (builder.ontology_view.build). The views are drawn by
+   static/js/builder/ontology.js from the JSON below; the editors are
+   static/js/builder/ontology-edit.js. #}
 {% extends 'builder/_base.html' %}
 {% from 'builder/_icons.html' import icon %}
 {% set c = ontology.counts %}
@@ -18,7 +20,18 @@
         {% if c.problems.critical %}<span class="b-tag b-tag--critical"><span class="b-tag-dot"></span>{{ c.problems.critical }} Probleme</span>{% endif %}
         {% if c.problems.warning %}<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>{{ c.problems.warning }} Warnungen</span>{% endif %}
         {% if c.problems.info %}<span class="b-tag"><span class="b-tag-dot"></span>{{ c.problems.info }} Hinweise</span>{% endif %}
-        <span class="b-tag b-tag--accent">Nur lesen</span>
+        <span class="b-tag b-tag--accent">Entwurf {{ current_workspace.draft_number or '' }}</span>
+    </div>
+    <div class="b-onto-edit-bar" data-onto-edit
+         data-edit-url="{{ url_for('builder.edit_ontology', workspace_id=current_workspace.id) }}"
+         data-undo-url="{{ url_for('builder.undo', workspace_id=current_workspace.id) }}"
+         data-redo-url="{{ url_for('builder.redo', workspace_id=current_workspace.id) }}"
+         data-undo="{{ history.undo }}" data-redo="{{ history.redo }}">
+        <button type="button" class="b-button b-button--quiet" data-onto-undo {% if not history.undo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Rückgängig</button>
+        <button type="button" class="b-button b-button--quiet" data-onto-redo {% if not history.redo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Wiederherstellen</button>
+        <button type="button" class="b-button b-button--primary" data-onto-new-type>{{ icon('plus') }}Neuer Typ</button>
     </div>
 </header>
 
@@ -71,6 +84,9 @@
                 <div class="b-onto-graph" id="b-onto-graph" aria-label="Typen und Beziehungen als Fläche" role="img"></div>
                 <div class="b-onto-empty" data-onto-canvas-empty hidden>Kein Typ passt zu den Filtern.</div>
                 <div class="b-toolbar" role="toolbar" aria-label="Fläche">
+                    <button type="button" class="b-tool b-tool-text" aria-pressed="false" data-onto-connect
+                            title="Beziehung ziehen: von einer Karte auf eine andere ziehen (auch mit gedrückter Umschalttaste)">Beziehung ziehen</button>
+                    <span class="b-tool-sep" aria-hidden="true"></span>
                     <span data-toggle-group style="display: contents">
                         <button type="button" class="b-tool b-tool-text" aria-pressed="true" data-onto-layout="tree" title="Als Baum, Wurzel links">Baum</button>
                         <button type="button" class="b-tool b-tool-text" aria-pressed="false" data-onto-layout="grouped" title="Nach Ebene gruppiert">Gruppiert</button>
@@ -122,12 +138,91 @@
     <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
     <div class="b-empty-text">
         <h2 class="b-h3" id="b-onto-empty-title">Noch keine Typen</h2>
-        <p class="b-muted">{{ current_workspace.name }} hat noch keine Typen. Hier entstehen sie, sobald sich die Ontologie bearbeiten lässt; bis dahin bringt ein importiertes Konfigurationspaket Typen mit.</p>
+        <p class="b-muted">{{ current_workspace.name }} hat noch keine Typen. Legen Sie den ersten an, unter einem Typ des Kerns.</p>
     </div>
+    <button type="button" class="b-button b-button--primary" data-onto-new-type>{{ icon('plus') }}Neuer Typ</button>
 </section>
+<script type="application/json" id="b-onto-catalog">{{ ontology.catalog | tojson }}</script>
 {% endif %}
+
+<datalist id="b-ed-families">{% for f in ontology.families %}<option value="{{ f }}">{% endfor %}</datalist>
+<datalist id="b-ed-relation-names">{% for n in ontology.relation_names %}<option value="{{ n }}">{% endfor %}</datalist>
+
+<dialog class="b-dialog" id="b-onto-new-type" aria-labelledby="b-onto-new-type-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-onto-new-type-title">Neuer Typ</h2>
+            <p class="b-muted">Ein Typ der Firma, unter einem Typ des Kerns, eines Pakets oder der Firma.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-nt-key">Schlüssel</label>
+                <input class="b-input b-mono" id="b-nt-key" name="key" required autocomplete="off" spellcheck="false" placeholder="z. B. Invoice" aria-describedby="b-nt-key-hint">
+                <span class="b-hint" id="b-nt-key-hint">Großbuchstabe am Anfang, nur Buchstaben und Ziffern.</span>
+            </div>
+            <div class="b-ed-pair">
+                <div class="b-field"><label class="b-label" for="b-nt-de">Name (de)</label><input class="b-input" id="b-nt-de" name="label_de" autocomplete="off"></div>
+                <div class="b-field"><label class="b-label" for="b-nt-en">Name (en)</label><input class="b-input" id="b-nt-en" name="label_en" autocomplete="off"></div>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="b-nt-parent">Untertyp von</label>
+                <select class="b-select" id="b-nt-parent" name="parent"><option value="">– kein Elterntyp –</option></select>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Typ anlegen</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="b-dialog b-dialog--wide" id="b-onto-new-relation" aria-labelledby="b-onto-new-relation-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-onto-new-relation-title">Beziehung</h2>
+            <p class="b-muted">Ein Name aus der Liste erweitert diese Beziehung; ein neuer Name legt eine an.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-nr-key">Name</label>
+                <input class="b-input b-mono" id="b-nr-key" name="key" list="b-ed-relation-names" required autocomplete="off" spellcheck="false" placeholder="z. B. billed_to" aria-describedby="b-nr-key-hint">
+                <span class="b-hint" id="b-nr-key-hint">Klein geschrieben, Wörter mit Unterstrich getrennt.</span>
+            </div>
+            <p class="b-callout" data-ed-existing hidden></p>
+            <div data-ed-new-only>
+                <div class="b-ed-pair">
+                    <div class="b-field"><label class="b-label" for="b-nr-family">Familie</label><input class="b-input" id="b-nr-family" name="family" list="b-ed-families" autocomplete="off"></div>
+                    <div class="b-field"><label class="b-label" for="b-nr-inverse">Umkehrung</label><input class="b-input b-mono" id="b-nr-inverse" name="inverse" autocomplete="off" spellcheck="false" placeholder="z. B. contains"></div>
+                </div>
+                <div class="b-ed-pair">
+                    <div class="b-field"><label class="b-label" for="b-nr-de">Name (de)</label><input class="b-input" id="b-nr-de" name="label_de" autocomplete="off"></div>
+                    <div class="b-field"><label class="b-label" for="b-nr-en">Name (en)</label><input class="b-input" id="b-nr-en" name="label_en" autocomplete="off"></div>
+                </div>
+                <div class="b-field"><label class="b-label" for="b-nr-sentence">Lesart</label><textarea class="b-textarea" id="b-nr-sentence" name="sentence" rows="2"></textarea></div>
+                <div class="b-field"><label class="b-label" for="b-nr-reason">Begründung</label><textarea class="b-textarea" id="b-nr-reason" name="reason" rows="2"></textarea></div>
+            </div>
+            <div class="b-ed-pair">
+                <div class="b-field" data-ed-side="domain"><label class="b-label" for="b-nr-domain">Von (Definitionsbereich)</label><select class="b-select" id="b-nr-domain" name="domain" multiple size="7"></select></div>
+                <div class="b-field" data-ed-side="range"><label class="b-label" for="b-nr-range">Nach (Wertebereich)</label><select class="b-select" id="b-nr-range" name="range" multiple size="7"></select></div>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Beziehung anlegen</button>
+        </div>
+    </form>
+</dialog>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/ontology-edit.js') }}?v={{ asset_version }}"></script>
 <script src="{{ url_for('static', filename='js/builder/ontology.js') }}?v={{ asset_version }}"></script>
 {% endblock %}

@@ -101,3 +101,23 @@ def test_an_admin_opens_every_stage_and_is_offered_the_builder(identity_client, 
     for slug in ("arbeitsbereich", "verbinden", "ontologie", "prozesse", "quellen",
                  "ansichten", "pruefen", "betrieb", "_styleguide"):
         assert identity_client.get(f"/builder/{slug}").status_code == 200, slug
+
+
+def test_an_edit_needs_the_csrf_header_and_is_written_with_its_actor(identity_client, identity_repo, platform_db):
+    _person(identity_repo, "admin@example.org", "admin")
+    _sign_in(identity_client, "admin@example.org")
+    page = identity_client.get("/builder/arbeitsbereich").get_data(as_text=True)
+    token = page.split('name="csrf-token" content="', 1)[1].split('"', 1)[0]
+    created = identity_client.post("/builder/api/workspaces", data={"name": "Muster AG"}, headers={"X-CSRF-Token": token})
+    workspace_id = created.get_json()["url"].rsplit("/", 1)[1]
+    op = {"op": "type.create", "key": "Invoice", "parent": "euo:Agreement"}
+    assert identity_client.post(f"/builder/api/w/{workspace_id}/ontology", json=op).status_code == 403
+    edited = identity_client.post(f"/builder/api/w/{workspace_id}/ontology", json=op, headers={"X-CSRF-Token": token})
+    assert edited.status_code == 200
+    row = platform_db.execute(
+        "SELECT c.path, c.before, c.after, c.batch, u.email FROM builder_change c JOIN users u ON u.id = c.actor"
+        " WHERE c.workspace = %s AND c.batch IS NOT NULL", (workspace_id,)).fetchone()
+    assert row[0] == "ontology.types/Invoice" and row[1] is None and row[2]["key"] == "Invoice" and row[4] == "admin@example.org"
+    undone = identity_client.post(f"/builder/api/w/{workspace_id}/undo", headers={"X-CSRF-Token": token})
+    assert undone.status_code == 200 and undone.get_json()["history"] == {"undo": 0, "redo": 1}
+    assert "Noch keine Typen" in identity_client.get("/builder/ontologie").get_data(as_text=True)

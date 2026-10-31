@@ -406,3 +406,162 @@ def test_the_theme_choice_is_remembered(browser, base_url):
     assert page.evaluate("document.documentElement.getAttribute('data-theme')") == "dark"
     assert page.locator('input[value="dark"]').is_checked()
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B3: editing the ontology. Needs Client Zero ($BUILDER_IMPORT_ZIP).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def editing_server():
+    from builder_harness import MemoryWorkspaceStore
+
+    user = StandInUser({"admin"})
+    store = MemoryWorkspaceStore({str(user.id): user.display_name})
+    server = make_server("127.0.0.1", 0, make_app(user, store), threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}", store
+    server.shutdown()
+
+
+def _problems_of(page, target):
+    return page.evaluate("""(target) => window.__builderOntology.data().problems
+        .filter(p => p.target === target).map(p => p.kind).sort()""", target)
+
+
+def _wait_for(page, expression, arg=None):
+    page.wait_for_function(expression, arg=arg, timeout=10_000)
+
+
+def _has_type(key):
+    return f"() => window.__builderOntology.data().nodes.some(n => n.key === '{key}')"
+
+
+_INVOICE = "window.__builderOntology.data().nodes.find(n => n.key === 'Invoice')"
+
+
+def test_editing_client_zero(browser, editing_server, shots, import_zip):
+    base, store = editing_server
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, base, import_zip)
+    _open_ontology(page, base)
+    if not page.evaluate(_has_type("RunEvent")):
+        pytest.skip("needs the Client Zero package in $BUILDER_IMPORT_ZIP")
+    [workspace] = store.list()
+    page.screenshot(path=shots / "b3-01-before.png")
+
+    # A new type under a core class.
+    page.locator(".b-onto-edit-bar [data-onto-new-type]").click()
+    dialog = page.locator("#b-onto-new-type")
+    page.fill("#b-nt-key", "Invoice")
+    page.fill("#b-nt-de", "Rechnung")
+    page.fill("#b-nt-en", "Invoice")
+    page.select_option("#b-nt-parent", "euo:Transaction")
+    page.screenshot(path=shots / "b3-02-new-type.png")
+    dialog.get_by_role("button", name="Typ anlegen").click()
+    _wait_for(page, _has_type("Invoice"))
+    panel = page.locator("#b-onto-panel")
+    assert panel.is_visible() and "Rechnung" in panel.locator("[data-onto-panel-title]").inner_text()
+    assert _problems_of(page, "type:Invoice") == ["description_incomplete", "type_no_description"]
+
+    # Three attributes; the enum without values is a problem until it has some.
+    for name, datatype in (("invoice_number", "text"), ("status", "enum"), ("due_date", "date")):
+        page.fill("[data-ed-attr-new]", name)
+        page.locator(".b-ed-attr-add select").select_option(datatype)
+        page.locator(".b-ed-attr-add button[type=submit]").click()
+        _wait_for(page, f"() => {_INVOICE}.attributes.some(a => a.name === '{name}')")
+    assert "enum_no_values" in _problems_of(page, "type:Invoice")
+    page.screenshot(path=shots / "b3-03-attributes-enum-problem.png")
+    values = page.locator("[data-attr='status'] > .b-field input")
+    values.fill("open, paid, overdue")
+    values.press("Tab")
+    _wait_for(page, "() => !window.__builderOntology.data().problems.some(p => p.kind === 'enum_no_values')")
+    assert page.evaluate(f"() => {_INVOICE}.attributes.map(a => a.name)") == ["invoice_number", "status", "due_date"]
+    page.locator("[data-attr='due_date'] button[aria-label^='Nach oben']").click()
+    _wait_for(page, f"() => {_INVOICE}.attributes[1].name === 'due_date'")
+
+    # Rule 8: the description and the example clear the description problems.
+    about = page.locator("#b-onto-panel .b-ed-form").nth(1)
+    about.locator("textarea").nth(0).fill("A bill the company sends for work delivered.")
+    about.locator("textarea").nth(1).fill("Invoice 2026-114 for the pilot with a fiduciary firm.")
+    assert not any("Beispiel" in t for t in about.locator(".b-checklist .is-missing").all_inner_texts())
+    about.get_by_role("button", name="Übernehmen").click()
+    _wait_for(page, """() => !window.__builderOntology.data().problems.some(p => p.target === 'type:Invoice'
+        && (p.kind === 'type_no_description' || p.kind === 'description_incomplete'))""")
+    page.screenshot(path=shots / "b3-04-description.png")
+
+    # Relation 1: drawn from the Invoice card to the Company card.
+    page.locator("[data-onto-connect]").click()
+    points = page.evaluate("""() => {
+        const cy = window.__builderOntology.cy;
+        const company = window.__builderOntology.data().nodes.find(n => n.key === 'Company');
+        cy.fit(cy.collection([cy.getElementById('type:Invoice'), cy.getElementById(company.id)]), 120);
+        const box = document.getElementById('b-onto-graph').getBoundingClientRect();
+        const at = (id) => { const p = cy.getElementById(id).renderedPosition(); return [box.left + p.x, box.top + p.y]; };
+        return [at('type:Invoice'), at(company.id)];
+    }""")
+    page.mouse.move(*points[0])
+    page.mouse.down()
+    page.mouse.move((points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2, steps=5)
+    page.mouse.move(*points[1], steps=5)
+    page.mouse.up()
+    relation = page.locator("#b-onto-new-relation")
+    relation.wait_for(state="visible")
+    assert page.evaluate("() => Array.from(document.querySelectorAll('#b-nr-domain option:checked')).map(o => o.value)") == ["Invoice"]
+    page.fill("#b-nr-key", "billed_to")
+    page.fill("#b-nr-family", "Market")
+    page.fill("#b-nr-de", "ist gestellt an")
+    page.fill("#b-nr-en", "is billed to")
+    page.fill("#b-nr-sentence", "Invoice billed_to Company: the company the invoice is addressed to.")
+    page.screenshot(path=shots / "b3-05-draw-relation.png")
+    relation.get_by_role("button", name="Beziehung anlegen").click()
+    _wait_for(page, "() => window.__builderOntology.data().relations.some(r => r.key === 'billed_to')")
+    page.locator("[data-onto-connect]").click()
+
+    # Relation 2: a name from the controlled list extends that relation.
+    page.evaluate("() => window.__builderOntology.select('type:Invoice')")
+    page.locator("#b-onto-panel").get_by_role("button", name="Beziehung hinzufügen").click()
+    page.fill("#b-nr-key", "about")
+    assert relation.locator("[data-ed-existing]").is_visible()
+    page.select_option("#b-nr-range", ["Opportunity"])
+    relation.get_by_role("button", name="Beziehung erweitern").click()
+    _wait_for(page, """() => { const r = window.__builderOntology.data().relations.find(r => r.key === 'about');
+        return r.domain_names.includes('Invoice') && r.range_names.includes('Opportunity'); }""")
+    node = page.evaluate(f"() => {_INVOICE}")
+    assert len(node["attributes"]) == 3 and len(node["outgoing"]) == 2
+    page.evaluate("() => window.__builderOntology.select('type:Invoice', {center: true})")
+    page.wait_for_timeout(300)
+    page.screenshot(path=shots / "b3-06-type-with-relations.png")
+
+    # Retire a type a process uses: a problem, until undo takes it back.
+    run_event = page.evaluate("() => window.__builderOntology.data().nodes.find(n => n.key === 'RunEvent').id")
+    page.evaluate("(id) => window.__builderOntology.select(id, {center: true})", run_event)
+    page.locator("#b-onto-panel").get_by_role("button", name="Typ stilllegen").click()
+    _wait_for(page, "(id) => window.__builderOntology.data().problems.some(p => p.kind === 'retired_in_use' && p.target === id)", run_event)
+    page.wait_for_timeout(300)
+    page.screenshot(path=shots / "b3-07-retired-problem.png")
+    page.locator("[data-onto-undo]").click()
+    _wait_for(page, "() => !window.__builderOntology.data().problems.some(p => p.kind === 'retired_in_use')")
+    assert not page.evaluate("(id) => window.__builderOntology.data().nodes.find(n => n.id === id).retired", run_event)
+    assert page.locator("[data-onto-redo]").is_enabled()
+    page.wait_for_timeout(300)
+    page.screenshot(path=shots / "b3-08-after-undo.png")
+
+    # Every change is in the log, with actor and before/after.
+    edits = [c for c in store.rows[workspace.id]["changes"] if c.get("batch")]
+    assert edits and all(c["actor"] for c in edits)
+    created = [c for c in edits if c["path"] == "ontology.types/Invoice" and c["before"] is None]
+    assert created and created[0]["after"]["parent"] == "euo:Transaction"
+    retired = [c for c in edits if c["path"] == "ontology.types/RunEvent"]
+    assert [bool((c["after"] or {}).get("retired")) for c in reversed(retired)] == [True, False]
+
+    # The tree: Invoice under Transaction; the problems list has no problem left.
+    page.locator("#b-onto-tab-tree").click()
+    page.locator("[data-node='type:Invoice']").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b3-09-tree.png")
+    page.locator("#b-onto-tab-problems").click()
+    assert page.evaluate("() => window.__builderOntology.data().counts.problems.critical") == 0
+    page.screenshot(path=shots / "b3-10-problems.png")
+    page.context.close()
