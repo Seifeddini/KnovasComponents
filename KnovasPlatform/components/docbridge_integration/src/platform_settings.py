@@ -623,3 +623,46 @@ def test_repository_access(repo: str, token: Optional[str], make: Callable[[str,
         return {"ok": False, "error": f"Unerwarteter Fehler ({type(exc).__name__})."}
     return {"ok": bool(access.get("read")), "repository": repo, "read": bool(access.get("read")),
             "write": bool(access.get("write"))}
+
+
+# -- credentials of the Brain Builder's sources (build plan step B7) ---------------------------------------
+
+#: A source's credential is a secret of the registry under this prefix: one key per workspace and source,
+#: sealed with the deployment's key, audited as changed, never returned.
+SOURCE_SECRET_PREFIX = "builder.sources."
+
+
+def source_secret_key(workspace_id: str, source_key: str) -> str:
+    return f"{SOURCE_SECRET_PREFIX}{workspace_id}.{source_key}.credential"
+
+
+class SourceSecrets:
+    """Write-only credentials for the builder's sources, kept like every other secret of the registry."""
+
+    def __init__(self, store: SettingStore, box: SecretBox, tenant: str):
+        self._store = store
+        self._box = box
+        self.tenant = str(tenant or "")
+
+    @property
+    def available(self) -> bool:
+        return self._box.available and bool(self.tenant)
+
+    @property
+    def reason(self) -> str:
+        return self._box.reason if not self._box.available else "Kein Mandant: ohne ihn gibt es keine Geheimnisse."
+
+    def put(self, key: str, value: str, user: Any) -> None:
+        if not key.startswith(SOURCE_SECRET_PREFIX):
+            raise SettingError("Kein Schlüssel einer Quelle.")
+        if not self.available:
+            raise NoSecretKey(self.reason)
+        self._store.put_secret(key, self.tenant, self._box.seal(value), user)
+
+    def clear(self, key: str, user: Any) -> None:
+        self._store.clear(key, self.tenant, user, old=SECRET_SET)
+
+    def get(self, key: str) -> Optional[str]:
+        """The plain value, for the reader that uses it (never for a response)."""
+        row = self._store.rows(self.tenant).get(key)
+        return self._box.open(row.get("secret")) if row else None

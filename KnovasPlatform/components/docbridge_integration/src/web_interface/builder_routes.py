@@ -32,6 +32,7 @@ from flask import (Blueprint, Response, abort, jsonify, redirect, render_templat
 from markupsafe import Markup
 
 from builder import editing, ontology_view, package, processes, publisher, review, tenant_ontology as tenant_reader
+from builder import sources as source_kinds
 from builder import packs as shipped_packs
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,8 @@ def create_builder_blueprint(
     engine_factory: Optional[Callable[[], Any]] = None,
     tenant_ontology: Optional[Callable[[], tuple]] = None,
     publish_sink: Optional[Callable[..., Any]] = None,
+    source_secrets: Optional[Callable[[], Any]] = None,
+    reader_factory: Optional[Callable[..., Any]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -174,6 +177,12 @@ def create_builder_blueprint(
     ``publish_sink(bundle_text, source=, content_hash=)`` hands a published
     bundle to the views: the sync's source (brain_sync.SyncService.adopt), so
     the views read what was published.
+
+    ``source_secrets`` returns the write-only store of the sources'
+    credentials (``platform_settings.SourceSecrets`` for the Platform's
+    tenant). ``reader_factory(component, source, secret, workspace_id)``
+    returns the reader of a source through the component that serves it
+    (``builder.sources``): the only way the builder reads a source.
 
     ``engine_factory`` returns the engine that compiles, dry-runs and applies
     a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
@@ -213,7 +222,7 @@ def create_builder_blueprint(
     def _change_label(path):
         section, _, key = str(path).partition("/")
         element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket",
-                   "processes": "Prozess", "processes.rules": "Prozessregel"}.get(section)
+                   "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle"}.get(section)
         return f"{element} {key}" if element and key else CHANGE_LABELS.get(path, path)
 
     @bp.app_template_filter("b_version_tag")
@@ -289,6 +298,16 @@ def create_builder_blueprint(
             if workspace is not None:
                 return _render("builder/review.html", stage=current, stage_number=number,
                                current_workspace=workspace, **_review_context(store, workspace))
+        if current.slug == "verbinden":
+            return _render("builder/components.html", stage=current, stage_number=number,
+                           **_components_context(_store()))
+        if current.slug == "quellen":
+            store = _store()
+            workspace = _current_workspace(store)
+            if workspace is not None:
+                return _render("builder/sources.html", stage=current, stage_number=number,
+                               current_workspace=workspace, history=_history_counts(workspace.id),
+                               sources=_sources_view(store, store.model(workspace.id)))
         if current.slug == "prozesse":
             store = _store()
             workspace = _current_workspace(store)
@@ -468,8 +487,13 @@ def create_builder_blueprint(
     def _edited(store, workspace_id: str, model: dict, changes: list, what: str):
         logger.info("Builder edit: workspace %s, %s, %d elements", workspace_id, what, len(changes))
         # The page that edits says which view it redraws: the ontology (B3) or the processes (B6).
-        view = ({"processes": processes.build(model)} if request.args.get("view") == "processes"
-                else {"ontology": ontology_view.build(model)})
+        wanted = request.args.get("view")
+        if wanted == "processes":
+            view = {"processes": processes.build(model)}
+        elif wanted == "sources":
+            view = {"sources": _sources_view(store, model)}
+        else:
+            view = {"ontology": ontology_view.build(model)}
         return jsonify({"success": True, "changes": len(changes),
                         "history": _history_counts(workspace_id), **view})
 
@@ -488,6 +512,7 @@ def create_builder_blueprint(
         store, current = _editable_workspace(workspace_id)
         op = request.get_json(silent=True)
         try:
+            _check_source_op(store, op)
             model, changes, batch = store.edit(current.id, gate.current_user().id,
                                                lambda m: editing.apply(m, op))
         except editing.EditError as exc:
@@ -518,6 +543,160 @@ def create_builder_blueprint(
         history[give].append(batch)
         _save_history(current.id, history)
         return _edited(store, current.id, model, changes, take)
+
+    # -------------------------------------------------------- components and sources (B7)
+
+    def _components_context(store) -> dict:
+        tenant = _platform_tenant()
+        found = store.components(tenant) if store is not None and tenant else []
+        return {"components": found, "component_kinds": source_kinds.COMPONENT_KINDS,
+                "planned_components": source_kinds.PLANNED_COMPONENTS}
+
+    def _secrets():
+        return source_secrets() if source_secrets is not None else None
+
+    def _sources_view(store, model) -> dict:
+        tenant = _platform_tenant()
+        components = {c["id"]: c for c in (store.components(tenant) if tenant else [])}
+        secrets = _secrets()
+        found = []
+        for s in model.get("sources") or []:
+            c = components.get(s.get("component"))
+            kind = source_kinds.SOURCE_KINDS.get(s.get("kind"), {})
+            found.append({**s, "kind_label": kind.get("label", s.get("kind")),
+                          "component_name": c["name"] if c else None,
+                          "component_kind": c["kind"] if c else None,
+                          "credential_label": kind.get("credential"),
+                          "credential_required": bool(kind.get("credential_required"))})
+        kinds = {k: {"label": v["label"], "component": v["component"], "credential": v["credential"],
+                     "credential_required": v["credential_required"],
+                     "settings": [{"name": n, "label": l, "hint": h} for n, l, h in v["settings"]]}
+                 for k, v in source_kinds.SOURCE_KINDS.items()}
+        return {"sources": found, "kinds": kinds, "planned": source_kinds.PLANNED_SOURCES,
+                "components": list(components.values()), "extractors": source_kinds.FILE_EXTRACTORS,
+                "secrets": {"available": bool(secrets and secrets.available),
+                            "reason": "" if secrets and secrets.available else
+                            (secrets.reason if secrets else "Diese Plattform speichert keine Geheimnisse.")}}
+
+    def _check_source_op(store, op) -> None:
+        """A source names a component of this tenant's register that serves its kind."""
+        if not isinstance(op, Mapping) or op.get("op") not in ("source.create", "source.update"):
+            return
+        component_id = op.get("component") if op["op"] == "source.create" else (op.get("fields") or {}).get("component")
+        if component_id is None:
+            return
+        tenant = _platform_tenant()
+        component = store.component(tenant, str(component_id)) if tenant else None
+        if component is None:
+            raise editing.EditError("Diese Komponente ist für den Mandanten nicht registriert.", 404)
+        if op["op"] == "source.create":
+            wanted = source_kinds.SOURCE_KINDS.get(op.get("kind"), {}).get("component")
+            if wanted and wanted != component["kind"]:
+                raise editing.EditError(f"Eine Quelle dieser Art liest nur ein {source_kinds.COMPONENT_KINDS[wanted]['label']}.")
+
+    @bp.route("/api/components", methods=["POST"])
+    def register_component():
+        """Register a sync component for the Platform's tenant (enrolment with its own certificate: B13)."""
+        store = _store()
+        if store is None:
+            abort(503)
+        tenant = _platform_tenant()
+        if not tenant:
+            return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+        body = request.get_json(silent=True) or {}
+        kind = body.get("kind")
+        if kind not in source_kinds.COMPONENT_KINDS:
+            return jsonify({"success": False, "error": "Art: eine der angebotenen; CRM- und Datenbank-Connectoren sind geplant."}), 400
+        name = str(body.get("name") or "").strip()
+        if not 1 <= len(name) <= 120:
+            return jsonify({"success": False, "error": "Name: 1 bis 120 Zeichen."}), 400
+        settings = {}
+        base_url = str((body.get("settings") or {}).get("base_url") or "").strip()
+        if base_url:
+            if kind != "knovas_connector" or not re.match(r"^https?://[A-Za-z0-9.-]+(:\d+)?(/[\w./-]*)?$", base_url):
+                return jsonify({"success": False, "error": "Adresse: http(s)://Host[:Port] des Connectors."}), 400
+            settings["base_url"] = base_url
+        new_id = store.register_component(tenant, kind=kind, name=name, site=str(body.get("site") or "").strip()[:120],
+                                          owner=str(body.get("owner") or "").strip()[:120], settings=settings,
+                                          actor_id=gate.current_user().id)
+        if new_id is None:
+            return jsonify({"success": False, "error": f"Eine Komponente «{name}» gibt es schon."}), 409
+        logger.info("Builder: component registered, kind %s", kind)
+        return jsonify({"success": True, "id": new_id, **_components_context(store)}), 201
+
+    def _source_of(workspace_id: str, key: str):
+        store, current = _editable_workspace(workspace_id)
+        model = store.model(current.id)
+        source = next((s for s in model.get("sources") or [] if s.get("key") == key), None)
+        if source is None:
+            abort(404)
+        return store, current, model, source
+
+    @bp.route("/api/w/<workspace_id>/sources/<key>/credential", methods=["POST"])
+    def source_credential(workspace_id: str, key: str):
+        """Write (or remove, with an empty value) a source's credential; it is never sent back."""
+        from platform_settings import SettingError, source_secret_key
+
+        store, current, _, source = _source_of(workspace_id, key)
+        secrets = _secrets()
+        if secrets is None:
+            return jsonify({"success": False, "error": "Diese Plattform speichert keine Geheimnisse."}), 409
+        value = str((request.get_json(silent=True) or {}).get("value") or "").strip()
+        user = gate.current_user()
+        try:
+            if value:
+                secrets.put(source_secret_key(current.id, key), value, user)
+            else:
+                secrets.clear(source_secret_key(current.id, key), user)
+        except SettingError as exc:
+            return jsonify({"success": False, "error": str(exc)}), getattr(exc, "status", 400)
+        model, changes, _ = store.edit(current.id, user.id, lambda m: editing.apply(
+            m, {"op": "source.credential", "key": key, "set": bool(value)}))
+        logger.info("Builder: source credential %s", "set" if value else "removed")
+        return jsonify({"success": True, "history": _history_counts(current.id), "sources": _sources_view(store, model)})
+
+    def _reader(store, current, source):
+        from platform_settings import source_secret_key
+
+        tenant = _platform_tenant()
+        component = store.component(tenant, source.get("component")) if tenant else None
+        if component is None:
+            raise source_kinds.ReaderError("Die Komponente dieser Quelle ist nicht registriert.")
+        if reader_factory is None:
+            raise source_kinds.ReaderError("Diese Plattform liest keine Quellen.")
+        secrets = _secrets()
+        secret = secrets.get(source_secret_key(current.id, source["key"])) if secrets and source.get("credential_set") else None
+        kind = source_kinds.SOURCE_KINDS.get(source.get("kind"), {})
+        if kind.get("credential_required") and not secret:
+            raise source_kinds.ReaderError("Für diese Quelle ist noch kein Zugang gesetzt.")
+        return reader_factory(component, source, secret, current.id)
+
+    @bp.route("/api/w/<workspace_id>/sources/<key>/test", methods=["POST"])
+    def source_test(workspace_id: str, key: str):
+        """Reach the source through its component and list what it holds, with counts."""
+        store, current, _, source = _source_of(workspace_id, key)
+        try:
+            result = _reader(store, current, source).test()
+        except source_kinds.ReaderError as exc:
+            logger.info("Builder: source test failed, kind %s", source.get("kind"))
+            return jsonify({"success": False, "error": str(exc)}), 502
+        # Counts only: what the source holds goes to the page, never into the log (GI-DATA-02/04).
+        logger.info("Builder: source test, kind %s, %d collections", source.get("kind"), len(result["collections"]))
+        return jsonify({"success": True, "result": result})
+
+    @bp.route("/api/w/<workspace_id>/sources/<key>/sample", methods=["POST"])
+    def source_sample(workspace_id: str, key: str):
+        """Up to 50 items of one collection, with the profile of their fields."""
+        store, current, _, source = _source_of(workspace_id, key)
+        collection = str((request.get_json(silent=True) or {}).get("collection") or "")
+        if not collection:
+            return jsonify({"success": False, "error": "Welche Auswahl?"}), 400
+        try:
+            items = _reader(store, current, source).sample(collection, source_kinds.SAMPLE_LIMIT)
+        except source_kinds.ReaderError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 502
+        logger.info("Builder: source sample, kind %s, %d items", source.get("kind"), len(items))
+        return jsonify({"success": True, "collection": collection, "profile": source_kinds.profile(items)})
 
     @bp.route("/api/w/<workspace_id>/undo", methods=["POST"])
     def undo(workspace_id: str):

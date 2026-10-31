@@ -40,7 +40,8 @@ RELATIONS = "ontology.relations"
 PACKS = "packs"
 PROCESSES = "processes"
 PROCESS_RULES = "processes.rules"
-SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES)
+SOURCES = "sources"
+SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES)
 #: The field that names an element of a section; "key" where not listed.
 KEY_FIELDS = {PROCESS_RULES: "id"}
 
@@ -79,8 +80,8 @@ def _items(model: dict, section: str, *, create: bool = True) -> list:
     """The section's list of elements; without ``create``, an absent one reads as empty and is not added."""
     if section not in SECTIONS:
         raise EditError("Unbekannter Teil des Modells.")
-    if section == PACKS:
-        return model.setdefault("packs", []) if create else (model.get("packs") or [])
+    if section in (PACKS, SOURCES):
+        return model.setdefault(section, []) if create else (model.get(section) or [])
     if section in (PROCESSES, PROCESS_RULES):
         name = "processes" if section == PROCESSES else "rules"
         doc = model.get("processes")
@@ -660,6 +661,7 @@ OPERATIONS: dict[str, Callable[[_Edit, Mapping[str, Any]], None]] = {
 
 # The process operations (step B6) register themselves in OPERATIONS.
 from builder import process_edits  # noqa: E402,F401  - late: it builds on the helpers above
+from builder import source_edits  # noqa: E402,F401  - the source operations (step B7)
 
 
 def apply(model: dict, op: Any) -> list[dict]:

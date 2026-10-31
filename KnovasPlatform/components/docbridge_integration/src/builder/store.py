@@ -1,4 +1,4 @@
-"""Workspaces, their versions and changes in PostgreSQL (migrations 0011-0013).
+"""Workspaces, their versions and changes in PostgreSQL (migrations 0011-0014).
 
 Functions take the connection at construction; Platform connections run in
 autocommit mode, so every write of more than one statement opens its own
@@ -303,3 +303,38 @@ class WorkspaceStore:
 
     def link_tenant(self, workspace_id: str, tenant: str) -> None:
         self.conn.execute("UPDATE builder_workspace SET tenant = %s WHERE id = %s", (tenant, workspace_id))
+
+    # -------------------------------------------------------- sync components (B7)
+
+    _COMPONENT = """SELECT c.id, c.kind, c.name, c.site, c.owner, c.settings, c.state, c.registered_at, u.display_name
+                      FROM builder_component c LEFT JOIN users u ON u.id = c.registered_by"""
+
+    @staticmethod
+    def _component(row) -> dict:
+        return {"id": str(row[0]), "kind": row[1], "name": row[2], "site": row[3], "owner": row[4],
+                "settings": row[5] or {}, "state": row[6], "registered_at": _iso(row[7]), "registered_by_name": row[8]}
+
+    def components(self, tenant: str) -> list[dict]:
+        """The tenant's registered sync components, by name."""
+        rows = self.conn.execute(self._COMPONENT + " WHERE c.tenant = %s AND c.state = 'registered' ORDER BY c.name",
+                                 (tenant,)).fetchall()
+        return [self._component(r) for r in rows]
+
+    def component(self, tenant: str, component_id: str) -> Optional[dict]:
+        try:
+            uuid.UUID(str(component_id))
+        except ValueError:
+            return None
+        row = self.conn.execute(self._COMPONENT + " WHERE c.tenant = %s AND c.id = %s AND c.state = 'registered'",
+                                (tenant, component_id)).fetchone()
+        return self._component(row) if row else None
+
+    def register_component(self, tenant: str, *, kind: str, name: str, site: str, owner: str, settings: dict,
+                           actor_id) -> Optional[str]:
+        """The new component's id; None when the tenant has one of that name."""
+        row = self.conn.execute(
+            """INSERT INTO builder_component (tenant, kind, name, site, owner, settings, registered_by)
+               VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT (tenant, name) DO NOTHING RETURNING id""",
+            (tenant, kind, name, site, owner, json.dumps(settings), actor_id),
+        ).fetchone()
+        return str(row[0]) if row else None

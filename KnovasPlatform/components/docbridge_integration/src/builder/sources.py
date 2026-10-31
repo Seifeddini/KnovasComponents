@@ -1,0 +1,351 @@
+"""A company's sources and the components that read them (build plan step B7).
+
+A source is read only through the sync component that serves it, registered
+for the tenant (builder_component; B13 adds enrolment and monitoring):
+
+  github_runner     reads a GitHub repository with brain-runner's GitHub
+                    source: the file listing is cached and brought forward
+                    by comparing commits, so a second read fetches only what
+                    changed -- the same incremental read a mapping run makes.
+  knovas_connector  reads a folder of the file share or DMS through the
+                    KnovasConnector's /discover: files with path, size and
+                    date, as the connector reports them today.
+  http_json         reads a JSON document over HTTPS: its record lists.
+
+CRM and database connectors wait for connector protocol v1 (SS-534) and are
+shown as planned.
+
+A reader answers two questions: ``test`` -- reach the source and list what it
+holds as collections with counts -- and ``sample`` -- up to 50 items of one
+collection. ``profile`` turns a sample into fields with type, share empty,
+distinct values and examples. Nothing here logs: what a source holds (file
+names, values) goes to the page that asked, never into a log.
+"""
+from __future__ import annotations
+
+import posixpath
+import re
+from collections import Counter
+from typing import Any, Callable, Iterable, Mapping, Optional
+
+SAMPLE_LIMIT = 50
+COLLECTION_LIMIT = 40
+#: Fields a profile shows: the most filled first; a sample of many different files has hundreds.
+FIELD_LIMIT = 40
+#: The extractors a sample of a repository may use: brain-runner's, the ones that read any file.
+FILE_EXTRACTORS = {"yaml_file": "YAML-Dateien", "json_file": "JSON-Dateien",
+                   "markdown_front_matter": "Markdown mit Front Matter", "file_glob": "Dateien (Name, Größe, Datum)"}
+_EXTRACTOR_OF = {".yaml": "yaml_file", ".yml": "yaml_file", ".json": "json_file", ".md": "markdown_front_matter"}
+
+COMPONENT_KINDS: dict[str, dict] = {
+    "github_runner": {"label": "GitHub-Runner", "serves": "github",
+                      "text": "Liest GitHub-Repositories mit brain-runner, in der Plattform."},
+    "knovas_connector": {"label": "KnovasConnector", "serves": "knovas_connector",
+                         "text": "Liest die Dateiablage oder das DMS der Firma, vor Ort.",
+                         "settings": [("base_url", "Adresse", "leer: der Connector dieser Plattform")]},
+    "http_json": {"label": "HTTP/JSON-Leser", "serves": "http_json",
+                  "text": "Liest JSON-Schnittstellen über HTTPS, in der Plattform."},
+}
+PLANNED_COMPONENTS = [
+    {"kind": "crm", "label": "CRM-Connector", "text": "Geplant: wartet auf das Connector-Protokoll v1 (SS-534)."},
+    {"kind": "database", "label": "Datenbank-Connector", "text": "Geplant: wartet auf das Connector-Protokoll v1 (SS-534)."},
+]
+
+SOURCE_KINDS: dict[str, dict] = {
+    "github": {"label": "GitHub-Repository", "component": "github_runner",
+               "settings": [("repository", "Repository", "owner/name"), ("ref", "Branch oder Tag", "main")],
+               "credential": "Lese-Token (nur Contents: read)", "credential_required": True},
+    "knovas_connector": {"label": "Dateiablage / DMS", "component": "knovas_connector",
+                         "settings": [("folder", "Ordner", "Pfad unter dem Wurzelordner des Connectors")],
+                         "credential": None, "credential_required": False},
+    "http_json": {"label": "HTTP/JSON", "component": "http_json",
+                  "settings": [("url", "Adresse", "https://…")],
+                  "credential": "Token (Bearer), falls nötig", "credential_required": False},
+}
+PLANNED_SOURCES = [{"kind": "crm", "label": "CRM (Salesforce, HubSpot, …)",
+                    "text": "Geplant: wartet auf das Connector-Protokoll v1 (SS-534)."}]
+
+_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_REF = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
+
+
+class ReaderError(RuntimeError):
+    """The source could not be read; the message is for the page and names no content."""
+
+
+def settings_problem(kind: str, settings: Mapping[str, Any]) -> Optional[str]:
+    """Why a source's settings cannot be read, or None."""
+    if kind == "github":
+        repo, ref = str(settings.get("repository") or ""), str(settings.get("ref") or "")
+        if not _REPOSITORY.match(repo):
+            return "Repository: in der Form owner/name."
+        if ref and (not _REF.match(ref) or ".." in ref or ref.startswith(("/", "-"))):
+            return "Branch oder Tag: kein gültiger Name."
+    elif kind == "knovas_connector":
+        folder = str(settings.get("folder") or "")
+        if ".." in folder.replace("\\", "/").split("/"):
+            return "Ordner: ohne «..»."
+    elif kind == "http_json":
+        if not str(settings.get("url") or "").startswith("https://"):
+            return "Adresse: eine https://-Adresse."
+    return None
+
+
+# ------------------------------------------------------------------ profile
+
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ][0-9:.]+(Z|[+-]\d{2}:?\d{2})?)?$")
+
+
+def _flat(value: Any, prefix: str, out: dict, depth: int) -> None:
+    if isinstance(value, Mapping) and depth < 3:
+        if not value and prefix:
+            out[prefix] = {}
+        for k, v in value.items():
+            _flat(v, f"{prefix}.{k}" if prefix else str(k), out, depth + 1)
+    else:
+        out[prefix or "wert"] = value
+
+
+def flatten(item: Any) -> dict:
+    """An item as fields: nested objects become dotted names, three levels deep."""
+    out: dict = {}
+    _flat(item, "", out, 0)
+    return out
+
+
+def _type(value: Any) -> Optional[str]:
+    if value is None or value == "" or value == [] or value == {}:
+        return None
+    if isinstance(value, bool):
+        return "Wahrheitswert"
+    if isinstance(value, (int, float)):
+        return "Zahl"
+    if isinstance(value, str):
+        return "Datum" if _DATE.match(value) else "Text"
+    if isinstance(value, list):
+        return "Liste"
+    if isinstance(value, Mapping):
+        return "Objekt"
+    return "Text"
+
+
+def shown(value: Any, limit: int = 120) -> str:
+    """A value as the page shows it, shortened."""
+    if isinstance(value, list):
+        if all(not isinstance(v, (list, Mapping)) for v in value):
+            text = ", ".join(str(v) for v in value[:8]) + (" …" if len(value) > 8 else "")
+        else:
+            text = f"{len(value)} Einträge"
+    elif isinstance(value, Mapping):
+        text = f"{len(value)} Felder"
+    elif value is None:
+        text = ""
+    else:
+        text = str(value)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def profile(items: Iterable[Any]) -> dict:
+    """Fields of a sample: per field its type, share empty, distinct values and examples; and the rows."""
+    rows = [flatten(i) for i in items]
+    names: list[str] = []
+    for row in rows:
+        for name in row:
+            if name not in names:
+                names.append(name)
+    fields = []
+    for name in names:
+        values = [row.get(name) for row in rows]
+        types = Counter(t for t in map(_type, values) if t)
+        filled = [shown(v) for v in values if _type(v)]
+        distinct = list(dict.fromkeys(filled))
+        fields.append({
+            "name": name,
+            "type": "leer" if not types else (types.most_common(1)[0][0] if len(types) == 1 else "gemischt"),
+            "types": dict(types),
+            "empty_share": round(1 - len(filled) / len(rows), 3) if rows else 0.0,
+            "distinct": len(distinct),
+            "examples": distinct[:3],
+        })
+    fields.sort(key=lambda f: f["empty_share"])  # stable: equally filled fields keep their order
+    kept = [f["name"] for f in fields[:FIELD_LIMIT]]
+    return {"count": len(rows), "fields": fields[:FIELD_LIMIT], "more_fields": max(0, len(fields) - FIELD_LIMIT),
+            "rows": [{name: shown(row.get(name)) for name in kept} for row in rows]}
+
+
+# ------------------------------------------------------------------ readers
+
+class GitHubReader:
+    """A repository through brain-runner's source (GitHubSource; a LocalSource reads a checkout the same way)."""
+
+    def __init__(self, source):
+        self.src = source
+
+    def _files(self) -> list[str]:
+        try:
+            return self.src.glob("**/*")
+        except Exception as exc:  # noqa: BLE001 - brain-runner's SourceError and transport errors alike
+            raise ReaderError(f"Das Repository ist nicht lesbar ({type(exc).__name__}).") from None
+
+    def test(self) -> dict:
+        files = self._files()
+        groups: Counter = Counter()
+        for path in files:
+            parts = posixpath.dirname(path).split("/") if posixpath.dirname(path) else []
+            ext = posixpath.splitext(path)[1].lower()
+            groups[("/".join(parts[:2]), len(parts) >= 2, ext)] += 1
+        collections = []
+        for (folder, deep, ext), count in groups.most_common():
+            pattern = (f"{folder}/**/*{ext}" if deep else (f"{folder}/*{ext}" if folder else f"*{ext}")) if ext else None
+            if pattern is None:
+                continue  # files without an extension: listed in the counts, not as a collection
+            extractor = _EXTRACTOR_OF.get(ext, "file_glob")
+            collections.append({"id": f"{extractor}:{pattern}", "label": f"{folder or '(Wurzel)'} · *{ext}",
+                                "kind": "Dateien", "count": count, "extractor": extractor})
+        detail = {}
+        for name in ("head", "listing", "downloaded", "reused"):
+            value = getattr(self.src, name, None)
+            if value not in (None, ""):
+                detail[name] = value[:12] if name == "head" else value
+        extensions = Counter(posixpath.splitext(p)[1].lower() or "(ohne)" for p in files)
+        return {"collections": collections[:COLLECTION_LIMIT], "more": max(0, len(collections) - COLLECTION_LIMIT),
+                "counts": [["Dateien", len(files)], ["Ordner", len({posixpath.dirname(p) for p in files})],
+                           ["Dateiarten", len(extensions)]],
+                "detail": detail}
+
+    def sample(self, collection: str, limit: int = SAMPLE_LIMIT) -> list[dict]:
+        extractor, _, pattern = str(collection).partition(":")
+        if extractor not in FILE_EXTRACTORS or not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
+            raise ReaderError("Diese Auswahl liest der GitHub-Runner nicht.")
+        from brain_runner.extractors import extract
+
+        out = []
+        try:
+            for doc in extract(self.src, {"extractor": extractor, "glob": pattern}):
+                doc = dict(doc)
+                doc.pop("last_commit", None)
+                out.append(doc)
+                if len(out) >= limit:
+                    break
+        except Exception as exc:  # noqa: BLE001
+            raise ReaderError(f"Die Auswahl ist nicht lesbar ({type(exc).__name__}).") from None
+        return out
+
+
+class KnovasConnectorReader:
+    """A folder of the file share or DMS, through the KnovasConnector's /discover."""
+
+    DEPTH = 4
+
+    def __init__(self, client, folder: str = ""):
+        self.client = client
+        self.folder = folder.strip()
+
+    def _entries(self) -> tuple[list[dict], bool]:
+        try:
+            found = self.client.discover(root=self.folder or None, max_depth=self.DEPTH)
+        except PermissionError as exc:
+            raise ReaderError(str(exc) or "Kein angemeldeter Benutzer.") from None
+        except Exception as exc:  # noqa: BLE001 - KnovasConnectorError carries a message without content
+            raise ReaderError(f"Der Connector antwortet nicht: {exc}") from None
+        entries = [e for e in found.get("entries") or [] if isinstance(e, Mapping)]
+        return [e for e in entries if e.get("type") == "file"], bool(found.get("truncated"))
+
+    @staticmethod
+    def _sub(path: str) -> str:
+        path = str(path).replace("\\", "/").strip("/")
+        return path.split("/", 1)[0] if "/" in path else ""
+
+    def test(self) -> dict:
+        files, truncated = self._entries()
+        subs = Counter(self._sub(f.get("path", "")) for f in files)
+        collections = [{"id": "*", "label": "Alle Dateien", "kind": "Dateien", "count": len(files)}]
+        collections += [{"id": f"folder:{name}", "label": name or "(direkt im Ordner)", "kind": "Dateien", "count": n}
+                        for name, n in sorted(subs.items(), key=lambda kv: (-kv[1], kv[0]))][:COLLECTION_LIMIT]
+        extensions = Counter(posixpath.splitext(str(f.get("name") or ""))[1].lower() or "(ohne)" for f in files)
+        counts = [["Dateien", len(files)], ["Ordner", len(subs)], ["Dateiarten", len(extensions)]]
+        return {"collections": collections, "more": 0, "counts": counts,
+                "detail": {"extensions": dict(extensions.most_common(8)), **({"truncated": True} if truncated else {})}}
+
+    def sample(self, collection: str, limit: int = SAMPLE_LIMIT) -> list[dict]:
+        files, _ = self._entries()
+        if collection != "*":
+            kind, _, name = str(collection).partition(":")
+            if kind != "folder":
+                raise ReaderError("Diese Auswahl gibt es im Connector nicht.")
+            files = [f for f in files if self._sub(f.get("path", "")) == name]
+        out = []
+        for f in files[:limit]:
+            path = str(f.get("path") or "").replace("\\", "/")
+            out.append({"path": path, "name": f.get("name"), "folder": posixpath.dirname(path),
+                        "extension": posixpath.splitext(str(f.get("name") or ""))[1].lower(),
+                        "size_bytes": f.get("size_bytes"), "modified_at": f.get("modified_at")})
+        return out
+
+
+class HttpJsonReader:
+    """A JSON document over HTTPS: its lists of records are the collections."""
+
+    MAX_BYTES = 5_000_000
+
+    def __init__(self, url: str, token: Optional[str] = None, get: Optional[Callable[..., Any]] = None):
+        self.url = url
+        self.token = token
+        self._get = get
+        self._data: Any = None
+
+    def _document(self) -> Any:
+        if self._data is not None:
+            return self._data
+        get = self._get
+        if get is None:
+            import requests
+
+            get = requests.get
+        headers = {"Accept": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        try:
+            resp = get(self.url, headers=headers, timeout=20, stream=True)
+        except Exception as exc:  # noqa: BLE001
+            raise ReaderError(f"Die Adresse ist nicht erreichbar ({type(exc).__name__}).") from None
+        if resp.status_code >= 400:
+            raise ReaderError(f"Die Adresse antwortet mit HTTP {resp.status_code}.")
+        body = resp.content
+        if len(body) > self.MAX_BYTES:
+            raise ReaderError("Die Antwort ist größer als 5 MB.")
+        try:
+            import json
+
+            self._data = json.loads(body)
+        except ValueError:
+            raise ReaderError("Die Antwort ist kein JSON.") from None
+        return self._data
+
+    def _lists(self) -> dict[str, list]:
+        data = self._document()
+        found: dict[str, list] = {}
+        if isinstance(data, list):
+            found["$"] = data
+        elif isinstance(data, Mapping):
+            for key, value in data.items():
+                if isinstance(value, list):
+                    found[f"$.{key}"] = value
+                elif isinstance(value, Mapping):
+                    for inner, items in value.items():
+                        if isinstance(items, list):
+                            found[f"$.{key}.{inner}"] = items
+        return found
+
+    def test(self) -> dict:
+        lists = self._lists()
+        collections = [{"id": path, "label": path, "kind": "Datensätze", "count": len(items)}
+                       for path, items in lists.items()]
+        return {"collections": collections, "more": 0,
+                "counts": [["Listen", len(lists)], ["Datensätze", sum(len(v) for v in lists.values())]], "detail": {}}
+
+    def sample(self, collection: str, limit: int = SAMPLE_LIMIT) -> list[Any]:
+        lists = self._lists()
+        if collection not in lists:
+            raise ReaderError("Diese Liste gibt es in der Antwort nicht.")
+        return lists[collection][:limit]

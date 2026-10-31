@@ -1,0 +1,114 @@
+{# Stage 2 (build plan step B7; B13 grows it): the tenant's registered sync
+   components. Every source is read through one of them. Expects components,
+   component_kinds, planned_components and platform_tenant
+   (builder_routes._components_context). Registering is
+   static/js/builder/components.js. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}{{ stage.label }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }}{% if platform_tenant %} · Mandant <span class="b-mono">{{ platform_tenant }}</span>{% endif %}</p>
+        <h1 class="b-h1">{{ stage.label }}</h1>
+        <p class="b-muted">Jede Quelle wird nur über eine registrierte Komponente gelesen. Hochgeladen wird nichts von Hand.</p>
+    </div>
+    <div class="b-onto-edit-bar">
+        <button type="button" class="b-button b-button--primary" data-comp-new data-url="{{ url_for('builder.register_component') }}" {% if not platform_tenant %}disabled title="Diese Plattform kennt ihren Mandanten nicht."{% endif %}>{{ icon('plus') }}Komponente registrieren</button>
+    </div>
+</header>
+
+{% if not platform_tenant %}
+<div class="b-callout b-callout--warning" role="status">
+    <p class="b-callout-title">Kein Mandant</p>
+    <p>Diese Plattform kennt ihren Mandanten nicht (kein Zertifikat). Komponenten gehören zu einem Mandanten.</p>
+</div>
+{% endif %}
+
+<section aria-labelledby="b-comp-title" class="b-comp-section">
+    <h2 class="b-h3" id="b-comp-title">Registrierte Komponenten</h2>
+    {% if components %}
+    <div class="b-table-wrap">
+        <table class="b-table" data-comp-table>
+            <thead><tr><th scope="col">Name</th><th scope="col">Art</th><th scope="col">Standort</th><th scope="col">Verantwortlich</th><th scope="col">Zustand</th><th scope="col">Registriert</th></tr></thead>
+            <tbody>
+            {% for c in components %}
+                <tr>
+                    <td><strong>{{ c.name }}</strong>{% if c.settings.base_url %}<br><span class="b-mono b-small b-muted">{{ c.settings.base_url }}</span>{% endif %}</td>
+                    <td>{{ component_kinds[c.kind].label }}</td>
+                    <td>{{ c.site or '–' }}</td>
+                    <td>{{ c.owner or '–' }}</td>
+                    <td><span class="b-tag b-tag--good">Registriert</span></td>
+                    <td class="b-small">{{ c.registered_at | b_datetime }}{% if c.registered_by_name %}<br><span class="b-muted">{{ c.registered_by_name }}</span>{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="b-small b-muted">Anmelden mit eigenem Zertifikat, Herzschlag, Läufe und Pausen folgen mit der Komponentenverwaltung (B13).</p>
+    {% else %}
+    <section class="b-empty" aria-labelledby="b-comp-empty-title">
+        <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
+        <div class="b-empty-text">
+            <h3 class="b-h3" id="b-comp-empty-title">{{ stage.empty_title }}</h3>
+            <p class="b-muted">Registrieren Sie den GitHub-Runner, einen KnovasConnector oder den HTTP/JSON-Leser.</p>
+        </div>
+    </section>
+    {% endif %}
+</section>
+
+<section aria-labelledby="b-comp-kinds-title" class="b-comp-section">
+    <h2 class="b-h3" id="b-comp-kinds-title">Arten von Komponenten</h2>
+    <ul class="b-comp-kinds">
+        {% for kind, k in component_kinds.items() %}
+        <li class="b-card"><strong>{{ k.label }}</strong><span class="b-small b-muted">{{ k.text }}</span></li>
+        {% endfor %}
+        {% for k in planned_components %}
+        <li class="b-card b-comp-planned"><span><strong>{{ k.label }}</strong> <span class="b-tag">Geplant</span></span><span class="b-small b-muted">{{ k.text }}</span></li>
+        {% endfor %}
+    </ul>
+</section>
+
+<script type="application/json" id="b-comp-data">{{ {'kinds': component_kinds} | tojson }}</script>
+
+<dialog class="b-dialog" id="b-comp-new" aria-labelledby="b-comp-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-comp-new-title">Komponente registrieren</h2>
+            <p class="b-muted">Für den Mandanten {{ platform_tenant or '' }}.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <fieldset class="b-field b-choice">
+                <legend class="b-label">Art</legend>
+                {% for kind, k in component_kinds.items() %}
+                <label class="b-check"><input type="radio" name="kind" value="{{ kind }}" {% if loop.first %}checked{% endif %}>{{ k.label }}</label>
+                {% endfor %}
+                {% for k in planned_components %}
+                <label class="b-check b-muted"><input type="radio" name="kind" value="{{ k.kind }}" disabled>{{ k.label }} (geplant)</label>
+                {% endfor %}
+            </fieldset>
+            <div class="b-field"><label class="b-label" for="b-cn-name">Name</label><input class="b-input" id="b-cn-name" name="name" required autocomplete="off" placeholder="z. B. Dateiablage Zürich"></div>
+            <div class="b-ed-pair">
+                <div class="b-field"><label class="b-label" for="b-cn-site">Standort</label><input class="b-input" id="b-cn-site" name="site" autocomplete="off" placeholder="z. B. Büro Zürich"></div>
+                <div class="b-field"><label class="b-label" for="b-cn-owner">Verantwortlich</label><input class="b-input" id="b-cn-owner" name="owner" autocomplete="off"></div>
+            </div>
+            <div class="b-field" data-cn-base>
+                <label class="b-label" for="b-cn-base">Adresse des Connectors</label>
+                <input class="b-input b-mono" id="b-cn-base" name="base_url" autocomplete="off" spellcheck="false" placeholder="leer: der Connector dieser Plattform" aria-describedby="b-cn-base-hint">
+                <span class="b-hint" id="b-cn-base-hint">Nur für einen weiteren KnovasConnector. Gelesen wird als die angemeldete Person.</span>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Registrieren</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/components.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

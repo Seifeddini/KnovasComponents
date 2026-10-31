@@ -50,6 +50,7 @@ class MemoryWorkspaceStore:
     def __init__(self, user_names=None):
         self.rows: dict[str, dict] = {}
         self.user_names = dict(user_names or {})
+        self.component_rows: list[dict] = []
 
     @staticmethod
     def _now():
@@ -193,6 +194,23 @@ class MemoryWorkspaceStore:
     def link_tenant(self, workspace_id, tenant):
         self.rows[workspace_id]["tenant"] = tenant
 
+    # Sync components (B7), per tenant.
+    def components(self, tenant):
+        found = [c for c in self.component_rows if c["tenant"] == tenant]
+        return [{k: copy.deepcopy(v) for k, v in c.items() if k != "tenant"} for c in sorted(found, key=lambda c: c["name"])]
+
+    def component(self, tenant, component_id):
+        return next((c for c in self.components(tenant) if c["id"] == component_id), None)
+
+    def register_component(self, tenant, *, kind, name, site, owner, settings, actor_id):
+        if any(c["tenant"] == tenant and c["name"] == name for c in self.component_rows):
+            return None
+        row = {"id": str(uuid.uuid4()), "tenant": tenant, "kind": kind, "name": name, "site": site, "owner": owner,
+               "settings": copy.deepcopy(settings), "state": "registered", "registered_at": self._now(),
+               "registered_by_name": self._actor(actor_id)[1]}
+        self.component_rows.append(row)
+        return row["id"]
+
 
 class FakeEngine:
     """``builder.publisher.Engine`` against a tenant held in memory.
@@ -265,7 +283,77 @@ class FakeEngine:
         return {"written": True, "key": f"EVT-builder-publish-v{facts['version']}", "errors": [], "why": None}
 
 
-def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None) -> Flask:
+class MemorySecrets:
+    """``platform_settings.SourceSecrets`` in memory: write-only to the builder, readable by the readers."""
+
+    def __init__(self, available=True):
+        self.values: dict[str, str] = {}
+        self.available = available
+        self.reason = "" if available else "PLATFORM_SETTINGS_KEY ist nicht gesetzt: Geheimnisse können nicht gespeichert werden."
+
+    def put(self, key, value, user):
+        from platform_settings import NoSecretKey
+
+        if not self.available:
+            raise NoSecretKey(self.reason)
+        self.values[key] = value
+
+    def clear(self, key, user):
+        self.values.pop(key, None)
+
+    def get(self, key):
+        return self.values.get(key)
+
+
+class FakeConnector:
+    """A KnovasConnector's /discover over a folder on disk: the files as the connector reports them."""
+
+    def __init__(self, root):
+        self.root = Path(root)
+        self.calls = []
+
+    def discover(self, root=None, max_depth=3):
+        self.calls.append(root)
+        base = self.root / (root or "")
+        if not base.is_dir():
+            from knovas_connector_client import KnovasConnectorError
+
+            raise KnovasConnectorError("Root path is outside allowed watch roots", status=403)
+        entries = []
+        for path in sorted(base.rglob("*")):
+            rel = path.relative_to(base).as_posix()
+            if len(path.relative_to(base).parts) > max_depth + 1:
+                continue
+            if path.is_dir():
+                entries.append({"path": rel, "name": path.name, "type": "directory"})
+            else:
+                entries.append({"path": rel, "name": path.name, "type": "file", "size_bytes": path.stat().st_size,
+                                "modified_at": "2026-10-30T09:15:00Z"})
+        return {"status": "success", "root": str(base), "truncated": False, "entries": entries}
+
+
+def stand_in_readers(github_root=None, connector=None, http=None):
+    """A reader factory as the app's, with stand-in transports: brain-runner reads ``github_root`` (a
+    checkout) the way it reads a repository; the connector is a FakeConnector; ``http`` answers GETs."""
+    from builder import sources
+
+    def factory(component, source, secret, workspace_id):
+        settings = source.get("settings") or {}
+        if source["kind"] == "github":
+            from brain_runner.sources.local import LocalSource
+
+            factory.secrets.append(secret)
+            return sources.GitHubReader(LocalSource(Path(github_root)))
+        if source["kind"] == "knovas_connector":
+            return sources.KnovasConnectorReader(connector, settings.get("folder") or "")
+        return sources.HttpJsonReader(settings["url"], secret, get=http)
+
+    factory.secrets = []
+    return factory
+
+
+def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
+             secrets=None, readers=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -303,5 +391,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         tenant_ontology=(lambda: (tenant_types[0], tenant_types[1])) if tenant_types is not None else None,
         engine_factory=(lambda: engine) if engine is not None else None,
         publish_sink=publish_sink,
+        source_secrets=(lambda: secrets) if secrets is not None else None,
+        reader_factory=readers,
     ))
     return app

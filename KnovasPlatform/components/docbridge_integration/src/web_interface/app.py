@@ -1880,6 +1880,41 @@ def create_app(config_path: Optional[str] = None):
             return BrainApi(api_client.base_url, api_client.cert_path or None, api_client.key_path or None,
                             api_client.ca_cert_path or None)
 
+        def _builder_source_secrets():
+            """The sources' credentials in the settings registry, for this Platform's tenant (write-only)."""
+            import platform_settings as _ps
+
+            return _ps.SourceSecrets(_ps.SettingStore(identity_gate.connection()),
+                                     app.extensions['platform_settings'].box, str(api_client.customer_id or ''))
+
+        def _builder_reader(component, source, secret, workspace_id):
+            """A source's reader through the component that serves it (builder.sources)."""
+            import hashlib as _hashlib
+            import tempfile as _tempfile
+            from pathlib import Path as _Path
+
+            from builder import sources as _sources
+
+            settings = source.get('settings') or {}
+            if source['kind'] == 'github':
+                from brain_runner.sources.github import GitHubSource
+
+                # brain-runner's own cache: the listing is brought forward from the last read's commit.
+                name = _hashlib.sha256(f"{workspace_id}/{source['key']}/{settings.get('repository')}".encode()).hexdigest()
+                cache = _Path(_tempfile.gettempdir()) / 'builder-github' / f'{name}.json'
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                return _sources.GitHubReader(GitHubSource(settings['repository'], settings.get('ref') or 'HEAD',
+                                                          cache_path=cache, token=secret))
+            if source['kind'] == 'knovas_connector':
+                base = (component.get('settings') or {}).get('base_url')
+                client = KnovasConnectorClient(base, principal_broker=principal_broker) if base else rc_client
+                if client is None:
+                    raise _sources.ReaderError('Diese Plattform hat keinen KnovasConnector.')
+                return _sources.KnovasConnectorReader(client, settings.get('folder') or '')
+            if source['kind'] == 'http_json':
+                return _sources.HttpJsonReader(settings['url'], secret)
+            raise _sources.ReaderError('Diese Art von Quelle liest die Plattform nicht.')
+
         # Only with per-user identity: the builder is gated on a role, and the
         # legacy shared login has no roles to check. The store is built per
         # request, on the request's connection, as the grant store below is.
@@ -1902,6 +1937,9 @@ def create_app(config_path: Optional[str] = None):
             tenant_ontology=lambda: (api_client.graph_node_types(), api_client.graph_schema),
             # The views read the sync's bundle: a published version becomes it.
             publish_sink=lambda text, **info: app.extensions['brain_sync'].adopt(text, **info),
+            # Sources (B7): credentials only through the settings registry, reads only through a component.
+            source_secrets=_builder_source_secrets,
+            reader_factory=_builder_reader,
         ))
 
         from identity.node_grants import NodeGrantStore

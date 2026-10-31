@@ -19,16 +19,17 @@ from typing import Any, Iterable, Mapping, Optional
 from builder import processes
 
 SECTIONS = {"ontology.types": "Typen", "ontology.relations": "Beziehungen", "packs": "Pakete",
-            "processes": "Prozesse", "processes.rules": "Prozessregeln"}
+            "processes": "Prozesse", "processes.rules": "Prozessregeln", "sources": "Quellen"}
 KINDS = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand",
-         "processes": "Prozess", "processes.rules": "Prozessregel"}
+         "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle"}
 #: Change rows that are not about one element: where the draft came from.
 ORIGINS = {"import": "Paket importiert", "create": "Angelegt"}
 
 _FIELDS = {"label": "Namen", "description": "Beschreibung", "example": "Beispiel",
            "not_to_confuse": "Nicht verwechseln mit", "parent": "Elterntyp", "domain": "Von", "range": "Nach",
            "family": "Familie", "inverse": "Umkehrung", "sentence": "Lesart", "iri": "IRI", "reason": "Begründung",
-           "version": "Version"}
+           "version": "Version", "name": "Name", "owner": "Verantwortlich", "component": "Komponente",
+           "settings": "Einstellungen", "credential_set": "Zugangsdaten"}
 
 
 def state_of(before: Optional[Mapping[str, Any]], after: Optional[Mapping[str, Any]]) -> str:
@@ -51,6 +52,8 @@ def describe(item: Mapping[str, Any]) -> str:
         return f"{item.get('name') or item.get('key')} · {len(steps)} Schritte" + (f": {' → '.join(steps)}" if steps else "")
     if "check" in item:
         return f"{item.get('name') or item.get('id')} ({item['id']})"
+    if "sync_mode" in item:
+        return f"{item.get('name')} · {item.get('kind')}"
     parts = [(item.get("label") or {}).get("de") or str(item.get("key"))]
     if "version" in item and "key" in item and len(item) == 2:
         return f"Version {item['version']}"

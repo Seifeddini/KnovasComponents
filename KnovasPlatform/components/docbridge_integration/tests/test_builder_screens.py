@@ -871,3 +871,122 @@ def test_processes_of_client_zero(browser, publishing_server, shots, import_zip)
     assert any(r["id"] == "P-sicherheitspruefung-abgeschlossen" for r in published["rules"])
     page.screenshot(path=shots / "b6-08-published.png", full_page=True)
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B7: sources, each through its registered component. The GitHub runner
+# reads the KnowledgeBase checkout ($KNOWLEDGEBASE_CLIENT_ZERO's repository)
+# with brain-runner as it reads the repository on GitHub; the KnovasConnector
+# is a folder answered as its /discover answers.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sources_server(tmp_path):
+    from builder_harness import FakeConnector, MemorySecrets, MemoryWorkspaceStore, SAMPLE_PACKAGE, stand_in_readers
+
+    pytest.importorskip("brain_runner.extractors")
+    given = os.environ.get("KNOWLEDGEBASE_CLIENT_ZERO")
+    checkout = Path(given).parents[2] if given else SAMPLE_PACKAGE
+    share = tmp_path / "ablage"
+    for path in ("Mandate/Muster AG/2026-03 Vollmacht.pdf", "Mandate/Muster AG/2026-04 Honorarvereinbarung.docx",
+                 "Mandate/Muster AG/Korrespondenz/2026-05 Schreiben Gegenseite.pdf", "Mandate/Beispiel GmbH/Klage.pdf",
+                 "Mandate/Beispiel GmbH/Beilagen/Vertrag.pdf", "Mandate/Beispiel GmbH/Notiz.txt",
+                 "Vorlagen/Briefvorlage.docx"):
+        (share / path).parent.mkdir(parents=True, exist_ok=True)
+        (share / path).write_bytes(b"x" * (len(path) * 97))
+    user = StandInUser({"admin"})
+    store = MemoryWorkspaceStore({str(user.id): user.display_name})
+    readers = stand_in_readers(github_root=checkout, connector=FakeConnector(share))
+    app = make_app(user, store, tenant="test-tenant-0001", secrets=MemorySecrets(), readers=readers)
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "store": store, "readers": readers}
+    server.shutdown()
+
+
+def _register_component(page, base, kind, name, site, owner, shots=None, shot=None):
+    page.goto(f"{base}/builder/verbinden")
+    page.locator("[data-comp-new]").click()
+    dialog = page.locator("#b-comp-new")
+    dialog.locator(f"input[name='kind'][value='{kind}']").check()
+    page.fill("#b-cn-name", name)
+    page.fill("#b-cn-site", site)
+    page.fill("#b-cn-owner", owner)
+    if shots and shot:
+        page.screenshot(path=shots / shot)
+    dialog.get_by_role("button", name="Registrieren").click()
+    page.wait_for_selector(f"[data-comp-table] >> text={name}")
+
+
+def _add_source(page, kind, name, owner, settings, component):
+    page.locator("[data-src-new]").click()
+    dialog = page.locator("#b-src-new")
+    dialog.locator(f"input[name='kind'][value='{kind}']").check()
+    dialog.locator("#b-sn-component").select_option(label=component)
+    page.fill("#b-sn-name", name)
+    page.fill("#b-sn-owner", owner)
+    for field, value in settings.items():
+        page.fill(f"#b-sn-{field}", value)
+    return dialog
+
+
+def test_sources_of_client_zero(browser, sources_server, shots, import_zip):
+    s = sources_server
+    base = s["base"]
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, base, import_zip)
+
+    # Both components, registered for the tenant.
+    _register_component(page, base, "github_runner", "GitHub-Runner", "Plattform", "Engine-Owner", shots, "b7-01-register.png")
+    _register_component(page, base, "knovas_connector", "Dateiablage Zürich", "Büro Zürich", "IT")
+    assert page.locator("[data-comp-table] tbody tr").count() == 2
+    page.screenshot(path=shots / "b7-02-components.png")
+
+    # The KnowledgeBase repository through the GitHub runner.
+    page.goto(f"{base}/builder/quellen")
+    page.wait_for_selector("html[data-src-ready='true']")
+    dialog = _add_source(page, "github", "KnowledgeBase", "Engine-Owner",
+                         {"repository": "Seifeddini/KnowledgeBase", "ref": "master"}, "GitHub-Runner (Plattform)")
+    page.screenshot(path=shots / "b7-03-new-source.png")
+    dialog.get_by_role("button", name="Quelle anlegen").click()
+    page.wait_for_selector(".b-src-head >> text=KnowledgeBase")
+    page.get_by_label("Neuer Zugang für KnowledgeBase").fill("ghp_read_only_for_the_acceptance")
+    page.locator(".b-src-credential").get_by_role("button", name="Speichern").click()
+    page.wait_for_selector(".b-src-credential >> text=Gesetzt")
+    page.locator(".b-toast-close").first.click()
+    assert "ghp_read_only_for_the_acceptance" not in page.content()
+    page.get_by_role("button", name="Testen").click()
+    page.wait_for_selector(".b-src-ok")
+    assert "Erreicht" in page.inner_text("[data-src-result]")
+    page.screenshot(path=shots / "b7-04-repository-tested.png")
+    yaml_collection = page.locator("[data-src-result] tbody tr", has_text="*.yaml").first
+    yaml_collection.get_by_role("button", name="Stichprobe").click()
+    page.wait_for_selector(".b-src-profile")
+    assert page.locator(".b-src-profile tbody tr").count() > 2
+    page.locator("[data-src-sample]").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b7-05-repository-sample.png")
+    assert s["readers"].secrets[-1] == "ghp_read_only_for_the_acceptance"
+
+    # A fileshare folder through the KnovasConnector.
+    dialog = _add_source(page, "knovas_connector", "Ablage Mandate", "Sekretariat", {"folder": "Mandate"},
+                         "Dateiablage Zürich (Büro Zürich)")
+    dialog.get_by_role("button", name="Quelle anlegen").click()
+    page.wait_for_selector(".b-src-head >> text=Ablage Mandate")
+    page.get_by_role("button", name="Testen").click()
+    page.wait_for_selector(".b-src-ok")
+    counts = page.inner_text(".b-src-stats")
+    assert "6" in counts and "Dateien" in counts
+    page.screenshot(path=shots / "b7-06-folder-tested.png")
+    page.locator("[data-src-result] tbody tr", has_text="Beispiel GmbH").get_by_role("button", name="Stichprobe").click()
+    page.wait_for_selector(".b-src-profile")
+    page.locator(".b-src-rows summary").click()
+    assert "Klage.pdf" in page.inner_text("[data-src-sample]")
+    page.locator("[data-src-sample]").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b7-07-folder-sample.png")
+
+    # Both are part of the draft, for the review.
+    [workspace] = s["store"].list()
+    assert {c["path"] for c in s["store"].draft_changes(workspace.id)} >= {"sources/knowledgebase", "sources/ablage-mandate"}
+    page.context.close()
