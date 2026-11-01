@@ -144,7 +144,7 @@ def _problem(found: list, severity: str, area: str, item: Any, kind: str, messag
 
 
 #: What an empty list a definition needs means, said as what to do (the schema says "[] is too short").
-_EMPTY = {"levels": "Die Hierarchie hat noch keine Ebene. Legen Sie die oberste Ebene an.",
+_EMPTY = {"levels": "Die Hierarchie hat noch keine Ebene. Legen Sie die oberste und eine darunter an.",
           "types": "Die Ebene nennt noch keinen Typ. Wählen Sie, welche Knoten auf dieser Ebene stehen.",
           "sections": "Die Seite hat noch keinen Abschnitt.",
           "views": "Das Profil hat noch keine Ansicht.",
@@ -152,10 +152,14 @@ _EMPTY = {"levels": "Die Hierarchie hat noch keine Ebene. Legen Sie die oberste 
 
 
 def _message(error) -> str:
-    if error.validator == "minItems" and error.instance == [] and error.absolute_path:
-        plain = _EMPTY.get(str(list(error.absolute_path)[-1]))
-        if plain:
-            return plain
+    if error.validator == "minItems" and isinstance(error.instance, list) and error.absolute_path:
+        name = str(list(error.absolute_path)[-1])
+        if error.instance == [] and name in _EMPTY:
+            return _EMPTY[name]
+        if name == "levels":
+            last = error.instance[-1] if isinstance(error.instance[-1], dict) else {}
+            return (f"Eine Hierarchie braucht mindestens {error.validator_value} Ebenen. Fügen Sie unter "
+                    f"«{last.get('name') or last.get('id') or 'der obersten Ebene'}» die nächste an.")
     return error.message
 
 

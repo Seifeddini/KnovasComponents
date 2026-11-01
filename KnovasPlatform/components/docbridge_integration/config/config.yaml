@@ -394,6 +394,10 @@ builder:
     # the client certificate it verified (and never passed on from the client). false only where no terminator
     # checks client certificates; the control token alone then authenticates a component.
     require_client_certificate: "${BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT:-true}"
+  # Views by description: the model the assistant uses (settings registry builder.assistant.model). Its API key is
+  # a secret of the registry (ANTHROPIC_API_KEY pins it), never a value here.
+  assistant:
+    model: "${BUILDER_ASSISTANT_MODEL:-claude-opus-5-5}"
 
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"

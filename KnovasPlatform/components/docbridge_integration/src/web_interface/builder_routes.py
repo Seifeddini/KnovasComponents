@@ -55,7 +55,7 @@ ENDPOINT_PERMISSIONS = {
     "mapping_page": "view", "published_bundle": "view", "styleguide": "view", "views_preview": "view",
     "comments": "view", "activity": "view",
     "import_preview": "edit", "import_package": "edit", "create_workspace": "edit", "edit_ontology": "edit",
-    "undo": "edit", "redo": "edit", "source_credential": "edit", "source_test": "edit", "source_sample": "edit",
+    "undo": "edit", "redo": "edit", "views_assistant": "edit", "source_credential": "edit", "source_test": "edit", "source_sample": "edit",
     "mapping_preview": "edit", "mapping_dry_run": "edit", "dry_run": "edit",
     "add_comment": "comment", "resolve_comment": "resolve",
     "approve": "review", "record_review": "review",
@@ -203,6 +203,7 @@ def create_builder_blueprint(
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
+    assistant_client: Optional[Callable[[], Optional[tuple]]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -451,7 +452,8 @@ def create_builder_blueprint(
             if workspace is not None:
                 return _render("builder/views.html", stage=current, stage_number=number,
                                current_workspace=workspace, history=_history_counts(workspace.id),
-                               brain=brain_views.build(store.model(workspace.id), roles=_roles()))
+                               brain=brain_views.build(store.model(workspace.id), roles=_roles()),
+                               assistant_ready=_assistant() is not None)
         if current.slug == "verbinden":
             return _render("builder/components.html", stage=current, stage_number=number,
                            **_components_context(_store()), **_registry_context(_store()))
@@ -721,6 +723,55 @@ def create_builder_blueprint(
         return _edited(store, current.id, model, changes, take)
 
     # -------------------------------------------------------- views and roles (B9)
+
+    def _assistant():
+        """(client, model name) of the views assistant, or None: no API key in the settings registry."""
+        if assistant_client is None:
+            return None
+        try:
+            return assistant_client()
+        except Exception as exc:  # noqa: BLE001 - a broken setting reads as "not set up", said on the page
+            logger.warning("Builder: the views assistant cannot be set up (%s)", type(exc).__name__)
+            return None
+
+    @bp.route("/api/w/<workspace_id>/views/assistant", methods=["POST"])
+    def views_assistant(workspace_id: str):
+        """Views by description: Claude tries operations on a copy of the draft until the checks are clean; the
+        ones it kept are applied here as one batch (one undo). The description is never logged."""
+        from builder import assistant
+
+        store, current = _editable_workspace(workspace_id)
+        found = _assistant()
+        if not found:
+            return jsonify({"success": False, "error": "Der Assistent ist nicht eingerichtet: in den Einstellungen "
+                            "fehlt der Schlüssel für die Claude API."}), 503
+        client, model_name = found
+        body = request.get_json(silent=True) or {}
+        try:
+            result = assistant.answer(client, model_name, store.model(current.id), str(body.get("message") or ""),
+                                      history=body.get("history"), roles=_roles())
+        except assistant.AssistantError as exc:
+            return jsonify({"success": False, "error": exc.message}), exc.status
+        changes, batch = [], None
+        if result.operations:
+            try:
+                model, changes, batch = store.edit(current.id, gate.current_user().id,
+                                                   lambda m: assistant.apply_all(m, result.operations))
+            except editing.EditError as exc:
+                return jsonify({"success": False, "error": "Der Entwurf hat sich inzwischen geändert; "
+                                "beschreiben Sie es bitte noch einmal.", "details": [exc.message]}), 409
+        else:
+            model = store.model(current.id)
+        if batch:
+            history = _history(current.id)
+            history["undo"].append(batch)
+            history["redo"] = []
+            _save_history(current.id, history)
+        logger.info("Builder views assistant: workspace %s, %d rounds, %d operations, %d changes",
+                    current.id, result.rounds, len(result.operations), len(changes))
+        return jsonify({"success": True, "reply": result.reply, "operations": len(result.operations),
+                        "changes": len(changes), "history": _history_counts(current.id),
+                        "views": brain_views.build(model, roles=_roles())})
 
     def _roles() -> list:
         try:

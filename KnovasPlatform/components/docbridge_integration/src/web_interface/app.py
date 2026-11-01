@@ -1929,6 +1929,17 @@ def create_app(config_path: Optional[str] = None):
 
             return BrainAccess(api_client)
 
+        def _builder_assistant():
+            """The views assistant: a Claude client on the settings registry's API key and the chosen model; None
+            without a key."""
+            resolver = app.extensions['platform_settings']
+            key = resolver.secret('builder.assistant.api_key')
+            if not key:
+                return None
+            import anthropic
+
+            return anthropic.Anthropic(api_key=key), resolver.value('builder.assistant.model') or 'claude-opus-5-5'
+
         def _builder_component_limits():
             resolver = app.extensions['platform_settings']
             return {'offline_after_minutes': resolver.value('builder.components.offline_after_minutes'),
@@ -2006,6 +2017,8 @@ def create_app(config_path: Optional[str] = None):
             component_limits=_builder_component_limits,
             # The access window (B14): the Brain's groups and folder rules on this Platform's certificate.
             access_backend=_builder_access_backend,
+            # Views by description: Claude on the settings registry's API key (builder.assistant.*).
+            assistant_client=_builder_assistant,
         ))
 
         # Connector protocol v1 (B13): components call out to these; each checks the component's own credential,

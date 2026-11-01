@@ -167,6 +167,64 @@
         });
     }
     document.querySelector('[data-views-undo]').addEventListener('click', function () { step(root.dataset.undoUrl); });
+
+    /* ---- views by description: Claude builds, the checks and the preview show it ---------------- */
+
+    (function () {
+        var box = document.querySelector('[data-views-assist]');
+        var form = box && box.querySelector('[data-assist-form]');
+        if (!form) return;
+        var log = box.querySelector('[data-assist-log]');
+        var text = box.querySelector('[data-assist-text]');
+        var send = box.querySelector('[data-assist-send]');
+        var status = box.querySelector('[data-assist-status]');
+        var turns = [];
+        function say(kind, body) {
+            var li = el('li', 'b-vw-assist-turn b-vw-assist-turn--' + kind, body);
+            log.appendChild(li);
+            log.scrollTop = log.scrollHeight;
+            return li;
+        }
+        text.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); form.requestSubmit(); }
+        });
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var message = text.value.trim();
+            if (!message || pending) return;
+            pending = true;
+            working(1);
+            send.disabled = true;
+            text.disabled = true;
+            say('user', message);
+            status.textContent = 'Claude baut und prüft … das dauert meist eine halbe bis zwei Minuten.';
+            post(box.dataset.url, { message: message, history: turns }).then(function (payload) {
+                pending = false;
+                working(-1);
+                send.disabled = false;
+                text.disabled = false;
+                status.textContent = '';
+                if (!payload.success) {
+                    say('error', payload.error || 'Das hat nicht geklappt.');
+                    return;
+                }
+                turns.push({ role: 'user', text: message }, { role: 'assistant', text: payload.reply });
+                text.value = '';
+                var li = say('assistant', payload.reply);
+                if (payload.changes) {
+                    history = payload.history || history;
+                    data = payload.views;
+                    render();
+                    li.appendChild(el('br'));
+                    li.appendChild(button('Rückgängig: alles aus dieser Antwort', 'b-button--secondary b-button--small', function () {
+                        step(root.dataset.undoUrl);
+                        this.disabled = true;
+                    }));
+                }
+                text.focus();
+            });
+        });
+    })();
     document.querySelector('[data-views-redo]').addEventListener('click', function () { step(root.dataset.redoUrl); });
 
     /* ---- the dialog ----------------------------------------------------- */
@@ -1242,7 +1300,7 @@
                 top.setAttribute('list', 'b-vw-types');
                 top.placeholder = 'z. B. System';
                 body.appendChild(field('Name', name));
-                body.appendChild(field('Oberste Ebene: welcher Typ steht ganz oben?', top, 'Ein Typ der Ontologie.'));
+                body.appendChild(field('Oberste Ebene: welcher Typ steht ganz oben?', top, 'Ein Typ der Ontologie. Die Ebene darunter fügen Sie danach an.'));
                 return function () {
                     if (!name.value.trim()) throw 'Der Name fehlt.';
                     if (!top.value.trim()) throw 'Wählen Sie den Typ der obersten Ebene.';

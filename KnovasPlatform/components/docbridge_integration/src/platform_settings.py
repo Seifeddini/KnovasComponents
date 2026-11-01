@@ -151,6 +151,15 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Nur Lesen: Contents (read) auf diesem Repository, sonst nichts. Geschrieben wird mit dem Zertifikat des "
             "Mandanten. Wird nur geschrieben, nie angezeigt.",
             "secret", "tenant", env=("BRAIN_SYNC_GITHUB_TOKEN",), file_key="brain_sync.github_token_file"),
+    Setting("builder.assistant.api_key", "Schlüssel für die Claude API",
+            "Für den Ansichten-Assistenten im Brain Builder: er schreibt Ansichten aus einer Beschreibung. Claude "
+            "bekommt nur die Definitionen des Arbeitsbereichs und die Beschreibung, nie Daten des Mandanten. "
+            "Wird nur geschrieben, nie angezeigt. Leer: kein Assistent.",
+            "secret", "installation", env=("ANTHROPIC_API_KEY",)),
+    Setting("builder.assistant.model", "Modell des Ansichten-Assistenten",
+            "claude-opus-5-5 baut die Definitionen am zuverlässigsten; claude-sonnet-5-5 ist günstiger und schneller.",
+            "choice", "installation", env=("BUILDER_ASSISTANT_MODEL",), choices=("claude-opus-5-5", "claude-sonnet-5-5"),
+            fallback="claude-opus-5-5"),
     Setting("views.change_requests.github_token", "Token für die Wissensbasis (GitHub)",
             "Liest das Definitionsbündel und öffnet Änderungsanträge. Rechte: Contents und Pull requests auf "
             "dem Repository der Wissensbasis, sonst nichts. Wird nur geschrieben, nie angezeigt.",

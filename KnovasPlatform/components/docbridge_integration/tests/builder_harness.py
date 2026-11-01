@@ -770,7 +770,7 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
              component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
-             access=None) -> Flask:
+             access=None, assistant=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -818,6 +818,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         component_adapter=adapters,
         component_limits=(lambda: limits) if limits is not None else None,
         access_backend=(lambda: access) if access is not None else None,
+        assistant_client=(lambda: assistant) if assistant is not None else None,
     ))
     if component_secrets is not None and store is not None:
         from web_interface.connector_protocol import create_connector_protocol_blueprint

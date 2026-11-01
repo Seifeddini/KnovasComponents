@@ -36,6 +36,28 @@
     </div>
 </header>
 
+<section class="b-vw-assist" aria-labelledby="b-vw-assist-title" data-views-assist
+         data-url="{{ url_for('builder.views_assistant', workspace_id=current_workspace.id) }}">
+    <div class="b-vw-assist-head">
+        <h2 class="b-h3" id="b-vw-assist-title">Ansicht beschreiben</h2>
+        <p class="b-muted b-small">Sagen Sie, was Sie sehen wollen. Claude baut Hierarchie, Seiten und Profil, prüft sie und zeigt sie unten. Ein Klick auf Rückgängig nimmt alles zurück; veröffentlicht wird erst nach Probelauf und Freigabe.</p>
+    </div>
+    {% if assistant_ready %}
+    <ol class="b-vw-assist-log" data-assist-log aria-live="polite"></ol>
+    <form class="b-vw-assist-form" data-assist-form novalidate>
+        <label class="b-visually-hidden" for="b-vw-assist-text">Beschreibung der Ansicht</label>
+        <textarea class="b-textarea" id="b-vw-assist-text" name="message" rows="3" maxlength="4000" data-assist-text
+                  placeholder="z. B. Zeig die Komponenten nach Systembereich, mit ihren Aufrufen. Ein Klick auf eine Komponente zeigt ihre Einstellungen und Regeln. Für die Entwicklung."></textarea>
+        <div class="b-vw-assist-actions">
+            <span class="b-muted b-small" data-assist-status aria-live="polite"></span>
+            <button type="submit" class="b-button b-button--primary" data-assist-send>Bauen lassen</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="b-callout">Der Assistent ist nicht eingerichtet: Unter Einstellungen fehlt der Schlüssel für die Claude API. Bis dahin bauen Sie die Ansicht unten von Hand.</div>
+    {% endif %}
+</section>
+
 <div class="b-tablist" role="tablist" aria-label="Teile der Ansichten" data-views-tabs>
     <button type="button" class="b-tab" role="tab" aria-selected="true" data-views-tab="profiles">Profile <span class="b-tab-count">{{ c.profiles }}</span></button>
     <button type="button" class="b-tab" role="tab" aria-selected="false" data-views-tab="pages">Seiten <span class="b-tab-count">{{ c.pages }}</span></button>

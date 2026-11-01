@@ -1504,6 +1504,18 @@ a.b-stat:hover { border-color: var(--color-border-strong); box-shadow: var(--sha
 
 /* ---- Views and roles (step B9) ------------------------------------------- */
 
+/* Views by description: the conversation above the tabs */
+.b-vw-assist { margin-top: var(--space-2); padding: var(--space-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-m); background: var(--color-surface); display: grid; gap: var(--space-1); }
+.b-vw-assist-head p { margin: var(--space-half) 0 0; max-width: 72ch; }
+.b-vw-assist-log { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); max-height: 320px; overflow-y: auto; }
+.b-vw-assist-log:empty { display: none; }
+.b-vw-assist-turn { padding: var(--space-1); border-radius: var(--radius-s); white-space: pre-wrap; overflow-wrap: anywhere; }
+.b-vw-assist-turn--user { background: var(--color-surface-sunken); justify-self: end; max-width: 80%; }
+.b-vw-assist-turn--assistant { border-left: var(--border-width-strong) solid var(--color-accent); background: var(--color-accent-soft); }
+.b-vw-assist-turn--error { border-left: var(--border-width-strong) solid var(--color-critical); background: var(--color-critical-soft); }
+.b-vw-assist-turn .b-button { margin-top: var(--space-1); }
+.b-vw-assist-form { display: grid; gap: var(--space-1); }
+.b-vw-assist-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 .b-vw-layout { display: grid; grid-template-columns: 248px minmax(0, 1fr) minmax(320px, 0.9fr); gap: var(--space-3); align-items: start; margin-top: var(--space-2); }
 .b-vw-layout--wide { grid-template-columns: 248px minmax(0, 1fr); }
 .b-vw-editor { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }

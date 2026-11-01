@@ -78,3 +78,5 @@ snowballstemmer>=3.0,<4
 # brain-runner's own dependencies (Sync von GitHub, KC-0.2; the package itself is installed --no-deps in the Dockerfile)
 jmespath==1.1.0
 defusedxml==0.7.1
+# Brain Builder: the views assistant (Claude API; key in the settings registry)
+anthropic==1.17.0
