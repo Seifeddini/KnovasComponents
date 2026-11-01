@@ -175,6 +175,12 @@ def _spine_create(edit: _Edit, op: Mapping[str, Any]) -> None:
     name = _text(op.get("name"), "Name", limit=200) or key
     item: dict[str, Any] = {"key": key, "name": name, "levels": []}
     _set_text(item, "description", _text(op.get("description"), "Beschreibung"))
+    if op.get("types"):
+        # The top level comes with it: a hierarchy without one is not one yet.
+        level: dict[str, Any] = {"id": "L1", "name": "", "types": []}
+        _level_fields(edit, level, {"name": _text(op.get("level_name"), "Name der Ebene", limit=200) or "Oberste Ebene",
+                                    "types": op["types"]})
+        item["levels"].append(level)
     edit.write(SPINES, None, item)
 
 

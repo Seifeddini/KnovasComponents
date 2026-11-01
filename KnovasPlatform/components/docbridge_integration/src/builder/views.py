@@ -143,6 +143,22 @@ def _problem(found: list, severity: str, area: str, item: Any, kind: str, messag
                   "item": item, "part": part, "kind": kind, "message": message})
 
 
+#: What an empty list a definition needs means, said as what to do (the schema says "[] is too short").
+_EMPTY = {"levels": "Die Hierarchie hat noch keine Ebene. Legen Sie die oberste Ebene an.",
+          "types": "Die Ebene nennt noch keinen Typ. Wählen Sie, welche Knoten auf dieser Ebene stehen.",
+          "sections": "Die Seite hat noch keinen Abschnitt.",
+          "views": "Das Profil hat noch keine Ansicht.",
+          "path": "Ein Pfad braucht mindestens einen Schritt."}
+
+
+def _message(error) -> str:
+    if error.validator == "minItems" and error.instance == [] and error.absolute_path:
+        plain = _EMPTY.get(str(list(error.absolute_path)[-1]))
+        if plain:
+            return plain
+    return error.message
+
+
 def _schema(found: list, area: str, name: str, doc: Any, list_key: Optional[str], key_field: str) -> bool:
     """Schema errors of ``doc``, each named after the element it is in; whether there were none."""
     clean = True
@@ -155,7 +171,8 @@ def _schema(found: list, area: str, name: str, doc: Any, list_key: Optional[str]
         elif not list_key:
             item = doc.get(key_field) if isinstance(doc, Mapping) else None
         where = "/".join(str(p) for p in parts) or area
-        _problem(found, "critical", area, item, "schema", f"{where}: {error.message}")
+        message = _message(error)
+        _problem(found, "critical", area, item, "schema", message if message != error.message else f"{where}: {message}")
         clean = False
     return clean
 

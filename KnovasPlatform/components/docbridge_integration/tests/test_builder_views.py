@@ -126,6 +126,16 @@ class TestTheEdits:
         level = _spine(model)["levels"][2]
         assert level["link_to_parent"] == {"relation": "client_of", "direction": "in"} and "links_to_parent" not in level
 
+    def test_a_new_hierarchy_comes_with_its_top_level(self, model):
+        _apply(model, op="spine.create", key="SPINE-aufbau", name="Aufbau", types=["Organization"], level_name="Firma")
+        assert _spine(model, "SPINE-aufbau")["levels"] == [{"id": "L1", "name": "Firma", "types": ["Organization"]}]
+        assert not [f for f in views.validate(model) if f["item"] == "SPINE-aufbau"]
+
+    def test_an_empty_hierarchy_says_what_to_do(self, model):
+        _apply(model, op="spine.create", key="SPINE-leer", name="Leer")
+        found = [f["message"] for f in views.validate(model) if f["item"] == "SPINE-leer"]
+        assert found == ["Die Hierarchie hat noch keine Ebene. Legen Sie die oberste Ebene an."]
+
     def test_a_branch_with_its_own_levels(self, model):
         _apply(model, op="branch.create", spine="SPINE-client", key="billing", name="Abrechnung")
         _apply(model, op="level.add", spine="SPINE-client", branch="billing", level={"name": "Kunde", "types": ["Organization"]})

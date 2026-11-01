@@ -580,8 +580,18 @@
             var en = input('title_en', slot && slot.title && slot.title.en);
             var renderSel = select('render', Object.keys(data.section_renders).map(function (k) { return [k, data.section_renders[k]]; }), (slot && slot.render) || 'list');
             var required = checkbox('Pflichtabschnitt: leer zählt als Lücke', slot ? slot.required : false);
-            var kind = select('kind', [['paths', 'Pfade vom Seitenknoten'], ['facts', 'Attribute des Knotens'], ['field', 'Feld des Knotens']],
-                              slot ? (slot.field ? 'field' : slot.facts ? 'facts' : 'paths') : 'paths');
+            var reachable = hopOptions([page.type]).length > 0;
+            var kind = select('kind', [['paths', 'Verbundene Knoten (über Beziehungen)'], ['facts', 'Attribute des Knotens'], ['field', 'Beschreibung oder Name']],
+                              slot ? (slot.field ? 'field' : slot.facts ? 'facts' : 'paths') : (reachable ? 'paths' : 'facts'));
+            if (!slot) {
+                id.placeholder = 'wird aus dem Titel gebildet';
+                de.addEventListener('input', function () {
+                    if (id.dataset.touched) return;
+                    id.value = de.value.trim().toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+                        .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/^([0-9])/, 's_$1');
+                });
+                id.addEventListener('input', function () { id.dataset.touched = '1'; });
+            }
             var fieldSel = select('field', [['description', 'Beschreibung'], ['name', 'Name']], slot && slot.field);
             var attrs = attributesOf([page.type]);
             var facts = input('facts', slot && slot.facts ? slot.facts.join(', ') : '', 'b-mono');
@@ -602,8 +612,11 @@
             var fieldBox = field('Feld', fieldSel);
             var factsBox = field('Attribute', facts, attrs.length ? 'Von ' + page.type + ': ' + attrs.slice(0, 20).join(', ') : '');
             var pathsBox = el('div', 'b-field');
-            pathsBox.appendChild(el('span', 'b-label', 'Pfade von ' + page.type));
+            pathsBox.appendChild(el('span', 'b-label', 'Welche verbundenen Knoten? Ein Pfad geht von ' + page.type + ' über Beziehungen zu anderen Knoten.'));
+            if (!reachable) pathsBox.appendChild(el('p', 'b-muted', 'Die Ontologie hat keine Beziehung, die bei ' + page.type
+                + ' beginnt oder endet. Legen Sie zuerst unter Ontologie eine Beziehung an, oder zeigen Sie Attribute.'));
             pathsBox.appendChild(paths);
+            if (!slot && reachable && !(paths.get() || []).length) paths.querySelector('button').click();
             var extra = el('div', 'b-vw-grid');
             extra.appendChild(field('Spalten (Tabelle)', columns, 'Attribute der Ziele, mit Komma getrennt.'));
             extra.appendChild(field('Sortieren nach', orderFact));
@@ -621,8 +634,10 @@
             kind.addEventListener('change', show);
             show();
             return function () {
-                if (!id.value.trim()) throw 'Die Kennung fehlt.';
                 if (!de.value.trim()) throw 'Der Titel fehlt.';
+                if (!id.value.trim()) throw 'Die Kennung fehlt.';
+                if (kind.value === 'paths' && !paths.get().length) throw 'Wählen Sie mindestens einen Schritt: über welche Beziehung zu welchem Typ.';
+                if (kind.value === 'facts' && !list(facts.value).length) throw 'Nennen Sie mindestens ein Attribut.';
                 var content = {};
                 if (kind.value === 'field') content.field = fieldSel.value;
                 if (kind.value === 'facts') content.facts = list(facts.value);
@@ -1220,14 +1235,22 @@
                 };
             });
         } else if (state.tab === 'spines') {
-            openDialog('Neue Hierarchie', 'Ebenen von oben nach unten, etwa Firma → Bereich → Team.', 'Hierarchie anlegen', function (body) {
-                var key = input('key', 'SPINE-', 'b-mono');
+            openDialog('Neue Hierarchie', 'Ebenen von oben nach unten, etwa Firma → Bereich → Team. Sie beginnt mit der obersten Ebene; die nächste fügen Sie danach darunter an.', 'Hierarchie anlegen', function (body) {
                 var name = input('name', '');
-                body.appendChild(field('Schlüssel', key, 'SPINE- und Kleinbuchstaben mit Bindestrich.'));
+                name.placeholder = 'z. B. Systemaufbau';
+                var top = input('top', '', 'b-mono');
+                top.setAttribute('list', 'b-vw-types');
+                top.placeholder = 'z. B. System';
                 body.appendChild(field('Name', name));
+                body.appendChild(field('Oberste Ebene: welcher Typ steht ganz oben?', top, 'Ein Typ der Ontologie.'));
                 return function () {
-                    return { op: 'spine.create', key: key.value.trim(), name: name.value.trim(),
-                             after: function () { state.spine = key.value.trim(); render(); } };
+                    if (!name.value.trim()) throw 'Der Name fehlt.';
+                    if (!top.value.trim()) throw 'Wählen Sie den Typ der obersten Ebene.';
+                    var key = 'SPINE-' + (name.value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'hierarchie');
+                    return { op: 'spine.create', key: key, name: name.value.trim(), types: [top.value.trim()],
+                             level_name: typeName(top.value.trim()),
+                             after: function () { state.spine = key; render(); } };
                 };
             });
         }
